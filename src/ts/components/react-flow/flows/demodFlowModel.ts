@@ -58,6 +58,15 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
           } satisfies Node,
         ]),
     {
+      id: "iq-capture",
+      type: "custom",
+      position: { x: 250, y: 680 },
+      data: {
+        label: "I/Q Capture",
+        iqCaptureNode: true,
+      },
+    },
+    {
       id: "symbols",
       type: "custom",
       position: { x: 50, y: 860 },
@@ -134,6 +143,13 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: isFileSource ? "e-metadata-symbols" : "e-signalOptions-symbols",
       source: isFileSource ? "metadata" : "signalOptions",
+      target: "symbols",
+      animated: true,
+      style: { stroke: "#00d4ffaa", strokeWidth: 2, strokeDasharray: "5 5" },
+    },
+    {
+      id: "e-iq-capture-symbols",
+      source: "iq-capture",
       target: "symbols",
       animated: true,
       style: { stroke: "#00d4ffaa", strokeWidth: 2, strokeDasharray: "5 5" },

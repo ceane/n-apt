@@ -55,6 +55,8 @@ export interface EnhancedSpectrumFrame extends SdrProcessorMetadata {
 export interface EnhancedCaptureRequest extends SdrProcessorMetadata {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
+  bandwidth?: number;
+  bandwidthCenterFrequency?: number;
   durationS: number;
   fileType: ".napt" | ".wav";
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";

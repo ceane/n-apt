@@ -1543,6 +1543,10 @@ async fn handle_start_capture(
     .get("fftWindow")
     .and_then(|w| w.as_str())
     .unwrap_or("hann");
+  let bandwidth = params.get("bandwidth").and_then(|b| b.as_u64());
+  let bandwidth_center_frequency = params
+    .get("bandwidthCenterFrequency")
+    .and_then(|b| b.as_u64());
 
   // Parse optional channel selections from request payload
   let channels_opt: Option<Vec<ChannelSpec>> = params
@@ -1563,6 +1567,8 @@ async fn handle_start_capture(
     ref_based_demod_baseline: None,
     is_ephemeral: false,
     channels: channels_opt,
+    bandwidth,
+    bandwidth_center_frequency,
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {
@@ -1582,6 +1588,8 @@ async fn handle_start_capture(
         "format": file_type,
         "acquisitionMode": acquisition_mode,
         "encrypted": encrypted,
+        "bandwidth": bandwidth,
+        "bandwidthCenterFrequency": bandwidth_center_frequency,
         "message": "Capture started successfully"
       })),
       error: None,

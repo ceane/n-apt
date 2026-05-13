@@ -379,6 +379,15 @@ export interface FFTCanvasWaterfallBindings {
   setWaterfallOverlayCanvasNode: (node: HTMLCanvasElement | null) => void;
 }
 
+export const getLatestLiveFrame = <T,>(
+  liveData: T | T[] | null | undefined,
+): T | null => {
+  if (!liveData) return null;
+  return Array.isArray(liveData)
+    ? liveData[liveData.length - 1] ?? null
+    : liveData;
+};
+
 /**
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
@@ -1090,25 +1099,24 @@ const FFTCanvas = memo(
         const waterfallOverlayCanvas = waterfallOverlayCanvasRef.current;
 
         const currentData = dataRef.current;
+        const currentFrame = getLatestLiveFrame(currentData);
 
         const hasRenderableWaveform = !!(
           renderWaveformRef.current && renderWaveformRef.current.length > 0
         );
         const hasIncomingData = !!(
-          currentData && (currentData.iq_data?.length ?? 0) > 0
+          currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
         );
         const showLoadingPlaceholder =
           awaitingDeviceData &&
+          isDeviceConnected &&
           !hasRenderableWaveform &&
           !hasIncomingData &&
           !(isPaused && pendingWaterfallRestoreRef.current);
 
         if (showLoadingPlaceholder) {
-          drawLoadingPlaceholder(spectrumOverlayCanvas);
-          drawLoadingPlaceholder(
-            waterfallOverlayCanvas,
-            WATERFALL_PLACEHOLDER_FONT,
-          );
+          clearOverlayCanvas(spectrumOverlayCanvas);
+          clearOverlayCanvas(waterfallOverlayCanvas);
           return;
         }
 
@@ -1121,26 +1129,25 @@ const FFTCanvas = memo(
           lastRenderedPowerScaleRef.current !== powerScale;
         const hasNewData =
           !isPaused &&
-          currentData &&
-          currentData !== lastProcessedDataRef.current &&
-          !!currentData.iq_data;
+          currentFrame &&
+          currentFrame !== lastProcessedDataRef.current &&
+          !!currentFrame.iq_data;
         const shouldReprocessCurrentFrame = !!(
-          currentData &&
-          (currentData === lastProcessedDataRef.current || isPaused) &&
+          currentFrame &&
+          (currentFrame === lastProcessedDataRef.current || isPaused) &&
           powerScaleChanged &&
-          !!currentData.iq_data
+          !!currentFrame.iq_data
         );
 
         if (hasNewData || shouldReprocessCurrentFrame) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
           // The only variable is the dB offset for the power scale.
-          const iqBytes = currentData?.iq_data;
+          const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
           if (gpuProcessingDevice && webgpuEnabled && !isInitializingWebGPU) {
             if (!liveGpuProcessInFlightRef.current) {
               liveGpuProcessInFlightRef.current = true;
-              const currentFrame = currentData;
               const liveChunkSize = effectiveFftSize * 2;
               const liveIqChunk =
                 iqBytes.length > liveChunkSize
@@ -1312,12 +1319,12 @@ const FFTCanvas = memo(
           }
         } else if (
           isPaused &&
-          currentData?.iq_data &&
-          (currentData !== lastProcessedDataRef.current || powerScaleChanged)
+          currentFrame?.iq_data &&
+          (currentFrame !== lastProcessedDataRef.current || powerScaleChanged)
         ) {
           // Paused: ingest once to avoid blank frames (file mode or first paused frame)
           const processedWaveform = processIqToDbmSpectrum(
-            currentData.iq_data,
+            currentFrame.iq_data,
             isDbmMode ? 30.0 : 0.0,
             effectiveFftSize,
             fftWindow,
@@ -1331,7 +1338,7 @@ const FFTCanvas = memo(
 
           spectrumOutputBufferRef.current = processedWaveform;
           waveformFloatRef.current = processedWaveform;
-          lastProcessedDataRef.current = currentData;
+          lastProcessedDataRef.current = currentFrame;
           lastRenderedPowerScaleRef.current = powerScale;
 
           const prev = renderWaveformRef.current;
@@ -1958,10 +1965,11 @@ const FFTCanvas = memo(
 
       const id = setInterval(() => {
         const currentData = dataRef.current;
-        const hasData = !!(currentData && currentData.iq_data);
+        const currentFrame = getLatestLiveFrame(currentData);
+        const hasData = !!(currentFrame && currentFrame.iq_data);
 
-        if (hasData && currentData !== lastIncomingFrameRef.current) {
-          lastIncomingFrameRef.current = currentData;
+        if (hasData && currentFrame !== lastIncomingFrameRef.current) {
+          lastIncomingFrameRef.current = currentFrame;
           forceRender();
         }
 

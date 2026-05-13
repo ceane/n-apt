@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "../../src/ts/components/FFTCanvas";
 import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
+import { getLatestLiveFrame } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
 import { TestWrapper } from "./testUtils";
@@ -265,5 +266,14 @@ describe("FFTCanvas Component", () => {
       expect(machine.restore("live")).toBeNull();
       expect(onResetWaterfallCleared).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("uses the latest frame when live data is queued as an array", () => {
+    const firstFrame = { iq_data: new Uint8Array([1, 2]) };
+    const latestFrame = { iq_data: new Uint8Array([3, 4, 5]) };
+
+    expect(getLatestLiveFrame([firstFrame, latestFrame])).toBe(latestFrame);
+    expect(getLatestLiveFrame(firstFrame)).toBe(firstFrame);
+    expect(getLatestLiveFrame([])).toBeNull();
   });
 });

@@ -123,6 +123,8 @@ export const CaptureRequestSchema = z.object({
       maxFreq: z.number(),
     }),
   ),
+  bandwidth: z.number().int().nonnegative().optional(),
+  bandwidthCenterFrequency: z.number().int().nonnegative().optional(),
   durationMode: z.enum(["timed", "manual"]),
   durationS: z.number().optional(),
   fileType: z.enum([".napt", ".wav"]),

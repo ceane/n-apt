@@ -118,6 +118,8 @@ export type CaptureDurationMode = "timed" | "manual";
 export type CaptureRequest = {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
+  bandwidth?: number;
+  bandwidthCenterFrequency?: number;
   durationMode: CaptureDurationMode;
   durationS?: number;
   fileType: CaptureFileType;

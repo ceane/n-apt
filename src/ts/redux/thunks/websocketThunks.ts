@@ -314,6 +314,15 @@ export const sendCaptureCommand = createAsyncThunk(
           data: {
             jobId: req.jobId,
             fragments: req.fragments,
+            bandwidth:
+              typeof req.bandwidth === "number" && Number.isFinite(req.bandwidth)
+                ? Math.round(req.bandwidth)
+                : undefined,
+            bandwidthCenterFrequency:
+              typeof req.bandwidthCenterFrequency === "number" &&
+              Number.isFinite(req.bandwidthCenterFrequency)
+                ? Math.round(req.bandwidthCenterFrequency)
+                : undefined,
             durationMode: req.durationMode,
             durationS: req.durationS,
             fileType: req.fileType,

@@ -97,6 +97,8 @@ pub enum SdrCommand {
   StartCapture {
     job_id: String,
     fragments: Vec<(f64, f64)>,
+    bandwidth: Option<u64>,
+    bandwidth_center_frequency: Option<u64>,
     duration_mode: String,
     duration_s: f64,
     file_type: String,
@@ -209,6 +211,10 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub bandwidth: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "bandwidthCenterFrequency")]
+  pub bandwidth_center_frequency: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
   #[serde(
@@ -811,4 +817,6 @@ pub struct CaptureRequest {
   pub fft_size: usize,
   pub fft_window: String,
   pub geolocation: Option<GeolocationData>,
+  pub bandwidth: Option<u64>,
+  pub bandwidth_center_frequency: Option<u64>,
 }

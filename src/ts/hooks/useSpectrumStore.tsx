@@ -1137,6 +1137,7 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
 
     const pausedPreviewTimeoutRef = useRef<number | null>(null);
     const lastPausedPreviewSignatureRef = useRef<string | null>(null);
+    const wasPausedForPreviewRef = useRef(false);
     useEffect(() => {
       const isLiveSource = state.sourceMode === "live";
       const isPausedForPreview = manualVisualizerPaused && isConnected;
@@ -1146,6 +1147,12 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
           pausedPreviewTimeoutRef.current = null;
         }
         lastPausedPreviewSignatureRef.current = null;
+        wasPausedForPreviewRef.current = isPausedForPreview;
+        return;
+      }
+
+      if (!wasPausedForPreviewRef.current && isPausedForPreview) {
+        wasPausedForPreviewRef.current = true;
         return;
       }
 

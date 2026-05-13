@@ -278,16 +278,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         awaitingDeviceData && (!waveform || waveform.length === 0);
 
       if (showPlaceholder) {
-        const minDim = Math.max(1, Math.min(cssWidth, cssHeight));
-        const fontSize = Math.max(12, Math.min(24, Math.round(minDim * 0.07)));
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
         ctx.fillRect(0, 0, cssWidth, cssHeight);
-        ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
-        ctx.fillStyle = WATERFALL_PLACEHOLDER_COLOR;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(WATERFALL_PLACEHOLDER_TEXT, cssWidth / 2, cssHeight / 2);
         return;
       }
 

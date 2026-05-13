@@ -222,6 +222,10 @@ pub struct CaptureResult {
   pub is_ephemeral: bool,
   /// Per-file Data Encryption Key (DEK)
   pub dek: Option<[u8; 32]>,
+  /// Manual bandwidth override
+  pub bandwidth: Option<u64>,
+  /// Center frequency of manual bandwidth override
+  pub bandwidth_center_frequency: Option<u64>,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -317,6 +321,10 @@ pub struct SdrProcessor {
   pub enable_phase_stitching: bool,
   /// Center frequency saved before capture starts, restored after capture ends
   pub capture_pre_center_freq: Option<u32>,
+  /// Requested capture bandwidth in Hz
+  pub capture_bandwidth: Option<u64>,
+  /// Requested capture bandwidth center frequency in Hz
+  pub capture_bandwidth_center_frequency: Option<u64>,
   /// Current power scale mode for spectrum display (dB or dBm)
   pub power_scale: crate::server::types::PowerScale,
   pub capture_requested_channels: Option<Vec<ChannelSpec>>,
@@ -402,6 +410,8 @@ impl SdrProcessor {
       phase_coherence_history: Vec::new(),
       enable_phase_stitching: true,
       capture_pre_center_freq: None,
+      capture_bandwidth: None,
+      capture_bandwidth_center_frequency: None,
       power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
       capture_requested_channels: None,
     };
@@ -1297,6 +1307,8 @@ impl SdrProcessor {
     self.capture_overall_span_hz = overall_max - overall_min;
     self.capture_requested_range = Some((overall_min, overall_max));
     self.capture_start = Some(std::time::Instant::now());
+    self.capture_bandwidth = request.bandwidth;
+    self.capture_bandwidth_center_frequency = request.bandwidth_center_frequency;
     self.capture_active = true;
     self.capture_manual_stop = false;
 
@@ -1469,6 +1481,8 @@ impl SdrProcessor {
       } else {
         None
       },
+      bandwidth: self.capture_bandwidth.take(),
+      bandwidth_center_frequency: self.capture_bandwidth_center_frequency.take(),
     })
   }
 

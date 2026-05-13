@@ -71,7 +71,8 @@ npm run server:dev   # Dev with auto-reload
 npm run server:build # Build only
 
 # Rust checks
-cargo check --bin n-apt-backend  # Check for compilation errors
+cargo check           # Always run cargo check after Rust changes, DO NOT SKIP
+cargo check --bin n-apt-backend  # Check the backend crate
 
 # Rust tests
 cargo test           # Run tests
@@ -97,10 +98,10 @@ npm run format:check # Check formatting
 npm run typecheck    # TypeScript, NEVER SKIPS TYPE CHECKING, MUST RUN TO PASS CI/CD
 
 # Rust formatting (optimized)
-npm run format:rust      # Parallel formatting for all files
-npm run format:rust:fast # Incremental formatting for changed files only
-npm run format:rust:check # Check formatting without changes
-rustfmt                  # Standard rustfmt
+npm run format.            # Parallel formatting for all files
+npm run format:rust:fast   # Incremental formatting for changed files only
+npm run format:rust:check  # Check formatting without changes
+rustfmt                    # Standard rustfmt
 ```
 
 ## Rustfmt Performance Optimization

@@ -635,6 +635,8 @@ signals:
       is_mock_apt: false,
       is_ephemeral: false,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     // We can't call save_capture_file_multi easily because it writes to disk,
@@ -923,6 +925,14 @@ pub fn save_capture_file_multi(
     meta_obj["frequency_range"] = serde_json::json!([min_hz, max_hz]);
   }
 
+  if let Some(bw) = result.bandwidth {
+    meta_obj["bandwidth"] = serde_json::json!(bw);
+  }
+
+  if let Some(bw_cf) = result.bandwidth_center_frequency {
+    meta_obj["bandwidth_center_frequency"] = serde_json::json!(bw_cf);
+  }
+
   // Add geolocation data if available
   if let Some(geo) = &result.geolocation {
     meta_obj["geolocation"] = serde_json::json!({
@@ -1208,6 +1218,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1284,6 +1296,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1357,6 +1371,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result2 = CaptureResult {
@@ -1393,6 +1409,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact1 = save_capture_file_multi(&result1, &test_encryption_key())
@@ -1447,6 +1465,8 @@ mod save_tests {
       is_mock_apt: true,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_napt = save_capture_file_multi(&result, &test_encryption_key())
@@ -1540,6 +1560,8 @@ mod save_tests {
       is_mock_apt: true,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_wav =

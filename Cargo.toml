@@ -61,6 +61,10 @@ path = "test/rust/frequency_validation_tests.rs"
 name = "iq_capture_integration_tests"
 path = "test/rust/iq_capture_integration_tests.rs"
 
+[[test]]
+name = "bandwidth_tests"
+path = "test/rust/bandwidth_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"

@@ -120,11 +120,30 @@ let pendingDataUpdate: any = null;
 let statusBatchFrame: number | null = null;
 let pendingStatusUpdates: any = null;
 let allowNextPausedFrame = false;
+let pausedFrameRequestInFlight = false;
 const DISCONNECT_GRACE_MS = 150;
 // RATIONALE for Auto FFT:
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
+let lastFrameRequestTime = 0;
+const FRAME_REQUEST_THROTTLE_MS = 100;
+
+export const collapsePausedFrameBatch = <T,>(data: T | T[]): T => {
+  return Array.isArray(data) ? data[data.length - 1] : data;
+};
+
+export const shouldAcceptPausedFrameRequest = (): boolean => {
+  if (pausedFrameRequestInFlight) {
+    return false;
+  }
+  pausedFrameRequestInFlight = true;
+  return true;
+};
+
+export const resetPausedFrameRequestGate = (): void => {
+  pausedFrameRequestInFlight = false;
+};
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
@@ -133,7 +152,9 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const sourceMode = getState().waterfall?.sourceMode;
     const isFileSource = sourceMode === "file";
     if ((!isPaused || allowNextPausedFrame) && !isFileSource) {
-      if (Array.isArray(pendingDataUpdate)) {
+      if (isPaused && allowNextPausedFrame) {
+        liveDataRef.current = collapsePausedFrameBatch(pendingDataUpdate);
+      } else if (Array.isArray(pendingDataUpdate)) {
         if (Array.isArray(liveDataRef.current)) {
           liveDataRef.current.push(...pendingDataUpdate);
         } else if (liveDataRef.current) {
@@ -157,6 +178,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       // Dispatch action to trigger state machine updates
       dispatch(incrementDataFrameCounter());
       allowNextPausedFrame = false;
+      resetPausedFrameRequestGate();
     }
     pendingDataUpdate = null;
   }
@@ -764,6 +786,7 @@ const createWebSocketMiddleware =
           cancelAnimationFrame(dataBatchFrame);
           dataBatchFrame = null;
         }
+        resetPausedFrameRequestGate();
 
         dispatch(setDisconnected());
         return next(action);
@@ -783,6 +806,17 @@ const createWebSocketMiddleware =
         }
 
         if (type === "request_next_frame") {
+          const now = Date.now();
+          if (now - lastFrameRequestTime < FRAME_REQUEST_THROTTLE_MS) {
+            console.debug("[WebSocket Middleware] Throttling redundant frame request");
+            return next(action);
+          }
+
+          if (!shouldAcceptPausedFrameRequest()) {
+            return next(action);
+          }
+          
+          lastFrameRequestTime = now;
           allowNextPausedFrame = true;
         }
 

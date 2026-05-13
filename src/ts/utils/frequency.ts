@@ -67,6 +67,36 @@ export const getBandwidthEndHz = (startHz: number, bandwidthHz: number): number 
 export const getBandwidthStartHz = (endHz: number, bandwidthHz: number): number =>
   endHz - bandwidthHz;
 
+export const MIN_CAPTURE_BANDWIDTH_HZ = 3_200_000;
+
+export const clampBandwidthWithMinSpan = (
+  startHz: number,
+  endHz: number,
+  minSpanHz: number = MIN_CAPTURE_BANDWIDTH_HZ,
+  movingBoundary: "start" | "end" = "end",
+): { startHz: number; endHz: number } => {
+  const minSpan =
+    Number.isFinite(minSpanHz) && minSpanHz > 0
+      ? minSpanHz
+      : MIN_CAPTURE_BANDWIDTH_HZ;
+  let start = Number.isFinite(startHz) ? Math.max(0, startHz) : 0;
+  let end = Number.isFinite(endHz) ? Math.max(0, endHz) : start + minSpan;
+
+  if (end - start < minSpan) {
+    if (movingBoundary === "start") {
+      end = start + minSpan;
+    } else {
+      start = end - minSpan;
+      if (start < 0) {
+        start = 0;
+        end = minSpan;
+      }
+    }
+  }
+
+  return { startHz: Math.round(start), endHz: Math.round(end) };
+};
+
 const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 

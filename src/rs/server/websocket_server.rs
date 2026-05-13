@@ -354,6 +354,8 @@ impl WebSocketServer {
           crate::server::types::SdrCommand::StartCapture {
             job_id,
             fragments,
+            bandwidth,
+            bandwidth_center_frequency,
             duration_mode,
             duration_s,
             file_type,
@@ -374,6 +376,9 @@ impl WebSocketServer {
             // Save current center frequency so we can restore it after capture
             processor.capture_pre_center_freq =
               Some(processor.get_center_frequency());
+            processor.capture_bandwidth = bandwidth;
+            processor.capture_bandwidth_center_frequency =
+              bandwidth_center_frequency;
             processor.capture_job_id = Some(job_id.clone());
             processor.capture_is_manual_mode = duration_mode == "manual";
             processor.capture_manual_stop = false;

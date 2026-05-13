@@ -6,12 +6,17 @@ import websocketSlice, {
 } from "@n-apt/redux/slices/websocketSlice";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
+  shouldAcceptPausedFrameRequest,
+  resetPausedFrameRequestGate,
+} from "@n-apt/redux/middleware/websocketMiddleware";
+import {
   sendFrequencyRange,
   sendCenterFrequency,
   sendCaptureCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -45,6 +50,7 @@ describe("Redux WebSocket Migration", () => {
 
     // Clear the live data ref
       liveDataRef.current = null;
+    resetPausedFrameRequestGate();
   });
 
   describe("Thunk payload shaping", () => {
@@ -133,6 +139,31 @@ describe("Redux WebSocket Migration", () => {
       const state = store.getState() as any;
       expect(state.websocket).not.toHaveProperty("data");
       expect(liveDataRef.current).toBe(mockFrame);
+    });
+  });
+
+  describe("Paused frame batching", () => {
+    it("collapses a paused batch to the latest frame", () => {
+      const firstFrame = {
+        data_type: "iq_raw",
+        iq_data: new Uint8Array([1, 2]),
+      } as IqRawFrame;
+      const latestFrame = {
+        data_type: "iq_raw",
+        iq_data: new Uint8Array([3, 4]),
+      } as IqRawFrame;
+
+      expect(collapsePausedFrameBatch([firstFrame, latestFrame])).toBe(
+        latestFrame,
+      );
+      expect(collapsePausedFrameBatch(firstFrame)).toBe(firstFrame);
+    });
+
+    it("only accepts one paused frame request until the gate resets", () => {
+      expect(shouldAcceptPausedFrameRequest()).toBe(true);
+      expect(shouldAcceptPausedFrameRequest()).toBe(false);
+      resetPausedFrameRequestGate();
+      expect(shouldAcceptPausedFrameRequest()).toBe(true);
     });
   });
 

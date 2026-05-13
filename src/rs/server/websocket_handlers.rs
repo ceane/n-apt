@@ -599,6 +599,8 @@ pub fn handle_message(
         .unwrap_or_else(|| "timed".to_string());
 
       let current_settings = shared.sdr_settings.lock().unwrap().clone();
+      let bandwidth = message.bandwidth;
+      let bandwidth_center_frequency = message.bandwidth_center_frequency;
 
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message
@@ -636,6 +638,8 @@ pub fn handle_message(
         ref_based_demod_baseline: message.ref_based_demod_baseline,
         is_ephemeral: message.live_mode.unwrap_or(false),
         channels: message.channels.clone(),
+        bandwidth,
+        bandwidth_center_frequency,
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);

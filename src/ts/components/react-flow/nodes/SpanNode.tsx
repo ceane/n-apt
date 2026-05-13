@@ -340,43 +340,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const [presets, setPresets] = useState<SpanPreset[]>(loadPresetsFromStorage);
   const lastDispatchedRangeRef = useRef<FrequencyRange | null>(null);
   const isPublishingLocalRangeRef = useRef(false);
-  const pausedFrameRequestTimeoutRef = useRef<number | null>(null);
 
-  const maybeRequestPausedFrame = useCallback(
-    (direction: "left" | "right" | "none" = "none") => {
-      if (!isPaused || !isConnected) return;
-      if (pausedFrameRequestTimeoutRef.current !== null) {
-        window.clearTimeout(pausedFrameRequestTimeoutRef.current);
-      }
-      pausedFrameRequestTimeoutRef.current = window.setTimeout(() => {
-        const selectionRange = lastDispatchedRangeRef.current;
-        if (!selectionRange || !activeFrequencyRange) {
-          pausedFrameRequestTimeoutRef.current = null;
-          return;
-        }
-
-        const atLeftEdge =
-          selectionRange.min <= activeFrequencyRange.min + 0.1;
-        const atRightEdge =
-          selectionRange.max >= activeFrequencyRange.max - 0.1;
-
-        const shouldRequest =
-          (direction === "right" && atRightEdge) ||
-          (direction === "left" &&
-            atLeftEdge &&
-            activeFrequencyRange.min > 0);
-
-        if (!shouldRequest) {
-          pausedFrameRequestTimeoutRef.current = null;
-          return;
-        }
-
-        dispatch(requestNextPausedFrame());
-        pausedFrameRequestTimeoutRef.current = null;
-      }, 0);
-    },
-    [activeFrequencyRange, dispatch, isConnected, isPaused],
-  );
 
   const displaySampleRateHz =
     sampleRateHz && sampleRateHz > 0 ? sampleRateHz : 3_200_000;
@@ -530,13 +494,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
       if (isDifferent) {
         lastDispatchedRangeRef.current = selectionRange;
         dispatch(setPreviewRange(selectionRange));
-        if (activeFrequencyRange) {
-          if (selectionRange.max > activeFrequencyRange.max) {
-            maybeRequestPausedFrame("right");
-          } else if (selectionRange.min < activeFrequencyRange.min) {
-            maybeRequestPausedFrame("left");
-          }
-        }
+
       }
       dispatch(setPreviewAlignment(mode));
     }
@@ -586,12 +544,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
 
   const handleBandwidthStartChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
-    const direction =
-      val > bandwidthStartHz ? "right" : val < bandwidthStartHz ? "left" : "none";
     updateState(centerFreqHz, bandwidthHz, val, hardwareSpanHz, alignment, 'start');
-    if (direction !== "none") {
-      maybeRequestPausedFrame(direction);
-    }
   };
 
   const handleCenterFreqChange = (val: number) => {

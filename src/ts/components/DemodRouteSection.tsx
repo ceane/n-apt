@@ -41,6 +41,7 @@ import {
   StreamNode,
   TempoNoteNode,
   OutputNode,
+  IQCaptureNode,
   SymbolsTable,
   BitstreamViewer,
 } from "@n-apt/components/react-flow/nodes";
@@ -193,6 +194,7 @@ const CustomNode = React.memo(
     else if (data.aptOptions) content = <AptNode data={data} />;
     else if (data.fmOptions) content = <FmNode data={data} />;
     else if (data.fileOptions) content = <FileOptionsNode data={data} />;
+    else if (data.iqCaptureNode) content = <IQCaptureNode data={data} />;
     else if (data.outputNode) content = <OutputNode data={data} />;
     else {
       content = (
@@ -498,11 +500,12 @@ const DemodRouteSectionInner: React.FC = () => {
         const elk = elkRef.current;
 
         // Sort nodes to guarantee the intended demodulation order in ELK's eyes
-        const layoutOrder =
+          const layoutOrder =
           sourceMode === "file"
             ? [
                 "source",
                 "metadata",
+                "iq-capture",
                 "fft",
                 "symbols",
                 "bitstream",
@@ -513,6 +516,7 @@ const DemodRouteSectionInner: React.FC = () => {
                 "source",
                 "channel",
                 "signalOptions",
+                "iq-capture",
                 "beat",
                 "fft",
                 "spike",

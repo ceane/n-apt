@@ -45,6 +45,8 @@ fn test_encryption_save_load_cycle() {
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None, // Will be generated automatically
+    bandwidth: None,
+    bandwidth_center_frequency: None,
   };
 
   // 2. Save file
@@ -159,6 +161,8 @@ fn test_checksum_integrity_and_corruption() {
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None,
+    bandwidth: None,
+    bandwidth_center_frequency: None,
   };
 
   let artifact =
@@ -298,6 +302,8 @@ fn generate_test_artifacts() {
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None,
+    bandwidth: None,
+    bandwidth_center_frequency: None,
   };
 
   let artifact =

@@ -38,6 +38,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -74,6 +76,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -119,6 +123,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -149,6 +155,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -186,6 +194,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_zero = processor.start_capture(capture_request_zero);
@@ -207,6 +217,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_high = processor.start_capture(capture_request_high);
@@ -235,6 +247,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -272,6 +286,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -323,6 +339,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -364,6 +382,8 @@ mod frequency_validation_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -416,6 +436,8 @@ mod frequency_synchronization_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -469,6 +491,8 @@ mod frequency_synchronization_tests {
         fft_size: 1024,
         fft_window: "Rectangular".to_string(),
         geolocation: None,
+        bandwidth: None,
+        bandwidth_center_frequency: None,
       };
 
       let result = processor.start_capture(capture_request);
@@ -518,6 +542,8 @@ mod frequency_synchronization_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);

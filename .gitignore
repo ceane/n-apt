@@ -30,6 +30,12 @@ scratch/
 # Generated diagnostics and test artifacts
 rust_outdated.txt
 typecheck_output.txt
+test_output
+test_output/
+**/test_output
+**/test_output/
+test_output*
+**/test_output*
 test-results/
 test/ts/shaders/generated/
 

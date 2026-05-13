@@ -302,25 +302,6 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const [manualFrequency, setManualFrequency] = useState<string>("137_100_000"); // Default to APT frequency in Hz
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
-  const lastRequestedSignalAreaRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isPaused) {
-      lastRequestedSignalAreaRef.current = null;
-      return;
-    }
-
-    if (!activeSignalArea) {
-      return;
-    }
-
-    if (lastRequestedSignalAreaRef.current === activeSignalArea) {
-      return;
-    }
-
-    lastRequestedSignalAreaRef.current = activeSignalArea;
-    reduxDispatch(requestNextLiveFrame());
-  }, [activeSignalArea, isPaused, reduxDispatch]);
 
   const channels = useMemo(() => {
     if (!Array.isArray(effectiveFrames)) return [];

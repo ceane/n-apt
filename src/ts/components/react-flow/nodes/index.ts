@@ -21,6 +21,7 @@ export { RadioNode } from "./RadioNode";
 export { StreamNode } from "./StreamNode";
 export { TempoNoteNode } from "./TempoNoteNode";
 export { OutputNode } from "./OutputNode";
+export { IQCaptureNode } from "./IQCaptureNode";
 
 // Analysis viewer components
 export { SymbolsTable } from "./SymbolsTable";

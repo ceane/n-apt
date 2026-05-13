@@ -68,6 +68,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     // This should succeed without any sample rate validation errors
@@ -117,6 +119,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -164,6 +168,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -215,6 +221,8 @@ mod integration_tests {
       fft_size: 2048,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -265,6 +273,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -309,6 +319,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -350,6 +362,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request1)?;
@@ -372,6 +386,8 @@ mod integration_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request2)?;
@@ -482,6 +498,8 @@ mod error_handling_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result = processor.start_capture(capture_request);
@@ -520,6 +538,8 @@ mod error_handling_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -548,6 +568,8 @@ mod error_handling_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -578,6 +600,8 @@ mod error_handling_tests {
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     processor.start_capture(capture_request)?;
@@ -602,6 +626,46 @@ mod error_handling_tests {
 
     // Clean up
     processor.stop_capture();
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn test_bandwidth_propagation_in_capture() -> Result<()> {
+    let mut processor = SdrProcessor::new_mock_apt()?;
+    processor.initialize()?;
+
+    let bandwidth = 500_000;
+    let bandwidth_center_frequency = 137_500_000;
+
+    let capture_request = CaptureRequest {
+      job_id: "bandwidth-test".to_string(),
+      fragments: vec![n_apt_backend::server::types::CaptureFragment {
+        min_freq_mhz: 137.0,
+        max_freq_mhz: 138.0,
+      }],
+      duration_s: 0.1,
+      duration_mode: "timed".to_string(),
+      file_type: ".napt".to_string(),
+      acquisition_mode: "stepwise".to_string(),
+      encrypted: false,
+      fft_size: 1024,
+      fft_window: "Rectangular".to_string(),
+      geolocation: None,
+      bandwidth: Some(bandwidth),
+      bandwidth_center_frequency: Some(bandwidth_center_frequency),
+    };
+
+    processor.start_capture(capture_request)?;
+
+    // Wait for it to complete
+    sleep(Duration::from_millis(500)).await;
+
+    let result = processor.check_capture_completion()
+        .ok_or_else(|| anyhow::anyhow!("Capture should have finished"))?;
+
+    assert_eq!(result.bandwidth, Some(bandwidth));
+    assert_eq!(result.bandwidth_center_frequency, Some(bandwidth_center_frequency));
 
     Ok(())
   }

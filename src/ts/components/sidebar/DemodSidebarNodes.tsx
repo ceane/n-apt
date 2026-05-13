@@ -22,6 +22,7 @@ import {
   Binary,
   Signal,
   FileBox,
+  FileSignal,
 } from "lucide-react";
 
 const NodePaletteContainer = styled.div`
@@ -131,6 +132,19 @@ const availableNodes: NodeType[] = [
       label: "Signal Configuration",
       description: "Hardware sampling and FFT settings",
       signalOptions: true,
+    },
+  },
+  {
+    id: "iq-capture",
+    type: "custom",
+    label: "I/Q Capture",
+    description: "Take an I/Q capture from the demod route",
+    icon: <FileSignal size={16} />,
+    position: { x: 250, y: 300 },
+    data: {
+      label: "I/Q Capture",
+      description: "Take an I/Q capture from the demod route",
+      iqCaptureNode: true,
     },
   },
   {
