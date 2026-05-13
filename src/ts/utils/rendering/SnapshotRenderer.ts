@@ -278,6 +278,16 @@ export interface SnapshotTheme {
   cfText: string;
 }
 
+export type StatsBoxPlacement = {
+  pos: { x: number; y: number };
+  boxW: number;
+  boxH: number;
+  lines: { line: string; fontSize: number; width: number }[];
+  padX: number;
+  padY: number;
+  lh: number;
+};
+
 export class SnapshotRenderer {
   constructor(
     private mapper: CoordinateMapper,
@@ -522,17 +532,19 @@ export class SnapshotRenderer {
     dc.clipRect(area.x, area.y, area.width, area.height);
 
     dc.setFill(this.theme.shadow);
+    dc.beginPath();
+    dc.moveTo(area.x, area.y + area.height);
     for (let i = 0; i < dataWidth; i++) {
       const x = area.x + i * binW;
       const nextX =
-        i === dataWidth - 1
-          ? area.x + area.width
-          : area.x + (i + 1) * binW;
-      const w = Math.max(1, nextX - x);
+        i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
       const y = Math.round(this.mapper.clampY(waveform[i]));
-      const h = area.y + area.height - y;
-      dc.fillRect(x, y, w, h);
+      dc.lineTo(x, y);
+      dc.lineTo(nextX, y);
     }
+    dc.lineTo(area.x + area.width, area.y + area.height);
+    dc.closePath();
+    dc.fill();
 
     dc.setStroke(this.theme.line, 1 / this.mapper.getDPR());
     dc.beginPath();
@@ -658,7 +670,26 @@ export class SnapshotRenderer {
     statsLines: string[],
     waveform: number[] | Float32Array,
     fontScale: number = 1,
-  ): void {
+    fixedPlacement?: StatsBoxPlacement,
+  ): StatsBoxPlacement | null {
+    if (fixedPlacement) {
+      const { pos, boxW, boxH, lines, padX, padY, lh } = fixedPlacement;
+
+      dc.setFill("rgba(0, 0, 0, 0.75)");
+      dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
+
+      dc.setFill("#eee");
+      dc.setTextAlign("left");
+      dc.setTextBaseline("alphabetic");
+
+      lines.forEach((item, i) => {
+        dc.setFont(`${item.fontSize}px monospace`);
+        dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
+      });
+
+      return fixedPlacement;
+    }
+
     const area = this.mapper.getPlotArea();
 
     // Try the primary font scale and a compact fallback to find the best fit
@@ -731,6 +762,8 @@ export class SnapshotRenderer {
       dc.setFont(`${item.fontSize}px monospace`);
       dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
     });
+
+    return best;
   }
 
   /**

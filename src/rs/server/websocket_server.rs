@@ -589,90 +589,12 @@ impl WebSocketServer {
             }
 
             if let Some(result) = processor.stop_capture() {
-              let enc_key = shared_state.encryption_key;
-              let shared_clone = shared_state.clone();
-              let bcast = _broadcast_tx.clone();
-
-              let processing_msg = serde_json::json!({
-                "type": "capture_status",
-                "status": {
-                  "jobId": result.job_id,
-                  "status": "progress",
-                  "message": "Processing stopped capture..."
-                }
-              });
-              let _ = bcast.send(processing_msg.to_string());
-
-              tokio::task::spawn_blocking(move || {
-                if result.is_ephemeral {
-                  let msg = serde_json::json!({
-                      "type": "capture_status",
-                      "status": {
-                          "jobId": result.job_id,
-                          "status": "done",
-                          "message": "Capture stopped",
-                          "ephemeral": true,
-                          "duration": result.duration_s
-                      }
-                  });
-                  let _ = bcast.send(msg.to_string());
-                  return;
-                }
-
-                match crate::server::utils::save_capture_file_multi(
-                  &result, &enc_key,
-                ) {
-                  Ok(artifact) => {
-                    let mut artifacts = shared_clone
-                      .get_capture_artifacts(&result.job_id)
-                      .unwrap_or_default();
-                    artifacts.push(artifact.clone());
-
-                    if let Err(e) = shared_clone
-                      .store_capture_artifacts(&result.job_id, &artifacts)
-                    {
-                      error!(
-                        "Failed to store capture artifacts in Redis: {}",
-                        e
-                      );
-                    }
-
-                    let timestamp = std::time::SystemTime::now()
-                      .duration_since(std::time::UNIX_EPOCH)
-                      .unwrap()
-                      .as_millis() as u64;
-
-                    let msg = serde_json::json!({
-                        "type": "capture_status",
-                        "status": {
-                            "jobId": result.job_id,
-                            "status": "done",
-                            "message": "Capture stopped",
-                            "filename": artifact.filename,
-                            "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
-                            "timestamp": timestamp,
-                            "fileSize": artifact.file_size,
-                            "duration": result.duration_s,
-                            "checksum": artifact.checksum
-                        }
-                    });
-                    let _ = bcast.send(msg.to_string());
-                  }
-                  Err(e) => {
-                    error!("Failed to save stopped capture file: {}", e);
-                    let msg = serde_json::json!({
-                        "type": "capture_status",
-                        "status": {
-                            "jobId": result.job_id,
-                            "status": "failed",
-                            "message": "Capture failed",
-                            "error": e.to_string()
-                        }
-                    });
-                    let _ = bcast.send(msg.to_string());
-                  }
-                }
-              });
+              handle_stopped_capture(
+                result,
+                &shared_state,
+                &_broadcast_tx,
+                None,
+              );
             }
           }
           crate::server::types::SdrCommand::SetPowerScale { scale } => {
@@ -893,6 +815,18 @@ impl WebSocketServer {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
+                if processor.capture_active {
+                  warn!("Stopping active capture due to early hardware disappearance.");
+                  if let Some(result) = processor.stop_capture() {
+                    handle_stopped_capture(
+                      result,
+                      &shared_state,
+                      &_broadcast_tx,
+                      Some("Capture stopped due to hardware disconnection"),
+                    );
+                  }
+                }
+
                 let mock_device =
                   crate::sdr::SdrDeviceFactory::create_mock_device();
                 if let Err(e) = processor.swap_device(mock_device) {
@@ -945,10 +879,22 @@ impl WebSocketServer {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
+                if processor.capture_active {
+                  warn!("Stopping active capture due to confirmed hardware unplug.");
+                  if let Some(result) = processor.stop_capture() {
+                    handle_stopped_capture(
+                      result,
+                      &shared_state,
+                      &_broadcast_tx,
+                      Some("Capture stopped: Hardware unplugged"),
+                    );
+                  }
+                }
+
                 let mock_device =
                   crate::sdr::SdrDeviceFactory::create_mock_device();
                 if let Err(e) = processor.swap_device(mock_device) {
-                  error!("Failed to fall back to mock device: {}", e);
+                  error!("Failed to fall back to mock device after confirmed unplug: {}", e);
                 } else {
                   shared_state.update_device_status(
                     false,
@@ -962,6 +908,18 @@ impl WebSocketServer {
               } else {
                 // Device still on USB but stuck — try a full restart
                 warn!("RTL-SDR still on USB (count={}) but unhealthy. Attempting full restart...", usb_count);
+                if processor.capture_active {
+                  warn!("Stopping active capture due to hardware malfunction requiring restart.");
+                  if let Some(result) = processor.stop_capture() {
+                    handle_stopped_capture(
+                      result,
+                      &shared_state,
+                      &_broadcast_tx,
+                      Some("Capture stopped: Hardware malfunction"),
+                    );
+                  }
+                }
+
                 shared_state.set_device_state("loading", Some("restart"));
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
@@ -1450,4 +1408,98 @@ impl WebSocketServer {
   pub fn get_spectrum_tx(&self) -> broadcast::Sender<Arc<SpectrumData>> {
     self.spectrum_tx.clone()
   }
+}
+
+fn handle_stopped_capture(
+  result: crate::sdr::processor::CaptureResult,
+  shared_state: &Arc<SharedState>,
+  broadcast_tx: &broadcast::Sender<String>,
+  reason: Option<&str>,
+) {
+  let enc_key = shared_state.encryption_key;
+  let shared_clone = shared_state.clone();
+  let bcast = broadcast_tx.clone();
+  let status_msg = reason.unwrap_or("Capture stopped").to_string();
+  let status_msg_done = status_msg.clone();
+
+  let processing_msg = serde_json::json!({
+    "type": "capture_status",
+    "status": {
+      "jobId": result.job_id,
+      "status": "progress",
+      "message": "Processing stopped capture..."
+    }
+  });
+  let _ = bcast.send(processing_msg.to_string());
+
+  tokio::task::spawn_blocking(move || {
+    if result.is_ephemeral {
+      let msg = serde_json::json!({
+          "type": "capture_status",
+          "status": {
+              "jobId": result.job_id,
+              "status": "done",
+              "message": status_msg_done,
+              "ephemeral": true,
+              "duration": result.duration_s
+          }
+      });
+      let _ = bcast.send(msg.to_string());
+      return;
+    }
+
+    match crate::server::utils::save_capture_file_multi(
+      &result, &enc_key,
+    ) {
+      Ok(artifact) => {
+        let mut artifacts = shared_clone
+          .get_capture_artifacts(&result.job_id)
+          .unwrap_or_default();
+        artifacts.push(artifact.clone());
+
+        if let Err(e) = shared_clone
+          .store_capture_artifacts(&result.job_id, &artifacts)
+        {
+          error!(
+            "Failed to store capture artifacts in Redis: {}",
+            e
+          );
+        }
+
+        let timestamp = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_millis() as u64;
+
+        let msg = serde_json::json!({
+            "type": "capture_status",
+            "status": {
+                "jobId": result.job_id,
+                "status": "done",
+                "message": status_msg_done,
+                "filename": artifact.filename,
+                "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
+                "timestamp": timestamp,
+                "fileSize": artifact.file_size,
+                "duration": result.duration_s,
+                "checksum": artifact.checksum
+            }
+        });
+        let _ = bcast.send(msg.to_string());
+      }
+      Err(e) => {
+        error!("Failed to save stopped capture file: {}", e);
+        let msg = serde_json::json!({
+            "type": "capture_status",
+            "status": {
+                "jobId": result.job_id,
+                "status": "failed",
+                "message": "Capture failed",
+                "error": e.to_string()
+            }
+        });
+        let _ = bcast.send(msg.to_string());
+      }
+    }
+  });
 }

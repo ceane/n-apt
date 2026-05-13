@@ -1357,7 +1357,7 @@ impl SdrProcessor {
       "timed"
     }
     .to_string();
-    let actual_duration_s = if self.capture_is_manual_mode {
+    let actual_duration_s = if self.capture_is_manual_mode || self.capture_manual_stop {
       self
         .capture_start
         .map(|start| start.elapsed().as_secs_f64())

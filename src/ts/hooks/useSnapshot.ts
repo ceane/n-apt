@@ -20,6 +20,7 @@ import {
   SnapshotTheme,
   SVGDrawingContext,
   DrawingContext,
+  StatsBoxPlacement,
 } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
@@ -364,6 +365,7 @@ function renderSpectrumSnapshot(
   waveform?: Float32Array,
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
+  statsPlacementRef?: { current: StatsBoxPlacement | null },
 ): HTMLCanvasElement | string {
   const dpr = window.devicePixelRatio || 1;
   const logicalW = pixelWidth / dpr;
@@ -413,6 +415,7 @@ function renderSpectrumSnapshot(
       waveform,
       fontScale,
       zoom,
+      statsPlacementRef,
     );
     return dc.getSVG();
   } else {
@@ -434,6 +437,7 @@ function renderSpectrumSnapshot(
       waveform,
       fontScale,
       zoom,
+      statsPlacementRef,
     );
     return canvas;
   }
@@ -450,6 +454,7 @@ function renderToDC(
   waveform?: Float32Array,
   fontScale: number = 1,
   zoom: number = 1,
+  statsPlacementRef?: { current: StatsBoxPlacement | null },
 ): void {
   const vertRange = 10;
   const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
@@ -481,7 +486,16 @@ function renderToDC(
     fontScale,
   );
   if (statsLines && traceWaveform) {
-    renderer.drawStatsBox(dc, statsLines, traceWaveform, fontScale);
+    const placement = renderer.drawStatsBox(
+      dc,
+      statsLines,
+      traceWaveform,
+      fontScale,
+      statsPlacementRef?.current ?? undefined,
+    );
+    if (statsPlacementRef && !statsPlacementRef.current && placement) {
+      statsPlacementRef.current = placement;
+    }
   }
 }
 
@@ -539,55 +553,69 @@ function drawWaterfallToCanvas(
   const displayW = Math.max(1, Math.round(lw - marginStart - marginEnd));
   const displayH = Math.max(1, Math.round(lh - marginY * 2));
 
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
   const textureBinsPerRow = meta.width;
-  const bytesPerRow = textureBinsPerRow * 4;
   const totalRows = meta.height;
 
-  // Need to render at pixel level — reset transform for putImageData
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const pixelW = Math.round(displayW * dpr);
-  const pixelH = Math.round(displayH * dpr);
-  const imgData = ctx.createImageData(pixelW, pixelH);
-  const pixels = imgData.data;
+  // 1. Create a data-sized offscreen canvas to avoid per-pixel JS loops over the display resolution
+  const dataCanvas = document.createElement("canvas");
+  dataCanvas.width = textureBinsPerRow;
+  dataCanvas.height = totalRows;
+  const dataCtx = dataCanvas.getContext("2d");
+  if (!dataCtx) return;
 
-  for (let outY = 0; outY < pixelH; outY++) {
-    // FIFO: newest row at top (outY=0), oldest at bottom
-    // Scale outY proportionally to totalRows to avoid banding when pixelH > totalRows
-    const rowOffset_from_newest = Math.floor((outY / pixelH) * totalRows);
+  const dataImgData = dataCtx.createImageData(textureBinsPerRow, totalRows);
+  const pixels32 = new Uint32Array(dataImgData.data.buffer);
+
+  // Use a Float32Array view to avoid expensive DataView allocations in the loop
+  const floatView = new Float32Array(
+    textureSnapshot.buffer,
+    textureSnapshot.byteOffset,
+    textureSnapshot.byteLength / 4,
+  );
+
+  // 1b. Pre-calculate a 32-bit colormap LUT for faster pixel writes (ABGR for Little Endian)
+  const lut = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const [r, g, b] = dbToColor(i, 0, 255, colormap);
+    // On Little Endian systems, Uint32Array is ABGR: 0xAABBGGRR
+    lut[i] = (255 << 24) | (b << 16) | (g << 8) | r;
+  }
+
+  const range = dbMax - dbMin;
+  const invRange = 255 / (range || 1);
+
+  for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+    // FIFO: newest row at top (rowIdx=0), oldest at bottom
     const textureRow =
-      (((meta.writeRow - 1 - rowOffset_from_newest) % totalRows) + totalRows) %
-      totalRows;
-    const rowOffset = textureRow * bytesPerRow;
+      (((meta.writeRow - 1 - rowIdx) % totalRows) + totalRows) % totalRows;
+    const rowOffset = textureRow * textureBinsPerRow;
 
-    for (let outX = 0; outX < pixelW; outX++) {
-      const binIdx = Math.floor((outX / pixelW) * textureBinsPerRow);
-      const byteOffset = rowOffset + binIdx * 4;
+    for (let binIdx = 0; binIdx < textureBinsPerRow; binIdx++) {
+      const dbVal = floatView[rowOffset + binIdx];
+      const lutIdx = Math.max(
+        0,
+        Math.min(255, Math.floor((dbVal - dbMin) * invRange)),
+      );
 
-      let dbVal = -120;
-      if (byteOffset + 4 <= textureSnapshot.length) {
-        const view = new DataView(
-          textureSnapshot.buffer,
-          textureSnapshot.byteOffset + byteOffset,
-          4,
-        );
-        dbVal = view.getFloat32(0, true);
-      }
-
-      const [r, g, b] = dbToColor(dbVal, dbMin, dbMax, colormap);
-      const pixelIdx = (outY * pixelW + outX) * 4;
-      pixels[pixelIdx] = r;
-      pixels[pixelIdx + 1] = g;
-      pixels[pixelIdx + 2] = b;
-      pixels[pixelIdx + 3] = 255;
+      pixels32[rowIdx * textureBinsPerRow + binIdx] = lut[lutIdx];
     }
   }
 
-  ctx.putImageData(
-    imgData,
-    Math.round(marginStart * dpr),
-    Math.round(marginY * dpr),
+  dataCtx.putImageData(dataImgData, 0, 0);
+
+  // 2. Draw the data-sized canvas to the main canvas using hardware-accelerated scaling
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false; // Keep the pixelated look for signal analysis
+  ctx.drawImage(
+    dataCanvas,
+    0,
+    0,
+    textureBinsPerRow,
+    totalRows,
+    marginStart,
+    marginY,
+    displayW,
+    displayH,
   );
 }
 
@@ -606,24 +634,38 @@ function drawWaterfallFrom2DBuffer(
   if (!ctx) return;
 
   const dpr = window.devicePixelRatio || 1;
+  const lw = canvas.width / dpr;
+  const lh = canvas.height / dpr;
   const marginStart =
     options?.marginX !== undefined ? options.marginX : FFT_AREA_MIN.x;
+  const marginEnd = options?.marginX !== undefined ? options.marginX : 40;
   const marginY = options?.marginY ?? 8;
 
+  const displayW = Math.max(1, Math.round(lw - marginStart - marginEnd));
+  const displayH = Math.max(1, Math.round(lh - marginY * 2));
+
+  // Use an offscreen canvas to scale the buffer correctly using drawImage
+  const dataCanvas = document.createElement("canvas");
+  dataCanvas.width = dims.width;
+  dataCanvas.height = dims.height;
+  const dataCtx = dataCanvas.getContext("2d");
+  if (!dataCtx) return;
+
+  const imageData = new ImageData(waterfallBuffer, dims.width, dims.height);
+  dataCtx.putImageData(imageData, 0, 0);
+
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  const expectedSize = dims.width * dims.height * 4;
-  const safeBuffer = new Uint8ClampedArray(expectedSize);
-  const copyLen = Math.min(expectedSize, waterfallBuffer.length);
-  safeBuffer.set(waterfallBuffer.subarray(0, copyLen));
-  const imageData = new ImageData(safeBuffer, dims.width, dims.height);
-
-  // putImageData ignores transforms, so scale manually
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.putImageData(
-    imageData,
-    Math.round(marginStart * dpr),
-    Math.round(marginY * dpr),
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    dataCanvas,
+    0,
+    0,
+    dims.width,
+    dims.height,
+    marginStart,
+    marginY,
+    displayW,
+    displayH,
   );
 }
 
@@ -691,6 +733,7 @@ function renderSpectrumSnapshotCanvas(
   waveform?: Float32Array,
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
+  statsPlacementRef?: { current: StatsBoxPlacement | null },
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -704,6 +747,7 @@ function renderSpectrumSnapshotCanvas(
     waveform,
     theme,
     _aspectRatio,
+    statsPlacementRef,
   ) as HTMLCanvasElement;
 }
 
@@ -785,6 +829,7 @@ function composeWholeChannelSpectrumCanvas(
   statsLines?: string[],
   theme?: SnapshotTheme,
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean },
+  statsPlacementRef?: { current: StatsBoxPlacement | null },
 ): HTMLCanvasElement | null {
   if (!segments.length) return null;
 
@@ -826,6 +871,8 @@ function composeWholeChannelSpectrumCanvas(
     statsLines,
     stitched,
     theme,
+    undefined,
+    statsPlacementRef,
   );
 }
 
@@ -1135,6 +1182,8 @@ export function useSnapshot(
             ]
           : [];
 
+        const statsPlacementRef = { current: null as StatsBoxPlacement | null };
+
         if (options.showStats && options.showGeolocation) {
           if (options.geolocation) {
             statsLines.push(
@@ -1310,6 +1359,7 @@ export function useSnapshot(
                   currentStatsLines,
                   theme,
                   options.stitchOptions,
+                  statsPlacementRef,
                 )
               : null;
           const currentWholeWaterfallCanvas =
@@ -1347,6 +1397,8 @@ export function useSnapshot(
               currentStatsLines,
               currentWaveform,
               theme,
+              undefined,
+              statsPlacementRef,
             );
           }
           frameCtx.drawImage(
@@ -1449,7 +1501,8 @@ export function useSnapshot(
                   captureRange,
                   statsLines,
                   theme,
-                  state.stitchOptions,
+                  options.stitchOptions,
+                  statsPlacementRef,
                 )
               : null;
           const wholeChannelWaterfallCanvas =
@@ -1481,6 +1534,7 @@ export function useSnapshot(
               waveformToRender,
               theme,
               options.aspectRatio,
+              statsPlacementRef,
             );
             spectrumSvg = typeof svgResult === "string" ? svgResult : "";
           }
@@ -1622,7 +1676,8 @@ export function useSnapshot(
                       currentCaptureRange,
                       currentStatsLines,
                       theme,
-                      state.stitchOptions,
+                      options.stitchOptions,
+                      statsPlacementRef,
                     )
                   : null;
 
@@ -1642,6 +1697,7 @@ export function useSnapshot(
                   currentWaveform,
                   theme,
                   options.aspectRatio,
+                  statsPlacementRef,
                 );
                 spectrumSvg = typeof svgResult === "string" ? svgResult : "";
               }
