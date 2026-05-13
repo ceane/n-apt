@@ -71,6 +71,58 @@ mod tests {
   }
 
   #[test]
+  fn test_fft_processor_mock_signal_checksum() {
+    let mut processor1 = FFTProcessor::new_with_seed(12345);
+    let mut processor2 = FFTProcessor::new_with_seed(12345);
+
+    let result1 = processor1.generate_mock_signal(None).unwrap();
+    let result2 = processor2.generate_mock_signal(None).unwrap();
+
+    let checksum1: u64 = result1.power_spectrum.iter().map(|&v| v.to_bits() as u64).sum();
+    let checksum2: u64 = result2.power_spectrum.iter().map(|&v| v.to_bits() as u64).sum();
+
+    assert_eq!(checksum1, checksum2, "mock signal checksum must be deterministic");
+  }
+
+  #[test]
+  fn test_fft_processor_mock_signal_performance() {
+    use std::time::Instant;
+
+    let mut processor = FFTProcessor::new_with_seed(12345);
+    processor.update_config(EnhancedFFTConfig {
+      fft_size: 262144,
+      sample_rate: 3_200_000,
+      gain: 1.0,
+      ppm: 0.0,
+      fft_min: -80.0,
+      fft_max: 0.0,
+      waterfall_min: -80.0,
+      waterfall_max: 0.0,
+      window_type: WindowType::Rectangular,
+      zoom_offset: 0,
+      zoom_width: 262144,
+    });
+
+    let start = Instant::now();
+    let result = processor.generate_mock_signal(None).unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(result.power_spectrum.len(), 262144);
+
+    let limit = if cfg!(debug_assertions) {
+      std::time::Duration::from_secs(8)
+    } else {
+      std::time::Duration::from_secs(2)
+    };
+
+    assert!(
+      elapsed < limit,
+      "FFT mock signal generation is too slow: {:?}",
+      elapsed
+    );
+  }
+
+  #[test]
   fn test_fft_processor_custom_signal() {
     let mut processor = FFTProcessor::new();
 

@@ -117,6 +117,27 @@ pub fn crossfade(a: &[f64], b: &[f64], overlap: usize) -> Vec<f64> {
   result
 }
 
+/// Hann-weighted crossfade between two signals (f32)
+pub fn crossfade_f32(a: &[f32], b: &[f32], overlap: usize) -> Vec<f32> {
+  let mut result = Vec::with_capacity(a.len() + b.len() - overlap);
+
+  let split = a.len().saturating_sub(overlap);
+
+  result.extend_from_slice(&a[..split]);
+
+  for i in 0..overlap {
+    let t = i as f32 / overlap as f32;
+    let w = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+
+    let val = (1.0 - w) * a[split + i] + w * b[i];
+    result.push(val);
+  }
+
+  result.extend_from_slice(&b[overlap..]);
+
+  result
+}
+
 /// Remove DC offset from signal
 pub fn remove_dc(signal: &mut [f64]) {
   let mean: f64 = signal.iter().sum::<f64>() / signal.len() as f64;

@@ -9,6 +9,7 @@ import {
 } from "@n-apt/hooks/useSpectrumStore";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import SignalComposition from "@n-apt/components/SignalComposition";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import {
   ConnectionStatusSection,
@@ -223,6 +224,8 @@ export const SDRTestSidebar: React.FC = () => {
             />
             <Channels />
           </Section>
+          
+          <SignalComposition sidebar />
 
           <SignalDisplaySection
             sourceMode={state.sourceMode}

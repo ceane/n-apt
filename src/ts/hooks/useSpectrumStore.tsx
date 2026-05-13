@@ -228,6 +228,16 @@ export type SpectrumState = {
   fftAvgEnabled: boolean;
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
+  stitchOptions: {
+    phaseCorrection: boolean;
+    fmDeviationCorrection: boolean;
+    antiAliasing: boolean;
+    noiseFloorMatching: boolean;
+    crossfading: boolean;
+    chineseRemainderSynthesis: boolean;
+    jsAntiAliasing: boolean;
+    jsNoiseFloorMatching: boolean;
+  };
 };
 
 export type SpectrumAction =
@@ -290,7 +300,8 @@ export type SpectrumAction =
   | { type: "TRIGGER_DIAGNOSTIC" }
   | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean }
   | { type: "SET_DISPLAY_MODE"; displayMode: "fft" | "iq" }
-  | { type: "SET_FFT_WINDOW"; fftWindow: string };
+  | { type: "SET_FFT_WINDOW"; fftWindow: string }
+  | { type: "SET_STITCH_OPTION"; option: keyof SpectrumState["stitchOptions"]; enabled: boolean };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -356,6 +367,16 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   fftAvgEnabled: false,
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
+  stitchOptions: {
+    phaseCorrection: true,
+    fmDeviationCorrection: true,
+    antiAliasing: true,
+    noiseFloorMatching: true,
+    crossfading: true,
+    chineseRemainderSynthesis: false,
+    jsAntiAliasing: false,
+    jsNoiseFloorMatching: false,
+  },
 };
 
 export { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
@@ -641,6 +662,14 @@ export function spectrumReducer(
       return { ...state, displayMode: action.displayMode };
     case "SET_FFT_WINDOW":
       return { ...state, fftWindow: action.fftWindow };
+    case "SET_STITCH_OPTION":
+      return {
+        ...state,
+        stitchOptions: {
+          ...state.stitchOptions,
+          [action.option]: action.enabled,
+        },
+      };
     default:
       return state;
   }

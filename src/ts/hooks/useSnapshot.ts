@@ -71,6 +71,7 @@ export type SnapshotOptions = {
     | (() => void | Promise<void>);
   aspectRatio?: SnapshotAspectRatio;
   fileTimestamp?: string;
+  stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean };
 };
 
 export type SnapshotVideoFormat = "mp4" | "webm";
@@ -783,6 +784,7 @@ function composeWholeChannelSpectrumCanvas(
   fullCaptureRange?: Range,
   statsLines?: string[],
   theme?: SnapshotTheme,
+  stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean },
 ): HTMLCanvasElement | null {
   if (!segments.length) return null;
 
@@ -803,6 +805,10 @@ function composeWholeChannelSpectrumCanvas(
         : [];
     }),
     fullRange,
+    {
+      smoothingRadius: stitchOptions?.jsAntiAliasing ? 1 : 0,
+      seamBins: stitchOptions?.jsNoiseFloorMatching ? 96 : 0,
+    }
   );
 
   if (!stitched.length) return null;
@@ -1303,6 +1309,7 @@ export function useSnapshot(
                   currentCaptureRange,
                   currentStatsLines,
                   theme,
+                  options.stitchOptions,
                 )
               : null;
           const currentWholeWaterfallCanvas =
@@ -1442,6 +1449,7 @@ export function useSnapshot(
                   captureRange,
                   statsLines,
                   theme,
+                  state.stitchOptions,
                 )
               : null;
           const wholeChannelWaterfallCanvas =
@@ -1614,6 +1622,7 @@ export function useSnapshot(
                       currentCaptureRange,
                       currentStatsLines,
                       theme,
+                      state.stitchOptions,
                     )
                   : null;
 
@@ -1891,6 +1900,7 @@ export function useSnapshot(
                 captureRange,
                 statsLines,
                 theme,
+                state.stitchOptions,
               )
             : null;
         const wholeChannelWaterfallCanvas =

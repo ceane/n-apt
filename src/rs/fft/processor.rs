@@ -157,6 +157,23 @@ impl FFTProcessor {
     }
   }
 
+  /// Create a new FFT processor with a deterministic RNG seed.
+  pub fn new_with_seed(seed: u64) -> Self {
+    let config = EnhancedFFTConfig::default();
+
+    Self {
+      fft: None,
+      ifft: None,
+      fft_plan_cache: std::collections::HashMap::new(),
+      ifft_plan_cache: std::collections::HashMap::new(),
+      config,
+      time: 0.0,
+      rng: rand::rngs::StdRng::seed_from_u64(seed),
+      fft_hold: None,
+      simd_processor: None,
+    }
+  }
+
   /// Create a new FFT processor with runtime-provided defaults.
   ///
   /// This is used by the backend, which treats `signals.yaml` as the single source of truth.
@@ -1299,26 +1316,7 @@ impl FFTProcessor {
     let config = signal_config.unwrap_or_default();
     let mut buf: Vec<Complex<f32>> = Vec::with_capacity(self.config.fft_size);
 
-    for i in 0..self.config.fft_size {
-      let t = self.time + i as f32 / self.config.sample_rate as f32;
-
-      // Generate composite signal with multiple frequency components
-      let mut signal = 0.0;
-
-      for (freq, amp) in config.frequencies.iter().zip(config.amplitudes.iter())
-      {
-        signal += (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-      }
-
-      // Add noise
-      signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;
-
-      // Add some phase variation for realism
-      let phase_variation = (2.0 * std::f32::consts::PI * 0.1 * t).sin() * 0.05;
-      signal += phase_variation;
-
-      buf.push(Complex::new(signal, signal * 0.5));
-    }
+    self.generate_mock_signal_scalar(&config, &mut buf);
 
     self.time += self.config.fft_size as f32 / self.config.sample_rate as f32;
 
@@ -1380,6 +1378,37 @@ impl FFTProcessor {
       timestamp: now_millis(),
       phase_spectrum: None,
     })
+  }
+
+  fn generate_mock_signal_scalar(
+    &mut self,
+    config: &MockSignalConfig,
+    buf: &mut Vec<Complex<f32>>,
+  ) {
+    for i in 0..self.config.fft_size {
+      let t = self.time + i as f32 / self.config.sample_rate as f32;
+      let pulse_phase = 2.0 * std::f32::consts::PI * 7.0 * t;
+      let mut signal = 0.0;
+
+      for (tone_idx, (freq, amp)) in config
+        .frequencies
+        .iter()
+        .zip(config.amplitudes.iter())
+        .enumerate()
+      {
+        let tone_phase = pulse_phase
+          + (*freq as f32) * 0.000_003
+          + (tone_idx as f32) * 0.17;
+        let pulse_db = 1.0 + 1.0 * tone_phase.sin();
+        let pulse_gain = 10.0f32.powf(pulse_db / 20.0);
+        signal += (2.0 * std::f32::consts::PI * freq * t).sin() * amp * pulse_gain;
+      }
+
+      signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;
+      let phase_variation = (2.0 * std::f32::consts::PI * 0.1 * t).sin() * 0.05;
+      signal += phase_variation;
+      buf.push(Complex::new(signal, signal * 0.5));
+    }
   }
 
   /// Get current configuration

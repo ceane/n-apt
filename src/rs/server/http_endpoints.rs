@@ -20,6 +20,7 @@ use super::types::{
   WebMCPToolRequest, WebMCPToolResponse,
 };
 use crate::sdr::rtlsdr::RtlSdrDevice;
+use crate::fft::anti_aliasing;
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -146,10 +147,22 @@ pub struct TowerBoundsResponse {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct StitchDiagnosticRequest {
-  /// Optional center frequency override in Hz (to honour channel selection from sidebar)
-  pub center_hz: Option<u32>,
-  /// Optional signal area label (A, B, etc.) to anchor the diagnostic to the channel start
+  pub center_hz: Option<f64>,
   pub signal_area: Option<String>,
+  pub stitch_options: Option<StitchOptions>,
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StitchOptions {
+  pub phase_correction: bool,
+  pub fm_deviation_correction: bool,
+  pub anti_aliasing: bool,
+  pub noise_floor_matching: bool,
+  pub crossfading: bool,
+  pub chinese_remainder_synthesis: bool,
+  pub js_anti_aliasing: bool,
+  pub js_noise_floor_matching: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,9 +178,9 @@ pub struct StitchDiagnosticResponse {
   pub hop1_frames: Vec<Vec<f32>>,
   pub hop2_frames: Vec<Vec<f32>>,
   pub stitched_frames: Vec<Vec<f32>>,
-  pub hop1_freq_hz: [f32; 2],
-  pub hop2_freq_hz: [f32; 2],
-  pub stitched_freq_hz: [f32; 2],
+  pub hop1_freq_hz: [f64; 2],
+  pub hop2_freq_hz: [f64; 2],
+  pub stitched_freq_hz: [f64; 2],
   pub overlap_start: usize,
   pub overlap_end: usize,
   pub device_info: String,
@@ -179,6 +192,7 @@ pub struct StitchDiagnosticResponse {
   pub correction_angle_deg: f32,
   /// Estimated FM deviation / frequency drift between the two captures (kHz)
   pub fm_deviation_khz: f32,
+  pub reconstructed_freq_hz: Option<f64>,
   pub timing: StitchDiagnosticTiming,
 }
 
@@ -1108,9 +1122,11 @@ pub async fn stitch_diagnostic_handler(
         "Anchoring diagnostic center1 to {} Hz for area {}",
         anchored_hz, label
       );
-      effective_center1 = Some(anchored_hz);
+      effective_center1 = Some(anchored_hz as f64);
     }
   }
+
+  log::info!("Starting multi-frame stitch diagnostic...");
 
   let (center1, hop_bw_hz, sample_rate, device_info, was_paused) = {
     let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
@@ -1119,8 +1135,9 @@ pub async fn stitch_diagnostic_handler(
 
     // Honor channel selection from the sidebar
     if let Some(center_hz) = effective_center1 {
-      if center_hz != processor.get_center_frequency() {
-        if let Err(e) = processor.set_center_frequency(center_hz) {
+      let chz_u32 = center_hz as u32;
+      if chz_u32 != processor.get_center_frequency() {
+        if let Err(e) = processor.set_center_frequency(chz_u32) {
           warn!("Failed to apply center_hz override: {}", e);
         } else {
           processor.flush_read_queue();
@@ -1138,11 +1155,11 @@ pub async fn stitch_diagnostic_handler(
     )
   };
 
-  const NUM_FRAMES: usize = 60;
+  const NUM_FRAMES: usize = 10;
   let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
   let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
-  let mut hop1_raw_iq: Vec<u8> = Vec::new();
-  let mut hop2_raw_iq: Vec<u8> = Vec::new();
+  log::info!("Performing Hop 1 at {} Hz...", center1);
+  let mut hop1_raw_iq = Vec::new();
 
   // 1. Capture Hop 1
   {
@@ -1172,7 +1189,9 @@ pub async fn stitch_diagnostic_handler(
 
   // 2. Tune and Capture Hop 2 (offset by 1.2MHz)
   let center2 = center1 + 1_200_000;
+  let mut hop2_raw_iq = Vec::new();
   {
+    log::info!("Tuning to Hop 2: {} Hz...", center2);
     if let Err(e) = processor.set_center_frequency(center2) {
       state.shared.is_paused.store(was_paused, Ordering::Relaxed);
       return (
@@ -1184,7 +1203,9 @@ pub async fn stitch_diagnostic_handler(
 
     // Flush to clear any data from the old frequency
     processor.flush_read_queue();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
+    log::info!("Performing Hop 2 at {} Hz...", center2);
     for _ in 0..NUM_FRAMES {
       match processor.read_and_process_frame() {
         Ok(f) => {
@@ -1201,20 +1222,47 @@ pub async fn stitch_diagnostic_handler(
             .into_response();
         }
       }
+      if let Some(chz) = effective_center1 {
+        let chz_u32 = chz as u32;
+        if let Err(e) = processor.set_center_frequency(chz_u32) {
+          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+          return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to tune to hop 1: {}", e),
+          )
+            .into_response();
+        }
+      }
     }
     // Restore frequency
     let _ = processor.set_center_frequency(center1);
   }
 
+  let options = body.as_ref().and_then(|b| b.stitch_options.clone()).unwrap_or(StitchOptions {
+    phase_correction: true,
+    fm_deviation_correction: true,
+    anti_aliasing: true,
+    noise_floor_matching: true,
+    crossfading: true,
+    chinese_remainder_synthesis: false,
+    js_anti_aliasing: false,
+    js_noise_floor_matching: false,
+  });
+
   // Compute phase coherence / alignment offset in the overlap region
+  log::info!("Calculating phase offset and stitching...");
   let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) =
-    calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq);
+    if options.phase_correction || options.fm_deviation_correction {
+      calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq)
+    } else {
+      (0.0, 0.0, 0.0, 0.0)
+    };
 
   // Restore previous pause state
   state.shared.is_paused.store(was_paused, Ordering::Relaxed);
 
   // 4. Seamless Crossfade Stitching
-  let jump_hz = (center2 - center1) as f64 / 1_000_000.0;
+  let jump_hz = (center2 - center1) as f64;
   let fft_size = if !hop1_frames.is_empty() {
     hop1_frames[0].len()
   } else {
@@ -1222,40 +1270,50 @@ pub async fn stitch_diagnostic_handler(
   };
 
   // Calculate dynamic overlap bounds based strictly on the center frequency jump
-  let offset_bins =
-    ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
+  let offset_bins = ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
-  // 4. Midpoint Cut Stitching (No Blending)
+
+  // 4. Stitching with Options
   let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
   let midpoint_bin = overlap_bins / 2;
 
   for i in 0..NUM_FRAMES {
     let f1 = &hop1_frames[i];
-    let f2 = &hop2_frames[i];
+    let mut f2 = hop2_frames[i].clone();
 
-    let mut stitched = Vec::with_capacity(fft_size + offset_bins);
-
-    if f1.len() < fft_size || f2.len() < fft_size {
-      stitched.extend_from_slice(f1);
-      stitched_frames.push(stitched);
-      continue;
+    if options.noise_floor_matching {
+      anti_aliasing::match_noise_floor_db(f1, &mut f2, overlap_bins);
     }
 
-    // 1. Hop 1 up to the midpoint of the overlap
-    stitched.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
-
-    // 2. Hop 2 from the midpoint of the overlap onwards
-    // The overlap in f2 starts at index 0. So midpoint in overlap is index midpoint_bin.
-    stitched.extend_from_slice(&f2[midpoint_bin..]);
+    let stitched = if options.crossfading && overlap_bins > 1 {
+      anti_aliasing::crossfade_f32(f1, &f2, overlap_bins)
+    } else {
+      let mut s = Vec::with_capacity(f1.len() + f2.len() - overlap_bins);
+      s.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
+      s.extend_from_slice(&f2[midpoint_bin..]);
+      s
+    };
 
     stitched_frames.push(stitched);
   }
 
-  // Frequency ranges
-  let hop1_start = (center1 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop1_end = (center1 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop2_start = (center2 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop2_end = (center2 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
+  let reconstructed_freq_hz = if options.chinese_remainder_synthesis {
+    let m1 = anti_aliasing::Measurement::new(&hop1_frames[0], fft_size, sample_rate);
+    let m2 = anti_aliasing::Measurement::new(&hop2_frames[0], fft_size, sample_rate);
+    if let (Some(m1), Some(m2)) = (m1, m2) {
+      anti_aliasing::reconstruct_frequency_crt(&[m1, m2], 1.5e9, 500.0)
+    } else {
+      None
+    }
+  } else {
+    None
+  };
+
+  // Frequency ranges (Hz)
+  let hop1_start = center1 as f64 - (sample_rate / 2.0);
+  let hop1_end = center1 as f64 + (sample_rate / 2.0);
+  let hop2_start = center2 as f64 - (sample_rate / 2.0);
+  let hop2_end = center2 as f64 + (sample_rate / 2.0);
 
   let total_latency_ms = start_time.elapsed().as_secs_f32() * 1000.0;
   let slice_duration_ms = (fft_size as f32 / sample_rate as f32) * 1000.0;
@@ -1266,6 +1324,7 @@ pub async fn stitch_diagnostic_handler(
     10.0
   };
 
+  log::info!("Stitch diagnostic complete. Returning results.");
   Json(StitchDiagnosticResponse {
     hop1_frames,
     hop2_frames,
@@ -1281,6 +1340,7 @@ pub async fn stitch_diagnostic_handler(
     hop2_phase_deg,
     correction_angle_deg,
     fm_deviation_khz,
+    reconstructed_freq_hz,
     timing: StitchDiagnosticTiming {
       total_latency_ms,
       settle_time_ms,
