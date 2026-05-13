@@ -293,3 +293,31 @@ export const parseFrequency = (
       return NaN;
   }
 };
+
+/**
+ * Formats frequency with up to 3 decimal places, strictly truncating (no rounding).
+ */
+export const formatChannelFreq = (hz: number): string => {
+  const abs = Math.abs(hz);
+  let val: number;
+  let unit: string;
+
+  if (abs >= 1_000_000) {
+    val = hz / 1_000_000;
+    unit = "MHz";
+  } else if (abs >= 1_000) {
+    val = hz / 1_000;
+    unit = "kHz";
+  } else {
+    val = hz;
+    unit = "Hz";
+  }
+
+  // Truncate to 3 decimal places without rounding
+  const s = val.toString();
+  const dotIndex = s.indexOf(".");
+  if (dotIndex !== -1) {
+    return s.slice(0, dotIndex + 4) + unit;
+  }
+  return s + unit;
+};

@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setSignalAreaAndRange } from "@n-apt/redux";
 import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
 import { Collapsible, Tooltip } from "@n-apt/components/ui";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
@@ -254,34 +254,6 @@ const Divider = styled.hr`
 `;
 
 export type ChannelsVariant = "demod" | "spectrum";
-
-/**
- * Formats frequency with up to 3 decimal places, strictly truncating (no rounding).
- */
-const formatChannelFreq = (hz: number): string => {
-  const abs = Math.abs(hz);
-  let val: number;
-  let unit: string;
-
-  if (abs >= 1_000_000) {
-    val = hz / 1_000_000;
-    unit = "MHz";
-  } else if (abs >= 1_000) {
-    val = hz / 1_000;
-    unit = "kHz";
-  } else {
-    val = hz;
-    unit = "Hz";
-  }
-
-  // Truncate to 3 decimal places without rounding
-  const s = val.toString();
-  const dotIndex = s.indexOf(".");
-  if (dotIndex !== -1) {
-    return s.slice(0, dotIndex + 4) + unit;
-  }
-  return s + unit;
-};
 
 interface ChannelsProps {
   /** `spectrum`: compact Redux sliders (spectrum sidebar). `demod`: channel/manual controls (demod sidebar). */
