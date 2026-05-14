@@ -651,7 +651,8 @@ function drawWaterfallFrom2DBuffer(
   const dataCtx = dataCanvas.getContext("2d");
   if (!dataCtx) return;
 
-  const imageData = new ImageData(waterfallBuffer, dims.width, dims.height);
+  const imageData = dataCtx.createImageData(dims.width, dims.height);
+  imageData.data.set(waterfallBuffer);
   dataCtx.putImageData(imageData, 0, 0);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1956,7 +1957,7 @@ export function useSnapshot(
                 captureRange,
                 statsLines,
                 theme,
-                state.stitchOptions,
+                options.stitchOptions,
               )
             : null;
         const wholeChannelWaterfallCanvas =

@@ -876,9 +876,7 @@ export const StitchTestRoute: React.FC = () => {
           <SectionHeader>
             <SectionTitle>
               Raw Hops (A/B Overlap)
-              <Tooltip content="Sub-sample fractional delay tracking. We precisely offset time differences in the overlap, align their sine waves smoothly, and perform a hard midpoint cut to eliminate spectral artifacts.">
-                <Info size={12} style={{ cursor: "help", opacity: 0.8 }} />
-              </Tooltip>
+              <Tooltip content="Sub-sample fractional delay tracking. We precisely offset time differences in the overlap, align their sine waves smoothly, and perform a hard midpoint cut to eliminate spectral artifacts." />
             </SectionTitle>
             {result && (
               <Badge>

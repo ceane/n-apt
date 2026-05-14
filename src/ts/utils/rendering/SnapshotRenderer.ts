@@ -747,7 +747,7 @@ export class SnapshotRenderer {
       }
     }
 
-    if (!best) return;
+    if (!best) return null;
 
     const { pos, boxW, boxH, lines, padX, padY, lh } = best;
 
