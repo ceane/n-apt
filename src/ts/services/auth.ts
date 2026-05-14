@@ -51,6 +51,11 @@ export interface SessionValidation {
   error?: string;
 }
 
+// -- Request Deduplication --
+let authInfoPromise: Promise<AuthInfo> | null = null;
+const sessionValidationPromises = new Map<string, Promise<SessionValidation>>();
+const vaultKeyPromises = new Map<string, Promise<string | null>>();
+
 // ── Session persistence ────────────────────────────────────────────────
 
 export function getStoredSession(): string | null {
@@ -81,15 +86,26 @@ export function clearSession(): void {
 
 /** GET /auth/info — check if passkeys are registered. */
 export async function fetchAuthInfo(): Promise<AuthInfo> {
-  const res = await fetch(`${API_BASE}/auth/info`);
-  if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
+  if (authInfoPromise) return authInfoPromise;
 
-  const data = await res.json();
-  if (!validateAuthInfo(data)) {
-    throw new Error("Invalid auth info response from server");
-  }
+  authInfoPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/info`);
+      if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
 
-  return data;
+      const data = await res.json();
+      if (!validateAuthInfo(data)) {
+        throw new Error("Invalid auth info response from server");
+      }
+
+      return data;
+    } catch (e) {
+      authInfoPromise = null; // Allow retry on failure
+      throw e;
+    }
+  })();
+
+  return authInfoPromise;
 }
 
 /** GET /status — public server status (no auth required). */
@@ -126,57 +142,84 @@ export async function validateSession(
     };
   }
 
-  const res = await fetch(`${API_BASE}/auth/session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
+  const existing = sessionValidationPromises.get(token);
+  if (existing) return existing;
 
-  const responseText = await res.text();
-  const parsed = responseText
-    ? (() => {
-        try {
-          return JSON.parse(responseText) as SessionValidation;
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
 
-  if (!res.ok) {
-    return {
-      valid: false,
-      error: parsed?.error || `Session validation failed: ${res.status}`,
-    };
-  }
+      const responseText = await res.text();
+      const parsed = responseText
+        ? (() => {
+            try {
+              return JSON.parse(responseText) as SessionValidation;
+            } catch {
+              return null;
+            }
+          })()
+        : null;
 
-  if (parsed && validateSessionValidation(parsed)) {
-    return parsed;
-  }
+      if (!res.ok) {
+        return {
+          valid: false,
+          error: parsed?.error || `Session validation failed: ${res.status}`,
+        };
+      }
 
-  return {
-    valid: false,
-    error: "Invalid session validation response",
-  };
+      if (parsed && validateSessionValidation(parsed)) {
+        return parsed;
+      }
+
+      return {
+        valid: false,
+        error: "Invalid session validation response",
+      };
+    } finally {
+      // We don't necessarily want to clear this immediately if we want to avoid
+      // Strict Mode double-fire, but we don't want to keep it forever either
+      // if the token might expire. For now, keeping it simple.
+      setTimeout(() => sessionValidationPromises.delete(token), 5000);
+    }
+  })();
+
+  sessionValidationPromises.set(token, promise);
+  return promise;
 }
 
 /**
  * Fetch the derived encryption key (Vault Key) for an authenticated session.
  */
 export async function fetchVaultKey(token: string): Promise<string | null> {
-  const response = await fetch(
-    `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
-    {
-      method: "GET",
-    },
-  );
+  const existing = vaultKeyPromises.get(token);
+  if (existing) return existing;
 
-  if (!response.ok) {
-    return null;
-  }
+  const promise = (async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
+        {
+          method: "GET",
+        },
+      );
 
-  const data = await response.json();
-  return data.vault_key;
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return data.vault_key;
+    } finally {
+      setTimeout(() => vaultKeyPromises.delete(token), 5000);
+    }
+  })();
+
+  vaultKeyPromises.set(token, promise);
+  return promise;
 }
 
 // ── Password authentication ────────────────────────────────────────────

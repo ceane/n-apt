@@ -3,11 +3,20 @@ import styled from "styled-components";
 import { Slider } from "@n-apt/components/ui";
 import { COLORS, STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
 import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
+import {
+  PaintbrushVertical,
+  RotateCcw,
+  Sigma,
+  Wand2,
+  WandSparkles,
+} from "lucide-react";
 
 const SlidersGrid = styled.div`
   display: grid;
-  /* 3 rows for sliders, 1 auto row for toggles */
   grid-template-rows: auto 1fr 1fr 1fr;
+  justify-content: center;
+  justify-items: center;
+  align-content: start;
   gap: 12px;
   height: 100%;
   width: 100%;
@@ -19,27 +28,37 @@ const ActionButtonsContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 84px;
 `;
 
 const ActionButton = styled.button<{ $active?: boolean }>`
   font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
-  font-weight: ${STITCHER_BUTTON_STYLE.fontWeight};
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  white-space: nowrap;
-  padding: 6px 10px;
-  border-radius: ${STITCHER_BUTTON_STYLE.borderRadius};
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.1px;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 5px 6px;
+  border-radius: 6px;
   border: 1px solid
-    ${(props) => (props.$active ? props.theme.primary : COLORS.borderHover)};
+    ${(props) => (props.$active ? props.theme.primary : props.theme.border)};
   background: ${(props) =>
-    props.$active ? props.theme.activeBackground : props.theme.surface};
+    props.$active ? props.theme.activeBackground : "transparent"};
   color: ${(props) =>
-    props.$active ? props.theme.primary : props.theme.textSecondary};
+    props.$active ? props.theme.primary : props.theme.textMuted};
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  gap: 4px;
 
   &:hover {
     background: ${(props) =>
@@ -106,28 +125,32 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
     <SlidersGrid>
       <ActionButtonsContainer>
         <ActionButton onClick={onResetZoomDb} title="Reset Zoom and dB limits">
-          RESET
+          <RotateCcw size={13} strokeWidth={1.5} />
+          Reset
         </ActionButton>
         <ActionButton
           $active={fftAvgEnabled}
           onClick={() => onFftAvgChange?.(!fftAvgEnabled)}
           title="Toggle FFT averaging"
         >
-          {fftAvgEnabled ? "▸ AVG" : "▹ AVG"}
+          <Sigma size={13} strokeWidth={1.5} />
+          FFT Averaging
         </ActionButton>
         <ActionButton
           $active={fftSmoothEnabled}
           onClick={() => onFftSmoothChange?.(!fftSmoothEnabled)}
           title="Toggle FFT smoothing"
         >
-          {fftSmoothEnabled ? "▸ FFT" : "▹ FFT"}
+          <Wand2 size={13} strokeWidth={1.5} />
+          FFT Smoothing
         </ActionButton>
         <ActionButton
           $active={wfSmoothEnabled}
           onClick={() => onWfSmoothChange?.(!wfSmoothEnabled)}
           title="Toggle waterfall smoothing"
         >
-          {wfSmoothEnabled ? "▸ WF" : "▹ WF"}
+          <PaintbrushVertical size={19} strokeWidth={1.5} />
+          Waterfall Smoothing
         </ActionButton>
       </ActionButtonsContainer>
 

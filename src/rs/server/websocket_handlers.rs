@@ -36,10 +36,22 @@ pub async fn ws_upgrade_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   // Validate session token
-  let _session = match state.session_store.validate(&params.token) {
+  let session = match state.session_store.validate(&params.token) {
     Some(s) => s,
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
+        .into_response();
+    }
+  };
+
+  let enc_key: [u8; 32] = match session.encryption_key.clone().try_into() {
+    Ok(k) => k,
+    Err(_) => {
+      error!("Session encryption key is not 32 bytes");
+      return (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Invalid session configuration",
+      )
         .into_response();
     }
   };
@@ -50,7 +62,6 @@ pub async fn ws_upgrade_handler(
   let broadcast_tx = state.broadcast_tx.clone();
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
-  let enc_key = state.shared.encryption_key;
   let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {

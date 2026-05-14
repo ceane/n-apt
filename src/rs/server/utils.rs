@@ -880,6 +880,17 @@ pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
+  // SECURITY: Strict validation of job_id to prevent Path Traversal.
+  // Only alphanumeric characters, underscores, and hyphens are allowed.
+  if !RE_SAFE_ID.is_match(&result.job_id) {
+    return Err(format!("Invalid job_id: '{}'", result.job_id));
+  }
+
+  // SECURITY: Strict validation of file_type.
+  if result.file_type != ".napt" && result.file_type != ".wav" {
+    return Err(format!("Unsupported file_type: '{}'", result.file_type));
+  }
+
   // Create temp directory if it doesn't exist
   let temp_dir = std::env::temp_dir().join("n-apt-captures");
   std::fs::create_dir_all(&temp_dir)

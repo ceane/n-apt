@@ -175,4 +175,65 @@ fn dirs_path() -> Result<PathBuf, String> {
   Ok(final_dir)
 }
 
+use axum::{
+  body::Body,
+  http::{Request, StatusCode},
+  middleware::Next,
+  response::Response,
+};
+use crate::server::main::AppState;
+use std::sync::Arc;
+
+/// Middleware to enforce session authentication.
+///
+/// Extracts the session token from the `Authorization: Bearer <token>` header
+/// OR from the `token` query parameter (common for direct downloads).
+/// Validates the token against the Redis session store. Rejects unauthenticated
+/// requests with 401 Unauthorized.
+pub async fn require_session(
+  state: axum::extract::State<Arc<AppState>>,
+  req: Request<Body>,
+  next: Next,
+) -> Result<Response, StatusCode> {
+  let mut token = None;
+
+  // 1. Check Authorization header
+  if let Some(auth_header) = req
+    .headers()
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|h| h.to_str().ok())
+  {
+    if auth_header.starts_with("Bearer ") {
+      token = Some(auth_header[7..].to_string());
+    }
+  }
+
+  // 2. Fallback to query parameter (common for direct downloads via <a> tags)
+  if token.is_none() {
+    if let Some(query) = req.uri().query() {
+      if let Ok(params) =
+        serde_urlencoded::from_str::<std::collections::HashMap<String, String>>(
+          query,
+        )
+      {
+        if let Some(t) = params.get("token") {
+          token = Some(t.clone());
+        }
+      }
+    }
+  }
+
+  if let Some(token) = token {
+    if state.session_store.validate(&token).is_some() {
+      return Ok(next.run(req).await);
+    }
+  }
+
+  log::warn!(
+    "Unauthorized access attempt to: {} (no valid token in header or query)",
+    req.uri().path()
+  );
+  Err(StatusCode::UNAUTHORIZED)
+}
+
 pub mod auth_handlers;

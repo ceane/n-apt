@@ -129,10 +129,11 @@ pub async fn auth_verify_handler(
       .into_response();
   }
 
-  // Authentication successful — create session
+  // Authentication successful — create session with a unique key
+  let session_key = crate::crypto::generate_nonce(); // 32 random bytes
   let token = state
     .session_store
-    .create_session(state.shared.encryption_key);
+    .create_session(session_key);
   info!("Password authentication successful, session created");
 
   (
@@ -182,12 +183,12 @@ pub async fn auth_vault_key_handler(
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
   match state.session_store.validate(&query.token) {
-    Some(_session) => {
+    Some(session) => {
       info!("Vault key requested and session validated");
       (
         StatusCode::OK,
         Json(crate::server::types::VaultKeyResponse {
-          vault_key: crypto::to_base64(&state.shared.encryption_key),
+          vault_key: crypto::to_base64(&session.encryption_key),
         }),
       )
         .into_response()
@@ -385,10 +386,11 @@ pub async fn passkey_auth_finish_handler(
     .finish_passkey_authentication(&body.credential, &auth_state)
   {
     Ok(_auth_result) => {
-      // Authentication successful — create session
+      // Authentication successful — create session with a unique key
+      let session_key = crate::crypto::generate_nonce();
       let token = state
         .session_store
-        .create_session(state.shared.encryption_key);
+        .create_session(session_key);
       info!("Passkey authentication successful, session created");
 
       (

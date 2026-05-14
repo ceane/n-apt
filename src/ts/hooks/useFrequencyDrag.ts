@@ -832,6 +832,7 @@ export function useFrequencyDrag({
 
       const rect =
         containerRectRef.current || container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
 
@@ -902,7 +903,11 @@ export function useFrequencyDrag({
         return;
       }
 
-      if (y >= rect.height - vfoThreshold) {
+      // 2. Lateral movement on scroll (panning/retuning)
+      // Now triggered by scrolling over the margins instead of just the bottom VFO area.
+      const isOverMargin = x < 50 || x > rect.width - 40 || y < 20 || y > rect.height - 40;
+
+      if (isOverMargin) {
         // Move laterally on scroll
         e.preventDefault();
 

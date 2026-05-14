@@ -142,6 +142,8 @@ validator = { version = "0.20", features = ["derive"] }
 indexmap = { version = "2.14", features = ["serde"] }
 crossbeam-channel = "0.5"
 yawc = { version = "0.3.3", features = ["axum", "zlib"] }
+tempfile = "3"
+serde_urlencoded = "0.7"
 
 [dev-dependencies]
 doc-comment = "0.3"

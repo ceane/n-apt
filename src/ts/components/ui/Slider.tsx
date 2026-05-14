@@ -20,13 +20,10 @@ export const SliderLabel = styled.span<{
   $orientation: "vertical" | "horizontal";
 }>`
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: ${(props) =>
-    props.theme.mode === "light"
-      ? COLORS.rangeLabels
-      : props.theme.textPrimary};
-  letter-spacing: 0.6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: ${(props) => props.theme.textMuted};
+  letter-spacing: 0.4px;
   text-transform: uppercase;
   text-align: ${({ $orientation }) =>
     $orientation === "vertical" ? "center" : "left"};
@@ -50,9 +47,7 @@ export const SliderTrack = styled.div<{
   cursor: pointer;
   transition: scale 0.2s ease-in-out;
   position: relative;
-  border: 1px solid
-    ${(props) =>
-      props.theme.mode === "light" ? props.theme.border : "transparent"};
+  border: 1px solid ${(props) => props.theme.border};
 
   ${({ $orientation }) =>
     $orientation === "vertical"
@@ -104,8 +99,7 @@ const RangeLabel = styled.div<{ $pos: number }>`
   left: ${({ $pos }) => $pos}%;
   transform: translateX(-50%);
   font-size: 7px;
-  color: ${(props) =>
-    props.theme.mode === "light" ? COLORS.rangeLabels : "#444"};
+  color: ${(props) => props.theme.textMuted};
   text-transform: uppercase;
   font-weight: 800;
   pointer-events: none;
@@ -212,13 +206,13 @@ export const SliderValue = styled.span<{
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
   color: ${(props) =>
-    props.theme.mode === "light" ? COLORS.stitcherButtonText : "#fff"};
+    props.theme.mode === "light" ? props.theme.textSecondary : "#fff"};
   text-shadow: ${(props) =>
     props.theme.mode === "light"
       ? "none"
-      : "0 0 4px rgba(0, 0, 0, 1), 0 0 8px rgba(0, 0, 0, 0.5)"};
-  font-weight: 600;
-  letter-spacing: 0.5px;
+      : "0 0 4px rgba(0, 0, 0, 0.8)"};
+  font-weight: 500;
+  letter-spacing: 0.3px;
   pointer-events: none;
   z-index: 20; /* Ensure it stays above thumb and markers */
   text-align: center;

@@ -126,7 +126,7 @@ impl websocket_server::WebSocketServer {
       ])
       .allow_credentials(true);
 
-    // Security headers
+    // Security headers (Defense-in-depth)
     let security_headers = ServiceBuilder::new()
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("cross-origin-opener-policy"),
@@ -135,6 +135,57 @@ impl websocket_server::WebSocketServer {
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("cross-origin-embedder-policy"),
         HeaderValue::from_static("require-corp"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-xss-protection"),
+        HeaderValue::from_static("1; mode=block"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("strict-transport-security"),
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"),
+      ));
+
+    // Protected control and diagnostic endpoints
+    let protected_routes = Router::new()
+      .route(
+        "/api/webmcp/execute",
+        post(http_endpoints::execute_webmcp_tool_handler),
+      )
+      .route(
+        "/api/debug/stitch-diagnostic",
+        post(http_endpoints::stitch_diagnostic_handler),
+      )
+      .route(
+        "/api/capture/download",
+        get(http_endpoints::capture_download_handler),
+      )
+      .route(
+        "/api/towers/bounds",
+        get(http_endpoints::towers_bounds_handler),
+      )
+      .route(
+        "/api/towers/load-local-radius",
+        post(super::tower_local::load_local_radius_towers),
+      )
+      .route(
+        "/api/towers/local-stats",
+        get(super::tower_local::get_local_cache_stats),
+      )
+      .route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::authentication::require_session,
       ));
 
     // Standard routes that benefit from compression (JSON, text, etc.)
@@ -195,39 +246,13 @@ impl websocket_server::WebSocketServer {
         "/api/agent/status",
         get(http_endpoints::agent_status_handler),
       )
-      .route(
-        "/api/towers/bounds",
-        get(http_endpoints::towers_bounds_handler),
-      )
-      .route(
-        "/api/towers/load-local-radius",
-        post(super::tower_local::load_local_radius_towers),
-      )
-      .route(
-        "/api/towers/local-stats",
-        get(super::tower_local::get_local_cache_stats),
-      )
-      .route(
-        "/api/webmcp/execute",
-        post(http_endpoints::execute_webmcp_tool_handler),
-      )
-      // Debug / Diagnostic endpoints
-      .route(
-        "/api/debug/stitch-diagnostic",
-        post(http_endpoints::stitch_diagnostic_handler),
-      )
+      .merge(protected_routes)
       // WebSocket endpoint
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 
     Router::new()
       .merge(compressible_routes)
-      // Exclude capture downloads from compression to avoid Content-Length mismatches
-      // and unnecessary CPU overhead on large binary files.
-      .route(
-        "/api/capture/download",
-        get(http_endpoints::capture_download_handler),
-      )
       .layer(cors)
       .layer(security_headers)
       .with_state(state)

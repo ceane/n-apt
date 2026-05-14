@@ -275,11 +275,22 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(2).query::<()>(&mut con) {
     error!("Failed to select Redis DB 2: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS")
-      .arg("tower:*")
-      .query::<Vec<String>>(&mut con)
-    {
+    let mut cursor = 0u64;
+    loop {
+      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(cursor)
+        .arg("MATCH")
+        .arg("tower:*")
+        .arg("COUNT")
+        .arg(100)
+        .query(&mut con)
+        .unwrap_or((0, vec![]));
+      
       all_tower_keys.extend(keys);
+      cursor = new_cursor;
+      if cursor == 0 {
+        break;
+      }
     }
   }
 
@@ -287,10 +298,17 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(4).query::<()>(&mut con) {
     error!("Failed to select Redis DB 4: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS")
-      .arg("local:*")
-      .query::<Vec<String>>(&mut con)
-    {
+    let mut cursor = 0u64;
+    loop {
+      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(cursor)
+        .arg("MATCH")
+        .arg("local:*")
+        .arg("COUNT")
+        .arg(100)
+        .query(&mut con)
+        .unwrap_or((0, vec![]));
+
       for local_key in keys {
         if local_key.ends_with(":data") {
           continue;
@@ -303,6 +321,11 @@ pub async fn towers_bounds_handler(
         {
           all_tower_keys.extend(tower_ids);
         }
+      }
+
+      cursor = new_cursor;
+      if cursor == 0 {
+        break;
       }
     }
   }
@@ -611,6 +634,17 @@ pub async fn capture_download_handler(
   Query(params): Query<CaptureDownloadParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  // SECURITY: Strict job_id validation to prevent Path Traversal
+  if !crate::server::utils::RE_SAFE_ID.is_match(&params.job_id) {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Invalid job_id",
+        "details": "Job ID contains invalid characters"
+      })),
+    )
+      .into_response();
+  }
   if let Err(e) = params.validate() {
     return (
       StatusCode::BAD_REQUEST,
@@ -705,44 +739,53 @@ pub async fn capture_download_handler(
     }
   }
 
-  // Multiple files: create ZIP archive
-  use std::io::Write;
-  let mut zip_buffer = std::io::Cursor::new(Vec::new());
+  // Multiple files: create ZIP archive on disk (streaming)
+  // SECURITY: Using tempfile() which is automatically deleted after all handles are closed.
+  let mut zip_temp = match tempfile::tempfile() {
+    Ok(t) => t,
+    Err(e) => {
+      error!("Failed to create temp file for ZIP: {}", e);
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+        .into_response();
+    }
+  };
+
   {
-    let mut zip = zip::ZipWriter::new(&mut zip_buffer);
+    let mut zip = zip::ZipWriter::new(&mut zip_temp);
     let options: zip::write::FileOptions<()> =
       zip::write::FileOptions::default()
         .compression_method(zip::CompressionMethod::Stored)
         .unix_permissions(0o644);
 
     for artifact in &artifacts {
-      match std::fs::read(&artifact.path) {
-        Ok(data) => {
-          if let Err(e) = zip.start_file(&artifact.filename, options) {
-            error!("Failed to add file to ZIP: {}", e);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              "Failed to create ZIP archive",
-            )
-              .into_response();
-          }
-          if let Err(e) = zip.write_all(&data) {
-            error!("Failed to write file to ZIP: {}", e);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              "Failed to create ZIP archive",
-            )
-              .into_response();
-          }
-        }
+      let mut file = match std::fs::File::open(&artifact.path) {
+        Ok(f) => f,
         Err(e) => {
-          error!("Failed to read capture file for ZIP: {}", e);
+          error!("Failed to open capture file for ZIP: {}", e);
           return (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to read capture file",
           )
             .into_response();
         }
+      };
+
+      if let Err(e) = zip.start_file(&artifact.filename, options) {
+        error!("Failed to add file to ZIP: {}", e);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "Failed to create ZIP archive",
+        )
+          .into_response();
+      }
+
+      if let Err(e) = std::io::copy(&mut file, &mut zip) {
+        error!("Failed to copy file into ZIP: {}", e);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "Failed to write to ZIP archive",
+        )
+          .into_response();
       }
     }
 
@@ -756,21 +799,45 @@ pub async fn capture_download_handler(
     }
   }
 
-  let zip_data = zip_buffer.into_inner();
+  // Seek back to start of temp file for reading
+  use std::io::Seek;
+  if let Err(e) = zip_temp.seek(std::io::SeekFrom::Start(0)) {
+    error!("Failed to seek in ZIP temp file: {}", e);
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      "Failed to read ZIP archive",
+    )
+      .into_response();
+  }
+
+  let zip_size = zip_temp
+    .metadata()
+    .map(|m| m.len())
+    .unwrap_or(0);
+  let tokio_file = tokio::fs::File::from_std(zip_temp);
+  let stream = ReaderStream::new(tokio_file);
+  let body = Body::from_stream(stream);
   let zip_filename = format!("capture_{}.zip", params.job_id);
 
-  (
-    StatusCode::OK,
-    [
-      ("Content-Type", "application/zip"),
-      (
-        "Content-Disposition",
-        &format!("attachment; filename=\"{}\"", zip_filename),
-      ),
-    ],
-    zip_data,
-  )
-    .into_response()
+  let mut headers = axum::http::HeaderMap::new();
+  headers.insert(
+    axum::http::header::CONTENT_TYPE,
+    "application/zip".parse().unwrap(),
+  );
+  if zip_size > 0 {
+    headers.insert(
+      axum::http::header::CONTENT_LENGTH,
+      zip_size.to_string().parse().unwrap(),
+    );
+  }
+  headers.insert(
+    axum::http::header::CONTENT_DISPOSITION,
+    format!("attachment; filename=\"{}\"", zip_filename)
+      .parse()
+      .unwrap(),
+  );
+
+  (StatusCode::OK, headers, body).into_response()
 }
 
 /// GET /api/agent/info — Agent system information and capabilities
