@@ -158,7 +158,7 @@ criterion = { version = "0.8", features = ["html_reports"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
-axum-test = "20"
+axum-test = { version = "20", features = ["ws"] }
 tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

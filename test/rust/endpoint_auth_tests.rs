@@ -1,7 +1,10 @@
 use axum_test::TestServer;
+use axum_test::WsMessage;
+use n_apt_backend::crypto;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::types::SpectrumData;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use serial_test::serial;
@@ -55,7 +58,7 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>) {
   });
 
   let app = WebSocketServer::create_app(state.clone());
-  (TestServer::new(app), state)
+  (TestServer::builder().http_transport().build(app), state)
 }
 
 #[tokio::test]
@@ -117,4 +120,92 @@ async fn test_invalid_token_denied() {
     .await;
   
   response.assert_status_unauthorized();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_vault_key_matches_shared_password_key() {
+  let (server, state) = setup_test_server().await;
+
+  let token = state.session_store.create_session([0u8; 32]);
+
+  let response = server
+    .get(&format!("/auth/vault-key?token={token}"))
+    .await;
+  response.assert_status_ok();
+
+  let json = response.json::<serde_json::Value>();
+  let vault_key = json["vault_key"].as_str().unwrap();
+
+  assert_eq!(
+    vault_key,
+    crypto::to_base64(&state.shared.encryption_key),
+    "vault key endpoint must return the password-derived key used for capture encryption"
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_live_stream_uses_shared_password_key_not_session_key() {
+  let (server, state) = setup_test_server().await;
+
+  let session_key = [7u8; 32];
+  assert_ne!(session_key, state.shared.encryption_key);
+  let token = state.session_store.create_session(session_key);
+
+  let ws_path = format!("/ws?token={token}");
+  let mut websocket = server
+    .get_websocket(&ws_path)
+    .await
+    .into_websocket()
+    .await;
+
+  let _status = websocket.receive_text().await;
+
+  let original_iq = vec![0x11, 0x22, 0x33, 0x44];
+  state
+    .spectrum_tx
+    .send(Arc::new(SpectrumData {
+      message_type: "spectrum".to_string(),
+      waveform: vec![],
+      is_mock_apt: false,
+      center_frequency_hz: Some(137_500_000),
+      waveform_span_hz: None,
+      timestamp: 123,
+      data_type: Some("iq_raw".to_string()),
+      sample_rate: Some(2_400_000),
+      power_scale: None,
+      iq_data: original_iq.clone(),
+    }))
+    .expect("spectrum frame should broadcast to websocket");
+
+  let frame_bytes = tokio::time::timeout(
+    std::time::Duration::from_secs(2),
+    async {
+      loop {
+        match websocket.receive_message().await {
+          WsMessage::Binary(bytes) => return bytes,
+          WsMessage::Text(_) => continue,
+          other => panic!("unexpected websocket message: {other:?}"),
+        }
+      }
+    },
+  )
+  .await
+  .expect("timed out waiting for encrypted live frame");
+
+  assert_eq!(&frame_bytes[0..8], &123u64.to_le_bytes());
+  assert_eq!(&frame_bytes[8..16], &137_500_000u64.to_le_bytes());
+  assert_eq!(&frame_bytes[16..20], &1u32.to_le_bytes());
+  assert_eq!(&frame_bytes[20..24], &2_400_000u32.to_le_bytes());
+
+  let encrypted_iq = &frame_bytes[24..];
+  let decrypted_iq =
+    crypto::decrypt_payload_binary(&state.shared.encryption_key, encrypted_iq)
+      .expect("live I/Q frame must decrypt with password-derived vault key");
+  assert_eq!(decrypted_iq, original_iq);
+  assert!(
+    crypto::decrypt_payload_binary(&session_key, encrypted_iq).is_err(),
+    "live I/Q frame must not be encrypted with the random session key"
+  );
 }

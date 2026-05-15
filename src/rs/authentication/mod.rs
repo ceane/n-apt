@@ -226,13 +226,25 @@ pub async fn require_session(
   if let Some(token) = token {
     if state.session_store.validate(&token).is_some() {
       return Ok(next.run(req).await);
+    } else {
+      let masked = if token.len() > 8 {
+        format!("{}…{}", &token[..4], &token[token.len() - 4..])
+      } else {
+        "***".to_string()
+      };
+      log::warn!(
+        "Unauthorized access to {}: Invalid or expired token ({}...)",
+        req.uri().path(),
+        masked
+      );
     }
+  } else {
+    log::warn!(
+      "Unauthorized access to {}: No token found in header or query",
+      req.uri().path()
+    );
   }
 
-  log::warn!(
-    "Unauthorized access attempt to: {} (no valid token in header or query)",
-    req.uri().path()
-  );
   Err(StatusCode::UNAUTHORIZED)
 }
 

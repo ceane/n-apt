@@ -177,18 +177,19 @@ pub struct VaultKeyQuery {
   pub token: String,
 }
 
-/// GET /auth/vault-key — returns the encryption key for the current session.
+/// GET /auth/vault-key — returns the password-derived vault key used for file
+/// encryption/decryption in this local environment.
 pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
   match state.session_store.validate(&query.token) {
-    Some(session) => {
+    Some(_session) => {
       info!("Vault key requested and session validated");
       (
         StatusCode::OK,
         Json(crate::server::types::VaultKeyResponse {
-          vault_key: crypto::to_base64(&session.encryption_key),
+          vault_key: crypto::to_base64(&state.shared.encryption_key),
         }),
       )
         .into_response()

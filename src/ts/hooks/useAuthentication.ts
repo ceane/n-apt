@@ -86,6 +86,7 @@ function authReducer(
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
     case "AUTH_SUCCESS":
+      console.log("AuthReducer: AUTH_SUCCESS. aesKey set?", !!action.aesKey);
       return {
         ...state,
         sessionToken: action.sessionToken,
@@ -294,6 +295,7 @@ const useAuthenticationInternal = (
               if (vaultKeyB64) {
                 const key = await importBase64Key(vaultKeyB64);
 
+                console.log("AuthInit: Setting session from storage. Key fetched?", !!vaultKeyB64);
                 dispatch({
                   type: "AUTH_SUCCESS",
                   sessionToken: storedToken,

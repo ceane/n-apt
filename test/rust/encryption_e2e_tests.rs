@@ -4,10 +4,16 @@ use n_apt_backend::server::utils::save_capture_file_multi;
 use std::fs;
 use tempfile::tempdir;
 
+fn test_vault_key() -> [u8; 32] {
+  let password = std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
+    .unwrap_or_else(|_| "test-password-123".to_string());
+  crypto::derive_key(&password)
+}
+
 #[test]
 fn test_encryption_save_load_cycle() {
   let _dir = tempdir().unwrap();
-  let vault_key = [0u8; 32]; // Mock vault key
+  let vault_key = test_vault_key();
 
   // 1. Setup mock capture result
   let original_iq = vec![0xAAu8; 1024];
@@ -125,7 +131,7 @@ fn test_derive_key_trimming() {
 #[test]
 fn test_checksum_integrity_and_corruption() {
   let _dir = tempdir().unwrap();
-  let vault_key = [1u8; 32];
+  let vault_key = test_vault_key();
 
   let result = CaptureResult {
     job_id: "test_integrity".to_string(),
@@ -216,7 +222,7 @@ fn test_checksum_integrity_and_corruption() {
 #[test]
 fn test_legacy_format_decryption() {
   let _dir = tempdir().unwrap();
-  let vault_key = [2u8; 32];
+  let vault_key = test_vault_key();
 
   // 1. Manually create a legacy file (encrypted with vault key directly, no wrapped_dek)
   let original_iq = vec![0xBB; 200];
@@ -265,7 +271,7 @@ fn test_legacy_format_decryption() {
 
 #[test]
 fn generate_test_artifacts() {
-  let vault_key = derive_key("test-password-123");
+  let vault_key = test_vault_key();
 
   let original_iq = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
   let result = CaptureResult {
