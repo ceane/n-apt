@@ -66,6 +66,10 @@ name = "hardware_failure_recovery_tests"
 path = "test/rust/hardware_failure_recovery_tests.rs"
 
 [[test]]
+name = "endpoint_auth_tests"
+path = "test/rust/endpoint_auth_tests.rs"
+
+[[test]]
 name = "bandwidth_tests"
 path = "test/rust/bandwidth_tests.rs"
 
@@ -99,10 +103,11 @@ clap = { version = "4.6", features = ["derive"] }
 byteorder = "1.5"
 env_logger = "0.11"
 dotenvy = "0.15"
+wasm-bindgen = "0.2.121"
+serde-wasm-bindgen = "0.6"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.121"
 js-sys = "0.3.98"
 web-sys = { version = "0.3.98", features = ["console"] }
 

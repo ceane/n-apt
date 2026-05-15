@@ -40,4 +40,4 @@ export const Model3DRoute = () => <RoutesStory />;
 
 export const MapEndpointsRoute = () => <RoutesStory />;
 
-export const StitchTestRoute = () => <RoutesStory />;
+export const AntiAliasingDiagnostics = () => <RoutesStory />;

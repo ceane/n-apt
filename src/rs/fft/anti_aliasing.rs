@@ -1,3 +1,11 @@
+use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
+#[cfg(target_arch = "wasm32")]
+use std::arch::wasm32::*;
+
 /// Estimate quantization uncertainty from sample rate and FFT size
 fn estimate_quantization_error(fs_hz: f64, fft_size: usize) -> f64 {
   fs_hz / (2.0 * fft_size as f64)
@@ -72,9 +80,35 @@ pub fn match_noise_floor_db_with_limit(
   let delta =
     (reference_floor - target_floor).min(max_positive_shift_db.max(0.0));
 
-  for value in target.iter_mut() {
-    if value.is_finite() {
-      *value += delta;
+  #[cfg(target_arch = "wasm32")]
+  {
+    let delta_vec = unsafe { f32x4_splat(delta) };
+    let (prefix, middle, suffix) = unsafe { target.align_to_mut::<v128>() };
+    
+    for x in prefix {
+      if x.is_finite() { *x += delta; }
+    }
+    
+    for x in middle {
+      unsafe {
+        let val = *x;
+        // Optimization: only add if we have any finite values to avoid unnecessary work
+        // though f32x4_add is fast anyway.
+        *x = f32x4_add(val, delta_vec);
+      }
+    }
+    
+    for x in suffix {
+      if x.is_finite() { *x += delta; }
+    }
+  }
+
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    for value in target.iter_mut() {
+      if value.is_finite() {
+        *value += delta;
+      }
     }
   }
 }
@@ -94,6 +128,246 @@ pub fn match_noise_floor_db_wasm(
     max_positive_shift_db,
   );
   adjusted
+}
+
+/// Apply triangular smoothing to a waveform.
+#[cfg(target_arch = "wasm32")]
+pub fn smooth_waveform(input: &[f32], radius: usize) -> Vec<f32> {
+  if radius == 0 || input.len() < 3 {
+    return input.to_vec();
+  }
+  
+  // A triangular filter is equivalent to two passes of a box filter.
+  // We use O(N) sliding window box filters.
+  let box_radius = radius / 2;
+  let pass1 = box_filter_simd(input, box_radius);
+  box_filter_simd(&pass1, box_radius)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn box_filter_simd(input: &[f32], radius: usize) -> Vec<f32> {
+  let len = input.len();
+  let mut output = vec![0.0f32; len];
+  let window_size = 2 * radius + 1;
+  let inv_window = 1.0 / window_size as f32;
+  
+  let mut sum = 0.0f32;
+  // Initial sum
+  for i in 0..window_size.min(len) {
+    sum += input[i];
+  }
+  
+  for i in 0..len {
+    output[i] = sum * inv_window;
+    
+    let left = i as isize - radius as isize;
+    let right = i as isize + radius as isize + 1;
+    
+    if left >= 0 && left < len as isize {
+      sum -= input[left as usize];
+    }
+    if right < len as isize {
+      sum += input[right as usize];
+    }
+  }
+  output
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn smooth_waveform_wasm(input: &[f32], radius: usize) -> Vec<f32> {
+  smooth_waveform(input, radius)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WasmRange {
+  pub min: f64,
+  pub max: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmWholeChannelWaveformSegment {
+  pub waveform: Vec<f32>,
+  pub visual_range: WasmRange,
+  pub db_min: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmWholeChannelStitchOptions {
+  pub minimum_bins: Option<usize>,
+  pub seam_bins: Option<usize>,
+  pub smoothing_radius: Option<usize>,
+  pub max_positive_floor_shift_db: Option<f32>,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+  a + (b - a) * t
+}
+
+#[cfg(target_arch = "wasm32")]
+fn sample_linear(data: &[f32], x: f32) -> f32 {
+  let len = data.len();
+  if len == 0 {
+    return 0.0;
+  }
+  if len == 1 {
+    return data[0];
+  }
+  let idx = x.max(0.0).min(len as f32 - 1.0001);
+  let i = idx.floor() as usize;
+  let t = idx - i as f32;
+  lerp(data[i], data[i + 1], t)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn stitch_whole_channel_waveform_wasm(
+  segments_val: JsValue,
+  options_val: JsValue,
+) -> Result<Vec<f32>, JsValue> {
+  let segments: Vec<WasmWholeChannelWaveformSegment> =
+    serde_wasm_bindgen::from_value(segments_val)
+      .map_err(|e| JsValue::from_str(&e.to_string()))?;
+  let options: WasmWholeChannelStitchOptions =
+    serde_wasm_bindgen::from_value(options_val)
+      .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+  if segments.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let min_freq = segments
+    .iter()
+    .map(|s| s.visual_range.min)
+    .fold(f64::INFINITY, f64::min);
+  let max_freq = segments
+    .iter()
+    .map(|s| s.visual_range.max)
+    .fold(f64::NEG_INFINITY, f64::max);
+  let total_span = max_freq - min_freq;
+
+  if total_span <= 0.0 {
+    return Ok(Vec::new());
+  }
+
+  let seam_bins = options.seam_bins.unwrap_or(0);
+  let max_positive_floor_shift_db =
+    options.max_positive_floor_shift_db.unwrap_or(0.0);
+
+  // Normalize segments: match noise floor and apply seam crossfades
+  let mut processed_segments = segments;
+  for i in 1..processed_segments.len() {
+    let (prev_part, next_part) = processed_segments.split_at_mut(i);
+    let prev = &prev_part[i - 1];
+    let next = &mut next_part[0];
+
+    // Match noise floor
+    match_noise_floor_db_with_limit(
+      &prev.waveform,
+      &mut next.waveform,
+      seam_bins,
+      max_positive_floor_shift_db,
+    );
+
+    // Crossfade overlap region if seam_bins > 0
+    if seam_bins > 0 && prev.waveform.len() >= seam_bins && next.waveform.len() >= seam_bins {
+        let prev_waveform = &prev.waveform;
+        let next_waveform = &next.waveform;
+        let mut result = Vec::with_capacity(seam_bins);
+        let prev_start = prev_waveform.len() - seam_bins;
+        
+        for j in 0..seam_bins {
+            let t = j as f32 / (seam_bins - 1) as f32;
+            let val = lerp(prev_waveform[prev_start + j], next_waveform[j], t);
+            result.push(val);
+        }
+        
+        // Update next waveform's beginning with crossfaded data
+        for (j, &val) in result.iter().enumerate() {
+            next.waveform[j] = val;
+        }
+    }
+  }
+
+  let bins_per_hz = processed_segments
+    .iter()
+    .map(|s| {
+      let span = s.visual_range.max - s.visual_range.min;
+      if span > 0.0 {
+        s.waveform.len() as f64 / span
+      } else {
+        0.0
+      }
+    })
+    .fold(0.0, f64::max);
+
+  let target_bins = if let Some(min_bins) = options.minimum_bins {
+    (total_span * bins_per_hz).max(min_bins as f64) as usize
+  } else {
+    (total_span * bins_per_hz) as usize
+  };
+
+  if target_bins == 0 {
+    return Ok(Vec::new());
+  }
+
+  let mut target = vec![0.0f32; target_bins];
+  // Sort segments by frequency for linear scanning optimization
+  let mut sorted_segments = processed_segments;
+  sorted_segments.sort_by(|a, b| a.visual_range.min.partial_cmp(&b.visual_range.min).unwrap_or(std::cmp::Ordering::Equal));
+
+  let mut current_segment_idx = 0;
+  for i in 0..target_bins {
+    let freq = min_freq + (i as f64 / target_bins as f64) * total_span;
+    
+    // Fast forward to the first potential segment (O(N+M) total complexity)
+    while current_segment_idx < sorted_segments.len() && freq > sorted_segments[current_segment_idx].visual_range.max {
+      current_segment_idx += 1;
+    }
+
+    // Check current and subsequent overlapping segments (usually only 1 or 2)
+    let mut found = false;
+    let mut check_idx = current_segment_idx;
+    while check_idx < sorted_segments.len() && freq >= sorted_segments[check_idx].visual_range.min {
+      let segment = &sorted_segments[check_idx];
+      if freq <= segment.visual_range.max {
+        let span = segment.visual_range.max - segment.visual_range.min;
+        if span > 0.0 {
+          let t = (freq - segment.visual_range.min) / span;
+          let idx = (t * (segment.waveform.len() - 1) as f64).round() as usize;
+          
+          if idx < segment.waveform.len() {
+            target[i] = segment.waveform[idx];
+            found = true;
+            break; 
+          }
+        }
+      }
+      check_idx += 1;
+    }
+    
+    if !found {
+      // Use noise floor from the nearest segment if available
+      if let Some(seg) = sorted_segments.get(current_segment_idx).or(sorted_segments.last()) {
+        target[i] = seg.db_min.unwrap_or(-120.0);
+      } else {
+        target[i] = -120.0;
+      }
+    }
+  }
+
+  let mut stitched = target;
+
+  if let Some(radius) = options.smoothing_radius {
+    if radius > 0 {
+      stitched = smooth_waveform(&stitched, radius);
+    }
+  }
+
+  Ok(stitched)
 }
 
 /// Hann-weighted crossfade between two signals
@@ -136,6 +410,28 @@ pub fn crossfade_f32(a: &[f32], b: &[f32], overlap: usize) -> Vec<f32> {
   result.extend_from_slice(&b[overlap..]);
 
   result
+}
+
+/// Calculate the RMS error between two dB-domain spectrum segments.
+/// Lower is better; indicates how well the overlap matches.
+pub fn calculate_rms_error_db(a: &[f32], b: &[f32]) -> f32 {
+  if a.len() != b.len() || a.is_empty() {
+    return 0.0;
+  }
+  let mut sum_sq_error = 0.0f32;
+  let mut count = 0usize;
+  for (va, vb) in a.iter().zip(b.iter()) {
+    if va.is_finite() && vb.is_finite() {
+      let diff = va - vb;
+      sum_sq_error += diff * diff;
+      count += 1;
+    }
+  }
+  if count > 0 {
+    (sum_sq_error / count as f32).sqrt()
+  } else {
+    0.0
+  }
 }
 
 /// Remove DC offset from signal

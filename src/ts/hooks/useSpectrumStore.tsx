@@ -807,9 +807,20 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
     // liveDataRef is written directly by the middleware — never goes through Redux.
     const dataRef = liveDataRef;
 
+    const reduxSpectrumState = useAppSelector((s) => s.spectrum);
+
     const mergedState = useMemo(
-      () => applyWaterfallStateOverrides(state, waterfallState),
-      [state, waterfallState],
+      () => ({
+        ...applyWaterfallStateOverrides(state, waterfallState),
+        fftSize: reduxSpectrumState.fftSize,
+        fftWindow: reduxSpectrumState.fftWindow,
+        fftFrameRate: reduxSpectrumState.fftFrameRate,
+        gain: reduxSpectrumState.gain,
+        ppm: reduxSpectrumState.ppm,
+        tunerAGC: reduxSpectrumState.tunerAGC,
+        rtlAGC: reduxSpectrumState.rtlAGC,
+      }),
+      [state, waterfallState, reduxSpectrumState],
     );
 
     const storeDispatch = useCallback(

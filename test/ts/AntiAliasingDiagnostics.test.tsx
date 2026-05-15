@@ -1,7 +1,7 @@
 import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { StitchTestRoute } from "@n-apt/routes/StitchTestRoute";
+import { AntiAliasingDiagnostics } from "@n-apt/routes/AntiAliasingDiagnostics";
 import { SpectrumProvider, INITIAL_SPECTRUM_STATE } from "@n-apt/hooks/useSpectrumStore";
 import { ThemeProvider } from "styled-components";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
@@ -15,6 +15,14 @@ jest.mock("lucide-react", () => ({
   Info: () => <div data-testid="info-icon" />,
 }));
 
+jest.mock("@n-apt/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({
+    isAuthenticated: true,
+    sessionToken: "mock-token",
+    aesKey: "mock-key",
+  }),
+}));
+
 const defaultTheme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,
   fftColor: THEME_TOKENS.colors.dark.fftLine,
@@ -23,7 +31,7 @@ const defaultTheme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-describe("StitchTestRoute", () => {
+describe("AntiAliasingDiagnostics", () => {
   const mockDispatch = jest.fn();
   
   const defaultMockValue = {
@@ -82,7 +90,7 @@ describe("StitchTestRoute", () => {
     return render(
       <ThemeProvider theme={defaultTheme}>
         <SpectrumProvider mockValue={mockValue}>
-          <StitchTestRoute />
+          <AntiAliasingDiagnostics />
         </SpectrumProvider>
       </ThemeProvider>
     );
@@ -92,7 +100,8 @@ describe("StitchTestRoute", () => {
     renderComponent();
     // Check for containers instead of canvas text which isn't in DOM
     expect(screen.getByText("Raw Hops (A/B Overlap)")).toBeInTheDocument();
-    expect(screen.getByText("Stitched Magnitude Output")).toBeInTheDocument();
+    expect(screen.getByText("Stitched Magnitude Output (Backend)")).toBeInTheDocument();
+    expect(screen.getByText("Stitched Magnitude Output (Frontend WASM)")).toBeInTheDocument();
   });
 
   it("triggers diagnostic when diagnosticTrigger increases", async () => {
@@ -135,7 +144,7 @@ describe("StitchTestRoute", () => {
     rerender(
       <ThemeProvider theme={defaultTheme}>
         <SpectrumProvider mockValue={triggeredMockValue}>
-          <StitchTestRoute />
+          <AntiAliasingDiagnostics />
         </SpectrumProvider>
       </ThemeProvider>
     );
@@ -171,7 +180,7 @@ describe("StitchTestRoute", () => {
     rerender(
       <ThemeProvider theme={defaultTheme}>
         <SpectrumProvider mockValue={triggeredMockValue}>
-          <StitchTestRoute />
+          <AntiAliasingDiagnostics />
         </SpectrumProvider>
       </ThemeProvider>
     );

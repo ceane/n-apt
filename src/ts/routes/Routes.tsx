@@ -35,9 +35,9 @@ const MapEndpointsRoute = lazy(() =>
     default: m.MapEndpointsRoute,
   })),
 );
-const StitchTestRoute = lazy(() =>
-  import("@n-apt/routes/StitchTestRoute").then((m) => ({
-    default: m.StitchTestRoute,
+const AntiAliasingDiagnostics = lazy(() =>
+  import("@n-apt/routes/AntiAliasingDiagnostics").then((m) => ({
+    default: m.AntiAliasingDiagnostics,
   })),
 );
 const PretextDemoRoute = lazy(() =>
@@ -235,13 +235,13 @@ const AppRoutesInner: React.FC = () => {
           }
         />
         <Route
-          path="/stitch-test"
+          path="/diagnostics/anti-aliasing"
           element={
             <MainLayout sidebar={<SDRTestSidebar />}>
               <Suspense
                 fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
               >
-                <StitchTestRoute />
+                <AntiAliasingDiagnostics />
               </Suspense>
             </MainLayout>
           }

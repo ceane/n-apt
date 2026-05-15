@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use log::{error, info, warn};
 use redis::Client as RedisClient;
@@ -148,6 +148,8 @@ pub struct TowerBoundsResponse {
 #[derive(Debug, Deserialize, Default)]
 pub struct StitchDiagnosticRequest {
   pub center_hz: Option<f64>,
+  pub fft_size: Option<usize>,
+  pub frames_to_average: Option<u32>,
   pub signal_area: Option<String>,
   pub stitch_options: Option<StitchOptions>,
 }
@@ -176,9 +178,9 @@ pub struct StitchDiagnosticTiming {
 
 #[derive(Debug, Serialize)]
 pub struct StitchDiagnosticResponse {
-  pub hop1_frames: Vec<Vec<f32>>,
-  pub hop2_frames: Vec<Vec<f32>>,
-  pub stitched_frames: Vec<Vec<f32>>,
+  pub hop1_frames: Vec<Vec<u8>>,
+  pub hop2_frames: Vec<Vec<u8>>,
+  pub stitched_frames: Vec<Vec<u8>>,
   pub hop1_freq_hz: [f64; 2],
   pub hop2_freq_hz: [f64; 2],
   pub stitched_freq_hz: [f64; 2],
@@ -196,6 +198,10 @@ pub struct StitchDiagnosticResponse {
   pub reconstructed_freq_hz: Option<f64>,
   pub timing: StitchDiagnosticTiming,
   pub acquisition_mode: String,
+  /// Frequency of the actual stitch cut (Hz)
+  pub cut_point_hz: f64,
+  /// RMS error between Hop 1 and Hop 2 in the overlap region (dB)
+  pub overlap_rms_error: f32,
 }
 
 fn normalize_tech_key(token: &str) -> String {
@@ -206,6 +212,13 @@ fn normalize_tech_key(token: &str) -> String {
     "2g" => "gsm".to_string(),
     other => other.to_string(),
   }
+}
+
+
+fn convert_to_u8(v: Vec<f32>) -> Vec<u8> {
+  v.into_iter()
+    .map(|val| ((val + 150.0) * (255.0 / 150.0)).clamp(0.0, 255.0) as u8)
+    .collect()
 }
 
 fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
@@ -1169,10 +1182,21 @@ pub async fn stitch_diagnostic_handler(
   let start_time = Instant::now();
   info!("Stitch diagnostic requested (multi-frame)");
 
+  let mut processor = state.sdr_processor.lock().await;
+
+  // Apply FFT size if requested before any processing
+  if let Some(requested_fft_size) = body.as_ref().and_then(|b| b.fft_size) {
+    log::info!("Stitch diagnostic requested FFT size: {}", requested_fft_size);
+    if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
+      fft_size: Some(requested_fft_size),
+      ..Default::default()
+    }) {
+      warn!("Failed to apply requested FFT size {}: {}", requested_fft_size, e);
+    }
+  }
+
   let center_hz_override = body.as_ref().and_then(|b| b.center_hz);
   let signal_area_override = body.as_ref().and_then(|b| b.signal_area.clone());
-
-  let mut processor = state.sdr_processor.lock().await;
 
   // Determine the primary center frequency for Hop 1.
   // We prioritize anchoring to the start of the active signal area if provided.
@@ -1224,9 +1248,10 @@ pub async fn stitch_diagnostic_handler(
     )
   };
 
-  const NUM_FRAMES: usize = 10;
-  let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
-  let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
+  let num_frames_to_average = body.as_ref().and_then(|b| b.frames_to_average).map(|f| f as usize).unwrap_or(10).max(1);
+  let num_frames = num_frames_to_average;
+  let mut hop1_frames = Vec::with_capacity(num_frames);
+  let mut hop2_frames = Vec::with_capacity(num_frames);
   let mut hop1_raw_iq = Vec::new();
   let mut hop2_raw_iq = Vec::new();
 
@@ -1250,7 +1275,7 @@ pub async fn stitch_diagnostic_handler(
   let center2 = center1 + 1_200_000;
   if acq_mode == "interleaved" {
     log::info!("Performing INTERLEAVED capture (rapid hopping)...");
-    for i in 0..NUM_FRAMES {
+    for i in 0..num_frames {
       // Frame for Hop 1
       if let Err(e) = processor.set_center_frequency(center1) {
         state.shared.is_paused.store(was_paused, Ordering::Relaxed);
@@ -1314,7 +1339,7 @@ pub async fn stitch_diagnostic_handler(
           .into_response();
       }
       processor.flush_read_queue();
-      for _ in 0..NUM_FRAMES {
+      for _ in 0..num_frames {
         match processor.read_and_process_frame() {
           Ok(f) => {
             hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
@@ -1343,7 +1368,7 @@ pub async fn stitch_diagnostic_handler(
           .into_response();
       }
       processor.flush_read_queue();
-      for _ in 0..NUM_FRAMES {
+      for _ in 0..num_frames {
         match processor.read_and_process_frame() {
           Ok(f) => {
             hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
@@ -1389,10 +1414,10 @@ pub async fn stitch_diagnostic_handler(
   let overlap_bins = fft_size.saturating_sub(offset_bins);
 
   // 4. Stitching with Options
-  let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
+  let mut stitched_frames = Vec::with_capacity(num_frames);
   let midpoint_bin = overlap_bins / 2;
 
-  for i in 0..NUM_FRAMES {
+  for i in 0..num_frames {
     let mut f1 = hop1_frames[i].clone();
     let mut f2 = hop2_frames[i].clone();
 
@@ -1426,6 +1451,23 @@ pub async fn stitch_diagnostic_handler(
     stitched_frames.push(stitched);
   }
 
+  // Frequency ranges (Hz)
+  let hop1_start = center1 as f64 - (sample_rate / 2.0);
+  let hop1_end = center1 as f64 + (sample_rate / 2.0);
+  let hop2_start = center2 as f64 - (sample_rate / 2.0);
+  let hop2_end = center2 as f64 + (sample_rate / 2.0);
+
+  let overlap_rms_error = if !hop1_frames.is_empty() && !hop2_frames.is_empty() {
+    let f1_overlap = &hop1_frames[0][offset_bins..];
+    let f2_overlap = &hop2_frames[0][..overlap_bins];
+    anti_aliasing::calculate_rms_error_db(f1_overlap, f2_overlap)
+  } else {
+    0.0
+  };
+
+  let bin_size_hz = sample_rate / fft_size as f64;
+  let cut_point_hz = hop1_start + (offset_bins + midpoint_bin) as f64 * bin_size_hz;
+
   let reconstructed_freq_hz = if options.chinese_remainder_synthesis {
     let m1 = anti_aliasing::Measurement::new(&hop1_frames[0], fft_size, sample_rate);
     let m2 = anti_aliasing::Measurement::new(&hop2_frames[0], fft_size, sample_rate);
@@ -1438,12 +1480,6 @@ pub async fn stitch_diagnostic_handler(
     None
   };
 
-  // Frequency ranges (Hz)
-  let hop1_start = center1 as f64 - (sample_rate / 2.0);
-  let hop1_end = center1 as f64 + (sample_rate / 2.0);
-  let hop2_start = center2 as f64 - (sample_rate / 2.0);
-  let hop2_end = center2 as f64 + (sample_rate / 2.0);
-
   let total_latency_ms = start_time.elapsed().as_secs_f32() * 1000.0;
   let slice_duration_ms = (fft_size as f32 / sample_rate as f32) * 1000.0;
   // Mock uses 0ms settle, real hardware usually ~3-10ms based on post_retune_discard_frames
@@ -1453,35 +1489,70 @@ pub async fn stitch_diagnostic_handler(
     10.0
   };
 
-  log::info!("Stitch diagnostic complete. Returning results.");
-  Json(StitchDiagnosticResponse {
-    hop1_frames,
-    hop2_frames,
-    stitched_frames,
-    hop1_freq_hz: [hop1_start, hop1_end],
-    hop2_freq_hz: [hop2_start, hop2_end],
-    stitched_freq_hz: [hop1_start, hop2_end],
-    overlap_start: offset_bins,
-    overlap_end: overlap_bins,
+  // Convert frames to u8
+  let hop1_u8 = hop1_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
+  let hop2_u8 = hop2_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
+  let stitched_u8 = stitched_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
 
-    device_info,
-    hop1_phase_deg,
-    hop2_phase_deg,
-    correction_angle_deg,
-    fm_deviation_khz,
-    reconstructed_freq_hz,
-    acquisition_mode: acq_mode,
-    timing: StitchDiagnosticTiming {
-      total_latency_ms,
-      settle_time_ms,
-      slice_duration_ms,
-      capture_timestamp_ms: std::time::SystemTime::now()
+  let final_len = if !hop1_u8.is_empty() { hop1_u8[0].len() } else { 0 };
+  
+  // Pack response into a binary format:
+  // [Magic:4][HeaderLen:4][JSON_Metadata][Binary_Data]
+  let metadata = serde_json::json!({
+    "fft_size": final_len,
+    "num_frames": num_frames,
+    "hop1_freq_hz": [hop1_start, hop1_end],
+    "hop2_freq_hz": [hop2_start, hop2_end],
+    "stitched_freq_hz": [hop1_start, hop2_end],
+    "overlap_start": offset_bins,
+    "overlap_end": overlap_bins,
+    "device_info": device_info,
+    "hop1_phase_deg": hop1_phase_deg,
+    "hop2_phase_deg": hop2_phase_deg,
+    "correction_angle_deg": correction_angle_deg,
+    "fm_deviation_khz": fm_deviation_khz,
+    "reconstructed_freq_hz": reconstructed_freq_hz,
+    "acquisition_mode": acq_mode,
+    "cut_point_hz": cut_point_hz,
+    "overlap_rms_error": overlap_rms_error,
+    "timing": {
+      "total_latency_ms": total_latency_ms,
+      "settle_time_ms": settle_time_ms,
+      "slice_duration_ms": slice_duration_ms,
+      "capture_timestamp_ms": std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64,
-    },
-  })
-  .into_response()
+    }
+  });
+
+  let json_header = serde_json::to_string(&metadata).unwrap();
+  let json_bytes = json_header.as_bytes();
+  
+  // Header: Magic(4) + JSONLen(4) + JSONData + BinaryData
+  let mut response_bytes = Vec::with_capacity(8 + json_bytes.len() + (num_frames * final_len * 3));
+  response_bytes.extend_from_slice(b"NAPT");
+  response_bytes.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+  response_bytes.extend_from_slice(json_bytes);
+
+  // Flatten and pack binary frames (u8)
+  for frames in [&hop1_u8, &hop2_u8, &stitched_u8] {
+    for frame in frames {
+      response_bytes.extend_from_slice(frame);
+    }
+  }
+
+  log::info!(
+    "Stitch diagnostic complete. Returning {} MB binary payload (u8, {} pts/frame).",
+    response_bytes.len() / 1_000_000,
+    final_len
+  );
+
+  Response::builder()
+    .header("Content-Type", "application/octet-stream")
+    .body(axum::body::Body::from(response_bytes))
+    .unwrap()
+    .into_response()
 }
 
 // WebMCP tool handlers

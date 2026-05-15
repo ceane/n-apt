@@ -234,6 +234,7 @@ export const SDRTestSidebar: React.FC = () => {
           </Section>
 
           <SignalDisplaySection
+            variant="diagnostic"
             sourceMode={state.sourceMode}
             maxSampleRate={maxSampleRate}
             fileCapturedRange={null}

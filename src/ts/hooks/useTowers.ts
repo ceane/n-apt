@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { BACKEND_HTTP_URL } from "@n-apt/consts/env";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 
 export type TowerRadio = "GSM" | "UMTS" | "LTE" | "NR" | "UNKNOWN";
 
@@ -44,6 +45,7 @@ interface TowerBoundsResponse {
 const API_BASE = BACKEND_HTTP_URL.replace(/\/$/, "");
 
 export function useTowers() {
+  const { sessionToken } = useAuthentication();
   const [towers, setTowers] = useState<TowerRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +101,11 @@ export function useTowers() {
       try {
         const response = await fetch(
           `${API_BASE}/api/towers/bounds?${params.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${sessionToken}`,
+            },
+          },
         );
 
         if (!response.ok) {

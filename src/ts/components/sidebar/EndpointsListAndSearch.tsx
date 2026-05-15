@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import styled from "styled-components";
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
+import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { type TowerRecord } from "@n-apt/hooks/useTowers";
 
 const Container = styled.div`
@@ -153,6 +154,7 @@ interface NearestEndpoint {
 }
 
 export const EndpointsListAndSearch: React.FC = () => {
+  const { sessionToken } = useAuthentication();
   const { activeLocationId, locations } = useMapLocations();
   const [nearestEndpoints, setNearestEndpoints] = useState<NearestEndpoint[]>(
     [],
@@ -193,7 +195,11 @@ export const EndpointsListAndSearch: React.FC = () => {
         zoom: "15", // High zoom for detailed results
       });
 
-      const response = await fetch(`/api/towers/bounds?${params}`);
+      const response = await fetch(`/api/towers/bounds?${params}`, {
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

@@ -1,8 +1,8 @@
-import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
+import { stitchWholeChannelWaveform } from "@n-apt/utils/antiAliasing";
 
 describe("stitchWholeChannelWaveform", () => {
-  it("normalizes adjacent segment floors before stitching", () => {
-    const stitched = stitchWholeChannelWaveform(
+  it("normalizes adjacent segment floors before stitching", async () => {
+    const stitched = await stitchWholeChannelWaveform(
       [
         {
           waveform: new Float32Array([-82, -81, -80, -79]),
@@ -26,8 +26,8 @@ describe("stitchWholeChannelWaveform", () => {
     expect(Math.abs(leftEdge - rightEdge)).toBeLessThan(2);
   });
 
-  it("does not raise a later segment when the previous edge is signal-heavy", () => {
-    const stitched = stitchWholeChannelWaveform(
+  it("does not raise a later segment when the previous edge is signal-heavy", async () => {
+    const stitched = await stitchWholeChannelWaveform(
       [
         {
           waveform: new Float32Array([-82, -81, -62, -50]),
@@ -47,8 +47,8 @@ describe("stitchWholeChannelWaveform", () => {
     expect(stitched[stitched.length / 2]).toBeLessThan(-80);
   });
 
-  it("uses linear resampling instead of nearest-bin steps", () => {
-    const stitched = stitchWholeChannelWaveform(
+  it("uses linear resampling instead of nearest-bin steps", async () => {
+    const stitched = await stitchWholeChannelWaveform(
       [
         {
           waveform: new Float32Array([0, 10]),

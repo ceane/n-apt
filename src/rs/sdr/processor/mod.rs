@@ -718,16 +718,21 @@ impl SdrProcessor {
     if let Some(size) = fft_size {
       if size > 0 && (size & (size - 1)) == 0 {
         if config.fft_size != size {
+          info!("Updating FFT size to {}", size);
           config.fft_size = size;
           config.zoom_width = size;
-          config_changed = true;
-          info!("FFT size changed to {}", size);
-
-          let reserve_samples = size.saturating_mul(2);
+          self.display_frame_rate = Self::calculate_valid_frame_rate(size);
+          self.frame.resize_raw_iq_history(size);
+          
+          // Pre-reserve large contiguous blocks for raw IQ processing.
+          // This is critical on macOS to prevent aggressive memory compression/optimization
+          // from triggering page faults during high-speed DSP cycles.
+          let reserve_samples = size.saturating_mul(2); // I+Q
           self.frame.iq_accumulator.reserve_exact(reserve_samples);
           self.frame.iq_frame.reserve_exact(reserve_samples);
           self.frame.last_frame_raw_iq.reserve_exact(reserve_samples);
-          self.frame.resize_raw_iq_history(size);
+
+          config_changed = true;
         }
       } else {
         warn!("Invalid FFT size {} (must be power of 2), ignoring", size);
@@ -842,7 +847,8 @@ impl SdrProcessor {
       16385..=32768 => 60,
       32769..=65536 => 48,
       65537..=131072 => 24,
-      _ => 12,
+      131073..=262144 => 6,
+      _ => 6,
     }
   }
 

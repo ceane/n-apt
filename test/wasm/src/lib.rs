@@ -6,9 +6,11 @@
 pub mod simple_wasm_tests;
 #[cfg(test)]
 pub mod wasm_simd_processor_tests;
-
 #[cfg(test)]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+pub mod anti_aliasing_wasm_tests;
+
+// #[cfg(test)]
+// wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(test)]
 pub fn console_log(msg: &str) {

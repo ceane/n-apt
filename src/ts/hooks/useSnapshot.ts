@@ -23,7 +23,10 @@ import {
   StatsBoxPlacement,
 } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
-import { stitchWholeChannelWaveform } from "@n-apt/utils/rendering/wholeChannelStitching";
+import {
+  stitchWholeChannelWaveform,
+  getAntiAliasingParams,
+} from "@n-apt/utils/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 import {
   escapeAttr,
@@ -820,7 +823,7 @@ function composeWholeChannelWaterfallCanvas(
   return renderedAny ? canvas : null;
 }
 
-function composeWholeChannelSpectrumCanvas(
+async function composeWholeChannelSpectrumCanvas(
   segments: WholeChannelSnapshotSegment[],
   fullRange: Range,
   showGrid: boolean,
@@ -831,13 +834,13 @@ function composeWholeChannelSpectrumCanvas(
   theme?: SnapshotTheme,
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean },
   statsPlacementRef?: { current: StatsBoxPlacement | null },
-): HTMLCanvasElement | null {
+): Promise<HTMLCanvasElement | null> {
   if (!segments.length) return null;
 
   const totalSpan = fullRange.max - fullRange.min;
   if (!(totalSpan > 0)) return null;
   const first = segments[0];
-  const stitched = stitchWholeChannelWaveform(
+  const stitched = await stitchWholeChannelWaveform(
     segments.flatMap((segment) => {
       const waveform = segment.data.waveform;
       return waveform?.length
@@ -851,10 +854,7 @@ function composeWholeChannelSpectrumCanvas(
         : [];
     }),
     fullRange,
-    {
-      smoothingRadius: stitchOptions?.jsAntiAliasing ? 1 : 0,
-      seamBins: stitchOptions?.jsNoiseFloorMatching ? 96 : 0,
-    }
+    getAntiAliasingParams(stitchOptions),
   );
 
   if (!stitched.length) return null;
@@ -1294,7 +1294,7 @@ export function useSnapshot(
           };
         };
 
-        const renderVideoFrameCanvas = (
+        const renderVideoFrameCanvas = async (
           currentData: SnapshotData,
           wholeChannelSegments?: WholeChannelSnapshotSegment[],
         ) => {
@@ -1350,7 +1350,7 @@ export function useSnapshot(
           // Now render with target dimensions
           const currentWholeSpectrumCanvas =
             options.whole && frameSegments?.length
-              ? composeWholeChannelSpectrumCanvas(
+              ? await composeWholeChannelSpectrumCanvas(
                   frameSegments,
                   currentRange,
                   options.showGrid,
@@ -1493,7 +1493,7 @@ export function useSnapshot(
           // Render whole channel canvases at target dimensions
           const wholeChannelSpectrumCanvas =
             options.whole && options.wholeChannelSegments?.length
-              ? composeWholeChannelSpectrumCanvas(
+              ? await composeWholeChannelSpectrumCanvas(
                   options.wholeChannelSegments,
                   rangeToRender,
                   options.showGrid,
@@ -1668,7 +1668,7 @@ export function useSnapshot(
 
               const wholeChannelSpectrumCanvas =
                 options.whole && options.wholeChannelSegments?.length
-                  ? composeWholeChannelSpectrumCanvas(
+                  ? await composeWholeChannelSpectrumCanvas(
                       options.wholeChannelSegments,
                       currentRange,
                       options.showGrid,
@@ -1795,7 +1795,7 @@ export function useSnapshot(
                   }),
                 );
                 renderedFrames.push(
-                  renderVideoFrameCanvas(
+                  await renderVideoFrameCanvas(
                     wholeChannelFrameSegments[0].data,
                     wholeChannelFrameSegments,
                   ),
@@ -1810,7 +1810,7 @@ export function useSnapshot(
                 options.wholeChannelSegments?.length
               ) {
                 renderedFrames.push(
-                  renderVideoFrameCanvas(
+                  await renderVideoFrameCanvas(
                     options.wholeChannelSegments[0].data,
                     options.wholeChannelSegments,
                   ),
@@ -1877,7 +1877,7 @@ export function useSnapshot(
                     "No waveform data available for video snapshot.",
                   );
                 }
-                return renderVideoFrameCanvas(currentData);
+                return await renderVideoFrameCanvas(currentData);
               },
               baseFilename,
               1000,
@@ -1948,7 +1948,7 @@ export function useSnapshot(
         // Render whole channel canvases at target dimensions
         const wholeChannelSpectrumCanvas =
           options.whole && options.wholeChannelSegments?.length
-            ? composeWholeChannelSpectrumCanvas(
+            ? await composeWholeChannelSpectrumCanvas(
                 options.wholeChannelSegments,
                 rangeToRender,
                 options.showGrid,
