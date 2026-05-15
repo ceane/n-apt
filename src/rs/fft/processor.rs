@@ -3,6 +3,7 @@ use anyhow::Result;
 use rand::RngExt;
 use rand::SeedableRng;
 use rustfft::{num_complex::Complex, FftPlanner};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::types::*;
@@ -77,6 +78,8 @@ pub struct FFTProcessor {
   fft_hold: Option<Vec<f32>>,
   /// Native SIMD processor for signal processing
   simd_processor: Option<crate::simd::NativeProcessor>,
+  /// Warm native SIMD processors by FFT size to avoid first-frame switch stalls.
+  simd_processor_cache: HashMap<usize, crate::simd::NativeProcessor>,
 }
 
 impl Default for FFTProcessor {
@@ -93,6 +96,7 @@ impl FFTProcessor {
   ) {
     simd_proc.set_gain(config.gain);
     simd_proc.set_ppm(config.ppm);
+    simd_proc.set_sample_rate(config.sample_rate);
     simd_proc.set_window_type(config.window_type);
   }
 
@@ -125,10 +129,29 @@ impl FFTProcessor {
   fn ensure_simd_processor(&mut self) -> &mut crate::simd::NativeProcessor {
     let config = self.config.clone();
     self.simd_processor.get_or_insert_with(|| {
-      let mut simd_proc = crate::simd::NativeProcessor::new(config.fft_size);
+      let mut simd_proc = self
+        .simd_processor_cache
+        .remove(&config.fft_size)
+        .unwrap_or_else(|| crate::simd::NativeProcessor::new(config.fft_size));
       Self::configure_simd_processor(&mut simd_proc, &config);
       simd_proc
     })
+  }
+
+  pub fn warm_simd_processor_for_size(&mut self, fft_size: usize) {
+    if self.config.fft_size == fft_size {
+      let _ = self.ensure_simd_processor();
+      return;
+    }
+
+    let mut config = self.config.clone();
+    config.fft_size = fft_size;
+    config.zoom_width = fft_size;
+    self.simd_processor_cache.entry(fft_size).or_insert_with(|| {
+      let mut simd_proc = crate::simd::NativeProcessor::new(fft_size);
+      Self::configure_simd_processor(&mut simd_proc, &config);
+      simd_proc
+    });
   }
 
   /// Create a new FFT processor with default configuration
@@ -154,6 +177,7 @@ impl FFTProcessor {
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
       simd_processor: None,
+      simd_processor_cache: HashMap::new(),
     }
   }
 
@@ -171,6 +195,7 @@ impl FFTProcessor {
       rng: rand::rngs::StdRng::seed_from_u64(seed),
       fft_hold: None,
       simd_processor: None,
+      simd_processor_cache: HashMap::new(),
     }
   }
 
@@ -219,6 +244,7 @@ impl FFTProcessor {
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
       simd_processor: None,
+      simd_processor_cache: HashMap::new(),
     }
   }
 
@@ -228,14 +254,18 @@ impl FFTProcessor {
   ///
   /// * `config` - New FFT configuration
   pub fn update_config(&mut self, config: EnhancedFFTConfig) {
-    let size_changed = config.fft_size != self.config.fft_size;
+    let old_fft_size = self.config.fft_size;
+    let size_changed = config.fft_size != old_fft_size;
     self.config = config.clone();
 
     if size_changed {
+      if let Some(simd_processor) = self.simd_processor.take() {
+        self.simd_processor_cache.insert(old_fft_size, simd_processor);
+      }
+
       // Invalidate plans — they will be recreated lazily on next use
       self.fft = None;
       self.ifft = None;
-      self.simd_processor = None;
       self.fft_hold = None;
     }
 
@@ -256,6 +286,15 @@ impl FFTProcessor {
     &mut self,
   ) -> Option<&mut crate::simd::NativeProcessor> {
     self.simd_processor.as_mut()
+  }
+
+  pub fn set_center_frequency(&mut self, freq: u32) {
+    if let Some(ref mut simd) = self.simd_processor {
+      simd.set_center_frequency(freq);
+    }
+    for simd in self.simd_processor_cache.values_mut() {
+      simd.set_center_frequency(freq);
+    }
   }
 
   /// Process raw samples into FFT result with SDR++ style enhancements

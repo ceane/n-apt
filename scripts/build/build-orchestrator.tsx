@@ -614,7 +614,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          'cargo build --bin n-apt-backend',
+          'cargo build --profile dev-fast --bin n-apt-backend',
           'Building Rust backend',
           stepIndex
         );
@@ -625,8 +625,8 @@ const BuildOrchestrator = () => {
 
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand = isNativeWindows
-          ? 'target\\debug\\n-apt-backend.exe'
-          : './target/debug/n-apt-backend';
+          ? 'target\\dev-fast\\n-apt-backend.exe'
+          : './target/dev-fast/n-apt-backend';
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',

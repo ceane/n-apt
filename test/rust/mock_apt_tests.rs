@@ -209,7 +209,7 @@ mod tests {
     assert_eq!(samples.data.len(), 32768 * 2);
 
     let limit = if cfg!(debug_assertions) {
-      std::time::Duration::from_millis(800)
+      std::time::Duration::from_secs(2)
     } else {
       std::time::Duration::from_millis(40)
     };

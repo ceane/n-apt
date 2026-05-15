@@ -67,6 +67,35 @@ fn test_high_resolution_fft_throughput() {
 }
 
 #[test]
+fn test_fft_size_switch_to_max_first_frame_latency() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
+
+    processor.apply_settings(SdrProcessorSettings {
+        fft_size: Some(32768),
+        ..Default::default()
+    }).expect("Failed to apply initial FFT size");
+    let _ = processor.read_and_process_frame().expect("Failed to process warmup frame");
+
+    let start = Instant::now();
+    processor.apply_settings(SdrProcessorSettings {
+        fft_size: Some(262144),
+        ..Default::default()
+    }).expect("Failed to switch to max FFT size");
+    let _ = processor.read_and_process_frame().expect("Failed to process first max-size frame");
+    let elapsed = start.elapsed();
+
+    println!("First frame after 32k -> 256k FFT switch: {:?}", elapsed);
+
+    let limit = if cfg!(debug_assertions) {
+        Duration::from_secs(3)
+    } else {
+        Duration::from_millis(100)
+    };
+
+    assert!(elapsed < limit, "FFT size switch first frame took too long: {:?}", elapsed);
+}
+
+#[test]
 fn test_loop_interval_consistency_across_sizes() {
     let test_cases = [
         (2048, 60),    // 16.6ms

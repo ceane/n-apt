@@ -431,6 +431,9 @@ impl SdrProcessor {
     })?;
 
     processor.set_center_frequency(sdr_settings.center_frequency)?;
+    processor
+      .fft_processor
+      .warm_simd_processor_for_size(sdr_settings.fft.max_size);
 
     info!(
       "SDR processor created and synchronized with device: {}",
@@ -863,9 +866,7 @@ impl SdrProcessor {
   /// Set center frequency
   pub fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
     self.device.set_center_frequency(freq)?;
-    if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
-      let _: () = simd.set_center_frequency(freq);
-    }
+    self.fft_processor.set_center_frequency(freq);
     self.frame.avg_spectrum = None;
     self.frame.last_retune_at = Some(std::time::Instant::now());
     self.frame.post_retune_discard_frames =
