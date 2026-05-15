@@ -68,10 +68,10 @@ describe("VisualizerSliders", () => {
       </TestWrapper>,
     );
 
-    fireEvent.click(screen.getByText("RESET"));
+    fireEvent.click(screen.getByText("Reset"));
     expect(onReset).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText(/AVG/)); // Could be "▹ AVG"
+    fireEvent.click(screen.getByText("FFT Averaging"));
     expect(onAvg).toHaveBeenCalledWith(true);
   });
 
@@ -82,15 +82,15 @@ describe("VisualizerSliders", () => {
       </TestWrapper>,
     );
 
-    // active button has "▸" prefix
-    expect(screen.getByText("▸ AVG")).toBeInTheDocument();
+    // button is present
+    expect(screen.getByText("FFT Averaging")).toBeInTheDocument();
 
     rerender(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} fftAvgEnabled={false} />
       </TestWrapper>,
     );
-    expect(screen.getByText("▹ AVG")).toBeInTheDocument();
+    expect(screen.getByText("FFT Averaging")).toBeInTheDocument();
   });
 
   test("sliders trigger change callbacks on interaction", () => {

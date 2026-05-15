@@ -36,16 +36,18 @@ export function getAntiAliasingParams(options?: {
 
 let wasmModule: any = null;
 
-try {
-  // @ts-ignore
-  const module = (await import("n_apt_canvas")) as any;
-  if (typeof module.default === "function") {
-    await module.default();
+(async () => {
+  try {
+    // @ts-ignore
+    const module = (await import("n_apt_canvas")) as any;
+    if (typeof module.default === "function") {
+      await module.default();
+    }
+    wasmModule = module;
+  } catch (e) {
+    console.warn("Anti-aliasing WASM module failed to load at top-level:", e);
   }
-  wasmModule = module;
-} catch (e) {
-  console.warn("Anti-aliasing WASM module failed to load at top-level:", e);
-}
+})();
 
 /**
  * Helper to get the initialized WASM module.

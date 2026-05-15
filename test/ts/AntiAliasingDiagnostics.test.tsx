@@ -105,10 +105,9 @@ describe("AntiAliasingDiagnostics", () => {
   });
 
   it("triggers diagnostic when diagnosticTrigger increases", async () => {
-    const mockData = {
-      hop1_frames: [[-50, -60, -70]],
-      hop2_frames: [[-55, -65, -75]],
-      stitched_frames: [[-50, -60, -70, -55, -65, -75]],
+    const header = JSON.stringify({
+      fft_size: 3,
+      num_frames: 1,
       hop1_freq_hz: [100e6, 102e6],
       hop2_freq_hz: [101e6, 103e6],
       stitched_freq_hz: [100e6, 103e6],
@@ -123,11 +122,24 @@ describe("AntiAliasingDiagnostics", () => {
       hop2_phase_deg: 20,
       correction_angle_deg: 10,
       fm_deviation_khz: 0.1,
-    };
+    });
+    const headerBytes = new TextEncoder().encode(header);
+    const fftSize = 3;
+    const numFrames = 1;
+    const binaryLen = fftSize * numFrames * 3;
+    const buffer = new ArrayBuffer(8 + headerBytes.length + binaryLen);
+    const view = new DataView(buffer);
+    view.setUint8(0, "N".charCodeAt(0));
+    view.setUint8(1, "A".charCodeAt(0));
+    view.setUint8(2, "P".charCodeAt(0));
+    view.setUint8(3, "T".charCodeAt(0));
+    view.setUint32(4, headerBytes.length, true);
+    new Uint8Array(buffer, 8, headerBytes.length).set(headerBytes);
+    new Uint8Array(buffer, 8 + headerBytes.length).fill(128);
 
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
-      json: async () => mockData,
+      arrayBuffer: async () => buffer,
     });
 
     const { rerender } = renderComponent();
