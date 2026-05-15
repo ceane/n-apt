@@ -78,6 +78,32 @@ interface FFTDiagnosticCanvasProps {
   onZoomChange: (range: [number, number] | null) => void;
 }
 
+const decodeDbFrame = (
+  data: any,
+  frameIndex: number,
+  frameKind: "hop1" | "hop2" | "stitched",
+) => {
+  if (!data) return [];
+
+  if (typeof data.decodeFrame === "function" && Number.isFinite(data.fft_size)) {
+    if (typeof data.getFrame === "function") {
+      return data.getFrame(frameKind, frameIndex);
+    }
+    const fftSize = data.fft_size as number;
+    const offset =
+      frameKind === "hop1"
+        ? frameIndex * fftSize
+        : frameKind === "hop2"
+          ? data.frameSpan + frameIndex * fftSize
+          : 0;
+    return data.decodeFrame(offset);
+  }
+
+  if (frameKind === "hop1") return (data.hop1_frames || [])[frameIndex] || [];
+  if (frameKind === "hop2") return (data.hop2_frames || [])[frameIndex] || [];
+  return (data.stitched_frames || [])[frameIndex] || [];
+};
+
 /** Max-pooling decimation to extract signal envelope when points > pixels */
 const decimateWaveform = (
   waveform: number[] | Float32Array,
@@ -364,14 +390,19 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
   }, [theme, data]);
 
   useEffect(() => {
-    let animationFrameId: number;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let disposed = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let animationFrameId = 0;
 
     const render = () => {
+      if (disposed) return;
+
       const result = getCanvasContext();
-      if (!result) {
-        animationFrameId = requestAnimationFrame(render);
-        return;
-      }
+      if (!result) return;
+
       const { ctx, dpr, width, height, rect } = result;
       const logicalWidth = rect.width;
       const logicalHeight = rect.height;
@@ -386,9 +417,12 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
         ctx.fillStyle = theme.colors.textMuted;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("Run Multi-Frame Capture to start", logicalWidth / 2, logicalHeight / 2);
+        ctx.fillText(
+          "Run Multi-Frame Capture to start",
+          logicalWidth / 2,
+          logicalHeight / 2,
+        );
         ctx.restore();
-        animationFrameId = requestAnimationFrame(render);
         return;
       }
 
@@ -396,29 +430,93 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
       const h2_range = toHz(data.hop2_freq_hz || data.hop2_freq_mhz);
       const hs_range = toHz(data.stitched_freq_hz || data.stitched_freq_mhz);
 
-      const globalRange = zoomRange || (type === "raw" ? [Math.min(h1_range[0], h2_range[0]), Math.max(h1_range[1], h2_range[1])] : hs_range);
+      const globalRange =
+        zoomRange ||
+        (type === "raw"
+          ? [Math.min(h1_range[0], h2_range[0]), Math.max(h1_range[1], h2_range[1])]
+          : hs_range);
 
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      drawAxis(ctx, logicalWidth, logicalHeight, globalRange, type === "raw" ? h1_range : undefined, type === "raw" ? h2_range : undefined, data.hop1_phase_deg, data.hop2_phase_deg, data.correction_angle_deg, data.fm_deviation_khz, type === "stitched");
-      
-      if (type === "raw") {
-        const hop1 = (data.hop1_frames || [])[frameIndex] || [];
-        const hop2 = (data.hop2_frames || [])[frameIndex] || [];
-        drawTrace(ctx, logicalWidth, logicalHeight, hop1, h1_range, theme.colors.danger, theme.colors.danger + "33", globalRange, false);
-        drawTrace(ctx, logicalWidth, logicalHeight, hop2, h2_range, theme.colors.secondary, theme.colors.secondary + "33", globalRange, false);
-      } else {
-        const stitched = (data.stitched_frames || [])[frameIndex] || [];
-        drawTrace(ctx, logicalWidth, logicalHeight, stitched, hs_range, theme.colors.primary, theme.colors.primary + "33", globalRange, true);
-      }
-      ctx.restore();
+      drawAxis(
+        ctx,
+        logicalWidth,
+        logicalHeight,
+        globalRange,
+        type === "raw" ? h1_range : undefined,
+        type === "raw" ? h2_range : undefined,
+        data.hop1_phase_deg,
+        data.hop2_phase_deg,
+        data.correction_angle_deg,
+        data.fm_deviation_khz,
+        type === "stitched",
+      );
 
+      if (type === "raw") {
+        const hop1 = decodeDbFrame(data, frameIndex, "hop1");
+        const hop2 = decodeDbFrame(data, frameIndex, "hop2");
+        drawTrace(
+          ctx,
+          logicalWidth,
+          logicalHeight,
+          hop1,
+          h1_range,
+          theme.colors.danger,
+          theme.colors.danger + "33",
+          globalRange,
+          false,
+        );
+        drawTrace(
+          ctx,
+          logicalWidth,
+          logicalHeight,
+          hop2,
+          h2_range,
+          theme.colors.secondary,
+          theme.colors.secondary + "33",
+          globalRange,
+          false,
+        );
+      } else {
+        const stitched = decodeDbFrame(data, frameIndex, "stitched");
+        drawTrace(
+          ctx,
+          logicalWidth,
+          logicalHeight,
+          stitched,
+          hs_range,
+          theme.colors.primary,
+          theme.colors.primary + "33",
+          globalRange,
+          true,
+        );
+      }
+
+      ctx.restore();
+    };
+
+    const scheduleRender = () => {
+      if (disposed) return;
+      cancelAnimationFrame(animationFrameId);
       animationFrameId = requestAnimationFrame(render);
     };
 
-    animationFrameId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animationFrameId);
+    scheduleRender();
+
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(scheduleRender);
+      resizeObserver.observe(canvas);
+    } else {
+      window.addEventListener("resize", scheduleRender);
+    }
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(animationFrameId);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleRender);
+    };
   }, [data, frameIndex, zoomRange, type, getCanvasContext, drawAxis, drawTrace, theme]);
 
   const handlePointerDown = (e: React.PointerEvent) => {

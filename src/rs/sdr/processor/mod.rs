@@ -434,6 +434,9 @@ impl SdrProcessor {
     processor
       .fft_processor
       .warm_simd_processor_for_size(sdr_settings.fft.max_size);
+    processor
+      .fft_processor
+      .warm_fft_plans_for_size(sdr_settings.fft.max_size);
 
     info!(
       "SDR processor created and synchronized with device: {}",
@@ -837,6 +840,9 @@ impl SdrProcessor {
 
     if config_changed {
       self.fft_processor.update_config(config);
+      if let Some(size) = fft_size {
+        self.fft_processor.warm_fft_plans_for_size(size);
+      }
     }
 
     Ok(())

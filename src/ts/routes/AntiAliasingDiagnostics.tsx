@@ -160,6 +160,68 @@ const MetadataValue = styled.span`
   line-height: 1;
 `;
 
+const BusyOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  z-index: 40;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 10, 16, 0.12) 0%,
+    rgba(8, 10, 16, 0.56) 100%
+  );
+  backdrop-filter: blur(5px);
+`;
+
+const BusyPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 280px;
+  max-width: 460px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 10, 16, 0.78);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+  text-align: center;
+`;
+
+const Spinner = styled.div`
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: ${({ theme }) => theme.colors.primary};
+  animation: spin 0.8s linear infinite;
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
+const BusyTitle = styled.div`
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const BusyText = styled.div`
+  font-size: 12px;
+  line-height: 1.5;
+  color: ${({ theme }) => theme.colors.textSecondary};
+`;
+
 const SegmentedSliderLabel = styled.div<{ $active: boolean; $selected: boolean }>`
   flex: 1;
   display: flex;
@@ -268,6 +330,7 @@ export const AntiAliasingDiagnostics: React.FC = () => {
 
   const { sessionToken } = useAuthentication();
   const isRequestingRef = useRef(false);
+  const isCaptureBusy = state.isDiagnosticRunning;
 
   const runDiagnostic = async () => {
     if (isRequestingRef.current) return;
@@ -318,42 +381,38 @@ export const AntiAliasingDiagnostics: React.FC = () => {
       // Use Uint8Array to read the binary section
       const { fft_size, num_frames } = metadata;
       const u8Data = new Uint8Array(arrayBuffer, binaryStart);
-      
-      const hop1_frames: Float32Array[] = [];
-      const hop2_frames: Float32Array[] = [];
-      const stitched_frames: Float32Array[] = [];
-      
-      // Helper to convert u8 back to dB (-150..0)
-      const u8ToDb = (u8: number) => (u8 * (150.0 / 255.0)) - 150.0;
-      
-      let u8Offset = 0;
-      for (let i = 0; i < num_frames; i++) {
+      const frameSpan = fft_size * num_frames;
+
+      const decodeFrame = (offset: number) => {
         const frame = new Float32Array(fft_size);
-        const sub = u8Data.subarray(u8Offset, u8Offset + fft_size);
-        for (let j = 0; j < fft_size; j++) frame[j] = u8ToDb(sub[j]);
-        hop1_frames.push(frame);
-        u8Offset += fft_size;
-      }
-      for (let i = 0; i < num_frames; i++) {
-        const frame = new Float32Array(fft_size);
-        const sub = u8Data.subarray(u8Offset, u8Offset + fft_size);
-        for (let j = 0; j < fft_size; j++) frame[j] = u8ToDb(sub[j]);
-        hop2_frames.push(frame);
-        u8Offset += fft_size;
-      }
-      for (let i = 0; i < num_frames; i++) {
-        const frame = new Float32Array(fft_size);
-        const sub = u8Data.subarray(u8Offset, u8Offset + fft_size);
-        for (let j = 0; j < fft_size; j++) frame[j] = u8ToDb(sub[j]);
-        stitched_frames.push(frame);
-        u8Offset += fft_size;
-      }
+        const sub = u8Data.subarray(offset, offset + fft_size);
+        for (let j = 0; j < fft_size; j++) {
+          frame[j] = sub[j] * (150.0 / 255.0) - 150.0;
+        }
+        return frame;
+      };
+
+      const getFrame = (
+        section: "hop1" | "hop2" | "stitched",
+        index: number,
+      ) => {
+        const baseOffset =
+          section === "hop1"
+            ? 0
+            : section === "hop2"
+              ? frameSpan
+              : frameSpan * 2;
+        return decodeFrame(baseOffset + index * fft_size);
+      };
 
       setResult({
         ...metadata,
-        hop1_frames,
-        hop2_frames,
-        stitched_frames
+        fft_size,
+        num_frames,
+        u8Data,
+        frameSpan,
+        decodeFrame,
+        getFrame,
       });
       setFrameIndex(0);
       dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: "Capture complete" });
@@ -392,7 +451,7 @@ export const AntiAliasingDiagnostics: React.FC = () => {
 
       setFrameIndex((prev) => {
         const next = prev + (delta > 0 ? 1 : -1);
-        const clamped = Math.max(0, Math.min(result.hop1_frames.length - 1, next));
+        const clamped = Math.max(0, Math.min(result.num_frames - 1, next));
         if (clamped !== prev) lastScrollTime = now;
         return clamped;
       });
@@ -400,28 +459,28 @@ export const AntiAliasingDiagnostics: React.FC = () => {
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [result?.hop1_frames?.length]);
+  }, [result?.num_frames]);
 
   // Frontend WASM Processing
   useEffect(() => {
-    if (!result || !result.hop1_frames || !result.hop2_frames) return;
+    if (!result || !result.getFrame) return;
 
     const processFrontendWasm = async () => {
       setIsWasmProcessing(true);
       try {
-        const hop1 = result.hop1_frames[frameIndex];
-        const hop2 = result.hop2_frames[frameIndex];
+        const hop1 = result.getFrame("hop1", frameIndex);
+        const hop2 = result.getFrame("hop2", frameIndex);
         const h1_range = result.hop1_freq_hz || (result.hop1_freq_mhz || []).map((v: number) => v * 1e6);
         const h2_range = result.hop2_freq_hz || (result.hop2_freq_mhz || []).map((v: number) => v * 1e6);
         const stitched_range = result.stitched_freq_hz || (result.stitched_freq_mhz || []).map((v: number) => v * 1e6);
 
         const segments = [
           {
-            waveform: new Float32Array(hop1),
+            waveform: hop1,
             visualRange: { min: h1_range[0], max: h1_range[1] }
           },
           {
-            waveform: new Float32Array(hop2),
+            waveform: hop2,
             visualRange: { min: h2_range[0], max: h2_range[1] }
           }
         ];
@@ -461,7 +520,21 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         </MetadataRow>
       )}
 
-      <VisualizerGrid ref={scrubberRef}>
+      <VisualizerGrid ref={scrubberRef} style={{ position: "relative" }}>
+        {isCaptureBusy && (
+          <BusyOverlay>
+            <BusyPanel>
+              <Spinner />
+              <BusyTitle>Capturing diagnostics</BusyTitle>
+              <BusyText>
+                Collecting 10 frames from the server and preparing the response.
+                The previous capture stays visible until the new one arrives.
+              </BusyText>
+              <BusyText>{state.diagnosticStatus}</BusyText>
+            </BusyPanel>
+          </BusyOverlay>
+        )}
+
         <FFTDiagnosticCanvas
           title="Raw Hops (A/B Overlap)"
           tooltip="Sub-sample fractional delay tracking. We precisely offset time differences in the overlap, align their sine waves smoothly, and perform a hard midpoint cut to eliminate spectral artifacts."
@@ -472,45 +545,6 @@ export const AntiAliasingDiagnostics: React.FC = () => {
           zoomRange={zoomRange}
           onZoomChange={setZoomRange}
         />
-
-        {result && (
-          <Card
-            style={{
-              padding: "16px 24px",
-              display: "flex",
-              alignItems: "center",
-              gap: "24px",
-              cursor: "ew-resize",
-              touchAction: "none"
-            }}
-          >
-            <div style={{ flex: 1, padding: "0" }}>
-              <SegmentedSlider
-                value={frameIndex + 1}
-                min={1}
-                max={result.hop1_frames?.length || 10}
-                onChange={(v) => setFrameIndex(v - 1)}
-              />
-            </div>
-            <span
-              style={{
-                fontFamily: theme.typography.mono,
-                fontSize: "13px",
-                color: theme.colors.primary,
-                whiteSpace: "nowrap",
-                fontWeight: "bold",
-                background: theme.colors.activeBackground,
-                padding: "4px 10px",
-                borderRadius: "6px",
-                minWidth: "120px",
-                textAlign: "center",
-                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.1)"
-              }}
-            >
-              FRAME {String(frameIndex + 1).padStart(2, "0")} / {String(result.hop1_frames.length).padStart(2, "0")}
-            </span>
-          </Card>
-        )}
 
         <FFTDiagnosticCanvas
           title="Stitched Magnitude Output (Backend)"
@@ -527,15 +561,69 @@ export const AntiAliasingDiagnostics: React.FC = () => {
           tooltip="Final product processed in-browser via WASM (Identical to Production Pipeline)."
           data={result ? {
             ...result,
-            stitched_frames: [Array.from(frontendStitchedFrame || [])]
+            stitched_frames: [frontendStitchedFrame || new Float32Array()]
           } : null}
-          frameIndex={0}
+          frameIndex={frameIndex}
           type="stitched"
           badgeText={isWasmProcessing ? "Processing..." : "WASM Verified"}
           zoomRange={zoomRange}
           onZoomChange={setZoomRange}
         />
+        {isWasmProcessing && (
+          <BusyOverlay style={{ inset: "auto 0 0 0", minHeight: "220px" }}>
+            <BusyPanel>
+              <Spinner />
+              <BusyTitle>Stitching in browser</BusyTitle>
+              <BusyText>
+                Running the frontend WASM stitch for the current slider frame.
+              </BusyText>
+            </BusyPanel>
+          </BusyOverlay>
+        )}
       </VisualizerGrid>
+      {result && (
+        <Card
+          style={{
+            position: "sticky",
+            bottom: "0",
+            zIndex: 25,
+            marginTop: "20px",
+            padding: "16px 24px",
+            display: "flex",
+            alignItems: "center",
+            gap: "24px",
+            cursor: "ew-resize",
+            touchAction: "none",
+            boxShadow: "0 -12px 24px rgba(0,0,0,0.12)",
+          }}
+        >
+          <div style={{ flex: 1, padding: "0" }}>
+            <SegmentedSlider
+              value={frameIndex + 1}
+              min={1}
+              max={result.num_frames || 10}
+              onChange={(v) => setFrameIndex(v - 1)}
+            />
+          </div>
+          <span
+            style={{
+              fontFamily: theme.typography.mono,
+              fontSize: "13px",
+              color: theme.colors.primary,
+              whiteSpace: "nowrap",
+              fontWeight: "bold",
+              background: theme.colors.activeBackground,
+              padding: "4px 10px",
+              borderRadius: "6px",
+              minWidth: "120px",
+              textAlign: "center",
+              boxShadow: "inset 0 1px 2px rgba(0,0,0,0.1)",
+            }}
+          >
+            FRAME {String(frameIndex + 1).padStart(2, "0")} / {String(result.num_frames).padStart(2, "0")}
+          </span>
+        </Card>
+      )}
     </Container>
   );
 };

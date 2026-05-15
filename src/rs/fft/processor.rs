@@ -126,6 +126,31 @@ impl FFTProcessor {
     }
   }
 
+  fn prepare_fft_plans_for_size(&mut self, fft_size: usize) {
+    if self.fft_plan_cache.contains_key(&fft_size)
+      && self.ifft_plan_cache.contains_key(&fft_size)
+    {
+      return;
+    }
+
+    let mut planner = FftPlanner::<f32>::new();
+
+    if !self.fft_plan_cache.contains_key(&fft_size) {
+      let fft_plan = planner.plan_fft_forward(fft_size);
+      self.fft_plan_cache.insert(fft_size, fft_plan);
+    }
+
+    if !self.ifft_plan_cache.contains_key(&fft_size) {
+      let ifft_plan = planner.plan_fft_inverse(fft_size);
+      self.ifft_plan_cache.insert(fft_size, ifft_plan);
+    }
+
+    if self.config.fft_size == fft_size {
+      self.fft = self.fft_plan_cache.get(&fft_size).cloned();
+      self.ifft = self.ifft_plan_cache.get(&fft_size).cloned();
+    }
+  }
+
   fn ensure_simd_processor(&mut self) -> &mut crate::simd::NativeProcessor {
     let config = self.config.clone();
     self.simd_processor.get_or_insert_with(|| {
@@ -295,6 +320,10 @@ impl FFTProcessor {
     for simd in self.simd_processor_cache.values_mut() {
       simd.set_center_frequency(freq);
     }
+  }
+
+  pub fn warm_fft_plans_for_size(&mut self, fft_size: usize) {
+    self.prepare_fft_plans_for_size(fft_size);
   }
 
   /// Process raw samples into FFT result with SDR++ style enhancements
