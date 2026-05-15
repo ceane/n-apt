@@ -136,39 +136,25 @@ pub fn smooth_waveform(input: &[f32], radius: usize) -> Vec<f32> {
   if radius == 0 || input.len() < 3 {
     return input.to_vec();
   }
-  
-  // A triangular filter is equivalent to two passes of a box filter.
-  // We use O(N) sliding window box filters.
-  let box_radius = radius / 2;
-  let pass1 = box_filter_simd(input, box_radius);
-  box_filter_simd(&pass1, box_radius)
-}
+  let mut output = vec![0.0f32; input.len()];
+  for i in 0..input.len() {
+    let start = i.saturating_sub(radius);
+    let end = (i + radius + 1).min(input.len());
+    let mut sum = 0.0f32;
+    let mut weight_sum = 0.0f32;
 
-#[cfg(target_arch = "wasm32")]
-fn box_filter_simd(input: &[f32], radius: usize) -> Vec<f32> {
-  let len = input.len();
-  let mut output = vec![0.0f32; len];
-  let window_size = 2 * radius + 1;
-  let inv_window = 1.0 / window_size as f32;
-  
-  let mut sum = 0.0f32;
-  // Initial sum
-  for i in 0..window_size.min(len) {
-    sum += input[i];
-  }
-  
-  for i in 0..len {
-    output[i] = sum * inv_window;
-    
-    let left = i as isize - radius as isize;
-    let right = i as isize + radius as isize + 1;
-    
-    if left >= 0 && left < len as isize {
-      sum -= input[left as usize];
+    for j in start..end {
+      let distance = i.abs_diff(j);
+      let weight = (radius + 1 - distance) as f32;
+      sum += input[j] * weight;
+      weight_sum += weight;
     }
-    if right < len as isize {
-      sum += input[right as usize];
-    }
+
+    output[i] = if weight_sum > 0.0 {
+      sum / weight_sum
+    } else {
+      input[i]
+    };
   }
   output
 }
