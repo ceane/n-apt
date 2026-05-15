@@ -4,10 +4,10 @@ use n_apt_backend::server::utils::save_capture_file_multi;
 use std::fs;
 use tempfile::tempdir;
 
+const ENCRYPTION_FIXTURE_PASSWORD: &str = "napt-test-fixture-password-v1";
+
 fn test_vault_key() -> [u8; 32] {
-  let password = std::env::var("UNSAFE_LOCAL_USER_PASSWORD")
-    .unwrap_or_else(|_| "test-password-123".to_string());
-  crypto::derive_key(&password)
+  crypto::derive_key(ENCRYPTION_FIXTURE_PASSWORD)
 }
 
 #[test]

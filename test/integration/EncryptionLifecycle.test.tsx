@@ -14,10 +14,7 @@ if (typeof window === "undefined") {
 
 describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () => {
   const FIXTURE_PATH = path.resolve(__dirname, "fixtures/encrypted_test.napt");
-  const PASSWORD =
-    process.env.VITE_UNSAFE_LOCAL_USER_PASSWORD ||
-    process.env.UNSAFE_LOCAL_USER_PASSWORD ||
-    "test-password-123";
+  const FIXTURE_PASSWORD = "napt-test-fixture-password-v1";
 
   it("should exist the test fixture", () => {
     expect(fs.existsSync(FIXTURE_PATH)).toBe(true);
@@ -38,8 +35,8 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
 
     expect(headerJson.metadata.encrypted).toBe(true);
 
-    // 3. Derive key using the same password the backend uses for .env.local
-    const aesKey = await deriveAesKey(PASSWORD);
+    // 3. Derive key using the same password used to generate this fixture.
+    const aesKey = await deriveAesKey(FIXTURE_PASSWORD);
 
     // 4. Handle DEK wrapping if present (New Format)
     let finalDecrypted: Uint8Array;
@@ -73,8 +70,8 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
 
   it("should be invariant to trailing whitespace in the password", async () => {
     // This test verifies whitespace trimming matches backend key derivation.
-    const PASSWORD_WITH_SPACE = `${PASSWORD} `;
-    const key1 = await deriveAesKey(PASSWORD);
+    const PASSWORD_WITH_SPACE = `${FIXTURE_PASSWORD} `;
+    const key1 = await deriveAesKey(FIXTURE_PASSWORD);
     const key2 = await deriveAesKey(PASSWORD_WITH_SPACE);
 
     // Export keys to compare their raw bits
