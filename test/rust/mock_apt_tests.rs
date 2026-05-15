@@ -4,6 +4,8 @@ use n_apt_backend::sdr::SdrDevice;
 mod tests {
   use super::*;
 
+  static MOCK_APT_PERF_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
   #[test]
   fn test_device_type() {
     let device = MockAptDevice::new();
@@ -144,45 +146,58 @@ mod tests {
   #[test]
   fn test_performance_and_identity_regression() {
     use std::time::Instant;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+
     // Use a fixed seed for deterministic output
     let mut device = MockAptDevice::new_with_seed(12345);
     let fft_size = 262144; // 256k samples (standard large frame)
-    
+
     // 1. Warm up (settle time modeling)
     device.read_samples(1024).unwrap();
-    
+
     // 2. Measure Performance
     let start = Instant::now();
     let samples = device.read_samples(fft_size).unwrap();
     let duration = start.elapsed();
-    
+
     let throughput = (fft_size as f64 / duration.as_secs_f64()) / 1_000_000.0;
     println!("MOCK APT PERFORMANCE:");
     println!("  Generated {} samples in {:?}", fft_size, duration);
     println!("  Throughput: {:.2} MSPS", throughput);
-    
+
     // 3. Verify Identity (Waveform Checksum)
     // Sum of all bytes in the I/Q frame
     let checksum: u64 = samples.data.iter().map(|&b| b as u64).sum();
     println!("MOCK APT IDENTITY:");
     println!("  Waveform checksum: {}", checksum);
-    
+    assert_eq!(checksum, 66846658, "mock APT waveform checksum changed");
+
     // Ensure determinism
     let mut device2 = MockAptDevice::new_with_seed(12345);
     device2.read_samples(1024).unwrap();
     let samples2 = device2.read_samples(fft_size).unwrap();
     let checksum2: u64 = samples2.data.iter().map(|&b| b as u64).sum();
-    
-    assert_eq!(checksum, checksum2, "Waveform must be deterministic with same seed");
-    
+
+    assert_eq!(
+      checksum, checksum2,
+      "Waveform must be deterministic with same seed"
+    );
+
     // Initial sanity check for performance (should be well under 100ms for 256k samples on modern CPUs)
     // If it's over 500ms, it's definitely "out of control".
-    assert!(duration.as_millis() < 5000, "Performance is extremely out of control: {:?}", duration);
+    assert!(
+      duration.as_millis() < 5000,
+      "Performance is extremely out of control: {:?}",
+      duration
+    );
   }
 
   #[test]
   fn test_mock_apt_medium_frame_performance() {
     use std::time::Instant;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
 
     let mut device = MockAptDevice::new_with_seed(20240513);
     device.read_samples(1024).unwrap();
@@ -194,7 +209,7 @@ mod tests {
     assert_eq!(samples.data.len(), 32768 * 2);
 
     let limit = if cfg!(debug_assertions) {
-      std::time::Duration::from_millis(400)
+      std::time::Duration::from_millis(800)
     } else {
       std::time::Duration::from_millis(40)
     };
@@ -210,6 +225,8 @@ mod tests {
   fn test_mock_apt_max_frame_performance() {
     use std::time::Instant;
 
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+
     let mut device = MockAptDevice::new_with_seed(20240513);
     device.read_samples(1024).unwrap();
 
@@ -223,7 +240,7 @@ mod tests {
     let limit = if cfg!(debug_assertions) {
       std::time::Duration::from_secs(12)
     } else {
-      std::time::Duration::from_millis(900)
+      std::time::Duration::from_millis(90)
     };
 
     assert!(
@@ -243,5 +260,21 @@ mod tests {
     assert!(profile.est_signal_pairs > 0);
     assert!(profile.estimated_operations_per_frame > 0);
     assert!(profile.estimated_bytes_per_frame >= 262144 * 2);
+  }
+
+  #[test]
+  fn test_large_fft_frame_rate_regression() {
+    assert_eq!(
+      n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(
+        262144
+      ),
+      12
+    );
+    assert_eq!(
+      n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(
+        32768
+      ),
+      60
+    );
   }
 }

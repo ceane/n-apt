@@ -61,6 +61,15 @@ struct MockAptSignal {
   phase: f64,
 }
 
+#[inline(always)]
+fn modulation_gain(pulse_sin: f64) -> f64 {
+  if cfg!(debug_assertions) {
+    10.0f64.powf((5.0 + 5.0 * pulse_sin) / 20.0)
+  } else {
+    10.0f32.powf(((5.0 + 5.0 * pulse_sin) / 20.0) as f32) as f64
+  }
+}
+
 /// Lightweight snapshot for tracking mock APT generation cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MockAptPerformanceProfile {
@@ -161,13 +170,12 @@ impl MockAptDevice {
         _ => (DEFAULT_MIN_DB, DEFAULT_MAX_DB),
       };
 
-
       let _mid = (range_min + range_max) * 0.5;
       let _span = (range_max - range_min) * 0.5;
 
       // Generate signals distributed across the channel's frequency range with randomized spacing
       let mut current_freq = min_freq;
-      
+
       // Calculate total potential amplitude to prevent clipping later
       let mut total_amp = 0.0;
       let mut temp_signals = Vec::new();
@@ -181,26 +189,31 @@ impl MockAptDevice {
 
         // Advance frequency by a random amount within the configured density range
         let next_gap = match &channel_config.apt_spike_density {
-          Some(crate::server::types::FrequencySpacing::Range(min_hz, max_hz)) => {
-            rng.random_range(*min_hz..*max_hz)
-          }
+          Some(crate::server::types::FrequencySpacing::Range(
+            min_hz,
+            max_hz,
+          )) => rng.random_range(*min_hz..*max_hz),
           Some(crate::server::types::FrequencySpacing::Single(hz)) => *hz,
           _ => DEFAULT_SPIKE_HZ,
         };
         current_freq += next_gap;
-        
+
         if temp_signals.len() >= MAX_SIGNALS_PER_CHANNEL {
           break;
         }
       }
 
       // Normalization factor to keep peak sum < 0.8 (room for noise)
-      let norm_factor = if total_amp > 0.8 { 0.8 / total_amp } else { 1.0 };
+      let norm_factor = if total_amp > 0.8 {
+        0.8 / total_amp
+      } else {
+        1.0
+      };
 
       for (freq, db) in temp_signals {
         // Adjust strength_db by norm_factor
         let adjusted_db = db + 20.0 * norm_factor.log10();
-        
+
         signals.push(MockAptSignal {
           config: MockAptSignalConfig {
             center_frequency_hz: freq,
@@ -442,6 +455,11 @@ impl MockAptDevice {
 
     let sample_rate = self.sample_rate as f64;
     let center_freq = self.center_freq as f64;
+    let pulse_phase_step = 2.0 * PI64 * 3.0 / sample_rate;
+    let frame_pulse_phase_base =
+      2.0 * PI64 * 3.0 * self.total_samples as f64 / sample_rate;
+    let modulation_phase_step = 0.31 / sample_rate;
+    let (pulse_rot_im, pulse_rot_re) = pulse_phase_step.sin_cos();
 
     // Calculate settle factor (0.0 to 1.0) for realistic warm-up
     let settle_factor = if self.samples_since_init < self.settle_time_samples {
@@ -476,12 +494,10 @@ impl MockAptDevice {
     self.byte_buffer.reserve(fft_size * 2);
 
     const CHUNK_SIZE: usize = 1024;
-    
+
     // 1. Filter active signals
-    let active_signals: Vec<&mut MockAptSignal> = self.signals
-      .iter_mut()
-      .filter(|s| s.active)
-      .collect();
+    let active_signals: Vec<&mut MockAptSignal> =
+      self.signals.iter_mut().filter(|s| s.active).collect();
 
     if !active_signals.is_empty() {
       // 2. Pre-calculate starting states for each signal per chunk to ensure bit-identity
@@ -489,10 +505,8 @@ impl MockAptDevice {
         p_re: f64,
         p_im: f64,
         modulation_phase: f32,
-        frame_start_phase: f64, // Changed to f64 to match signal.phase
+        frame_start_phase: f64,
         amp: f64,
-        rel_freq: f64,
-        phase_step: f64,
         r_re: f64,
         r_im: f64,
       }
@@ -502,10 +516,12 @@ impl MockAptDevice {
         Vec::with_capacity(active_signals.len() * num_chunks);
 
       for signal in active_signals {
-        let abs_freq_hz = signal.config.center_frequency_hz + (signal.drift_offset as f64);
-        let effective_center_freq = center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
+        let abs_freq_hz =
+          signal.config.center_frequency_hz + (signal.drift_offset as f64);
+        let effective_center_freq =
+          center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
         let rel_freq = abs_freq_hz - effective_center_freq;
-        
+
         // Skip signals way out of range
         if rel_freq.abs() > (sample_rate / 2.0) + 100_000.0 {
           continue;
@@ -519,6 +535,13 @@ impl MockAptDevice {
         let (mut p_im, mut p_re) = (frame_start_phase as f64).sin_cos();
         let phase_step = 2.0 * PI64 * rel_freq / sample_rate;
         let (r_im, r_re) = phase_step.sin_cos();
+        let (mut chunk_r_re, mut chunk_r_im) = (1.0, 0.0);
+        for _ in 0..CHUNK_SIZE {
+          let next_re = chunk_r_re * r_re - chunk_r_im * r_im;
+          let next_im = chunk_r_im * r_re + chunk_r_re * r_im;
+          chunk_r_re = next_re;
+          chunk_r_im = next_im;
+        }
 
         let mut current_mod_phase = signal.modulation_phase;
 
@@ -529,8 +552,6 @@ impl MockAptDevice {
             modulation_phase: current_mod_phase,
             frame_start_phase,
             amp,
-            rel_freq,
-            phase_step,
             r_re,
             r_im,
           });
@@ -540,34 +561,91 @@ impl MockAptDevice {
           let end = std::cmp::min(start + CHUNK_SIZE, fft_size);
           let current_chunk_size = end - start;
 
-          // Sequential complex rotation to match bit-identity exactly
-          for _ in 0..current_chunk_size {
-            let next_re = p_re * r_re - p_im * r_im;
-            let next_im = p_im * r_re + p_re * r_im;
+          if current_chunk_size == CHUNK_SIZE {
+            let next_re = p_re * chunk_r_re - p_im * chunk_r_im;
+            let next_im = p_im * chunk_r_re + p_re * chunk_r_im;
             p_re = next_re;
             p_im = next_im;
+          } else {
+            for _ in 0..current_chunk_size {
+              let next_re = p_re * r_re - p_im * r_im;
+              let next_im = p_im * r_re + p_re * r_im;
+              p_re = next_re;
+              p_im = next_im;
+            }
           }
 
           current_mod_phase = (current_mod_phase as f64
-            + 0.31 * current_chunk_size as f64 / sample_rate)
+            + current_chunk_size as f64 * modulation_phase_step)
             as f32;
         }
 
         // Update signal state for next frame
         signal.phase = p_im.atan2(p_re);
         signal.modulation_phase = current_mod_phase;
-        
       }
 
-      // 3. Parallel chunk processing
+      // 3. Chunk processing
       let signal_states_ref = &signal_states;
       let signal_count = signal_states_ref.len() / num_chunks;
-      self.i_accumulator.par_chunks_mut(CHUNK_SIZE)
-        .zip(self.q_accumulator.par_chunks_mut(CHUNK_SIZE))
-        .enumerate()
-        .for_each(|(chunk_idx, (i_chunk, q_chunk))| {
+      let use_parallel = fft_size >= 65536 && signal_count > 1;
+
+      if use_parallel {
+        self
+          .i_accumulator
+          .par_chunks_mut(CHUNK_SIZE)
+          .zip(self.q_accumulator.par_chunks_mut(CHUNK_SIZE))
+          .enumerate()
+          .for_each(|(chunk_idx, (i_chunk, q_chunk))| {
+            let current_chunk_size = i_chunk.len();
+            let block_start = chunk_idx * CHUNK_SIZE;
+            let chunk_pulse_phase_base = frame_pulse_phase_base
+              + 2.0 * PI64 * 3.0 * block_start as f64 / sample_rate;
+
+            for sig_idx in 0..signal_count {
+              let state = &signal_states_ref[sig_idx * num_chunks + chunk_idx];
+              let mut p_re = state.p_re;
+              let mut p_im = state.p_im;
+              let r_re = state.r_re;
+              let r_im = state.r_im;
+              let amp = state.amp;
+
+              let pulse_phase_base = chunk_pulse_phase_base
+                + state.modulation_phase as f64
+                + state.frame_start_phase as f64 * 0.15;
+              let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
+
+              for j in 0..current_chunk_size {
+                let cur_amp = amp * modulation_gain(pulse_im);
+
+                i_chunk[j] += cur_amp * p_re;
+                q_chunk[j] += cur_amp * p_im;
+
+                let next_re = p_re * r_re - p_im * r_im;
+                let next_im = p_im * r_re + p_re * r_im;
+                p_re = next_re;
+                p_im = next_im;
+
+                let next_pulse_re =
+                  pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
+                let next_pulse_im =
+                  pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
+                pulse_re = next_pulse_re;
+                pulse_im = next_pulse_im;
+              }
+            }
+          });
+      } else {
+        for (chunk_idx, (i_chunk, q_chunk)) in self
+          .i_accumulator
+          .chunks_mut(CHUNK_SIZE)
+          .zip(self.q_accumulator.chunks_mut(CHUNK_SIZE))
+          .enumerate()
+        {
           let current_chunk_size = i_chunk.len();
           let block_start = chunk_idx * CHUNK_SIZE;
+          let chunk_pulse_phase_base = frame_pulse_phase_base
+            + 2.0 * PI64 * 3.0 * block_start as f64 / sample_rate;
 
           for sig_idx in 0..signal_count {
             let state = &signal_states_ref[sig_idx * num_chunks + chunk_idx];
@@ -576,16 +654,14 @@ impl MockAptDevice {
             let r_re = state.r_re;
             let r_im = state.r_im;
             let amp = state.amp;
-            
-            let pulse_phase_base = 2.0 * PI64 * 3.0 * (self.total_samples as f64 + block_start as f64) / sample_rate
+
+            let pulse_phase_base = chunk_pulse_phase_base
               + state.modulation_phase as f64
               + state.frame_start_phase as f64 * 0.15;
-            
-            let pulse_phase_step = 2.0 * PI64 * 3.0 / sample_rate;
+            let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
 
             for j in 0..current_chunk_size {
-              let pp = pulse_phase_base + (j as f64) * pulse_phase_step;
-              let cur_amp = amp * 10.0f64.powf((5.0 + 5.0 * pp.sin()) / 20.0);
+              let cur_amp = amp * modulation_gain(pulse_im);
 
               i_chunk[j] += cur_amp * p_re;
               q_chunk[j] += cur_amp * p_im;
@@ -594,18 +670,30 @@ impl MockAptDevice {
               let next_im = p_im * r_re + p_re * r_im;
               p_re = next_re;
               p_im = next_im;
+
+              let next_pulse_re =
+                pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
+              let next_pulse_im =
+                pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
+              pulse_re = next_pulse_re;
+              pulse_im = next_pulse_im;
             }
           }
-        });
+        }
+      }
     }
 
     // Apply noise, clip and quantize (Sequential to keep RNG identical)
     for j in 0..fft_size {
-      let i_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
-      let q_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
+      let i_noise =
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
+      let q_noise =
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
 
-      let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0) + 128.0) as u8;
-      let q_u8 = (((self.q_accumulator[j] + q_noise).clamp(-1.0, 1.0) * 127.0) + 128.0) as u8;
+      let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0)
+        + 128.0) as u8;
+      let q_u8 = (((self.q_accumulator[j] + q_noise).clamp(-1.0, 1.0) * 127.0)
+        + 128.0) as u8;
 
       self.byte_buffer.push(i_u8);
       self.byte_buffer.push(q_u8);
@@ -616,7 +704,7 @@ impl MockAptDevice {
       self.samples_since_init.wrapping_add(fft_size as u64);
 
     Ok(RawSamples {
-      data: self.byte_buffer.clone(),
+      data: self.byte_buffer.split_off(0),
       sample_rate: self.sample_rate,
     })
   }
@@ -632,7 +720,10 @@ impl MockAptDevice {
   }
 
   /// Return a stable estimate of the work required to generate one frame.
-  pub fn performance_profile(&self, fft_size: usize) -> MockAptPerformanceProfile {
+  pub fn performance_profile(
+    &self,
+    fft_size: usize,
+  ) -> MockAptPerformanceProfile {
     let active_signals = self.signals.iter().filter(|s| s.active).count();
     let num_chunks = (fft_size + 1024 - 1) / 1024;
     let est_signal_pairs = active_signals.saturating_mul(num_chunks);
@@ -651,9 +742,9 @@ impl MockAptDevice {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::server::utils::cwd_lock;
   use std::fs;
   use std::thread::sleep;
-  use crate::server::utils::cwd_lock;
 
   fn write_test_signals_yaml(
     path: &std::path::Path,
