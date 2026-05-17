@@ -21,7 +21,10 @@ import {
   setCaptureStatus,
   setDisplayMode,
   setFftWindow as setFftWindowAction,
+  setFileMetadata,
 } from "@n-apt/redux";
+import { NaptMetadata } from "@n-apt/consts/types";
+
 import { setSnapshotGrid as setSettingsSnapshotGrid } from "@n-apt/redux";
 import {
   sendRestartDevice,
@@ -134,33 +137,7 @@ const hasPersistedFftSize = (): boolean => {
   return false;
 };
 
-type NaptMetadata = {
-  sample_rate?: number;
-  sample_rate_hz?: number;
-  capture_sample_rate_hz?: number;
-  hardware_sample_rate_hz?: number;
-  center_frequency?: number;
-  center_frequency_hz?: number;
-  frequency_range?: [number, number];
-  fft?: { size?: number; window?: string };
-  format?: string;
-  data_format?: string;
-  timestamp_utc?: string;
-  hardware?: string;
-  gain?: number;
-  ppm?: number;
-  frame_rate?: number;
-  fft_size?: number;
-  duration_s?: number;
-  // New fields
-  acquisition_mode?: string;
-  source_device?: string;
-  fft_window?: string;
-  tuner_agc?: boolean;
-  rtl_agc?: boolean;
-  // Geolocation data
-  geolocation?: GeolocationData;
-};
+
 
 export const SpectrumSidebar: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -261,6 +238,7 @@ export const SpectrumSidebar: React.FC = () => {
       fftSize?: number;
       fftWindow?: string;
       frameRate?: number;
+      sampleRate?: number;
       gain?: number;
       ppm?: number;
       tunerAGC?: boolean;
@@ -275,8 +253,10 @@ export const SpectrumSidebar: React.FC = () => {
   const {
     maxFrameRate,
     fftSizeOptions,
+    sampleRateOptions,
     setFftSize,
     setFftFrameRate,
+    setSampleRate,
     setGain,
     setPpm,
     setTunerAGC,
@@ -284,6 +264,8 @@ export const SpectrumSidebar: React.FC = () => {
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate,
+    minReceiveSampleRate:
+      liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
     sdrSettings: liveSdrSettingsToUse,
     spectrumStateOverride: {
       fftSize,
@@ -314,6 +296,9 @@ export const SpectrumSidebar: React.FC = () => {
           ...(settings.frameRate !== undefined
             ? { fftFrameRate: settings.frameRate }
             : {}),
+          ...(settings.sampleRate !== undefined
+            ? { sampleRateHz: settings.sampleRate }
+            : {}),
           ...(settings.gain !== undefined ? { gain: settings.gain } : {}),
           ...(settings.ppm !== undefined ? { ppm: settings.ppm } : {}),
           ...(settings.tunerAGC !== undefined
@@ -341,6 +326,9 @@ export const SpectrumSidebar: React.FC = () => {
       ...(typeof liveState.fftSize !== "number" || liveState.fftSize <= 0
         ? { fftSize: derived.fftSize }
         : {}),
+      ...(typeof liveState.sampleRateHz !== "number" || liveState.sampleRateHz <= 0
+        ? { sampleRateHz: liveSdrSettingsToUse?.sample_rate ?? maxSampleRate }
+        : {}),
       ...(typeof liveState.fftFrameRate !== "number" ||
       liveState.fftFrameRate <= 0
         ? { fftFrameRate: derived.fftFrameRate }
@@ -358,6 +346,7 @@ export const SpectrumSidebar: React.FC = () => {
     liveSdrSettingsToUse,
     storeDispatch,
     liveState.fftSize,
+    liveState.sampleRateHz,
     liveState.fftFrameRate,
     liveState.fftWindow,
   ]);
@@ -432,15 +421,38 @@ export const SpectrumSidebar: React.FC = () => {
     null,
   );
 
+  useEffect(() => {
+    dispatch(setFileMetadata(naptMetadata));
+  }, [naptMetadata, dispatch]);
+
+
   // Handle Playback after capture
   useEffect(() => {
+    // Only proceed if capture status is done, playback is requested, and we have a valid URL
     if (
       liveCaptureStatus?.status === "done" &&
       capturePlayback &&
       liveCaptureStatus.downloadUrl
     ) {
-      const run = async () => {
+      const run = async (retryCount = 0) => {
         try {
+          // Guard: Ensure we have authentication state before attempting fetch
+          // If we are logged in, sessionToken and aesKey should eventually appear
+          if (!sessionToken || !aesKey) {
+            if (retryCount < 10) {
+              console.log(`PlaybackAfterCapture: Waiting for auth state... (attempt ${retryCount + 1})`);
+              setTimeout(() => run(retryCount + 1), 500);
+              return;
+            }
+            throw new Error("Authentication state (session token or AES key) not ready after multiple retries");
+          }
+
+          console.group("PlaybackAfterCapture Flow");
+          console.log("Status: done, triggering transition...");
+          console.log("Download URL:", liveCaptureStatus.downloadUrl);
+          console.log("Session Token present:", !!sessionToken);
+          console.log("AES Key present:", !!aesKey);
+
           // 1. Switch to file mode
           dispatch(setSourceMode("file"));
           storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
@@ -448,21 +460,42 @@ export const SpectrumSidebar: React.FC = () => {
           storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
           dispatch(clearWaterfall());
 
-          // 3. Fetch the file
-          const url = liveCaptureStatus.downloadUrl
-            ? `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`
-            : undefined;
-          if (!url) throw new Error("Missing capture download URL");
-          const response = await fetch(url);
+          // 2. Construct the URL
+          const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken)}`;
+          
+          // 3. Fetch the file with retry for transient network/server issues
+          let response;
+          try {
+            response = await fetch(url);
+          } catch (fetchErr) {
+            if (retryCount < 3) {
+              console.warn("PlaybackAfterCapture: Fetch failed, retrying...", fetchErr);
+              console.groupEnd();
+              setTimeout(() => run(retryCount + 1), 1000);
+              return;
+            }
+            throw fetchErr;
+          }
+
+          console.log("Fetch status:", response.status);
+          
+          if (response.status === 401) {
+            console.error("PlaybackAfterCapture: 401 Unauthorized. Session might be stale.");
+            // We don't automatically logout here as useAuthentication handles it, 
+            // but we should notify the user.
+            throw new Error("Playback failed: Unauthorized (401). Please try logging in again.");
+          }
+
           if (!response.ok)
-            throw new Error(`HTTP error! status: ${response.status} `);
+            throw new Error(`HTTP error! status: ${response.status}`);
+
           const blob = await response.blob();
           const filename = liveCaptureStatus.filename || "capture.napt";
           const file = new File([blob], filename, {
             type: "application/octet-stream",
           });
 
-          // 4. Update selected files
+          // 4. Update file registry and selected files
           const id = fileRegistry.register(file);
           const serializedFile = {
             id,
@@ -476,13 +509,22 @@ export const SpectrumSidebar: React.FC = () => {
             files: [serializedFile],
           });
 
-          // 5. Trigger stitching/playback
+          console.log("File registered and selected. ID:", id);
+
+          // 5. Trigger stitching/playback with a slight delay to allow the metadata effect to start
+          // We wait for the file to be "ready" in the registry.
           setTimeout(() => {
+            console.log("Triggering stitch...");
             dispatch(triggerStitch());
             storeDispatch({ type: "TRIGGER_STITCH" });
-          }, 500);
+            console.groupEnd();
+          }, 800);
         } catch (e) {
           console.error("Playback after capture failed:", e);
+          console.groupEnd();
+          if (e instanceof Error) {
+            setNaptMetadataError(`Playback failed: ${e.message}`);
+          }
         }
       };
       run();
@@ -491,6 +533,7 @@ export const SpectrumSidebar: React.FC = () => {
     liveCaptureStatus,
     capturePlayback,
     sessionToken,
+    aesKey,
     dispatch,
     storeDispatch,
   ]);
@@ -834,7 +877,9 @@ export const SpectrumSidebar: React.FC = () => {
     const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
     const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
 
+    console.log("Metadata Effect: isNapt?", isNapt, "aesKey present?", !!aesKey);
     if (isNapt && !aesKey) {
+      console.warn("Metadata Effect: NAPT file but NO aesKey!");
       setNaptMetadata(null);
       setNaptMetadataError("Locked (no session key)");
       return;
@@ -1053,6 +1098,9 @@ export const SpectrumSidebar: React.FC = () => {
           <SignalDisplaySection
             sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
+            minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
+            sampleRate={sampleRateHzLocal ?? liveSdrSettingsToUse?.sample_rate ?? maxSampleRate}
+            sampleRateOptions={sampleRateOptions}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={4}
             maxFrameRate={4}
@@ -1067,6 +1115,7 @@ export const SpectrumSidebar: React.FC = () => {
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={() => {}}
             onFftSizeChange={() => {}}
+            onSampleRateChange={() => {}}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
@@ -1182,6 +1231,9 @@ export const SpectrumSidebar: React.FC = () => {
           <SignalDisplaySection
             sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
+            minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
+            sampleRate={sampleRateHzLocal ?? liveSdrSettingsToUse?.sample_rate ?? maxSampleRate}
+            sampleRateOptions={sampleRateOptions}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
             maxFrameRate={maxFrameRate}
@@ -1196,6 +1248,7 @@ export const SpectrumSidebar: React.FC = () => {
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
+            onSampleRateChange={setSampleRate}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });

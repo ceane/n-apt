@@ -1,6 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router } from "react-router-dom";
-import ReactDOM from "react-dom/client";
+import { createRoot } from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
 import { Helmet } from "react-helmet-async";
 import { AppRoutes } from "@n-apt/routes/Routes";
@@ -11,6 +11,12 @@ import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
 import ReduxProvider from "@n-apt/components/ReduxProvider";
 import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";
 import "katex/dist/katex.min.css";
+
+declare global {
+  interface Window {
+    __naptRoot?: ReturnType<typeof createRoot>;
+  }
+}
 
 // Main App component with BrowserRouter wrapper
 export const App: React.FC = () => {
@@ -69,17 +75,19 @@ export const App: React.FC = () => {
   );
 };
 
-// Render the app
-const root = ReactDOM.createRoot(
-  document.getElementById("root") as HTMLElement,
-);
+const container = document.getElementById("root");
+
+if (!container) {
+  throw new Error("Missing #root element");
+}
+
+const root = window.__naptRoot ?? createRoot(container);
+window.__naptRoot = root;
 
 root.render(
-  <React.StrictMode>
-    <HelmetProvider>
-      <ReduxProvider>
-        <App />
-      </ReduxProvider>
-    </HelmetProvider>
-  </React.StrictMode>,
+  <HelmetProvider>
+    <ReduxProvider>
+      <App />
+    </ReduxProvider>
+  </HelmetProvider>,
 );

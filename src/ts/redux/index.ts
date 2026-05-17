@@ -168,6 +168,7 @@ export const spectrumActions = {
 export {
   setSourceMode,
   setSelectedFiles,
+  setFileMetadata,
   setDrawSignal3D,
   setStitchPaused,
   setStitchStatus,

@@ -5,7 +5,7 @@ import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { usePrompt } from "@n-apt/components/ui";
 
 const SectionTitle = styled.div`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -56,7 +56,7 @@ const SearchResults = styled.div`
 const SearchResultItem = styled.div`
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   font-family: ${(props) => props.theme.typography.mono};
   color: ${(props) => props.theme.textPrimary};
   border-bottom: 1px solid ${(props) => props.theme.border};
@@ -80,7 +80,7 @@ const PreviewContainer = styled.div`
 `;
 
 const PreviewTitle = styled.div`
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.textSecondary};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -88,7 +88,7 @@ const PreviewTitle = styled.div`
 `;
 
 const PreviewName = styled.div`
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   margin-bottom: 8px;
@@ -100,7 +100,7 @@ const AddButton = styled.button`
   color: white;
   border: none;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-family: ${(props) => props.theme.typography.mono};
   cursor: pointer;
 
@@ -129,7 +129,7 @@ const Pill = styled.button<{ $color: string; $active: boolean }>`
   color: ${(props) => (props.$active ? "white" : props.theme.textPrimary)};
   border: 1px solid ${(props) => props.$color};
   border-radius: 18px;
-  font-size: .7rem;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-family: ${(props) => props.theme.typography.mono};
   cursor: pointer;
 
@@ -144,7 +144,7 @@ const RemoveButton = styled.button`
   border: none;
   color: ${(props) => props.theme.textSecondary};
   cursor: pointer;
-  font-size: 24px;
+  font-size: ${({ theme }) => theme.typography.headingSize};
 
   &:hover {
     color: ${(props) => props.theme.danger};

@@ -134,6 +134,10 @@ export const buildAppTheme = ({
     cssVariables[toCssVarName("font", key)] = value;
   });
 
+  Object.entries(THEME_TOKENS.fontSizes).forEach(([key, value]) => {
+    cssVariables[toCssVarName("font-size", key)] = value;
+  });
+
   Object.entries(THEME_TOKENS.spacing).forEach(([key, value]) => {
     cssVariables[toCssVarName("space", key)] = value;
   });
@@ -175,7 +179,7 @@ export const GlobalThemeStyle = createGlobalStyle`
   #root {
     background: ${({ theme }) => theme.colors.background};
     color: ${({ theme }) => theme.colors.textPrimary};
-    font-family: ${({ theme }) => theme.typography.body};
+    font-family: ${({ theme }) => theme.typography.mono};
     overscroll-behavior-x: none;
   }
 

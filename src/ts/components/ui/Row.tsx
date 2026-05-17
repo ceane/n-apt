@@ -8,8 +8,8 @@ export const RowContainer = styled.div`
   align-items: center;
   justify-content: space-between;
   grid-column: 1 / -1;
-  gap: 12px;
-  padding: 10px 0;
+  gap: 10px;
+  padding: 8px 0;
   background-color: ${(props) =>
     props.theme.mode === "light"
       ? props.theme.primaryAnchor
@@ -31,12 +31,12 @@ export const RowLabel = styled.div`
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   color: ${(props) => props.theme.textSecondary};
   white-space: pre-wrap;
   line-height: 1.2;
   flex: 1 0 auto;
-  padding-left: 12px;
+  padding-left: 10px;
 `;
 
 export const RowControl = styled.div`
@@ -45,8 +45,8 @@ export const RowControl = styled.div`
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
-  gap: 8px;
-  padding-right: 12px;
+  gap: 6px;
+  padding-right: 10px;
 `;
 
 export interface RowProps {

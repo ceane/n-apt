@@ -140,7 +140,7 @@ const TitleInput = styled.textarea`
   outline: none;
   background: transparent;
   color: #fff;
-  font-family: Inter, sans-serif;
+  font-family: ${({ theme }) => theme.typography.sans};
   font-size: clamp(28px, 4vw, 44px);
   font-weight: 700;
   line-height: 1.04;

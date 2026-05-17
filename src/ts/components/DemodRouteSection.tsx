@@ -14,7 +14,6 @@ import {
   BackgroundVariant,
   Handle,
   Position,
-  ReactFlowProvider,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDemod } from "@n-apt/contexts/DemodContext";
@@ -499,35 +498,10 @@ const DemodRouteSectionInner: React.FC = () => {
         }
         const elk = elkRef.current;
 
-        // Sort nodes to guarantee the intended demodulation order in ELK's eyes
-          const layoutOrder =
-          sourceMode === "file"
-            ? [
-                "source",
-                "metadata",
-                "iq-capture",
-                "fft",
-                "symbols",
-                "bitstream",
-                "stimulus",
-                "output",
-              ]
-            : [
-                "source",
-                "channel",
-                "signalOptions",
-                "iq-capture",
-                "beat",
-                "fft",
-                "spike",
-                "symbols",
-                "bitstream",
-                "stimulus",
-                "output",
-              ];
-        const sortedNodes = nodesRef.current.slice().sort((a: Node, b: Node) => {
-          return layoutOrder.indexOf(a.id) - layoutOrder.indexOf(b.id);
-        });
+        // Preserve the current visual order so source changes do not cause
+        // the flow to flash or reshuffle. ELK still receives the live node
+        // list, but we keep the existing ordering stable.
+        const sortedNodes = nodesRef.current.slice();
 
         const graph = {
           id: "root",
@@ -643,7 +617,7 @@ const DemodRouteSectionInner: React.FC = () => {
         setIsSwitchingFlow(false);
       }
     },
-    [fitView, setNodesLocal, setEdgesLocal, sourceMode],
+    [fitView, setNodesLocal, setEdgesLocal],
   );
 
   const nodeTypes = useMemo(() => NODE_TYPES, []);
@@ -684,7 +658,6 @@ const DemodRouteSectionInner: React.FC = () => {
     nodes.length,
     flowVersion,
     scheduleMeasureAndLayout,
-    sourceMode,
   ]);
 
   // Re-layout on window resize with debouncing
@@ -917,6 +890,7 @@ const DemodRouteSectionInner: React.FC = () => {
       ref={reactFlowWrapper}
       onDragOver={onDragOver}
       onDrop={onDrop}
+      style={{ position: "relative" }}
     >
       <VisibleFrequencyRangeContext.Provider value={visibleFrequencyRange}>
         <StyledReactFlow
@@ -1008,13 +982,9 @@ const DemodRouteSectionInner: React.FC = () => {
   );
 };
 
-// Main component that wraps with ReactFlowProvider
+// Main component uses the top-level ReactFlowProvider from AppRoutes.
 export const DemodRouteSection: React.FC = () => {
-  return (
-    <ReactFlowProvider>
-      <DemodRouteSectionInner />
-    </ReactFlowProvider>
-  );
+  return <DemodRouteSectionInner />;
 };
 
 export default DemodRouteSection;

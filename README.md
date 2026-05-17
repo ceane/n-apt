@@ -279,6 +279,17 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Verification**: `pkg-config --modversion librtlsdr` or `pkg-config --modversion rtlsdr`
   - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
 
+- **HackRF One native library**:
+  - **macOS**: `brew install hackrf`
+  - **Ubuntu/Debian**: `sudo apt install libhackrf-dev`
+  - **Windows**: use **WSL2** for the main dev workflow, then install the Linux package inside WSL
+  - **Verification**: `pkg-config --modversion libhackrf` or `pkg-config --modversion hackrf`
+  - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
+
+- If you are only using file playback or Mock APT playback, you do not need `librtlsdr` or `libhackrf`.
+- `npm run setup` does not install native SDR libraries. It only creates `.env.local` and fetches Rust dependencies, so install the device libraries first if you want live hardware.
+- On Linux, if either device library is missing, also install `pkg-config` and your usual native build tools (`build-essential` on Debian/Ubuntu) so Cargo can discover the library.
+
 - npm installs are delayed by 7 days for newly published package versions via `.npmrc`'s `min-release-age`.
 
 ### Downloading Cell Tower Dataset

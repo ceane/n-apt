@@ -8,6 +8,7 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
   const mockOnFftDbLimitsChange = jest.fn();
+  const mockOnSelectionChange = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
   const spectrumGpuCanvasRef = {
@@ -55,6 +56,7 @@ describe("useFrequencyDrag Hook", () => {
     onVizPanChange: mockOnVizPanChange,
     onVizZoomChange: mockOnVizZoomChange,
     onFftDbLimitsChange: mockOnFftDbLimitsChange,
+    onSelectionChange: mockOnSelectionChange,
     vizZoomRef: { current: 1 },
     vizPanOffsetRef: { current: 0 },
     vizDbMinRef: { current: -120 },
@@ -66,6 +68,7 @@ describe("useFrequencyDrag Hook", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     listeners = {};
+    frequencyRangeRef.current = { min: 100, max: 110 };
 
     // Mock window event listeners
     jest.spyOn(window, "addEventListener").mockImplementation((event, cb) => {
@@ -81,10 +84,10 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   const triggerPointerDown = (clientX: number, clientY: number, pointerId = 1) => {
-    const handler =
-      spectrumContainerRef.current.addEventListener.mock.calls.find(
-        (c: any) => c[0] === "pointerdown",
-      )[1];
+    const calls = spectrumContainerRef.current.addEventListener.mock.calls.filter(
+      (c: any) => c[0] === "pointerdown",
+    );
+    const handler = calls[calls.length - 1][1];
     act(() => {
       handler({ clientX, clientY, pointerId } as any);
     });
@@ -135,6 +138,7 @@ describe("useFrequencyDrag Hook", () => {
 
     // Pointer down at y=100 (upper area)
     triggerPointerDown(100, 100);
+    expect(mockOnSelectionChange).not.toHaveBeenCalled();
 
     // Move to create a box
     triggerPointerMove(200, 200);
@@ -146,6 +150,131 @@ describe("useFrequencyDrag Hook", () => {
 
     // Box of 100px width on 1000px canvas = 10x zoom
     expect(mockOnVizZoomChange).toHaveBeenCalled();
+  });
+
+  it("should start a fresh range drag inside an existing selection unless resizing", () => {
+    const selectionOptions = {
+      ...defaultOptions,
+      disabled: false,
+      selectionMode: "range" as const,
+    };
+    renderHook(() => useFrequencyDrag(selectionOptions));
+
+    triggerPointerDown(120, 120);
+    triggerPointerMove(220, 120);
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+
+    const firstCall = mockOnSelectionChange.mock.calls[0][0];
+    expect(firstCall.min).toBeLessThan(firstCall.max);
+
+    mockOnSelectionChange.mockClear();
+
+    triggerPointerDown(180, 120);
+    expect(mockOnSelectionChange).not.toHaveBeenCalled();
+
+    triggerPointerMove(260, 120);
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    const secondCall = mockOnSelectionChange.mock.calls[0][0];
+    expect(secondCall.min).toBeLessThan(secondCall.max);
+  });
+
+  it("creates a range from right to left without anchoring at the center", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+      }),
+    );
+
+    triggerPointerDown(800, 120);
+    triggerPointerMove(200, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    const next = mockOnSelectionChange.mock.calls[0][0];
+    expect(next.min).toBeLessThan(next.max);
+    expect(next.min).toBeCloseTo(101.648, 2);
+    expect(next.max).toBeCloseTo(108.242, 2);
+  });
+
+  it("does not draw a second DOM rectangle while selecting a range", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+      }),
+    );
+
+    spectrumContainerRef.current.appendChild.mockClear();
+    triggerPointerDown(800, 120);
+    triggerPointerMove(200, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    expect(spectrumContainerRef.current.appendChild).not.toHaveBeenCalled();
+  });
+
+  it("selects freely on the left side of an existing centered range", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+      }),
+    );
+
+    triggerPointerDown(200, 120);
+    triggerPointerMove(100, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    const next = mockOnSelectionChange.mock.calls[0][0];
+    expect(next.min).toBeCloseTo(101, 2);
+    expect(next.max).toBeCloseTo(102, 2);
+    expect(next.max).toBeLessThan(104);
+  });
+
+  it("uses full canvas bounds for React Flow FFT node range selection", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        fullPlotSelection: true,
+      }),
+    );
+
+    triggerPointerDown(0, 0);
+    triggerPointerMove(1000, 0);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    const next = mockOnSelectionChange.mock.calls[0][0];
+    expect(next.min).toBeCloseTo(100, 2);
+    expect(next.max).toBeCloseTo(110, 2);
+  });
+
+  it("uses the latest selection range after rerendering", () => {
+    const { rerender } = renderHook(
+      ({ selectionRange }) =>
+        useFrequencyDrag({
+          ...defaultOptions,
+          selectionMode: "range" as const,
+          selectionRange,
+        }),
+      {
+        initialProps: {
+          selectionRange: { min: 100, max: 110 },
+        },
+      },
+    );
+
+    rerender({ selectionRange: { min: 102, max: 104 } });
+    mockOnSelectionChange.mockClear();
+
+    triggerPointerDown(900, 120);
+    triggerPointerMove(800, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    const next = mockOnSelectionChange.mock.calls[0][0];
+    expect(next.min).toBeGreaterThan(107);
+    expect(next.max).toBeLessThanOrEqual(109.5);
   });
 
   it("should clamp VFO dragging to signal area bounds if provided", () => {

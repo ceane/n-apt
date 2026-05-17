@@ -119,7 +119,7 @@ export const RANGE_TRACK_BACKGROUND =
 export const RANGE_TRACK_BORDER = THEME_TOKENS.colors.dark.rangeTrackBorder;
 export const RANGE_LABELS_COLOR = THEME_TOKENS.colors.dark.rangeLabels;
 export const RANGE_LABELS_PADDING = "0 12px";
-export const RANGE_LABELS_FONT_SIZE = THEME_TOKENS.layout.rangeLabelsFontSize;
+export const RANGE_LABELS_FONT_SIZE = THEME_TOKENS.fontSizes.label;
 
 // FFTPlaybackCanvas constants
 export const STITCHER_BUTTON_STYLE = {
@@ -130,7 +130,7 @@ export const STITCHER_BUTTON_STYLE = {
   borderRadius: "8px",
   color: THEME_TOKENS.colors.dark.stitcherButtonText,
   fontFamily: THEME_TOKENS.typography.mono,
-  fontSize: "12px",
+  fontSize: THEME_TOKENS.fontSizes.code,
   fontWeight: "500",
   cursor: "pointer",
   textAlign: "center",

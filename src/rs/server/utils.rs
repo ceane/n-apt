@@ -7,6 +7,7 @@ use std::io::Write;
 use std::sync::RwLock;
 
 use super::types::{CaptureArtifact, ChannelSpec};
+use super::types::{NaptConfig, SdrConfig};
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
@@ -114,10 +115,20 @@ pub(crate) fn cwd_lock() -> &'static std::sync::Mutex<()> {
 struct CachedSignalsConfig {
   config: super::types::SignalsConfig,
   modified: std::time::SystemTime,
+  checksum: String,
   filename: String,
 }
 
 static SIGNALS_CONFIG: RwLock<Option<CachedSignalsConfig>> = RwLock::new(None);
+
+fn sha256_hex(input: &[u8]) -> String {
+  use sha2::Digest;
+  let digest = sha2::Sha256::digest(input);
+  digest
+    .iter()
+    .map(|b| format!("{:02x}", b))
+    .collect::<String>()
+}
 
 fn reload_signals_config() -> CachedSignalsConfig {
   let filename = if std::path::Path::new("signals.yaml").exists() {
@@ -133,6 +144,7 @@ fn reload_signals_config() -> CachedSignalsConfig {
     .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
 
   let processed = preprocess_frequency_tags(&content);
+  let checksum = sha256_hex(processed.as_bytes());
 
   let config = serde_yaml::from_str(&processed).unwrap_or_else(|e| {
     eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
@@ -168,6 +180,7 @@ fn reload_signals_config() -> CachedSignalsConfig {
   CachedSignalsConfig {
     config,
     modified,
+    checksum,
     filename,
   }
 }
@@ -181,7 +194,26 @@ pub fn signals_config() -> super::types::SignalsConfig {
     match guard.as_ref() {
       Some(cached) => {
         if let Some((_, modified)) = read_config_file(&cached.filename) {
-          modified > cached.modified
+          if modified <= cached.modified {
+            false
+          } else {
+            let path = std::path::Path::new(&cached.filename);
+            let content = if path.exists() {
+              std::fs::read_to_string(path).ok()
+            } else {
+              std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&cached.filename),
+              )
+              .ok()
+            };
+            if let Some(content) = content {
+              let processed = preprocess_frequency_tags(&content);
+              let checksum = sha256_hex(processed.as_bytes());
+              checksum != cached.checksum
+            } else {
+              false
+            }
+          }
         } else {
           false
         }
@@ -196,7 +228,26 @@ pub fn signals_config() -> super::types::SignalsConfig {
     let should_reload = match guard.as_ref() {
       Some(cached) => {
         if let Some((_, modified)) = read_config_file(&cached.filename) {
-          modified > cached.modified
+          if modified <= cached.modified {
+            false
+          } else {
+            let path = std::path::Path::new(&cached.filename);
+            let content = if path.exists() {
+              std::fs::read_to_string(path).ok()
+            } else {
+              std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&cached.filename),
+              )
+              .ok()
+            };
+            if let Some(content) = content {
+              let processed = preprocess_frequency_tags(&content);
+              let checksum = sha256_hex(processed.as_bytes());
+              checksum != cached.checksum
+            } else {
+              false
+            }
+          }
         } else {
           false
         }
@@ -219,6 +270,14 @@ pub fn signals_config() -> super::types::SignalsConfig {
     .unwrap()
     .config
     .clone()
+}
+
+pub fn signals_config_checksum() -> Option<String> {
+  SIGNALS_CONFIG
+    .read()
+    .unwrap()
+    .as_ref()
+    .map(|cached| cached.checksum.clone())
 }
 
 /// Extract line and column numbers from serde_yaml error message
@@ -260,6 +319,52 @@ pub fn trim_channels_for_header(
   out
 }
 
+pub fn compute_min_receive_sample_rate(
+  napt: &NaptConfig,
+  sdr_sample_rate: u32,
+) -> u32 {
+  const RTL_SDR_FLOOR_HZ: u32 = 3_200_000;
+
+  let widest_channel_bandwidth = napt
+    .channels
+    .values()
+    .filter_map(|channel| {
+      let range = &channel.freq_range_hz;
+      if range.len() < 2 {
+        return None;
+      }
+      let min = range[0];
+      let max = range[1];
+      if !min.is_finite() || !max.is_finite() || max <= min {
+        return None;
+      }
+      Some((max - min) as u32)
+    })
+    .max()
+    .unwrap_or(0);
+
+  let derived_floor = widest_channel_bandwidth / 2;
+  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
+  min_receive_sample_rate.min(sdr_sample_rate)
+}
+
+pub fn apply_min_receive_sample_rate(
+  sdr: &mut SdrConfig,
+  napt: &NaptConfig,
+) {
+  let min_receive_sample_rate =
+    compute_min_receive_sample_rate(napt, sdr.sample_rate);
+  sdr.min_receive_sample_rate = Some(min_receive_sample_rate);
+  if sdr.sample_rate < min_receive_sample_rate {
+    log::warn!(
+      "signals.yaml sample_rate {} Hz is below computed receive floor {} Hz; clamping",
+      sdr.sample_rate,
+      min_receive_sample_rate
+    );
+    sdr.sample_rate = min_receive_sample_rate;
+  }
+}
+
 pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   let parsed = signals_config();
   let mut out = Vec::new();
@@ -285,7 +390,10 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
 
 /// Load SDR settings (panic if missing/malformed)
 pub fn load_sdr_settings() -> super::types::SdrConfig {
-  signals_config().signals.sdr.clone()
+  let config = signals_config();
+  let mut sdr = config.signals.sdr.clone();
+  apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
+  sdr
 }
 
 /// Load mock APT signal settings (panic if missing/malformed)
@@ -406,6 +514,8 @@ pub fn should_declare_disconnected(missing_streak: u32) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::server::types::{NaptConfig, SpectrumFrameConfig};
+  use indexmap::IndexMap;
   use std::time::{SystemTime, UNIX_EPOCH};
 
   #[test]
@@ -441,6 +551,30 @@ mod tests {
     std::env::set_current_dir(&original_dir).expect("restore dir");
     let _ = std::fs::remove_dir_all(&temp_dir);
     assert_eq!(settings.sample_rate, parsed.unwrap().sample_rate);
+  }
+
+  #[test]
+  fn computes_hackrf_receive_floor_from_widest_channel() {
+    let mut channels = IndexMap::new();
+    channels.insert(
+      "a".to_string(),
+      SpectrumFrameConfig {
+        label: "A".to_string(),
+        freq_range_hz: vec![18_000.0, 4_390_000.0],
+        description: "A".to_string(),
+      },
+    );
+    channels.insert(
+      "c".to_string(),
+      SpectrumFrameConfig {
+        label: "C".to_string(),
+        freq_range_hz: vec![4_750_000.0, 23_000_000.0],
+        description: "C".to_string(),
+      },
+    );
+    let napt = NaptConfig { channels };
+    let floor = compute_min_receive_sample_rate(&napt, 20_000_000);
+    assert_eq!(floor, 9_125_000);
   }
 
   #[test]

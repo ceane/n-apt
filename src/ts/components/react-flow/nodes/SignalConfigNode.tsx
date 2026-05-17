@@ -155,13 +155,17 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
 
   const {
     fftSizeOptions,
+    sampleRateOptions,
     setFftSize,
     setFftWindow: handleFftWindow,
+    setSampleRate,
     setGain,
     setPpm,
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate: sampleRateHzEffective || 3_200_000,
+    minReceiveSampleRate:
+      liveSdrSettingsConfig?.min_receive_sample_rate ?? undefined,
     sdrSettings: liveSdrSettingsConfig,
     onSettingsChange: (settings) => dispatch(sendSettings(settings)),
   });
@@ -374,16 +378,18 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
           <SettingRow>
             <SettingLabel>
               <GalleryHorizontal size={12} />
-              Sample Size
+              Sample Rate
             </SettingLabel>
-            <InputGroup>
-              <SettingInput
-                type="text"
-                readOnly
-                value={formatFrequencyHz(spectrum.sampleRateHz)}
-              />
-              <UnitLabel>Hz</UnitLabel>
-            </InputGroup>
+            <SettingSelect
+              value={spectrum.sampleRateHz}
+              onChange={(e) => setSampleRate(Number(e.target.value))}
+            >
+              {sampleRateOptions.map((rate) => (
+                <option key={rate} value={rate}>
+                  {formatFrequencyHz(rate)}
+                </option>
+              ))}
+            </SettingSelect>
           </SettingRow>
 
           <SettingRow>

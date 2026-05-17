@@ -47,6 +47,8 @@ const Template = () => {
         <SignalDisplaySection
           sourceMode="live"
           maxSampleRate={statusPayload.sdr_settings.sample_rate}
+          sampleRate={statusPayload.sdr_settings.sample_rate}
+          sampleRateOptions={[3200000, 6400000, 10000000, 20000000]}
           fileCapturedRange={null}
           fftFrameRate={frameRate}
           maxFrameRate={statusPayload.sdr_settings.fft.max_frame_rate}
@@ -61,6 +63,7 @@ const Template = () => {
           powerScale={scale}
           onFftFrameRateChange={setFrameRate}
           onFftSizeChange={setFftSize}
+          onSampleRateChange={() => {}}
           onFftWindowChange={setWindow}
           onTemporalResolutionChange={setRes}
           onPowerScaleChange={setScale}

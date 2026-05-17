@@ -43,6 +43,7 @@ pub struct MockAptDevice {
   samples_since_init: u64,
   last_config_reload_check: Instant,
   last_config_modified: Option<SystemTime>,
+  last_config_checksum: Option<String>,
   rx_queue: Option<Receiver<Vec<u8>>>,
   async_thread: Option<JoinHandle<()>>,
   iq_overflow: Vec<u8>,
@@ -120,6 +121,7 @@ impl MockAptDevice {
       samples_since_init: 0,
       last_config_reload_check: Instant::now(),
       last_config_modified: crate::server::utils::signals_config_modified_at(),
+      last_config_checksum: crate::server::utils::signals_config_checksum(),
       rx_queue: None,
       async_thread: None,
       iq_overflow: Vec::new(),
@@ -285,7 +287,10 @@ impl MockAptDevice {
     self.last_config_reload_check = Instant::now();
 
     let current_modified = crate::server::utils::signals_config_modified_at();
-    if current_modified == self.last_config_modified {
+    let current_checksum = crate::server::utils::signals_config_checksum();
+    if current_modified == self.last_config_modified
+      && current_checksum == self.last_config_checksum
+    {
       return;
     }
 
@@ -294,6 +299,7 @@ impl MockAptDevice {
     self.noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
     self.last_config_modified =
       crate::server::utils::signals_config_modified_at().or(current_modified);
+    self.last_config_checksum = current_checksum;
     log::info!(
       "Reloaded mock APT config from signals.yaml ({} signals)",
       self.signals.len()
@@ -703,8 +709,10 @@ impl MockAptDevice {
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
 
+    let data = std::mem::take(&mut self.byte_buffer);
+    self.byte_buffer.reserve(fft_size * 2);
     Ok(RawSamples {
-      data: self.byte_buffer.split_off(0),
+      data,
       sample_rate: self.sample_rate,
     })
   }

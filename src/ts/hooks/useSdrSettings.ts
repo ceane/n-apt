@@ -10,6 +10,7 @@ import {
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
+  minReceiveSampleRate?: number;
   sdrSettings?: SdrSettingsConfig | null;
   onSettingsChange?: (settings: SDRSettings) => void;
   spectrumStateOverride?: Pick<
@@ -34,10 +35,12 @@ interface UseSdrSettingsReturn {
   tunerAGC: boolean;
   rtlAGC: boolean;
   fftSizeOptions: number[];
+  sampleRateOptions: number[];
   clampGain: (val: number) => number;
   setFftSize: (size: number) => void;
   setFftWindow: (window: string) => void;
   setFftFrameRate: (rate: number) => void;
+  setSampleRate: (rate: number) => void;
   setGain: (gain: number) => void;
   setPpm: (ppm: number) => void;
   setTunerAGC: (enabled: boolean) => void;
@@ -185,8 +188,34 @@ export const deriveStateFromConfig = (
   };
 };
 
+const buildSampleRateOptions = (
+  maxSampleRate: number,
+  minReceiveSampleRate?: number,
+): number[] => {
+  const floor = Math.max(1, Math.floor(minReceiveSampleRate ?? 3_200_000));
+  const ceiling = Math.max(floor, Math.floor(maxSampleRate || floor));
+  const candidates = [
+    floor,
+    2_400_000,
+    3_200_000,
+    4_000_000,
+    5_000_000,
+    6_000_000,
+    8_000_000,
+    10_000_000,
+    12_000_000,
+    16_000_000,
+    20_000_000,
+    ceiling,
+  ];
+  return Array.from(
+    new Set(candidates.filter((rate) => rate >= floor && rate <= ceiling)),
+  ).sort((a, b) => a - b);
+};
+
 export const useSdrSettings = ({
   maxSampleRate,
+  minReceiveSampleRate,
   sdrSettings,
   onSettingsChange,
   spectrumStateOverride,
@@ -200,6 +229,14 @@ export const useSdrSettings = ({
   const maxFrameRate = useMemo(() => {
     return getLogicalMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings);
   }, [maxSampleRate, state.fftSize, sdrSettings]);
+  const sampleRateOptions = useMemo(
+    () =>
+      buildSampleRateOptions(
+        maxSampleRate,
+        minReceiveSampleRate ?? sdrSettings?.min_receive_sample_rate,
+      ),
+    [maxSampleRate, minReceiveSampleRate, sdrSettings?.min_receive_sample_rate],
+  );
 
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
@@ -248,6 +285,13 @@ export const useSdrSettings = ({
     (rate: number) => {
       dispatch(setFftFrameRateAction(rate));
       sendCurrentSettings({ frameRate: rate });
+    },
+    [dispatch, sendCurrentSettings],
+  );
+  const setSampleRate = useCallback(
+    (sampleRate: number) => {
+      dispatch(setSdrSettingsBundle({ sampleRateHz: sampleRate }));
+      sendCurrentSettings({ sampleRate });
     },
     [dispatch, sendCurrentSettings],
   );
@@ -437,10 +481,12 @@ export const useSdrSettings = ({
     ...state,
     maxFrameRate,
     fftSizeOptions,
+    sampleRateOptions,
     clampGain,
     setFftSize,
     setFftWindow,
     setFftFrameRate,
+    setSampleRate,
     setGain,
     setPpm,
     setTunerAGC,

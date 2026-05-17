@@ -26,6 +26,7 @@ export type SDRSettings = {
   fftSize?: number;
   fftWindow?: string;
   frameRate?: number;
+  sampleRate?: number;
   gain?: number;
   ppm?: number;
   tunerAGC?: boolean;
@@ -34,6 +35,7 @@ export type SDRSettings = {
 
 export type SdrSettingsConfig = {
   sample_rate: number;
+  min_receive_sample_rate?: number;
   center_frequency: number;
   gain?: {
     tuner_gain: number;

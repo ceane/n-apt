@@ -1,4 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import { NaptMetadata } from "@n-apt/consts/types";
+
 
 export type SourceMode = "live" | "file";
 export type SelectedFile = { id: string; name: string; downloadUrl?: string };
@@ -59,7 +61,11 @@ export interface WaterfallState {
   // Visualization options
   drawSignal3D: boolean;
   isWaterfallCleared: boolean;
+
+  // Metadata for the currently loaded file (even before processing)
+  loadedFileMetadata?: NaptMetadata | null;
 }
+
 
 const INITIAL_DRAW_PARAMS: DrawParams = {
   spikeCount: 40,
@@ -97,7 +103,10 @@ const initialState: WaterfallState = {
 
   drawSignal3D: false,
   isWaterfallCleared: false,
+
+  loadedFileMetadata: null,
 };
+
 
 const waterfallSlice = createSlice({
   name: "waterfall",
@@ -111,8 +120,10 @@ const waterfallSlice = createSlice({
         state.stitchStatus = "";
         state.isStitchPaused = true;
         state.activePlaybackMetadata = null;
+        state.loadedFileMetadata = null;
         state.playbackChannels = [];
         state.playbackFrameCounter = 0;
+
         // Keep selectedFiles so they're still there when returning
       } else {
         state.sourceMode = action.payload;
@@ -125,8 +136,14 @@ const waterfallSlice = createSlice({
     setSelectedFiles: (state, action: PayloadAction<SelectedFile[]>) => {
       state.selectedFiles = action.payload;
       state.activePlaybackMetadata = null;
+      state.loadedFileMetadata = null;
       state.playbackFrameCounter = 0;
     },
+
+    setFileMetadata: (state, action: PayloadAction<NaptMetadata | null>) => {
+      state.loadedFileMetadata = action.payload;
+    },
+
 
     setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
       state.snapshotGridPreference = action.payload;
@@ -244,7 +261,9 @@ const waterfallSlice = createSlice({
 export const {
   setSourceMode,
   setSelectedFiles,
+  setFileMetadata,
   setSnapshotGrid,
+
   setDrawParams,
   setClumpParams,
   setActiveClumpIndex,

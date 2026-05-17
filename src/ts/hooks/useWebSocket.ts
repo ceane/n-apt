@@ -44,6 +44,7 @@ export type WebSocketData = {
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
+  minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
   dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
@@ -78,6 +79,7 @@ type WsState = {
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
   sampleRateHz: number | null;
+  minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
   data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
@@ -110,6 +112,7 @@ const INITIAL_WS_STATE: WsState = {
   deviceProfile: null,
   maxSampleRateHz: null,
   sampleRateHz: null,
+  minReceiveSampleRateHz: null,
   sdrSettings: null,
   data: null,
   spectrumFrames: [],
@@ -387,6 +390,13 @@ export const useWebSocket = (
                 updates.sdrSettings = parsedData.sdr_settings;
                 if (typeof parsedData.sdr_settings.sample_rate === "number") {
                   updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
+                }
+                if (
+                  typeof parsedData.sdr_settings.min_receive_sample_rate ===
+                  "number"
+                ) {
+                  updates.minReceiveSampleRateHz =
+                    parsedData.sdr_settings.min_receive_sample_rate;
                 }
               }
               if (typeof parsedData.device_state === "string") {

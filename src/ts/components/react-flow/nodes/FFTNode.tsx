@@ -136,8 +136,14 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const demodCenterFreqHz = useAppSelector(
     (state) => state.demod?.centerFreqHz ?? null,
   );
+  const bandwidthCenterFreqHz = useAppSelector(
+    (state) => state.demod?.bandwidthCenterFreqHz ?? null,
+  );
   const demodBandwidthKhz = useAppSelector(
     (state) => state.demod?.bandwidthKhz ?? 500,
+  );
+  const demodBandwidthHz = useAppSelector(
+    (state) => state.demod?.bandwidthHz ?? null,
   );
   const { previewRange, previewAlignment } = useAppSelector((state) => state.spectrum);
 
@@ -187,17 +193,23 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
       }
     }, 50); // 20fps is plenty for range sync
     return () => clearInterval(id);
-  }, [frequencyRange, centerFrequencyHz, demodCenterFreqHz]); // Include demodCenterFreqHz to react to station changes
+  }, [frequencyRange, centerFrequencyHz, demodCenterFreqHz]); // Keep live frame range aligned with the current source metadata
 
   const frame = dataRef.current;
 
   const effectiveDisplayRange = useMemo(() => {
-    return getDisplayRangeForSelection(resolvedRange, previewRange);
-  }, [resolvedRange, previewRange]);
+    return resolvedRange;
+  }, [resolvedRange]);
+
+  const selectionRange = useMemo(() => {
+    return previewRange || undefined;
+  }, [previewRange]);
 
   const currentCenterHz = effectiveDisplayRange
     ? (effectiveDisplayRange.min + effectiveDisplayRange.max) / 2
     : centerFrequencyHz;
+  const selectionCenterHz =
+    bandwidthCenterFreqHz ?? demodCenterFreqHz ?? currentCenterHz;
 
   const handleSelectionChange = useCallback((range: FrequencyRange) => {
     dispatch(setPreviewRange(range));
@@ -212,20 +224,19 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
 
   /** Spectrum slice from Span / Apply — not the same as sample rate or radio demod BW. */
   const selectionDemodOverlay = useMemo(() => {
-    if (
-      !frequencyRange ||
-      !Number.isFinite(frequencyRange.min) ||
-      !Number.isFinite(frequencyRange.max)
-    ) {
+    if (!demodCenterFreqHz || !Number.isFinite(demodCenterFreqHz)) {
       return null;
     }
-    const widthHz = frequencyRange.max - frequencyRange.min;
+    const widthHz =
+      demodBandwidthHz && Number.isFinite(demodBandwidthHz)
+        ? demodBandwidthHz
+        : demodBandwidthKhz * 1000;
     if (!Number.isFinite(widthHz) || widthHz < 1) return null;
     return {
-      centerHz: (frequencyRange.min + frequencyRange.max) / 2,
+      centerHz: demodCenterFreqHz,
       rangeHz: widthHz,
     };
-  }, [frequencyRange]);
+  }, [demodBandwidthHz, demodBandwidthKhz, demodCenterFreqHz]);
 
   const demodOverlayCenterHz = selectionDemodOverlay?.centerHz ??
     demodCenterFreqHz ??
@@ -258,7 +269,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           demodulationCenterFreqHz={
             isSpanConnected
               ? (previewRange
-                  ? (previewRange.min + previewRange.max) / 2
+                  ? selectionCenterHz
                   : data.showDemodOverlay
                     ? demodOverlayCenterHz
                     : undefined)
@@ -273,7 +284,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
                     : undefined)
               : undefined
           }
-          selectionRange={isSpanConnected ? (previewRange || undefined) : undefined}
+          selectionRange={isSpanConnected ? selectionRange : undefined}
           selectionMode="range"
           selectionDisabled={!isSpanConnected}
           bandwidthAlignment={previewAlignment}

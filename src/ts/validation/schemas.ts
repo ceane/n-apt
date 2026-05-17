@@ -65,6 +65,7 @@ export const FreqRangeSchema = z.object({
 
 export const SdrSettingsConfigSchema = z.object({
   sample_rate: z.number(),
+  min_receive_sample_rate: z.number().optional(),
   center_frequency: z.number(),
   gain: z
     .object({
@@ -174,7 +175,7 @@ export const StatusMessageSchema = z.object({
   max_sample_rate: z.number(),
   channels: z.array(SpectrumFrameSchema),
   sdr_settings: SdrSettingsConfigSchema,
-  device: z.enum(["rtl-sdr", "mock_apt"]),
+  device: z.enum(["rtl-sdr", "mock_apt", "hackrf"]),
   device_profile: DeviceProfileSchema,
 });
 

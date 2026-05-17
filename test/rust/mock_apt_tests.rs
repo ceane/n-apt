@@ -194,6 +194,26 @@ mod tests {
   }
 
   #[test]
+  fn test_consecutive_frames_do_not_restart() {
+    let mut device = MockAptDevice::new_with_seed(12345);
+    device.read_samples(1024).unwrap();
+
+    let mut previous_checksum = None;
+    for _ in 0..8 {
+      let samples = device.read_samples(8192).unwrap();
+      let checksum: u64 = samples.data.iter().map(|&b| b as u64).sum();
+      assert!(checksum > 0, "frame checksum should never be zero");
+      if let Some(prev) = previous_checksum {
+        assert_ne!(
+          prev, checksum,
+          "consecutive frames should advance instead of restarting"
+        );
+      }
+      previous_checksum = Some(checksum);
+    }
+  }
+
+  #[test]
   fn test_mock_apt_medium_frame_performance() {
     use std::time::Instant;
 

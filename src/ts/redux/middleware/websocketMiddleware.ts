@@ -332,6 +332,10 @@ const processMessage = (
         if (typeof sdrSettings.sample_rate === "number") {
           updates.sampleRateHz = sdrSettings.sample_rate;
         }
+        if (typeof sdrSettings.min_receive_sample_rate === "number") {
+          updates.minReceiveSampleRateHz =
+            sdrSettings.min_receive_sample_rate;
+        }
       }
       if (typeof parsedData.device_state === "string") {
         updates.deviceState = parsedData.device_state;

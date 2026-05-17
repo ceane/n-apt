@@ -1,22 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { styled } from "styled-components";
 import { Handle, Position } from "@xyflow/react";
-import { Zap, BookmarkPlus, Trash2 } from "lucide-react";
+import { Zap, BookmarkPlus, Trash2, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { FrequencyRange } from "@n-apt/consts/types";
-import {
-  requestNextPausedFrame,
-  sendFrequencyRange,
-} from "@n-apt/redux/thunks/websocketThunks";
+import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
+import { updateSpanStateThunk } from "@n-apt/redux/thunks/demodThunks";
 import { setFrequencyRange, setPreviewRange, setPreviewAlignment } from "@n-apt/redux/slices/spectrumSlice";
-import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   clampFrequencyHz,
-  getBandwidthEndHz,
-  getBandwidthStartHz,
   getCenteredFrequencyHz,
 } from "@n-apt/utils/frequency";
 import { FrequencyInput } from "../../ui/FrequencyInput";
+
 
 
 const Header = styled.div`
@@ -34,7 +30,26 @@ const Title = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: ${({ theme }) => theme.colors.primary};
+  display: flex;
+  align-items: center;
+  gap: 6px;
 `;
+
+const SyncingIndicator = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: ${({ theme }) => theme.colors.textMuted};
+  animation: fadeIn 0.3s ease-out;
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+`;
+
 
 const InfoRow = styled.div`
   display: flex;
@@ -319,27 +334,31 @@ function newPresetId(): string {
 
 export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
-  const hardwareRange = useAppSelector((state) => state.demod.hardwareRange);
   const sampleRateHz = useAppSelector((state) => state.demod.sampleRateHz);
   const activeFrequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
   );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
-  const isPaused = useAppSelector((state) => state.websocket.isPaused);
-  const isConnected = useAppSelector((state) => state.websocket.isConnected);
-
-  const [centerFreqHz, setCenterFreqHz] = useState(26_000_000);
-  const [hardwareSpanHz, setHardwareSpanHz] = useState(3_200_000);
-  const [bandwidthHz, setBandwidthHz] = useState(500_000);
-  const [bandwidthStartHz, setBandwidthStartHz] = useState(
-    getCenteredFrequencyHz(26_000_000, 500_000),
-  );
-  const [alignment, setAlignment] = useState<Alignment>("centered");
+  const centerFreqHz = useAppSelector((state) => state.demod.centerFreqHz) ?? 26_000_000;
+  const hardwareSpanHz = useAppSelector((state) => state.demod.hardwareSpanHz);
+  const bandwidthHz = useAppSelector((state) => state.demod.bandwidthHz);
+  const bandwidthStartHz = useAppSelector((state) => state.demod.bandwidthStartHz);
+  const bandwidthCenterFreqHz = useAppSelector((state) => state.demod.bandwidthCenterFreqHz);
+  const alignment = useAppSelector((state) => state.demod.alignment) as Alignment;
+  const sourceMode = useAppSelector((state) => state.demod.sourceMode);
 
   const [presetNameDraft, setPresetNameDraft] = useState("");
   const [presets, setPresets] = useState<SpanPreset[]>(loadPresetsFromStorage);
-  const lastDispatchedRangeRef = useRef<FrequencyRange | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const isPublishingLocalRangeRef = useRef(false);
+
+  // Syncing indicator logic for source transitions
+  useEffect(() => {
+    setIsSyncing(true);
+    const timer = setTimeout(() => setIsSyncing(false), 800);
+    return () => clearTimeout(timer);
+  }, [sourceMode]);
+
 
 
   const displaySampleRateHz =
@@ -390,157 +409,53 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     };
   }, [bandwidthHz]);
 
-  const prevDerivedSpanRef = useRef<number | null>(null);
-  const hasSyncedInitialValue = useRef(false);
   const lastUserActionTimeRef = useRef<number>(0);
 
-  const getConsolidatedState = useCallback((
-    targetCenter: number,
-    targetBw: number,
-    targetStart: number,
-    targetSpan: number,
-    mode: Alignment,
-    primarySource: 'center' | 'bandwidth' | 'start' | 'external' | 'alignment' | 'preview_sync'
-  ) => {
-    let c = targetCenter;
-    let b = targetBw;
-    let s = targetStart;
-    let span = targetSpan;
-
-    const halfSpan = span / 2;
-    const minC = Math.max(HARDWARE_MIN_CENTER_HZ, GLOBAL_BAND_EDGE_MIN_HZ + halfSpan);
-    const maxC = Math.min(HARDWARE_MAX_CENTER_HZ, GLOBAL_BAND_EDGE_MAX_HZ - halfSpan);
-
-    b = Math.max(MIN_BANDWIDTH_HZ, Math.min(b, span));
-
-    if (primarySource === 'center' || primarySource === 'external') {
-      c = Math.max(minC, Math.min(c, maxC));
-      if (mode === 'centered') {
-        s = c - b / 2;
-      } else if (mode === 'start') {
-        s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
-      } else if (mode === 'end') {
-        s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
+  const updateState = useCallback(
+    (
+      c: number,
+      b: number,
+      s: number,
+      span: number,
+      mode: Alignment,
+      source:
+        | "center"
+        | "bandwidth"
+        | "start"
+        | "external"
+        | "alignment"
+        | "preview_sync"
+        | "file_sync",
+    ) => {
+      if (source !== "preview_sync" && source !== "file_sync") {
+        isPublishingLocalRangeRef.current = true;
       }
-    } else if (primarySource === 'bandwidth') {
-      if (mode === 'start') {
-      } else if (mode === 'end') {
-        const currentEnd = targetStart + targetBw;
-        s = currentEnd - b;
-      } else {
-        s = c - b / 2;
+
+      dispatch(
+        updateSpanStateThunk({
+          params: { center: c, bandwidth: b, start: s, span, mode },
+          source,
+        }),
+      );
+
+      if (source !== "preview_sync" && source !== "file_sync") {
+        setTimeout(() => {
+          isPublishingLocalRangeRef.current = false;
+        }, 0);
       }
-    } else if (primarySource === 'preview_sync') {
-      s = targetStart;
-    } else if (primarySource === 'alignment') {
-      s = Math.max(GLOBAL_BAND_EDGE_MIN_HZ, Math.min(s, GLOBAL_BAND_EDGE_MAX_HZ - b));
-    } else if (primarySource === 'start') {
-      if (mode === 'end') {
-        s = targetStart - b;
-      } else {
-        s = targetStart;
-      }
-    }
-
-    const selectionMin = s;
-    const selectionMax = s + b;
-
-    let windowMin = c - halfSpan;
-    let windowMax = c + halfSpan;
-
-    const buffer = span * 0.01;
-
-    if (selectionMin < windowMin + buffer) {
-      const jump = halfSpan; 
-      c = Math.max(minC, Math.min(c - jump, maxC));
-      windowMin = c - halfSpan;
-      windowMax = c + halfSpan;
-    } else if (selectionMax > windowMax - buffer) {
-      const jump = halfSpan;
-      c = Math.max(minC, Math.min(c + jump, maxC));
-      windowMin = c - halfSpan;
-      windowMax = c + halfSpan;
-    }
-
-    s = Math.max(windowMin, Math.min(s, windowMax - b));
-
-    return { center: c, bandwidth: b, start: s, span: span };
-  }, []);
-
-  const updateState = useCallback((
-    c: number, 
-    b: number, 
-    s: number, 
-    span: number,
-    mode: Alignment, 
-    source: 'center' | 'bandwidth' | 'start' | 'external' | 'alignment' | 'preview_sync'
-  ) => {
-    const next = getConsolidatedState(c, b, s, span, mode, source);
-    
-    const centerMoved = Math.abs(centerFreqHz - next.center) > 0.1;
-    const spanMoved = Math.abs(hardwareSpanHz - next.span) > 0.1;
-
-    setCenterFreqHz(prev => Math.abs(prev - next.center) < 0.01 ? prev : next.center);
-    setBandwidthHz(prev => Math.abs(prev - next.bandwidth) < 0.01 ? prev : next.bandwidth);
-    setBandwidthStartHz(prev => Math.abs(prev - next.start) < 0.01 ? prev : next.start);
-    setHardwareSpanHz(prev => Math.abs(prev - next.span) < 0.01 ? prev : next.span);
-
-    if (source !== 'preview_sync') {
-      const selectionRange = { min: next.start, max: next.start + next.bandwidth };
-      const isDifferent = !lastDispatchedRangeRef.current ||
-        Math.abs(selectionRange.min - lastDispatchedRangeRef.current.min) > 0.1 ||
-        Math.abs(selectionRange.max - lastDispatchedRangeRef.current.max) > 0.1;
-        
-      if (isDifferent) {
-        lastDispatchedRangeRef.current = selectionRange;
-        dispatch(setPreviewRange(selectionRange));
-
-      }
-      dispatch(setPreviewAlignment(mode));
-    }
-
-    if (centerMoved || spanMoved) {
-      const halfSpan = next.span / 2;
-      const hwRange = { min: next.center - halfSpan, max: next.center + halfSpan };
-      
-      isPublishingLocalRangeRef.current = true;
-      dispatch(setFrequencyRange(hwRange));
-      dispatch(sendFrequencyRange(hwRange));
-      setTimeout(() => {
-        isPublishingLocalRangeRef.current = false;
-      }, 0);
-    }
-  }, [getConsolidatedState, dispatch, centerFreqHz, hardwareSpanHz]);
+    },
+    [dispatch],
+  );
 
   const isRecentlyInteracted = Date.now() - lastUserActionTimeRef.current < 1500;
 
   useEffect(() => {
-    if (!activeFrequencyRange) return;
-    if (!hasSyncedInitialValue.current) return;
-
-    const hwCenter = (activeFrequencyRange.min + activeFrequencyRange.max) / 2;
-    const hwSpan = activeFrequencyRange.max - activeFrequencyRange.min;
-
-    if (!isRecentlyInteracted && Math.abs(hwCenter - centerFreqHz) > 1000) {
-      updateState(hwCenter, bandwidthHz, bandwidthStartHz, hwSpan, alignment, 'external');
-    }
-  }, [activeFrequencyRange, hardwareSpanHz, alignment, updateState, centerFreqHz, isRecentlyInteracted, bandwidthHz, bandwidthStartHz]);
-
-  useEffect(() => {
-    if (hasSyncedInitialValue.current) return;
-    if (!Number.isFinite(centerFreqHz) || !Number.isFinite(bandwidthHz)) return;
-    hasSyncedInitialValue.current = true;
-    updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, derivedSpanHz, alignment, "external");
-  }, [centerFreqHz, bandwidthHz, bandwidthStartHz, derivedSpanHz, alignment, updateState]);
-
-  useEffect(() => {
     if (!previewRange || isRecentlyInteracted || isPublishingLocalRangeRef.current) return;
-    
-    const center = (previewRange.min + previewRange.max) / 2;
+
     const bw = previewRange.max - previewRange.min;
-    
-    updateState(centerFreqHz, bw, previewRange.min, hardwareSpanHz, alignment, 'preview_sync');
-  }, [previewRange, updateState, centerFreqHz, hardwareSpanHz, alignment, isRecentlyInteracted]);
+
+    updateState(centerFreqHz, bw, previewRange.min, hardwareSpanHz, alignment, "preview_sync");
+  }, [previewRange, updateState, hardwareSpanHz, alignment, isRecentlyInteracted, centerFreqHz]);
 
   const handleBandwidthStartChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
@@ -568,23 +483,41 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     };
   }, [dispatch]);
 
-  const displayHardwareRange = hardwareRange ?? { min: 0, max: 2_000_000_000 };
-
-  const selectionMinHz = bandwidthStartHz;
-  const selectionMaxHz = bandwidthStartHz + bandwidthHz;
-  const selectionCenterHz = bandwidthStartHz + bandwidthHz / 2;
   const bandwidthStartStepHz =
     alignment === "centered" ? bandwidthHz / 2 : bandwidthHz;
 
   const handleApply = () => {
+    lastUserActionTimeRef.current = Date.now();
+    isPublishingLocalRangeRef.current = true;
+    
     const halfSpan = hardwareSpanHz / 2;
     const range = { 
       min: centerFreqHz - halfSpan, 
       max: centerFreqHz + halfSpan 
     };
+    
     dispatch(setFrequencyRange(range));
     dispatch(sendFrequencyRange(range));
+    
+    dispatch(
+      updateSpanStateThunk({
+        params: { 
+          center: centerFreqHz, 
+          bandwidth: bandwidthHz, 
+          start: bandwidthStartHz,
+          span: hardwareSpanHz,
+          mode: alignment
+        },
+        source: 'external'
+      })
+    );
+
+    setTimeout(() => {
+      isPublishingLocalRangeRef.current = false;
+    }, 100);
   };
+
+
 
 
   const handleSavePreset = useCallback(() => {
@@ -624,8 +557,17 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     <>
       <Header>
         <Zap size={14} color="#00d4ff" fill="#00d4ff" />
-        <Title>{data.label || "Span"}</Title>
+        <Title>
+          {data.label || "Span"}
+          {isSyncing && (
+            <SyncingIndicator>
+              <Loader2 size={10} className="animate-spin" />
+              <span>Syncing...</span>
+            </SyncingIndicator>
+          )}
+        </Title>
       </Header>
+
 
       <InputGroup>
         <InputField>
@@ -676,8 +618,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
             value={alignment} 
             onChange={(e) => {
               const newMode = e.target.value as Alignment;
-              setAlignment(newMode);
-              dispatch(setPreviewAlignment(newMode));
               updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, hardwareSpanHz, newMode, 'alignment');
             }}
           >

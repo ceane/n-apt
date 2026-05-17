@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 
 export interface FrequencyDragOptions {
@@ -17,6 +17,8 @@ export interface FrequencyDragOptions {
   selectionRange?: FrequencyRange;
   /** Callback for selection range changes (dragging the box) */
   onSelectionChange?: (range: FrequencyRange) => void;
+  /** Use the full canvas as the selectable plot area. React Flow FFT nodes render this way. */
+  fullPlotSelection?: boolean;
   vizZoomRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
   clampedVizRangeRef?: React.MutableRefObject<FrequencyRange>;
@@ -42,6 +44,7 @@ export function useFrequencyDrag({
   onFrequencyRangeChange,
   selectionRange,
   onSelectionChange,
+  fullPlotSelection = false,
   vizZoomRef,
   vizPanOffsetRef,
   clampedVizRangeRef,
@@ -67,6 +70,18 @@ export function useFrequencyDrag({
   const selectionDraftRangeRef = useRef<FrequencyRange | null>(null);
   const selectionDragOriginFreqRef = useRef<number | null>(null);
   const selectionDragModeRef = useRef<"create" | "move" | "resize-left" | "resize-right" | null>(null);
+  const latestSelectionRangeRef = useRef<FrequencyRange | undefined>(selectionRange);
+  const latestOnSelectionChangeRef = useRef<typeof onSelectionChange>(onSelectionChange);
+  const manualOverrideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const setManualOverride = useCallback(() => {
+    if (manualOverrideTimerRef.current) clearTimeout(manualOverrideTimerRef.current);
+    // Block incoming WebSocket updates for 1.5s after interaction
+    manualOverrideTimerRef.current = setTimeout(() => {
+      manualOverrideTimerRef.current = null;
+    }, 1500);
+  }, []);
+
   
   // Refs for multi-touch pinch-to-zoom
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -81,6 +96,62 @@ export function useFrequencyDrag({
 
   const containerRefCacheRef = useRef<HTMLElement | null>(null);
   const containerRectRef = useRef<DOMRect | null>(null);
+
+  const getPlotBounds = (rect: DOMRect) => {
+    if (fullPlotSelection) {
+      return {
+        left: 0,
+        right: rect.width,
+        top: 0,
+        bottom: rect.height,
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      };
+    }
+
+    const left = Math.min(50, rect.width);
+    const right = Math.max(left, rect.width - 40);
+    const top = Math.min(20, rect.height);
+    const bottom = Math.max(top, rect.height - 40);
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  };
+
+  const frequencyFromClientX = (
+    clientX: number,
+    canvasRect: DOMRect,
+    hardwareBounds: FrequencyRange,
+    zoom: number = 1,
+    pan: number = 0
+  ) => {
+    const plot = getPlotBounds(canvasRect);
+    // Use double-precision math for sub-pixel accuracy at high zoom
+    const x = Math.max(plot.left, Math.min(plot.right, clientX - canvasRect.left));
+    const frac = (x - plot.left) / plot.width;
+    
+    const fullSpan = hardwareBounds.max - hardwareBounds.min;
+    const visualSpan = fullSpan / zoom;
+    const hardwareCenter = (hardwareBounds.min + hardwareBounds.max) / 2;
+    const visualCenter = hardwareCenter + pan;
+    const visualMin = visualCenter - visualSpan / 2;
+    
+    return visualMin + frac * visualSpan;
+  };
+
+
+  useEffect(() => {
+    latestSelectionRangeRef.current = selectionRange;
+  }, [selectionRange]);
+
+  useEffect(() => {
+    latestOnSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
 
   useEffect(() => {
     if (disabled) return;
@@ -217,7 +288,9 @@ export function useFrequencyDrag({
         return;
       }
 
-      if (isSelectionDraggingRef.current && selectionMode !== "range" && onSelectionChange) {
+      const emitSelectionChange = latestOnSelectionChangeRef.current;
+
+      if (isSelectionDraggingRef.current && selectionMode !== "range" && emitSelectionChange) {
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
 
@@ -233,37 +306,55 @@ export function useFrequencyDrag({
         const newMin = dragStartSelectionRef.current.min + freqChange;
         const newMax = dragStartSelectionRef.current.max + freqChange;
         
-        onSelectionChange({ min: newMin, max: newMax });
+        setManualOverride();
+        emitSelectionChange({ min: newMin, max: newMax });
         return;
       }
+
 
       if (
         selectionMode === "range" &&
         selectionDragModeRef.current &&
-        onSelectionChange
+        emitSelectionChange
       ) {
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
         const canvasRect = canvas.getBoundingClientRect();
-        const width = canvasRect.width || 1;
-        const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-        const x = Math.max(0, Math.min(width, e.clientX - canvasRect.left));
-        const pointerFreq =
-          frequencyRangeRef.current.min + (x / width) * fullRange;
+        const bounds = dragStartRangeRef.current.max > dragStartRangeRef.current.min
+          ? dragStartRangeRef.current
+          : frequencyRangeRef.current;
+        const pointerFreq = frequencyFromClientX(
+          e.clientX, 
+          canvasRect, 
+          bounds, 
+          vizZoomRef?.current, 
+          vizPanOffsetRef?.current
+        );
 
-        const current = selectionDraftRangeRef.current ?? selectionRange;
-        const base = current && current.max > current.min ? current : null;
+        const current =
+          selectionDraftRangeRef.current ?? latestSelectionRangeRef.current;
+        const dragStartBase =
+          dragStartSelectionRef.current.max > dragStartSelectionRef.current.min
+            ? dragStartSelectionRef.current
+            : null;
+        const base =
+          selectionDragModeRef.current === "create"
+            ? current && current.max > current.min
+              ? current
+              : null
+            : dragStartBase;
 
         if (selectionDragModeRef.current === "create" || !base) {
           const origin = selectionDragOriginFreqRef.current ?? pointerFreq;
-          const next = normalizeSelectionRange(origin, pointerFreq, frequencyRangeRef.current);
+          const next = normalizeSelectionRange(origin, pointerFreq, bounds);
           selectionDraftRangeRef.current = next;
-          onSelectionChange(next);
+          setManualOverride();
+          emitSelectionChange(next);
           return;
         }
 
+
         if (selectionDragModeRef.current === "move") {
-          const widthHz = base.max - base.min;
           const origin = selectionDragOriginFreqRef.current ?? pointerFreq;
           const delta = pointerFreq - origin;
           const next = clampSelectionToFrequencyRange(
@@ -271,26 +362,32 @@ export function useFrequencyDrag({
               min: base.min + delta,
               max: base.max + delta,
             },
-            frequencyRangeRef.current,
+            bounds,
           );
           selectionDraftRangeRef.current = next;
-          onSelectionChange(next);
+          setManualOverride();
+          emitSelectionChange(next);
           return;
         }
+
 
         if (selectionDragModeRef.current === "resize-left") {
-          const next = normalizeSelectionRange(pointerFreq, base.max, frequencyRangeRef.current);
+          const next = normalizeSelectionRange(pointerFreq, base.max, bounds);
           selectionDraftRangeRef.current = next;
-          onSelectionChange(next);
+          setManualOverride();
+          emitSelectionChange(next);
           return;
         }
 
+
         if (selectionDragModeRef.current === "resize-right") {
-          const next = normalizeSelectionRange(base.min, pointerFreq, frequencyRangeRef.current);
+          const next = normalizeSelectionRange(base.min, pointerFreq, bounds);
           selectionDraftRangeRef.current = next;
-          onSelectionChange(next);
+          setManualOverride();
+          emitSelectionChange(next);
           return;
         }
+
       }
 
       const canvas = getActiveSpectrumCanvas();
@@ -471,28 +568,35 @@ export function useFrequencyDrag({
 
       const rect = container.getBoundingClientRect();
       const height = rect.height;
-      const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
 
-      if (selectionMode === "range" && y < height - vfoThreshold && onSelectionChange) {
+      if (selectionMode === "range" && y < height - vfoThreshold && latestOnSelectionChangeRef.current) {
         const canvas = getActiveSpectrumCanvas();
         if (canvas) {
           const canvasRect = canvas.getBoundingClientRect();
-          const width = canvasRect.width || 1;
-          const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
-          const freqAtClick =
-            frequencyRangeRef.current.min + (Math.max(0, Math.min(width, e.clientX - canvasRect.left)) / width) * fullRange;
-          const existing = selectionRange ?? selectionDraftRangeRef.current;
+          const plot = getPlotBounds(canvasRect);
+          const canvasY = e.clientY - canvasRect.top;
+          if (canvasY < plot.top || canvasY > plot.bottom) return;
+          const dragBounds = { ...frequencyRangeRef.current };
+          dragStartRangeRef.current = dragBounds;
+          const fullRange = dragBounds.max - dragBounds.min;
+          const freqAtClick = frequencyFromClientX(
+            e.clientX, 
+            canvasRect, 
+            dragBounds, 
+            vizZoomRef?.current, 
+            vizPanOffsetRef?.current
+          );
+          const existing =
+            latestSelectionRangeRef.current ?? selectionDraftRangeRef.current;
           const edgeThreshold = Math.max(fullRange * 0.01, 1);
 
           if (existing) {
-            // If Alt is held, allow moving the box. Otherwise, start a new one (create).
-            // Edge resizing is always prioritized if close enough.
-            const isOnEdge = Math.abs(freqAtClick - existing.min) <= edgeThreshold || 
-                             Math.abs(freqAtClick - existing.max) <= edgeThreshold;
-
-            if (isOnEdge || e.altKey) {
+            // Plain click-drag always starts a fresh A-to-B selection. Hold Alt
+            // to move or resize the existing selection without stealing normal
+            // selection gestures near an edge.
+            if (e.altKey) {
               if (Math.abs(freqAtClick - existing.min) <= edgeThreshold) {
                 selectionDragModeRef.current = "resize-left";
               } else if (Math.abs(freqAtClick - existing.max) <= edgeThreshold) {
@@ -509,26 +613,33 @@ export function useFrequencyDrag({
               removeClassIfAvailable(container, "cursor-crosshair");
               return;
             }
+
+            // Plain clicks inside an existing selection should begin a fresh
+            // drag from the cursor instead of reusing stale edges. This keeps
+            // the selection centered around the new gesture and avoids the
+            // "grow from the edge" feeling after prior selections.
           }
 
           selectionDragModeRef.current = "create";
           selectionDragOriginFreqRef.current = freqAtClick;
-          selectionDraftRangeRef.current = { min: freqAtClick, max: freqAtClick };
+          selectionDraftRangeRef.current = null;
           isSelectionDraggingRef.current = true;
+          dragStartXRef.current = e.clientX;
           dragStartSelectionRef.current = { min: freqAtClick, max: freqAtClick };
-          onSelectionChange({ min: freqAtClick, max: freqAtClick });
           setPointerCaptureIfAvailable(container, e.pointerId);
           addClassIfAvailable(container, "cursor-grabbing");
           removeClassIfAvailable(container, "cursor-crosshair");
           return;
         }
+        return;
       }
 
       // Check if clicking inside the demodulation selection box
-      if (selectionRange && !disabled && y < height - vfoThreshold) {
+      if (selectionMode !== "range" && selectionRange && !disabled && y < height - vfoThreshold) {
         const canvas = getActiveSpectrumCanvas();
         if (canvas) {
           const canvasRect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
           const zoom = vizZoomRef?.current || 1;
           const pan = vizPanOffsetRef?.current || 0;
           const fullMin = frequencyRangeRef.current.min;
@@ -745,6 +856,15 @@ export function useFrequencyDrag({
         }
         removeClassIfAvailable(container, "cursor-grabbing");
       }
+      if (isSelectionDraggingRef.current && container) {
+        releasePointerCaptureIfAvailable(container, e.pointerId);
+        removeClassIfAvailable(container, "cursor-grabbing");
+        addClassIfAvailable(container, "cursor-crosshair");
+        if (selectionBoxRef.current) {
+          selectionBoxRef.current.remove();
+          selectionBoxRef.current = null;
+        }
+      }
       isDraggingRef.current = false;
       isSelectionDraggingRef.current = false;
       selectionDragModeRef.current = null;
@@ -754,7 +874,10 @@ export function useFrequencyDrag({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (selectionMode !== "range" || disabled || !onSelectionChange) return;
-      const current = selectionDraftRangeRef.current ?? selectionRange;
+      const emitSelectionChange = latestOnSelectionChangeRef.current;
+      if (!emitSelectionChange) return;
+      const current =
+        selectionDraftRangeRef.current ?? latestSelectionRangeRef.current;
       if (!current || current.max <= current.min) return;
 
       const stepBase = (frequencyRangeRef.current.max - frequencyRangeRef.current.min) / 200;
@@ -778,7 +901,7 @@ export function useFrequencyDrag({
           frequencyRangeRef.current,
         );
         selectionDraftRangeRef.current = next;
-        onSelectionChange(next);
+        emitSelectionChange(next);
         e.preventDefault();
         return;
       }
@@ -800,7 +923,7 @@ export function useFrequencyDrag({
         selectionDragOriginFreqRef.current += direction * step;
       }
 
-      onSelectionChange(next);
+      emitSelectionChange(next);
     };
 
     const handlePointerMoveForCursor = (e: PointerEvent) => {
@@ -1019,7 +1142,9 @@ export function useFrequencyDrag({
     frequencyRangeRef,
     vizZoomRef,
     vizPanOffsetRef,
+    setManualOverride,
     onVizPanChange,
+
     vizDbMinRef,
     vizDbMaxRef,
     onFftDbLimitsChange,

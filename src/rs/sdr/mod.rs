@@ -94,15 +94,14 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
-    // Try RTL-SDR first, fall back to mock
+    // Try RTL-SDR first, then HackRF, then fall back to mock.
     match crate::sdr::rtlsdr::RtlSdrDevice::open_first() {
       Ok(device) => {
         log::info!("Using RTL-SDR device");
         Ok(Box::new(device))
       }
       Err(_) => {
-        log::info!("No RTL-SDR device found, using mock APT implementation");
-        Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
+        Self::create_hackrf_or_mock()
       }
     }
   }
@@ -119,10 +118,38 @@ impl SdrDeviceFactory {
     log::info!("Using RTL-SDR device");
     Ok(Box::new(device))
   }
+
+  /// Force creation of a HackRF device (will error if none available)
+  #[cfg(has_hackrf)]
+  pub fn create_hackrf_device() -> Result<Box<dyn SdrDevice>> {
+    let device = crate::sdr::hackrf::HackRfDevice::open_first()?;
+    log::info!("Using HackRF device");
+    Ok(Box::new(device))
+  }
+
+  #[cfg(not(has_hackrf))]
+  pub fn create_hackrf_device() -> Result<Box<dyn SdrDevice>> {
+    Err(anyhow::anyhow!("HackRF support not enabled at build time"))
+  }
+
+  fn create_hackrf_or_mock() -> Result<Box<dyn SdrDevice>> {
+    #[cfg(has_hackrf)]
+    {
+      if let Ok(device) = crate::sdr::hackrf::HackRfDevice::open_first() {
+        log::info!("Using HackRF device");
+        return Ok(Box::new(device));
+      }
+    }
+
+    log::info!("No RTL-SDR or HackRF device found, using mock APT implementation");
+    Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
+  }
 }
 
 pub mod mock_apt;
 pub mod processor;
+#[cfg(has_hackrf)]
+pub mod hackrf;
 pub mod rtlsdr;
 
 // Re-export common types

@@ -161,6 +161,9 @@ interface SignalDisplaySectionProps {
   variant?: "default" | "diagnostic";
   sourceMode: "live" | "file";
   maxSampleRate: number;
+  minReceiveSampleRate?: number;
+  sampleRate: number;
+  sampleRateOptions: number[];
   fileCapturedRange: { min: number; max: number } | null;
   fftFrameRate: number;
   maxFrameRate: number;
@@ -179,6 +182,7 @@ interface SignalDisplaySectionProps {
   displayMode?: "fft" | "iq";
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
+  onSampleRateChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
   onPowerScaleChange: (value: "dB" | "dBm") => void;
@@ -193,7 +197,10 @@ interface SignalDisplaySectionProps {
 export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   variant = "default",
   sourceMode,
-  maxSampleRate,
+  maxSampleRate: _maxSampleRate,
+  minReceiveSampleRate: _minReceiveSampleRate,
+  sampleRate,
+  sampleRateOptions,
   fftFrameRate,
   maxFrameRate,
   fftSize,
@@ -207,6 +214,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   displayMode: _displayMode,
   onFftFrameRateChange,
   onFftSizeChange,
+  onSampleRateChange,
   onFftWindowChange,
   onTemporalResolutionChange,
   onPowerScaleChange,
@@ -255,13 +263,22 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         <>
           {variant !== "diagnostic" && (
             <Row
-              label={<IconLabel icon={Frame} text="Sample Size" />}
-              tooltipTitle="Sample Size (Bandwidth)"
-              tooltip="Radio signal bandwidth capacity. Determines the range of frequencies that can be intercepted and processed from transmissions."
+              label={<IconLabel icon={Frame} text="Sample Rate" />}
+              tooltipTitle="Sample Rate"
+              tooltip="Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
             >
-              <SettingValue>
-                {maxSampleRate ? formatFrequency(maxSampleRate) : "0 Hz"}
-              </SettingValue>
+              <SettingSelect
+                value={sampleRate}
+                onChange={(e) => {
+                  onSampleRateChange(Number(e.target.value));
+                }}
+              >
+                {sampleRateOptions.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {formatFrequency(rate)}
+                  </option>
+                ))}
+              </SettingSelect>
             </Row>
           )}
           {variant !== "diagnostic" && (

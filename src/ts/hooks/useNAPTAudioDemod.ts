@@ -3,6 +3,10 @@ import {
   applyComplexLowPass,
   shiftIqToBaseband,
 } from "@n-apt/utils/demodulation";
+import {
+  detectNaptSpikeCandidates,
+  type NaptSpikeDetectionResult,
+} from "@n-apt/utils/naptSpikeDetection";
 
 export interface AudioDemodNAPTOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
@@ -20,6 +24,12 @@ export interface AudioDemodNAPTHandle {
   setVolume: (volume: number) => void;
   isPlaying: boolean;
   volume: number;
+  detectionResult: NaptSpikeDetectionResult | null;
+  detectSpikes: (
+    iqData: Uint8Array,
+    sampleRate: number,
+    frameCenterFrequencyHz?: number | null,
+  ) => NaptSpikeDetectionResult | null;
 }
 
 /**
@@ -35,11 +45,14 @@ export function useNAPTAudioDemod(
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
+  const [detectionResult, setDetectionResult] =
+    useState<NaptSpikeDetectionResult | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const processedAudioBufferRef = useRef<Float32Array | null>(null);
+  const nextStartTimeRef = useRef<number>(0);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -54,47 +67,77 @@ export function useNAPTAudioDemod(
     (
       iqData: Uint8Array,
       sampleRate: number,
-      frameCenterFrequencyHz?: number | null,
+      _frameCenterFrequencyHz?: number | null,
     ): Float32Array => {
-    const samples = iqData.length / 2;
-    const audioBuffer = new Float32Array(samples);
-    const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
-    const filteredIq = applyComplexLowPass(shiftedIq, sampleRate, 200_000);
-    const i = new Float32Array(samples);
-    const q = new Float32Array(samples);
-    for (let j = 0; j < samples; j++) {
-      i[j] = filteredIq[j * 2];
-      q[j] = filteredIq[j * 2 + 1];
-    }
-
-    for (let j = 1; j < samples; j++) {
-      const phase1 = Math.atan2(q[j - 1], i[j - 1]);
-      const phase2 = Math.atan2(q[j], i[j]);
-
-      let phaseDiff = phase2 - phase1;
-      if (phaseDiff > Math.PI) phaseDiff -= 2 * Math.PI;
-      else if (phaseDiff < -Math.PI) phaseDiff += 2 * Math.PI;
-
-      audioBuffer[j] = phaseDiff;
-    }
-
-    let maxAmp = 0;
-    for (let j = 0; j < samples; j++) {
-      maxAmp = Math.max(maxAmp, Math.abs(audioBuffer[j]));
-    }
-    if (maxAmp > 0) {
+      const samples = iqData.length / 2;
+      const audioBuffer = new Float32Array(samples);
+      const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
+      const filteredIq = applyComplexLowPass(shiftedIq, sampleRate, 200_000);
+      const i = new Float32Array(samples);
+      const q = new Float32Array(samples);
       for (let j = 0; j < samples; j++) {
-        audioBuffer[j] /= maxAmp;
+        i[j] = filteredIq[j * 2];
+        q[j] = filteredIq[j * 2 + 1];
       }
-    }
+
+      for (let j = 1; j < samples; j++) {
+        const phase1 = Math.atan2(q[j - 1], i[j - 1]);
+        const phase2 = Math.atan2(q[j], i[j]);
+
+        let phaseDiff = phase2 - phase1;
+        if (phaseDiff > Math.PI) phaseDiff -= 2 * Math.PI;
+        else if (phaseDiff < -Math.PI) phaseDiff += 2 * Math.PI;
+
+        audioBuffer[j] = phaseDiff;
+      }
+
+      let maxAmp = 0;
+      for (let j = 0; j < samples; j++) {
+        maxAmp = Math.max(maxAmp, Math.abs(audioBuffer[j]));
+      }
+      if (maxAmp > 0) {
+        for (let j = 0; j < samples; j++) {
+          audioBuffer[j] /= maxAmp;
+        }
+      }
 
       return audioBuffer;
     },
     [],
   );
 
+  const detectSpikes = useCallback(
+    (
+      iqData: Uint8Array,
+      sampleRate: number,
+      frameCenterFrequencyHz?: number | null,
+    ) => {
+      if (!iqData || iqData.length === 0) {
+        setDetectionResult(null);
+        return null;
+      }
+
+      const baseband = demodulateNAPTBaseband(
+        iqData,
+        sampleRate,
+        frameCenterFrequencyHz,
+      );
+      const magnitude = new Float32Array(baseband.length);
+      for (let i = 0; i < baseband.length; i++) {
+        magnitude[i] = Math.abs(baseband[i]);
+      }
+      const result = detectNaptSpikeCandidates(magnitude);
+      setDetectionResult(result);
+      return result;
+    },
+    [demodulateNAPTBaseband],
+  );
+
   const resampleAudio = useCallback(
     (audio: Float32Array, fromRate: number, toRate: number): Float32Array => {
+      if (fromRate === toRate) {
+        return audio;
+      }
       const ratio = fromRate / toRate;
       const outputLength = Math.floor(audio.length / ratio);
       const resampled = new Float32Array(outputLength);
@@ -155,9 +198,31 @@ export function useNAPTAudioDemod(
         frameCenterFrequencyHz,
       );
       const imageEnvelope = envelopeDetectNAPT(baseband, inputSampleRate);
+      const detection = detectNaptSpikeCandidates(imageEnvelope);
+      setDetectionResult(detection);
+      const selected = detection.selectedCandidate;
       let finalAudio = imageEnvelope;
+      if (selected) {
+        const segment = imageEnvelope.slice(
+          selected.startIndex,
+          selected.endIndex + 1,
+        );
+        const maxAmp = segment.reduce(
+          (acc, value) => Math.max(acc, Math.abs(value)),
+          0,
+        );
+        if (maxAmp > 0) {
+          for (let i = 0; i < finalAudio.length; i++) {
+            finalAudio[i] /= maxAmp;
+          }
+        }
+      }
       if (inputSampleRate !== targetSampleRate) {
-        finalAudio = resampleAudio(imageEnvelope, inputSampleRate, targetSampleRate);
+        finalAudio = resampleAudio(finalAudio, inputSampleRate, targetSampleRate);
+      }
+      if (finalAudio.length === 0) {
+        processedAudioBufferRef.current = null;
+        return;
       }
       processedAudioBufferRef.current = finalAudio;
     },
@@ -175,14 +240,20 @@ export function useNAPTAudioDemod(
       gainNodeRef.current.disconnect();
       gainNodeRef.current = null;
     }
+    nextStartTimeRef.current = 0;
     setIsPlaying(false);
   }, []);
 
   const playAudio = useCallback(() => {
-    if (!processedAudioBufferRef.current) return;
+    if (!processedAudioBufferRef.current || processedAudioBufferRef.current.length === 0) {
+      return;
+    }
     try {
       const audioContext = getAudioContext();
-      stopAudio();
+      if (audioContext.state === "suspended") {
+        void audioContext.resume();
+      }
+      if (processedAudioBufferRef.current.length === 0) return;
       const buffer = audioContext.createBuffer(
         1,
         processedAudioBufferRef.current.length,
@@ -197,18 +268,19 @@ export function useNAPTAudioDemod(
       gainNode.connect(audioContext.destination);
       sourceNodeRef.current = sourceNode;
       gainNodeRef.current = gainNode;
-      sourceNode.onended = () => {
-        setIsPlaying(false);
-        sourceNodeRef.current = null;
-        gainNodeRef.current = null;
-      };
-      sourceNode.start(0);
+      const currentTime = audioContext.currentTime;
+      if (nextStartTimeRef.current < currentTime + 0.02) {
+        nextStartTimeRef.current = currentTime + 0.15;
+      }
+      const startTime = nextStartTimeRef.current;
+      sourceNode.start(startTime);
+      nextStartTimeRef.current = startTime + buffer.duration;
       setIsPlaying(true);
     } catch (error) {
       console.error("Error playing N-APT audio:", error);
       setIsPlaying(false);
     }
-  }, [getAudioContext, stopAudio, volume, targetSampleRate]);
+  }, [getAudioContext, volume, targetSampleRate]);
 
   const setVolume = useCallback((newVolume: number) => {
     const clamped = Math.max(0, Math.min(1, newVolume));
@@ -223,5 +295,14 @@ export function useNAPTAudioDemod(
     };
   }, [stopAudio]);
 
-  return { processIQData, playAudio, stopAudio, setVolume, isPlaying, volume };
+  return {
+    processIQData,
+    playAudio,
+    stopAudio,
+    setVolume,
+    isPlaying,
+    volume,
+    detectionResult,
+    detectSpikes,
+  };
 }

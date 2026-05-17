@@ -8,7 +8,7 @@ import React, {
   Dispatch,
   SetStateAction,
 } from "react";
-import { useAppSelector } from "@n-apt/redux";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import {
   useFrequencyScanner,
@@ -22,6 +22,10 @@ import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
 import { useAudioDemodAPT } from "@n-apt/hooks/useAudioDemodAPT";
 import { useNAPTAudioDemod } from "@n-apt/hooks/useNAPTAudioDemod";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import {
+  resolveDemodSourceRange,
+  syncDemodSpanFromSourceContext,
+} from "@n-apt/redux/thunks/demodThunks";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   Node,
@@ -37,6 +41,7 @@ import {
   AnalysisType,
   CaptureResult,
 } from "@n-apt/consts/types";
+import { NaptSpikeDetectionResult } from "@n-apt/utils/naptSpikeDetection";
 
 interface DemodContextValue {
   windowSizeHz: number;
@@ -86,9 +91,17 @@ interface DemodContextValue {
   setEdges: Dispatch<SetStateAction<Edge[]>>;
   setFlow: (flowId: string, customNodes?: Node[], customEdges?: Edge[]) => void;
   flowVersion: number;
+
+  fileCapturedRange: { min: number; max: number } | null;
+  naptDetectionResult: NaptSpikeDetectionResult | null;
+  detectNaptSpikes: (
+    iqData: Uint8Array,
+    sampleRate: number,
+    frameCenterFrequencyHz?: number | null,
+  ) => NaptSpikeDetectionResult | null;
 }
 
-const DemodContext = createContext<DemodContextValue | null>(null);
+export const DemodContext = createContext<DemodContextValue | null>(null);
 
 export const useDemod = () => {
   const context = useContext(DemodContext);
@@ -99,6 +112,7 @@ export const useDemod = () => {
 export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  const reduxDispatch = useAppDispatch();
   const [windowSizeHz, setWindowSizeHz] = useState(25000);
   const [stepSizeHz, setStepSizeHz] = useState(10000);
   const [audioThreshold, setAudioThreshold] = useState(0.3);
@@ -114,7 +128,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<"fm" | "apt" | "napt">(
     "fm",
   );
-  const { state, wsConnection } = useSpectrumStore();
+  const {
+    state,
+    wsConnection,
+    effectiveFrames,
+    effectiveSdrSettings,
+  } = useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } =
     wsConnection;
 
@@ -133,12 +152,120 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [flowVersion, setFlowVersion] = useState(0);
 
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
+  const [liveSourceFrame, setLiveSourceFrame] = useState<{
+    center_frequency_hz?: number | null;
+    sample_rate?: number | null;
+  } | null>(null);
+
   useEffect(() => {
-    const nextFlow = buildDemodFlowGraph(state.sourceMode || "live");
-    setNodes(nextFlow.nodes);
-    setEdges(nextFlow.edges);
-    setFlowVersion((v) => v + 1);
-  }, [setEdges, setNodes, state.sourceMode]);
+    if (state.sourceMode !== "live") {
+      setLiveSourceFrame(null);
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      const liveFrame = Array.isArray(liveDataRef.current)
+        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        : liveDataRef.current;
+
+      const next =
+        liveFrame?.center_frequency_hz && liveFrame?.sample_rate
+          ? {
+              center_frequency_hz: liveFrame.center_frequency_hz,
+              sample_rate: liveFrame.sample_rate,
+            }
+          : null;
+
+      setLiveSourceFrame((prev) => {
+        if (
+          prev?.center_frequency_hz === next?.center_frequency_hz &&
+          prev?.sample_rate === next?.sample_rate
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    }, 50);
+
+    return () => window.clearInterval(id);
+  }, [state.sourceMode]);
+
+  const activeLiveFrameRange = useMemo(() => {
+    if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
+      return null;
+    }
+
+    const activeFrame =
+      effectiveFrames.find(
+        (frame) =>
+          frame.label?.toLowerCase() === state.activeSignalArea?.toLowerCase(),
+      ) ?? effectiveFrames[0];
+
+    return activeFrame
+      ? { min: activeFrame.min_hz, max: activeFrame.max_hz }
+      : null;
+  }, [effectiveFrames, state.activeSignalArea]);
+
+  const demodLiveFrequencyRange = useMemo(() => {
+    if (!state.frequencyRange) return activeLiveFrameRange;
+    if (!activeLiveFrameRange) return state.frequencyRange;
+
+    const overlaps =
+      state.frequencyRange.max > activeLiveFrameRange.min &&
+      state.frequencyRange.min < activeLiveFrameRange.max;
+
+    return overlaps ? state.frequencyRange : activeLiveFrameRange;
+  }, [activeLiveFrameRange, state.frequencyRange]);
+
+  const sourceSyncPayload = useMemo(
+    () => ({
+      sourceMode: state.sourceMode,
+      activePlaybackMetadata,
+      loadedFileMetadata,
+      selectedFiles: state.selectedFiles,
+      sampleRateHz: state.sampleRateHz,
+      liveFrame: liveSourceFrame,
+      liveFrequencyRange: demodLiveFrequencyRange,
+      liveSdrSettings: effectiveSdrSettings,
+    }),
+    [
+      activePlaybackMetadata,
+      demodLiveFrequencyRange,
+      effectiveSdrSettings,
+      liveSourceFrame,
+      loadedFileMetadata,
+      state.sampleRateHz,
+      state.selectedFiles,
+      state.sourceMode,
+    ],
+  );
+
+  useEffect(() => {
+    reduxDispatch(syncDemodSpanFromSourceContext(sourceSyncPayload));
+  }, [reduxDispatch, sourceSyncPayload]);
+
+
+  const fileCapturedRange = useMemo(() => {
+    return resolveDemodSourceRange(sourceSyncPayload)?.range ?? null;
+  }, [sourceSyncPayload]);
+
+
+  useEffect(() => {
+    // Only build the initial graph if we don't have nodes yet.
+    // This prevents the flow from resetting when switching sources (e.g. Live -> File).
+    if (nodes.length === 0) {
+      const nextFlow = buildDemodFlowGraph(state.sourceMode || "live");
+      setNodes(nextFlow.nodes);
+      setEdges(nextFlow.edges);
+      setFlowVersion((v) => v + 1);
+    }
+  }, [setEdges, setNodes, state.sourceMode, nodes.length]);
 
   const setFlow = useCallback(
     (_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
@@ -599,6 +726,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setEdges,
       setFlow,
       flowVersion,
+      fileCapturedRange,
+      naptDetectionResult: naptDemod.detectionResult,
+      detectNaptSpikes: naptDemod.detectSpikes,
     }),
     [
       windowSizeHz,
@@ -623,6 +753,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setEdges,
       setFlow,
       flowVersion,
+      fileCapturedRange,
+      naptDemod.detectionResult,
+      naptDemod.detectSpikes,
     ],
   );
 

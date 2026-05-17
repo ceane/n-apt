@@ -1022,6 +1022,7 @@ const FFTCanvas = memo(
       onFrequencyRangeChange,
       selectionRange,
       onSelectionChange,
+      fullPlotSelection: nodePreview,
       vizZoomRef,
       vizPanOffsetRef,
       onVizPanChange: (pan: number) => {

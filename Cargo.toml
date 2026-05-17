@@ -73,6 +73,10 @@ path = "test/rust/endpoint_auth_tests.rs"
 name = "bandwidth_tests"
 path = "test/rust/bandwidth_tests.rs"
 
+[[test]]
+name = "hackrf_integration_tests"
+path = "test/rust/hackrf_integration_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"

@@ -7,7 +7,7 @@ const NodeContainerWrapper = styled.div<{ $width?: string }>`
   border-radius: 12px;
   padding: ${({ theme }) => theme.spacing.lg};
   min-width: ${({ $width }) => $width || "280px"};
-  font-family: ${({ theme }) => theme.typography.body};
+  font-family: ${({ theme }) => theme.typography.sans};
   box-shadow: none;
   transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
   position: relative;

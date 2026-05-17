@@ -6,7 +6,9 @@ fn main() {
   let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
   if target_arch != "wasm32" {
     link_rtlsdr();
+    link_hackrf();
   }
+  println!("cargo:rustc-check-cfg=cfg(has_hackrf)");
 
   // Check for decrypted modules (Surgical Encryption)
   let decrypted_marker =
@@ -26,8 +28,18 @@ fn link_rtlsdr() {
   );
 }
 
+fn link_hackrf() {
+  if try_pkg_config_for(&["libhackrf", "hackrf"]) {
+    println!("cargo:rustc-cfg=has_hackrf");
+  }
+}
+
 fn try_pkg_config() -> bool {
-  for package in ["librtlsdr", "rtlsdr"] {
+  try_pkg_config_for(&["librtlsdr", "rtlsdr"])
+}
+
+fn try_pkg_config_for(packages: &[&str]) -> bool {
+  for package in packages {
     if pkg_config::Config::new()
       .cargo_metadata(true)
       .probe(package)
@@ -36,6 +48,5 @@ fn try_pkg_config() -> bool {
       return true;
     }
   }
-
   false
 }

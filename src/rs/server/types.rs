@@ -257,6 +257,9 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "sampleRate")]
+  #[validate(range(min = 1, max = 100000000))]
+  pub sample_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -598,6 +601,8 @@ pub struct NaptConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrConfig {
   pub sample_rate: u32,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub min_receive_sample_rate: Option<u32>,
   pub center_frequency: u32,
   pub gain: SdrGainConfig,
   pub ppm: f64,

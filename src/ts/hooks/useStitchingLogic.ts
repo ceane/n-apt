@@ -322,6 +322,9 @@ export const useStitchingLogic = ({
   useEffect(() => {
     if (lastTriggerRef.current === null) {
       lastTriggerRef.current = stitchTrigger;
+      if (selectedFilesRef.current.length > 0) {
+        void stitchFiles();
+      }
       return;
     }
     if (stitchTrigger !== null && stitchTrigger !== lastTriggerRef.current) {

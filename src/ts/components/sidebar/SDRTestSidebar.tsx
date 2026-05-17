@@ -237,6 +237,10 @@ export const SDRTestSidebar: React.FC = () => {
             variant="diagnostic"
             sourceMode={state.sourceMode}
             maxSampleRate={maxSampleRate}
+            sampleRate={state.sampleRateHz}
+            sampleRateOptions={[3_200_000, maxSampleRate].filter(
+              (v, i, a) => a.indexOf(v) === i,
+            )}
             fileCapturedRange={null}
             fftSize={fftSize}
             fftFrameRate={fftFrameRate}
@@ -250,6 +254,7 @@ export const SDRTestSidebar: React.FC = () => {
             powerScale={state.powerScale}
             onFftSizeChange={setFftSize}
             onFftFrameRateChange={setFftFrameRate}
+            onSampleRateChange={() => {}}
             onFftWindowChange={setFftWindow}
             onTemporalResolutionChange={(resolution) =>
               dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution })

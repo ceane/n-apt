@@ -56,9 +56,13 @@ export const sendFrequencyRange = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
-          data: tunedRange,
+          data: {
+            ...tunedRange,
+            bandwidth_center_frequency: (state as any).demod?.bandwidthCenterFreqHz,
+          },
         },
       });
+
     }
     return range;
   },
@@ -168,6 +172,10 @@ export const sendSettings = createAsyncThunk(
 
     if (isValidPositiveInt(settings.frameRate)) {
       sanitized.frameRate = Math.floor(settings.frameRate!);
+    }
+
+    if (isValidPositiveInt(settings.sampleRate)) {
+      sanitized.sampleRate = Math.floor(settings.sampleRate!);
     }
 
     if (isValidNonNegative(settings.gain)) {

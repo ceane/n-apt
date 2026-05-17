@@ -607,9 +607,8 @@ impl SdrProcessor {
       samples = next_samples;
     }
 
-    let display_samples_data = samples.data;
     let display_samples = crate::fft::types::RawSamples {
-      data: display_samples_data.clone(),
+      data: samples.data,
       sample_rate,
     };
 
@@ -655,7 +654,7 @@ impl SdrProcessor {
       if ch_idx < self.capture_channels.len() {
         self.capture_channels[ch_idx]
           .iq_data
-          .extend_from_slice(&display_samples_data);
+          .extend_from_slice(&display_samples.data);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(&spectrum);
@@ -663,8 +662,8 @@ impl SdrProcessor {
       self.capture_actual_frames += 1;
     }
 
-    self.frame.push_raw_iq_frame(display_samples_data.clone());
-    self.frame.last_frame_raw_iq = display_samples_data;
+    self.frame.push_raw_iq_frame(display_samples.data.clone());
+    self.frame.last_frame_raw_iq = display_samples.data;
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)

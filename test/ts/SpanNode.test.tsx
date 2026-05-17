@@ -11,11 +11,17 @@ import {
   clampBandwidthStartHz,
   SPAN_PRESETS_STORAGE_KEY,
 } from "../../src/ts/components/react-flow/nodes/SpanNode";
+
+jest.mock("../../src/ts/contexts/DemodContext", () => ({
+  useDemod: () => ({ fileCapturedRange: null })
+}));
+
 import * as websocketThunks from "../../src/ts/redux/thunks/websocketThunks";
 import demodReducer, { setHardwareInfo } from "../../src/ts/redux/slices/demodSlice";
 import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
 import themeReducer from "../../src/ts/redux/slices/themeSlice";
 import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
+import { DemodContext } from "../../src/ts/contexts/DemodContext";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { formatFrequency } from "../../src/ts/utils/frequency";
 
@@ -33,8 +39,12 @@ const defaultDemodState = {
   hardwareRange: { min: 0, max: 2_000_000_000 },
   sampleRateHz: 3_200_000,
   algorithm: "fm",
+  alignment: "centered",
   bandwidthKhz: 200,
+  bandwidthHz: 200_000,
   centerFreqHz: 26_000_000,
+  hardwareSpanHz: 3_200_000,
+  bandwidthStartHz: 25_900_000,
   isListening: false,
 };
 
@@ -42,9 +52,16 @@ function createMockStore(
   initialDemodState = {},
   websocketState: Partial<any> = {},
   spectrumRange?: { min: number; max: number },
+  options: {
+    sourceMode?: "live" | "file";
+    previewRange?: { min: number; max: number } | null;
+  } = {},
 ) {
   const center = (initialDemodState as any).centerFreqHz || 26_000_000;
   const rate = (initialDemodState as any).sampleRateHz || 3_200_000;
+  const hardwareSpan = (initialDemodState as any).hardwareSpanHz ?? rate;
+  const bw = (initialDemodState as any).bandwidthHz ?? 200_000;
+  const bwStart = (initialDemodState as any).bandwidthStartHz ?? (center - bw / 2);
   const range =
     spectrumRange ?? {
       min: center - rate / 2,
@@ -56,14 +73,18 @@ function createMockStore(
       spectrum: spectrumReducer,
       websocket: websocketReducer,
       theme: themeReducer,
+      waterfall: (state = { sourceMode: options.sourceMode ?? "live" }, action: any) => state,
     } as any,
     preloadedState: {
       demod: {
         ...defaultDemodState,
+        hardwareSpanHz: hardwareSpan,
+        bandwidthStartHz: bwStart,
         ...initialDemodState,
       },
       spectrum: {
         frequencyRange: range,
+        previewRange: options.previewRange ?? null,
       },
       websocket: {
         isConnected: false,
@@ -126,7 +147,7 @@ describe("SpanNode Integration", () => {
     );
 
     const startInput = screen.getByLabelText("Bandwidth Start");
-    expect(startInput).toHaveValue("25.750");
+    expect(startInput).toHaveValue("15.900");
   });
 
   it("enforces the floor and displays correct labels", async () => {
@@ -145,9 +166,9 @@ describe("SpanNode Integration", () => {
       </Provider>
     );
 
-    expect(screen.getByLabelText("Center Frequency")).toHaveValue("26.000");
-    expect(screen.getByLabelText("Sample Rate")).toHaveValue("3.200");
-    expect(screen.getByLabelText("Bandwidth")).toHaveValue("500.000");
+    expect(screen.getByLabelText("Center Frequency")).toHaveValue("500.000");
+    expect(screen.getByLabelText("Sample Rate")).toHaveValue("1.000");
+    expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("400.000");
   });
 
   it("updates hardware range on center/span change", async () => {
@@ -277,6 +298,39 @@ describe("SpanNode Integration", () => {
     fireEvent.change(alignment, { target: { value: "centered" } });
 
     expect(startInput).toHaveValue("26.250");
+  });
+
+  it("updates bandwidth and start from file-mode FFT selection preview", async () => {
+    const store = createMockStore(
+      {
+        centerFreqHz: 27_302_000,
+        hardwareSpanHz: 3_200_000,
+        bandwidthHz: 200_000,
+        bandwidthKhz: 200,
+        bandwidthStartHz: 27_202_000,
+      },
+      {},
+      { min: 25_702_000, max: 28_902_000 },
+      {
+        sourceMode: "file",
+        previewRange: { min: 26_000_000, max: 27_000_000 },
+      },
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <ReactFlow>
+            <SpanNode data={{ label: "Span Control" }} />
+          </ReactFlow>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("26.000");
+      expect(screen.getByLabelText("Bandwidth")).toHaveValue("1.000");
+    });
   });
 
 

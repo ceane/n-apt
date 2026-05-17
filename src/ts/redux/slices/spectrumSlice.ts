@@ -36,6 +36,7 @@ export interface SpectrumState {
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
+  minReceiveSampleRateHz: number;
 
   // Visualization state
   visualizerPaused: boolean;
@@ -99,6 +100,7 @@ const initialState: SpectrumState = {
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
+  minReceiveSampleRateHz: 3_200_000,
 
   visualizerPaused: false,
   isWaterfallCleared: false,
@@ -250,6 +252,10 @@ const spectrumSlice = createSlice({
 
     setSampleRate: (state, action: PayloadAction<number>) => {
       state.sampleRateHz = action.payload;
+    },
+
+    setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {
+      state.minReceiveSampleRateHz = action.payload;
     },
 
     // Bundle updates for efficiency

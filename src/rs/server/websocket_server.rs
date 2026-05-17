@@ -134,21 +134,26 @@ fn broadcast_device_status(
   let _ = broadcast_tx.send(msg.to_string());
 }
 
-fn build_device_profile(is_mock: bool) -> DeviceProfile {
-  if is_mock {
-    DeviceProfile {
-      kind: "mock_apt".to_string(),
-      is_rtl_sdr: false,
-      supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
-    }
-  } else {
-    DeviceProfile {
+fn build_device_profile(device_type: &str) -> DeviceProfile {
+  match device_type {
+    "rtl-sdr" => DeviceProfile {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
       supports_raw_iq_stream: true,
-    }
+    },
+    "hackrf" => DeviceProfile {
+      kind: "hackrf".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: true,
+    },
+    _ => DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    },
   }
 }
 
@@ -204,7 +209,7 @@ impl WebSocketServer {
     shared.update_device_status(
       !sdr_processor.is_mock(),
       sdr_processor.get_device_info(),
-      build_device_profile(sdr_processor.is_mock()),
+      build_device_profile(sdr_processor.device_type()),
     );
 
     Self {
@@ -320,14 +325,14 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 } else {
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   last_hardware_swap = Some(Instant::now());
@@ -345,7 +350,7 @@ impl WebSocketServer {
                 shared_state.update_device_status(
                   !processor.is_mock(),
                   processor.get_device_info(),
-                  build_device_profile(processor.is_mock()),
+                  build_device_profile(processor.device_type()),
                 );
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
@@ -733,20 +738,14 @@ impl WebSocketServer {
         if processor.is_mock() {
           // ── Mock mode: scan for real hardware to hot-plug ──
           if !processor.capture_active {
-            let count =
-              crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-
             // Only attempt re-scan if we haven't failed recently.
             // Prevents rhythmic loop if device is electrically unstable.
             let scan_cooldown = last_failure_at
               .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
               .unwrap_or(false);
 
-            if count > 0 && !scan_cooldown {
-              info!(
-                "Auto-detected {} RTL-SDR device(s). Attempting hot-swap...",
-                count
-              );
+            if !scan_cooldown {
+              info!("Attempting auto-detection of RTL-SDR or HackRF...");
 
               // Immediately tell the frontend we are loading
               shared_state.set_device_state("loading", Some("connect"));
@@ -754,9 +753,9 @@ impl WebSocketServer {
 
               match crate::sdr::SdrDeviceFactory::create_device() {
                 Ok(new_device) => {
-                  if !new_device.device_type().contains("Mock") {
+                  if !new_device.device_type().contains("mock") {
                     if let Err(e) = processor.swap_device(new_device) {
-                      error!("Failed to auto-swap to detected RTL-SDR: {}", e);
+                      error!("Failed to auto-swap to detected device: {}", e);
                       // Revert to disconnected so frontend doesn't hang on "loading"
                       shared_state.set_device_state("disconnected", None);
                       broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -764,11 +763,14 @@ impl WebSocketServer {
                       shared_state.update_device_status(
                         true,
                         processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
+                        build_device_profile(processor.device_type()),
                       );
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       last_hardware_swap = Some(Instant::now());
-                      info!("Successfully hot-swapped to RTL-SDR");
+                      info!(
+                        "Successfully hot-swapped to {}",
+                        processor.device_type()
+                      );
                     }
                   } else {
                     // Factory returned mock despite count > 0 — revert
@@ -777,7 +779,7 @@ impl WebSocketServer {
                   }
                 }
                 Err(e) => {
-                  debug!("Auto-detection found device count > 0 but failed to open: {}", e);
+                  debug!("Auto-detection failed to open a real device: {}", e);
                   shared_state.set_device_state("disconnected", None);
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
@@ -838,7 +840,7 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
@@ -899,7 +901,7 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   last_failure_at = Some(Instant::now());
@@ -938,14 +940,14 @@ impl WebSocketServer {
                       shared_state.update_device_status(
                         false,
                         processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
+                        build_device_profile(processor.device_type()),
                       );
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                     } else {
                       shared_state.update_device_status(
                         true,
                         processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
+                        build_device_profile(processor.device_type()),
                       );
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       last_hardware_swap = Some(Instant::now());
@@ -962,7 +964,7 @@ impl WebSocketServer {
                     shared_state.update_device_status(
                       false,
                       processor.get_device_info(),
-                      build_device_profile(processor.is_mock()),
+                      build_device_profile(processor.device_type()),
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                     last_hardware_swap = Some(Instant::now());
@@ -1110,7 +1112,7 @@ impl WebSocketServer {
               shared_state.update_device_status(
                 true,
                 device_type_str.clone(),
-                build_device_profile(false),
+                build_device_profile(device_type_str.as_str()),
               );
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
@@ -1203,7 +1205,7 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
@@ -1268,7 +1270,7 @@ impl WebSocketServer {
                 shared_state.update_device_status(
                   false,
                   processor.get_device_info(),
-                  build_device_profile(processor.is_mock()),
+                  build_device_profile(processor.device_type()),
                 );
                 broadcast_device_status(&shared_state, &_broadcast_tx);
                 last_hardware_swap = Some(Instant::now());

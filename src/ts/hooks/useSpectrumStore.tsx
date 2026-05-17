@@ -212,6 +212,7 @@ export type SpectrumState = {
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
+  minReceiveSampleRateHz: number;
   sample_size: number;
   heterodyningVerifyRequestId: number;
   heterodyningStatusText: string;
@@ -283,6 +284,7 @@ export type SpectrumAction =
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
   | { type: "SET_SHOW_SPIKE_OVERLAY"; enabled: boolean }
   | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
+  | { type: "SET_MIN_RECEIVE_SAMPLE_RATE"; minReceiveSampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
   | { type: "REQUEST_HETERODYNING_VERIFY" }
   | { type: "SET_HETERODYNING_VERIFY_DISABLED"; disabled: boolean }
@@ -353,6 +355,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
+  minReceiveSampleRateHz: 3_200_000,
   sample_size: 3_200_000,
   heterodyningVerifyRequestId: 0,
   heterodyningStatusText: "Idle",
@@ -571,6 +574,11 @@ export function spectrumReducer(
         ...state,
         sampleRateHz: action.sampleRateHz,
         sample_size: action.sampleRateHz,
+      };
+    case "SET_MIN_RECEIVE_SAMPLE_RATE":
+      return {
+        ...state,
+        minReceiveSampleRateHz: action.minReceiveSampleRateHz,
       };
     case "SET_SDR_SETTINGS_BUNDLE":
       return {
@@ -1305,11 +1313,25 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
         storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
       }
+      const minReceiveRate =
+        sdrSettings?.min_receive_sample_rate ?? sdrSettings?.sample_rate ?? rate;
+      if (
+        typeof minReceiveRate === "number" &&
+        minReceiveRate > 0 &&
+        minReceiveRate !== state.minReceiveSampleRateHz
+      ) {
+        storeDispatch({
+          type: "SET_MIN_RECEIVE_SAMPLE_RATE",
+          minReceiveSampleRateHz: minReceiveRate,
+        });
+      }
     }, [
       sdrSettings?.sample_rate,
+      sdrSettings?.min_receive_sample_rate,
       sampleRateHz,
       maxSampleRateHz,
       state.sampleRateHz,
+      state.minReceiveSampleRateHz,
       storeDispatch,
     ]);
 

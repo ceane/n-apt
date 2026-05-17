@@ -491,6 +491,14 @@ pub fn handle_message(
           None
         }
       });
+      let sample_rate = message.sample_rate.and_then(|rate| {
+        if (1_000_000..=20_000_000).contains(&rate) {
+          Some(rate)
+        } else {
+          warn!("Ignoring invalid sample_rate from client: {}", rate);
+          None
+        }
+      });
 
       let gain = message.gain.and_then(|g| {
         if g.is_finite() && g >= 0.0 {
@@ -517,6 +525,7 @@ pub fn handle_message(
         && frame_rate.is_none()
         && gain.is_none()
         && ppm.is_none()
+        && sample_rate.is_none()
         && message.tuner_agc.is_none()
         && message.rtl_agc.is_none()
       {
@@ -529,7 +538,7 @@ pub fn handle_message(
           fft_size,
           fft_window: message.fft_window,
           frame_rate,
-          sample_rate: None,
+          sample_rate,
           gain,
           ppm,
           tuner_agc: message.tuner_agc,
@@ -548,6 +557,9 @@ pub fn handle_message(
       }
       if let Some(fr) = frame_rate {
         sdr_settings.fft.default_frame_rate = fr;
+      }
+      if let Some(sr) = sample_rate {
+        sdr_settings.sample_rate = sr;
       }
       if let Some(g) = gain {
         sdr_settings.gain.tuner_gain = g;

@@ -209,6 +209,13 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     : hasUpstreamConnection
       ? bandwidthHzFromPreview
       : (bandwidthKhz || 200) * 1000;
+  const formatRadioFrequency = (valueHz: number) =>
+    formatFrequency(valueHz, {
+      precisionMHz: 3,
+      precisionKHz: 3,
+      precisionGHz: 6,
+      trimTrailingZeros: true,
+    });
 
   useEffect(() => {
     if (hasFmNodeUpstream) {
@@ -253,7 +260,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
           <Label>Center Frequency</Label>
           <FrequencyDisplay>
             {centerDisplayHz != null
-              ? formatFrequency(centerDisplayHz)
+              ? formatRadioFrequency(centerDisplayHz)
               : sourceBadge}
           </FrequencyDisplay>
           <SourceTag>{sourceBadge}</SourceTag>
@@ -265,7 +272,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             {bandwidthDisplayHz != null &&
             Number.isFinite(bandwidthDisplayHz) &&
             bandwidthDisplayHz >= MIN_BANDWIDTH_HZ
-              ? formatFrequency(bandwidthDisplayHz)
+              ? formatRadioFrequency(bandwidthDisplayHz)
               : sourceBadge}
           </FrequencyDisplay>
           <SourceTag>{sourceBadge}</SourceTag>
