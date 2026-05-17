@@ -72,6 +72,11 @@ const ActionButton = styled.button<{ $active?: boolean }>`
   }
 `;
 
+const formatDbValue = (value: number) => {
+  const rounded = Math.round(value);
+  return Object.is(rounded, -0) ? 0 : rounded;
+};
+
 export interface VisualizerSlidersProps {
   /** Frequency zoom level: 1 = no zoom, higher = more zoomed in */
   zoom: number;
@@ -172,7 +177,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={maxDbRange.max}
         step={5}
         onChange={onDbMaxChange}
-        formatValue={(v) => `${v}${dbUnit}`}
+        formatValue={(v) => `${formatDbValue(v)}${dbUnit}`}
         invertFill
         orientation="vertical"
         labelPlacement="bottom"
@@ -184,7 +189,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={minDbRange.max}
         step={5}
         onChange={onDbMinChange}
-        formatValue={(v) => `${v}${dbUnit}`}
+        formatValue={(v) => `${formatDbValue(v)}${dbUnit}`}
         orientation="vertical"
         labelPlacement="bottom"
       />

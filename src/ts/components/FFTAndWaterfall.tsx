@@ -1,4 +1,4 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useCallback, useState } from "react";
 import styled from "styled-components";
 import FFTCanvas, {
   type FFTCanvasHandle,
@@ -9,6 +9,7 @@ import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
 import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
+import { getStableVizPanForZoomChange } from "@n-apt/utils/visualizationZoom";
 
 const Container = styled.div`
   flex: 1;
@@ -59,9 +60,33 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     };
 
     const zoom = props.vizZoom ?? 1;
+    const pan = props.vizPanOffset ?? 0;
     const powerScale = props.powerScale ?? "dB";
     const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
     const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
+    const handleZoomChange = useCallback(
+      (nextZoom: number) => {
+        const nextPan = getStableVizPanForZoomChange({
+          currentZoom: zoom,
+          currentPan: pan,
+          nextZoom,
+          rangeMin: props.frequencyRange.min,
+          rangeMax: props.frequencyRange.max,
+        });
+        if (props.onVizPanChange && nextPan !== pan) {
+          props.onVizPanChange(nextPan);
+        }
+        props.onVizZoomChange?.(nextZoom);
+      },
+      [
+        zoom,
+        pan,
+        props.frequencyRange.min,
+        props.frequencyRange.max,
+        props.onVizPanChange,
+        props.onVizZoomChange,
+      ],
+    );
 
     return (
       <Container>
@@ -85,7 +110,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             dbMax={dbMax}
             dbMin={dbMin}
             powerScale={props.powerScale ?? "dB"}
-            onZoomChange={(nextZoom) => props.onVizZoomChange?.(nextZoom)}
+            onZoomChange={handleZoomChange}
             onDbMaxChange={(nextDbMax) =>
               props.onFftDbLimitsChange?.(dbMin, nextDbMax)
             }

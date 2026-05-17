@@ -54,6 +54,22 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("-90dBm")).toBeInTheDocument();
   });
 
+  test("rounds dB labels to whole numbers", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          dbMax={10.4}
+          dbMin={-89.6}
+          powerScale="dBm"
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("10dBm")).toBeInTheDocument();
+    expect(screen.getByText("-90dBm")).toBeInTheDocument();
+  });
+
   test("action buttons trigger correct callbacks", () => {
     const onReset = jest.fn();
     const onAvg = jest.fn();

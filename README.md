@@ -286,9 +286,17 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Verification**: `pkg-config --modversion libhackrf` or `pkg-config --modversion hackrf`
   - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
 
+- **USB hotplug backend**:
+  - **macOS**: `brew install libusb pkgconf`
+  - **Ubuntu/Debian**: `sudo apt install libusb-1.0-0-dev pkg-config`
+  - **Windows**: use **WSL2** for the main dev workflow; native Windows shells are not the intended environment for the USB hotplug backend
+  - **Verification**: `pkg-config --modversion libusb-1.0`
+  - **If Cargo still cannot find it**: verify `pkg-config` and the system libusb development package are installed
+
 - If you are only using file playback or Mock APT playback, you do not need `librtlsdr` or `libhackrf`.
 - `npm run setup` does not install native SDR libraries. It only creates `.env.local` and fetches Rust dependencies, so install the device libraries first if you want live hardware.
 - On Linux, if either device library is missing, also install `pkg-config` and your usual native build tools (`build-essential` on Debian/Ubuntu) so Cargo can discover the library.
+- For the new hotplug backend, you also need libusb development headers on the host platform. On macOS that is `libusb`; on Linux that is `libusb-1.0-0-dev`.
 
 - npm installs are delayed by 7 days for newly published package versions via `.npmrc`'s `min-release-age`.
 
@@ -315,6 +323,15 @@ npm run towers:process:opencellid
 - **WSL2** behaves like Linux for this repository and is the recommended Windows environment.
 - **Native Windows shells** (`cmd.exe` / PowerShell) are **not** the intended environment for the main dev workflow because parts of the build still rely on Unix-style tools and shell behavior.
 - **Best compatibility**: run Node, Rust, Redis, and the build scripts all inside the same WSL distribution.
+
+### Disk Space
+
+Rust builds for this repo are fairly heavy. On my machine, a warmed-up workspace currently uses about:
+
+- `target/`: `2.8 GiB`
+- Cargo registry cache/index: about `1.6 GiB` combined
+
+Plan for at least `5 GiB` of free space for a comfortable build/run cycle, and more if this is a first-time setup or you are also installing native SDR libraries and other dev tooling. If the build starts failing with `No space left on device`, clearing `target/` is usually the first thing to try.
 </details>
 
 

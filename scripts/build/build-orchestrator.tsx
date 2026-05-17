@@ -1183,7 +1183,10 @@ exit 1
 
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
-  render(<BuildOrchestrator />);
+  render(<BuildOrchestrator />, {
+    incrementalRendering: true,
+    maxFps: 12,
+  });
 }
 
 export default BuildOrchestrator;

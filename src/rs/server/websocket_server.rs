@@ -56,11 +56,12 @@ use tokio::sync::Mutex;
 use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
 use super::utils::reconcile_device_state;
+use crate::sdr::hotplug::is_recovery_budget_exhausted;
 use crate::sdr::processor::SdrProcessor;
 
 /// Build and broadcast a device status message so all connected WebSocket
 /// clients immediately learn about hotplug / unplug events.
-fn broadcast_device_status(
+pub(crate) fn broadcast_device_status(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
@@ -138,7 +139,7 @@ fn broadcast_device_status(
   let _ = broadcast_tx.send(msg.to_string());
 }
 
-fn build_device_profile(device_type: &str) -> DeviceProfile {
+pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
   match device_type {
     "rtl-sdr" => DeviceProfile {
       kind: "rtl-sdr".to_string(),
@@ -159,17 +160,6 @@ fn build_device_profile(device_type: &str) -> DeviceProfile {
       supports_raw_iq_stream: true,
     },
   }
-}
-
-fn should_enter_hardware_recovery(device_type: &str) -> bool {
-  !device_type.to_ascii_lowercase().contains("mock")
-}
-
-fn is_recovery_budget_exhausted(
-  recovery_attempts: u32,
-  max_recovery_attempts: u32,
-) -> bool {
-  recovery_attempts >= max_recovery_attempts
 }
 
 #[derive(Clone)]
@@ -248,17 +238,11 @@ impl WebSocketServer {
 
     let mut frame_count = 0u64;
     let mut last_stats = Instant::now();
-    let mut last_poll = Instant::now();
-    let mut last_hardware_swap: Option<Instant> = None;
-    let mut last_failure_at: Option<Instant> = None;
+    let hotplug_monitor = crate::sdr::hotplug::HotplugMonitor::new()
+      .expect("Failed to create hotplug monitor");
+    let _ = hotplug_monitor.start();
+    let mut hotplug_state = crate::sdr::hotplug::HotplugState::new();
     let mut target_fps: u32 = 30; // sensible default until first frame
-    let retry_cooldown = Duration::from_secs(30);
-    // Once a real device has burned through the retry budget, keep it in a
-    // visible disconnected state for a while instead of looping restart ->
-    // failure -> restart. This is a per-episode cooldown, not a permanent
-    // ban: a later healthy read still clears the counters and resumes normal
-    // operation.
-    let exhausted_recovery_cooldown = Duration::from_secs(15);
     let mut allow_next_paused_frame = false;
 
     // ── Channel hot-reload state ──────────────────────────────────────
@@ -356,7 +340,7 @@ impl WebSocketServer {
                     build_device_profile(processor.device_type()),
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
               }
               Err(e) => {
@@ -365,7 +349,7 @@ impl WebSocketServer {
                 if let Err(e) = processor.initialize() {
                   error!("Failed to restart existing device: {}", e);
                 } else {
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
                 // Revert state regardless
                 shared_state.update_device_status(
@@ -752,229 +736,38 @@ impl WebSocketServer {
       //   • Real unhealthy: debounce ≥ DISCONNECT_FAILURE_THRESHOLD strikes,
       //     attempt recovery, only then fall back to mock.
       //   • Every state change is broadcast immediately.
-      if last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
-        last_poll = Instant::now();
+      if hotplug_state.last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
+        hotplug_state.last_poll = Instant::now();
         let mut processor = sdr_processor.lock().await;
-
-        if !should_enter_hardware_recovery(processor.device_type()) {
-          // Mock APT is software-synthesized and must never enter the
-          // hardware restart / hotplug recovery cycle.
-        } else {
-          // ── Real hardware mode: debounced health monitoring ──
-
-          // Be patient during the first 2 seconds of a new connection.
-          // Power-hungry devices like the Blog V4 may take time to settle their
-          // internal regulators and I2C bridge after the initial 'open'.
-          let is_warming_up = last_hardware_swap
-            .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
-            .unwrap_or(false);
-
-          if !processor.is_healthy() && !is_warming_up {
-            let streak = shared_state.record_health_failure();
-            let recovery_count =
-              shared_state.recovery_attempts.load(Ordering::Relaxed);
-
-            warn!(
-                "RTL-SDR health check failed (streak {}/{}, recovery attempts {}/{})",
-                streak,
-                super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
-                recovery_count,
-                super::shared_state::MAX_RECOVERY_ATTEMPTS,
-              );
-
-            if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-              if usb_count == 0 {
-                warn!("RTL-SDR disappeared during recovery window. Falling back to mock immediately.");
-                shared_state.set_device_state("disconnected", None);
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                if processor.capture_active {
-                  warn!("Stopping active capture due to early hardware disappearance.");
-                  if let Some(result) = processor.stop_capture() {
-                    handle_stopped_capture(
-                      result,
-                      &shared_state,
-                      &_broadcast_tx,
-                      Some("Capture stopped due to hardware disconnection"),
-                    );
-                  }
-                }
-
-                let mock_device =
-                  crate::sdr::SdrDeviceFactory::create_mock_device();
-                if let Err(e) = processor.swap_device(mock_device) {
-                  error!(
-                    "Failed to fall back to mock device after early unplug: {}",
-                    e
-                  );
-                } else {
-                  shared_state.update_device_status(
-                    false,
-                    processor.get_device_info(),
-                    build_device_profile(processor.device_type()),
-                  );
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                }
-              } else {
-                // ── Recovery attempt: re-init the existing device ──
-                if !is_recovery_budget_exhausted(
-                  recovery_count,
-                  super::shared_state::MAX_RECOVERY_ATTEMPTS,
-                ) {
-                  shared_state
-                    .recovery_attempts
-                    .fetch_add(1, Ordering::Relaxed);
-                  shared_state.set_device_state("loading", Some("restart"));
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                  info!(
-                    "Attempting device recovery (attempt {} of {})...",
-                    recovery_count + 1,
-                    super::shared_state::MAX_RECOVERY_ATTEMPTS
-                  );
-                  if let Err(reset_err) = processor.reset_buffer() {
-                    warn!("Buffer reset during recovery failed: {}", reset_err);
-                  }
-                  if let Err(reinit_err) = processor.initialize() {
-                    warn!("Re-init during recovery failed: {}", reinit_err);
-                  } else {
-                    // Re-init returned Ok, but we do NOT declare "connected" yet.
-                    // The next health-check pass (if is_healthy()==true) will
-                    // confirm recovery and broadcast "connected".
-                    info!("Device re-init succeeded, awaiting health confirmation...");
-                  }
-                } else {
-                  warn!(
-                    "Recovery budget exhausted ({} attempts). Holding disconnected for {:?} before trying again.",
-                    super::shared_state::MAX_RECOVERY_ATTEMPTS,
-                    exhausted_recovery_cooldown
-                  );
-                  shared_state.set_device_state("disconnected", None);
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                  last_failure_at = Some(Instant::now());
-                  tokio::time::sleep(exhausted_recovery_cooldown).await;
-                }
-                // else: let the streak keep climbing until threshold
-              }
-            } else {
-              // ── Threshold reached: confirm via USB device count ──
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-
-              if usb_count == 0 {
-                warn!("RTL-SDR confirmed unplugged (device_count=0). Falling back to mock.");
-                shared_state.set_device_state("disconnected", None);
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                if processor.capture_active {
-                  warn!("Stopping active capture due to confirmed hardware unplug.");
-                  if let Some(result) = processor.stop_capture() {
-                    handle_stopped_capture(
-                      result,
-                      &shared_state,
-                      &_broadcast_tx,
-                      Some("Capture stopped: Hardware unplugged"),
-                    );
-                  }
-                }
-
-                let mock_device =
-                  crate::sdr::SdrDeviceFactory::create_mock_device();
-                if let Err(e) = processor.swap_device(mock_device) {
-                  error!("Failed to fall back to mock device after confirmed unplug: {}", e);
-                } else {
-                  shared_state.update_device_status(
-                    false,
-                    processor.get_device_info(),
-                    build_device_profile(processor.device_type()),
-                  );
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                  last_failure_at = Some(Instant::now());
-                  info!("Fell back to mock mode after confirmed unplug");
-                }
-              } else {
-                // Device still on USB but stuck — try a full restart
-                warn!("RTL-SDR still on USB (count={}) but unhealthy. Attempting full restart...", usb_count);
-                if processor.capture_active {
-                  warn!("Stopping active capture due to hardware malfunction requiring restart.");
-                  if let Some(result) = processor.stop_capture() {
-                    handle_stopped_capture(
-                      result,
-                      &shared_state,
-                      &_broadcast_tx,
-                      Some("Capture stopped: Hardware malfunction"),
-                    );
-                  }
-                }
-
-                shared_state.set_device_state("loading", Some("restart"));
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                match crate::sdr::SdrDeviceFactory::create_device() {
-                  Ok(new_device)
-                    if !new_device.device_type().contains("Mock") =>
-                  {
-                    if let Err(e) = processor.swap_device(new_device) {
-                      error!("Full restart swap failed: {}", e);
-                      // Fall back to mock as last resort
-                      let mock_device =
-                        crate::sdr::SdrDeviceFactory::create_mock_device();
-                      if let Err(me) = processor.swap_device(mock_device) {
-                        error!("Emergency mock fallback also failed: {}", me);
-                      }
-                      shared_state.update_device_status(
-                        false,
-                        processor.get_device_info(),
-                        build_device_profile(processor.device_type()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                    } else {
-                      shared_state.update_device_status(
-                        true,
-                        processor.get_device_info(),
-                        build_device_profile(processor.device_type()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                      last_hardware_swap = Some(Instant::now());
-                      info!("Full device restart succeeded");
-                    }
-                  }
-                  _ => {
-                    // Couldn't re-open — fall back to mock
-                    let mock_device =
-                      crate::sdr::SdrDeviceFactory::create_mock_device();
-                    if let Err(me) = processor.swap_device(mock_device) {
-                      error!("Mock fallback after restart failure: {}", me);
-                    }
-                    shared_state.update_device_status(
-                      false,
-                      processor.get_device_info(),
-                      build_device_profile(processor.device_type()),
-                    );
-                    broadcast_device_status(&shared_state, &_broadcast_tx);
-                    last_hardware_swap = Some(Instant::now());
-                  }
-                }
+        crate::sdr::hotplug::maybe_attach_hotplugged_device(
+          &hotplug_monitor,
+          &mut hotplug_state,
+          &mut processor,
+          &shared_state,
+          &_broadcast_tx,
+        )
+        .await;
+        crate::sdr::hotplug::handle_real_hardware_health(
+          &mut hotplug_state,
+          &mut processor,
+          &shared_state,
+          &_broadcast_tx,
+          |processor| {
+            if processor.capture_active {
+              warn!("Stopping active capture due to device transition.");
+              if let Some(result) = processor.stop_capture() {
+                handle_stopped_capture(
+                  result,
+                  &shared_state,
+                  &_broadcast_tx,
+                  Some("Capture stopped due to hardware transition"),
+                );
               }
             }
-          } else {
-            // Healthy — reset the streak
-            let prev =
-              shared_state.health_failure_streak.load(Ordering::Relaxed);
-            if prev > 0 {
-              info!("RTL-SDR health restored after {} failure(s)", prev);
-              shared_state
-                .health_failure_streak
-                .store(0, Ordering::Relaxed);
-              shared_state.recovery_attempts.store(0, Ordering::Relaxed);
-              // Ensure frontend knows we're solidly connected
-              shared_state.set_device_state("connected", None);
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-            }
-          }
-        }
+            Ok(())
+          },
+        )
+        .await;
       }
 
       // 1c. Hot-reload n_apt.channels when signals.yaml changes on disk.
@@ -1163,8 +956,8 @@ impl WebSocketServer {
               e,
             );
 
-            if let Some(last_failed) = last_failure_at {
-              if last_failed.elapsed() < retry_cooldown {
+            if let Some(last_failed) = hotplug_state.last_failure_at {
+              if last_failed.elapsed() < hotplug_state.retry_cooldown {
                 debug!(
                     "Skipping recovery while cooling down after repeated RTL-SDR failure"
                   );
@@ -1226,18 +1019,18 @@ impl WebSocketServer {
                   // Don't declare "connected" yet — the next health-check
                   // or successful frame read will confirm recovery.
                   info!("Read-error re-init succeeded, awaiting health confirmation...");
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
               } else {
                 warn!(
                     "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
                     super::shared_state::MAX_RECOVERY_ATTEMPTS,
-                    exhausted_recovery_cooldown
+                    hotplug_state.exhausted_recovery_cooldown
                   );
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                last_failure_at = Some(Instant::now());
-                tokio::time::sleep(exhausted_recovery_cooldown).await;
+                hotplug_state.last_failure_at = Some(Instant::now());
+                tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown).await;
               }
 
               // Brief settle regardless
@@ -1264,9 +1057,9 @@ impl WebSocketServer {
                   build_device_profile(processor.device_type()),
                 );
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                last_hardware_swap = Some(Instant::now());
+                hotplug_state.last_hardware_swap = Some(Instant::now());
               }
-              last_failure_at = Some(Instant::now());
+              hotplug_state.last_failure_at = Some(Instant::now());
             }
           }
         }
@@ -1406,6 +1199,10 @@ impl WebSocketServer {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::sdr::hotplug::{
+    is_recovery_budget_exhausted, should_enter_hardware_recovery,
+    should_probe_for_hotplug,
+  };
 
   #[test]
   fn mock_apt_never_enters_hardware_recovery() {
@@ -1421,6 +1218,14 @@ mod tests {
     assert!(!is_recovery_budget_exhausted(1, 2));
     assert!(is_recovery_budget_exhausted(2, 2));
     assert!(is_recovery_budget_exhausted(3, 2));
+  }
+
+  #[test]
+  fn hotplug_probe_only_runs_for_mock_devices() {
+    assert!(should_probe_for_hotplug("Mock APT SDR"));
+    assert!(should_probe_for_hotplug("mock_apt"));
+    assert!(!should_probe_for_hotplug("rtl-sdr"));
+    assert!(!should_probe_for_hotplug("hackrf"));
   }
 
   #[test]

@@ -147,6 +147,7 @@ impl SdrDeviceFactory {
 }
 
 pub mod mock_apt;
+pub mod hotplug;
 pub mod processor;
 #[cfg(has_hackrf)]
 pub mod hackrf;
