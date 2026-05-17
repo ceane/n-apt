@@ -168,6 +168,8 @@ export const StatusMessageSchema = z.object({
   device_name: z.string(),
   device_loading: z.boolean(),
   device_loading_reason: z.enum(["connect", "restart", "null"]).nullable(),
+  device_loading_attempt: z.number().int().nonnegative().optional(),
+  device_loading_attempt_max: z.number().int().nonnegative().optional(),
   device_state: z
     .enum(["connected", "loading", "disconnected", "stale", "null"])
     .nullable(),

@@ -13,10 +13,13 @@ use anyhow::Result;
 use axum::routing::{get, post};
 use axum::Router;
 use log::info;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -62,6 +65,64 @@ pub struct AppState {
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
   pub sdr_processor:
     Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
+}
+
+struct TeeWriter {
+  file: Option<Mutex<std::fs::File>>,
+}
+
+impl TeeWriter {
+  fn new() -> Self {
+    let log_path = std::env::var("RUST_LOG_FILE")
+      .unwrap_or_else(|_| "/tmp/rust_log.txt".to_string());
+    let file = OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(&log_path)
+      .ok()
+      .map(Mutex::new);
+    if file.is_some() {
+      eprintln!("Rust backend logs will also be written to {}", log_path);
+    } else {
+      eprintln!("Rust backend file logging unavailable; using stderr only");
+    }
+    Self { file }
+  }
+}
+
+impl Write for TeeWriter {
+  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    io::stderr().write_all(buf)?;
+    if let Some(file) = &self.file {
+      if let Ok(mut guard) = file.lock() {
+        let _ = guard.write_all(buf);
+        let _ = guard.flush();
+      }
+    }
+    Ok(buf.len())
+  }
+
+  fn flush(&mut self) -> io::Result<()> {
+    io::stderr().flush()?;
+    if let Some(file) = &self.file {
+      if let Ok(mut guard) = file.lock() {
+        let _ = guard.flush();
+      }
+    }
+    Ok(())
+  }
+}
+
+fn init_logging() {
+  static INIT: OnceLock<()> = OnceLock::new();
+  INIT.get_or_init(|| {
+    let mut builder = env_logger::Builder::from_env(
+      env_logger::Env::default().default_filter_or("info"),
+    );
+    builder.format_timestamp_secs();
+    builder.target(env_logger::Target::Pipe(Box::new(TeeWriter::new())));
+    builder.init();
+  });
 }
 
 impl websocket_server::WebSocketServer {
@@ -328,11 +389,7 @@ impl websocket_server::WebSocketServer {
 
 /// Main entry point for the N-APT Rust backend server
 pub async fn run_server() -> Result<()> {
-  env_logger::Builder::from_env(
-    env_logger::Env::default().default_filter_or("info"),
-  )
-  .format_timestamp_secs()
-  .init();
+  init_logging();
 
   info!("Starting N-APT Rust Backend Server");
 

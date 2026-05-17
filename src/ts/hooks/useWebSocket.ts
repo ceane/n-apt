@@ -429,6 +429,17 @@ export const useWebSocket = (
                 reason === null
               ) {
                 updates.deviceLoadingReason = reason;
+                if (reason === "restart") {
+                  const attempt = Number(parsedData.device_loading_attempt || 0);
+                  const attemptMax = Number(parsedData.device_loading_attempt_max || 0);
+                  const nowLabel = new Date().toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  });
+                  console.warn(
+                    `[device] ${parsedData.device_name || parsedData.device_info || "Device"} restarting (${attempt}/${attemptMax}) at ${nowLabel}`,
+                  );
+                }
               }
               dispatch({ type: "STATUS", updates });
             } catch {

@@ -174,6 +174,8 @@ export interface StatusMessage {
   device_name: string;
   device_loading: boolean;
   device_loading_reason: DeviceLoadingReason;
+  device_loading_attempt?: number;
+  device_loading_attempt_max?: number;
   device_state: DeviceState;
   paused: boolean;
   max_sample_rate: number;

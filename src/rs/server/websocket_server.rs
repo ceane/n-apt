@@ -73,6 +73,8 @@ fn broadcast_device_status(
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
     shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading_attempt =
+    shared.recovery_attempts.load(Ordering::Relaxed);
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
@@ -122,6 +124,8 @@ fn broadcast_device_status(
       "device_name": device_name,
       "device_loading": device_loading,
       "device_loading_reason": device_loading_reason,
+      "device_loading_attempt": device_loading_attempt,
+      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
       "device_state": device_state,
       "paused": paused,
       "max_sample_rate": sdr_settings.sample_rate,
@@ -155,6 +159,17 @@ fn build_device_profile(device_type: &str) -> DeviceProfile {
       supports_raw_iq_stream: true,
     },
   }
+}
+
+fn should_enter_hardware_recovery(device_type: &str) -> bool {
+  !device_type.to_ascii_lowercase().contains("mock")
+}
+
+fn is_recovery_budget_exhausted(
+  recovery_attempts: u32,
+  max_recovery_attempts: u32,
+) -> bool {
+  recovery_attempts >= max_recovery_attempts
 }
 
 #[derive(Clone)]
@@ -238,6 +253,12 @@ impl WebSocketServer {
     let mut last_failure_at: Option<Instant> = None;
     let mut target_fps: u32 = 30; // sensible default until first frame
     let retry_cooldown = Duration::from_secs(30);
+    // Once a real device has burned through the retry budget, keep it in a
+    // visible disconnected state for a while instead of looping restart ->
+    // failure -> restart. This is a per-episode cooldown, not a permanent
+    // ban: a later healthy read still clears the counters and resumes normal
+    // operation.
+    let exhausted_recovery_cooldown = Duration::from_secs(15);
     let mut allow_next_paused_frame = false;
 
     // ── Channel hot-reload state ──────────────────────────────────────
@@ -735,57 +756,9 @@ impl WebSocketServer {
         last_poll = Instant::now();
         let mut processor = sdr_processor.lock().await;
 
-        if processor.is_mock() {
-          // ── Mock mode: scan for real hardware to hot-plug ──
-          if !processor.capture_active {
-            // Only attempt re-scan if we haven't failed recently.
-            // Prevents rhythmic loop if device is electrically unstable.
-            let scan_cooldown = last_failure_at
-              .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
-              .unwrap_or(false);
-
-            if !scan_cooldown {
-              info!("Attempting auto-detection of RTL-SDR or HackRF...");
-
-              // Immediately tell the frontend we are loading
-              shared_state.set_device_state("loading", Some("connect"));
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-
-              match crate::sdr::SdrDeviceFactory::create_device() {
-                Ok(new_device) => {
-                  if !new_device.device_type().contains("mock") {
-                    if let Err(e) = processor.swap_device(new_device) {
-                      error!("Failed to auto-swap to detected device: {}", e);
-                      // Revert to disconnected so frontend doesn't hang on "loading"
-                      shared_state.set_device_state("disconnected", None);
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                    } else {
-                      shared_state.update_device_status(
-                        true,
-                        processor.get_device_info(),
-                        build_device_profile(processor.device_type()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                      last_hardware_swap = Some(Instant::now());
-                      info!(
-                        "Successfully hot-swapped to {}",
-                        processor.device_type()
-                      );
-                    }
-                  } else {
-                    // Factory returned mock despite count > 0 — revert
-                    shared_state.set_device_state("disconnected", None);
-                    broadcast_device_status(&shared_state, &_broadcast_tx);
-                  }
-                }
-                Err(e) => {
-                  debug!("Auto-detection failed to open a real device: {}", e);
-                  shared_state.set_device_state("disconnected", None);
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                }
-              }
-            }
-          }
+        if !should_enter_hardware_recovery(processor.device_type()) {
+          // Mock APT is software-synthesized and must never enter the
+          // hardware restart / hotplug recovery cycle.
         } else {
           // ── Real hardware mode: debounced health monitoring ──
 
@@ -846,7 +819,10 @@ impl WebSocketServer {
                 }
               } else {
                 // ── Recovery attempt: re-init the existing device ──
-                if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
+                if !is_recovery_budget_exhausted(
+                  recovery_count,
+                  super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                ) {
                   shared_state
                     .recovery_attempts
                     .fetch_add(1, Ordering::Relaxed);
@@ -854,8 +830,9 @@ impl WebSocketServer {
                   broadcast_device_status(&shared_state, &_broadcast_tx);
 
                   info!(
-                    "Attempting device recovery (attempt {})...",
-                    recovery_count + 1
+                    "Attempting device recovery (attempt {} of {})...",
+                    recovery_count + 1,
+                    super::shared_state::MAX_RECOVERY_ATTEMPTS
                   );
                   if let Err(reset_err) = processor.reset_buffer() {
                     warn!("Buffer reset during recovery failed: {}", reset_err);
@@ -868,6 +845,16 @@ impl WebSocketServer {
                     // confirm recovery and broadcast "connected".
                     info!("Device re-init succeeded, awaiting health confirmation...");
                   }
+                } else {
+                  warn!(
+                    "Recovery budget exhausted ({} attempts). Holding disconnected for {:?} before trying again.",
+                    super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                    exhausted_recovery_cooldown
+                  );
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  last_failure_at = Some(Instant::now());
+                  tokio::time::sleep(exhausted_recovery_cooldown).await;
                 }
                 // else: let the streak keep climbing until threshold
               }
@@ -1209,9 +1196,10 @@ impl WebSocketServer {
                   );
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
-              } else if recovery_count
-                < super::shared_state::MAX_RECOVERY_ATTEMPTS
-              {
+              } else if !is_recovery_budget_exhausted(
+                recovery_count,
+                super::shared_state::MAX_RECOVERY_ATTEMPTS,
+              ) {
                 shared_state
                   .recovery_attempts
                   .fetch_add(1, Ordering::Relaxed);
@@ -1219,8 +1207,9 @@ impl WebSocketServer {
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
                 warn!(
-                  "Attempting recovery after read error (attempt {})...",
-                  recovery_count + 1
+                  "Attempting recovery after read error (attempt {} of {})...",
+                  recovery_count + 1,
+                  super::shared_state::MAX_RECOVERY_ATTEMPTS
                 );
                 if let Err(reset_err) = processor.reset_buffer() {
                   warn!(
@@ -1241,12 +1230,14 @@ impl WebSocketServer {
                 }
               } else {
                 warn!(
-                    "Recovery attempts exhausted ({}). Cooling down before retrying.",
-                    super::shared_state::MAX_RECOVERY_ATTEMPTS
+                    "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
+                    super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                    exhausted_recovery_cooldown
                   );
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
                 last_failure_at = Some(Instant::now());
+                tokio::time::sleep(exhausted_recovery_cooldown).await;
               }
 
               // Brief settle regardless
@@ -1409,6 +1400,49 @@ impl WebSocketServer {
 
   pub fn get_spectrum_tx(&self) -> broadcast::Sender<Arc<SpectrumData>> {
     self.spectrum_tx.clone()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn mock_apt_never_enters_hardware_recovery() {
+    assert!(!should_enter_hardware_recovery("Mock APT SDR"));
+    assert!(!should_enter_hardware_recovery("mock_apt"));
+    assert!(should_enter_hardware_recovery("rtl-sdr"));
+    assert!(should_enter_hardware_recovery("hackrf"));
+  }
+
+  #[test]
+  fn recovery_budget_is_exhausted_at_max_attempts() {
+    assert!(!is_recovery_budget_exhausted(0, 2));
+    assert!(!is_recovery_budget_exhausted(1, 2));
+    assert!(is_recovery_budget_exhausted(2, 2));
+    assert!(is_recovery_budget_exhausted(3, 2));
+  }
+
+  #[test]
+  fn restart_status_payload_reports_attempt_budget() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.recovery_attempts.store(1, Ordering::Relaxed);
+    shared.set_device_state("loading", Some("restart"));
+
+    let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
+    let payload = serde_json::json!({
+      "device_loading_reason": "restart",
+      "device_loading_attempt": device_loading_attempt,
+      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    });
+
+    assert_eq!(payload["device_loading_reason"], "restart");
+    assert_eq!(payload["device_loading_attempt"], 1);
+    assert_eq!(
+      payload["device_loading_attempt_max"],
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
+    );
   }
 }
 
