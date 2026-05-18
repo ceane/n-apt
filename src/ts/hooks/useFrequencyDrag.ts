@@ -1114,6 +1114,49 @@ export function useFrequencyDrag({
 
           // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
           let newPan = currentPan + freqChange;
+          if (onFrequencyRangeChange && Math.abs(newPan) > maxPan + 0.001) {
+            const currentHardwareCenter =
+              (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
+              2;
+            const visualCenter = currentHardwareCenter + newPan;
+            const hardwareSpan = fullRange;
+            const halfHardware = hardwareSpan / 2;
+
+            let newHardwareMin = visualCenter - halfHardware;
+            let newHardwareMax = visualCenter + halfHardware;
+
+            const bounds =
+              signalAreaBounds?.[activeSignalArea] ||
+              signalAreaBounds?.[activeSignalArea.toLowerCase()];
+            if (bounds) {
+              if (newHardwareMin < bounds.min) {
+                newHardwareMin = bounds.min;
+                newHardwareMax = bounds.min + hardwareSpan;
+              }
+              if (newHardwareMax > bounds.max) {
+                newHardwareMax = bounds.max;
+                newHardwareMin = newHardwareMax - hardwareSpan;
+              }
+            }
+
+            const newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
+            onFrequencyRangeChange({
+              min: newHardwareMin,
+              max: newHardwareMax,
+            });
+
+            const remainingPan = visualCenter - newHardwareCenter;
+            onVizPanChange(remainingPan);
+
+            if (
+              autoZoomStabilityRef?.current &&
+              (vizZoomFloorRef?.current ?? 1) > 1
+            ) {
+              onVizZoomFloorPanChange?.(remainingPan);
+            }
+            return;
+          }
+
           newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
           onVizPanChange(newPan);
 

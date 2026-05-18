@@ -114,6 +114,25 @@ describe("useFrequencyDrag Hook", () => {
     }
   };
 
+  const triggerWheel = (payload: Partial<WheelEvent & { clientX: number; clientY: number }>) => {
+    const calls = spectrumContainerRef.current.addEventListener.mock.calls.filter(
+      (c: any) => c[0] === "wheel",
+    );
+    const handler = calls[calls.length - 1][1];
+    act(() => {
+      handler({
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
+        clientX: 500,
+        clientY: 300,
+        deltaX: 0,
+        deltaY: 0,
+        ctrlKey: false,
+        ...payload,
+      } as any);
+    });
+  };
+
   it("should handle VFO dragging (panning) in the bottom 60px area", () => {
     renderHook(() => useFrequencyDrag(defaultOptions));
 
@@ -301,6 +320,31 @@ describe("useFrequencyDrag Hook", () => {
       ][0];
     expect(lastCall.max).toBe(110);
     expect(lastCall.min).toBe(100);
+  });
+
+  it("should retune the hardware window when zoomed wheel panning crosses the edge", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 2.4 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastCall =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    expect(lastCall.min).toBeGreaterThan(100);
+    expect(lastCall.max).toBeGreaterThan(110);
   });
 
   it("should make pinch zoom feel more responsive and keep the gesture anchored", () => {

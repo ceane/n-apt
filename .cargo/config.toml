@@ -2,7 +2,6 @@
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
 
-# Native builds: unlock full CPU instruction set (AVX2 on x86, Apple Silicon scheduling)
-# This lets rustfft use AVX2 butterflies and enables autovectorization of scalar loops.
-[target.'cfg(not(target_arch = "wasm32"))']
-rustflags = ["-C", "target-cpu=native"]
+# Native builds intentionally stay portable here so CI build scripts and regular
+# test runs do not inherit host-specific CPU features. Performance-only jobs use
+# a separate Cargo config file to opt into host-specific tuning.

@@ -331,9 +331,7 @@ jobs:
           cache-on-failure: true
 
       - name: Run Rust Performance Tests
-        run: cargo test --test performance_tests --release -- --nocapture
-        env:
-          RUSTFLAGS: "-C target-cpu=native"
+        run: cargo --config .cargo/performance.toml test --test performance_tests --release -- --nocapture
 
   # WASM tests
   wasm-tests:
