@@ -126,9 +126,20 @@ impl SIMDProcessor for NativeProcessor {
 
     self.fft.process(&mut self.complex_buf);
 
-    for i in 0..self.fft_size {
-      self.re_buf[i] = self.complex_buf[i].re;
-      self.im_buf[i] = self.complex_buf[i].im;
+    // Deinterleave Complex → split re/im + FFT-shift in one pass.
+    // Standard FFT output has DC at index 0; we need DC in the center.
+    // Instead of copying to re/im then calling rotate_right(half) (which is
+    // 3× reverse = 3 full scans), we split-copy directly into the correct
+    // positions: second half of FFT output → first half of output, first
+    // half → second half.
+    let half = self.fft_size / 2;
+    for i in 0..half {
+      self.re_buf[i] = self.complex_buf[i + half].re;
+      self.im_buf[i] = self.complex_buf[i + half].im;
+    }
+    for i in 0..half {
+      self.re_buf[i + half] = self.complex_buf[i].re;
+      self.im_buf[i + half] = self.complex_buf[i].im;
     }
 
     let window_sum =
@@ -138,9 +149,6 @@ impl SIMDProcessor for NativeProcessor {
     crate::simd::arm_optimized_common::ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
       &self.re_buf, &self.im_buf, output, inv_norm,
     );
-
-    let half = self.fft_size / 2;
-    output.rotate_right(half);
 
     Ok(())
   }

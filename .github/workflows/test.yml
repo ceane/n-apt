@@ -332,6 +332,8 @@ jobs:
 
       - name: Run Rust Performance Tests
         run: cargo test --test performance_tests --release -- --nocapture
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
 
   # WASM tests
   wasm-tests:

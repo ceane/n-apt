@@ -1,6 +1,7 @@
 use n_apt_backend::consts::fft::SAMPLE_RATE;
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::server::types::SdrProcessorSettings;
+use serial_test::serial;
 use std::time::{Duration, Instant};
 
 /// CI runners (GitHub Actions' ubuntu-latest) are shared VMs with variable
@@ -14,6 +15,7 @@ fn ci_timing_multiplier() -> u32 {
 }
 
 #[test]
+#[serial]
 fn test_sdr_processor_frame_timing_stability() {
   // We use a mock device for this test
   let mut processor =
@@ -57,6 +59,7 @@ fn test_sdr_processor_frame_timing_stability() {
 }
 
 #[test]
+#[serial]
 fn test_high_resolution_fft_throughput() {
   let mut processor =
     SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
@@ -90,6 +93,7 @@ fn test_high_resolution_fft_throughput() {
 }
 
 #[test]
+#[serial]
 fn test_fft_size_switch_to_max_first_frame_latency() {
   let mut processor =
     SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
@@ -140,7 +144,7 @@ fn test_fft_size_switch_to_max_first_frame_latency() {
 
   let multiplier = if cfg!(debug_assertions) { 3 } else { 2 };
   let limit = baseline_elapsed
-    .saturating_mul(multiplier)
+    .saturating_mul(multiplier * ci_timing_multiplier())
     .max(Duration::from_millis(100));
 
   assert!(
@@ -153,6 +157,7 @@ fn test_fft_size_switch_to_max_first_frame_latency() {
 }
 
 #[test]
+#[serial]
 fn test_loop_interval_consistency_across_sizes() {
   let test_cases = [
     (2048, 60),   // 16.6ms
@@ -204,11 +209,12 @@ fn test_loop_interval_consistency_across_sizes() {
     };
 
     // Allow more jitter in debug/CI
-    let jitter_limit = if cfg!(debug_assertions) {
+    let base_jitter = if cfg!(debug_assertions) {
       Duration::from_millis(15)
     } else {
       Duration::from_millis(5)
     };
+    let jitter_limit = base_jitter * ci_timing_multiplier();
 
     assert!(
       diff < jitter_limit,

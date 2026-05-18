@@ -1,3 +1,8 @@
 # WASM SIMD configuration
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
+
+# Native builds: unlock full CPU instruction set (AVX2 on x86, Apple Silicon scheduling)
+# This lets rustfft use AVX2 butterflies and enables autovectorization of scalar loops.
+[target.'cfg(not(target_arch = "wasm32"))']
+rustflags = ["-C", "target-cpu=native"]

@@ -545,7 +545,7 @@ impl MockAptDevice {
 
         let rf_signal_db = signal.config.strength_db;
         let adc_signal_db = rf_signal_db + analog_gain;
-        let amp = 10f64.powf(adc_signal_db / 20.0) * settle_factor;
+        let amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp() * settle_factor;
 
         let frame_start_phase = signal.phase;
         let (mut p_im, mut p_re) = (frame_start_phase as f64).sin_cos();
@@ -700,19 +700,31 @@ impl MockAptDevice {
     }
 
     // Apply noise, clip and quantize (Sequential to keep RNG identical)
+    // Pre-compute noise amplitude as f64 once to avoid per-sample f32→f64 cast
+    let noise_amp_f64 = noise_amplitude as f64;
+    // Write directly into the pre-reserved byte_buffer via pointer to avoid
+    // 2×fft_size bounds-checked push() calls (already reserved on line 522).
+    let buf_ptr = self.byte_buffer.as_mut_ptr();
     for j in 0..fft_size {
       let i_noise =
-        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
       let q_noise =
-        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amplitude as f64;
+        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
 
       let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0)
         + 128.0) as u8;
       let q_u8 = (((self.q_accumulator[j] + q_noise).clamp(-1.0, 1.0) * 127.0)
         + 128.0) as u8;
 
-      self.byte_buffer.push(i_u8);
-      self.byte_buffer.push(q_u8);
+      // SAFETY: byte_buffer has capacity ≥ fft_size*2 (reserved on line 522)
+      unsafe {
+        *buf_ptr.add(j * 2) = i_u8;
+        *buf_ptr.add(j * 2 + 1) = q_u8;
+      }
+    }
+    // SAFETY: we wrote exactly fft_size*2 bytes above into reserved capacity
+    unsafe {
+      self.byte_buffer.set_len(fft_size * 2);
     }
 
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
