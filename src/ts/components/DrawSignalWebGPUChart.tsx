@@ -525,7 +525,7 @@ const DrawSignalWebGPUChart: React.FC<DrawSignalWebGPUChartProps> = ({
     <CanvasContainer>
       <Canvas ref={canvasRef} width={width} height={height} />
       {isSupported === null && (
-        <FallbackMessage>Initializing WebGPU...</FallbackMessage>
+        <FallbackMessage>Initializing WebGPU…</FallbackMessage>
       )}
       {isSupported === false && (
         <FallbackMessage>

@@ -87,7 +87,7 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
 
       <SettingRow>
         <SettingLabelContainer>
-          <SettingLabel>Choose or drag files...</SettingLabel>
+          <SettingLabel>Choose or drag files…</SettingLabel>
         </SettingLabelContainer>
         <FileInputActions>
           <HiddenFileInput
@@ -106,7 +106,7 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
               whiteSpace: "nowrap",
             }}
           >
-            Browse...
+            Browse…
           </Button>
         </FileInputActions>
       </SettingRow>

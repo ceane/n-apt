@@ -179,7 +179,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
 
   return (
     <Wrap>
-      <React.Suspense fallback={<LoadingFallback>Loading Math...</LoadingFallback>}>
+      <React.Suspense fallback={<LoadingFallback>Loading Math…</LoadingFallback>}>
         <DrawMath />
       </React.Suspense>
       <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>

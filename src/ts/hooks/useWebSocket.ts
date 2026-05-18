@@ -47,6 +47,11 @@ export type WebSocketData = {
   sampleRateHz: number | null;
   minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
@@ -79,6 +84,7 @@ type WsState = {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
   minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -425,24 +431,29 @@ export const useWebSocket = (
                 updates.deviceState = parsedData.device_state as DeviceState;
               }
               if (Array.isArray(parsedData.channels)) {
-                updates.spectrumFrames = parsedData.channels
-                  .filter((f: any) => f && typeof f.id === "string")
-                  .map((f: any) => ({
-                    id: f.id,
-                    label: typeof f.label === "string" ? f.label : "",
-                    min_hz: Number(f.min_hz),
-                    max_hz: Number(f.max_hz),
-                    description:
-                      typeof f.description === "string" ? f.description : "",
-                  }))
-                  .filter(
-                    (f: SpectrumFrame) =>
-                      typeof f.label === "string" &&
-                      f.label.length > 0 &&
-                      Number.isFinite(f.min_hz) &&
-                      Number.isFinite(f.max_hz) &&
-                      f.max_hz > f.min_hz,
-                  );
+                updates.spectrumFrames = (parsedData.channels as any[]).reduce<
+                  SpectrumFrame[]
+                >((acc, f: any) => {
+                  if (!(f && typeof f.id === "string")) return acc;
+                  const label = typeof f.label === "string" ? f.label : "";
+                  const min_hz = Number(f.min_hz);
+                  const max_hz = Number(f.max_hz);
+                  if (
+                    label.length > 0 &&
+                    Number.isFinite(min_hz) &&
+                    Number.isFinite(max_hz) &&
+                    max_hz > min_hz
+                  ) {
+                    acc.push({
+                      id: f.id,
+                      label,
+                      min_hz,
+                      max_hz,
+                      description: typeof f.description === "string" ? f.description : "",
+                    });
+                  }
+                  return acc;
+                }, []);
               }
               const reason = parsedData.device_loading_reason;
               if (
@@ -788,6 +799,7 @@ export const useWebSocket = (
 
   return {
     ...state,
+    sampleRateOptions: state.sampleRateOptions,
     sdrLimitMarkers: state.sdrLimitMarkers,
     dataRef,
     sendFrequencyRange,

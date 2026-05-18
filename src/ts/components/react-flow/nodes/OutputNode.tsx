@@ -191,7 +191,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
                 justifyContent: "center",
               }}
             >
-              <span>⚡ Processing... ({state})</span>
+              <span>⚡ Processing… ({state})</span>
             </div>
           ) : (
             <div style={{ fontSize: "10px", opacity: 0.4 }}>

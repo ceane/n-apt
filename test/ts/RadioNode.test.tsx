@@ -91,7 +91,7 @@ describe("RadioNode", () => {
 
     expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
     expect(screen.getByText("92.7MHz")).toBeInTheDocument();
-    expect(screen.getByText("200.0kHz")).toBeInTheDocument();
+    expect(screen.getByText("200kHz")).toBeInTheDocument();
   });
 
   it("shows From Node and uses the live span bandwidth when connected upstream from Span", () => {
@@ -115,8 +115,8 @@ describe("RadioNode", () => {
     );
 
     expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
-    expect(screen.getByText("92.8MHz")).toBeInTheDocument();
-    expect(screen.getByText("500.0kHz")).toBeInTheDocument();
+    expect(screen.getByText("92.75MHz")).toBeInTheDocument();
+    expect(screen.getByText("500kHz")).toBeInTheDocument();
   });
 
   it("shows From Node and uses the FFT selection bandwidth when connected upstream from FFT", () => {
@@ -140,7 +140,7 @@ describe("RadioNode", () => {
     );
 
     expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
-    expect(screen.getByText("92.7MHz")).toBeInTheDocument();
-    expect(screen.getByText("358.0kHz")).toBeInTheDocument();
+    expect(screen.getByText("92.679MHz")).toBeInTheDocument();
+    expect(screen.getByText("358kHz")).toBeInTheDocument();
   });
 });

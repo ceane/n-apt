@@ -514,7 +514,7 @@ export const MapEndpointsRoute: React.FC = () => {
               <option value="310-260">T-Mobile US</option>
               <option value="310-410">AT&T Mobility</option>
               <option value="311-480">Verizon Wireless</option>
-              <option value="custom">Custom MCC/MNC...</option>
+              <option value="custom">Custom MCC/MNC…</option>
             </CarrierSelect>
 
             {carrierPresetValue === "custom" && (
@@ -565,7 +565,7 @@ export const MapEndpointsRoute: React.FC = () => {
           </LoadingOverlay>
         )}
         {!isLoaded ? (
-          <LoadingOverlay>Loading maps...</LoadingOverlay>
+          <LoadingOverlay>Loading maps…</LoadingOverlay>
         ) : (
           <MapContainer
             center={[center.lat, center.lng]}

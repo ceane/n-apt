@@ -22,19 +22,22 @@ import {
   DrawingContext,
   StatsBoxPlacement,
 } from "@n-apt/utils/rendering/SnapshotRenderer";
-import { fmtFreq, fmtTimestamp } from "@n-apt/utils/rendering/formatters";
+import { fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 import {
   stitchWholeChannelWaveform,
   getAntiAliasingParams,
 } from "@n-apt/utils/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
+import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
 import {
   escapeAttr,
   sanitizeNumeric,
   sanitizeViewBox,
   sanitizeSVG,
 } from "@n-apt/utils/sanitization";
-import { roundSnapshotDbValue } from "@n-apt/utils/snapshotDb";
+import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import { useTheme } from "styled-components";
+import type { AppStyledTheme } from "@n-apt/components/ui/Theme";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -77,6 +80,7 @@ export type SnapshotOptions = {
   aspectRatio?: SnapshotAspectRatio;
   fileTimestamp?: string;
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean };
+  useThemeColors?: boolean;
 };
 
 export type SnapshotVideoFormat = "mp4" | "webm";
@@ -95,6 +99,8 @@ const SNAPSHOT_VIDEO_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
     "video/mp4",
   ],
 };
+
+const SNAPSHOT_VIDEO_BITRATE = 12_000_000;
 
 export function getSupportedSnapshotVideoFormat(): SnapshotVideoFormat | null {
   if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
@@ -212,6 +218,7 @@ async function recordSnapshotFramesToVideo(
   const ctx = recordingCanvas.getContext("2d");
   if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
 
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(firstFrame, 0, 0);
 
   const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
@@ -230,7 +237,10 @@ async function recordSnapshotFramesToVideo(
     throw new Error("Your browser cannot record this canvas as a video.");
   }
 
-  const recorder = new MediaRecorder(stream, { mimeType });
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond: SNAPSHOT_VIDEO_BITRATE,
+  });
   const chunks: BlobPart[] = [];
 
   const stop = await new Promise<Blob>((resolve, reject) => {
@@ -249,6 +259,7 @@ async function recordSnapshotFramesToVideo(
         if (recordingCanvas.height !== frame.height)
           recordingCanvas.height = Math.max(1, frame.height);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
         ctx.drawImage(frame, 0, 0);
       });
@@ -287,6 +298,8 @@ async function recordCanvasFramesToVideo(
   const ctx = recordingCanvas.getContext("2d");
   if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
 
+  ctx.imageSmoothingEnabled = false;
+
   const supportedMimeTypes = preferredFormat
     ? SNAPSHOT_VIDEO_MIME_TYPES[preferredFormat]
     : [...SNAPSHOT_VIDEO_MIME_TYPES.mp4, ...SNAPSHOT_VIDEO_MIME_TYPES.webm];
@@ -302,7 +315,10 @@ async function recordCanvasFramesToVideo(
   }
 
   const stream = recordingCanvas.captureStream(safeFrameRate);
-  const recorder = new MediaRecorder(stream, { mimeType });
+  const recorder = new MediaRecorder(stream, {
+    mimeType,
+    videoBitsPerSecond: SNAPSHOT_VIDEO_BITRATE,
+  });
   const chunks: BlobPart[] = [];
   const frameIntervalMs = 1000 / safeFrameRate;
 
@@ -312,6 +328,7 @@ async function recordCanvasFramesToVideo(
     if (recordingCanvas.height !== frame.height)
       recordingCanvas.height = Math.max(1, frame.height);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
     ctx.drawImage(frame, 0, 0);
   };
@@ -357,6 +374,52 @@ function getDbUnit(data: SnapshotData): "dB" | "dBm" {
   return data.dbMax > 20 ? "dBm" : "dB";
 }
 
+export function buildSnapshotStatsLines({
+  range,
+  timestampLabel,
+  deviceName,
+  channelName,
+  fftSize,
+  fftWindow,
+  gainLabel,
+  showGeolocation,
+  geolocation,
+  whole,
+}: {
+  range: Range;
+  timestampLabel: string;
+  deviceName?: string;
+  channelName?: string;
+  fftSize?: number;
+  fftWindow?: string;
+  gainLabel?: string;
+  showGeolocation?: boolean;
+  geolocation?: { lat: string; lon: string } | null;
+  whole?: boolean;
+}): string[] {
+  const channelLabel = channelName
+    ? whole
+      ? `Channel ${channelName} (Whole)`
+      : `Onscreen / partial Channel ${channelName}`
+    : "Onscreen";
+  const fftWindowLabel =
+    fftWindow && fftWindow !== "Rectangular" ? ` | Window: ${fftWindow}` : "";
+  const lines = [
+    `${formatFrequency(range.min, { precisionMHz: 2, precisionKHz: 2, trimTrailingZeros: true })} – ${formatFrequency(range.max, { precisionMHz: 2, precisionKHz: 2, trimTrailingZeros: true })}`,
+    timestampLabel,
+    `Device Name: ${deviceName || "Unknown"}`,
+    channelLabel,
+    `FFT size (# of points): ${fftSize ?? "?"}${fftWindowLabel}`,
+    gainLabel ?? "Gain: Auto | PPM: 0",
+  ];
+
+  if (showGeolocation && geolocation) {
+    lines.push(`Location: ${geolocation.lat}, ${geolocation.lon}`);
+  }
+
+  return lines;
+}
+
 function renderSpectrumSnapshot(
   data: SnapshotData,
   frequencyRange: Range,
@@ -370,6 +433,7 @@ function renderSpectrumSnapshot(
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
+  crispTrace: boolean = false,
 ): HTMLCanvasElement | string {
   const dpr = window.devicePixelRatio || 1;
   const logicalW = pixelWidth / dpr;
@@ -420,6 +484,7 @@ function renderSpectrumSnapshot(
       fontScale,
       zoom,
       statsPlacementRef,
+      crispTrace,
     );
     return dc.getSVG();
   } else {
@@ -442,6 +507,7 @@ function renderSpectrumSnapshot(
       fontScale,
       zoom,
       statsPlacementRef,
+      crispTrace,
     );
     return canvas;
   }
@@ -459,6 +525,7 @@ function renderToDC(
   fontScale: number = 1,
   zoom: number = 1,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
+  crispTrace: boolean = false,
 ): void {
   const vertRange = 10;
   const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
@@ -480,7 +547,7 @@ function renderToDC(
 
   const traceWaveform = waveform ?? data.waveform;
   if (traceWaveform?.length) {
-    renderer.drawTrace(dc, traceWaveform);
+    renderer.drawTrace(dc, traceWaveform, undefined, { crispTrace });
   }
 
   renderer.drawFrequencyLabels(
@@ -697,18 +764,14 @@ function renderWaterfallSnapshotCanvas(
     }
   }
 
-  if (
-    data.webgpuEnabled &&
-    data.waterfallTextureSnapshot &&
-    data.waterfallTextureMeta
-  ) {
+  if (data.waterfallTextureSnapshot && data.waterfallTextureMeta) {
     drawWaterfallToCanvas(
       canvas,
       data.waterfallTextureSnapshot,
       data.waterfallTextureMeta,
       data.dbMin,
       data.dbMax,
-      data.colormap,
+      WATERFALL_COLORMAPS.classic,
       options,
     );
     return canvas;
@@ -739,6 +802,7 @@ function renderSpectrumSnapshotCanvas(
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
+  crispTrace: boolean = false,
 ): HTMLCanvasElement {
   return renderSpectrumSnapshot(
     data,
@@ -753,6 +817,7 @@ function renderSpectrumSnapshotCanvas(
     theme,
     _aspectRatio,
     statsPlacementRef,
+    crispTrace,
   ) as HTMLCanvasElement;
 }
 
@@ -835,6 +900,7 @@ async function composeWholeChannelSpectrumCanvas(
   theme?: SnapshotTheme,
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean },
   statsPlacementRef?: { current: StatsBoxPlacement | null },
+  crispTrace: boolean = false,
 ): Promise<HTMLCanvasElement | null> {
   if (!segments.length) return null;
 
@@ -875,6 +941,7 @@ async function composeWholeChannelSpectrumCanvas(
     theme,
     undefined,
     statsPlacementRef,
+    crispTrace,
   );
 }
 
@@ -1051,20 +1118,37 @@ export function useSnapshot(
   const appMode = useAppSelector((state) => state.theme.appMode);
   const dispatch = useAppDispatch();
   const resolvedMode = useResolvedThemeMode(appMode);
-  const themeColors = THEME_TOKENS.colors[resolvedMode];
-
-  const theme: SnapshotTheme = {
-    bg: escapeAttr(themeColors.fftBackground),
-    grid: escapeAttr(themeColors.fftGrid),
-    line: escapeAttr(themeColors.fftLine),
-    shadow: escapeAttr(themeColors.fftShadow),
-    text: escapeAttr(themeColors.fftText),
-    hwLine: escapeAttr(themeColors.snapHwRateLine),
-    hwText: escapeAttr(themeColors.snapHwRateText),
-    cfText: escapeAttr(themeColors.snapCenterLabelText),
+  const staticThemeColors = THEME_TOKENS.colors[resolvedMode];
+  const styledTheme = useTheme() as Partial<AppStyledTheme> & {
+    colors?: Partial<AppStyledTheme["colors"]>;
   };
 
-  const waterfallBg = themeColors.waterfallBackground;
+  const buildSnapshotTheme = useCallback(
+    (useThemeColors?: boolean): SnapshotTheme => {
+      const fftLine = useThemeColors
+        ? styledTheme.fft ??
+          styledTheme.colors?.fftLine ??
+          staticThemeColors.fftLine
+        : staticThemeColors.fftLine;
+      const fftShadow = useThemeColors
+        ? styledTheme.colors?.fftShadow ?? staticThemeColors.fftShadow
+        : staticThemeColors.fftShadow;
+
+      return {
+        bg: escapeAttr(staticThemeColors.fftBackground),
+        grid: escapeAttr(staticThemeColors.fftGrid),
+        line: escapeAttr(fftLine),
+        shadow: escapeAttr(fftShadow),
+        text: escapeAttr(staticThemeColors.fftText),
+        hwLine: escapeAttr(staticThemeColors.snapHwRateLine),
+        hwText: escapeAttr(staticThemeColors.snapHwRateText),
+        cfText: escapeAttr(staticThemeColors.snapCenterLabelText),
+      };
+    },
+    [staticThemeColors, styledTheme.fft, styledTheme.colors],
+  );
+
+  const waterfallBg = staticThemeColors.waterfallBackground;
 
   const handleSnapshot = useCallback(
     async (options: SnapshotOptions) => {
@@ -1153,8 +1237,6 @@ export function useSnapshot(
         const PIXEL_WIDTH = Math.round(LOGICAL_WIDTH * dpr);
         const PIXEL_SPECTRUM_H = Math.round(LOGICAL_SPECTRUM_H * dpr);
         const PIXEL_WATERFALL_H = Math.round(LOGICAL_WATERFALL_H * dpr);
-        const modeLabel =
-          options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen");
         const timestamp = new Date()
           .toISOString()
           .slice(0, 19)
@@ -1169,21 +1251,22 @@ export function useSnapshot(
               data.waterfallBuffer &&
               data.waterfallDims));
 
-        const dbUnit = getDbUnit(data);
-        const dbMin = roundSnapshotDbValue(data.dbMin);
-        const dbMax = roundSnapshotDbValue(data.dbMax);
+        const theme = buildSnapshotTheme(options.useThemeColors);
         const timestampLabel = options.fileTimestamp
           ? formatTimestampWithTimezone(options.fileTimestamp)
           : fmtTimestamp();
         const statsLines = options.showStats
-          ? [
-              `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
+          ? buildSnapshotStatsLines({
+              range: rangeToRender,
               timestampLabel,
-              `${modeLabel} | ${dbUnit}: ${dbMin} to ${dbMax}`,
-              `FFT: ${data.fftSize ?? "?"} | Window: ${data.fftWindow ?? "?"}`,
-              `Source: ${options.sourceName || "Unknown"}`,
-              ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
-            ]
+              deviceName: options.sourceName,
+              channelName: options.activeSignalArea,
+              whole: options.whole,
+              fftSize: data.fftSize,
+              fftWindow: data.fftWindow,
+              gainLabel: options.sdrSettingsLabel,
+              showGeolocation: false,
+            })
           : [];
 
         const statsPlacementRef = { current: null as StatsBoxPlacement | null };
@@ -1264,21 +1347,21 @@ export function useSnapshot(
             currentCaptureRange = currentData.frequencyRange;
           }
 
-          const currentDbUnit = getDbUnit(currentData);
-          const currentDbMin = roundSnapshotDbValue(currentData.dbMin);
-          const currentDbMax = roundSnapshotDbValue(currentData.dbMax);
           const currentTimestampLabel = options.fileTimestamp
             ? formatTimestampWithTimezone(options.fileTimestamp)
             : fmtTimestamp();
           const currentStatsLines = options.showStats
-            ? [
-                `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
-                currentTimestampLabel,
-                `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentDbMin} to ${currentDbMax}`,
-                `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
-                `Source: ${options.sourceName || "Unknown"}`,
-                ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
-              ]
+            ? buildSnapshotStatsLines({
+                range: currentRange,
+                timestampLabel: currentTimestampLabel,
+                deviceName: options.sourceName,
+                channelName: options.activeSignalArea,
+                whole: options.whole,
+                fftSize: currentData.fftSize,
+                fftWindow: currentData.fftWindow,
+                gainLabel: options.sdrSettingsLabel,
+                showGeolocation: false,
+              })
             : [];
 
           if (
@@ -1299,10 +1382,10 @@ export function useSnapshot(
           };
         };
 
-        const renderVideoFrameCanvas = async (
-          currentData: SnapshotData,
-          wholeChannelSegments?: WholeChannelSnapshotSegment[],
-        ) => {
+  const renderVideoFrameCanvas = async (
+    currentData: SnapshotData,
+    wholeChannelSegments?: WholeChannelSnapshotSegment[],
+  ) => {
           const {
             currentWaveform,
             currentRange,
@@ -1366,6 +1449,7 @@ export function useSnapshot(
                   theme,
                   options.stitchOptions,
                   statsPlacementRef,
+                  true,
                 )
               : null;
           const currentWholeWaterfallCanvas =
@@ -1387,6 +1471,7 @@ export function useSnapshot(
             throw new Error("Unable to initialize the snapshot frame canvas.");
           frameCtx.fillStyle = theme.bg;
           frameCtx.fillRect(0, 0, targetFrameW, targetFrameH);
+          frameCtx.imageSmoothingEnabled = false;
 
           // For whole channel, use the already-rendered canvases at target dimensions
           let spectrumCanvas: HTMLCanvasElement;
@@ -1405,6 +1490,7 @@ export function useSnapshot(
               theme,
               undefined,
               statsPlacementRef,
+              true,
             );
           }
           frameCtx.drawImage(
@@ -1509,6 +1595,7 @@ export function useSnapshot(
                   theme,
                   options.stitchOptions,
                   statsPlacementRef,
+                  true,
                 )
               : null;
           const wholeChannelWaterfallCanvas =
@@ -1673,19 +1760,20 @@ export function useSnapshot(
 
               const wholeChannelSpectrumCanvas =
                 options.whole && options.wholeChannelSegments?.length
-                  ? await composeWholeChannelSpectrumCanvas(
-                      options.wholeChannelSegments,
-                      currentRange,
+              ? await composeWholeChannelSpectrumCanvas(
+                  options.wholeChannelSegments,
+                  currentRange,
                       options.showGrid,
                       pixelW,
                       pixelSpectrumH,
                       currentCaptureRange,
                       currentStatsLines,
-                      theme,
-                      options.stitchOptions,
-                      statsPlacementRef,
-                    )
-                  : null;
+                  theme,
+                  options.stitchOptions,
+                  statsPlacementRef,
+                  true,
+                )
+              : null;
 
               let spectrumSvg = "";
               if (options.whole && wholeChannelSpectrumCanvas) {
@@ -2049,7 +2137,7 @@ export function useSnapshot(
         throw error;
       }
     },
-    [dispatch, theme, waterfallBg],
+    [dispatch, buildSnapshotTheme, waterfallBg],
   );
 
   return { handleSnapshot };

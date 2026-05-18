@@ -81,6 +81,10 @@ path = "test/rust/bandwidth_tests.rs"
 name = "hackrf_integration_tests"
 path = "test/rust/hackrf_integration_tests.rs"
 
+[[test]]
+name = "reload_tests"
+path = "test/rust/reload_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"

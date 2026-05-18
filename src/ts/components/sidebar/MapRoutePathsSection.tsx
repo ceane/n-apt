@@ -254,7 +254,7 @@ export const MapRoutePathsSection: React.FC = () => {
           {searchQuery.trim() && (
             <Suggestions>
               {searching ? (
-                <SuggestionButton disabled>Searching...</SuggestionButton>
+                <SuggestionButton disabled>Searching…</SuggestionButton>
               ) : searchResults.length > 0 ? (
                 searchResults.map((result) => (
                   <div key={result.place_id} style={{ display: "grid" }}>

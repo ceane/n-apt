@@ -11,6 +11,7 @@ import { setSnapshotProgress, useAppDispatch } from "@n-apt/redux";
 interface UseSnapshotListenerOptions {
   takeSnapshot: (options: SnapshotOptions) => void;
   snapshotGridPreference: boolean;
+  snapshotUseThemeColors?: boolean;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalArea?: string;
   sourceMode: "live" | "file";
@@ -36,6 +37,7 @@ interface UseSnapshotListenerOptions {
 export const useSnapshotListener = ({
   takeSnapshot,
   snapshotGridPreference,
+  snapshotUseThemeColors,
   signalAreaBounds,
   activeSignalArea,
   sourceMode,
@@ -70,7 +72,7 @@ export const useSnapshotListener = ({
           effectiveSdrSettings.gain?.tuner_gain != null
             ? effectiveSdrSettings.gain.tuner_gain
             : null;
-        const gainStr = gainValue !== null ? `${gainValue} dB` : "Auto";
+        const gainStr = gainValue !== null ? `${gainValue}dB` : "Auto";
         const ppmStr =
           effectiveSdrSettings.ppm !== undefined
             ? effectiveSdrSettings.ppm.toString()
@@ -90,6 +92,7 @@ export const useSnapshotListener = ({
         modeLabel,
         wholeChannelSegments,
         showGrid: options.grid ?? snapshotGridPreference,
+        useThemeColors: options.useThemeColors ?? snapshotUseThemeColors,
         getSnapshotData: () => getSnapshotData(), // Use the provided function
         signalAreaBounds,
         activeSignalArea,
@@ -114,6 +117,7 @@ export const useSnapshotListener = ({
   }, [
     takeSnapshot,
     snapshotGridPreference,
+    snapshotUseThemeColors,
     signalAreaBounds,
     activeSignalArea,
     sourceMode,

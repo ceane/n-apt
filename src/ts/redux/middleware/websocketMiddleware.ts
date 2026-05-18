@@ -15,7 +15,7 @@ import {
 } from "../slices/websocketSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
-import { AutoFftOptionsResponse, type IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import { AutoFftOptionsResponse, type IqRawFrame, type SpectrumFrame } from "@n-apt/consts/schemas/websocket";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
@@ -359,23 +359,29 @@ const processMessage = (
         }
       }
       if (Array.isArray(parsedData.channels)) {
-        updates.spectrumFrames = parsedData.channels
-          .filter((f: any) => f && typeof f.id === "string")
-          .map((f: any) => ({
-            id: f.id,
-            label: typeof f.label === "string" ? f.label : "",
-            min_hz: Number(f.min_hz),
-            max_hz: Number(f.max_hz),
-            description: typeof f.description === "string" ? f.description : "",
-          }))
-          .filter(
-            (f: any) =>
-              typeof f.label === "string" &&
-              f.label.length > 0 &&
-              Number.isFinite(f.min_hz) &&
-              Number.isFinite(f.max_hz) &&
-              f.max_hz > f.min_hz,
-          );
+        updates.spectrumFrames = (parsedData.channels as any[]).reduce<
+          SpectrumFrame[]
+        >((acc, f: any) => {
+          if (!(f && typeof f.id === "string")) return acc;
+          const label = typeof f.label === "string" ? f.label : "";
+          const min_hz = Number(f.min_hz);
+          const max_hz = Number(f.max_hz);
+          if (
+            label.length > 0 &&
+            Number.isFinite(min_hz) &&
+            Number.isFinite(max_hz) &&
+            max_hz > min_hz
+          ) {
+            acc.push({
+              id: f.id,
+              label,
+              min_hz,
+              max_hz,
+              description: typeof f.description === "string" ? f.description : "",
+            });
+          }
+          return acc;
+        }, []);
       }
 
       const reason = parsedData.device_loading_reason;

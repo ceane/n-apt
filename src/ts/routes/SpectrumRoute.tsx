@@ -323,7 +323,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 Loading Signal Configuration
               </InitializingTitle>
               <InitializingText>
-                Waiting for signals.yaml settings from the server...
+                Waiting for signals.yaml settings from the server…
               </InitializingText>
             </InitializingContainer>
           )}

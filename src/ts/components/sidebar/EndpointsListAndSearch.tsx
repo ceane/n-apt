@@ -294,7 +294,7 @@ export const EndpointsListAndSearch: React.FC = () => {
 
       {loading && (
         <EndpointsList>
-          <LoadingText>Finding nearest endpoints...</LoadingText>
+          <LoadingText>Finding nearest endpoints…</LoadingText>
         </EndpointsList>
       )}
 

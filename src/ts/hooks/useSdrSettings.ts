@@ -73,14 +73,12 @@ const getLogicalSizeToFrameRate = (
 
   return new Map(
     Object.entries(sizeMap)
-      .map(([size, frameRate]) => [Number(size), Number(frameRate)] as const)
-      .filter(
-        ([size, frameRate]) =>
-          Number.isFinite(size) &&
-          size > 0 &&
-          Number.isFinite(frameRate) &&
-          frameRate > 0,
-      )
+      .reduce<[number, number][]>((acc, [size, frameRate]) => {
+        const s = Number(size);
+        const r = Number(frameRate);
+        if (Number.isFinite(s) && s > 0 && Number.isFinite(r) && r > 0) acc.push([s, r]);
+        return acc;
+      }, [])
       .sort((a, b) => a[0] - b[0]),
   );
 };
@@ -343,8 +341,11 @@ export const useSdrSettings = ({
     const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
     if (sizeMap) {
       return Object.keys(sizeMap)
-        .map((key) => Number(key))
-        .filter((size) => Number.isFinite(size))
+        .reduce<number[]>((acc, key) => {
+          const size = Number(key);
+          if (Number.isFinite(size)) acc.push(size);
+          return acc;
+        }, [])
         .sort((a, b) => a - b);
     }
     const fallback =

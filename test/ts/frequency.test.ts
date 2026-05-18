@@ -8,6 +8,7 @@ import {
   formatFrequency,
   formatFrequencyHighRes,
   formatChannelFreq,
+  roundDbValue,
   type FormatFrequencyOptions,
 } from "@n-apt/utils/frequency";
 
@@ -125,6 +126,13 @@ describe("Frequency Utilities", () => {
   });
 
   describe("frequency math helpers", () => {
+    test("should round dB values to whole numbers for display", () => {
+      expect(roundDbValue(10.4)).toBe(10);
+      expect(roundDbValue(-89.6)).toBe(-90);
+      expect(Object.is(roundDbValue(-0.2), -0)).toBe(false);
+      expect(roundDbValue(-0.2)).toBe(0);
+    });
+
     test("should clamp frequencies within the provided bounds", () => {
       expect(clampFrequencyHz(5_000, 0, 10_000)).toBe(5_000);
       expect(clampFrequencyHz(-1, 0, 10_000)).toBe(0);
@@ -177,5 +185,6 @@ describe("Frequency Utilities", () => {
     test("should handle Hz case", () => {
       expect(formatChannelFreq(123.4567)).toBe("123.456Hz");
     });
+
   });
 });

@@ -782,16 +782,8 @@ interface SpectrumProviderProps {
   mockValue?: SpectrumStoreContextValue;
 }
 
-export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
-  ({ children, mockValue }) => {
-    if (mockValue) {
-      return (
-        <SpectrumStoreContext.Provider value={mockValue}>
-          {children}
-        </SpectrumStoreContext.Provider>
-      );
-    }
-
+const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
+  ({ children }) => {
     const [state, dispatch] = useReducer(spectrumReducer, {
       ...INITIAL_SPECTRUM_STATE,
       ...loadPersistedSdrSettings(),
@@ -1617,3 +1609,17 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
     );
   },
 );
+
+export const SpectrumProvider: React.FC<SpectrumProviderProps> = ({
+  children,
+  mockValue,
+}) => {
+  if (mockValue) {
+    return (
+      <SpectrumStoreContext.Provider value={mockValue}>
+        {children}
+      </SpectrumStoreContext.Provider>
+    );
+  }
+  return <SpectrumProviderReal>{children}</SpectrumProviderReal>;
+};

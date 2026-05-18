@@ -26,7 +26,7 @@ interface AgentIntegrationProviderProps {
 export const AgentIntegrationProvider: React.FC<
   AgentIntegrationProviderProps
 > = ({ children }) => {
-  const location = useLocation();
+  const { pathname } = useLocation();
   const dispatch = useAppDispatch();
   const mapLocations = useMapLocations();
   const model3D = useModel3D();
@@ -45,7 +45,7 @@ export const AgentIntegrationProvider: React.FC<
 
       if (!webmcpAvailable) return;
 
-      const currentPath = location.pathname;
+      const currentPath = pathname;
 
       // Prepare spectrum props from store and hooks
       const spectrumProps = {
@@ -90,7 +90,7 @@ export const AgentIntegrationProvider: React.FC<
 
     initialize();
   }, [
-    location.pathname,
+    pathname,
     dispatch,
     mapLocations,
     model3D,
@@ -105,7 +105,7 @@ export const AgentIntegrationProvider: React.FC<
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
       console.log(`🤖 Agent Integration Status: ${agentStatus}`);
-      console.log(`📍 Current Route: ${location.pathname}`);
+      console.log(`📍 Current Route: ${pathname}`);
       console.log(`🛠️ Available Tools: ${availableTools.length}`);
       console.log(`📋 Registered: ${isRegistered}`);
 
@@ -116,7 +116,7 @@ export const AgentIntegrationProvider: React.FC<
         );
       }
     }
-  }, [agentStatus, location.pathname, availableTools.length, isRegistered]);
+  }, [agentStatus, pathname, availableTools.length, isRegistered]);
 
   // Render children with agent context
   return <>{children}</>;

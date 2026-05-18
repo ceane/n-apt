@@ -50,7 +50,7 @@ import {
   type PendingWaterfallRestore,
 } from "@n-apt/utils/waterfallRestore";
 import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
-import { roundSnapshotDbValue } from "@n-apt/utils/snapshotDb";
+import { roundDbValue } from "@n-apt/utils/frequency";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -221,6 +221,10 @@ const LOADING_PLACEHOLDER_FONT = "24px 'JetBrains Mono', monospace";
 const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
 const LOADING_PLACEHOLDER_COLOR = "#888888";
 const MIN_FFT_DB_SPAN = 5;
+const NODE_PREVIEW_BACKGROUND_STYLE = { backgroundColor: "#05070d" } as const;
+const COMPACT_VISUALIZER_STYLE = { backgroundColor: "#05070d", minHeight: 0 } as const;
+const COMPACT_VISUALIZER_CONTENT_STYLE = { gap: 0 } as const;
+const EMPTY_STYLE = {} as const;
 
 const DB_MAX_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
   dB: { min: FFT_MIN_DB, max: FFT_MAX_DB },
@@ -2216,8 +2220,8 @@ const FFTCanvas = memo(
           ? new Float32Array(fullChannelWaveformRef.current)
           : null,
         frequencyRange: { ...frequencyRangeCurrent },
-        dbMin: roundSnapshotDbValue(vizDbMinRef.current),
-        dbMax: roundSnapshotDbValue(vizDbMaxRef.current),
+        dbMin: roundDbValue(vizDbMinRef.current),
+        dbMax: roundDbValue(vizDbMaxRef.current),
         fftSize: effectiveFftSize,
         fftWindow: fftWindow ?? "Rectangular",
         centerFrequencyHz: centerFreqRef.current,
@@ -2302,11 +2306,11 @@ const FFTCanvas = memo(
     );
 
     return (
-      <Suspense fallback={<div>Loading FFT visualization...</div>}>
+      <Suspense fallback={<div>Loading FFT visualization…</div>}>
         {nodePreview ? (
           <NodePreviewCanvasWrapper
             ref={spectrumContainerRef}
-            style={{ backgroundColor: "#000" }}
+            style={NODE_PREVIEW_BACKGROUND_STYLE}
           >
             {!isInitializingWebGPU && (
               <CanvasLayer
@@ -2320,9 +2324,9 @@ const FFTCanvas = memo(
             />
             {heterodyningHighlightedBins.length > 0 && (
               <HighlightOverlay>
-                {heterodyningHighlightedBins.map((bin, index) => (
+                {heterodyningHighlightedBins.map((bin) => (
                   <HighlightBand
-                    key={`spectrum-highlight-${index}`}
+                    key={`spectrum-highlight-${bin.start}-${bin.end}`}
                     $left={Math.max(0, Math.min(100, bin.start * 100))}
                     $width={Math.max(
                       0.2,
@@ -2335,9 +2339,11 @@ const FFTCanvas = memo(
           </NodePreviewCanvasWrapper>
         ) : (
           <VisualizerContainer
-            style={compact ? { backgroundColor: "#000", minHeight: 0 } : {}}
+            style={compact ? COMPACT_VISUALIZER_STYLE : EMPTY_STYLE}
           >
-            <VisualizerContent style={compact ? { gap: 0 } : {}}>
+            <VisualizerContent
+              style={compact ? COMPACT_VISUALIZER_CONTENT_STYLE : EMPTY_STYLE}
+            >
               <SpectrumSection>
                 {!compact && (
                   <SectionTitle>
@@ -2358,9 +2364,9 @@ const FFTCanvas = memo(
                     />
                     {heterodyningHighlightedBins.length > 0 && (
                       <HighlightOverlay>
-                        {heterodyningHighlightedBins.map((bin, index) => (
+                        {heterodyningHighlightedBins.map((bin) => (
                           <HighlightBand
-                            key={`spectrum-highlight-${index}`}
+                            key={`spectrum-highlight-${bin.start}-${bin.end}`}
                             $left={Math.max(0, Math.min(100, bin.start * 100))}
                             $width={Math.max(
                               0.2,

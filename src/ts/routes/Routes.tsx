@@ -102,7 +102,7 @@ const DemodRouteWithSidebar: React.FC = () => {
       }
     >
       <Suspense
-        fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
       >
         <DemodRoute />
       </Suspense>
@@ -147,7 +147,7 @@ const GlobalSpacePauseHandler: React.FC = () => {
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [location.pathname, liveState.sourceMode, toggleVisualizerPause]);
+  }, [liveState.sourceMode, toggleVisualizerPause]);
 
   return null;
 };
@@ -162,7 +162,7 @@ const AppRoutesInner: React.FC = () => {
           element={
             <MainLayout sidebar={<SpectrumSidebar />}>
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <SpectrumRoute activeTab="visualizer" />
               </Suspense>
@@ -174,7 +174,7 @@ const AppRoutesInner: React.FC = () => {
           element={
             <MainLayout sidebar={<SpectrumSidebar />}>
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <SpectrumRoute activeTab="visualizer" />
               </Suspense>
@@ -189,7 +189,7 @@ const AppRoutesInner: React.FC = () => {
               <MainLayout sidebar={<DrawSignalSidebar />}>
                 <Suspense
                   fallback={
-                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
                   }
                 >
                   <DrawSignalRoute />
@@ -211,7 +211,7 @@ const AppRoutesInner: React.FC = () => {
               }
             >
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <Model3DRoute />
               </Suspense>
@@ -225,7 +225,7 @@ const AppRoutesInner: React.FC = () => {
               <MainLayout sidebar={<MapEndpointsSidebar />}>
                 <Suspense
                   fallback={
-                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
                   }
                 >
                   <MapEndpointsRoute />
@@ -239,7 +239,7 @@ const AppRoutesInner: React.FC = () => {
           element={
             <MainLayout sidebar={<SDRTestSidebar />}>
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <AntiAliasingDiagnostics />
               </Suspense>
@@ -250,7 +250,7 @@ const AppRoutesInner: React.FC = () => {
           path="/pretext-demo"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <PretextDemoRoute />
             </Suspense>
@@ -260,7 +260,7 @@ const AppRoutesInner: React.FC = () => {
           path="/vfo-grid-demo"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <VFOGridDemoRoute />
             </Suspense>
@@ -270,7 +270,7 @@ const AppRoutesInner: React.FC = () => {
           path="/transformers"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <TransformersRoute />
             </Suspense>

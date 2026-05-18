@@ -143,13 +143,16 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
 
     if (!radioNode) return "manual";
 
-    const upstreamNodeIds = edges
-      .filter((e) => e.target === radioNode.id)
-      .map((e) => e.source);
+    const upstreamNodeIds = edges.reduce<string[]>((acc, e) => {
+      if (e.target === radioNode.id) acc.push(e.source);
+      return acc;
+    }, []);
 
-    const upstreamNodes = upstreamNodeIds
-      .map((id) => nodes.find((n) => n.id === id))
-      .filter(Boolean);
+    const upstreamNodes = upstreamNodeIds.reduce<typeof nodes>((acc, id) => {
+      const node = nodes.find((n) => n.id === id);
+      if (node) acc.push(node);
+      return acc;
+    }, []);
 
     if (upstreamNodes.some((node) => node?.data?.fmOptions)) return "fm";
     if (upstreamNodes.length > 0) return "connected";

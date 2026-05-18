@@ -41,16 +41,16 @@ const isKnownStoryId = (storyId: string) => {
 };
 
 const LocationSync: React.FC = () => {
-  const location = useLocation();
+  const { pathname } = useLocation();
   const linkTo = useLink();
   const { globalState } = useLadleContext();
 
   React.useEffect(() => {
-    const targetStory = tabToStory(location.pathname);
+    const targetStory = tabToStory(pathname);
     if (isKnownStoryId(targetStory) && globalState.story !== targetStory) {
       linkTo(targetStory);
     }
-  }, [location.pathname, linkTo, globalState.story]);
+  }, [pathname, linkTo, globalState.story]);
 
   return null;
 };

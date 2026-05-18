@@ -97,6 +97,11 @@ export const clampBandwidthWithMinSpan = (
   return { startHz: Math.round(start), endHz: Math.round(end) };
 };
 
+export const roundDbValue = (value: number) => {
+  const rounded = Math.round(value);
+  return Object.is(rounded, -0) ? 0 : rounded;
+};
+
 const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 

@@ -271,6 +271,13 @@ interface ChannelsProps {
   hideTitle?: boolean;
 }
 
+const IQExplainerTooltip = () => (
+  <Tooltip
+    title=""
+    content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />"
+  />
+);
+
 export const Channels: React.FC<ChannelsProps> = ({
   variant = "demod",
   fileMode = false,
@@ -360,12 +367,6 @@ export const Channels: React.FC<ChannelsProps> = ({
   const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
 
-  const IQExplainerTooltip = () => (
-    <Tooltip
-      title=""
-      content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />"
-    />
-  );
 
   if (variant === "spectrum") {
     return (

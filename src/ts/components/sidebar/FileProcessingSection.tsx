@@ -242,7 +242,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
             >
               {stitchingActive ? (
                 <>
-                  <Loader2 size={16} className="animate-spin" /> Processing...
+                  <Loader2 size={16} className="animate-spin" /> Processing…
                 </>
               ) : isError ? (
                 "Error"

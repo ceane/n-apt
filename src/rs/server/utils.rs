@@ -570,6 +570,7 @@ mod tests {
     );
     let content = content.expect("signals.yaml content");
     let processed = preprocess_frequency_tags(&content.0);
+    let processed = preprocess_sdr_sample_rate_tags(&processed);
     let value: serde_yaml::Value =
       serde_yaml::from_str(&processed).expect("parse signals.yaml into value");
     let sdr_value = value.get("signals").and_then(|v| v.get("sdr")).cloned();

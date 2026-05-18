@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  getDeviceAwareRuntimeSummaryState,
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
   markPendingProcessesAfterFailure,
@@ -16,7 +17,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "+ Running",
+      label: "✓ Running",
       color: "green",
     });
   });
@@ -31,7 +32,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "! HAS ERRORS BUT RUNNING",
+      label: "▲ HAS ERRORS BUT RUNNING",
       color: "yellow",
     });
   });
@@ -47,7 +48,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "! HAS ERRORS BUT RUNNING - Vite, Rust",
+      label: "▲ HAS ERRORS BUT RUNNING - Vite, Rust",
       color: "yellow",
     });
   });
@@ -62,7 +63,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "x Stopped",
+      label: "✗ Stopped",
       color: "red",
     });
   });
@@ -78,7 +79,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "x Stopped - Redis, WebAssembly",
+      label: "✗ Stopped - Redis, WebAssembly",
       color: "red",
     });
   });
@@ -144,5 +145,41 @@ describe("markPendingProcessesAfterFailure", () => {
       { name: "rust", status: "error" },
       { name: "vite", status: "success" },
     ]);
+  });
+});
+
+describe("getDeviceAwareRuntimeSummaryState", () => {
+  it("shows disconnected state when the backend reports disconnected", () => {
+    expect(
+      getDeviceAwareRuntimeSummaryState({
+        runtimeSummary: { label: "✓ Running", color: "green" },
+        deviceState: "disconnected",
+      }),
+    ).toEqual({
+      label: "▲ Device DISCONNECTED but RUNNING",
+      color: "yellow",
+    });
+  });
+
+  it("shows connecting state when the backend reports loading", () => {
+    expect(
+      getDeviceAwareRuntimeSummaryState({
+        runtimeSummary: { label: "✓ Running", color: "green" },
+        deviceState: "loading",
+      }),
+    ).toEqual({
+      label: "▲ Device CONNECTING but RUNNING",
+      color: "yellow",
+    });
+  });
+
+  it("leaves the runtime summary untouched when the backend is connected", () => {
+    const runtimeSummary = { label: "✓ Running", color: "green" } as const;
+    expect(
+      getDeviceAwareRuntimeSummaryState({
+        runtimeSummary,
+        deviceState: "connected",
+      }),
+    ).toEqual(runtimeSummary);
   });
 });

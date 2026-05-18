@@ -1,13 +1,14 @@
 //! # Software Defined Radio (SDR) Abstraction Layer
 //!
 //! This module provides a pluggable interface for different SDR hardware and mock implementations.
-//! It allows seamless switching between real hardware (RTL-SDR) and simulated signals for testing.
+//! It allows seamless switching between real hardware (RTL-SDR or HackRF) and simulated signals for testing.
 //!
 //! ## Architecture
 //!
 //! - `SdrDevice` trait defines the common interface for all SDR implementations
 //! - `mock_apt` module provides simulated signals with configurable shapes and noise
 //! - `rtlsdr` module provides real hardware interface for RTL-SDR devices
+//! - `hackrf` module provides real hardware interface for HackRF devices
 //! - `processor` contains the main signal processing pipeline
 
 use crate::fft::types::RawSamples;
@@ -94,15 +95,22 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
-    // Try RTL-SDR first, then HackRF, then fall back to mock.
+    // Prefer HackRF when both devices are present, then fall back to RTL-SDR,
+    // then finally to the mock device.
+    #[cfg(has_hackrf)]
+    {
+      if let Ok(device) = crate::sdr::hackrf::HackRfDevice::open_first() {
+        log::info!("Using HackRF device");
+        return Ok(Box::new(device));
+      }
+    }
+
     match crate::sdr::rtlsdr::RtlSdrDevice::open_first() {
       Ok(device) => {
         log::info!("Using RTL-SDR device");
         Ok(Box::new(device))
       }
-      Err(_) => {
-        Self::create_hackrf_or_mock()
-      }
+      Err(_) => Self::create_mock_fallback_device(),
     }
   }
 
@@ -132,15 +140,7 @@ impl SdrDeviceFactory {
     Err(anyhow::anyhow!("HackRF support not enabled at build time"))
   }
 
-  fn create_hackrf_or_mock() -> Result<Box<dyn SdrDevice>> {
-    #[cfg(has_hackrf)]
-    {
-      if let Ok(device) = crate::sdr::hackrf::HackRfDevice::open_first() {
-        log::info!("Using HackRF device");
-        return Ok(Box::new(device));
-      }
-    }
-
+  fn create_mock_fallback_device() -> Result<Box<dyn SdrDevice>> {
     log::info!("No RTL-SDR or HackRF device found, using mock APT implementation");
     Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
   }

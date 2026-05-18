@@ -1,7 +1,7 @@
 //! WebSocket server with SDR processor integration
 //! Handles real-time spectrum data streaming to frontend clients
 //!
-//! # RTL-SDR Hotplug Behaviour Contract
+//! # Supported Device Hotplug Behaviour Contract
 //!
 //! The server MUST satisfy every scenario below without panicking, silently
 //! swallowing errors, or leaving the frontend in an unknown state.
@@ -56,7 +56,9 @@ use tokio::sync::Mutex;
 use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
 use super::utils::reconcile_device_state;
-use crate::sdr::hotplug::is_recovery_budget_exhausted;
+use crate::sdr::hotplug::{
+  is_recovery_budget_exhausted, scan_usb_for_supported_device,
+};
 use crate::sdr::processor::SdrProcessor;
 
 /// Build and broadcast a device status message so all connected WebSocket
@@ -990,7 +992,7 @@ impl WebSocketServer {
             if let Some(last_failed) = hotplug_state.last_failure_at {
               if last_failed.elapsed() < hotplug_state.retry_cooldown {
                 debug!(
-                    "Skipping recovery while cooling down after repeated RTL-SDR failure"
+                    "Skipping recovery while cooling down after repeated device failure"
                   );
                 tokio::time::sleep(Duration::from_millis(250)).await;
                 continue;
@@ -998,10 +1000,12 @@ impl WebSocketServer {
             }
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-              if usb_count == 0 {
-                warn!("RTL-SDR unplugged after read error. Falling back to mock immediately.");
+              let supported_device_present =
+                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
+              if !supported_device_present {
+                warn!(
+                  "Supported USB device unplugged after read error. Falling back to mock immediately."
+                );
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
@@ -1068,27 +1072,65 @@ impl WebSocketServer {
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
               // Threshold reached — immediate fallback
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+              let supported_device_present =
+                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
               warn!(
-                  "Read-error threshold reached (streak={}). USB device_count={}. Falling back to mock.",
-                  streak, usb_count,
+                  "Read-error threshold reached (streak={}). Supported USB device present={}.",
+                  streak, supported_device_present,
                 );
-              shared_state.set_device_state("disconnected", None);
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-
-              let mock_device =
-                crate::sdr::SdrDeviceFactory::create_mock_device();
-              if let Err(swap_e) = processor.swap_device(mock_device) {
-                error!("Failed to swap to mock on read error: {}", swap_e);
-              } else {
-                shared_state.update_device_status(
-                  false,
-                  processor.get_device_info(),
-                  build_device_profile(processor.device_type()),
-                );
+              if supported_device_present {
+                shared_state.set_device_state("loading", Some("restart"));
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                hotplug_state.last_hardware_swap = Some(Instant::now());
+
+                match crate::sdr::SdrDeviceFactory::create_device() {
+                  Ok(new_device)
+                    if !new_device.device_type().to_ascii_lowercase().contains("mock") =>
+                  {
+                    if let Err(swap_e) = processor.swap_device(new_device) {
+                      error!("Failed to swap to preferred device on read error: {}", swap_e);
+                    } else {
+                      shared_state.update_device_status(
+                        true,
+                        processor.get_device_info(),
+                        build_device_profile(processor.device_type()),
+                      );
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      hotplug_state.last_hardware_swap = Some(Instant::now());
+                    }
+                  }
+                  _ => {
+                    let mock_device =
+                      crate::sdr::SdrDeviceFactory::create_mock_device();
+                    if let Err(swap_e) = processor.swap_device(mock_device) {
+                      error!("Failed to swap to mock on read error: {}", swap_e);
+                    } else {
+                      shared_state.update_device_status(
+                        false,
+                        processor.get_device_info(),
+                        build_device_profile(processor.device_type()),
+                      );
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      hotplug_state.last_hardware_swap = Some(Instant::now());
+                    }
+                  }
+                }
+              } else {
+                shared_state.set_device_state("disconnected", None);
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                let mock_device =
+                  crate::sdr::SdrDeviceFactory::create_mock_device();
+                if let Err(swap_e) = processor.swap_device(mock_device) {
+                  error!("Failed to swap to mock on read error: {}", swap_e);
+                } else {
+                  shared_state.update_device_status(
+                    false,
+                    processor.get_device_info(),
+                    build_device_profile(processor.device_type()),
+                  );
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                }
               }
               hotplug_state.last_failure_at = Some(Instant::now());
             }
@@ -1234,6 +1276,7 @@ mod tests {
     is_recovery_budget_exhausted, should_enter_hardware_recovery,
     should_probe_for_hotplug,
   };
+  use serial_test::serial;
 
   #[test]
   fn mock_apt_never_enters_hardware_recovery() {
@@ -1260,6 +1303,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn restart_status_payload_reports_attempt_budget() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -1279,6 +1323,55 @@ mod tests {
       payload["device_loading_attempt_max"],
       crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
     );
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_includes_websocket_payload_fields() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+
+    shared.update_device_status(
+      true,
+      "Generic RTL2832U".to_string(),
+      DeviceProfile {
+        kind: "rtl_sdr".to_string(),
+        is_rtl_sdr: true,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+    shared.recovery_attempts.store(1, Ordering::Relaxed);
+
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("status broadcast")
+    )
+    .expect("status payload should be valid JSON");
+
+    assert_eq!(payload["type"], "status");
+    assert_eq!(payload["backend"], "rtl-sdr");
+    assert_eq!(payload["device"], "rtl-sdr");
+    assert_eq!(payload["device_name"], "RTL-SDR v4");
+    assert_eq!(
+      payload["device_loading_attempt_max"],
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
+    );
+    assert_eq!(payload["sample_rate_options"], serde_json::json!([3_200_000]));
+    let markers = payload["sdr_limit_markers"]
+      .as_array()
+      .expect("sdr_limit_markers should be an array");
+    assert!(
+      markers.len() >= 2,
+      "expected at least the base lower/upper SDR limit markers"
+    );
+    assert!(
+      markers.iter().any(|marker| marker["kind"] == "lower_limit"),
+      "expected lower limit marker in websocket payload"
+    );
+    assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
   }
 }
 

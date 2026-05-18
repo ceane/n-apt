@@ -14,9 +14,14 @@ interface RuntimeSummaryStateArgs {
   failingServices?: FailingServices[];
 }
 
-interface RuntimeSummaryState {
+export interface RuntimeSummaryState {
   label: string;
   color: 'green' | 'yellow' | 'red';
+}
+
+export interface DeviceAwareRuntimeSummaryStateArgs {
+  runtimeSummary: RuntimeSummaryState;
+  deviceState?: string | null;
 }
 
 const hasValidPid = (pid?: number): boolean =>
@@ -81,6 +86,27 @@ export const getRuntimeSummaryState = ({
     label: '✓ Running',
     color: 'green'
   };
+};
+
+export const getDeviceAwareRuntimeSummaryState = ({
+  runtimeSummary,
+  deviceState,
+}: DeviceAwareRuntimeSummaryStateArgs): RuntimeSummaryState => {
+  if (deviceState === 'disconnected') {
+    return {
+      label: '▲ Device DISCONNECTED but RUNNING',
+      color: 'yellow',
+    };
+  }
+
+  if (deviceState === 'loading') {
+    return {
+      label: '▲ Device CONNECTING but RUNNING',
+      color: 'yellow',
+    };
+  }
+
+  return runtimeSummary;
 };
 
 export const markPendingProcessesAfterFailure = <

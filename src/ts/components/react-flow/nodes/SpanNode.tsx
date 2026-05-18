@@ -562,7 +562,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
           {isSyncing && (
             <SyncingIndicator>
               <Loader2 size={10} className="animate-spin" />
-              <span>Syncing...</span>
+              <span>Syncing…</span>
             </SyncingIndicator>
           )}
         </Title>

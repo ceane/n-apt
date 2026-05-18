@@ -48,7 +48,7 @@ const DemodMath = React.lazy(async () => {
 export const DemodulationMathSidebar: React.FC = () => {
   return (
     <Section>
-      <React.Suspense fallback={<MathFallback>Loading Math...</MathFallback>}>
+      <React.Suspense fallback={<MathFallback>Loading Math…</MathFallback>}>
         <DemodMath />
       </React.Suspense>
     </Section>

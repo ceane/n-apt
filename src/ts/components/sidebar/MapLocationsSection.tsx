@@ -188,36 +188,37 @@ export const MapLocationsSection: React.FC = () => {
         const results = await response.json();
 
         // Process results to be less granular - focus on city, state, and major landmarks
-        const processedResults = results
-          .map((result: any) => {
-            const address = result.address || {};
-            let displayName = "";
+        const processedResults = results.reduce((acc: any[], result: any) => {
+          const address = result.address || {};
+          let displayName = "";
 
-            // Priority order for US locations
-            if (address.city || address.town || address.village) {
-              const city = address.city || address.town || address.village;
-              const state = address.state || "";
-              displayName = state ? `${city}, ${state}` : city;
-            } else if (address.county && address.state) {
-              displayName = `${address.county.replace(" County", "")}, ${address.state}`;
-            } else if (address.state) {
-              displayName = address.state;
-            } else if (result.display_name) {
-              // Fallback but clean up the display name
-              displayName = result.display_name
-                .split(",")
-                .slice(0, 2) // Keep only first 2 parts
-                .join(",")
-                .replace(/, United States$/, "");
-            }
+          // Priority order for US locations
+          if (address.city || address.town || address.village) {
+            const city = address.city || address.town || address.village;
+            const state = address.state || "";
+            displayName = state ? `${city}, ${state}` : city;
+          } else if (address.county && address.state) {
+            displayName = `${address.county.replace(" County", "")}, ${address.state}`;
+          } else if (address.state) {
+            displayName = address.state;
+          } else if (result.display_name) {
+            // Fallback but clean up the display name
+            displayName = result.display_name
+              .split(",")
+              .slice(0, 2) // Keep only first 2 parts
+              .join(",")
+              .replace(/, United States$/, "");
+          }
 
-            return {
+          if (displayName) {
+            acc.push({
               ...result,
               display_name: displayName || result.display_name,
               simplified_name: displayName,
-            };
-          })
-          .filter((result: any) => result.simplified_name);
+            });
+          }
+          return acc;
+        }, []);
 
         setSearchResults(processedResults);
       }

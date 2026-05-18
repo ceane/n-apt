@@ -3,6 +3,7 @@ import {
   getZoomedSlice,
   dbToColor,
   getWholeChannelRenderRange,
+  buildSnapshotStatsLines,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
@@ -210,5 +211,73 @@ describe("useSnapshot", () => {
     });
 
     // Should not crash even if data is null
+  });
+});
+
+describe("buildSnapshotStatsLines", () => {
+  it("orders stats lines and truncates frequencies", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: 49.6dB | PPM: 1",
+    });
+
+    expect(lines).toEqual([
+      "4.38MHz – 4.39MHz",
+      "2026-05-18 09:05:26 America/Los_Angeles",
+      "Device Name: Mock APT SDR",
+      "Onscreen / partial Channel A",
+      "FFT size (# of points): 2048",
+      "Gain: 49.6dB | PPM: 1",
+    ]);
+  });
+
+  it("uses whole-channel label when whole is true", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "X",
+      whole: true,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: 49.6dB | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Channel X (Whole)");
+  });
+
+  it("falls back to Onscreen when no channel name is present", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: 49.6dB | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Onscreen");
+  });
+
+  it("shows non-rectangular FFT windows", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Hann",
+      gainLabel: "Gain: 49.6dB | PPM: 1",
+    });
+
+    expect(lines[4]).toBe("FFT size (# of points): 2048 | Window: Hann");
   });
 });

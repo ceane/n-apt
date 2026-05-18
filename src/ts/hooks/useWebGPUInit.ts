@@ -367,6 +367,7 @@ export function useWebGPUInit({
     if (!isWebGPUSupported()) return;
 
     let cancelled = false;
+    let retryTimerId: ReturnType<typeof setTimeout> | undefined;
     const doInit = async (retryCount = 0) => {
       try {
         const device = await getWebGPUDevice();
@@ -386,7 +387,7 @@ export function useWebGPUInit({
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
-            setTimeout(() => {
+            retryTimerId = setTimeout(() => {
               if (!cancelled) {
                 doInit(webgpuRetryCountRef.current);
               }
@@ -401,7 +402,7 @@ export function useWebGPUInit({
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
-            setTimeout(() => {
+            retryTimerId = setTimeout(() => {
               if (!cancelled) {
                 doInit(webgpuRetryCountRef.current);
               }
@@ -421,7 +422,7 @@ export function useWebGPUInit({
         }
 
         if (retryCount < maxWebgpuRetries) {
-          setTimeout(
+          retryTimerId = setTimeout(
             () => {
               if (!cancelled) {
                 doInit(retryCount + 1);
@@ -437,6 +438,7 @@ export function useWebGPUInit({
 
     return () => {
       cancelled = true;
+      clearTimeout(retryTimerId);
     };
   }, []);
 

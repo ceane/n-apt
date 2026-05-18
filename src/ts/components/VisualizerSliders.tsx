@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { Slider } from "@n-apt/components/ui";
 import { COLORS, STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
 import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
+import { roundDbValue } from "@n-apt/utils/frequency";
 import {
   PaintbrushVertical,
   RotateCcw,
@@ -117,11 +118,6 @@ const ResetBadge = styled.span`
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 `;
 
-const formatDbValue = (value: number) => {
-  const rounded = Math.round(value);
-  return Object.is(rounded, -0) ? 0 : rounded;
-};
-
 export interface VisualizerSlidersProps {
   /** Frequency zoom level: 1 = no zoom, higher = more zoomed in */
   zoom: number;
@@ -231,7 +227,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={maxDbRange.max}
         step={5}
         onChange={onDbMaxChange}
-        formatValue={(v) => `${formatDbValue(v)}${dbUnit}`}
+        formatValue={(v) => `${roundDbValue(v)}${dbUnit}`}
         invertFill
         orientation="vertical"
         labelPlacement="bottom"
@@ -243,7 +239,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={minDbRange.max}
         step={5}
         onChange={onDbMinChange}
-        formatValue={(v) => `${formatDbValue(v)}${dbUnit}`}
+        formatValue={(v) => `${roundDbValue(v)}${dbUnit}`}
         orientation="vertical"
         labelPlacement="bottom"
       />

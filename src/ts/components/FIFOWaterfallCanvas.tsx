@@ -1,6 +1,11 @@
 import { FC, Suspense } from "react";
 import styled from "styled-components";
 
+const EMPTY_HETERODYNING_HIGHLIGHTED_BINS: Array<{
+  start: number;
+  end: number;
+}> = [];
+
 const WaterfallSection = styled.div`
   flex: 1;
   display: flex;
@@ -72,10 +77,10 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   isPaused,
   setWaterfallGpuCanvasNode,
   setWaterfallOverlayCanvasNode,
-  heterodyningHighlightedBins = [],
+  heterodyningHighlightedBins = EMPTY_HETERODYNING_HIGHLIGHTED_BINS,
 }) => {
   return (
-    <Suspense fallback={<div>Loading waterfall...</div>}>
+    <Suspense fallback={<div>Loading waterfall…</div>}>
       <WaterfallSection>
         <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
         <CanvasWrapper>
@@ -89,9 +94,9 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
           />
           {heterodyningHighlightedBins.length > 0 && (
             <HighlightOverlay data-testid="fifo-waterfall-highlight-overlay">
-              {heterodyningHighlightedBins.map((bin, index) => (
+              {heterodyningHighlightedBins.map((bin) => (
                 <HighlightBand
-                  key={`waterfall-highlight-${index}`}
+                  key={`waterfall-highlight-${bin.start}-${bin.end}`}
                   data-testid="fifo-waterfall-highlight-band"
                   $left={Math.max(0, Math.min(100, bin.start * 100))}
                   $width={Math.max(

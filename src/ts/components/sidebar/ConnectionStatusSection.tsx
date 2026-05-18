@@ -223,7 +223,7 @@ export const ConnectionStatusSection: React.FC<
                 disabled={true}
                 title="Device is restarting..."
               >
-                Restarting...
+                Restarting…
               </WarningButton>
             ) : deviceState === "loading" ? (
               <WarningButton
@@ -233,7 +233,7 @@ export const ConnectionStatusSection: React.FC<
                 disabled={true}
                 title="Device is being initialized..."
               >
-                Loading...
+                Loading…
               </WarningButton>
             ) : (
               !hidePauseButton && (

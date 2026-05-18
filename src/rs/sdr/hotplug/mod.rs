@@ -34,7 +34,7 @@ impl HotplugState {
       last_poll: now,
       last_hardware_swap: None,
       last_failure_at: None,
-      last_seen_device_count: crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count(),
+      last_seen_device_count: if supported_usb_device_present() { 1 } else { 0 },
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
     }
@@ -109,6 +109,10 @@ impl HotplugMonitor {
   }
 }
 
+fn supported_usb_device_present() -> bool {
+  matches!(scan_usb_for_supported_device(), Ok(Some(_)))
+}
+
 fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
   let context = Context::new()
     .map_err(|e| anyhow!("Failed to initialize libusb context: {}", e))?;
@@ -172,6 +176,11 @@ pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
   !device_type.to_ascii_lowercase().contains("mock")
 }
 
+#[cfg(test)]
+pub(crate) fn should_probe_for_hotplug(device_type: &str) -> bool {
+  device_type.to_ascii_lowercase().contains("mock")
+}
+
 pub(crate) fn is_recovery_budget_exhausted(
   recovery_attempts: u32,
   max_recovery_attempts: u32,
@@ -186,17 +195,10 @@ pub async fn drain_hotplug_events(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
-  let current_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-  let usb_scan = scan_usb_for_supported_device();
-  let supported_device_seen = matches!(usb_scan, Ok(Some(_)));
-  let current_count = if supported_device_seen {
-    current_count.max(1)
-  } else {
-    0
-  };
+  let current_count = if supported_usb_device_present() { 1 } else { 0 };
   if current_count != state.last_seen_device_count {
     info!(
-      "USB device count changed from {} to {}",
+      "Supported USB device presence changed from {} to {}",
       state.last_seen_device_count, current_count
     );
     state.last_seen_device_count = current_count;
@@ -242,22 +244,30 @@ async fn attach_real_device(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
-  info!("Probing RTL-SDR attach path");
+  info!("Probing supported device attach path");
   shared_state.set_device_state("loading", Some("connect"));
   broadcast_device_status(shared_state, broadcast_tx);
 
   let mut last_err = None;
   let mut new_device = None;
   for attempt in 1..=5 {
-    match SdrDeviceFactory::create_rtlsdr_device() {
-      Ok(device) => {
+    match SdrDeviceFactory::create_device() {
+      Ok(device) if !device.device_type().to_ascii_lowercase().contains("mock") => {
         new_device = Some(device);
         break;
+      }
+      Ok(_) => {
+        last_err = Some(anyhow!("No supported real device available during attach"));
+        warn!(
+          "Supported device open attempt {} of 5 returned mock; retrying",
+          attempt
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
       }
       Err(e) => {
         last_err = Some(e);
         warn!(
-          "RTL-SDR open attempt {} of 5 failed during attach; retrying",
+          "Supported device open attempt {} of 5 failed during attach; retrying",
           attempt
         );
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -268,7 +278,7 @@ async fn attach_real_device(
   let new_device = match new_device {
     Some(device) => device,
     None => {
-      let err = last_err.unwrap_or_else(|| anyhow!("RTL-SDR open failed"));
+      let err = last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
       shared_state.set_device_state("disconnected", None);
       broadcast_device_status(shared_state, broadcast_tx);
       return Err(err);
@@ -340,7 +350,7 @@ pub async fn handle_real_hardware_health(
   if processor.is_healthy() || is_warming_up {
     let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
     if prev > 0 {
-      info!("RTL-SDR health restored after {} failure(s)", prev);
+      info!("Device health restored after {} failure(s)", prev);
       shared_state.health_failure_streak.store(0, Ordering::Relaxed);
       shared_state.recovery_attempts.store(0, Ordering::Relaxed);
       shared_state.set_device_state("connected", None);
@@ -352,14 +362,14 @@ pub async fn handle_real_hardware_health(
   let streak = shared_state.record_health_failure();
   let recovery_count = shared_state.recovery_attempts.load(Ordering::Relaxed);
   warn!(
-    "RTL-SDR health check failed (streak {}/{}, recovery attempts {}/{})",
+    "Device health check failed (streak {}/{}, recovery attempts {}/{})",
     streak, DISCONNECT_FAILURE_THRESHOLD, recovery_count, MAX_RECOVERY_ATTEMPTS
   );
 
   if streak < DISCONNECT_FAILURE_THRESHOLD {
-    let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-    if usb_count == 0 {
-      warn!("RTL-SDR disappeared during recovery window. Falling back to mock immediately.");
+    let supported_device_present = supported_usb_device_present();
+    if !supported_device_present {
+      warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
       shared_state.set_device_state("disconnected", None);
       broadcast_device_status(shared_state, broadcast_tx);
       let _ = stop_capture(processor);
@@ -406,9 +416,9 @@ pub async fn handle_real_hardware_health(
       tokio::time::sleep(state.exhausted_recovery_cooldown).await;
     }
   } else {
-    let usb_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-    if usb_count == 0 {
-      warn!("RTL-SDR confirmed unplugged (device_count=0). Falling back to mock.");
+    let supported_device_present = supported_usb_device_present();
+    if !supported_device_present {
+      warn!("Supported device confirmed unplugged. Falling back to mock.");
       shared_state.set_device_state("disconnected", None);
       broadcast_device_status(shared_state, broadcast_tx);
       let _ = stop_capture(processor);
@@ -427,8 +437,7 @@ pub async fn handle_real_hardware_health(
       }
     } else {
       warn!(
-        "RTL-SDR still on USB (count={}) but unhealthy. Attempting full restart...",
-        usb_count
+        "Supported device still on USB but unhealthy. Attempting full restart..."
       );
       let _ = stop_capture(processor);
       shared_state.set_device_state("loading", Some("restart"));
@@ -473,5 +482,44 @@ pub async fn handle_real_hardware_health(
         }
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serial_test::serial;
+
+  #[tokio::test]
+  #[serial]
+  async fn maybe_attach_hotplugged_device_respects_probe_interval() {
+    let monitor = HotplugMonitor::new().expect("hotplug monitor");
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared_state = SharedState::new("redis://127.0.0.1:6379");
+    let mut processor =
+      SdrProcessor::new_mock_apt().expect("mock apt processor");
+    let (broadcast_tx, _) = broadcast::channel(1);
+    let now = Instant::now();
+    let mut state = HotplugState {
+      last_poll: now,
+      last_hardware_swap: None,
+      last_failure_at: None,
+      last_seen_device_count: 0,
+      retry_cooldown: Duration::from_secs(30),
+      exhausted_recovery_cooldown: Duration::from_secs(15),
+    };
+
+    let before = state.last_poll;
+    maybe_attach_hotplugged_device(
+      &monitor,
+      &mut state,
+      &mut processor,
+      &shared_state,
+      &broadcast_tx,
+      false,
+    )
+    .await;
+
+    assert_eq!(state.last_poll, before);
   }
 }

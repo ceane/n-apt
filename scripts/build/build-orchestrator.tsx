@@ -10,6 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  getDeviceAwareRuntimeSummaryState,
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
   markPendingProcessesAfterFailure,
@@ -37,15 +38,6 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   }
 
   return failing;
-};
-
-const isDeviceDisconnectedError = (details: string[]): boolean => {
-  return details.some(d =>
-    d.includes('SDR read error') ||
-    d.includes('Timeout waiting for async SDR') ||
-    d.includes('Device DISCONNECTED') ||
-    d.includes('disconnected but running')
-  );
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -254,6 +246,7 @@ const BuildOrchestrator = () => {
     warningDetails: [],
     activeBuildOutputStep: undefined,
   });
+  const [liveDeviceState, setLiveDeviceState] = useState<string | null>(null);
 
   const addLog = useCallback((_message: string) => {
     // Placeholder for future log streaming
@@ -1015,7 +1008,6 @@ exit 1
 
   const hasErrors = buildState.processes.some(p => p.status === 'error');
   const hasCompilationErrors = buildState.errorDetails.length > 0;
-  const hasDeviceDisconnected = isDeviceDisconnectedError(buildState.errorDetails);
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
   const runtimeSummary = getRuntimeSummaryState({
@@ -1026,29 +1018,83 @@ exit 1
     redisPid: buildState.redisPid,
     failingServices: hasErrors || hasCompilationErrors ? getFailingServices(buildState.errorDetails) : []
   });
-  const statusLabel = hasDeviceDisconnected ? '▲ Device DISCONNECTED but RUNNING' : runtimeSummary.label;
-  const statusColor = hasDeviceDisconnected ? 'yellow' : runtimeSummary.color;
+  const deviceAwareRuntimeSummary = getDeviceAwareRuntimeSummaryState({
+    runtimeSummary,
+    deviceState: liveDeviceState,
+  });
+  const statusLabel = deviceAwareRuntimeSummary.label;
+  const statusColor = deviceAwareRuntimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
 
   // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
   // the system notification won't fire. Open http://localhost:5173 manually in that case.
-  const checkDeviceStatus = useCallback(async (): Promise<string> => {
+  const checkDeviceStatus = useCallback(async (): Promise<{
+    deviceState: string | null;
+    message: string;
+  }> => {
     try {
       const response = await fetch('http://localhost:8765/status');
       const data = await response.json();
-      return data.device_connected ? 'RTL-SDR Connected' : 'RTL-SDR Disconnected, Mock APT Running';
+      return {
+        deviceState: typeof data.device_state === 'string' ? data.device_state : null,
+        message:
+          data.device_state === 'loading'
+            ? 'RTL-SDR Connecting'
+            : data.device_connected
+              ? 'RTL-SDR Connected'
+              : 'RTL-SDR Disconnected, Mock APT Running',
+      };
     } catch {
-      return 'Backend not responding';
+      return {
+        deviceState: null,
+        message: 'Backend not responding',
+      };
     }
   }, []);
+
+  useEffect(() => {
+    const canPollDeviceState =
+      allComplete && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+
+    if (!canPollDeviceState) {
+      setLiveDeviceState(null);
+      return;
+    }
+
+    let cancelled = false;
+    const pollDeviceStatus = async () => {
+      const result = await checkDeviceStatus();
+      if (cancelled) return;
+      setLiveDeviceState(result.deviceState);
+    };
+
+    void pollDeviceStatus();
+    const interval = setInterval(() => {
+      void pollDeviceStatus();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, checkDeviceStatus]);
+
+  useEffect(() => {
+    if (liveDeviceState !== 'connected') {
+      return;
+    }
+
+    clearErrorDetails('device disconnected');
+    clearErrorDetails('disconnected but running');
+  }, [liveDeviceState, clearErrorDetails]);
 
   useEffect(() => {
     const canNotify = buildState.vitePid && buildState.rustPid && buildState.redisPid;
     
     if (allComplete && canNotify) {
-      checkDeviceStatus().then(deviceStatus => {
+      checkDeviceStatus().then(({ message: deviceStatus }) => {
         const msg = !hadServicesRef.current 
           ? `✓ Finished building and running at http://localhost:5173`
           : `✓ ${deviceStatus}`;
@@ -1183,10 +1229,7 @@ exit 1
 
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
-  render(<BuildOrchestrator />, {
-    incrementalRendering: true,
-    maxFps: 12,
-  });
+  render(<BuildOrchestrator />);
 }
 
 export default BuildOrchestrator;

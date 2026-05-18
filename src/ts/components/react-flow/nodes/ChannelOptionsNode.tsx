@@ -50,7 +50,7 @@ export const ChannelOptionsNode: React.FC<ChannelOptionsNodeProps> = ({
       <NodeTitle>{data.label}</NodeTitle>
       <NodeBody>
         <ChannelSelect defaultValue="">
-          <option value="">Select Channel...</option>
+          <option value="">Select Channel…</option>
           <option value="channel1">Channel 1</option>
           <option value="channel2">Channel 2</option>
           <option value="channel3">Channel 3</option>

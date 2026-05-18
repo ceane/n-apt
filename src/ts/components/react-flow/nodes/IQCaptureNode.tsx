@@ -276,15 +276,11 @@ export const IQCaptureNode = memo(
   const handleCapture = async () => {
     const jobId = `demod_capture_${Date.now()}`;
     const geolocation = captureGeolocation ? await getLocation() : undefined;
-    const fragments = activeCaptureAreas
-      .map((areaName) => {
-        const area = captureRange.segments.find((s) => s.label === areaName);
-        if (area) {
-          return { minFreq: area.min, maxFreq: area.max };
-        }
-        return null;
-      })
-      .filter((frag): frag is { minFreq: number; maxFreq: number } => frag !== null);
+    const fragments = activeCaptureAreas.reduce<{ minFreq: number; maxFreq: number }[]>((acc, areaName) => {
+      const area = captureRange.segments.find((s) => s.label === areaName);
+      if (area) acc.push({ minFreq: area.min, maxFreq: area.max });
+      return acc;
+    }, []);
 
     if (fragments.length === 0) return;
 

@@ -139,6 +139,150 @@ const hasPersistedFftSize = (): boolean => {
 
 
 
+type PlaybackAfterCaptureArgs = {
+  liveCaptureStatus: {
+    status: string;
+    downloadUrl?: string | null;
+    filename?: string | null;
+  } | null;
+  capturePlayback: boolean;
+  sessionToken: string | null;
+  aesKey: CryptoKey | null;
+  dispatch: React.Dispatch<any>;
+  storeDispatch: React.Dispatch<any>;
+  setNaptMetadataError: (message: string | null) => void;
+  getCancelled: () => boolean;
+  schedule: (callback: () => void, delayMs: number) => void;
+};
+
+const playbackAfterCapture = async (
+  args: PlaybackAfterCaptureArgs,
+  retryCount = 0,
+) => {
+  const {
+    liveCaptureStatus,
+    capturePlayback,
+    sessionToken,
+    aesKey,
+    dispatch,
+    storeDispatch,
+    setNaptMetadataError,
+    getCancelled,
+    schedule,
+  } = args;
+
+  if (
+    liveCaptureStatus?.status !== "done" ||
+    !capturePlayback ||
+    !liveCaptureStatus.downloadUrl
+  ) {
+    return;
+  }
+
+  try {
+    if (!sessionToken || !aesKey) {
+      if (retryCount < 10) {
+        console.log(
+          `PlaybackAfterCapture: Waiting for auth state... (attempt ${retryCount + 1})`,
+        );
+        schedule(() => {
+          void playbackAfterCapture(args, retryCount + 1);
+        }, 500);
+        return;
+      }
+      throw new Error(
+        "Authentication state (session token or AES key) not ready after multiple retries",
+      );
+    }
+
+    if (getCancelled()) return;
+
+    console.group("PlaybackAfterCapture Flow");
+    console.log("Status: done, triggering transition...");
+    console.log("Download URL:", liveCaptureStatus.downloadUrl);
+    console.log("Session Token present:", !!sessionToken);
+    console.log("AES Key present:", !!aesKey);
+
+    dispatch(setSourceMode("file"));
+    storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
+    dispatch(setSelectedFiles([]));
+    storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
+    dispatch(clearWaterfall());
+
+    const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken)}`;
+
+    let response;
+    try {
+      response = await fetch(url);
+    } catch (fetchErr) {
+      if (retryCount < 3) {
+        console.warn(
+          "PlaybackAfterCapture: Fetch failed, retrying...",
+          fetchErr,
+        );
+        console.groupEnd();
+        schedule(() => {
+          void playbackAfterCapture(args, retryCount + 1);
+        }, 1000);
+        return;
+      }
+      throw fetchErr;
+    }
+
+    if (getCancelled()) return;
+
+    console.log("Fetch status:", response.status);
+
+    if (response.status === 401) {
+      console.error(
+        "PlaybackAfterCapture: 401 Unauthorized. Session might be stale.",
+      );
+      throw new Error(
+        "Playback failed: Unauthorized (401). Please try logging in again.",
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const filename = liveCaptureStatus.filename || "capture.napt";
+    const file = new File([blob], filename, {
+      type: "application/octet-stream",
+    });
+
+    const id = fileRegistry.register(file);
+    const serializedFile = {
+      id,
+      name: filename,
+      downloadUrl: liveCaptureStatus.downloadUrl,
+    };
+
+    dispatch(setSelectedFiles([serializedFile]));
+    storeDispatch({
+      type: "SET_SELECTED_FILES",
+      files: [serializedFile],
+    });
+
+    console.log("File registered and selected. ID:", id);
+
+    schedule(() => {
+      if (getCancelled()) return;
+      console.log("Triggering stitch...");
+      dispatch(triggerStitch());
+      storeDispatch({ type: "TRIGGER_STITCH" });
+      console.groupEnd();
+    }, 800);
+  } catch (e) {
+    console.error("Playback after capture failed:", e);
+    console.groupEnd();
+    if (e instanceof Error) {
+      setNaptMetadataError(`Playback failed: ${e.message}`);
+    }
+  }
+};
+
 export const SpectrumSidebar: React.FC = () => {
   const dispatch = useAppDispatch();
   const {
@@ -400,6 +544,7 @@ export const SpectrumSidebar: React.FC = () => {
   const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
   const [snapshotShowStats, setSnapshotShowStats] = useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
+  const [snapshotUseThemeColors, setSnapshotUseThemeColors] = useState(false);
   const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<
     string | null
   >(null);
@@ -414,6 +559,10 @@ export const SpectrumSidebar: React.FC = () => {
   >("png");
   const [snapshotAspectRatio, setSnapshotAspectRatio] =
     useState<SnapshotAspectRatio>("default");
+  const activeCaptureAreasSet = useMemo(
+    () => new Set(activeCaptureAreas),
+    [activeCaptureAreas],
+  );
 
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
@@ -428,107 +577,33 @@ export const SpectrumSidebar: React.FC = () => {
 
   // Handle Playback after capture
   useEffect(() => {
-    // Only proceed if capture status is done, playback is requested, and we have a valid URL
     if (
-      liveCaptureStatus?.status === "done" &&
-      capturePlayback &&
-      liveCaptureStatus.downloadUrl
+      liveCaptureStatus?.status !== "done" ||
+      !capturePlayback ||
+      !liveCaptureStatus.downloadUrl
     ) {
-      const run = async (retryCount = 0) => {
-        try {
-          // Guard: Ensure we have authentication state before attempting fetch
-          // If we are logged in, sessionToken and aesKey should eventually appear
-          if (!sessionToken || !aesKey) {
-            if (retryCount < 10) {
-              console.log(`PlaybackAfterCapture: Waiting for auth state... (attempt ${retryCount + 1})`);
-              setTimeout(() => run(retryCount + 1), 500);
-              return;
-            }
-            throw new Error("Authentication state (session token or AES key) not ready after multiple retries");
-          }
-
-          console.group("PlaybackAfterCapture Flow");
-          console.log("Status: done, triggering transition...");
-          console.log("Download URL:", liveCaptureStatus.downloadUrl);
-          console.log("Session Token present:", !!sessionToken);
-          console.log("AES Key present:", !!aesKey);
-
-          // 1. Switch to file mode
-          dispatch(setSourceMode("file"));
-          storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
-          dispatch(setSelectedFiles([]));
-          storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
-          dispatch(clearWaterfall());
-
-          // 2. Construct the URL
-          const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken)}`;
-          
-          // 3. Fetch the file with retry for transient network/server issues
-          let response;
-          try {
-            response = await fetch(url);
-          } catch (fetchErr) {
-            if (retryCount < 3) {
-              console.warn("PlaybackAfterCapture: Fetch failed, retrying...", fetchErr);
-              console.groupEnd();
-              setTimeout(() => run(retryCount + 1), 1000);
-              return;
-            }
-            throw fetchErr;
-          }
-
-          console.log("Fetch status:", response.status);
-          
-          if (response.status === 401) {
-            console.error("PlaybackAfterCapture: 401 Unauthorized. Session might be stale.");
-            // We don't automatically logout here as useAuthentication handles it, 
-            // but we should notify the user.
-            throw new Error("Playback failed: Unauthorized (401). Please try logging in again.");
-          }
-
-          if (!response.ok)
-            throw new Error(`HTTP error! status: ${response.status}`);
-
-          const blob = await response.blob();
-          const filename = liveCaptureStatus.filename || "capture.napt";
-          const file = new File([blob], filename, {
-            type: "application/octet-stream",
-          });
-
-          // 4. Update file registry and selected files
-          const id = fileRegistry.register(file);
-          const serializedFile = {
-            id,
-            name: filename,
-            downloadUrl: liveCaptureStatus.downloadUrl,
-          };
-
-          dispatch(setSelectedFiles([serializedFile]));
-          storeDispatch({
-            type: "SET_SELECTED_FILES",
-            files: [serializedFile],
-          });
-
-          console.log("File registered and selected. ID:", id);
-
-          // 5. Trigger stitching/playback with a slight delay to allow the metadata effect to start
-          // We wait for the file to be "ready" in the registry.
-          setTimeout(() => {
-            console.log("Triggering stitch...");
-            dispatch(triggerStitch());
-            storeDispatch({ type: "TRIGGER_STITCH" });
-            console.groupEnd();
-          }, 800);
-        } catch (e) {
-          console.error("Playback after capture failed:", e);
-          console.groupEnd();
-          if (e instanceof Error) {
-            setNaptMetadataError(`Playback failed: ${e.message}`);
-          }
-        }
-      };
-      run();
+      return;
     }
+
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    void playbackAfterCapture({
+      liveCaptureStatus,
+      capturePlayback,
+      sessionToken,
+      aesKey,
+      dispatch,
+      storeDispatch,
+      setNaptMetadataError,
+      getCancelled: () => cancelled,
+      schedule: (callback, delayMs) => {
+        timerId = setTimeout(callback, delayMs);
+      },
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+    };
   }, [
     liveCaptureStatus,
     capturePlayback,
@@ -692,14 +767,20 @@ export const SpectrumSidebar: React.FC = () => {
   }, [visibleOnscreenRange, liveFramesToUse, liveSdrSettingsToUse]);
 
   const activeFragments = useMemo(() => {
-    return availableCaptureAreas
-      .filter((a) => activeCaptureAreas.includes(a.label))
-      .map((a) => ({ minFreq: a.min, maxFreq: a.max }));
-  }, [availableCaptureAreas, activeCaptureAreas]);
+    return availableCaptureAreas.reduce<{ minFreq: number; maxFreq: number }[]>(
+      (acc, a) => {
+        if (activeCaptureAreasSet.has(a.label)) {
+          acc.push({ minFreq: a.min, maxFreq: a.max });
+        }
+        return acc;
+      },
+      [],
+    );
+  }, [availableCaptureAreas, activeCaptureAreasSet]);
 
   const captureRange = useMemo(() => {
     const segments = availableCaptureAreas.filter((a) =>
-      activeCaptureAreas.includes(a.label),
+      activeCaptureAreasSet.has(a.label),
     );
     if (segments.length === 0 && visibleOnscreenRange) {
       return {
@@ -811,6 +892,7 @@ export const SpectrumSidebar: React.FC = () => {
           format: snapshotFormat,
           grid: snapshotGridPreference,
           aspectRatio: snapshotAspectRatio,
+          useThemeColors: snapshotUseThemeColors,
           fileTimestamp:
             sourceMode === "file" && naptMetadata?.timestamp_utc
               ? naptMetadata.timestamp_utc
@@ -1005,6 +1087,22 @@ export const SpectrumSidebar: React.FC = () => {
     storeDispatch({ type: "RESET_LIVE_CONTROLS", fftSize, fftFrameRate });
   }, [storeDispatch, fftSize, fftFrameRate]);
 
+  const handleRestartDevice = useCallback(() => {
+    dispatch(sendRestartDevice());
+  }, [dispatch]);
+
+  const handleResetOptions = useCallback(() => {
+    showPrompt({
+      title: "Reset Options to Defaults?",
+      message:
+        "Reset options like zoom, signal display, source settings and all other options to the app's default settings?",
+      confirmText: "Reset",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: resetLiveControls,
+    });
+  }, [resetLiveControls, showPrompt]);
+
   useEffect(() => {
     setActiveCaptureAreas((current) => {
       const validLabels = new Set(
@@ -1081,6 +1179,7 @@ export const SpectrumSidebar: React.FC = () => {
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={snapshotShowGeolocation}
             snapshotGeolocationError={snapshotGeolocationError}
+            snapshotUseThemeColors={snapshotUseThemeColors}
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
@@ -1088,6 +1187,7 @@ export const SpectrumSidebar: React.FC = () => {
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotUseThemeColorsChange={setSnapshotUseThemeColors}
             onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
             onSnapshotFormatChange={setSnapshotFormat}
             onSnapshotGridPreferenceChange={(pref) => {
@@ -1153,22 +1253,12 @@ export const SpectrumSidebar: React.FC = () => {
             isPaused={liveIsPaused}
             cryptoCorrupted={liveCryptoCorrupted}
             onPauseToggle={toggleVisualizerPause}
-            onRestartDevice={() => dispatch(sendRestartDevice())}
+            onRestartDevice={handleRestartDevice}
           />
 
           <Section>
             <ResetButton
-              onClick={() => {
-                showPrompt({
-                  title: "Reset Options to Defaults?",
-                  message:
-                    "Reset options like zoom, signal display, source settings and all other options to the app's default settings?",
-                  confirmText: "Reset",
-                  cancelText: "Cancel",
-                  variant: "danger",
-                  onConfirm: resetLiveControls,
-                });
-              }}
+              onClick={handleResetOptions}
               title="Reset sidebar and visualizer options to defaults"
             >
               Reset Options to Defaults
@@ -1209,6 +1299,7 @@ export const SpectrumSidebar: React.FC = () => {
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={snapshotShowGeolocation}
             snapshotGeolocationError={snapshotGeolocationError}
+            snapshotUseThemeColors={snapshotUseThemeColors}
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
@@ -1216,6 +1307,7 @@ export const SpectrumSidebar: React.FC = () => {
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotUseThemeColorsChange={setSnapshotUseThemeColors}
             onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
             onSnapshotFormatChange={setSnapshotFormat}
             onSnapshotGridPreferenceChange={(pref) => {

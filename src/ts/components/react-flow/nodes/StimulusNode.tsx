@@ -611,7 +611,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               {countdown > 0 ? (
                 <>
                   <CountdownNumber>{countdown}</CountdownNumber>
-                  <ProgressLabel>Starting...</ProgressLabel>
+                  <ProgressLabel>Starting…</ProgressLabel>
                 </>
               ) : (
                 <>

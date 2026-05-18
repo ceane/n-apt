@@ -376,12 +376,16 @@ function stitchAdjacentChannels(
     const maxFreq = (last.center_freq_hz || 0) + lastSampleRate / 2;
     const totalSpan = maxFreq - minFreq;
     const newCenter = minFreq + totalSpan / 2;
-    const requestedMins = group
-      .map((c: any) => c.frequency_range?.[0])
-      .filter((v: number | undefined) => Number.isFinite(v));
-    const requestedMaxs = group
-      .map((c: any) => c.frequency_range?.[1])
-      .filter((v: number | undefined) => Number.isFinite(v));
+    const requestedMins = group.reduce<number[]>((acc, c: any) => {
+      const v = c.frequency_range?.[0];
+      if (Number.isFinite(v)) acc.push(v);
+      return acc;
+    }, []);
+    const requestedMaxs = group.reduce<number[]>((acc, c: any) => {
+      const v = c.frequency_range?.[1];
+      if (Number.isFinite(v)) acc.push(v);
+      return acc;
+    }, []);
 
     return {
       iq_data: group[0].iq_data || group[0].iq,

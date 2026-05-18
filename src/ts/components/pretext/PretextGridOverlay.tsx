@@ -1,5 +1,4 @@
 import React, { useRef, useEffect, useCallback, useMemo } from "react";
-import { usePretextText } from "@n-apt/hooks/usePretextText";
 import { setupCanvasForDPI } from "@n-apt/utils/canvasDPIScaling";
 import {
   FFT_GRID_COLOR,
@@ -89,24 +88,6 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
     };
   }, [frequencyRange, fullCaptureRange]);
 
-  // Create hooks for horizontal labels only
-  const horizontalTextHooks = Array.from(
-    { length: MAX_HORIZONTAL_LABELS },
-    (_, index) => {
-      const item = labelData.horizontalLabels[index];
-      return usePretextText({
-        text: item
-          ? item.type === "center"
-            ? `✋  ${item.label}`
-            : item.label
-          : "",
-        font: "12px JetBrains Mono",
-        fontSize: 12,
-        color: FFT_TEXT_COLOR,
-      });
-    },
-  );
-
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !frequencyRange) return;
@@ -154,12 +135,8 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
     scaledCtx.lineTo(Math.round(channelEndX), fftAreaMax.y + 7);
     scaledCtx.stroke();
 
-    // Draw horizontal labels using pre-calculated hooks
     labelData.horizontalLabels.forEach((item, index) => {
       if (index >= MAX_HORIZONTAL_LABELS) return;
-
-      const { metrics } = horizontalTextHooks[index];
-      if (!metrics) return;
 
       const xPos = freqToX2(item.freq);
 
@@ -204,7 +181,7 @@ export const PretextGridOverlay: React.FC<PretextGridOverlayProps> = ({
         scaledCtx.fillText(item.label, xPos * dpr, (fftAreaMax.y + 25) * dpr);
       }
     });
-  }, [width, height, frequencyRange, labelData, horizontalTextHooks]);
+  }, [width, height, frequencyRange, labelData]);
 
   useEffect(() => {
     draw();

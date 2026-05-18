@@ -67,6 +67,7 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "100 MHz / Lower limit",
       });
       expect(formatFrequency).toHaveBeenCalledWith(100);
@@ -86,6 +87,7 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "200 MHz / Upper limit",
       });
       expect(formatFrequency).toHaveBeenCalledWith(200);
@@ -106,10 +108,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "100 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "200 MHz / Upper limit",
       });
       expect(formatFrequency).toHaveBeenCalledWith(100);
@@ -133,10 +137,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "Custom Lower",
       });
       expect(result[1]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "Custom Upper",
       });
       expect(formatFrequency).not.toHaveBeenCalled();
@@ -158,10 +164,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "Custom Lower",
       });
       expect(result[1]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "200 MHz / Upper limit",
       });
       expect(formatFrequency).toHaveBeenCalledWith(200);
@@ -183,10 +191,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "100 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "Custom Upper",
       });
       expect(formatFrequency).toHaveBeenCalledWith(100);
@@ -207,10 +217,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 0,
+        kind: "lower_limit",
         label: "0 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: 0,
+        kind: "upper_limit",
         label: "0 MHz / Upper limit",
       });
     });
@@ -230,10 +242,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: -100,
+        kind: "lower_limit",
         label: "-100 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: -50,
+        kind: "upper_limit",
         label: "-50 MHz / Upper limit",
       });
     });
@@ -253,10 +267,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 1000000,
+        kind: "lower_limit",
         label: "1000000 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: 2000000,
+        kind: "upper_limit",
         label: "2000000 MHz / Upper limit",
       });
     });
@@ -276,10 +292,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100.5,
+        kind: "lower_limit",
         label: "100.5 MHz / Lower limit",
       });
       expect(result[1]).toEqual({
         freq: 200.75,
+        kind: "upper_limit",
         label: "200.75 MHz / Upper limit",
       });
     });
@@ -301,10 +319,12 @@ describe("SDR Limit Markers", () => {
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({
         freq: 100,
+        kind: "lower_limit",
         label: "",
       });
       expect(result[1]).toEqual({
         freq: 200,
+        kind: "upper_limit",
         label: "",
       });
       expect(formatFrequency).not.toHaveBeenCalled();

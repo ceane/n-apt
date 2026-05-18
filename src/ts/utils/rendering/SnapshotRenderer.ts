@@ -6,6 +6,7 @@ import { findBestFrequencyRange } from "@n-apt/consts";
 import {
   formatFrequency,
   formatFrequencyHighRes,
+  roundDbValue,
 } from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
 import { escapeAttr, sanitizePath } from "../sanitization";
@@ -286,6 +287,12 @@ export type StatsBoxPlacement = {
   padX: number;
   padY: number;
   lh: number;
+  columns?: {
+    splitIndex: number;
+    columnGap: number;
+    leftWidth: number;
+    rightWidth: number;
+  };
 };
 
 export class SnapshotRenderer {
@@ -367,7 +374,7 @@ export class SnapshotRenderer {
       if (db < dbRange.min || db > dbRange.max) continue;
       const y = this.mapper.dbToY(db);
 
-      let label = `${db.toFixed(1)}`;
+      let label = `${roundDbValue(db)}`;
       if (i === 0) {
         label += unit;
       }
@@ -501,9 +508,11 @@ export class SnapshotRenderer {
     dc: DrawingContext,
     waveform: number[] | Float32Array,
     visualRange?: Range,
+    options?: { crispTrace?: boolean },
   ): void {
     const area = this.mapper.getPlotArea();
-    dc.setLineJoin("round");
+    const crispTrace = options?.crispTrace ?? false;
+    dc.setLineJoin(crispTrace ? "miter" : "round");
     const dataWidth = waveform.length;
     if (dataWidth < 2) return;
 
@@ -514,15 +523,16 @@ export class SnapshotRenderer {
     const decimated = this.decimateWaveform(waveform, Math.ceil(area.width));
 
     if (isSteps) {
-      this.drawTraceSteps(dc, decimated);
+      this.drawTraceSteps(dc, decimated, crispTrace);
     } else {
-      this.drawTraceSmooth(dc, decimated, dataRange);
+      this.drawTraceSmooth(dc, decimated, dataRange, crispTrace);
     }
   }
 
   private drawTraceSteps(
     dc: DrawingContext,
     waveform: number[] | Float32Array,
+    crispTrace: boolean = false,
   ): void {
     const area = this.mapper.getPlotArea();
     const dataWidth = waveform.length;
@@ -539,8 +549,8 @@ export class SnapshotRenderer {
       const nextX =
         i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
       const y = Math.round(this.mapper.clampY(waveform[i]));
-      dc.lineTo(x, y);
-      dc.lineTo(nextX, y);
+      dc.lineTo(crispTrace ? Math.round(x) : x, y);
+      dc.lineTo(crispTrace ? Math.round(nextX) : nextX, y);
     }
     dc.lineTo(area.x + area.width, area.y + area.height);
     dc.closePath();
@@ -568,6 +578,7 @@ export class SnapshotRenderer {
     dc: DrawingContext,
     waveform: number[] | Float32Array,
     visualRange?: Range,
+    crispTrace: boolean = false,
   ): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
@@ -580,13 +591,25 @@ export class SnapshotRenderer {
     // Fill
     dc.setFill(this.theme.shadow);
     dc.beginPath();
-    dc.moveTo(this.mapper.freqToX(dataRange.min), area.y + area.height);
+    dc.moveTo(
+      crispTrace
+        ? Math.round(this.mapper.freqToX(dataRange.min))
+        : this.mapper.freqToX(dataRange.min),
+      area.y + area.height,
+    );
     for (let i = 0; i < dataWidth; i++) {
       const freq =
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
-      dc.lineTo(this.mapper.freqToX(freq), this.mapper.clampY(waveform[i]));
+      const x = this.mapper.freqToX(freq);
+      const y = this.mapper.clampY(waveform[i]);
+      dc.lineTo(crispTrace ? Math.round(x) : x, crispTrace ? Math.round(y) : y);
     }
-    dc.lineTo(this.mapper.freqToX(dataRange.max), area.y + area.height);
+    dc.lineTo(
+      crispTrace
+        ? Math.round(this.mapper.freqToX(dataRange.max))
+        : this.mapper.freqToX(dataRange.max),
+      area.y + area.height,
+    );
     dc.closePath();
     dc.fill();
 
@@ -598,8 +621,10 @@ export class SnapshotRenderer {
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
       const x = this.mapper.freqToX(freq);
       const y = this.mapper.clampY(waveform[i]);
-      if (i === 0) dc.moveTo(x, y);
-      else dc.lineTo(x, y);
+      const rx = crispTrace ? Math.round(x) : x;
+      const ry = crispTrace ? Math.round(y) : y;
+      if (i === 0) dc.moveTo(rx, ry);
+      else dc.lineTo(rx, ry);
     }
     dc.stroke();
     dc.restore();
@@ -673,7 +698,7 @@ export class SnapshotRenderer {
     fixedPlacement?: StatsBoxPlacement,
   ): StatsBoxPlacement | null {
     if (fixedPlacement) {
-      const { pos, boxW, boxH, lines, padX, padY, lh } = fixedPlacement;
+      const { pos, boxW, boxH, lines, padX, padY, lh, columns } = fixedPlacement;
 
       dc.setFill("rgba(0, 0, 0, 0.75)");
       dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -682,10 +707,7 @@ export class SnapshotRenderer {
       dc.setTextAlign("left");
       dc.setTextBaseline("alphabetic");
 
-      lines.forEach((item, i) => {
-        dc.setFont(`${item.fontSize}px monospace`);
-        dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
-      });
+      this.renderStatsBoxLines(dc, pos, padX, padY, lh, lines, columns);
 
       return fixedPlacement;
     }
@@ -694,7 +716,7 @@ export class SnapshotRenderer {
 
     // Try the primary font scale and a compact fallback to find the best fit
     const scales = [fontScale, fontScale * 0.82];
-    let best: {
+    type StatsBoxCandidate = {
       pos: { x: number; y: number };
       boxW: number;
       boxH: number;
@@ -702,8 +724,18 @@ export class SnapshotRenderer {
       padX: number;
       padY: number;
       lh: number;
+      columns?: {
+        splitIndex: number;
+        columnGap: number;
+        leftWidth: number;
+        rightWidth: number;
+      };
       score: number;
-    } | null = null;
+    };
+    let bestSafeSingle: StatsBoxCandidate | null = null;
+    let bestSafeDouble: StatsBoxCandidate | null = null;
+    let bestFallbackSingle: (StatsBoxCandidate & { overlapRatio: number }) | null = null;
+    let bestFallbackDouble: (StatsBoxCandidate & { overlapRatio: number }) | null = null;
 
     for (const scale of scales) {
       const maxAllowedW = area.width * 0.7;
@@ -714,6 +746,7 @@ export class SnapshotRenderer {
 
       const lines = statsLines.map((line) => {
         dc.setFont(`${baseFontSize}px monospace`);
+        let pointWidth = dc.measureTextWidth("-");
         const width = dc.measureTextWidth(line);
         let fontSize = baseFontSize;
         let finalWidth = width;
@@ -724,32 +757,87 @@ export class SnapshotRenderer {
             Math.floor(baseFontSize * (maxTextW / width) * 0.98),
           );
           dc.setFont(`${fontSize}px monospace`);
+          pointWidth = dc.measureTextWidth("-");
           finalWidth = dc.measureTextWidth(line);
         }
-        return { line, fontSize, width: finalWidth };
+        return { line, fontSize, width: finalWidth + pointWidth + 4 };
       });
 
-      const boxW = Math.max(...lines.map((l) => l.width)) + padX * 2;
-      const boxH = statsLines.length * lh + padY * 2;
-      const candidates = this.generateCandidatePositions(boxW, boxH);
-
-      for (const pos of candidates) {
-        const score = this.scoreBoxPlacement(
-          pos.x,
-          pos.y,
-          boxW,
-          boxH,
+      const layouts = this.buildStatsLayouts(lines, padX, padY, lh, area.width);
+      for (const layout of layouts) {
+        const candidates = this.generateCandidatePositions(
+          layout.boxW,
+          layout.boxH,
           waveform,
         );
-        if (!best || score > best.score) {
-          best = { pos, boxW, boxH, lines, padX, padY, lh, score };
+
+        for (const pos of candidates) {
+          const metrics = this.measureBoxPlacement(
+            pos.x,
+            pos.y,
+            layout.boxW,
+            layout.boxH,
+            waveform,
+          );
+          const candidate = {
+            pos,
+            boxW: layout.boxW,
+            boxH: layout.boxH,
+            lines,
+            padX,
+            padY,
+            lh,
+            columns: layout.columns,
+            score: metrics.score,
+          };
+
+          if (metrics.safe) {
+            if (layout.columns) {
+              if (!bestSafeDouble || candidate.score > bestSafeDouble.score) {
+                bestSafeDouble = candidate;
+              }
+            } else if (!bestSafeSingle || candidate.score > bestSafeSingle.score) {
+              bestSafeSingle = candidate;
+            }
+            continue;
+          }
+
+          const fallbackCandidate = {
+            ...candidate,
+            overlapRatio: metrics.overlapRatio,
+          };
+
+          if (layout.columns) {
+            if (
+              !bestFallbackDouble ||
+              metrics.overlapRatio < bestFallbackDouble.overlapRatio - 1e-6 ||
+              (Math.abs(metrics.overlapRatio - bestFallbackDouble.overlapRatio) <=
+                1e-6 &&
+                candidate.score > bestFallbackDouble.score)
+            ) {
+              bestFallbackDouble = fallbackCandidate;
+            }
+          } else if (
+            !bestFallbackSingle ||
+            metrics.overlapRatio < bestFallbackSingle.overlapRatio - 1e-6 ||
+            (Math.abs(metrics.overlapRatio - bestFallbackSingle.overlapRatio) <=
+              1e-6 &&
+              candidate.score > bestFallbackSingle.score)
+          ) {
+            bestFallbackSingle = fallbackCandidate;
+          }
         }
       }
     }
 
+    const best =
+      bestSafeSingle ??
+      bestSafeDouble ??
+      bestFallbackSingle ??
+      bestFallbackDouble;
     if (!best) return null;
 
-    const { pos, boxW, boxH, lines, padX, padY, lh } = best;
+    const { pos, boxW, boxH, lines, padX, padY, lh, columns } = best;
 
     dc.setFill("rgba(0, 0, 0, 0.75)");
     dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -758,12 +846,132 @@ export class SnapshotRenderer {
     dc.setTextAlign("left");
     dc.setTextBaseline("alphabetic");
 
-    lines.forEach((item, i) => {
-      dc.setFont(`${item.fontSize}px monospace`);
-      dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
-    });
+    this.renderStatsBoxLines(dc, pos, padX, padY, lh, lines, columns);
 
     return best;
+  }
+
+  private renderStatsBoxLines(
+    dc: DrawingContext,
+    pos: { x: number; y: number },
+    padX: number,
+    padY: number,
+    lh: number,
+    lines: { line: string; fontSize: number; width: number }[],
+    columns?: {
+      splitIndex: number;
+      columnGap: number;
+      leftWidth: number;
+      rightWidth: number;
+    },
+  ): void {
+    const pointColor = "rgba(238, 238, 238, 0.45)";
+    const pointGap = 4;
+
+    if (!columns) {
+      lines.forEach((item, i) => {
+        dc.setFont(`${item.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", pos.x + padX, y);
+        dc.setFill("#eee");
+        dc.fillText(item.line, pos.x + padX + pointWidth + pointGap, y);
+      });
+      return;
+    }
+
+    const leftLines = lines.slice(0, columns.splitIndex);
+    const rightLines = lines.slice(columns.splitIndex);
+    const leftX = pos.x + padX;
+    const rightX = pos.x + padX + columns.leftWidth + columns.columnGap;
+    const rowCount = Math.max(leftLines.length, rightLines.length);
+
+    for (let i = 0; i < rowCount; i++) {
+      const left = leftLines[i];
+      if (left) {
+        dc.setFont(`${left.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", leftX, y);
+        dc.setFill("#eee");
+        dc.fillText(left.line, leftX + pointWidth + pointGap, y);
+      }
+
+      const right = rightLines[i];
+      if (right) {
+        dc.setFont(`${right.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", rightX, y);
+        dc.setFill("#eee");
+        dc.fillText(right.line, rightX + pointWidth + pointGap, y);
+      }
+    }
+  }
+
+  private buildStatsLayouts(
+    lines: { line: string; fontSize: number; width: number }[],
+    padX: number,
+    padY: number,
+    lh: number,
+    areaWidth: number,
+  ): {
+    kind: "single" | "double";
+    boxW: number;
+    boxH: number;
+    columns?: {
+      splitIndex: number;
+      columnGap: number;
+      leftWidth: number;
+      rightWidth: number;
+    };
+  }[] {
+    const singleColumn = {
+      kind: "single" as const,
+      boxW: Math.max(...lines.map((l) => l.width)) + padX * 2,
+      boxH: lines.length * lh + padY * 2,
+    };
+
+    const layouts: {
+      kind: "single" | "double";
+      boxW: number;
+      boxH: number;
+      columns?: {
+        splitIndex: number;
+        columnGap: number;
+        leftWidth: number;
+        rightWidth: number;
+      };
+    }[] = [singleColumn];
+    if (lines.length >= 5) {
+      const splitIndex = Math.ceil(lines.length / 2);
+      const leftLines = lines.slice(0, splitIndex);
+      const rightLines = lines.slice(splitIndex);
+      const columnGap = Math.round(18 * Math.max(1, padX / 12));
+      const leftWidth = Math.max(...leftLines.map((l) => l.width));
+      const rightWidth = Math.max(...rightLines.map((l) => l.width));
+      const boxW = leftWidth + rightWidth + columnGap + padX * 2;
+      const boxH = Math.max(leftLines.length, rightLines.length) * lh + padY * 2;
+
+      if (boxH < singleColumn.boxH) {
+        layouts.unshift({
+          kind: "double",
+          boxW,
+          boxH,
+          columns: {
+            splitIndex,
+            columnGap,
+            leftWidth,
+            rightWidth,
+          },
+        });
+      }
+    }
+
+    return layouts;
   }
 
   /**
@@ -772,38 +980,107 @@ export class SnapshotRenderer {
   private generateCandidatePositions(
     boxW: number,
     boxH: number,
+    waveform: number[] | Float32Array,
   ): { x: number; y: number }[] {
     const area = this.mapper.getPlotArea();
     const pad = 8;
     const candidates: { x: number; y: number }[] = [];
+    const seen = new Set<string>();
+    const clampX = (x: number) =>
+      Math.max(
+        area.x + pad,
+        Math.min(area.x + area.width - boxW - pad, x),
+      );
+    const clampY = (y: number) =>
+      Math.max(
+        area.y + pad,
+        Math.min(area.y + area.height - boxH - pad, y),
+      );
+    const add = (x: number, y: number) => {
+      const pos = { x: clampX(x), y: clampY(y) };
+      const key = `${Math.round(pos.x)}:${Math.round(pos.y)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push(pos);
+    };
 
     const xSlots = [
       area.x + pad,
-      area.x + (area.width - boxW) / 2,
+      area.x + (area.width - boxW) * 0.18,
+      area.x + (area.width - boxW) * 0.5,
+      area.x + (area.width - boxW) * 0.82,
       area.x + area.width - boxW - pad,
     ];
-    const ySlots = [
+
+    for (const x of xSlots) {
+      const envelope = this.getWaveformEnvelope(x, boxW, waveform);
+      add(x, area.y + pad);
+      add(x, area.y + area.height - boxH - pad);
+      add(x, envelope.top - boxH - pad);
+      add(x, envelope.bottom + pad);
+    }
+
+    // Grid fallback for odd shapes or very sparse traces.
+    const gridYSlots = [
       area.y + pad,
       area.y + (area.height - boxH) * 0.25,
       area.y + (area.height - boxH) * 0.5,
       area.y + (area.height - boxH) * 0.75,
       area.y + area.height - boxH - pad,
     ];
-
     for (const x of xSlots) {
-      for (const y of ySlots) {
-        const cx = Math.max(
-          area.x + pad,
-          Math.min(area.x + area.width - boxW - pad, x),
+      for (const y of gridYSlots) add(x, y);
+    }
+
+    return candidates;
+  }
+
+  private getWaveformEnvelope(
+    boxX: number,
+    boxW: number,
+    waveform: number[] | Float32Array,
+  ): { top: number; bottom: number } {
+    const area = this.mapper.getPlotArea();
+    const dataLen = waveform?.length ?? 0;
+    if (dataLen < 2 || area.width <= 0) {
+      return { top: area.y, bottom: area.y + area.height };
+    }
+
+    let top = Number.POSITIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+
+    const boxRight = boxX + boxW;
+    for (let idx = 0; idx < dataLen; idx++) {
+      const frac = dataLen > 1 ? idx / (dataLen - 1) : 0;
+      const px = area.x + frac * area.width;
+      if (px < boxX || px > boxRight) continue;
+
+      const waveY = this.mapper.clampY(waveform[idx]);
+      if (waveY < top) top = waveY;
+      if (waveY > bottom) bottom = waveY;
+    }
+
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+      const sampleCount = Math.min(96, Math.max(24, Math.ceil(boxW / 2)));
+      for (let i = 0; i < sampleCount; i++) {
+        const px =
+          boxX + (i / Math.max(1, sampleCount - 1)) * Math.max(1, boxW);
+        const frac = Math.max(0, Math.min(1, (px - area.x) / area.width));
+        const idx = Math.min(
+          dataLen - 1,
+          Math.max(0, Math.round(frac * (dataLen - 1))),
         );
-        const cy = Math.max(
-          area.y + pad,
-          Math.min(area.y + area.height - boxH - pad, y),
-        );
-        candidates.push({ x: cx, y: cy });
+        const waveY = this.mapper.clampY(waveform[idx]);
+        if (waveY < top) top = waveY;
+        if (waveY > bottom) bottom = waveY;
       }
     }
-    return candidates;
+
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+      return { top: area.y, bottom: area.y + area.height };
+    }
+
+    return { top, bottom };
   }
 
   /**
@@ -812,13 +1089,13 @@ export class SnapshotRenderer {
    *
    * Higher score = better placement.
    */
-  private scoreBoxPlacement(
+  private measureBoxPlacement(
     bx: number,
     by: number,
     bw: number,
     bh: number,
     waveform: number[] | Float32Array,
-  ): number {
+  ): { score: number; overlapRatio: number; safe: boolean } {
     const area = this.mapper.getPlotArea();
     const dataLen = waveform?.length ?? 0;
     const pad = 8;
@@ -827,16 +1104,21 @@ export class SnapshotRenderer {
     if (dataLen < 2) {
       const distToTopRight =
         Math.abs(bx + bw - (area.x + area.width)) + Math.abs(by - area.y);
-      return -distToTopRight;
+      return { score: -distToTopRight, overlapRatio: 0, safe: true };
     }
 
     const boxLeft = Math.max(bx, area.x);
     const boxRight = Math.min(bx + bw, area.x + area.width);
-    if (boxRight <= boxLeft) return -100_000;
+    if (boxRight <= boxLeft) {
+      return { score: -100_000, overlapRatio: 1, safe: false };
+    }
 
     const boxTop = by;
     const boxBottom = by + bh;
     const boxCenterY = (boxTop + boxBottom) / 2;
+    const envelope = this.getWaveformEnvelope(bx, bw, waveform);
+    const boxAbove = boxBottom <= envelope.top - pad;
+    const boxBelow = boxTop >= envelope.bottom + pad;
     const numSamples = Math.min(60, Math.max(8, Math.ceil(boxRight - boxLeft)));
 
     let traceOverlapCount = 0;
@@ -863,10 +1145,20 @@ export class SnapshotRenderer {
       totalDistance += Math.abs(waveY - boxCenterY);
     }
 
-    if (validSamples === 0) return 0;
+    if (validSamples === 0) {
+      return { score: 0, overlapRatio: 1, safe: false };
+    }
 
     const overlapRatio = traceOverlapCount / validSamples;
     const avgDistance = totalDistance / validSamples;
+    const clearance = boxAbove
+      ? envelope.top - boxBottom
+      : boxBelow
+        ? boxTop - envelope.bottom
+        : -Math.min(
+            Math.max(0, boxBottom - envelope.top),
+            Math.max(0, envelope.bottom - boxTop),
+          );
 
     // Corner preference: bonus for being near any corner of the plot area
     const cornerDistX = Math.min(
@@ -878,7 +1170,25 @@ export class SnapshotRenderer {
       Math.abs(by + bh - (area.y + area.height - pad)),
     );
     const cornerBonus = -(cornerDistX + cornerDistY) * 0.3;
+    const noOverlapBonus = boxAbove || boxBelow ? 2500 : 0;
+    const clearanceScore = Math.max(0, clearance) * 10;
+    const score =
+      avgDistance + cornerBonus + noOverlapBonus + clearanceScore - overlapRatio * 1000;
 
-    return avgDistance + cornerBonus - overlapRatio * 1000;
+    return {
+      score,
+      overlapRatio,
+      safe: boxAbove || boxBelow,
+    };
+  }
+
+  private scoreBoxPlacement(
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    waveform: number[] | Float32Array,
+  ): number {
+    return this.measureBoxPlacement(bx, by, bw, bh, waveform).score;
   }
 }

@@ -149,7 +149,7 @@ export const LocalTowersButton: React.FC<LocalTowersButtonProps> = ({
       return (
         <>
           <Spinner />
-          <span>Loading local towers...</span>
+          <span>Loading local towers…</span>
         </>
       );
     }

@@ -7,6 +7,7 @@ import {
   Grid2X2,
   Image as ImageIcon,
   MapPin,
+  Paintbrush,
   Ratio,
   Scan,
   SquareDashedTopSolid,
@@ -214,6 +215,7 @@ interface SnapshotControlsSectionProps {
   snapshotWhole: boolean;
   snapshotShowWaterfall: boolean;
   snapshotShowStats: boolean;
+  snapshotUseThemeColors: boolean;
   snapshotFormat: "png" | "svg" | SnapshotVideoFormat | "animated-svg";
   snapshotGridPreference: boolean;
   snapshotShowGeolocation: boolean;
@@ -223,6 +225,7 @@ interface SnapshotControlsSectionProps {
   onSnapshotWholeChange: (value: boolean) => void;
   onSnapshotShowWaterfallChange: (value: boolean) => void;
   onSnapshotShowStatsChange: (value: boolean) => void;
+  onSnapshotUseThemeColorsChange: (value: boolean) => void;
   onSnapshotShowGeolocationChange: (value: boolean) => void;
   onSnapshotFormatChange: (
     value: "png" | "svg" | SnapshotVideoFormat | "animated-svg",
@@ -240,6 +243,7 @@ export const SnapshotControlsSection: React.FC<
   snapshotWhole,
   snapshotShowWaterfall,
   snapshotShowStats,
+  snapshotUseThemeColors,
   snapshotFormat,
   snapshotGridPreference,
   snapshotShowGeolocation,
@@ -249,6 +253,7 @@ export const SnapshotControlsSection: React.FC<
   onSnapshotWholeChange,
   onSnapshotShowWaterfallChange,
   onSnapshotShowStatsChange,
+  onSnapshotUseThemeColorsChange,
   onSnapshotShowGeolocationChange,
   onSnapshotFormatChange,
   onSnapshotGridPreferenceChange,
@@ -307,6 +312,20 @@ export const SnapshotControlsSection: React.FC<
               checked={snapshotGridPreference}
               disabled={isDisabled}
               onChange={(e) => onSnapshotGridPreferenceChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider />
+          </ToggleSwitch>
+        </Row>
+
+        <Row label={<IconLabel icon={Paintbrush} text="Use Theme Colors?" />}>
+          <ToggleSwitch>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={snapshotUseThemeColors}
+              disabled={isDisabled}
+              onChange={(e) =>
+                onSnapshotUseThemeColorsChange(e.target.checked)
+              }
             />
             <ToggleSwitchSlider />
           </ToggleSwitch>

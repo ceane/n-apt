@@ -16,18 +16,18 @@ export function buildSdrLimitMarkers(
   }> | null,
 ): SdrLimitMarker[] {
   if (deviceMarkers?.length) {
-    return deviceMarkers
-      .filter(
-        (marker) =>
-          Number.isFinite(marker.freq_hz) && marker.freq_hz >= 0,
-      )
-      .map((marker) => ({
-        freq: marker.freq_hz,
-        kind: marker.kind,
-        label:
-          marker.label ??
-          `${formatFrequency(marker.freq_hz)} / ${marker.kind.replaceAll("_", " ")}`,
-      }));
+    return deviceMarkers.reduce<SdrLimitMarker[]>((acc, marker) => {
+      if (Number.isFinite(marker.freq_hz) && marker.freq_hz >= 0) {
+        acc.push({
+          freq: marker.freq_hz,
+          kind: marker.kind,
+          label:
+            marker.label ??
+            `${formatFrequency(marker.freq_hz)} / ${marker.kind.split("_").join(" ")}`,
+        });
+      }
+      return acc;
+    }, []);
   }
 
   const limits = sdrSettings?.limits;

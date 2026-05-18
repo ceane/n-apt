@@ -219,6 +219,8 @@ export const Snapshot = () => {
   const [snapshotShowStats, setSnapshotShowStats] = React.useState(true);
   const [snapshotShowGeolocation, setSnapshotShowGeolocation] =
     React.useState(false);
+  const [snapshotUseThemeColors, setSnapshotUseThemeColors] =
+    React.useState(false);
   const [snapshotFormat, setSnapshotFormat] = React.useState<
     "png" | "svg" | SnapshotVideoFormat | "animated-svg"
   >("png");
@@ -251,6 +253,7 @@ export const Snapshot = () => {
         ? { lat: "37.7749", lon: "-122.4194" }
         : undefined,
       showGrid: snapshotGridPreference,
+      useThemeColors: snapshotUseThemeColors,
       format: snapshotFormat,
       getSnapshotData: () => snapshotData,
       signalAreaBounds: { main: BASE_PROPS.frequencyRange },
@@ -266,6 +269,7 @@ export const Snapshot = () => {
     snapshotShowStats,
     snapshotShowWaterfall,
     snapshotWhole,
+    snapshotUseThemeColors,
     signalType,
   ]);
 
@@ -327,6 +331,7 @@ export const Snapshot = () => {
             snapshotShowStats={snapshotShowStats}
             snapshotShowGeolocation={snapshotShowGeolocation}
             snapshotGeolocationError={snapshotGeolocationError}
+            snapshotUseThemeColors={snapshotUseThemeColors}
             snapshotFormat={snapshotFormat}
             supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
             snapshotGridPreference={snapshotGridPreference}
@@ -334,6 +339,7 @@ export const Snapshot = () => {
             onSnapshotWholeChange={setSnapshotWhole}
             onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
             onSnapshotShowStatsChange={setSnapshotShowStats}
+            onSnapshotUseThemeColorsChange={setSnapshotUseThemeColors}
             onSnapshotShowGeolocationChange={(value) => {
               setSnapshotShowGeolocation(value);
               setSnapshotGeolocationError(null);
