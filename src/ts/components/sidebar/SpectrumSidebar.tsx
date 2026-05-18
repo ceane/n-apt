@@ -22,6 +22,8 @@ import {
   setDisplayMode,
   setFftWindow as setFftWindowAction,
   setFileMetadata,
+  selectNoteCardsCollapsed,
+  setNoteCardsCollapsed,
 } from "@n-apt/redux";
 import { NaptMetadata } from "@n-apt/consts/types";
 
@@ -110,6 +112,39 @@ const SectionText = memo(styled.span`
 const ResetButton = memo(styled(Button)`
   width: 100%;
   border: 1px solid ${(props) => props.theme.borderHover};
+`);
+
+const NoteCardActionSection = memo(styled.div`
+  grid-column: 1 / -1;
+  position: sticky;
+  top: 112px;
+  z-index: 99;
+  margin: 12px 0 20px;
+  padding: 8px 0 4px;
+  background-color: ${(props) => props.theme.background};
+  backdrop-filter: blur(4px);
+`);
+
+const NoteCardActionButtons = memo(styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+`);
+
+const NoteCardActionButton = memo(styled(Button)<{ $active?: boolean }>`
+  width: 100%;
+  border: 1px solid
+    ${({ theme, $active }) => ($active ? theme.borderHover : theme.border)};
+  background-color: ${({ theme, $active }) =>
+    $active ? theme.surfaceHover : theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
+  box-shadow: none;
+
+  &:hover {
+    border-color: ${({ theme }) => theme.borderHover};
+    color: ${({ theme }) => theme.textPrimary};
+    background-color: ${({ theme }) => theme.surfaceHover};
+  }
 `);
 
 const hasPersistedFftSize = (): boolean => {
@@ -283,8 +318,15 @@ const playbackAfterCapture = async (
   }
 };
 
-export const SpectrumSidebar: React.FC = () => {
+interface SpectrumSidebarProps {
+  onCreateNoteCard?: () => void;
+}
+
+export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
+  onCreateNoteCard,
+}) => {
   const dispatch = useAppDispatch();
+  const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const {
     state: liveState,
     dispatch: storeDispatch,
@@ -1255,6 +1297,31 @@ export const SpectrumSidebar: React.FC = () => {
             onPauseToggle={toggleVisualizerPause}
             onRestartDevice={handleRestartDevice}
           />
+
+          <NoteCardActionSection>
+            <NoteCardActionButtons>
+              <NoteCardActionButton
+                $variant="secondary"
+                type="button"
+                onClick={onCreateNoteCard}
+                disabled={!onCreateNoteCard}
+                title="Create a note from the current spectrum"
+              >
+                Add New Note
+              </NoteCardActionButton>
+              <NoteCardActionButton
+                $variant="secondary"
+                $active={!notesCollapsed}
+                type="button"
+                onClick={() =>
+                  dispatch(setNoteCardsCollapsed(!notesCollapsed))
+                }
+                title={notesCollapsed ? "Show saved notes" : "Hide saved notes"}
+              >
+                {notesCollapsed ? "Show Notes" : "Hide Notes"}
+              </NoteCardActionButton>
+            </NoteCardActionButtons>
+          </NoteCardActionSection>
 
           <Section>
             <ResetButton

@@ -25,6 +25,18 @@ describe("getStableVizPanForZoomChange", () => {
     expect(result).toBe(10);
   });
 
+  it("snaps small near-center pan offsets back to center during zoom changes", () => {
+    const result = getStableVizPanForZoomChange({
+      currentZoom: 4,
+      currentPan: 2,
+      nextZoom: 6,
+      rangeMin: 100,
+      rangeMax: 200,
+    });
+
+    expect(result).toBe(0);
+  });
+
   it("clamps to the new zoom range when zooming out near the edge", () => {
     const result = getStableVizPanForZoomChange({
       currentZoom: 8,

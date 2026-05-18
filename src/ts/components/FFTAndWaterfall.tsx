@@ -7,7 +7,11 @@ import FFTCanvas, {
 } from "@n-apt/components/FFTCanvas";
 import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
-import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
+import {
+  useAppDispatch,
+  useAppSelector,
+  spectrumActions,
+} from "@n-apt/redux";
 import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
 import {
   clampVizZoom,
@@ -29,6 +33,15 @@ const Left = styled.div`
   min-height: 0;
   gap: ${VISUALIZER_GAP}px;
   padding-right: ${VISUALIZER_PADDING}px;
+`;
+
+const SpectrumStage = styled.div`
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 `;
 
 const SlidersRail = styled.div`
@@ -103,12 +116,14 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     return (
       <Container>
         <Left>
-        <FFTCanvas
+          <SpectrumStage>
+          <FFTCanvas
             key={props.fftSize}
             ref={ref}
             {...props}
             waterfallCanvasBindings={waterfallCanvasBindings}
           />
+          </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
@@ -157,9 +172,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             onAutoZoomStabilityChange={(enabled) =>
               dispatch(spectrumActions.setAutoZoomStability(enabled))
             }
-            onRefocusZoomFloor={() => {
+            onLockZoomFloor={() => {
               props.onVizZoomFloorChange?.(zoom);
               props.onVizZoomFloorPanChange?.(pan);
+            }}
+            onRefocusZoomFloor={() => {
+              props.onVizZoomChange?.(zoomFloor);
+              props.onVizPanChange?.(vizZoomFloorPan);
             }}
           />
         </SlidersRail>

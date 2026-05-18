@@ -7,6 +7,7 @@ import {
   useMemo,
   memo,
   Suspense,
+  type ReactNode,
 } from "react";
 import { styled } from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
@@ -118,6 +119,20 @@ const SectionTitle = memo(styled.div`
     content: "/";
     color: ${SECTION_TITLE_AFTER_COLOR};
   }
+`);
+
+const SectionTitleRow = memo(styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`);
+
+const SectionTitleActions = memo(styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 `);
 
 const CanvasWrapper = memo(styled.div`
@@ -337,6 +352,10 @@ export interface FFTCanvasProps {
   compact?: boolean;
   /** Tighten FFT margins for small node previews */
   nodePreview?: boolean;
+  /** Optional overlay rendered inside the FFT canvas wrapper */
+  overlayContent?: ReactNode;
+  /** Optional action content rendered beside the FFT section title */
+  headerActionContent?: ReactNode;
   showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
@@ -459,6 +478,8 @@ const FFTCanvas = memo(
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
+      overlayContent,
+      headerActionContent,
       vizZoom = 1,
       vizZoomFloor = 1,
       vizPanOffset = 0,
@@ -2359,9 +2380,16 @@ const FFTCanvas = memo(
             >
               <SpectrumSection>
                 {!compact && (
-                  <SectionTitle>
-                    FFT Signal Display {isPaused && "(Paused)"}
-                  </SectionTitle>
+                  <SectionTitleRow>
+                    <SectionTitle>
+                      FFT Signal Display {isPaused && "(Paused)"}
+                    </SectionTitle>
+                    {headerActionContent && (
+                      <SectionTitleActions>
+                        {headerActionContent}
+                      </SectionTitleActions>
+                    )}
+                  </SectionTitleRow>
                 )}
                 <SpectrumRow>
                   <CanvasWrapper ref={spectrumContainerRef}>
@@ -2397,6 +2425,7 @@ const FFTCanvas = memo(
                         <span>Span: {selectionTooltipText.spanHz} Hz</span>
                       </SelectionTooltip>
                     )}
+                    {overlayContent}
                   </CanvasWrapper>
                 </SpectrumRow>
               </SpectrumSection>

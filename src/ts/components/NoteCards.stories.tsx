@@ -89,7 +89,7 @@ const StoryCanvas: React.FC = () => {
           setDbMax(max);
         }}
       />
-      <NoteCards fftCanvasRef={fftCanvasRef} />
+      <NoteCards />
     </div>
   );
 };

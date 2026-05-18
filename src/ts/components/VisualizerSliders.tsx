@@ -7,6 +7,7 @@ import { roundDbValue } from "@n-apt/utils/frequency";
 import {
   FoldHorizontal,
   Maximize2,
+  Lock,
   PaintbrushVertical,
   RotateCcw,
   Sigma,
@@ -155,6 +156,7 @@ export interface VisualizerSlidersProps {
   zoomFloor?: number;
   autoZoomStability?: boolean;
   onAutoZoomStabilityChange?: (enabled: boolean) => void;
+  onLockZoomFloor?: () => void;
   onRefocusZoomFloor?: () => void;
 }
 
@@ -176,6 +178,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   zoomFloor = 1,
   autoZoomStability = true,
   onAutoZoomStabilityChange,
+  onLockZoomFloor,
   onRefocusZoomFloor,
 }) => {
   // Calculate appropriate ranges based on power scale
@@ -188,6 +191,10 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
     : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
   const hasZoomFloor = zoomFloor > 1.0001;
+  const canShowZoomFloorAction = zoom > 1.0001 || hasZoomFloor;
+  const handleZoomFloorAction = hasZoomFloor
+    ? onRefocusZoomFloor
+    : onLockZoomFloor;
   return (
     <SlidersGrid>
       <ActionButtonsContainer>
@@ -233,14 +240,23 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
           <Maximize2 size={13} strokeWidth={1.5} />
           Auto Zoom Stability
         </ActionButton>
-        {autoZoomStability && (
+        {canShowZoomFloorAction && (
           <ActionButton
-            $refocus={true}
-            onClick={onRefocusZoomFloor}
-            title="Refocus — snap zoom and pan back to the current floor window"
+            $refocus={hasZoomFloor}
+            $outlined={!hasZoomFloor}
+            onClick={handleZoomFloorAction}
+            title={
+              hasZoomFloor
+                ? "Refocus — snap zoom and pan back to the current floor window"
+                : "Lock zoom floor — save the current zoom and pan as the floor window"
+            }
           >
-            <FoldHorizontal size={13} strokeWidth={1.5} />
-            Refocus (Zoom Floor)
+            {hasZoomFloor ? (
+              <FoldHorizontal size={13} strokeWidth={1.5} />
+            ) : (
+              <Lock size={13} strokeWidth={1.5} />
+            )}
+            {hasZoomFloor ? "Refocus (Zoom Floor)" : "Lock Zoom Floor"}
           </ActionButton>
         )}
       </ActionButtonsContainer>

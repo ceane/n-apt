@@ -1,4 +1,4 @@
-// Redux store and hooks
+ // Redux store and hooks
 export { store, useAppDispatch, useAppSelector } from "./store";
 export type { RootState, AppDispatch } from "./store";
 
@@ -53,6 +53,12 @@ export {
   clearNoteCards,
   setNoteCardsCollapsed,
 } from "./slices/noteCardsSlice";
+
+export {
+  loadPersistedNoteCards,
+  persistNoteCards,
+  clearPersistedNoteCards,
+} from "@n-apt/utils/noteCardStorage";
 
 export {
   selectNoteCards,

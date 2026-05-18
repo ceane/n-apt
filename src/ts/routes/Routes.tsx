@@ -1,9 +1,11 @@
 import React, { lazy, Suspense, useEffect } from "react";
+import { useCallback, useRef } from "react";
 import styled from "styled-components";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
+import type { FFTCanvasHandle } from "@n-apt/components";
 
 import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
@@ -64,6 +66,47 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 import { MapRoutePathsProvider } from "@n-apt/hooks/useMapRoutePaths";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import {
+  createNoteCardFromSpectrum,
+  setNoteCardsCollapsed,
+  useAppDispatch,
+} from "@n-apt/redux";
+
+const SpectrumRouteWithSidebar: React.FC<{ activeTab: "visualizer" | "analysis" | "draw" }> = ({
+  activeTab,
+}) => {
+  const dispatch = useAppDispatch();
+  const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
+
+  const handleCreateNoteCard = useCallback(() => {
+    const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
+    const snapshot = fftCanvasRef.current?.getCompositeSnapshot() ?? null;
+    dispatch(setNoteCardsCollapsed(false));
+    void dispatch(
+      createNoteCardFromSpectrum({
+        snapshot,
+        stats: snapshotData
+          ? {
+              centerFrequencyHz: snapshotData.centerFrequencyHz,
+              frequencyRange: snapshotData.frequencyRange,
+            }
+          : undefined,
+      }),
+    );
+  }, [dispatch]);
+
+  return (
+    <MainLayout
+      sidebar={<SpectrumSidebar onCreateNoteCard={handleCreateNoteCard} />}
+    >
+      <Suspense
+        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+      >
+        <SpectrumRoute activeTab={activeTab} fftCanvasRef={fftCanvasRef} />
+      </Suspense>
+    </MainLayout>
+  );
+};
 
 // Create a wrapper component to manage scanner state
 const DemodRouteWithSidebar: React.FC = () => {
@@ -159,27 +202,11 @@ const AppRoutesInner: React.FC = () => {
       <Routes>
         <Route
           path="/"
-          element={
-            <MainLayout sidebar={<SpectrumSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-              >
-                <SpectrumRoute activeTab="visualizer" />
-              </Suspense>
-            </MainLayout>
-          }
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route
           path="/visualizer"
-          element={
-            <MainLayout sidebar={<SpectrumSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-              >
-                <SpectrumRoute activeTab="visualizer" />
-              </Suspense>
-            </MainLayout>
-          }
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route path="/demodulate" element={<DemodRouteWithSidebar />} />
         <Route

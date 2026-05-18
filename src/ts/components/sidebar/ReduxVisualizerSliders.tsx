@@ -135,9 +135,13 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
         onAutoZoomStabilityChange={(enabled) =>
           dispatch(spectrumActions.setAutoZoomStability(enabled))
         }
-        onRefocusZoomFloor={() => {
+        onLockZoomFloor={() => {
           dispatch(spectrumActions.setVizZoomFloor(vizZoom));
           dispatch(spectrumActions.setVizZoomFloorPan(vizPanOffset));
+        }}
+        onRefocusZoomFloor={() => {
+          dispatch(spectrumActions.setVizZoom(vizZoomFloor));
+          dispatch(spectrumActions.setVizPan(vizZoomFloorPan));
         }}
       />
     </Container>

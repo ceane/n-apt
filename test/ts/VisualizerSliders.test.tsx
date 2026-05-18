@@ -19,6 +19,8 @@ describe("VisualizerSliders", () => {
     onFftAvgChange: jest.fn(),
     onFftSmoothChange: jest.fn(),
     onWfSmoothChange: jest.fn(),
+    onLockZoomFloor: jest.fn(),
+    onRefocusZoomFloor: jest.fn(),
   };
 
   test("renders all sliders with correct labels", () => {
@@ -109,6 +111,43 @@ describe("VisualizerSliders", () => {
     expect(screen.queryByTestId("zoom-floor-indicator")).toBeNull();
   });
 
+  test("shows lock zoom floor when zoomed but no floor is locked", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={2} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Lock Zoom Floor")).toBeInTheDocument();
+    expect(screen.queryByText("Refocus (Zoom Floor)")).toBeNull();
+  });
+
+  test("shows the zoom floor action even when auto stability is off", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={1}
+          autoZoomStability={false}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Lock Zoom Floor")).toBeInTheDocument();
+  });
+
+  test("shows refocus zoom floor when a floor is locked", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={2} zoomFloor={3} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Refocus (Zoom Floor)")).toBeInTheDocument();
+    expect(screen.queryByText("Lock Zoom Floor")).toBeNull();
+  });
+
   test("toggle buttons show active state", () => {
     const { rerender } = render(
       <TestWrapper>
@@ -162,5 +201,41 @@ describe("VisualizerSliders", () => {
       expect(onZoom).toHaveBeenCalled();
       expect(onZoom.mock.calls[0][0]).toBeGreaterThan(1);
     }
+  });
+
+  test("zoom floor action toggles between lock and refocus", () => {
+    const onLock = jest.fn();
+    const onRefocus = jest.fn();
+
+    const { rerender } = render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={1}
+          onLockZoomFloor={onLock}
+          onRefocusZoomFloor={onRefocus}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Lock Zoom Floor"));
+    expect(onLock).toHaveBeenCalled();
+    expect(onRefocus).not.toHaveBeenCalled();
+
+    rerender(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={3}
+          onLockZoomFloor={onLock}
+          onRefocusZoomFloor={onRefocus}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Refocus (Zoom Floor)"));
+    expect(onRefocus).toHaveBeenCalled();
   });
 });

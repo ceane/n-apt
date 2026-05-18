@@ -1,7 +1,7 @@
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
-const ZOOM_OUT_PAN_RESISTANCE = 0.35;
+const CENTER_LOCK_RATIO = 0.03;
 
 export const clampVizZoom = (zoom: number, zoomFloor = 1) => {
   const safeFloor = Number.isFinite(zoomFloor) && zoomFloor > 0 ? zoomFloor : 1;
@@ -36,6 +36,13 @@ export const getStableVizPanForZoomChange = ({
   const nextVisualSpan = fullSpan / safeNextZoom;
   const nextMaxPan = Math.max(0, fullSpan / 2 - nextVisualSpan / 2);
 
+  const centerLockThreshold = Math.min(
+    nextMaxPan,
+    Math.max(1, fullSpan * CENTER_LOCK_RATIO),
+  );
+  if (Math.abs(currentPan) <= centerLockThreshold) {
+    return 0;
+  }
+
   return clamp(currentPan, -nextMaxPan, nextMaxPan);
 };
-

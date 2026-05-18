@@ -1,6 +1,9 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
-import { clampVizZoom } from "@n-apt/utils/visualizationZoom";
+import {
+  clampVizZoom,
+  getStableVizPanForZoomChange,
+} from "@n-apt/utils/visualizationZoom";
 
 export interface FrequencyDragOptions {
   disabled?: boolean;
@@ -254,12 +257,26 @@ export function useFrequencyDrag({
         let newZoom = initialPinchZoomRef.current * easedZoomScale;
         newZoom = clampVizZoom(newZoom, zoomFloor);
         lastPinchDistRef.current = currentDist;
-        
+
         if (newZoom !== vizZoomRef?.current) {
+          const currentPan = vizPanOffsetRef?.current || 0;
+          const nextPan = onVizPanChange
+            ? getStableVizPanForZoomChange({
+                currentZoom: vizZoomRef?.current || 1,
+                currentPan,
+                nextZoom: newZoom,
+                rangeMin: frequencyRangeRef.current.min,
+                rangeMax: frequencyRangeRef.current.max,
+              })
+            : currentPan;
+
           onVizZoomChange(newZoom);
-          
-          // Optionally add panning logic here to make it "stick" to the fingers,
-          // but just zooming is already a huge improvement for mobile.
+          if (onVizPanChange && nextPan !== currentPan) {
+            onVizPanChange(nextPan);
+          }
+
+          // Keep pinch zoom centered when the view is already near center,
+          // but still respect deliberate off-center pans.
         }
         return;
       }

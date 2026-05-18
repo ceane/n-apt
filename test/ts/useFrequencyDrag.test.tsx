@@ -373,6 +373,30 @@ describe("useFrequencyDrag Hook", () => {
     expect(zoomCall).toBeGreaterThan(2.2);
   });
 
+  it("snaps small pinch zoom offsets back to center", () => {
+    const pinchOptions = {
+      ...defaultOptions,
+      vizZoomRef: { current: 2 },
+      vizPanOffsetRef: { current: 1 },
+    };
+
+    renderHook(() => useFrequencyDrag(pinchOptions));
+
+    triggerPointerDown(400, 300, 1);
+    triggerPointerDown(600, 300, 2);
+
+    act(() => {
+      listeners["pointermove"]?.({
+        pointerId: 2,
+        clientX: 620,
+        clientY: 300,
+      } as any);
+    });
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenCalledWith(0);
+  });
+
   it("should ease pinch-out zoom so it does not feel linear", () => {
     const pinchOptions = {
       ...defaultOptions,
