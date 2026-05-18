@@ -5,6 +5,8 @@ import { COLORS, STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
 import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import { roundDbValue } from "@n-apt/utils/frequency";
 import {
+  FoldHorizontal,
+  Maximize2,
   PaintbrushVertical,
   RotateCcw,
   Sigma,
@@ -32,7 +34,7 @@ const ActionButtonsContainer = styled.div`
   width: 84px;
 `;
 
-const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean }>`
+const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean; $refocus?: boolean }>`
   font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
   font-weight: 500;
@@ -45,23 +47,29 @@ const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean }>`
   border-radius: 6px;
   border: 1px solid
     ${(props) =>
-      props.$outlined
-        ? props.theme.primary
+      props.$refocus
+        ? "rgba(128, 128, 128, 0.25)"
+        : props.$outlined
+          ? props.theme.primary
+          : props.$active
+            ? props.theme.primary
+            : props.theme.border};
+  background: ${(props) =>
+    props.$refocus
+      ? "rgba(128, 128, 128, 0.15)"
+      : props.$outlined
+        ? "transparent"
+        : props.$active
+          ? props.theme.activeBackground
+          : "transparent"};
+  color: ${(props) =>
+    props.$refocus
+      ? props.theme.textPrimary
+      : props.$outlined
+        ? props.theme.textPrimary
         : props.$active
           ? props.theme.primary
-          : props.theme.border};
-  background: ${(props) =>
-    props.$outlined
-      ? "transparent"
-      : props.$active
-        ? props.theme.activeBackground
-        : "transparent"};
-  color: ${(props) =>
-    props.$outlined
-      ? props.theme.textPrimary
-      : props.$active
-        ? props.theme.primary
-        : props.theme.textMuted};
+          : props.theme.textMuted};
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
@@ -76,17 +84,21 @@ const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean }>`
 
   &:hover {
     background: ${(props) =>
-      props.$outlined
-        ? props.theme.surfaceHover
-        : props.$active
-          ? props.theme.activeBackground
-          : props.theme.surfaceHover};
+      props.$refocus
+        ? "rgba(128, 128, 128, 0.25)"
+        : props.$outlined
+          ? props.theme.surfaceHover
+          : props.$active
+            ? props.theme.activeBackground
+            : props.theme.surfaceHover};
     color: ${(props) =>
-      props.$outlined
+      props.$refocus
         ? props.theme.textPrimary
-        : props.$active
-          ? props.theme.primary
-          : props.theme.textPrimary};
+        : props.$outlined
+          ? props.theme.textPrimary
+          : props.$active
+            ? props.theme.primary
+            : props.theme.textPrimary};
   }
 
   &:active {
@@ -141,6 +153,9 @@ export interface VisualizerSlidersProps {
   onWfSmoothChange?: (enabled: boolean) => void;
   onResetZoomDb?: () => void;
   zoomFloor?: number;
+  autoZoomStability?: boolean;
+  onAutoZoomStabilityChange?: (enabled: boolean) => void;
+  onRefocusZoomFloor?: () => void;
 }
 
 export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
@@ -159,6 +174,9 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   onWfSmoothChange,
   onResetZoomDb,
   zoomFloor = 1,
+  autoZoomStability = true,
+  onAutoZoomStabilityChange,
+  onRefocusZoomFloor,
 }) => {
   // Calculate appropriate ranges based on power scale
   const isDbm = powerScale === "dBm";
@@ -207,6 +225,24 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
           <PaintbrushVertical size={19} strokeWidth={1.5} />
           Waterfall Smoothing
         </ActionButton>
+        <ActionButton
+          $active={autoZoomStability}
+          onClick={() => onAutoZoomStabilityChange?.(!autoZoomStability)}
+          title="Toggle auto zoom stability — keeps zoom floor tracking as you pan"
+        >
+          <Maximize2 size={13} strokeWidth={1.5} />
+          Auto Zoom Stability
+        </ActionButton>
+        {autoZoomStability && (
+          <ActionButton
+            $refocus={true}
+            onClick={onRefocusZoomFloor}
+            title="Refocus — snap zoom and pan back to the current floor window"
+          >
+            <FoldHorizontal size={13} strokeWidth={1.5} />
+            Refocus (Zoom Floor)
+          </ActionButton>
+        )}
       </ActionButtonsContainer>
 
       <Slider

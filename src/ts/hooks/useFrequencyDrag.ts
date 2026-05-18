@@ -30,6 +30,10 @@ export interface FrequencyDragOptions {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   onVizZoomChange?: (zoom: number) => void;
   onVizZoomFloorChange?: (zoomFloor: number) => void;
+  /** Callback to update the floor pan offset (auto zoom stability). */
+  onVizZoomFloorPanChange?: (pan: number) => void;
+  /** Ref tracking the current auto zoom stability toggle. */
+  autoZoomStabilityRef?: React.MutableRefObject<boolean>;
   /** Reference to the full current waveform data to check if selection is empty */
   renderWaveformRef?: React.MutableRefObject<Float32Array | null>;
 }
@@ -58,6 +62,8 @@ export function useFrequencyDrag({
   onFftDbLimitsChange,
   onVizZoomChange,
   onVizZoomFloorChange,
+  onVizZoomFloorPanChange,
+  autoZoomStabilityRef,
   renderWaveformRef,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
@@ -270,6 +276,39 @@ export function useFrequencyDrag({
             div.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
             div.style.pointerEvents = "none";
             div.style.zIndex = "100";
+
+            // Add custom animation stylesheet if not present
+            if (!document.getElementById("napt-zoom-line-anim-style")) {
+              const style = document.createElement("style");
+              if (style) {
+                style.id = "napt-zoom-line-anim-style";
+                style.textContent = `
+                  @keyframes napt-zoom-line-scroll {
+                    from { background-position-y: 0px; }
+                    to { background-position-y: 28px; }
+                  }
+                `;
+                document.head?.appendChild(style);
+              }
+            }
+
+            // Add center line
+            const centerLine = document.createElement("div");
+            if (centerLine && div !== centerLine) {
+              centerLine.style.position = "absolute";
+              centerLine.style.top = "0";
+              centerLine.style.bottom = "0";
+              centerLine.style.left = "50%";
+              centerLine.style.width = "1px";
+              centerLine.style.backgroundImage = "linear-gradient(to bottom, var(--color-fft-center-line, rgba(220, 255, 0, 0.7)) 20px, transparent 20px)";
+              centerLine.style.backgroundSize = "1px 28px";
+              centerLine.style.backgroundRepeat = "repeat-y";
+              centerLine.style.mixBlendMode = "difference";
+              centerLine.style.animation = "napt-zoom-line-scroll 0.8s linear infinite";
+              centerLine.style.transform = "translateX(-50%)";
+              centerLine.style.pointerEvents = "none";
+              div.appendChild(centerLine);
+            }
           }
           container.appendChild(div);
           selectionBoxRef.current = div;
@@ -468,6 +507,11 @@ export function useFrequencyDrag({
         // Standard behavior: Clamp to max allowable pan (stay within window)
         const clampedPan = Math.max(-maxPan, Math.min(maxPan, desiredPan));
         onVizPanChange(clampedPan);
+
+        // Auto zoom stability: track floor pan so Refocus can restore this position
+        if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+          onVizZoomFloorPanChange?.(clampedPan);
+        }
       } else if (onFrequencyRangeChange) {
         // Hardware retune mode (unzoomed, live SDR only).
         // Dragging right (deltaX > 0) means frequency decreases.
@@ -840,6 +884,7 @@ export function useFrequencyDrag({
 
             if (hasSignal) {
               onVizZoomFloorChange?.(newZoom);
+              onVizZoomFloorPanChange?.(newPan);
               onVizZoomChange(newZoom);
               onVizPanChange(newPan);
               onFftDbLimitsChange(newDbMin, newDbMax);
@@ -882,6 +927,7 @@ export function useFrequencyDrag({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (selectionMode !== "range" || disabled || !onSelectionChange) return;
+      if ((vizZoomRef?.current ?? 1) > 1) return;
       const emitSelectionChange = latestOnSelectionChangeRef.current;
       if (!emitSelectionChange) return;
       const current =
@@ -1070,6 +1116,11 @@ export function useFrequencyDrag({
           let newPan = currentPan + freqChange;
           newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
           onVizPanChange(newPan);
+
+          // Auto zoom stability: track floor pan so Refocus can restore this position
+          if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+            onVizZoomFloorPanChange?.(newPan);
+          }
         } else if (onFrequencyRangeChange) {
           // Hardware retune mode
           const currentRange = frequencyRangeRef.current;

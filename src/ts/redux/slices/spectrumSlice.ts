@@ -16,6 +16,8 @@ export interface SpectrumState {
   powerScale: PowerScale;
   vizZoom: number;
   vizZoomFloor: number;
+  vizZoomFloorPan: number;
+  autoZoomStability: boolean;
   vizPanOffset: number;
   displayMode: "fft" | "iq";
 
@@ -60,6 +62,8 @@ const LIVE_CONTROL_DEFAULTS = {
   powerScale: "dB" as const,
   vizZoom: 1,
   vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -84,6 +88,8 @@ const initialState: SpectrumState = {
   powerScale: "dB",
   vizZoom: 1,
   vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   displayMode: "fft",
 
@@ -189,6 +195,14 @@ const spectrumSlice = createSlice({
 
     setVizZoomFloor: (state, action: PayloadAction<number>) => {
       state.vizZoomFloor = action.payload;
+    },
+
+    setVizZoomFloorPan: (state, action: PayloadAction<number>) => {
+      state.vizZoomFloorPan = action.payload;
+    },
+
+    setAutoZoomStability: (state, action: PayloadAction<boolean>) => {
+      state.autoZoomStability = action.payload;
     },
 
     setVizPan: (state, action: PayloadAction<number>) => {
@@ -327,6 +341,8 @@ const spectrumSlice = createSlice({
       const isDbm = state.powerScale === "dBm";
       state.vizZoom = 1;
       state.vizZoomFloor = 1;
+      state.vizZoomFloorPan = 0;
+      state.autoZoomStability = true;
       state.vizPanOffset = 0;
       // dBm reset: 30dBm to -100dBm
       // dB reset: 0dB to -120dB
@@ -345,6 +361,8 @@ const spectrumSlice = createSlice({
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizZoomFloor: LIVE_CONTROL_DEFAULTS.vizZoomFloor,
+        vizZoomFloorPan: 0,
+        autoZoomStability: true,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
@@ -371,6 +389,8 @@ export const {
   setPowerScale,
   setVizZoom,
   setVizZoomFloor,
+  setVizZoomFloorPan,
+  setAutoZoomStability,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,

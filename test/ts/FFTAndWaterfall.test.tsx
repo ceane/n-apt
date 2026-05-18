@@ -57,6 +57,8 @@ jest.mock("@n-apt/redux", () => ({
     setFftAvgEnabled: jest.fn(),
     setFftSmoothEnabled: jest.fn(),
     setWfSmoothEnabled: jest.fn(),
+    setAutoZoomStability: jest.fn(),
+    setVizZoomFloorPan: jest.fn(),
   },
 }));
 

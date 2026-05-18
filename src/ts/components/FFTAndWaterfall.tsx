@@ -50,6 +50,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     const wfSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.wfSmoothEnabled,
     );
+    const autoZoomStability = useAppSelector(
+      (reduxState) => reduxState.spectrum.autoZoomStability,
+    );
+    const vizZoomFloorPan = useAppSelector(
+      (reduxState) => reduxState.spectrum.vizZoomFloorPan,
+    );
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
@@ -144,6 +150,16 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
                 props.powerScale === "dBm" ? -100 : -120,
                 props.powerScale === "dBm" ? 30 : 0,
               );
+              dispatch(spectrumActions.setAutoZoomStability(true));
+              dispatch(spectrumActions.setVizZoomFloorPan(0));
+            }}
+            autoZoomStability={autoZoomStability}
+            onAutoZoomStabilityChange={(enabled) =>
+              dispatch(spectrumActions.setAutoZoomStability(enabled))
+            }
+            onRefocusZoomFloor={() => {
+              props.onVizZoomFloorChange?.(zoom);
+              props.onVizZoomFloorPanChange?.(pan);
             }}
           />
         </SlidersRail>

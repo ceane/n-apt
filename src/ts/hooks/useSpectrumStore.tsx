@@ -151,6 +151,8 @@ export const LIVE_CONTROL_DEFAULTS = {
   powerScale: "dB" as const,
   vizZoom: 1,
   vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -231,6 +233,8 @@ export type SpectrumState = {
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
   vizZoomFloor: number;
+  vizZoomFloorPan: number;
+  autoZoomStability: boolean;
   stitchOptions: {
     phaseCorrection: boolean;
     fmDeviationCorrection: boolean;
@@ -283,6 +287,8 @@ export type SpectrumAction =
   | { type: "RESET_WATERFALL_CLEARED" }
   | { type: "SET_VIZ_ZOOM"; zoom: number }
   | { type: "SET_VIZ_ZOOM_FLOOR"; zoomFloor: number }
+  | { type: "SET_VIZ_ZOOM_FLOOR_PAN"; pan: number }
+  | { type: "SET_AUTO_ZOOM_STABILITY"; enabled: boolean }
   | { type: "SET_VIZ_PAN"; pan: number }
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
   | { type: "SET_SHOW_SPIKE_OVERLAY"; enabled: boolean }
@@ -348,6 +354,8 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   isWaterfallCleared: false,
   vizZoom: 1,
   vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -565,6 +573,10 @@ export function spectrumReducer(
       return { ...state, vizZoom: action.zoom };
     case "SET_VIZ_ZOOM_FLOOR":
       return { ...state, vizZoomFloor: action.zoomFloor };
+    case "SET_VIZ_ZOOM_FLOOR_PAN":
+      return { ...state, vizZoomFloorPan: action.pan };
+    case "SET_AUTO_ZOOM_STABILITY":
+      return { ...state, autoZoomStability: action.enabled };
     case "SET_VIZ_PAN":
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
@@ -631,6 +643,8 @@ export function spectrumReducer(
         ...state,
         vizZoom: 1,
         vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        autoZoomStability: true,
         vizPanOffset: 0,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
@@ -653,6 +667,8 @@ export function spectrumReducer(
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        autoZoomStability: true,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,

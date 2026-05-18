@@ -41,6 +41,12 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const wfSmoothEnabled = useAppSelector(
     (state) => state.spectrum.wfSmoothEnabled,
   );
+  const autoZoomStability = useAppSelector(
+    (state) => state.spectrum.autoZoomStability,
+  );
+  const vizZoomFloorPan = useAppSelector(
+    (state) => state.spectrum.vizZoomFloorPan,
+  );
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(
@@ -80,6 +86,8 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const handleResetZoomDb = React.useCallback(() => {
     dispatch(spectrumActions.setVizPan(0));
     dispatch(spectrumActions.resetZoomAndDb());
+    dispatch(spectrumActions.setAutoZoomStability(true));
+    dispatch(spectrumActions.setVizZoomFloorPan(0));
     onResetZoomDb?.();
   }, [dispatch, onResetZoomDb]);
 
@@ -123,6 +131,14 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
         onFftSmoothChange={handleFftSmoothChange}
         onWfSmoothChange={handleWfSmoothChange}
         onResetZoomDb={handleResetZoomDb}
+        autoZoomStability={autoZoomStability}
+        onAutoZoomStabilityChange={(enabled) =>
+          dispatch(spectrumActions.setAutoZoomStability(enabled))
+        }
+        onRefocusZoomFloor={() => {
+          dispatch(spectrumActions.setVizZoomFloor(vizZoom));
+          dispatch(spectrumActions.setVizZoomFloorPan(vizPanOffset));
+        }}
       />
     </Container>
   );

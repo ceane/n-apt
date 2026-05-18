@@ -340,9 +340,12 @@ export interface FFTCanvasProps {
   showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
+  vizZoomFloorPan?: number;
   vizPanOffset?: number;
+  autoZoomStability?: boolean;
   onVizZoomChange?: (zoom: number) => void;
   onVizZoomFloorChange?: (zoomFloor: number) => void;
+  onVizZoomFloorPanChange?: (pan: number) => void;
   onVizPanChange?: (pan: number) => void;
   fftMin?: number;
   fftMax?: number;
@@ -488,9 +491,17 @@ const FFTCanvas = memo(
       selectionDisabled = false,
       bandwidthAlignment = "centered",
       onSelectionChange,
+      vizZoomFloorPan = 0,
+      onVizZoomFloorPanChange,
+      autoZoomStability = false,
     } = props;
     const dispatch = useAppDispatch();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
+    
+    const autoZoomStabilityRef = useRef(autoZoomStability);
+    useEffect(() => {
+      autoZoomStabilityRef.current = autoZoomStability;
+    }, [autoZoomStability]);
     const waterfallTheme = useAppSelector(
       (reduxState) => reduxState.theme.waterfallTheme,
     );
@@ -1048,6 +1059,8 @@ const FFTCanvas = memo(
       onFftDbLimitsChange: applyDbLimits,
       onVizZoomChange: setVizZoom,
       onVizZoomFloorChange,
+      onVizZoomFloorPanChange,
+      autoZoomStabilityRef,
       renderWaveformRef,
     });
 

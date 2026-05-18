@@ -711,6 +711,17 @@ export function useOverlayRenderer() {
         ctx.lineTo(x, plotBottom);
         ctx.stroke();
       }
+
+      // Draw yellow dotted center line using the center frequency line color
+      const centerX = (leftX + rightX) / 2;
+      ctx.strokeStyle = canvasTheme.centerLineColor;
+      ctx.lineWidth = Math.max(1, 1.5 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([2, 4]); // Dotted line style
+      ctx.beginPath();
+      ctx.moveTo(centerX, plotTop);
+      ctx.lineTo(centerX, plotBottom);
+      ctx.stroke();
+
       ctx.restore();
     },
     [],

@@ -13,7 +13,7 @@ describe("getStableVizPanForZoomChange", () => {
     ).toBe(0);
   });
 
-  it("preserves the relative pan position when zoom changes", () => {
+  it("preserves the absolute pan position when zoom changes to keep zoom stable", () => {
     const result = getStableVizPanForZoomChange({
       currentZoom: 4,
       currentPan: 10,
@@ -22,7 +22,7 @@ describe("getStableVizPanForZoomChange", () => {
       rangeMax: 200,
     });
 
-    expect(result).toBeCloseTo(8.8333, 4);
+    expect(result).toBe(10);
   });
 
   it("clamps to the new zoom range when zooming out near the edge", () => {
@@ -34,8 +34,10 @@ describe("getStableVizPanForZoomChange", () => {
       rangeMax: 200,
     });
 
-    expect(result).toBeLessThanOrEqual(25);
-    expect(result).toBeGreaterThan(0);
+    // nextMaxPan for nextZoom=2 with range 100-200 (span=100) is:
+    // nextVisualSpan = 100 / 2 = 50
+    // nextMaxPan = 50 - 25 = 25
+    expect(result).toBe(25);
   });
 
   it("returns to center at full zoom out", () => {

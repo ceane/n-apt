@@ -194,30 +194,49 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
         const shiftHz = event.code === "ArrowRight" ? 33000 : -33000;
 
         if (state.sourceMode === "live") {
-          const currentRange = state.frequencyRange;
-          const fullRange = currentRange.max - currentRange.min;
-          const newMin = currentRange.min + shiftHz;
-          const newMax = newMin + fullRange;
+          if (state.vizZoom > 1) {
+            // Zoomed-in live mode: pan the visual display instead of changing hardware VFO
+            const currentPan = state.vizPanOffset;
+            const zoom = state.vizZoom;
+            const fullRange = state.frequencyRange.max - state.frequencyRange.min;
+            const visualRange = fullRange / zoom;
+            const maxPan = fullRange / 2 - visualRange / 2;
 
-          // Clamping logic
-          const bounds =
-            signalAreaBounds?.[state.activeSignalArea] ||
-            signalAreaBounds?.[state.activeSignalArea.toLowerCase()];
+            let newPan = currentPan + shiftHz;
+            newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+            setVizPanOffset(newPan);
 
-          let finalMin = newMin;
-          let finalMax = newMax;
-
-          if (bounds) {
-            if (finalMin < bounds.min) {
-              finalMin = bounds.min;
-              finalMax = finalMin + fullRange;
-            } else if (finalMax > bounds.max) {
-              finalMax = bounds.max;
-              finalMin = finalMax - fullRange;
+            // Auto zoom stability: track floor pan so Refocus can restore this position
+            if (state.autoZoomStability && state.vizZoomFloor > 1) {
+              dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan: newPan });
             }
-          }
+          } else {
+            // Unzoomed live mode: change hardware VFO
+            const currentRange = state.frequencyRange;
+            const fullRange = currentRange.max - currentRange.min;
+            const newMin = currentRange.min + shiftHz;
+            const newMax = newMin + fullRange;
 
-          handleFrequencyRangeChange({ min: finalMin, max: finalMax });
+            // Clamping logic
+            const bounds =
+              signalAreaBounds?.[state.activeSignalArea] ||
+              signalAreaBounds?.[state.activeSignalArea.toLowerCase()];
+
+            let finalMin = newMin;
+            let finalMax = newMax;
+
+            if (bounds) {
+              if (finalMin < bounds.min) {
+                finalMin = bounds.min;
+                finalMax = finalMin + fullRange;
+              } else if (finalMax > bounds.max) {
+                finalMax = bounds.max;
+                finalMin = finalMax - fullRange;
+              }
+            }
+
+            handleFrequencyRangeChange({ min: finalMin, max: finalMax });
+          }
         } else if (state.sourceMode === "file") {
           // In file mode, move the visual pan offset
           const currentPan = state.vizPanOffset;
@@ -243,10 +262,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     state.activeSignalArea,
     state.vizPanOffset,
     state.vizZoom,
+    state.autoZoomStability,
+    state.vizZoomFloor,
     signalAreaBounds,
     toggleVisualizerPause,
     handleFrequencyRangeChange,
     setVizPanOffset,
+    dispatch,
   ]);
 
   return (
@@ -277,9 +299,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 displayTemporalResolution={state.displayTemporalResolution}
                 vizZoom={vizZoom}
                 vizZoomFloor={vizZoomFloor}
+                vizZoomFloorPan={state.vizZoomFloorPan}
                 vizPanOffset={vizPanOffset}
+                autoZoomStability={state.autoZoomStability}
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
+                onVizZoomFloorPanChange={(pan) =>
+                  dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
+                }
                 onVizPanChange={setVizPanOffset}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
