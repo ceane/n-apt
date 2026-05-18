@@ -43,6 +43,7 @@ export type WebSocketData = {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
   minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
@@ -81,6 +82,11 @@ type WsState = {
   sampleRateHz: number | null;
   minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
@@ -111,9 +117,11 @@ const INITIAL_WS_STATE: WsState = {
   deviceName: null,
   deviceProfile: null,
   maxSampleRateHz: null,
+  sampleRateOptions: [],
   sampleRateHz: null,
   minReceiveSampleRateHz: null,
   sdrSettings: null,
+  sdrLimitMarkers: [],
   data: null,
   spectrumFrames: [],
   captureStatus: null,
@@ -386,6 +394,12 @@ export const useWebSocket = (
               if (typeof parsedData.max_sample_rate === "number") {
                 updates.maxSampleRateHz = parsedData.max_sample_rate;
               }
+              if (Array.isArray(parsedData.sample_rate_options)) {
+                updates.sampleRateOptions = parsedData.sample_rate_options.filter(
+                  (rate: unknown) =>
+                    typeof rate === "number" && Number.isFinite(rate) && rate > 0,
+                );
+              }
               if (parsedData.sdr_settings) {
                 updates.sdrSettings = parsedData.sdr_settings;
                 if (typeof parsedData.sdr_settings.sample_rate === "number") {
@@ -398,6 +412,14 @@ export const useWebSocket = (
                   updates.minReceiveSampleRateHz =
                     parsedData.sdr_settings.min_receive_sample_rate;
                 }
+              }
+              if (Array.isArray(parsedData.sdr_limit_markers)) {
+                updates.sdrLimitMarkers = parsedData.sdr_limit_markers.filter(
+                  (marker: any) =>
+                    marker &&
+                    typeof marker.kind === "string" &&
+                    typeof marker.freq_hz === "number",
+                );
               }
               if (typeof parsedData.device_state === "string") {
                 updates.deviceState = parsedData.device_state as DeviceState;
@@ -766,6 +788,7 @@ export const useWebSocket = (
 
   return {
     ...state,
+    sdrLimitMarkers: state.sdrLimitMarkers,
     dataRef,
     sendFrequencyRange,
     sendPauseCommand,

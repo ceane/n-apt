@@ -7,6 +7,7 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
+  const mockOnVizZoomFloorChange = jest.fn();
   const mockOnFftDbLimitsChange = jest.fn();
   const mockOnSelectionChange = jest.fn();
 
@@ -55,9 +56,11 @@ describe("useFrequencyDrag Hook", () => {
     onFrequencyRangeChange: mockOnFrequencyRangeChange,
     onVizPanChange: mockOnVizPanChange,
     onVizZoomChange: mockOnVizZoomChange,
+    onVizZoomFloorChange: mockOnVizZoomFloorChange,
     onFftDbLimitsChange: mockOnFftDbLimitsChange,
     onSelectionChange: mockOnSelectionChange,
     vizZoomRef: { current: 1 },
+    vizZoomFloorRef: { current: 1 },
     vizPanOffsetRef: { current: 0 },
     vizDbMinRef: { current: -120 },
     vizDbMaxRef: { current: 0 },
@@ -150,6 +153,7 @@ describe("useFrequencyDrag Hook", () => {
 
     // Box of 100px width on 1000px canvas = 10x zoom
     expect(mockOnVizZoomChange).toHaveBeenCalled();
+    expect(mockOnVizZoomFloorChange).toHaveBeenCalled();
   });
 
   it("should start a fresh range drag inside an existing selection unless resizing", () => {
@@ -349,5 +353,32 @@ describe("useFrequencyDrag Hook", () => {
     const zoomCall =
       mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
     expect(zoomCall).toBeGreaterThanOrEqual(1);
+  });
+
+  it("should keep pinch zoom from going below the zoom floor", () => {
+    const pinchOptions = {
+      ...defaultOptions,
+      vizZoomRef: { current: 4 },
+      vizZoomFloorRef: { current: 3 },
+      vizPanOffsetRef: { current: 10 },
+    };
+
+    renderHook(() => useFrequencyDrag(pinchOptions));
+
+    triggerPointerDown(400, 300, 1);
+    triggerPointerDown(600, 300, 2);
+
+    act(() => {
+      listeners["pointermove"]?.({
+        pointerId: 2,
+        clientX: 540,
+        clientY: 300,
+      } as any);
+    });
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    const zoomCall =
+      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+    expect(zoomCall).toBeGreaterThanOrEqual(3);
   });
 });

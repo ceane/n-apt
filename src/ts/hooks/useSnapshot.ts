@@ -34,6 +34,7 @@ import {
   sanitizeViewBox,
   sanitizeSVG,
 } from "@n-apt/utils/sanitization";
+import { roundSnapshotDbValue } from "@n-apt/utils/snapshotDb";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1169,6 +1170,8 @@ export function useSnapshot(
               data.waterfallDims));
 
         const dbUnit = getDbUnit(data);
+        const dbMin = roundSnapshotDbValue(data.dbMin);
+        const dbMax = roundSnapshotDbValue(data.dbMax);
         const timestampLabel = options.fileTimestamp
           ? formatTimestampWithTimezone(options.fileTimestamp)
           : fmtTimestamp();
@@ -1176,7 +1179,7 @@ export function useSnapshot(
           ? [
               `${fmtFreq(rangeToRender.min)} – ${fmtFreq(rangeToRender.max)}`,
               timestampLabel,
-              `${modeLabel} | ${dbUnit}: ${data.dbMin} to ${data.dbMax}`,
+              `${modeLabel} | ${dbUnit}: ${dbMin} to ${dbMax}`,
               `FFT: ${data.fftSize ?? "?"} | Window: ${data.fftWindow ?? "?"}`,
               `Source: ${options.sourceName || "Unknown"}`,
               ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),
@@ -1262,6 +1265,8 @@ export function useSnapshot(
           }
 
           const currentDbUnit = getDbUnit(currentData);
+          const currentDbMin = roundSnapshotDbValue(currentData.dbMin);
+          const currentDbMax = roundSnapshotDbValue(currentData.dbMax);
           const currentTimestampLabel = options.fileTimestamp
             ? formatTimestampWithTimezone(options.fileTimestamp)
             : fmtTimestamp();
@@ -1269,7 +1274,7 @@ export function useSnapshot(
             ? [
                 `${fmtFreq(currentRange.min)} – ${fmtFreq(currentRange.max)}`,
                 currentTimestampLabel,
-                `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentData.dbMin} to ${currentData.dbMax}`,
+                `${options.modeLabel ?? (options.whole ? "Whole Channel" : "Onscreen")} | ${currentDbUnit}: ${currentDbMin} to ${currentDbMax}`,
                 `FFT: ${currentData.fftSize ?? "?"} | Window: ${currentData.fftWindow ?? "?"}`,
                 `Source: ${options.sourceName || "Unknown"}`,
                 ...(options.sdrSettingsLabel ? [options.sdrSettingsLabel] : []),

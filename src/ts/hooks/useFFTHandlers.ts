@@ -7,6 +7,7 @@ import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import type { CanvasState } from "@n-apt/hooks/useCanvasState";
 import type { VisualizationState } from "@n-apt/hooks/useVisualizationState";
+import { roundSnapshotDbValue } from "@n-apt/utils/snapshotDb";
 
 export interface FFTHandlersState {
   // Processing refs
@@ -195,8 +196,8 @@ export const useFFTHandlers = ({
         ? new Float32Array(fullChannelWaveformRef.current)
         : null,
       frequencyRange: { ...frequencyRangeCurrent },
-      dbMin: vizDbMinRef.current,
-      dbMax: vizDbMaxRef.current,
+      dbMin: roundSnapshotDbValue(vizDbMinRef.current),
+      dbMax: roundSnapshotDbValue(vizDbMaxRef.current),
       fftSize,
       fftWindow,
       centerFrequencyHz: centerFreqRef.current,

@@ -16,7 +16,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "✓ Running",
+      label: "+ Running",
       color: "green",
     });
   });
@@ -31,7 +31,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "▲ HAS ERRORS BUT RUNNING",
+      label: "! HAS ERRORS BUT RUNNING",
       color: "yellow",
     });
   });
@@ -47,7 +47,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "▲ HAS ERRORS BUT RUNNING - Vite, Rust",
+      label: "! HAS ERRORS BUT RUNNING - Vite, Rust",
       color: "yellow",
     });
   });
@@ -62,7 +62,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "✗ Stopped",
+      label: "x Stopped",
       color: "red",
     });
   });
@@ -78,7 +78,7 @@ describe("getRuntimeSummaryState", () => {
     });
 
     expect(state).toEqual({
-      label: "✗ Stopped - Redis, WebAssembly",
+      label: "x Stopped - Redis, WebAssembly",
       color: "red",
     });
   });

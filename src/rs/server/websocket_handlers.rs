@@ -178,6 +178,7 @@ pub async fn handle_ws_connection(
     device_state,
     paused,
     max_sample_rate,
+    sample_rate_options: vec![max_sample_rate],
     channels: channels
       .into_iter()
       .map(|c| super::types::SpectrumFrameMessage {
@@ -448,6 +449,7 @@ pub fn handle_message(
           device_state,
           paused,
           max_sample_rate: sdr_settings.sample_rate,
+          sample_rate_options: vec![sdr_settings.sample_rate],
           channels,
           sdr_settings,
           device: if device_connected {

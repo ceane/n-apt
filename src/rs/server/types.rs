@@ -533,6 +533,7 @@ pub struct StatusMessage {
   pub device_state: String,
   pub paused: bool,
   pub max_sample_rate: u32,
+  pub sample_rate_options: Vec<u32>,
   pub channels: Vec<SpectrumFrameMessage>,
   pub sdr_settings: SdrConfig,
   pub device: String,
@@ -610,6 +611,114 @@ pub struct SdrConfig {
   pub display: SdrDisplayConfig,
   #[serde(default)]
   pub limits: Option<SdrLimitsConfig>,
+  #[serde(default)]
+  pub devices: IndexMap<String, SdrDeviceConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrDeviceConfig {
+  pub sample_rate: SdrSampleRateSpec,
+  #[serde(default)]
+  pub limits: Option<SdrLimitsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SdrSampleRateSpec {
+  Fixed(u32),
+  Symbolic(String),
+  FloorMaxRange(Vec<String>),
+}
+
+impl SdrSampleRateSpec {
+  pub fn resolve_options(
+    &self,
+    floor_sample_rate: u32,
+    max_sample_rate: u32,
+  ) -> Vec<u32> {
+    const CURATED_RATES: &[u32] = &[
+      1_000_000,
+      2_000_000,
+      3_200_000,
+      4_000_000,
+      5_000_000,
+      6_400_000,
+      8_000_000,
+      10_000_000,
+      12_800_000,
+      16_000_000,
+      20_000_000,
+    ];
+
+    match self {
+      Self::Fixed(rate) => vec![*rate],
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_MAX__" => {
+        vec![max_sample_rate]
+      }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
+        vec![floor_sample_rate]
+      }
+      Self::Symbolic(_) => vec![floor_sample_rate],
+      Self::FloorMaxRange(_) => {
+        let mut out = CURATED_RATES
+          .iter()
+          .copied()
+          .filter(|rate| *rate >= floor_sample_rate && *rate <= max_sample_rate)
+          .collect::<Vec<_>>();
+        if out.first().copied() != Some(floor_sample_rate) {
+          out.insert(0, floor_sample_rate);
+        }
+        if out.last().copied() != Some(max_sample_rate) {
+          out.push(max_sample_rate);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+      }
+    }
+  }
+
+  pub fn resolve(
+    &self,
+    floor_sample_rate: u32,
+    max_sample_rate: u32,
+  ) -> u32 {
+    match self {
+      Self::Fixed(rate) => *rate,
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_MAX__" => {
+        max_sample_rate
+      }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
+        floor_sample_rate
+      }
+      Self::Symbolic(_) => floor_sample_rate,
+      Self::FloorMaxRange(_) => max_sample_rate.max(floor_sample_rate),
+    }
+  }
+}
+
+impl SdrLimitsConfig {
+  pub fn resolve_markers(&self) -> Vec<SdrLimitMarkerConfig> {
+    let mut markers = self.markers.clone();
+
+    if let Some(lower) = self.lower_limit_hz {
+      markers.push(SdrLimitMarkerConfig {
+        kind: "lower_limit".to_string(),
+        freq_hz: lower,
+        label: self.lower_limit_label.clone(),
+      });
+    }
+
+    if let Some(upper) = self.upper_limit_hz {
+      markers.push(SdrLimitMarkerConfig {
+        kind: "upper_limit".to_string(),
+        freq_hz: upper,
+        label: self.upper_limit_label.clone(),
+      });
+    }
+
+    markers
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -643,6 +752,15 @@ pub struct SdrLimitsConfig {
   pub upper_limit_hz: Option<f64>,
   pub lower_limit_label: Option<String>,
   pub upper_limit_label: Option<String>,
+  #[serde(default)]
+  pub markers: Vec<SdrLimitMarkerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrLimitMarkerConfig {
+  pub kind: String,
+  pub freq_hz: f64,
+  pub label: Option<String>,
 }
 
 // MockApt signal types

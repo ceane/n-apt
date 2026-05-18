@@ -3,6 +3,12 @@ const clamp = (value: number, min: number, max: number) =>
 
 const ZOOM_OUT_PAN_RESISTANCE = 0.35;
 
+export const clampVizZoom = (zoom: number, zoomFloor = 1) => {
+  const safeFloor = Number.isFinite(zoomFloor) && zoomFloor > 0 ? zoomFloor : 1;
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  return clamp(safeZoom, safeFloor, 1000);
+};
+
 export const getStableVizPanForZoomChange = ({
   currentZoom,
   currentPan,

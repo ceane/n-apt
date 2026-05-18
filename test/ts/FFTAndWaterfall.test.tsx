@@ -5,7 +5,7 @@ import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
 const fftCanvasMock = jest.fn((_props?: any) => <div data-testid="fft-canvas" />);
 const fftCanvasMountSpy = jest.fn();
 const fftCanvasUnmountSpy = jest.fn();
-const visualizerSlidersMock = jest.fn(() => (
+const visualizerSlidersMock = jest.fn((_props: any) => (
   <div data-testid="visualizer-sliders" />
 ));
 const waterfallCanvasMock = jest.fn(() => (
@@ -31,7 +31,7 @@ jest.mock("@n-apt/components/FFTCanvas", () => {
 });
 
 jest.mock("@n-apt/components/VisualizerSliders", () => ({
-  VisualizerSliders: (_props: any) => visualizerSlidersMock(),
+  VisualizerSliders: (props: any) => visualizerSlidersMock(props),
 }));
 
 jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
@@ -120,5 +120,41 @@ describe("FFTAndWaterfall", () => {
 
     expect(fftCanvasMountSpy).toHaveBeenCalledTimes(2);
     expect(fftCanvasUnmountSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("recenters to pan 0 when reset is requested", () => {
+    const onVizZoomChange = jest.fn();
+    const onVizZoomFloorChange = jest.fn();
+    const onVizPanChange = jest.fn();
+    const onFftDbLimitsChange = jest.fn();
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={4}
+        vizZoomFloor={3}
+        vizPanOffset={12}
+        onVizZoomChange={onVizZoomChange}
+        onVizZoomFloorChange={onVizZoomFloorChange}
+        onVizPanChange={onVizPanChange}
+        onFftDbLimitsChange={onFftDbLimitsChange}
+      />,
+    );
+
+    const sliderCalls = visualizerSlidersMock.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0];
+    expect(sliderProps).toBeTruthy();
+
+    sliderProps.onResetZoomDb();
+
+    expect(onVizPanChange).toHaveBeenCalledWith(0);
+    expect(onVizZoomChange).toHaveBeenCalledWith(1);
+    expect(onVizZoomFloorChange).toHaveBeenCalledWith(1);
+    expect(onFftDbLimitsChange).toHaveBeenCalledWith(-120, 0);
   });
 });

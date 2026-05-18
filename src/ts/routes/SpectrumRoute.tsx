@@ -58,6 +58,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
       sendFrequencyRange,
       dataRef,
       captureStatus,
+      sdrLimitMarkers,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
@@ -68,13 +69,22 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
     state.vizZoom,
     (zoom: number) => dispatch({ type: "SET_VIZ_ZOOM", zoom }),
   ] as const;
+  const [vizZoomFloor, setVizZoomFloor] = [
+    state.vizZoomFloor,
+    (zoomFloor: number) =>
+      dispatch({ type: "SET_VIZ_ZOOM_FLOOR", zoomFloor }),
+  ] as const;
   const [vizPanOffset, setVizPanOffset] = [
     state.vizPanOffset,
     (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan }),
   ] as const;
   const limitMarkers = useMemo(
-    () => buildSdrLimitMarkers(effectiveSdrSettings ?? null),
-    [effectiveSdrSettings],
+    () =>
+      buildSdrLimitMarkers(
+        effectiveSdrSettings ?? null,
+        sdrLimitMarkers,
+      ),
+    [effectiveSdrSettings, sdrLimitMarkers],
   );
   // themeState removed — FFTCanvas now handles theme reactivity internally
 
@@ -266,8 +276,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}
                 vizZoom={vizZoom}
+                vizZoomFloor={vizZoomFloor}
                 vizPanOffset={vizPanOffset}
                 onVizZoomChange={setVizZoom}
+                onVizZoomFloorChange={setVizZoomFloor}
                 onVizPanChange={setVizPanOffset}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
@@ -330,8 +342,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({ activeTab }) => {
             }
             snapshotGridPreference={state.snapshotGridPreference}
             vizZoom={vizZoom}
+            vizZoomFloor={vizZoomFloor}
             vizPanOffset={vizPanOffset}
             onVizZoomChange={setVizZoom}
+            onVizZoomFloorChange={setVizZoomFloor}
             onVizPanChange={setVizPanOffset}
             fftMin={state.fftMinDb}
             fftMax={state.fftMaxDb}

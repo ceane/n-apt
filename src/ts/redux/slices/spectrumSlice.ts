@@ -15,6 +15,7 @@ export interface SpectrumState {
   displayTemporalResolution: DisplayTemporalResolution;
   powerScale: PowerScale;
   vizZoom: number;
+  vizZoomFloor: number;
   vizPanOffset: number;
   displayMode: "fft" | "iq";
 
@@ -58,6 +59,7 @@ const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "medium" as const,
   powerScale: "dB" as const,
   vizZoom: 1,
+  vizZoomFloor: 1,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -81,6 +83,7 @@ const initialState: SpectrumState = {
   displayTemporalResolution: "medium",
   powerScale: "dB",
   vizZoom: 1,
+  vizZoomFloor: 1,
   vizPanOffset: 0,
   displayMode: "fft",
 
@@ -182,6 +185,10 @@ const spectrumSlice = createSlice({
 
     setVizZoom: (state, action: PayloadAction<number>) => {
       state.vizZoom = action.payload;
+    },
+
+    setVizZoomFloor: (state, action: PayloadAction<number>) => {
+      state.vizZoomFloor = action.payload;
     },
 
     setVizPan: (state, action: PayloadAction<number>) => {
@@ -319,6 +326,7 @@ const spectrumSlice = createSlice({
     resetZoomAndDb: (state) => {
       const isDbm = state.powerScale === "dBm";
       state.vizZoom = 1;
+      state.vizZoomFloor = 1;
       state.vizPanOffset = 0;
       // dBm reset: 30dBm to -100dBm
       // dB reset: 0dB to -120dB
@@ -336,6 +344,7 @@ const spectrumSlice = createSlice({
         displayTemporalResolution:
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
+        vizZoomFloor: LIVE_CONTROL_DEFAULTS.vizZoomFloor,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
@@ -361,6 +370,7 @@ export const {
   setTemporalResolution,
   setPowerScale,
   setVizZoom,
+  setVizZoomFloor,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,

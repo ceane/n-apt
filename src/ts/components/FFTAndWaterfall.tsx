@@ -9,7 +9,10 @@ import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
 import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
-import { getStableVizPanForZoomChange } from "@n-apt/utils/visualizationZoom";
+import {
+  clampVizZoom,
+  getStableVizPanForZoomChange,
+} from "@n-apt/utils/visualizationZoom";
 
 const Container = styled.div`
   flex: 1;
@@ -60,26 +63,29 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     };
 
     const zoom = props.vizZoom ?? 1;
+    const zoomFloor = props.vizZoomFloor ?? 1;
     const pan = props.vizPanOffset ?? 0;
     const powerScale = props.powerScale ?? "dB";
     const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
     const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
     const handleZoomChange = useCallback(
       (nextZoom: number) => {
+        const clampedZoom = clampVizZoom(nextZoom, zoomFloor);
         const nextPan = getStableVizPanForZoomChange({
           currentZoom: zoom,
           currentPan: pan,
-          nextZoom,
+          nextZoom: clampedZoom,
           rangeMin: props.frequencyRange.min,
           rangeMax: props.frequencyRange.max,
         });
         if (props.onVizPanChange && nextPan !== pan) {
           props.onVizPanChange(nextPan);
         }
-        props.onVizZoomChange?.(nextZoom);
+        props.onVizZoomChange?.(clampedZoom);
       },
       [
         zoom,
+        zoomFloor,
         pan,
         props.frequencyRange.min,
         props.frequencyRange.max,
@@ -110,6 +116,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             dbMax={dbMax}
             dbMin={dbMin}
             powerScale={props.powerScale ?? "dB"}
+            zoomFloor={zoomFloor}
             onZoomChange={handleZoomChange}
             onDbMaxChange={(nextDbMax) =>
               props.onFftDbLimitsChange?.(dbMin, nextDbMax)
@@ -130,8 +137,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
               dispatch(spectrumActions.setWfSmoothEnabled(enabled))
             }
             onResetZoomDb={() => {
-              props.onVizZoomChange?.(1);
+              props.onVizZoomFloorChange?.(1);
               props.onVizPanChange?.(0);
+              props.onVizZoomChange?.(1);
               props.onFftDbLimitsChange?.(
                 props.powerScale === "dBm" ? -100 : -120,
                 props.powerScale === "dBm" ? 30 : 0,

@@ -5,7 +5,7 @@ use crate::server::shared_state::{
 use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use anyhow::{anyhow, Result};
 use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -22,6 +22,7 @@ pub struct HotplugState {
   pub last_poll: Instant,
   pub last_hardware_swap: Option<Instant>,
   pub last_failure_at: Option<Instant>,
+  pub last_seen_device_count: u32,
   pub retry_cooldown: Duration,
   pub exhausted_recovery_cooldown: Duration,
 }
@@ -33,6 +34,7 @@ impl HotplugState {
       last_poll: now,
       last_hardware_swap: None,
       last_failure_at: None,
+      last_seen_device_count: crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count(),
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
     }
@@ -133,13 +135,37 @@ fn device_type_hint<T: rusb::UsbContext>(device: &Device<T>) -> String {
   let desc = device.device_descriptor();
   if let Ok(desc) = desc {
     match (desc.vendor_id(), desc.product_id()) {
-      (0x0bda, _) => "rtl-sdr".to_string(),
+      (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
+        "rtl-sdr".to_string()
+      }
       (0x1d50, _) => "hackrf".to_string(),
       _ => "unknown".to_string(),
     }
   } else {
     "unknown".to_string()
   }
+}
+
+pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
+  let context = Context::new()
+    .map_err(|e| anyhow!("Failed to initialize libusb context: {}", e))?;
+  let devices = context
+    .devices()
+    .map_err(|e| anyhow!("Failed to enumerate USB devices: {}", e))?;
+
+  for device in devices.iter() {
+    if let Ok(desc) = device.device_descriptor() {
+      match (desc.vendor_id(), desc.product_id()) {
+        (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
+          return Ok(Some("rtl-sdr".to_string()))
+        }
+        (0x1d50, _) => return Ok(Some("hackrf".to_string())),
+        _ => {}
+      }
+    }
+  }
+
+  Ok(None)
 }
 
 pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
@@ -160,22 +186,51 @@ pub async fn drain_hotplug_events(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
+  let current_count = crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+  let usb_scan = scan_usb_for_supported_device();
+  let supported_device_seen = matches!(usb_scan, Ok(Some(_)));
+  let current_count = if supported_device_seen {
+    current_count.max(1)
+  } else {
+    0
+  };
+  if current_count != state.last_seen_device_count {
+    info!(
+      "USB device count changed from {} to {}",
+      state.last_seen_device_count, current_count
+    );
+    state.last_seen_device_count = current_count;
+    if current_count == 0 && !processor.is_mock() {
+      let _ = disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
+    } else if current_count > 0 && processor.is_mock() {
+      if let Err(e) = attach_real_device(processor, shared_state, broadcast_tx).await {
+        error!("hotplug attach failed after device-count reconciliation: {}", e);
+      } else {
+        state.last_hardware_swap = Some(Instant::now());
+      }
+    }
+  }
+
   while let Some(event) = monitor.try_recv() {
     match event.kind {
       HotplugEventKind::Attached => {
-        if processor.is_mock() {
-          info!("USB attach event received for {}", event.device_type);
-          if let Err(e) = attach_real_device(processor, shared_state, broadcast_tx).await {
-            error!("hotplug attach failed: {}", e);
-          } else {
-            state.last_hardware_swap = Some(Instant::now());
-          }
+        if event.device_type == "unknown" {
+          debug!("Ignoring unrelated USB attach event");
+        } else {
+          info!(
+            "USB attach event received for {} (will reconcile on device count)",
+            event.device_type
+          );
         }
       }
       HotplugEventKind::Detached => {
-        if !processor.is_mock() {
-          info!("USB detach event received for {}", event.device_type);
-          let _ = disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
+        if event.device_type == "unknown" {
+          debug!("Ignoring unrelated USB detach event");
+        } else {
+          info!(
+            "USB detach event received for {} (will reconcile on device count)",
+            event.device_type
+          );
         }
       }
     }
@@ -187,9 +242,39 @@ async fn attach_real_device(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
+  info!("Probing RTL-SDR attach path");
   shared_state.set_device_state("loading", Some("connect"));
   broadcast_device_status(shared_state, broadcast_tx);
-  let new_device = SdrDeviceFactory::create_rtlsdr_device()?;
+
+  let mut last_err = None;
+  let mut new_device = None;
+  for attempt in 1..=5 {
+    match SdrDeviceFactory::create_rtlsdr_device() {
+      Ok(device) => {
+        new_device = Some(device);
+        break;
+      }
+      Err(e) => {
+        last_err = Some(e);
+        warn!(
+          "RTL-SDR open attempt {} of 5 failed during attach; retrying",
+          attempt
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+      }
+    }
+  }
+
+  let new_device = match new_device {
+    Some(device) => device,
+    None => {
+      let err = last_err.unwrap_or_else(|| anyhow!("RTL-SDR open failed"));
+      shared_state.set_device_state("disconnected", None);
+      broadcast_device_status(shared_state, broadcast_tx);
+      return Err(err);
+    }
+  };
+
   processor.swap_device(new_device)?;
   shared_state.update_device_status(
     true,
@@ -226,8 +311,9 @@ pub async fn maybe_attach_hotplugged_device(
   processor: &mut SdrProcessor,
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
+  force: bool,
 ) {
-  if state.last_poll.elapsed() < DEVICE_PROBE_INTERVAL {
+  if !force && state.last_poll.elapsed() < DEVICE_PROBE_INTERVAL {
     return;
   }
 

@@ -150,6 +150,7 @@ export const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "medium" as const,
   powerScale: "dB" as const,
   vizZoom: 1,
+  vizZoomFloor: 1,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -229,6 +230,7 @@ export type SpectrumState = {
   fftAvgEnabled: boolean;
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
+  vizZoomFloor: number;
   stitchOptions: {
     phaseCorrection: boolean;
     fmDeviationCorrection: boolean;
@@ -280,6 +282,7 @@ export type SpectrumAction =
   | { type: "CLEAR_WATERFALL" }
   | { type: "RESET_WATERFALL_CLEARED" }
   | { type: "SET_VIZ_ZOOM"; zoom: number }
+  | { type: "SET_VIZ_ZOOM_FLOOR"; zoomFloor: number }
   | { type: "SET_VIZ_PAN"; pan: number }
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
   | { type: "SET_SHOW_SPIKE_OVERLAY"; enabled: boolean }
@@ -344,6 +347,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   isAutoFftApplied: false,
   isWaterfallCleared: false,
   vizZoom: 1,
+  vizZoomFloor: 1,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -559,6 +563,8 @@ export function spectrumReducer(
       return { ...state, isWaterfallCleared: false };
     case "SET_VIZ_ZOOM":
       return { ...state, vizZoom: action.zoom };
+    case "SET_VIZ_ZOOM_FLOOR":
+      return { ...state, vizZoomFloor: action.zoomFloor };
     case "SET_VIZ_PAN":
       return { ...state, vizPanOffset: action.pan };
     case "SET_FFT_DB_LIMITS":
@@ -624,6 +630,7 @@ export function spectrumReducer(
       return {
         ...state,
         vizZoom: 1,
+        vizZoomFloor: 1,
         vizPanOffset: 0,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
@@ -645,6 +652,7 @@ export function spectrumReducer(
         displayTemporalResolution:
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
+        vizZoomFloor: 1,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
@@ -717,8 +725,14 @@ export type SpectrumStoreContextValue = {
     deviceName: string | null;
     deviceProfile: DeviceProfile | null;
     maxSampleRateHz: number | null;
+    sampleRateOptions: number[];
     sampleRateHz: number | null;
     sdrSettings: SdrSettingsConfig | null;
+    sdrLimitMarkers: Array<{
+      kind: string;
+      freq_hz: number;
+      label?: string;
+    }>;
     dataRef: React.MutableRefObject<any>;
     spectrumFrames: SpectrumFrame[];
     captureStatus: CaptureStatus;
@@ -748,8 +762,8 @@ export type SpectrumStoreContextValue = {
   toggleVisualizerPause: () => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
-  deviceProfile: DeviceProfile | null;
-};
+    deviceProfile: DeviceProfile | null;
+  };
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
   null,
@@ -804,8 +818,12 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
       (s) => s.websocket.deviceLoadingReason,
     );
     const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
+    const sampleRateOptions = useAppSelector((s) => s.websocket.sampleRateOptions);
     const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
     const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
+    const sdrLimitMarkers = useAppSelector(
+      (s) => s.websocket.sdrLimitMarkers,
+    );
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
@@ -886,6 +904,9 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
             return;
           case "RESET_ZOOM_AND_DB":
             reduxDispatch(resetZoomAndDbAction());
+            dispatch(action);
+            return;
+          case "SET_VIZ_ZOOM_FLOOR":
             dispatch(action);
             return;
           case "TRAINING_STOP":
@@ -1003,8 +1024,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
         deviceName,
         deviceProfile,
         maxSampleRateHz,
+        sampleRateOptions,
         sampleRateHz,
         sdrSettings,
+        sdrLimitMarkers,
         dataRef,
         spectrumFrames: wsSpectrumFrames,
         captureStatus,
@@ -1033,8 +1056,10 @@ export const SpectrumProvider: React.FC<SpectrumProviderProps> = memo(
         deviceName,
         deviceProfile,
         maxSampleRateHz,
+        sampleRateOptions,
         sampleRateHz,
         sdrSettings,
+        sdrLimitMarkers,
         dataRef,
         captureStatus,
         autoFftOptions,

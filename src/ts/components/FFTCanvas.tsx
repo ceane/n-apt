@@ -50,6 +50,7 @@ import {
   type PendingWaterfallRestore,
 } from "@n-apt/utils/waterfallRestore";
 import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
+import { roundSnapshotDbValue } from "@n-apt/utils/snapshotDb";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -334,8 +335,10 @@ export interface FFTCanvasProps {
   nodePreview?: boolean;
   showSpikeOverlay?: boolean;
   vizZoom?: number;
+  vizZoomFloor?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
+  onVizZoomFloorChange?: (zoomFloor: number) => void;
   onVizPanChange?: (pan: number) => void;
   fftMin?: number;
   fftMax?: number;
@@ -450,8 +453,10 @@ const FFTCanvas = memo(
       snapshotGridPreference,
       showSpikeOverlay = false,
       vizZoom = 1,
+      vizZoomFloor = 1,
       vizPanOffset = 0,
       onVizZoomChange,
+      onVizZoomFloorChange,
       onVizPanChange,
       fftMin,
       fftMax,
@@ -697,6 +702,7 @@ const FFTCanvas = memo(
     );
 
     const vizZoomRef = useRef(currentVizZoom);
+    const vizZoomFloorRef = useRef(vizZoomFloor);
     const vizDbMaxRef = useRef(vizDbMax);
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
@@ -706,6 +712,7 @@ const FFTCanvas = memo(
       null,
     );
     vizZoomRef.current = currentVizZoom;
+    vizZoomFloorRef.current = vizZoomFloor;
     vizDbMaxRef.current = vizDbMax;
     vizDbMinRef.current = vizDbMin;
     vizPanOffsetRef.current = vizPanOffset;
@@ -1024,6 +1031,7 @@ const FFTCanvas = memo(
       onSelectionChange,
       fullPlotSelection: nodePreview,
       vizZoomRef,
+      vizZoomFloorRef,
       vizPanOffsetRef,
       onVizPanChange: (pan: number) => {
         setVizPanOffset(pan);
@@ -1035,6 +1043,7 @@ const FFTCanvas = memo(
       vizDbMaxRef,
       onFftDbLimitsChange: applyDbLimits,
       onVizZoomChange: setVizZoom,
+      onVizZoomFloorChange,
       renderWaveformRef,
     });
 
@@ -2207,8 +2216,8 @@ const FFTCanvas = memo(
           ? new Float32Array(fullChannelWaveformRef.current)
           : null,
         frequencyRange: { ...frequencyRangeCurrent },
-        dbMin: vizDbMinRef.current,
-        dbMax: vizDbMaxRef.current,
+        dbMin: roundSnapshotDbValue(vizDbMinRef.current),
+        dbMax: roundSnapshotDbValue(vizDbMaxRef.current),
         fftSize: effectiveFftSize,
         fftWindow: fftWindow ?? "Rectangular",
         centerFrequencyHz: centerFreqRef.current,

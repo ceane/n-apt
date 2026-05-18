@@ -120,8 +120,14 @@ export interface WebSocketState {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
 
   // Data
   spectrumFrames: SpectrumFrame[];
@@ -159,8 +165,10 @@ const initialState: WebSocketState = {
   deviceName: null,
   deviceProfile: null,
   maxSampleRateHz: null,
+  sampleRateOptions: [],
   sampleRateHz: null,
   sdrSettings: null,
+  sdrLimitMarkers: [],
 
   spectrumFrames: [],
   dataFrameCounter: 0,

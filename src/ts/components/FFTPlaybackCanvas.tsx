@@ -33,8 +33,10 @@ interface FFTPlaybackCanvasProps {
   snapshotGridPreference?: boolean;
   fftSize: number;
   vizZoom?: number;
+  vizZoomFloor?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
+  onVizZoomFloorChange?: (zoomFloor: number) => void;
   onVizPanChange?: (pan: number) => void;
   fftMin?: number;
   fftMax?: number;
@@ -158,8 +160,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       snapshotGridPreference,
       fftSize,
       vizZoom,
+      vizZoomFloor,
       vizPanOffset,
       onVizZoomChange,
+      onVizZoomFloorChange,
       onVizPanChange,
       fftMin,
       fftMax,
@@ -454,8 +458,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               isPaused={isPaused}
               snapshotGridPreference={snapshotGridPreference ?? true}
               vizZoom={vizZoom}
+              vizZoomFloor={vizZoomFloor}
               vizPanOffset={vizPanOffset}
               onVizZoomChange={onVizZoomChange}
+              onVizZoomFloorChange={onVizZoomFloorChange}
               onVizPanChange={onVizPanChange}
               fftMin={fftMin}
               fftMax={fftMax}

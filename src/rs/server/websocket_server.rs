@@ -80,6 +80,30 @@ pub(crate) fn broadcast_device_status(
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
+  let (device_limits, sample_rate_options) = if let Some(device_cfg) =
+    sdr_settings.devices.get(&device_profile.kind)
+  {
+    (
+      device_cfg
+        .limits
+        .as_ref()
+        .map(|limits| limits.resolve_markers())
+        .unwrap_or_default(),
+      device_cfg.sample_rate.resolve_options(
+        sdr_settings.min_receive_sample_rate.unwrap_or(sdr_settings.sample_rate),
+        sdr_settings.sample_rate,
+      ),
+    )
+  } else {
+    (
+      sdr_settings
+        .limits
+        .as_ref()
+        .map(|limits| limits.resolve_markers())
+        .unwrap_or_default(),
+      vec![sdr_settings.sample_rate],
+    )
+  };
 
   let normalize_rtl_device_name = |raw_name: &str| {
     let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
@@ -130,7 +154,9 @@ pub(crate) fn broadcast_device_status(
       "device_state": device_state,
       "paused": paused,
       "max_sample_rate": sdr_settings.sample_rate,
+      "sample_rate_options": sample_rate_options,
       "sdr_settings": sdr_settings,
+      "sdr_limit_markers": device_limits,
       "channels": channels,
       "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
       "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
@@ -236,8 +262,6 @@ impl WebSocketServer {
     let _broadcast_tx = self.broadcast_tx.clone();
     let spectrum_tx = self.spectrum_tx.clone();
 
-    let mut frame_count = 0u64;
-    let mut last_stats = Instant::now();
     let hotplug_monitor = crate::sdr::hotplug::HotplugMonitor::new()
       .expect("Failed to create hotplug monitor");
     let _ = hotplug_monitor.start();
@@ -252,6 +276,23 @@ impl WebSocketServer {
     let mut last_channels_check = Instant::now();
     let mut last_signals_modified =
       crate::server::utils::signals_config_modified_at();
+
+    // Give hotplug a chance to attach immediately at startup instead of
+    // waiting for the first health tick. This catches devices that are
+    // already connected when the app launches.
+    {
+      let mut processor = sdr_processor.lock().await;
+      crate::sdr::hotplug::maybe_attach_hotplugged_device(
+        &hotplug_monitor,
+        &mut hotplug_state,
+        &mut processor,
+        &shared_state,
+        &_broadcast_tx,
+        true,
+      )
+      .await;
+    }
+
     loop {
       let start_time = Instant::now();
       // 1. Process pending commands
@@ -737,7 +778,6 @@ impl WebSocketServer {
       //     attempt recovery, only then fall back to mock.
       //   • Every state change is broadcast immediately.
       if hotplug_state.last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
-        hotplug_state.last_poll = Instant::now();
         let mut processor = sdr_processor.lock().await;
         crate::sdr::hotplug::maybe_attach_hotplugged_device(
           &hotplug_monitor,
@@ -745,6 +785,7 @@ impl WebSocketServer {
           &mut processor,
           &shared_state,
           &_broadcast_tx,
+          false,
         )
         .await;
         crate::sdr::hotplug::handle_real_hardware_health(
@@ -920,16 +961,6 @@ impl WebSocketServer {
             // No receivers, which is normal when no clients are connected
           }
 
-          frame_count += 1;
-
-          // Log stats every 10 seconds
-          if last_stats.elapsed() >= Duration::from_secs(10) {
-            info!(
-              "SDR streaming: {} frames sent, device: {}",
-              frame_count, device_type_str
-            );
-            last_stats = Instant::now();
-          }
         }
         Ok(Err(e)) => {
           // ── Read error: use the same debounced recovery logic ──

@@ -3,7 +3,10 @@ import styled from "styled-components";
 import { useAppSelector, useAppDispatch } from "@n-apt/redux";
 import { spectrumActions } from "@n-apt/redux";
 import VisualizerSliders from "@n-apt/components/VisualizerSliders";
-import { getStableVizPanForZoomChange } from "@n-apt/utils/visualizationZoom";
+import {
+  clampVizZoom,
+  getStableVizPanForZoomChange,
+} from "@n-apt/utils/visualizationZoom";
 
 const Container = styled.div`
   display: grid;
@@ -25,6 +28,7 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
 
   // Get state from Redux
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
+  const vizZoomFloor = useAppSelector((state) => state.spectrum.vizZoomFloor);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
   const frequencyRange = useAppSelector((state) => state.spectrum.frequencyRange);
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
@@ -41,19 +45,20 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   // Handle zoom change
   const handleZoomChange = React.useCallback(
     (zoom: number) => {
+      const clampedZoom = clampVizZoom(zoom, vizZoomFloor);
       const nextPan = frequencyRange
         ? getStableVizPanForZoomChange({
             currentZoom: vizZoom,
             currentPan: vizPanOffset,
-            nextZoom: zoom,
+            nextZoom: clampedZoom,
             rangeMin: frequencyRange.min,
             rangeMax: frequencyRange.max,
           })
         : vizPanOffset;
-      dispatch(spectrumActions.setVizZoom(zoom));
+      dispatch(spectrumActions.setVizZoom(clampedZoom));
       dispatch(spectrumActions.setVizPan(nextPan));
     },
-    [dispatch, frequencyRange, vizZoom, vizPanOffset],
+    [dispatch, frequencyRange, vizZoom, vizPanOffset, vizZoomFloor],
   );
 
   // Handle dB range changes
@@ -73,6 +78,7 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
 
   // Handle reset
   const handleResetZoomDb = React.useCallback(() => {
+    dispatch(spectrumActions.setVizPan(0));
     dispatch(spectrumActions.resetZoomAndDb());
     onResetZoomDb?.();
   }, [dispatch, onResetZoomDb]);
@@ -106,6 +112,7 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
         dbMax={fftMaxDb}
         dbMin={fftMinDb}
         powerScale={powerScale}
+        zoomFloor={vizZoomFloor}
         onZoomChange={handleZoomChange}
         onDbMaxChange={handleDbMaxChange}
         onDbMinChange={handleDbMinChange}

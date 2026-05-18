@@ -62,6 +62,34 @@ signals:
       # Visualizer padding
       padding: 20
 
+    # Device-specific SDR settings.
+    # The backend resolves !floor from the lowest concrete sample_rate in this block,
+    # and !max from the device's supported ceiling.
+    devices:
+      rtl_sdr:
+        sample_rate: !max
+        limits:
+          markers:
+            - kind: lower_limit
+              freq_hz: !frequency 500kHz
+              label: "RTL-SDR v4 lower limit"
+            - kind: spur
+              freq_hz: !frequency 28.8MHz
+              label: "Potential hardware spur"
+            - kind: max_hardware_frequency
+              freq_hz: !frequency 3.2MHz
+              label: "RTL-SDR max hardware sample rate"
+      hack_one:
+        sample_rate: !floor...!max
+        limits:
+          markers:
+            - kind: min_hardware_frequency
+              freq_hz: !frequency 1MHz
+              label: "HackRF lower limit"
+            - kind: max_hardware_frequency
+              freq_hz: !frequency 6GHz
+              label: "HackRF max hardware frequency"
+
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated
   mock_apt:

@@ -60,7 +60,32 @@ export type SdrSettingsConfig = {
     upper_limit_hz?: number;
     lower_limit_label?: string;
     upper_limit_label?: string;
+    markers?: Array<{
+      kind: string;
+      freq_hz: number;
+      label?: string;
+    }>;
   };
+  devices?: Record<
+    string,
+    {
+      sample_rate:
+        | number
+        | string
+        | Array<string>;
+      limits?: {
+        lower_limit_hz?: number;
+        upper_limit_hz?: number;
+        lower_limit_label?: string;
+        upper_limit_label?: string;
+        markers?: Array<{
+          kind: string;
+          freq_hz: number;
+          label?: string;
+        }>;
+      };
+    }
+  >;
 };
 
 export type AptContentType =
@@ -179,6 +204,12 @@ export interface StatusMessage {
   device_state: DeviceState;
   paused: boolean;
   max_sample_rate: number;
+  sample_rate_options?: number[];
+  sdr_limit_markers?: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   channels: SpectrumFrame[];
   sdr_settings: SdrSettingsConfig;
   device: "rtl-sdr" | "mock_apt";

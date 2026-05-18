@@ -714,17 +714,6 @@ impl MockAptDevice {
     let data = std::mem::take(&mut self.byte_buffer);
     self.byte_buffer.reserve(fft_size * 2);
     self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
-    if self.frame_log_counter % 60 == 0 {
-      let checksum: u64 = data.iter().map(|&b| b as u64).sum();
-      log::info!(
-        "Mock APT frame {} generated (fft_size={}, checksum={}, sample_rate={}, center_freq={})",
-        self.frame_log_counter,
-        fft_size,
-        checksum,
-        self.sample_rate,
-        self.center_freq
-      );
-    }
     Ok(RawSamples {
       data,
       sample_rate: self.sample_rate,

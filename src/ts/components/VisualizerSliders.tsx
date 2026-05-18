@@ -31,7 +31,7 @@ const ActionButtonsContainer = styled.div`
   width: 84px;
 `;
 
-const ActionButton = styled.button<{ $active?: boolean }>`
+const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean }>`
   font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
   font-weight: 500;
@@ -43,11 +43,24 @@ const ActionButton = styled.button<{ $active?: boolean }>`
   padding: 5px 6px;
   border-radius: 6px;
   border: 1px solid
-    ${(props) => (props.$active ? props.theme.primary : props.theme.border)};
+    ${(props) =>
+      props.$outlined
+        ? props.theme.primary
+        : props.$active
+          ? props.theme.primary
+          : props.theme.border};
   background: ${(props) =>
-    props.$active ? props.theme.activeBackground : "transparent"};
+    props.$outlined
+      ? "transparent"
+      : props.$active
+        ? props.theme.activeBackground
+        : "transparent"};
   color: ${(props) =>
-    props.$active ? props.theme.primary : props.theme.textMuted};
+    props.$outlined
+      ? props.theme.textPrimary
+      : props.$active
+        ? props.theme.primary
+        : props.theme.textMuted};
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
@@ -62,14 +75,46 @@ const ActionButton = styled.button<{ $active?: boolean }>`
 
   &:hover {
     background: ${(props) =>
-      props.$active ? props.theme.activeBackground : props.theme.surfaceHover};
+      props.$outlined
+        ? props.theme.surfaceHover
+        : props.$active
+          ? props.theme.activeBackground
+          : props.theme.surfaceHover};
     color: ${(props) =>
-      props.$active ? props.theme.primary : props.theme.textPrimary};
+      props.$outlined
+        ? props.theme.textPrimary
+        : props.$active
+          ? props.theme.primary
+          : props.theme.textPrimary};
   }
 
   &:active {
     transform: scale(0.96);
   }
+`;
+
+const ResetButton = styled(ActionButton)<{ $hasZoomFloor?: boolean }>`
+  position: relative;
+  padding-right: 14px;
+
+  ${({ $hasZoomFloor, theme }) =>
+    $hasZoomFloor
+      ? `
+    border-color: ${theme.primary};
+    color: ${theme.textPrimary};
+  `
+      : ""}
+`;
+
+const ResetBadge = styled.span`
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ff5b5b;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 `;
 
 const formatDbValue = (value: number) => {
@@ -99,6 +144,7 @@ export interface VisualizerSlidersProps {
   onFftSmoothChange?: (enabled: boolean) => void;
   onWfSmoothChange?: (enabled: boolean) => void;
   onResetZoomDb?: () => void;
+  zoomFloor?: number;
 }
 
 export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
@@ -116,6 +162,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
   onFftSmoothChange,
   onWfSmoothChange,
   onResetZoomDb,
+  zoomFloor = 1,
 }) => {
   // Calculate appropriate ranges based on power scale
   const isDbm = powerScale === "dBm";
@@ -126,13 +173,20 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
     ? { min: -120, max: -10 }
     : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
+  const hasZoomFloor = zoomFloor > 1.0001;
   return (
     <SlidersGrid>
       <ActionButtonsContainer>
-        <ActionButton onClick={onResetZoomDb} title="Reset Zoom and dB limits">
+        <ResetButton
+          $outlined={hasZoomFloor}
+          $hasZoomFloor={hasZoomFloor}
+          onClick={onResetZoomDb}
+          title="Reset Zoom and dB limits"
+        >
           <RotateCcw size={13} strokeWidth={1.5} />
           Reset
-        </ActionButton>
+          {hasZoomFloor ? <ResetBadge data-testid="zoom-floor-indicator" /> : null}
+        </ResetButton>
         <ActionButton
           $active={fftAvgEnabled}
           onClick={() => onFftAvgChange?.(!fftAvgEnabled)}

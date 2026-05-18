@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
+import { clampVizZoom } from "@n-apt/utils/visualizationZoom";
 
 export interface FrequencyDragOptions {
   disabled?: boolean;
@@ -20,6 +21,7 @@ export interface FrequencyDragOptions {
   /** Use the full canvas as the selectable plot area. React Flow FFT nodes render this way. */
   fullPlotSelection?: boolean;
   vizZoomRef?: React.MutableRefObject<number>;
+  vizZoomFloorRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
   clampedVizRangeRef?: React.MutableRefObject<FrequencyRange>;
   onVizPanChange?: (pan: number) => void;
@@ -27,6 +29,7 @@ export interface FrequencyDragOptions {
   vizDbMaxRef?: React.MutableRefObject<number>;
   onFftDbLimitsChange?: (min: number, max: number) => void;
   onVizZoomChange?: (zoom: number) => void;
+  onVizZoomFloorChange?: (zoomFloor: number) => void;
   /** Reference to the full current waveform data to check if selection is empty */
   renderWaveformRef?: React.MutableRefObject<Float32Array | null>;
 }
@@ -46,6 +49,7 @@ export function useFrequencyDrag({
   onSelectionChange,
   fullPlotSelection = false,
   vizZoomRef,
+  vizZoomFloorRef,
   vizPanOffsetRef,
   clampedVizRangeRef,
   onVizPanChange,
@@ -53,6 +57,7 @@ export function useFrequencyDrag({
   vizDbMaxRef,
   onFftDbLimitsChange,
   onVizZoomChange,
+  onVizZoomFloorChange,
   renderWaveformRef,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
@@ -239,8 +244,9 @@ export function useFrequencyDrag({
             logResponse * PINCH_LOG_GAIN +
               Math.min(0.2, distVelocity * PINCH_VELOCITY_GAIN),
           ) || 1;
+        const zoomFloor = vizZoomFloorRef?.current ?? 1;
         let newZoom = initialPinchZoomRef.current * easedZoomScale;
-        newZoom = Math.max(1, Math.min(1000, newZoom));
+        newZoom = clampVizZoom(newZoom, zoomFloor);
         lastPinchDistRef.current = currentDist;
         
         if (newZoom !== vizZoomRef?.current) {
@@ -768,7 +774,8 @@ export function useFrequencyDrag({
             // Zoom multiplier based on ratio of plot width to selection width
             const newZoomMultiplier = plotWidthCSS / clampedBoxWidth;
             const newZoomRaw = zoom * newZoomMultiplier;
-            const newZoom = Math.max(1, Math.min(1000, newZoomRaw));
+            const zoomFloor = vizZoomFloorRef?.current ?? 1;
+            const newZoom = clampVizZoom(newZoomRaw, zoomFloor);
 
             // Calculate new pan to center the selection
             const targetVisualCenter = (newFreqMin + newFreqMax) / 2;
@@ -832,6 +839,7 @@ export function useFrequencyDrag({
             }
 
             if (hasSignal) {
+              onVizZoomFloorChange?.(newZoom);
               onVizZoomChange(newZoom);
               onVizPanChange(newPan);
               onFftDbLimitsChange(newDbMin, newDbMax);
@@ -969,9 +977,10 @@ export function useFrequencyDrag({
         // deltaY is negative for zooming in, positive for zooming out.
         // Sensitivity 0.003 provides a "stronger" response than the previous linear 1.05 factor.
         const sensitivity = 0.003;
+        const zoomFloor = vizZoomFloorRef?.current ?? 1;
         let newZoom = zoom * Math.exp(-e.deltaY * sensitivity);
 
-        newZoom = Math.max(1, Math.min(1000, newZoom));
+        newZoom = clampVizZoom(newZoom, zoomFloor);
 
         if (Math.abs(newZoom - zoom) > 0.001) {
           // Zoom relative to the gesture or mouse position so the content

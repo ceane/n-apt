@@ -298,6 +298,11 @@ const processMessage = (
       if (typeof parsedData.max_sample_rate === "number") {
         updates.maxSampleRateHz = parsedData.max_sample_rate;
       }
+      if (Array.isArray(parsedData.sample_rate_options)) {
+        updates.sampleRateOptions = parsedData.sample_rate_options.filter(
+          (rate: any) => typeof rate === "number" && Number.isFinite(rate),
+        );
+      }
       if (parsedData.sdr_settings) {
         let sdrSettings = parsedData.sdr_settings;
 
@@ -329,6 +334,14 @@ const processMessage = (
         }
 
         updates.sdrSettings = sdrSettings;
+        if (Array.isArray(parsedData.sdr_limit_markers)) {
+          updates.sdrLimitMarkers = parsedData.sdr_limit_markers.filter(
+            (marker: any) =>
+              marker &&
+              typeof marker.kind === "string" &&
+              typeof marker.freq_hz === "number",
+          );
+        }
         if (typeof sdrSettings.sample_rate === "number") {
           updates.sampleRateHz = sdrSettings.sample_rate;
         }

@@ -91,6 +91,24 @@ describe("VisualizerSliders", () => {
     expect(onAvg).toHaveBeenCalledWith(true);
   });
 
+  test("shows a zoom floor badge only when zoom is locked in", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoomFloor={3} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByTestId("zoom-floor-indicator")).toBeInTheDocument();
+
+    rerender(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByTestId("zoom-floor-indicator")).toBeNull();
+  });
+
   test("toggle buttons show active state", () => {
     const { rerender } = render(
       <TestWrapper>

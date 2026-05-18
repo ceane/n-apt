@@ -993,8 +993,12 @@ export const SpectrumSidebar: React.FC = () => {
   }, [selectedPrimaryFile, aesKey]);
 
   const limitMarkers = useMemo(
-    () => buildSdrLimitMarkers(liveSdrSettingsToUse),
-    [liveSdrSettingsToUse],
+    () =>
+      buildSdrLimitMarkers(
+        liveSdrSettingsToUse,
+        wsConnection.sdrLimitMarkers,
+      ),
+    [liveSdrSettingsToUse, wsConnection.sdrLimitMarkers],
   );
 
   const resetLiveControls = useCallback(() => {

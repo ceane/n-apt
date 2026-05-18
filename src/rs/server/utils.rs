@@ -78,6 +78,35 @@ pub fn preprocess_frequency_tags(content: &str) -> String {
     .to_string()
 }
 
+pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
+  let re_floor_max = Regex::new(
+    r"sample_rate:\s*!floor\.\.\.!max\b",
+  )
+  .unwrap();
+  let content = re_floor_max
+    .replace_all(
+      content,
+      "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_MAX__\"]",
+    )
+    .to_string();
+
+  let re_max = Regex::new(r"sample_rate:\s*!max\b").unwrap();
+  let content = re_max
+    .replace_all(
+      &content,
+      "sample_rate: \"__NAPT_SAMPLE_RATE_MAX__\"",
+    )
+    .to_string();
+
+  let re_floor = Regex::new(r"sample_rate:\s*!floor\b").unwrap();
+  re_floor
+    .replace_all(
+      &content,
+      "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"",
+    )
+    .to_string()
+}
+
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
 fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
@@ -144,6 +173,7 @@ fn reload_signals_config() -> CachedSignalsConfig {
     .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
 
   let processed = preprocess_frequency_tags(&content);
+  let processed = preprocess_sdr_sample_rate_tags(&processed);
   let checksum = sha256_hex(processed.as_bytes());
 
   let config = serde_yaml::from_str(&processed).unwrap_or_else(|e| {
@@ -208,6 +238,7 @@ pub fn signals_config() -> super::types::SignalsConfig {
             };
             if let Some(content) = content {
               let processed = preprocess_frequency_tags(&content);
+              let processed = preprocess_sdr_sample_rate_tags(&processed);
               let checksum = sha256_hex(processed.as_bytes());
               checksum != cached.checksum
             } else {
@@ -242,6 +273,7 @@ pub fn signals_config() -> super::types::SignalsConfig {
             };
             if let Some(content) = content {
               let processed = preprocess_frequency_tags(&content);
+              let processed = preprocess_sdr_sample_rate_tags(&processed);
               let checksum = sha256_hex(processed.as_bytes());
               checksum != cached.checksum
             } else {
@@ -575,6 +607,52 @@ mod tests {
     let napt = NaptConfig { channels };
     let floor = compute_min_receive_sample_rate(&napt, 20_000_000);
     assert_eq!(floor, 9_125_000);
+  }
+
+  #[test]
+  fn preprocesses_sdr_sample_rate_tags_for_device_blocks() {
+    let yaml = r#"
+signals:
+  sdr:
+    devices:
+      rtl_sdr:
+        sample_rate: !max
+      hack_one:
+        sample_rate: !floor...!max
+"#;
+    let processed = preprocess_sdr_sample_rate_tags(yaml);
+    assert!(
+      processed.contains("__NAPT_SAMPLE_RATE_MAX__"),
+      "expected !max placeholder in processed YAML"
+    );
+    assert!(
+      processed.contains("__NAPT_SAMPLE_RATE_FLOOR__"),
+      "expected !floor placeholder in processed YAML"
+    );
+    let parsed: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("processed YAML should parse");
+    let devices = parsed
+      .get("signals")
+      .and_then(|v| v.get("sdr"))
+      .and_then(|v| v.get("devices"))
+      .cloned()
+      .expect("expected signals.sdr.devices");
+    let rtl = devices
+      .get("rtl_sdr")
+      .and_then(|v| v.get("sample_rate"))
+      .cloned()
+      .expect("expected rtl_sdr sample_rate");
+    let hack = devices
+      .get("hack_one")
+      .and_then(|v| v.get("sample_rate"))
+      .cloned()
+      .expect("expected hack_one sample_rate");
+    let rtl_rate: Result<crate::server::types::SdrSampleRateSpec, _> =
+      serde_yaml::from_value(rtl);
+    let hack_rate: Result<crate::server::types::SdrSampleRateSpec, _> =
+      serde_yaml::from_value(hack);
+    assert!(rtl_rate.is_ok());
+    assert!(hack_rate.is_ok());
   }
 
   #[test]

@@ -16,13 +16,13 @@ describe("getStableVizPanForZoomChange", () => {
   it("preserves the relative pan position when zoom changes", () => {
     const result = getStableVizPanForZoomChange({
       currentZoom: 4,
-      currentPan: 30,
+      currentPan: 10,
       nextZoom: 2,
       rangeMin: 100,
       rangeMax: 200,
     });
 
-    expect(result).toBeCloseTo(26.5, 4);
+    expect(result).toBeCloseTo(8.8333, 4);
   });
 
   it("clamps to the new zoom range when zooming out near the edge", () => {
