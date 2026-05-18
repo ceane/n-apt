@@ -3,6 +3,16 @@ use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::server::types::SdrProcessorSettings;
 use std::time::{Duration, Instant};
 
+/// CI runners (GitHub Actions' ubuntu-latest) are shared VMs with variable
+/// single-thread perf. Return a multiplier so timing assertions stay valid.
+fn ci_timing_multiplier() -> u32 {
+  if std::env::var("CI").map_or(false, |v| v == "true" || v == "1") {
+    2
+  } else {
+    1
+  }
+}
+
 #[test]
 fn test_sdr_processor_frame_timing_stability() {
   // We use a mock device for this test
@@ -35,12 +45,13 @@ fn test_sdr_processor_frame_timing_stability() {
   println!("Average frame processing time (size=2048): {:?}", avg_time);
 
   // In debug mode, mock signal generation is very slow due to math functions.
-  // In release mode, it should be < 1ms.
-  let limit = if cfg!(debug_assertions) {
+  // In release mode, it should be < 1ms on a dedicated machine.
+  let base_limit = if cfg!(debug_assertions) {
     Duration::from_millis(100)
   } else {
     Duration::from_millis(5)
   };
+  let limit = base_limit * ci_timing_multiplier();
 
   assert!(avg_time < limit, "Processing time too high: {:?}", avg_time);
 }
@@ -68,11 +79,12 @@ fn test_high_resolution_fft_throughput() {
   println!("256k FFT processing time: {:?}", elapsed);
 
   // In debug mode, 256k sin/cos calls + FFT is very slow.
-  let limit = if cfg!(debug_assertions) {
+  let base_limit = if cfg!(debug_assertions) {
     Duration::from_secs(10)
   } else {
     Duration::from_millis(500)
   };
+  let limit = base_limit * ci_timing_multiplier();
 
   assert!(elapsed < limit, "256k FFT took too long: {:?}", elapsed);
 }

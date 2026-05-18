@@ -77,7 +77,10 @@ struct SignalChunkState {
 
 #[inline(always)]
 fn modulation_gain(pulse_sin: f64) -> f64 {
-  10.0f64.powf((5.0 + 5.0 * pulse_sin) / 20.0)
+  // 10^x ≡ e^(x·ln10); exp() is ~3-5× faster than the general powf() path
+  // because powf(base, exp) internally computes exp(exp * ln(base)) plus
+  // additional branch/NaN handling for arbitrary bases.
+  ((5.0 + 5.0 * pulse_sin) * (std::f64::consts::LN_10 / 20.0)).exp()
 }
 
 /// Lightweight snapshot for tracking mock APT generation cost.
