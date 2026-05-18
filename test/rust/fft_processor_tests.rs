@@ -78,10 +78,21 @@ mod tests {
     let result1 = processor1.generate_mock_signal(None).unwrap();
     let result2 = processor2.generate_mock_signal(None).unwrap();
 
-    let checksum1: u64 = result1.power_spectrum.iter().map(|&v| v.to_bits() as u64).sum();
-    let checksum2: u64 = result2.power_spectrum.iter().map(|&v| v.to_bits() as u64).sum();
+    let checksum1: u64 = result1
+      .power_spectrum
+      .iter()
+      .map(|&v| v.to_bits() as u64)
+      .sum();
+    let checksum2: u64 = result2
+      .power_spectrum
+      .iter()
+      .map(|&v| v.to_bits() as u64)
+      .sum();
 
-    assert_eq!(checksum1, checksum2, "mock signal checksum must be deterministic");
+    assert_eq!(
+      checksum1, checksum2,
+      "mock signal checksum must be deterministic"
+    );
   }
 
   #[test]

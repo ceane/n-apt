@@ -89,7 +89,9 @@ mod frequency_validation_tests {
     sleep(Duration::from_millis(100)).await;
 
     // Verify capture metadata
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     assert_eq!(capture_result.job_id, "test-zero-freq");
 
     // Check that frequencies are valid (>= 0Hz)
@@ -297,7 +299,9 @@ mod frequency_validation_tests {
     sleep(Duration::from_millis(300)).await;
 
     // Verify capture metadata contains correct frequencies
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     assert_eq!(capture_result.job_id, "test-valid-freq");
 
     // Check that frequencies are positive and within valid range
@@ -348,7 +352,9 @@ mod frequency_validation_tests {
 
     sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // All channels should have valid frequencies
     for channel in &capture_result.channels {
@@ -391,7 +397,9 @@ mod frequency_validation_tests {
 
     sleep(Duration::from_millis(100)).await;
 
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // Verify frequencies are preserved with reasonable precision
     for channel in &capture_result.channels {
@@ -443,7 +451,9 @@ mod frequency_synchronization_tests {
     processor.start_capture(capture_request)?;
     sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // Verify backend captured at requested frequencies
     assert_eq!(capture_result.channels.len(), 1);
@@ -503,7 +513,9 @@ mod frequency_synchronization_tests {
 
         sleep(Duration::from_millis(300)).await;
 
-        let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+        let capture_result = processor
+          .check_capture_completion()
+          .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
         assert!(capture_result.channels[0].center_freq_hz > 0.0);
 
         processor.stop_capture();
@@ -553,7 +565,9 @@ mod frequency_synchronization_tests {
       Ok(_) => {
         // If it succeeds, verify no duplicate capture
         sleep(Duration::from_millis(100)).await;
-        let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+        let capture_result = processor
+          .check_capture_completion()
+          .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
         // Should have 2 separate channels or merged into 1
         assert!(capture_result.channels.len() >= 1);

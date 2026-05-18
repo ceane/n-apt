@@ -1,4 +1,6 @@
-use n_apt_backend::server::utils::{signals_config, signals_config_modified_at};
+use n_apt_backend::server::utils::{
+  signals_config, signals_config_modified_at,
+};
 use serial_test::serial;
 use std::fs;
 use std::time::Duration;
@@ -63,7 +65,8 @@ fn signals_config_hot_reloads_when_file_changes() {
 
   let initial = signals_config();
   assert_eq!(initial.signals.sdr.sample_rate, 3_200_000);
-  let initial_modified = signals_config_modified_at().expect("initial modified");
+  let initial_modified =
+    signals_config_modified_at().expect("initial modified");
 
   std::thread::sleep(Duration::from_millis(1200));
   write_signals_yaml(&signals_path, "4MHz");
@@ -71,7 +74,8 @@ fn signals_config_hot_reloads_when_file_changes() {
   let reloaded = signals_config();
   assert_eq!(reloaded.signals.sdr.sample_rate, 4_000_000);
 
-  let reloaded_modified = signals_config_modified_at().expect("reloaded modified");
+  let reloaded_modified =
+    signals_config_modified_at().expect("reloaded modified");
   assert!(
     reloaded_modified > initial_modified,
     "signals.yaml modified timestamp should advance after reload"

@@ -31,6 +31,9 @@ pub trait SdrDevice: Send {
   /// Read IQ samples from the device
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
 
+  /// Return an owned IQ sample buffer to devices that can reuse it.
+  fn recycle_read_buffer(&mut self, _buffer: Vec<u8>) {}
+
   /// Set sample rate in Hz
   fn set_sample_rate(&mut self, rate: u32) -> Result<()>;
 
@@ -141,16 +144,18 @@ impl SdrDeviceFactory {
   }
 
   fn create_mock_fallback_device() -> Result<Box<dyn SdrDevice>> {
-    log::info!("No RTL-SDR or HackRF device found, using mock APT implementation");
+    log::info!(
+      "No RTL-SDR or HackRF device found, using mock APT implementation"
+    );
     Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
   }
 }
 
-pub mod mock_apt;
-pub mod hotplug;
-pub mod processor;
 #[cfg(has_hackrf)]
 pub mod hackrf;
+pub mod hotplug;
+pub mod mock_apt;
+pub mod processor;
 pub mod rtlsdr;
 
 // Re-export common types

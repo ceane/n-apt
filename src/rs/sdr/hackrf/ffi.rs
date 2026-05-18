@@ -32,16 +32,31 @@ extern "C" {
     ctx: *mut c_void,
   ) -> c_int;
   pub fn hackrf_stop_rx(device: *mut HackRfDeviceHandle) -> c_int;
-  pub fn hackrf_set_freq(device: *mut HackRfDeviceHandle, freq_hz: u64) -> c_int;
+  pub fn hackrf_set_freq(
+    device: *mut HackRfDeviceHandle,
+    freq_hz: u64,
+  ) -> c_int;
   pub fn hackrf_set_sample_rate_manual(
     device: *mut HackRfDeviceHandle,
     freq_hz: u32,
     divider: c_uint,
   ) -> c_int;
-  pub fn hackrf_set_lna_gain(device: *mut HackRfDeviceHandle, value: u32) -> c_int;
-  pub fn hackrf_set_vga_gain(device: *mut HackRfDeviceHandle, value: u32) -> c_int;
-  pub fn hackrf_set_amp_enable(device: *mut HackRfDeviceHandle, value: u8) -> c_int;
-  pub fn hackrf_set_antenna_enable(device: *mut HackRfDeviceHandle, value: u8) -> c_int;
+  pub fn hackrf_set_lna_gain(
+    device: *mut HackRfDeviceHandle,
+    value: u32,
+  ) -> c_int;
+  pub fn hackrf_set_vga_gain(
+    device: *mut HackRfDeviceHandle,
+    value: u32,
+  ) -> c_int;
+  pub fn hackrf_set_amp_enable(
+    device: *mut HackRfDeviceHandle,
+    value: u8,
+  ) -> c_int;
+  pub fn hackrf_set_antenna_enable(
+    device: *mut HackRfDeviceHandle,
+    value: u8,
+  ) -> c_int;
   pub fn hackrf_set_baseband_filter_bandwidth(
     device: *mut HackRfDeviceHandle,
     bw_hz: u32,

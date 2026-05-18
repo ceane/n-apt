@@ -131,9 +131,7 @@ pub async fn auth_verify_handler(
 
   // Authentication successful — create session with a unique key
   let session_key = crate::crypto::generate_nonce(); // 32 random bytes
-  let token = state
-    .session_store
-    .create_session(session_key);
+  let token = state.session_store.create_session(session_key);
   info!("Password authentication successful, session created");
 
   (
@@ -389,9 +387,7 @@ pub async fn passkey_auth_finish_handler(
     Ok(_auth_result) => {
       // Authentication successful — create session with a unique key
       let session_key = crate::crypto::generate_nonce();
-      let token = state
-        .session_store
-        .create_session(session_key);
+      let token = state.session_store.create_session(session_key);
       info!("Passkey authentication successful, session created");
 
       (

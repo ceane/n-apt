@@ -1,7 +1,6 @@
 use n_apt_backend::server::types::SignalsConfig;
 use n_apt_backend::server::utils::{
-  preprocess_frequency_tags, read_config_file,
-  preprocess_sdr_sample_rate_tags,
+  preprocess_frequency_tags, preprocess_sdr_sample_rate_tags, read_config_file,
 };
 use serde_json;
 

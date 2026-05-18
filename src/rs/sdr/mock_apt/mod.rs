@@ -51,6 +51,8 @@ pub struct MockAptDevice {
   q_accumulator: Vec<f64>,
   byte_buffer: Vec<u8>,
   frame_log_counter: u64,
+  signal_chunk_states: Vec<SignalChunkState>,
+  recycled_byte_buffer: Option<Vec<u8>>,
 }
 
 /// Individual mock APT signal state
@@ -63,13 +65,19 @@ struct MockAptSignal {
   phase: f64,
 }
 
+struct SignalChunkState {
+  p_re: f64,
+  p_im: f64,
+  modulation_phase: f32,
+  frame_start_phase: f64,
+  amp: f64,
+  r_re: f64,
+  r_im: f64,
+}
+
 #[inline(always)]
 fn modulation_gain(pulse_sin: f64) -> f64 {
-  if cfg!(debug_assertions) {
-    10.0f64.powf((5.0 + 5.0 * pulse_sin) / 20.0)
-  } else {
-    10.0f32.powf(((5.0 + 5.0 * pulse_sin) / 20.0) as f32) as f64
-  }
+  10.0f64.powf((5.0 + 5.0 * pulse_sin) / 20.0)
 }
 
 /// Lightweight snapshot for tracking mock APT generation cost.
@@ -130,6 +138,8 @@ impl MockAptDevice {
       q_accumulator: Vec::with_capacity(16384),
       byte_buffer: Vec::with_capacity(32768),
       frame_log_counter: 0,
+      signal_chunk_states: Vec::with_capacity(256),
+      recycled_byte_buffer: None,
     }
   }
 
@@ -346,6 +356,13 @@ impl SdrDevice for MockAptDevice {
     self.read_samples_sync(fft_size)
   }
 
+  fn recycle_read_buffer(&mut self, mut buffer: Vec<u8>) {
+    if self.recycled_byte_buffer.is_none() {
+      buffer.clear();
+      self.recycled_byte_buffer = Some(buffer);
+    }
+  }
+
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
     self.sample_rate = rate;
     log::debug!("Mock device sample rate set to {} Hz", rate);
@@ -503,27 +520,15 @@ impl MockAptDevice {
 
     const CHUNK_SIZE: usize = 1024;
 
-    // 1. Filter active signals
-    let active_signals: Vec<&mut MockAptSignal> =
-      self.signals.iter_mut().filter(|s| s.active).collect();
-
-    if !active_signals.is_empty() {
+    if self.signals.iter().any(|s| s.active) {
       // 2. Pre-calculate starting states for each signal per chunk to ensure bit-identity
-      struct SignalChunkState {
-        p_re: f64,
-        p_im: f64,
-        modulation_phase: f32,
-        frame_start_phase: f64,
-        amp: f64,
-        r_re: f64,
-        r_im: f64,
-      }
-
       let num_chunks = (fft_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
-      let mut signal_states =
-        Vec::with_capacity(active_signals.len() * num_chunks);
+      self.signal_chunk_states.clear();
+      self
+        .signal_chunk_states
+        .reserve(self.signals.len().saturating_mul(num_chunks));
 
-      for signal in active_signals {
+      for signal in self.signals.iter_mut().filter(|s| s.active) {
         let abs_freq_hz =
           signal.config.center_frequency_hz + (signal.drift_offset as f64);
         let effective_center_freq =
@@ -554,7 +559,7 @@ impl MockAptDevice {
         let mut current_mod_phase = signal.modulation_phase;
 
         for chunk_idx in 0..num_chunks {
-          signal_states.push(SignalChunkState {
+          self.signal_chunk_states.push(SignalChunkState {
             p_re,
             p_im,
             modulation_phase: current_mod_phase,
@@ -594,7 +599,7 @@ impl MockAptDevice {
       }
 
       // 3. Chunk processing
-      let signal_states_ref = &signal_states;
+      let signal_states_ref = &self.signal_chunk_states;
       let signal_count = signal_states_ref.len() / num_chunks;
       let use_parallel = fft_size >= 65536 && signal_count > 1;
 
@@ -711,8 +716,12 @@ impl MockAptDevice {
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
 
-    let data = std::mem::take(&mut self.byte_buffer);
-    self.byte_buffer.reserve(fft_size * 2);
+    let next_buffer = self
+      .recycled_byte_buffer
+      .take()
+      .filter(|buffer| buffer.capacity() >= fft_size * 2)
+      .unwrap_or_else(|| Vec::with_capacity(fft_size * 2));
+    let data = std::mem::replace(&mut self.byte_buffer, next_buffer);
     self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
     Ok(RawSamples {
       data,

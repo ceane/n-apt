@@ -94,9 +94,13 @@ impl HackRfDevice {
 
   fn set_sample_rate_inner(&mut self, rate: u32) -> Result<()> {
     let clamped = rate.clamp(HACKRF_MIN_SAMPLE_RATE, HACKRF_MAX_SAMPLE_RATE);
-    let ret = unsafe { ffi::hackrf_set_sample_rate_manual(self.dev, clamped, 1) };
+    let ret =
+      unsafe { ffi::hackrf_set_sample_rate_manual(self.dev, clamped, 1) };
     if ret != 0 {
-      return Err(anyhow!("Failed to set HackRF sample rate to {} Hz", clamped));
+      return Err(anyhow!(
+        "Failed to set HackRF sample rate to {} Hz",
+        clamped
+      ));
     }
     self.sample_rate = clamped;
     Ok(())
@@ -149,7 +153,10 @@ impl SdrDevice for HackRfDevice {
     !self.dev.is_null()
   }
 
-  fn read_samples(&mut self, fft_size: usize) -> Result<crate::fft::types::RawSamples> {
+  fn read_samples(
+    &mut self,
+    fft_size: usize,
+  ) -> Result<crate::fft::types::RawSamples> {
     self.ensure_streaming()?;
     let mut frame = self
       .rx_queue
@@ -164,7 +171,8 @@ impl SdrDevice for HackRfDevice {
     }
 
     if self.iq_buffer.capacity() < target_len {
-      self.iq_buffer
+      self
+        .iq_buffer
         .reserve(target_len - self.iq_buffer.capacity());
     }
     self.iq_buffer.clear();
@@ -220,7 +228,8 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()> {
-    let ret = unsafe { ffi::hackrf_set_baseband_filter_bandwidth(self.dev, bw) };
+    let ret =
+      unsafe { ffi::hackrf_set_baseband_filter_bandwidth(self.dev, bw) };
     if ret != 0 {
       return Err(anyhow!("Failed to set baseband bandwidth to {}", bw));
     }

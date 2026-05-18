@@ -1,7 +1,7 @@
 use n_apt_backend::sdr::hotplug::scan_usb_for_supported_device;
 use n_apt_backend::sdr::SdrDeviceFactory;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 #[test]
 #[ignore]
@@ -11,7 +11,9 @@ fn hotplug_smoke_scan_reports_supported_device() {
     return;
   }
 
-  eprintln!("Hotplug watch running. Plug/unplug the SDR, then press Ctrl+C to stop.");
+  eprintln!(
+    "Hotplug watch running. Plug/unplug the SDR, then press Ctrl+C to stop."
+  );
   let mut last_seen: Option<String> = None;
   loop {
     let seen = scan_usb_for_supported_device()
@@ -51,12 +53,10 @@ fn hotplug_smoke_scan_reports_supported_device() {
             }
           }
         }
-        None => {
-          match &last_seen {
-            Some(previous) => eprintln!("{} disconnected", previous),
-            None => eprintln!("No supported USB device detected"),
-          }
-        }
+        None => match &last_seen {
+          Some(previous) => eprintln!("{} disconnected", previous),
+          None => eprintln!("No supported USB device detected"),
+        },
       }
       last_seen = seen;
     }

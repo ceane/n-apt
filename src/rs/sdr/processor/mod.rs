@@ -41,6 +41,7 @@ pub struct SdrFrameState {
   pub last_frame_raw_iq: Vec<u8>,
   pub raw_iq_history: VecDeque<Vec<u8>>,
   pub raw_iq_history_capacity: usize,
+  pub spectrum_buffer: Vec<f32>,
 }
 
 // Helper: trim a list of CaptureChannel to a subset matching ChannelSpec[]
@@ -132,6 +133,7 @@ impl SdrFrameState {
       last_frame_raw_iq: Vec::with_capacity(reserve),
       raw_iq_history: VecDeque::with_capacity(raw_iq_history_capacity),
       raw_iq_history_capacity,
+      spectrum_buffer: Vec::with_capacity(fft_size),
     }
   }
 
@@ -161,18 +163,6 @@ impl SdrFrameState {
       resized.extend(self.raw_iq_history.drain(..));
       self.raw_iq_history = resized;
     }
-  }
-
-  fn push_raw_iq_frame(&mut self, frame: Vec<u8>) {
-    if self.raw_iq_history_capacity == 0 {
-      return;
-    }
-
-    if self.raw_iq_history.len() == self.raw_iq_history_capacity {
-      self.raw_iq_history.pop_front();
-    }
-
-    self.raw_iq_history.push_back(frame);
   }
 }
 
@@ -612,9 +602,12 @@ impl SdrProcessor {
       sample_rate,
     };
 
-    // Process the samples through FFT
-    let result = self.fft_processor.process_samples(&display_samples)?;
-    let mut spectrum = result.power_spectrum;
+    // Process the samples through FFT, keeping the hot live path allocation-free.
+    self.fft_processor.process_samples_power(
+      &display_samples,
+      &mut self.frame.spectrum_buffer,
+    )?;
+    let spectrum = &mut self.frame.spectrum_buffer;
 
     // DC spike suppression (skip for mock devices as they don't have hardware DC offset)
     let len = spectrum.len();
@@ -657,13 +650,16 @@ impl SdrProcessor {
           .extend_from_slice(&display_samples.data);
         self.capture_channels[ch_idx]
           .spectrum_data
-          .extend_from_slice(&spectrum);
+          .extend_from_slice(spectrum);
       }
       self.capture_actual_frames += 1;
     }
 
-    self.frame.push_raw_iq_frame(display_samples.data.clone());
-    self.frame.last_frame_raw_iq = display_samples.data;
+    let previous_iq_buffer = std::mem::replace(
+      &mut self.frame.last_frame_raw_iq,
+      display_samples.data,
+    );
+    self.device.recycle_read_buffer(previous_iq_buffer);
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)
@@ -728,7 +724,7 @@ impl SdrProcessor {
           config.zoom_width = size;
           self.display_frame_rate = Self::calculate_valid_frame_rate(size);
           self.frame.resize_raw_iq_history(size);
-          
+
           // Pre-reserve large contiguous blocks for raw IQ processing.
           // This is critical on macOS to prevent aggressive memory compression/optimization
           // from triggering page faults during high-speed DSP cycles.
@@ -736,6 +732,7 @@ impl SdrProcessor {
           self.frame.iq_accumulator.reserve_exact(reserve_samples);
           self.frame.iq_frame.reserve_exact(reserve_samples);
           self.frame.last_frame_raw_iq.reserve_exact(reserve_samples);
+          self.frame.spectrum_buffer.reserve_exact(size);
 
           config_changed = true;
         }
@@ -1239,10 +1236,10 @@ impl SdrProcessor {
       overall_max = overall_max.max(max_freq);
 
       let span = max_freq - min_freq;
-      
+
       if mode_str == "whole_sample" {
         if span > hw_sample_rate {
-           return Err(anyhow::anyhow!(
+          return Err(anyhow::anyhow!(
              "Requested bandwidth ({:.2}MHz) exceeds hardware sample rate ({:.2}MHz) in whole_sample mode",
              span / 1_000_000.0,
              hw_sample_rate / 1_000_000.0
@@ -1286,7 +1283,7 @@ impl SdrProcessor {
             // Distribute hops so that the "usable" centers cover the range.
             min_freq + (usable_bw_hz / 2.0) + (i as f64 * usable_bw_hz)
           };
-          
+
           let hop_start = center - hw_bw_hz / 2.0;
           all_hops.push((hop_start, hop_start + hw_bw_hz));
           capture_channels.push(CaptureChannel {
@@ -1308,7 +1305,7 @@ impl SdrProcessor {
     self.capture_is_manual_mode = request.duration_mode == "manual";
     self.capture_file_type = request.file_type;
     self.capture_acquisition_mode = mode_str;
-    
+
     self.capture_encrypted = request.encrypted;
     self.capture_fft_size = request.fft_size;
     self.capture_fft_window = request.fft_window;
@@ -1320,7 +1317,8 @@ impl SdrProcessor {
     self.capture_requested_range = Some((overall_min, overall_max));
     self.capture_start = Some(std::time::Instant::now());
     self.capture_bandwidth = request.bandwidth;
-    self.capture_bandwidth_center_frequency = request.bandwidth_center_frequency;
+    self.capture_bandwidth_center_frequency =
+      request.bandwidth_center_frequency;
     self.capture_active = true;
     self.capture_manual_stop = false;
 
@@ -1369,14 +1367,15 @@ impl SdrProcessor {
       "timed"
     }
     .to_string();
-    let actual_duration_s = if self.capture_is_manual_mode || self.capture_manual_stop {
-      self
-        .capture_start
-        .map(|start| start.elapsed().as_secs_f64())
-        .unwrap_or(self.capture_duration_s)
-    } else {
-      self.capture_duration_s
-    };
+    let actual_duration_s =
+      if self.capture_is_manual_mode || self.capture_manual_stop {
+        self
+          .capture_start
+          .map(|start| start.elapsed().as_secs_f64())
+          .unwrap_or(self.capture_duration_s)
+      } else {
+        self.capture_duration_s
+      };
     self.capture_is_manual_mode = false;
     self.capture_manual_stop = false;
     let job_id = self
@@ -1494,7 +1493,9 @@ impl SdrProcessor {
         None
       },
       bandwidth: self.capture_bandwidth.take(),
-      bandwidth_center_frequency: self.capture_bandwidth_center_frequency.take(),
+      bandwidth_center_frequency: self
+        .capture_bandwidth_center_frequency
+        .take(),
     })
   }
 

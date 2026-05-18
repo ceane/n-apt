@@ -127,7 +127,6 @@ fn test_derive_key_trimming() {
   );
 }
 
-
 #[test]
 fn test_checksum_integrity_and_corruption() {
   let _dir = tempdir().unwrap();

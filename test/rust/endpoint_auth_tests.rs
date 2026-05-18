@@ -1,15 +1,15 @@
 use axum_test::TestServer;
 use axum_test::WsMessage;
-use n_apt_backend::crypto;
 use n_apt_backend::authentication::CredentialStore;
+use n_apt_backend::crypto;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::types::SpectrumData;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use serial_test::serial;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use url::Url;
 use webauthn_rs::prelude::*;
@@ -30,7 +30,8 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>) {
   std::env::set_var("HOME", temp_dir.path());
 
   let shared = SharedState::new("redis://127.0.0.1:6379");
-  let credential_store = CredentialStore::new().expect("Failed to create credential store");
+  let credential_store =
+    CredentialStore::new().expect("Failed to create credential store");
   let session_store = SessionStore::new("redis://127.0.0.1:6379").unwrap();
 
   let rp_id = "localhost";
@@ -80,7 +81,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
     } else {
       server.get(path).await
     };
-    
+
     response.assert_status_unauthorized();
   }
 }
@@ -98,10 +99,10 @@ async fn test_protected_endpoints_allow_authorized() {
     .get("/api/towers/bounds")
     .add_header(
       axum::http::header::AUTHORIZATION,
-      axum::http::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap()
+      axum::http::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
     )
     .await;
-  
+
   // Should not be 401. It might be 400 if params are missing, but not 401.
   assert_ne!(response.status_code(), axum::http::StatusCode::UNAUTHORIZED);
 }
@@ -115,10 +116,10 @@ async fn test_invalid_token_denied() {
     .get("/api/towers/bounds")
     .add_header(
       axum::http::header::AUTHORIZATION,
-      axum::http::HeaderValue::from_static("Bearer invalid-token")
+      axum::http::HeaderValue::from_static("Bearer invalid-token"),
     )
     .await;
-  
+
   response.assert_status_unauthorized();
 }
 
@@ -129,9 +130,7 @@ async fn test_vault_key_matches_shared_password_key() {
 
   let token = state.session_store.create_session([0u8; 32]);
 
-  let response = server
-    .get(&format!("/auth/vault-key?token={token}"))
-    .await;
+  let response = server.get(&format!("/auth/vault-key?token={token}")).await;
   response.assert_status_ok();
 
   let json = response.json::<serde_json::Value>();
@@ -154,11 +153,8 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
   let token = state.session_store.create_session(session_key);
 
   let ws_path = format!("/ws?token={token}");
-  let mut websocket = server
-    .get_websocket(&ws_path)
-    .await
-    .into_websocket()
-    .await;
+  let mut websocket =
+    server.get_websocket(&ws_path).await.into_websocket().await;
 
   let _status = websocket.receive_text().await;
 
@@ -179,9 +175,8 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
     }))
     .expect("spectrum frame should broadcast to websocket");
 
-  let frame_bytes = tokio::time::timeout(
-    std::time::Duration::from_secs(2),
-    async {
+  let frame_bytes =
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
       loop {
         match websocket.receive_message().await {
           WsMessage::Binary(bytes) => return bytes,
@@ -189,10 +184,9 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
           other => panic!("unexpected websocket message: {other:?}"),
         }
       }
-    },
-  )
-  .await
-  .expect("timed out waiting for encrypted live frame");
+    })
+    .await
+    .expect("timed out waiting for encrypted live frame");
 
   assert_eq!(&frame_bytes[0..8], &123u64.to_le_bytes());
   assert_eq!(&frame_bytes[8..16], &137_500_000u64.to_le_bytes());

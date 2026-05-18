@@ -79,10 +79,7 @@ pub fn preprocess_frequency_tags(content: &str) -> String {
 }
 
 pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
-  let re_floor_max = Regex::new(
-    r"sample_rate:\s*!floor\.\.\.!max\b",
-  )
-  .unwrap();
+  let re_floor_max = Regex::new(r"sample_rate:\s*!floor\.\.\.!max\b").unwrap();
   let content = re_floor_max
     .replace_all(
       content,
@@ -92,18 +89,12 @@ pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
 
   let re_max = Regex::new(r"sample_rate:\s*!max\b").unwrap();
   let content = re_max
-    .replace_all(
-      &content,
-      "sample_rate: \"__NAPT_SAMPLE_RATE_MAX__\"",
-    )
+    .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_MAX__\"")
     .to_string();
 
   let re_floor = Regex::new(r"sample_rate:\s*!floor\b").unwrap();
   re_floor
-    .replace_all(
-      &content,
-      "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"",
-    )
+    .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"")
     .to_string()
 }
 
@@ -137,7 +128,8 @@ pub fn read_config_file(
 
 #[cfg(test)]
 pub(crate) fn cwd_lock() -> &'static std::sync::Mutex<()> {
-  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
   LOCK.get_or_init(|| std::sync::Mutex::new(()))
 }
 
@@ -232,7 +224,8 @@ pub fn signals_config() -> super::types::SignalsConfig {
               std::fs::read_to_string(path).ok()
             } else {
               std::fs::read_to_string(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&cached.filename),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join(&cached.filename),
               )
               .ok()
             };
@@ -267,7 +260,8 @@ pub fn signals_config() -> super::types::SignalsConfig {
               std::fs::read_to_string(path).ok()
             } else {
               std::fs::read_to_string(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&cached.filename),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join(&cached.filename),
               )
               .ok()
             };
@@ -380,10 +374,7 @@ pub fn compute_min_receive_sample_rate(
   min_receive_sample_rate.min(sdr_sample_rate)
 }
 
-pub fn apply_min_receive_sample_rate(
-  sdr: &mut SdrConfig,
-  napt: &NaptConfig,
-) {
+pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
   let min_receive_sample_rate =
     compute_min_receive_sample_rate(napt, sdr.sample_rate);
   sdr.min_receive_sample_rate = Some(min_receive_sample_rate);

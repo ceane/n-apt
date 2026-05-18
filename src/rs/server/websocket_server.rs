@@ -76,36 +76,36 @@ pub(crate) fn broadcast_device_status(
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
     shared.device_loading_reason.lock().unwrap().clone();
-  let device_loading_attempt =
-    shared.recovery_attempts.load(Ordering::Relaxed);
+  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
-  let (device_limits, sample_rate_options) = if let Some(device_cfg) =
-    sdr_settings.devices.get(&device_profile.kind)
-  {
-    (
-      device_cfg
-        .limits
-        .as_ref()
-        .map(|limits| limits.resolve_markers())
-        .unwrap_or_default(),
-      device_cfg.sample_rate.resolve_options(
-        sdr_settings.min_receive_sample_rate.unwrap_or(sdr_settings.sample_rate),
-        sdr_settings.sample_rate,
-      ),
-    )
-  } else {
-    (
-      sdr_settings
-        .limits
-        .as_ref()
-        .map(|limits| limits.resolve_markers())
-        .unwrap_or_default(),
-      vec![sdr_settings.sample_rate],
-    )
-  };
+  let (device_limits, sample_rate_options) =
+    if let Some(device_cfg) = sdr_settings.devices.get(&device_profile.kind) {
+      (
+        device_cfg
+          .limits
+          .as_ref()
+          .map(|limits| limits.resolve_markers())
+          .unwrap_or_default(),
+        device_cfg.sample_rate.resolve_options(
+          sdr_settings
+            .min_receive_sample_rate
+            .unwrap_or(sdr_settings.sample_rate),
+          sdr_settings.sample_rate,
+        ),
+      )
+    } else {
+      (
+        sdr_settings
+          .limits
+          .as_ref()
+          .map(|limits| limits.resolve_markers())
+          .unwrap_or_default(),
+        vec![sdr_settings.sample_rate],
+      )
+    };
 
   let normalize_rtl_device_name = |raw_name: &str| {
     let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
@@ -779,7 +779,9 @@ impl WebSocketServer {
       //   • Real unhealthy: debounce ≥ DISCONNECT_FAILURE_THRESHOLD strikes,
       //     attempt recovery, only then fall back to mock.
       //   • Every state change is broadcast immediately.
-      if hotplug_state.last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
+      if hotplug_state.last_poll.elapsed()
+        >= super::shared_state::HEALTH_CHECK_INTERVAL
+      {
         let mut processor = sdr_processor.lock().await;
         crate::sdr::hotplug::maybe_attach_hotplugged_device(
           &hotplug_monitor,
@@ -962,7 +964,6 @@ impl WebSocketServer {
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
           }
-
         }
         Ok(Err(e)) => {
           // ── Read error: use the same debounced recovery logic ──
@@ -1065,7 +1066,8 @@ impl WebSocketServer {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
                 hotplug_state.last_failure_at = Some(Instant::now());
-                tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown).await;
+                tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown)
+                  .await;
               }
 
               // Brief settle regardless
@@ -1084,10 +1086,16 @@ impl WebSocketServer {
 
                 match crate::sdr::SdrDeviceFactory::create_device() {
                   Ok(new_device)
-                    if !new_device.device_type().to_ascii_lowercase().contains("mock") =>
+                    if !new_device
+                      .device_type()
+                      .to_ascii_lowercase()
+                      .contains("mock") =>
                   {
                     if let Err(swap_e) = processor.swap_device(new_device) {
-                      error!("Failed to swap to preferred device on read error: {}", swap_e);
+                      error!(
+                        "Failed to swap to preferred device on read error: {}",
+                        swap_e
+                      );
                     } else {
                       shared_state.update_device_status(
                         true,
@@ -1102,7 +1110,10 @@ impl WebSocketServer {
                     let mock_device =
                       crate::sdr::SdrDeviceFactory::create_mock_device();
                     if let Err(swap_e) = processor.swap_device(mock_device) {
-                      error!("Failed to swap to mock on read error: {}", swap_e);
+                      error!(
+                        "Failed to swap to mock on read error: {}",
+                        swap_e
+                      );
                     } else {
                       shared_state.update_device_status(
                         false,
@@ -1310,7 +1321,8 @@ mod tests {
     shared.recovery_attempts.store(1, Ordering::Relaxed);
     shared.set_device_state("loading", Some("restart"));
 
-    let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
+    let device_loading_attempt =
+      shared.recovery_attempts.load(Ordering::Relaxed);
     let payload = serde_json::json!({
       "device_loading_reason": "restart",
       "device_loading_attempt": device_loading_attempt,
@@ -1347,7 +1359,7 @@ mod tests {
     broadcast_device_status(&shared, &broadcast_tx);
 
     let payload = serde_json::from_str::<serde_json::Value>(
-      &broadcast_rx.try_recv().expect("status broadcast")
+      &broadcast_rx.try_recv().expect("status broadcast"),
     )
     .expect("status payload should be valid JSON");
 
@@ -1359,7 +1371,10 @@ mod tests {
       payload["device_loading_attempt_max"],
       crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
     );
-    assert_eq!(payload["sample_rate_options"], serde_json::json!([3_200_000]));
+    assert_eq!(
+      payload["sample_rate_options"],
+      serde_json::json!([3_200_000])
+    );
     let markers = payload["sdr_limit_markers"]
       .as_array()
       .expect("sdr_limit_markers should be an array");
@@ -1413,22 +1428,17 @@ fn handle_stopped_capture(
       return;
     }
 
-    match crate::server::utils::save_capture_file_multi(
-      &result, &enc_key,
-    ) {
+    match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
       Ok(artifact) => {
         let mut artifacts = shared_clone
           .get_capture_artifacts(&result.job_id)
           .unwrap_or_default();
         artifacts.push(artifact.clone());
 
-        if let Err(e) = shared_clone
-          .store_capture_artifacts(&result.job_id, &artifacts)
+        if let Err(e) =
+          shared_clone.store_capture_artifacts(&result.job_id, &artifacts)
         {
-          error!(
-            "Failed to store capture artifacts in Redis: {}",
-            e
-          );
+          error!("Failed to store capture artifacts in Redis: {}", e);
         }
 
         let timestamp = std::time::SystemTime::now()

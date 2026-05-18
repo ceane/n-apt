@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
+use std::arch::wasm32::*;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
-#[cfg(target_arch = "wasm32")]
-use std::arch::wasm32::*;
 
 /// Estimate quantization uncertainty from sample rate and FFT size
 fn estimate_quantization_error(fs_hz: f64, fft_size: usize) -> f64 {
@@ -84,11 +84,13 @@ pub fn match_noise_floor_db_with_limit(
   {
     let delta_vec = unsafe { f32x4_splat(delta) };
     let (prefix, middle, suffix) = unsafe { target.align_to_mut::<v128>() };
-    
+
     for x in prefix {
-      if x.is_finite() { *x += delta; }
+      if x.is_finite() {
+        *x += delta;
+      }
     }
-    
+
     for x in middle {
       unsafe {
         let val = *x;
@@ -97,9 +99,11 @@ pub fn match_noise_floor_db_with_limit(
         *x = f32x4_add(val, delta_vec);
       }
     }
-    
+
     for x in suffix {
-      if x.is_finite() { *x += delta; }
+      if x.is_finite() {
+        *x += delta;
+      }
     }
   }
 
@@ -259,22 +263,25 @@ pub fn stitch_whole_channel_waveform_wasm(
     );
 
     // Crossfade overlap region if seam_bins > 0
-    if seam_bins > 0 && prev.waveform.len() >= seam_bins && next.waveform.len() >= seam_bins {
-        let prev_waveform = &prev.waveform;
-        let next_waveform = &next.waveform;
-        let mut result = Vec::with_capacity(seam_bins);
-        let prev_start = prev_waveform.len() - seam_bins;
-        
-        for j in 0..seam_bins {
-            let t = j as f32 / (seam_bins - 1) as f32;
-            let val = lerp(prev_waveform[prev_start + j], next_waveform[j], t);
-            result.push(val);
-        }
-        
-        // Update next waveform's beginning with crossfaded data
-        for (j, &val) in result.iter().enumerate() {
-            next.waveform[j] = val;
-        }
+    if seam_bins > 0
+      && prev.waveform.len() >= seam_bins
+      && next.waveform.len() >= seam_bins
+    {
+      let prev_waveform = &prev.waveform;
+      let next_waveform = &next.waveform;
+      let mut result = Vec::with_capacity(seam_bins);
+      let prev_start = prev_waveform.len() - seam_bins;
+
+      for j in 0..seam_bins {
+        let t = j as f32 / (seam_bins - 1) as f32;
+        let val = lerp(prev_waveform[prev_start + j], next_waveform[j], t);
+        result.push(val);
+      }
+
+      // Update next waveform's beginning with crossfaded data
+      for (j, &val) in result.iter().enumerate() {
+        next.waveform[j] = val;
+      }
     }
   }
 
@@ -303,41 +310,53 @@ pub fn stitch_whole_channel_waveform_wasm(
   let mut target = vec![0.0f32; target_bins];
   // Sort segments by frequency for linear scanning optimization
   let mut sorted_segments = processed_segments;
-  sorted_segments.sort_by(|a, b| a.visual_range.min.partial_cmp(&b.visual_range.min).unwrap_or(std::cmp::Ordering::Equal));
+  sorted_segments.sort_by(|a, b| {
+    a.visual_range
+      .min
+      .partial_cmp(&b.visual_range.min)
+      .unwrap_or(std::cmp::Ordering::Equal)
+  });
 
   let mut current_segment_idx = 0;
   for i in 0..target_bins {
     let freq = min_freq + (i as f64 / target_bins as f64) * total_span;
-    
+
     // Fast forward to the first potential segment (O(N+M) total complexity)
-    while current_segment_idx < sorted_segments.len() && freq > sorted_segments[current_segment_idx].visual_range.max {
+    while current_segment_idx < sorted_segments.len()
+      && freq > sorted_segments[current_segment_idx].visual_range.max
+    {
       current_segment_idx += 1;
     }
 
     // Check current and subsequent overlapping segments (usually only 1 or 2)
     let mut found = false;
     let mut check_idx = current_segment_idx;
-    while check_idx < sorted_segments.len() && freq >= sorted_segments[check_idx].visual_range.min {
+    while check_idx < sorted_segments.len()
+      && freq >= sorted_segments[check_idx].visual_range.min
+    {
       let segment = &sorted_segments[check_idx];
       if freq <= segment.visual_range.max {
         let span = segment.visual_range.max - segment.visual_range.min;
         if span > 0.0 {
           let t = (freq - segment.visual_range.min) / span;
           let idx = (t * (segment.waveform.len() - 1) as f64).round() as usize;
-          
+
           if idx < segment.waveform.len() {
             target[i] = segment.waveform[idx];
             found = true;
-            break; 
+            break;
           }
         }
       }
       check_idx += 1;
     }
-    
+
     if !found {
       // Use noise floor from the nearest segment if available
-      if let Some(seg) = sorted_segments.get(current_segment_idx).or(sorted_segments.last()) {
+      if let Some(seg) = sorted_segments
+        .get(current_segment_idx)
+        .or(sorted_segments.last())
+      {
         target[i] = seg.db_min.unwrap_or(-120.0);
       } else {
         target[i] = -120.0;

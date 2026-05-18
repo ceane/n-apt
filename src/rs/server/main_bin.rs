@@ -53,7 +53,9 @@ fn require_local_password_env() -> Result<()> {
     bail!(".env.local missing, run npm run setup");
   }
 
-  bail!("UNSAFE_LOCAL_USER_PASSWORD missing from .env.local, run npm run setup");
+  bail!(
+    "UNSAFE_LOCAL_USER_PASSWORD missing from .env.local, run npm run setup"
+  );
 }
 
 #[tokio::main]

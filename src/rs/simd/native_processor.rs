@@ -107,11 +107,15 @@ impl SIMDProcessor for NativeProcessor {
     if self.window_type != WindowType::None
       && self.window_type != WindowType::Rectangular
     {
-      let window_coeffs = self.get_window_coeffs();
+      if self.window_cache.is_none() {
+        self.window_cache =
+          Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
+      }
+      let window_coeffs = self.window_cache.as_deref().unwrap();
       crate::simd::arm_optimized_common::ARMOptimizedSIMD::apply_window_arm_optimized(
         &mut self.re_buf,
         &mut self.im_buf,
-        &window_coeffs,
+        window_coeffs,
       );
     }
 
@@ -182,15 +186,6 @@ impl NativeProcessor {
     output: &mut [f32],
   ) -> Result<()> {
     <Self as SIMDProcessor>::process_samples(self, samples, output)
-  }
-
-  /// Get or compute window coefficients using common function
-  fn get_window_coeffs(&mut self) -> Vec<f32> {
-    if self.window_cache.is_none() {
-      self.window_cache =
-        Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
-    }
-    self.window_cache.as_ref().unwrap().clone()
   }
 }
 

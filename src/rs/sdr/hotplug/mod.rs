@@ -1,11 +1,11 @@
+use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use crate::server::shared_state::{
   SharedState, DEVICE_PROBE_INTERVAL, DISCONNECT_FAILURE_THRESHOLD,
   MAX_RECOVERY_ATTEMPTS,
 };
-use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use anyhow::{anyhow, Result};
-use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
 use log::{debug, error, info, warn};
+use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -34,7 +34,11 @@ impl HotplugState {
       last_poll: now,
       last_hardware_swap: None,
       last_failure_at: None,
-      last_seen_device_count: if supported_usb_device_present() { 1 } else { 0 },
+      last_seen_device_count: if supported_usb_device_present() {
+        1
+      } else {
+        0
+      },
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
     }
@@ -127,10 +131,13 @@ fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
   let _registration = HotplugBuilder::new()
     .enumerate(true)
     .register(ctx.as_ref(), Box::new(MonitorCallback { tx }))
-    .map_err(|e| anyhow!("Failed to register libusb hotplug callback: {}", e))?;
+    .map_err(|e| {
+      anyhow!("Failed to register libusb hotplug callback: {}", e)
+    })?;
 
   loop {
-    ctx.handle_events(None)
+    ctx
+      .handle_events(None)
       .map_err(|e| anyhow!("libusb event loop error: {}", e))?;
   }
 }
@@ -203,10 +210,16 @@ pub async fn drain_hotplug_events(
     );
     state.last_seen_device_count = current_count;
     if current_count == 0 && !processor.is_mock() {
-      let _ = disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
+      let _ =
+        disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
     } else if current_count > 0 && processor.is_mock() {
-      if let Err(e) = attach_real_device(processor, shared_state, broadcast_tx).await {
-        error!("hotplug attach failed after device-count reconciliation: {}", e);
+      if let Err(e) =
+        attach_real_device(processor, shared_state, broadcast_tx).await
+      {
+        error!(
+          "hotplug attach failed after device-count reconciliation: {}",
+          e
+        );
       } else {
         state.last_hardware_swap = Some(Instant::now());
       }
@@ -252,12 +265,15 @@ async fn attach_real_device(
   let mut new_device = None;
   for attempt in 1..=5 {
     match SdrDeviceFactory::create_device() {
-      Ok(device) if !device.device_type().to_ascii_lowercase().contains("mock") => {
+      Ok(device)
+        if !device.device_type().to_ascii_lowercase().contains("mock") =>
+      {
         new_device = Some(device);
         break;
       }
       Ok(_) => {
-        last_err = Some(anyhow!("No supported real device available during attach"));
+        last_err =
+          Some(anyhow!("No supported real device available during attach"));
         warn!(
           "Supported device open attempt {} of 5 returned mock; retrying",
           attempt
@@ -278,7 +294,8 @@ async fn attach_real_device(
   let new_device = match new_device {
     Some(device) => device,
     None => {
-      let err = last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
+      let err =
+        last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
       shared_state.set_device_state("disconnected", None);
       broadcast_device_status(shared_state, broadcast_tx);
       return Err(err);
@@ -351,7 +368,9 @@ pub async fn handle_real_hardware_health(
     let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
     if prev > 0 {
       info!("Device health restored after {} failure(s)", prev);
-      shared_state.health_failure_streak.store(0, Ordering::Relaxed);
+      shared_state
+        .health_failure_streak
+        .store(0, Ordering::Relaxed);
       shared_state.recovery_attempts.store(0, Ordering::Relaxed);
       shared_state.set_device_state("connected", None);
       broadcast_device_status(shared_state, broadcast_tx);
@@ -375,7 +394,10 @@ pub async fn handle_real_hardware_health(
       let _ = stop_capture(processor);
       let mock_device = SdrDeviceFactory::create_mock_device();
       if let Err(e) = processor.swap_device(mock_device) {
-        error!("Failed to fall back to mock device after early unplug: {}", e);
+        error!(
+          "Failed to fall back to mock device after early unplug: {}",
+          e
+        );
       } else {
         shared_state.update_device_status(
           false,
@@ -388,7 +410,9 @@ pub async fn handle_real_hardware_health(
     }
 
     if !is_recovery_budget_exhausted(recovery_count, MAX_RECOVERY_ATTEMPTS) {
-      shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
+      shared_state
+        .recovery_attempts
+        .fetch_add(1, Ordering::Relaxed);
       shared_state.set_device_state("loading", Some("restart"));
       broadcast_device_status(shared_state, broadcast_tx);
       info!(
@@ -424,7 +448,10 @@ pub async fn handle_real_hardware_health(
       let _ = stop_capture(processor);
       let mock_device = SdrDeviceFactory::create_mock_device();
       if let Err(e) = processor.swap_device(mock_device) {
-        error!("Failed to fall back to mock device after confirmed unplug: {}", e);
+        error!(
+          "Failed to fall back to mock device after confirmed unplug: {}",
+          e
+        );
       } else {
         shared_state.update_device_status(
           false,

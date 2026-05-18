@@ -28,56 +28,456 @@ struct StateBounds {
 }
 
 static STATE_BOUNDARIES: &[(&str, StateBounds)] = &[
-  ("AL", StateBounds { min_lat: 30.2, max_lat: 35.0, min_lng: -88.5, max_lng: -84.9 }),
-  ("AK", StateBounds { min_lat: 51.2, max_lat: 71.4, min_lng: -179.1, max_lng: -129.9 }),
-  ("AZ", StateBounds { min_lat: 31.3, max_lat: 37.0, min_lng: -114.8, max_lng: -109.0 }),
-  ("AR", StateBounds { min_lat: 33.0, max_lat: 36.5, min_lng: -94.6, max_lng: -89.6 }),
-  ("CA", StateBounds { min_lat: 32.5, max_lat: 42.0, min_lng: -124.4, max_lng: -114.1 }),
-  ("CO", StateBounds { min_lat: 37.0, max_lat: 41.0, min_lng: -109.1, max_lng: -102.0 }),
-  ("CT", StateBounds { min_lat: 40.9, max_lat: 42.0, min_lng: -73.7, max_lng: -71.8 }),
-  ("DE", StateBounds { min_lat: 38.4, max_lat: 39.8, min_lng: -75.8, max_lng: -75.0 }),
-  ("FL", StateBounds { min_lat: 24.4, max_lat: 31.0, min_lng: -87.6, max_lng: -79.8 }),
-  ("GA", StateBounds { min_lat: 30.4, max_lat: 35.0, min_lng: -85.6, max_lng: -80.8 }),
-  ("HI", StateBounds { min_lat: 18.9, max_lat: 22.2, min_lng: -160.3, max_lng: -154.8 }),
-  ("ID", StateBounds { min_lat: 41.9, max_lat: 49.0, min_lng: -117.2, max_lng: -111.0 }),
-  ("IL", StateBounds { min_lat: 37.0, max_lat: 42.5, min_lng: -91.5, max_lng: -87.5 }),
-  ("IN", StateBounds { min_lat: 37.8, max_lat: 41.8, min_lng: -88.1, max_lng: -84.8 }),
-  ("IA", StateBounds { min_lat: 40.4, max_lat: 43.5, min_lng: -96.6, max_lng: -90.1 }),
-  ("KS", StateBounds { min_lat: 37.0, max_lat: 40.0, min_lng: -102.1, max_lng: -94.6 }),
-  ("KY", StateBounds { min_lat: 36.5, max_lat: 39.1, min_lng: -89.6, max_lng: -81.9 }),
-  ("LA", StateBounds { min_lat: 28.9, max_lat: 33.0, min_lng: -94.0, max_lng: -88.8 }),
-  ("ME", StateBounds { min_lat: 43.1, max_lat: 47.5, min_lng: -71.1, max_lng: -66.9 }),
-  ("MD", StateBounds { min_lat: 37.9, max_lat: 39.7, min_lng: -79.5, max_lng: -75.0 }),
-  ("MA", StateBounds { min_lat: 41.2, max_lat: 42.9, min_lng: -73.5, max_lng: -69.9 }),
-  ("MI", StateBounds { min_lat: 41.7, max_lat: 48.1, min_lng: -90.4, max_lng: -82.4 }),
-  ("MN", StateBounds { min_lat: 43.5, max_lat: 49.4, min_lng: -97.2, max_lng: -89.5 }),
-  ("MS", StateBounds { min_lat: 30.2, max_lat: 35.0, min_lng: -91.7, max_lng: -88.1 }),
-  ("MO", StateBounds { min_lat: 36.0, max_lat: 40.6, min_lng: -95.8, max_lng: -89.1 }),
-  ("MT", StateBounds { min_lat: 44.4, max_lat: 49.0, min_lng: -116.1, max_lng: -104.0 }),
-  ("NE", StateBounds { min_lat: 40.0, max_lat: 43.0, min_lng: -104.1, max_lng: -95.3 }),
-  ("NV", StateBounds { min_lat: 35.0, max_lat: 42.0, min_lng: -120.0, max_lng: -114.0 }),
-  ("NH", StateBounds { min_lat: 42.7, max_lat: 45.3, min_lng: -72.6, max_lng: -70.6 }),
-  ("NJ", StateBounds { min_lat: 38.9, max_lat: 41.4, min_lng: -75.6, max_lng: -73.9 }),
-  ("NM", StateBounds { min_lat: 31.3, max_lat: 37.0, min_lng: -109.1, max_lng: -103.0 }),
-  ("NY", StateBounds { min_lat: 40.5, max_lat: 45.0, min_lng: -79.8, max_lng: -71.8 }),
-  ("NC", StateBounds { min_lat: 33.8, max_lat: 36.6, min_lng: -84.3, max_lng: -75.4 }),
-  ("ND", StateBounds { min_lat: 45.9, max_lat: 49.0, min_lng: -104.1, max_lng: -96.6 }),
-  ("OH", StateBounds { min_lat: 38.4, max_lat: 42.1, min_lng: -84.8, max_lng: -80.5 }),
-  ("OK", StateBounds { min_lat: 33.6, max_lat: 37.0, min_lng: -103.0, max_lng: -94.4 }),
-  ("OR", StateBounds { min_lat: 41.9, max_lat: 46.3, min_lng: -124.7, max_lng: -116.5 }),
-  ("PA", StateBounds { min_lat: 39.7, max_lat: 42.5, min_lng: -80.5, max_lng: -74.7 }),
-  ("RI", StateBounds { min_lat: 41.1, max_lat: 42.0, min_lng: -71.9, max_lng: -71.1 }),
-  ("SC", StateBounds { min_lat: 32.0, max_lat: 35.2, min_lng: -83.4, max_lng: -78.5 }),
-  ("SD", StateBounds { min_lat: 42.5, max_lat: 45.9, min_lng: -104.1, max_lng: -96.4 }),
-  ("TN", StateBounds { min_lat: 34.9, max_lat: 36.7, min_lng: -90.3, max_lng: -81.6 }),
-  ("TX", StateBounds { min_lat: 25.8, max_lat: 36.5, min_lng: -106.6, max_lng: -93.5 }),
-  ("UT", StateBounds { min_lat: 37.0, max_lat: 42.0, min_lng: -114.1, max_lng: -109.0 }),
-  ("VA", StateBounds { min_lat: 36.5, max_lat: 39.5, min_lng: -83.7, max_lng: -75.2 }),
-  ("VT", StateBounds { min_lat: 42.7, max_lat: 45.0, min_lng: -73.4, max_lng: -71.5 }),
-  ("WA", StateBounds { min_lat: 45.5, max_lat: 49.0, min_lng: -125.0, max_lng: -116.9 }),
-  ("WI", StateBounds { min_lat: 42.5, max_lat: 47.1, min_lng: -92.9, max_lng: -86.3 }),
-  ("WV", StateBounds { min_lat: 37.2, max_lat: 40.6, min_lng: -82.6, max_lng: -77.7 }),
-  ("WY", StateBounds { min_lat: 40.9, max_lat: 45.0, min_lng: -111.3, max_lng: -104.1 }),
+  (
+    "AL",
+    StateBounds {
+      min_lat: 30.2,
+      max_lat: 35.0,
+      min_lng: -88.5,
+      max_lng: -84.9,
+    },
+  ),
+  (
+    "AK",
+    StateBounds {
+      min_lat: 51.2,
+      max_lat: 71.4,
+      min_lng: -179.1,
+      max_lng: -129.9,
+    },
+  ),
+  (
+    "AZ",
+    StateBounds {
+      min_lat: 31.3,
+      max_lat: 37.0,
+      min_lng: -114.8,
+      max_lng: -109.0,
+    },
+  ),
+  (
+    "AR",
+    StateBounds {
+      min_lat: 33.0,
+      max_lat: 36.5,
+      min_lng: -94.6,
+      max_lng: -89.6,
+    },
+  ),
+  (
+    "CA",
+    StateBounds {
+      min_lat: 32.5,
+      max_lat: 42.0,
+      min_lng: -124.4,
+      max_lng: -114.1,
+    },
+  ),
+  (
+    "CO",
+    StateBounds {
+      min_lat: 37.0,
+      max_lat: 41.0,
+      min_lng: -109.1,
+      max_lng: -102.0,
+    },
+  ),
+  (
+    "CT",
+    StateBounds {
+      min_lat: 40.9,
+      max_lat: 42.0,
+      min_lng: -73.7,
+      max_lng: -71.8,
+    },
+  ),
+  (
+    "DE",
+    StateBounds {
+      min_lat: 38.4,
+      max_lat: 39.8,
+      min_lng: -75.8,
+      max_lng: -75.0,
+    },
+  ),
+  (
+    "FL",
+    StateBounds {
+      min_lat: 24.4,
+      max_lat: 31.0,
+      min_lng: -87.6,
+      max_lng: -79.8,
+    },
+  ),
+  (
+    "GA",
+    StateBounds {
+      min_lat: 30.4,
+      max_lat: 35.0,
+      min_lng: -85.6,
+      max_lng: -80.8,
+    },
+  ),
+  (
+    "HI",
+    StateBounds {
+      min_lat: 18.9,
+      max_lat: 22.2,
+      min_lng: -160.3,
+      max_lng: -154.8,
+    },
+  ),
+  (
+    "ID",
+    StateBounds {
+      min_lat: 41.9,
+      max_lat: 49.0,
+      min_lng: -117.2,
+      max_lng: -111.0,
+    },
+  ),
+  (
+    "IL",
+    StateBounds {
+      min_lat: 37.0,
+      max_lat: 42.5,
+      min_lng: -91.5,
+      max_lng: -87.5,
+    },
+  ),
+  (
+    "IN",
+    StateBounds {
+      min_lat: 37.8,
+      max_lat: 41.8,
+      min_lng: -88.1,
+      max_lng: -84.8,
+    },
+  ),
+  (
+    "IA",
+    StateBounds {
+      min_lat: 40.4,
+      max_lat: 43.5,
+      min_lng: -96.6,
+      max_lng: -90.1,
+    },
+  ),
+  (
+    "KS",
+    StateBounds {
+      min_lat: 37.0,
+      max_lat: 40.0,
+      min_lng: -102.1,
+      max_lng: -94.6,
+    },
+  ),
+  (
+    "KY",
+    StateBounds {
+      min_lat: 36.5,
+      max_lat: 39.1,
+      min_lng: -89.6,
+      max_lng: -81.9,
+    },
+  ),
+  (
+    "LA",
+    StateBounds {
+      min_lat: 28.9,
+      max_lat: 33.0,
+      min_lng: -94.0,
+      max_lng: -88.8,
+    },
+  ),
+  (
+    "ME",
+    StateBounds {
+      min_lat: 43.1,
+      max_lat: 47.5,
+      min_lng: -71.1,
+      max_lng: -66.9,
+    },
+  ),
+  (
+    "MD",
+    StateBounds {
+      min_lat: 37.9,
+      max_lat: 39.7,
+      min_lng: -79.5,
+      max_lng: -75.0,
+    },
+  ),
+  (
+    "MA",
+    StateBounds {
+      min_lat: 41.2,
+      max_lat: 42.9,
+      min_lng: -73.5,
+      max_lng: -69.9,
+    },
+  ),
+  (
+    "MI",
+    StateBounds {
+      min_lat: 41.7,
+      max_lat: 48.1,
+      min_lng: -90.4,
+      max_lng: -82.4,
+    },
+  ),
+  (
+    "MN",
+    StateBounds {
+      min_lat: 43.5,
+      max_lat: 49.4,
+      min_lng: -97.2,
+      max_lng: -89.5,
+    },
+  ),
+  (
+    "MS",
+    StateBounds {
+      min_lat: 30.2,
+      max_lat: 35.0,
+      min_lng: -91.7,
+      max_lng: -88.1,
+    },
+  ),
+  (
+    "MO",
+    StateBounds {
+      min_lat: 36.0,
+      max_lat: 40.6,
+      min_lng: -95.8,
+      max_lng: -89.1,
+    },
+  ),
+  (
+    "MT",
+    StateBounds {
+      min_lat: 44.4,
+      max_lat: 49.0,
+      min_lng: -116.1,
+      max_lng: -104.0,
+    },
+  ),
+  (
+    "NE",
+    StateBounds {
+      min_lat: 40.0,
+      max_lat: 43.0,
+      min_lng: -104.1,
+      max_lng: -95.3,
+    },
+  ),
+  (
+    "NV",
+    StateBounds {
+      min_lat: 35.0,
+      max_lat: 42.0,
+      min_lng: -120.0,
+      max_lng: -114.0,
+    },
+  ),
+  (
+    "NH",
+    StateBounds {
+      min_lat: 42.7,
+      max_lat: 45.3,
+      min_lng: -72.6,
+      max_lng: -70.6,
+    },
+  ),
+  (
+    "NJ",
+    StateBounds {
+      min_lat: 38.9,
+      max_lat: 41.4,
+      min_lng: -75.6,
+      max_lng: -73.9,
+    },
+  ),
+  (
+    "NM",
+    StateBounds {
+      min_lat: 31.3,
+      max_lat: 37.0,
+      min_lng: -109.1,
+      max_lng: -103.0,
+    },
+  ),
+  (
+    "NY",
+    StateBounds {
+      min_lat: 40.5,
+      max_lat: 45.0,
+      min_lng: -79.8,
+      max_lng: -71.8,
+    },
+  ),
+  (
+    "NC",
+    StateBounds {
+      min_lat: 33.8,
+      max_lat: 36.6,
+      min_lng: -84.3,
+      max_lng: -75.4,
+    },
+  ),
+  (
+    "ND",
+    StateBounds {
+      min_lat: 45.9,
+      max_lat: 49.0,
+      min_lng: -104.1,
+      max_lng: -96.6,
+    },
+  ),
+  (
+    "OH",
+    StateBounds {
+      min_lat: 38.4,
+      max_lat: 42.1,
+      min_lng: -84.8,
+      max_lng: -80.5,
+    },
+  ),
+  (
+    "OK",
+    StateBounds {
+      min_lat: 33.6,
+      max_lat: 37.0,
+      min_lng: -103.0,
+      max_lng: -94.4,
+    },
+  ),
+  (
+    "OR",
+    StateBounds {
+      min_lat: 41.9,
+      max_lat: 46.3,
+      min_lng: -124.7,
+      max_lng: -116.5,
+    },
+  ),
+  (
+    "PA",
+    StateBounds {
+      min_lat: 39.7,
+      max_lat: 42.5,
+      min_lng: -80.5,
+      max_lng: -74.7,
+    },
+  ),
+  (
+    "RI",
+    StateBounds {
+      min_lat: 41.1,
+      max_lat: 42.0,
+      min_lng: -71.9,
+      max_lng: -71.1,
+    },
+  ),
+  (
+    "SC",
+    StateBounds {
+      min_lat: 32.0,
+      max_lat: 35.2,
+      min_lng: -83.4,
+      max_lng: -78.5,
+    },
+  ),
+  (
+    "SD",
+    StateBounds {
+      min_lat: 42.5,
+      max_lat: 45.9,
+      min_lng: -104.1,
+      max_lng: -96.4,
+    },
+  ),
+  (
+    "TN",
+    StateBounds {
+      min_lat: 34.9,
+      max_lat: 36.7,
+      min_lng: -90.3,
+      max_lng: -81.6,
+    },
+  ),
+  (
+    "TX",
+    StateBounds {
+      min_lat: 25.8,
+      max_lat: 36.5,
+      min_lng: -106.6,
+      max_lng: -93.5,
+    },
+  ),
+  (
+    "UT",
+    StateBounds {
+      min_lat: 37.0,
+      max_lat: 42.0,
+      min_lng: -114.1,
+      max_lng: -109.0,
+    },
+  ),
+  (
+    "VA",
+    StateBounds {
+      min_lat: 36.5,
+      max_lat: 39.5,
+      min_lng: -83.7,
+      max_lng: -75.2,
+    },
+  ),
+  (
+    "VT",
+    StateBounds {
+      min_lat: 42.7,
+      max_lat: 45.0,
+      min_lng: -73.4,
+      max_lng: -71.5,
+    },
+  ),
+  (
+    "WA",
+    StateBounds {
+      min_lat: 45.5,
+      max_lat: 49.0,
+      min_lng: -125.0,
+      max_lng: -116.9,
+    },
+  ),
+  (
+    "WI",
+    StateBounds {
+      min_lat: 42.5,
+      max_lat: 47.1,
+      min_lng: -92.9,
+      max_lng: -86.3,
+    },
+  ),
+  (
+    "WV",
+    StateBounds {
+      min_lat: 37.2,
+      max_lat: 40.6,
+      min_lng: -82.6,
+      max_lng: -77.7,
+    },
+  ),
+  (
+    "WY",
+    StateBounds {
+      min_lat: 40.9,
+      max_lat: 45.0,
+      min_lng: -111.3,
+      max_lng: -104.1,
+    },
+  ),
 ];
 
 /**
@@ -115,8 +515,7 @@ pub async fn load_local_radius_towers(
   }
 
   // Load towers dynamically
-  match load_towers_direct(request.latitude, request.longitude, radius_km)
-    .await
+  match load_towers_direct(request.latitude, request.longitude, radius_km).await
   {
     Ok(result) => {
       info!("Successfully loaded {} local towers", result.loaded);
@@ -195,12 +594,7 @@ struct TowerRecord {
   updated: String,
 }
 
-fn calculate_distance(
-  lat1: f64,
-  lon1: f64,
-  lat2: f64,
-  lon2: f64,
-) -> f64 {
+fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
   let r = 6371.0;
   let d_lat = (lat2 - lat1) * PI / 180.0;
   let d_lon = (lon2 - lon1) * PI / 180.0;
@@ -257,14 +651,8 @@ fn normalize_tower_record(
       .get("samples")
       .cloned()
       .unwrap_or_else(|| "0".to_string()),
-    created: tower_data
-      .get("created")
-      .cloned()
-      .unwrap_or_default(),
-    updated: tower_data
-      .get("updated")
-      .cloned()
-      .unwrap_or_default(),
+    created: tower_data.get("created").cloned().unwrap_or_default(),
+    updated: tower_data.get("updated").cloned().unwrap_or_default(),
   })
 }
 
@@ -274,8 +662,8 @@ fn get_states_in_radius(
   radius_km: u32,
 ) -> usize {
   let lat_delta = radius_km as f64 / 111.0;
-  let lng_delta = radius_km as f64
-    / (111.0 * (center_lat * PI / 180.0).cos().max(0.000001));
+  let lng_delta =
+    radius_km as f64 / (111.0 * (center_lat * PI / 180.0).cos().max(0.000001));
 
   let bounds = (
     center_lat - lat_delta,
@@ -306,9 +694,8 @@ async fn load_towers_direct(
   let mut con = client.get_connection()?;
 
   redis::cmd("SELECT").arg(3).query::<()>(&mut con)?;
-  let tower_keys: Vec<String> = redis::cmd("KEYS")
-    .arg("tower:*")
-    .query(&mut con)?;
+  let tower_keys: Vec<String> =
+    redis::cmd("KEYS").arg("tower:*").query(&mut con)?;
 
   let states = get_states_in_radius(lat, lng, radius_km);
   let mut towers = Vec::new();
@@ -331,7 +718,10 @@ async fn load_towers_direct(
   let geohash = get_geohash(lat, lng, 4);
   let cache_key = format!("local:{}:{}", geohash, radius_km);
 
-  redis::cmd("DEL").arg(&cache_key).arg(format!("{cache_key}:data")).query::<()>(&mut con)?;
+  redis::cmd("DEL")
+    .arg(&cache_key)
+    .arg(format!("{cache_key}:data"))
+    .query::<()>(&mut con)?;
 
   for tower in &towers {
     let full_tower_data = serde_json::json!({

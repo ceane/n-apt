@@ -80,7 +80,9 @@ mod integration_tests {
     sleep(Duration::from_millis(300)).await;
 
     // Check capture status
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     assert_eq!(capture_result.job_id, "test-job-1");
     assert_eq!(
       capture_result.hardware_sample_rate_hz,
@@ -178,17 +180,13 @@ mod integration_tests {
     sleep(Duration::from_millis(300)).await;
 
     // Check that capture metadata contains correct sample rate
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     let expected_rate = processor.get_sample_rate() as f64;
-    assert_eq!(
-      capture_result.hardware_sample_rate_hz,
-      expected_rate
-    );
-    assert_eq!(
-      capture_result.overall_capture_sample_rate_hz,
-      expected_rate
-    );
+    assert_eq!(capture_result.hardware_sample_rate_hz, expected_rate);
+    assert_eq!(capture_result.overall_capture_sample_rate_hz, expected_rate);
 
     // Verify each channel has the correct sample rate
     for channel in &capture_result.channels {
@@ -282,7 +280,9 @@ mod integration_tests {
     // Let it capture
     sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // All channels should have the same sample rate (3.2MHz)
     let expected_rate = processor.get_sample_rate() as f64;
@@ -328,7 +328,9 @@ mod integration_tests {
     // Let it capture
     sleep(Duration::from_millis(300)).await;
 
-    let capture_result = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let capture_result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
 
     // Even in interleaved mode, sample rate should be 3.2MHz
     assert_eq!(
@@ -368,7 +370,9 @@ mod integration_tests {
 
     processor.start_capture(capture_request1)?;
     sleep(Duration::from_millis(300)).await;
-    let result1 = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let result1 = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     processor.stop_capture();
 
     // Second capture
@@ -392,7 +396,9 @@ mod integration_tests {
 
     processor.start_capture(capture_request2)?;
     sleep(Duration::from_millis(300)).await;
-    let result2 = processor.check_capture_completion().ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
+    let result2 = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture not complete"))?;
     processor.stop_capture();
 
     // Both captures should have the same sample rate
@@ -474,7 +480,6 @@ mod error_handling_tests {
 
     Ok(())
   }
-
 
   #[tokio::test]
   async fn test_whole_sample_capture_produces_single_hop() -> Result<()> {
@@ -661,11 +666,15 @@ mod error_handling_tests {
     // Wait for it to complete
     sleep(Duration::from_millis(500)).await;
 
-    let result = processor.check_capture_completion()
-        .ok_or_else(|| anyhow::anyhow!("Capture should have finished"))?;
+    let result = processor
+      .check_capture_completion()
+      .ok_or_else(|| anyhow::anyhow!("Capture should have finished"))?;
 
     assert_eq!(result.bandwidth, Some(bandwidth));
-    assert_eq!(result.bandwidth_center_frequency, Some(bandwidth_center_frequency));
+    assert_eq!(
+      result.bandwidth_center_frequency,
+      Some(bandwidth_center_frequency)
+    );
 
     Ok(())
   }

@@ -19,8 +19,8 @@ use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
-use crate::sdr::rtlsdr::RtlSdrDevice;
 use crate::fft::anti_aliasing;
+use crate::sdr::rtlsdr::RtlSdrDevice;
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -214,7 +214,6 @@ fn normalize_tech_key(token: &str) -> String {
   }
 }
 
-
 fn convert_to_u8(v: Vec<f32>) -> Vec<u8> {
   v.into_iter()
     .map(|val| ((val + 150.0) * (255.0 / 150.0)).clamp(0.0, 255.0) as u8)
@@ -298,7 +297,7 @@ pub async fn towers_bounds_handler(
         .arg(100)
         .query(&mut con)
         .unwrap_or((0, vec![]));
-      
+
       all_tower_keys.extend(keys);
       cursor = new_cursor;
       if cursor == 0 {
@@ -823,10 +822,7 @@ pub async fn capture_download_handler(
       .into_response();
   }
 
-  let zip_size = zip_temp
-    .metadata()
-    .map(|m| m.len())
-    .unwrap_or(0);
+  let zip_size = zip_temp.metadata().map(|m| m.len()).unwrap_or(0);
   let tokio_file = tokio::fs::File::from_std(zip_temp);
   let stream = ReaderStream::new(tokio_file);
   let body = Body::from_stream(stream);
@@ -1186,12 +1182,20 @@ pub async fn stitch_diagnostic_handler(
 
   // Apply FFT size if requested before any processing
   if let Some(requested_fft_size) = body.as_ref().and_then(|b| b.fft_size) {
-    log::info!("Stitch diagnostic requested FFT size: {}", requested_fft_size);
-    if let Err(e) = processor.apply_settings(crate::server::types::SdrProcessorSettings {
-      fft_size: Some(requested_fft_size),
-      ..Default::default()
-    }) {
-      warn!("Failed to apply requested FFT size {}: {}", requested_fft_size, e);
+    log::info!(
+      "Stitch diagnostic requested FFT size: {}",
+      requested_fft_size
+    );
+    if let Err(e) =
+      processor.apply_settings(crate::server::types::SdrProcessorSettings {
+        fft_size: Some(requested_fft_size),
+        ..Default::default()
+      })
+    {
+      warn!(
+        "Failed to apply requested FFT size {}: {}",
+        requested_fft_size, e
+      );
     }
   }
 
@@ -1248,24 +1252,32 @@ pub async fn stitch_diagnostic_handler(
     )
   };
 
-  let num_frames_to_average = body.as_ref().and_then(|b| b.frames_to_average).map(|f| f as usize).unwrap_or(10).max(1);
+  let num_frames_to_average = body
+    .as_ref()
+    .and_then(|b| b.frames_to_average)
+    .map(|f| f as usize)
+    .unwrap_or(10)
+    .max(1);
   let num_frames = num_frames_to_average;
   let mut hop1_frames = Vec::with_capacity(num_frames);
   let mut hop2_frames = Vec::with_capacity(num_frames);
   let mut hop1_raw_iq = Vec::new();
   let mut hop2_raw_iq = Vec::new();
 
-  let options = body.as_ref().and_then(|b| b.stitch_options.clone()).unwrap_or(StitchOptions {
-    phase_correction: true,
-    fm_deviation_correction: true,
-    anti_aliasing: true,
-    noise_floor_matching: true,
-    crossfading: true,
-    chinese_remainder_synthesis: false,
-    js_anti_aliasing: false,
-    js_noise_floor_matching: false,
-    acquisition_mode: Some("interleaved".to_string()),
-  });
+  let options = body
+    .as_ref()
+    .and_then(|b| b.stitch_options.clone())
+    .unwrap_or(StitchOptions {
+      phase_correction: true,
+      fm_deviation_correction: true,
+      anti_aliasing: true,
+      noise_floor_matching: true,
+      crossfading: true,
+      chinese_remainder_synthesis: false,
+      js_anti_aliasing: false,
+      js_noise_floor_matching: false,
+      acquisition_mode: Some("interleaved".to_string()),
+    });
 
   let acq_mode = options
     .acquisition_mode
@@ -1410,7 +1422,8 @@ pub async fn stitch_diagnostic_handler(
   };
 
   // Calculate dynamic overlap bounds based strictly on the center frequency jump
-  let offset_bins = ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
+  let offset_bins =
+    ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
 
   // 4. Stitching with Options
@@ -1427,7 +1440,7 @@ pub async fn stitch_diagnostic_handler(
       for j in 0..mask_bins {
         let weight = (j as f32 / mask_bins as f32).powf(0.5);
         let atten_db = 20.0 * (weight + 1e-9).log10();
-        
+
         f1[j] += atten_db;
         f1[fft_size - 1 - j] += atten_db;
         f2[j] += atten_db;
@@ -1457,7 +1470,8 @@ pub async fn stitch_diagnostic_handler(
   let hop2_start = center2 as f64 - (sample_rate / 2.0);
   let hop2_end = center2 as f64 + (sample_rate / 2.0);
 
-  let overlap_rms_error = if !hop1_frames.is_empty() && !hop2_frames.is_empty() {
+  let overlap_rms_error = if !hop1_frames.is_empty() && !hop2_frames.is_empty()
+  {
     let f1_overlap = &hop1_frames[0][offset_bins..];
     let f2_overlap = &hop2_frames[0][..overlap_bins];
     anti_aliasing::calculate_rms_error_db(f1_overlap, f2_overlap)
@@ -1466,11 +1480,14 @@ pub async fn stitch_diagnostic_handler(
   };
 
   let bin_size_hz = sample_rate / fft_size as f64;
-  let cut_point_hz = hop1_start + (offset_bins + midpoint_bin) as f64 * bin_size_hz;
+  let cut_point_hz =
+    hop1_start + (offset_bins + midpoint_bin) as f64 * bin_size_hz;
 
   let reconstructed_freq_hz = if options.chinese_remainder_synthesis {
-    let m1 = anti_aliasing::Measurement::new(&hop1_frames[0], fft_size, sample_rate);
-    let m2 = anti_aliasing::Measurement::new(&hop2_frames[0], fft_size, sample_rate);
+    let m1 =
+      anti_aliasing::Measurement::new(&hop1_frames[0], fft_size, sample_rate);
+    let m2 =
+      anti_aliasing::Measurement::new(&hop2_frames[0], fft_size, sample_rate);
     if let (Some(m1), Some(m2)) = (m1, m2) {
       anti_aliasing::reconstruct_frequency_crt(&[m1, m2], 1.5e9, 500.0)
     } else {
@@ -1490,12 +1507,25 @@ pub async fn stitch_diagnostic_handler(
   };
 
   // Convert frames to u8
-  let hop1_u8 = hop1_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
-  let hop2_u8 = hop2_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
-  let stitched_u8 = stitched_frames.into_iter().map(convert_to_u8).collect::<Vec<_>>();
+  let hop1_u8 = hop1_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
+  let hop2_u8 = hop2_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
+  let stitched_u8 = stitched_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
 
-  let final_len = if !hop1_u8.is_empty() { hop1_u8[0].len() } else { 0 };
-  
+  let final_len = if !hop1_u8.is_empty() {
+    hop1_u8[0].len()
+  } else {
+    0
+  };
+
   // Pack response into a binary format:
   // [Magic:4][HeaderLen:4][JSON_Metadata][Binary_Data]
   let metadata = serde_json::json!({
@@ -1528,9 +1558,10 @@ pub async fn stitch_diagnostic_handler(
 
   let json_header = serde_json::to_string(&metadata).unwrap();
   let json_bytes = json_header.as_bytes();
-  
+
   // Header: Magic(4) + JSONLen(4) + JSONData + BinaryData
-  let mut response_bytes = Vec::with_capacity(8 + json_bytes.len() + (num_frames * final_len * 3));
+  let mut response_bytes =
+    Vec::with_capacity(8 + json_bytes.len() + (num_frames * final_len * 3));
   response_bytes.extend_from_slice(b"NAPT");
   response_bytes.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
   response_bytes.extend_from_slice(json_bytes);

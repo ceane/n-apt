@@ -76,6 +76,7 @@ pub struct FFTProcessor {
   rng: rand::rngs::StdRng,
   /// Peak hold data (optional)
   fft_hold: Option<Vec<f32>>,
+  fft_hold_enabled: bool,
   /// Native SIMD processor for signal processing
   simd_processor: Option<crate::simd::NativeProcessor>,
   /// Warm native SIMD processors by FFT size to avoid first-frame switch stalls.
@@ -172,11 +173,14 @@ impl FFTProcessor {
     let mut config = self.config.clone();
     config.fft_size = fft_size;
     config.zoom_width = fft_size;
-    self.simd_processor_cache.entry(fft_size).or_insert_with(|| {
-      let mut simd_proc = crate::simd::NativeProcessor::new(fft_size);
-      Self::configure_simd_processor(&mut simd_proc, &config);
-      simd_proc
-    });
+    self
+      .simd_processor_cache
+      .entry(fft_size)
+      .or_insert_with(|| {
+        let mut simd_proc = crate::simd::NativeProcessor::new(fft_size);
+        Self::configure_simd_processor(&mut simd_proc, &config);
+        simd_proc
+      });
   }
 
   /// Create a new FFT processor with default configuration
@@ -201,6 +205,7 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
+      fft_hold_enabled: false,
       simd_processor: None,
       simd_processor_cache: HashMap::new(),
     }
@@ -219,6 +224,7 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::seed_from_u64(seed),
       fft_hold: None,
+      fft_hold_enabled: false,
       simd_processor: None,
       simd_processor_cache: HashMap::new(),
     }
@@ -268,6 +274,7 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
+      fft_hold_enabled: false,
       simd_processor: None,
       simd_processor_cache: HashMap::new(),
     }
@@ -285,7 +292,9 @@ impl FFTProcessor {
 
     if size_changed {
       if let Some(simd_processor) = self.simd_processor.take() {
-        self.simd_processor_cache.insert(old_fft_size, simd_processor);
+        self
+          .simd_processor_cache
+          .insert(old_fft_size, simd_processor);
       }
 
       // Invalidate plans — they will be recreated lazily on next use
@@ -302,6 +311,7 @@ impl FFTProcessor {
 
   /// Enable/disable FFT hold (peak hold functionality)
   pub fn set_fft_hold(&mut self, enabled: bool) {
+    self.fft_hold_enabled = enabled;
     if !enabled {
       self.fft_hold = None;
     }
@@ -359,6 +369,48 @@ impl FFTProcessor {
     }
   }
 
+  pub fn process_samples_power(
+    &mut self,
+    samples: &RawSamples,
+    power: &mut Vec<f32>,
+  ) -> Result<()> {
+    let fft_size = self.config.fft_size;
+    if power.len() != fft_size {
+      power.resize(fft_size, 0.0);
+    }
+
+    {
+      let simd_proc = self.ensure_simd_processor();
+      simd_proc
+        .process_samples(samples, power)
+        .map_err(|e| anyhow::anyhow!("SIMD processing failed: {}", e))?;
+    }
+
+    if self.config.zoom_width < self.config.fft_size {
+      let zoomed_power = crate::fft::zoom_fft(
+        power,
+        self.config.zoom_offset,
+        self.config.zoom_width,
+        self.config.zoom_width,
+      );
+      *power = zoomed_power;
+    }
+
+    if self.fft_hold_enabled {
+      if let Some(ref mut hold_data) = self.fft_hold {
+        for (i, &value) in power.iter().enumerate() {
+          if i < hold_data.len() {
+            hold_data[i] = hold_data[i].max(value);
+          }
+        }
+      } else {
+        self.fft_hold = Some(power.clone());
+      }
+    }
+
+    Ok(())
+  }
+
   /// Common post-processing: zoom, hold, and result construction
   fn finalize_spectrum(
     &mut self,
@@ -378,14 +430,16 @@ impl FFTProcessor {
     };
 
     // Update FFT hold (peak hold)
-    if let Some(ref mut hold_data) = self.fft_hold {
-      for (i, &value) in zoomed_power.iter().enumerate() {
-        if i < hold_data.len() {
-          hold_data[i] = hold_data[i].max(value);
+    if self.fft_hold_enabled {
+      if let Some(ref mut hold_data) = self.fft_hold {
+        for (i, &value) in zoomed_power.iter().enumerate() {
+          if i < hold_data.len() {
+            hold_data[i] = hold_data[i].max(value);
+          }
         }
+      } else {
+        self.fft_hold = Some(zoomed_power.clone());
       }
-    } else {
-      self.fft_hold = Some(zoomed_power.clone());
     }
 
     Ok(FFTResult {
@@ -1464,12 +1518,12 @@ impl FFTProcessor {
         .zip(config.amplitudes.iter())
         .enumerate()
       {
-        let tone_phase = pulse_phase
-          + (*freq as f32) * 0.000_003
-          + (tone_idx as f32) * 0.17;
+        let tone_phase =
+          pulse_phase + (*freq as f32) * 0.000_003 + (tone_idx as f32) * 0.17;
         let pulse_db = 1.0 + 1.0 * tone_phase.sin();
         let pulse_gain = 10.0f32.powf(pulse_db / 20.0);
-        signal += (2.0 * std::f32::consts::PI * freq * t).sin() * amp * pulse_gain;
+        signal +=
+          (2.0 * std::f32::consts::PI * freq * t).sin() * amp * pulse_gain;
       }
 
       signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;

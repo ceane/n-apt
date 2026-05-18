@@ -117,7 +117,6 @@ impl CredentialStore {
       .push(passkey);
     self.save(&creds)
   }
-
 }
 
 /// Get the n-apt config directory path (~/.n-apt).
@@ -175,13 +174,13 @@ fn dirs_path() -> Result<PathBuf, String> {
   Ok(final_dir)
 }
 
+use crate::server::main::AppState;
 use axum::{
   body::Body,
   http::{Request, StatusCode},
   middleware::Next,
   response::Response,
 };
-use crate::server::main::AppState;
 use std::sync::Arc;
 
 /// Middleware to enforce session authentication.
@@ -211,10 +210,9 @@ pub async fn require_session(
   // 2. Fallback to query parameter (common for direct downloads via <a> tags)
   if token.is_none() {
     if let Some(query) = req.uri().query() {
-      if let Ok(params) =
-        serde_urlencoded::from_str::<std::collections::HashMap<String, String>>(
-          query,
-        )
+      if let Ok(params) = serde_urlencoded::from_str::<
+        std::collections::HashMap<String, String>,
+      >(query)
       {
         if let Some(t) = params.get("token") {
           token = Some(t.clone());

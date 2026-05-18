@@ -213,7 +213,10 @@ pub struct WebSocketMessage {
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub bandwidth: Option<u64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "bandwidthCenterFrequency")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "bandwidthCenterFrequency"
+  )]
   pub bandwidth_center_frequency: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
@@ -637,17 +640,8 @@ impl SdrSampleRateSpec {
     max_sample_rate: u32,
   ) -> Vec<u32> {
     const CURATED_RATES: &[u32] = &[
-      1_000_000,
-      2_000_000,
-      3_200_000,
-      4_000_000,
-      5_000_000,
-      6_400_000,
-      8_000_000,
-      10_000_000,
-      12_800_000,
-      16_000_000,
-      20_000_000,
+      1_000_000, 2_000_000, 3_200_000, 4_000_000, 5_000_000, 6_400_000,
+      8_000_000, 10_000_000, 12_800_000, 16_000_000, 20_000_000,
     ];
 
     match self {
@@ -678,11 +672,7 @@ impl SdrSampleRateSpec {
     }
   }
 
-  pub fn resolve(
-    &self,
-    floor_sample_rate: u32,
-    max_sample_rate: u32,
-  ) -> u32 {
+  pub fn resolve(&self, floor_sample_rate: u32, max_sample_rate: u32) -> u32 {
     match self {
       Self::Fixed(rate) => *rate,
       Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_MAX__" => {
