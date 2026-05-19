@@ -615,7 +615,7 @@ pub async fn status_handler(
   let device_name = if device_connected {
     normalize_rtl_device_name(&device_info)
   } else {
-    "Mock APT SDR".to_string()
+    crate::server::utils::mock_apt_device_name(&device_info)
   };
 
   Json(serde_json::json!({
@@ -632,8 +632,16 @@ pub async fn status_handler(
     "max_sample_rate": sdr_settings.sample_rate,
     "channels": channels,
     "sdr_settings": sdr_settings,
-    "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
-    "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+    "device": if device_connected {
+      "rtl-sdr"
+    } else {
+      crate::server::utils::mock_apt_backend_label(&device_info)
+    },
+    "backend": if device_connected {
+      "rtl-sdr"
+    } else {
+      crate::server::utils::mock_apt_backend_label(&device_info)
+    },
     "device_profile": device_profile,
     "clients": client_count,
     "authenticated_clients": authenticated_count,

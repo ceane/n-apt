@@ -134,7 +134,7 @@ pub(crate) fn broadcast_device_status(
   let device_name = if device_connected {
     normalize_rtl_device_name(&device_info)
   } else {
-    "Mock APT SDR".to_string()
+    crate::server::utils::mock_apt_device_name(&device_info)
   };
 
   let msg = serde_json::json!({
@@ -153,8 +153,16 @@ pub(crate) fn broadcast_device_status(
       "sdr_settings": sdr_settings,
       "sdr_limit_markers": device_limits,
       "channels": channels,
-      "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
-      "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "backend": if device_connected {
+        "rtl-sdr"
+      } else {
+        crate::server::utils::mock_apt_backend_label(&device_info)
+      },
+      "device": if device_connected {
+        "rtl-sdr"
+      } else {
+        crate::server::utils::mock_apt_backend_label(&device_info)
+      },
       "device_profile": device_profile,
   });
   let _ = broadcast_tx.send(msg.to_string());
@@ -202,6 +210,8 @@ impl Default for WebSocketServer {
 impl WebSocketServer {
   pub fn new(redis_url: &str) -> Self {
     info!("Creating WebSocket server with SDR processor");
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    crate::sdr::mock_apt::MockAptDevice::log_metal_backend_status_once();
 
     // Create SDR processor (will auto-select mock_apt or real device)
     let mut sdr_processor =

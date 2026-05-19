@@ -536,6 +536,25 @@ pub fn reconcile_device_state(
   }
 }
 
+pub fn mock_apt_device_name(device_info: &str) -> String {
+  device_info
+    .split(" - ")
+    .next()
+    .unwrap_or("Mock APT SDR")
+    .trim()
+    .to_string()
+}
+
+pub fn mock_apt_backend_label(device_info: &str) -> &'static str {
+  if cfg!(all(feature = "mock_apt_metal", target_os = "macos"))
+    && device_info.contains("(Metal)")
+  {
+    "mock_apt_metal"
+  } else {
+    "mock_apt"
+  }
+}
+
 pub fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {
   if device_count == 0 {
     prev.saturating_add(1)

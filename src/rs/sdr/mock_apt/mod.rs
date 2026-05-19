@@ -21,6 +21,8 @@ use super::SdrDevice;
 mod metal_backend;
 #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
 use metal_backend::MockAptMetalBackend;
+#[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+use std::sync::OnceLock;
 
 /// Mock APT signal configuration
 #[derive(Debug, Clone)]
@@ -60,6 +62,8 @@ pub struct MockAptDevice {
   recycled_byte_buffer: Option<Vec<u8>>,
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   metal_backend: Option<MockAptMetalBackend>,
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  metal_backend_error: Option<String>,
 }
 
 /// Individual mock APT signal state
@@ -107,6 +111,54 @@ impl Default for MockAptDevice {
 }
 
 impl MockAptDevice {
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn metal_backend_probe_result() -> &'static Result<(), String> {
+    static PROBE_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+    PROBE_RESULT.get_or_init(|| {
+      MockAptMetalBackend::validate().map_err(|error| error.to_string())
+    })
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn log_metal_backend_status_once() {
+    static LOGGED: OnceLock<()> = OnceLock::new();
+    LOGGED.get_or_init(|| match Self::metal_backend_probe_result() {
+      Ok(()) => {
+        eprintln!("Mock APT Metal backend validated and available");
+        log::info!("Mock APT Metal backend validated and available");
+      }
+      Err(error) => {
+        eprintln!(
+          "Mock APT Metal backend unavailable at startup: {}",
+          error
+        );
+        log::warn!(
+          "Mock APT Metal backend unavailable at startup: {}",
+          error
+        );
+      }
+    });
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn metal_backend_available() -> bool {
+    Self::metal_backend_probe_result().is_ok()
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn device_type_label(&self) -> &'static str {
+    if self.metal_backend.is_some() {
+      "Mock APT SDR (Metal)"
+    } else {
+      "Mock APT SDR"
+    }
+  }
+
+  #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
+  fn device_type_label(&self) -> &'static str {
+    "Mock APT SDR"
+  }
+
   /// Create a new mock APT SDR device
   pub fn new() -> Self {
     Self::new_with_rng(StdRng::from_rng(&mut ::rand::rng()))
@@ -117,7 +169,7 @@ impl MockAptDevice {
     Self::new_with_rng(StdRng::seed_from_u64(seed))
   }
 
-  fn new_with_rng(mut rng: StdRng) -> Self {
+  fn new_with_rng(rng: StdRng) -> Self {
     Self::new_with_rng_and_backend(rng, false)
   }
 
@@ -131,10 +183,34 @@ impl MockAptDevice {
     Self::new_with_rng_and_backend(StdRng::seed_from_u64(seed), true)
   }
 
-  fn new_with_rng_and_backend(mut rng: StdRng, enable_gpu_backend: bool) -> Self {
+  fn new_with_rng_and_backend(
+    mut rng: StdRng,
+    _enable_gpu_backend: bool,
+  ) -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals_with_rng(&mock_settings, &mut rng);
     let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    let (metal_backend, metal_backend_error) = if _enable_gpu_backend {
+      match Self::metal_backend_probe_result() {
+        Ok(()) => match MockAptMetalBackend::new() {
+          Ok(backend) => (Some(backend), None),
+          Err(error) => (None, Some(error.to_string())),
+        },
+        Err(error) => (None, Some(error.clone())),
+      }
+    } else {
+      (None, None)
+    };
+
+    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
+    let metal_backend = {
+      let _ = _enable_gpu_backend;
+      None::<()>
+    };
+
+    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
+    let metal_backend_error = None::<String>;
 
     Self {
       center_freq: 1_600_000, // 1.6 MHz default
@@ -165,23 +241,9 @@ impl MockAptDevice {
       signal_chunk_states: Vec::with_capacity(256),
       recycled_byte_buffer: None,
       #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-      metal_backend: if enable_gpu_backend {
-        match MockAptMetalBackend::new() {
-          Ok(backend) => {
-            log::info!("Mock APT Metal backend enabled");
-            Some(backend)
-          }
-          Err(error) => {
-            log::warn!(
-              "Mock APT Metal backend unavailable, falling back to CPU: {}",
-              error
-            );
-            None
-          }
-        }
-      } else {
-        None
-      },
+      metal_backend,
+      #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+      metal_backend_error,
     }
   }
 
@@ -363,12 +425,13 @@ impl MockAptDevice {
 
 impl SdrDevice for MockAptDevice {
   fn device_type(&self) -> &'static str {
-    "Mock APT SDR"
+    self.device_type_label()
   }
 
   fn get_device_info(&self) -> String {
     format!(
-      "Mock APT SDR - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
+      "{} - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
+      self.device_type_label(),
       self.center_freq,
       self.sample_rate,
       self.sample_rate,
@@ -751,15 +814,28 @@ impl MockAptDevice {
     let noise_amp_f64 = noise_amplitude as f64;
 
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-    if let Some(backend) = self.metal_backend.as_mut() {
-      let (noise_i, noise_q) =
-        self.build_noise_buffers(fft_size, noise_amp_f64);
+    if self.metal_backend.is_some() {
+      let (noise_i, noise_q) = self.build_noise_buffers(fft_size, noise_amp_f64);
+      let backend = self
+        .metal_backend
+        .as_mut()
+        .expect("Metal backend presence checked above");
+      let i_accumulator: Vec<f32> = self.i_accumulator[..fft_size]
+        .iter()
+        .map(|&value| value as f32)
+        .collect();
+      let q_accumulator: Vec<f32> = self.q_accumulator[..fft_size]
+        .iter()
+        .map(|&value| value as f32)
+        .collect();
+      let noise_i_f32: Vec<f32> = noise_i.iter().copied().map(|value| value as f32).collect();
+      let noise_q_f32: Vec<f32> = noise_q.iter().copied().map(|value| value as f32).collect();
 
       match backend.finalize_frame(
-        &self.i_accumulator[..fft_size],
-        &self.q_accumulator[..fft_size],
-        &noise_i,
-        &noise_q,
+        &i_accumulator,
+        &q_accumulator,
+        &noise_i_f32,
+        &noise_q_f32,
       ) {
         Ok(data) => {
           self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
@@ -772,10 +848,10 @@ impl MockAptDevice {
           });
         }
         Err(error) => {
-          warn!(
-            "Mock APT Metal finalization failed, falling back to CPU: {}",
-            error
-          );
+            log::warn!(
+              "Mock APT Metal finalization failed, falling back to CPU: {}",
+              error
+            );
           return self.finalize_samples_cpu_with_noise_buffers(
             fft_size,
             noise_i,
@@ -917,9 +993,31 @@ impl MockAptDevice {
     }
   }
 
+  pub fn generation_backend_label(&self) -> &'static str {
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    if self.metal_backend.is_some() {
+      return "Metal";
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+      "CPU (rayon + NEON SIMD)"
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+      "CPU (rayon)"
+    }
+  }
+
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   pub fn gpu_backend_enabled(&self) -> bool {
     self.metal_backend.is_some()
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn gpu_backend_error(&self) -> Option<&str> {
+    self.metal_backend_error.as_deref()
   }
 }
 

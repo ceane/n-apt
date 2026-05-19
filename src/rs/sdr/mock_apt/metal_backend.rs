@@ -20,8 +20,8 @@ kernel void mock_apt_finalize(
 ) {
   float i = clamp(i_acc[idx] + noise_i[idx], -1.0f, 1.0f);
   float q = clamp(q_acc[idx] + noise_q[idx], -1.0f, 1.0f);
-  out[idx * 2] = uchar(((i * 127.0f) + 128.0f));
-  out[idx * 2 + 1] = uchar(((q * 127.0f) + 128.0f));
+  out[idx * 2] = uchar(((i * 127.0) + 128.0));
+  out[idx * 2 + 1] = uchar(((q * 127.0) + 128.0));
 }
 "#;
 
@@ -34,14 +34,14 @@ pub struct MockAptMetalBackend {
   noise_i_buffer: metal::Buffer,
   noise_q_buffer: metal::Buffer,
   output_buffer: metal::Buffer,
-  scratch_i: Vec<f32>,
-  scratch_q: Vec<f32>,
-  scratch_noise_i: Vec<f32>,
-  scratch_noise_q: Vec<f32>,
   buffer_capacity_samples: usize,
 }
 
 impl MockAptMetalBackend {
+  pub fn validate() -> Result<()> {
+    Self::new().map(|_| ())
+  }
+
   pub fn new() -> Result<Self> {
     let device = Device::system_default()
       .ok_or_else(|| anyhow!("Metal system default device is unavailable"))?;
@@ -54,7 +54,7 @@ impl MockAptMetalBackend {
       .get_function("mock_apt_finalize", None)
       .map_err(|error| anyhow!("failed to get Metal kernel: {error}"))?;
     let pipeline_state = device
-      .new_compute_pipeline_state(&function)
+      .new_compute_pipeline_state_with_function(&function)
       .map_err(|error| anyhow!("failed to create Metal pipeline: {error}"))?;
 
     let buffer_capacity_samples = 1;
@@ -75,14 +75,11 @@ impl MockAptMetalBackend {
       noise_i_buffer,
       noise_q_buffer,
       output_buffer,
-      scratch_i: Vec::new(),
-      scratch_q: Vec::new(),
-      scratch_noise_i: Vec::new(),
-      scratch_noise_q: Vec::new(),
       buffer_capacity_samples,
     })
   }
 
+  #[allow(dead_code)]
   pub fn is_available() -> bool {
     Device::system_default().is_some()
   }
@@ -124,13 +121,6 @@ impl MockAptMetalBackend {
     self.buffer_capacity_samples = fft_size;
   }
 
-  fn copy_f64_to_f32(source: &[f64], destination: &mut Vec<f32>) {
-    destination.resize(source.len(), 0.0);
-    for (dst, src) in destination.iter_mut().zip(source.iter()) {
-      *dst = *src as f32;
-    }
-  }
-
   fn copy_to_buffer(buffer: &metal::Buffer, source: &[f32]) {
     unsafe {
       ptr::copy_nonoverlapping(
@@ -143,10 +133,10 @@ impl MockAptMetalBackend {
 
   pub fn finalize_frame(
     &mut self,
-    i_accumulator: &[f64],
-    q_accumulator: &[f64],
-    noise_i: &[f64],
-    noise_q: &[f64],
+    i_accumulator: &[f32],
+    q_accumulator: &[f32],
+    noise_i: &[f32],
+    noise_q: &[f32],
   ) -> Result<Vec<u8>> {
     if i_accumulator.len() != q_accumulator.len()
       || i_accumulator.len() != noise_i.len()
@@ -158,15 +148,10 @@ impl MockAptMetalBackend {
     let fft_size = i_accumulator.len();
     self.ensure_capacity(fft_size);
 
-    Self::copy_f64_to_f32(i_accumulator, &mut self.scratch_i);
-    Self::copy_f64_to_f32(q_accumulator, &mut self.scratch_q);
-    Self::copy_f64_to_f32(noise_i, &mut self.scratch_noise_i);
-    Self::copy_f64_to_f32(noise_q, &mut self.scratch_noise_q);
-
-    Self::copy_to_buffer(&self.i_buffer, &self.scratch_i);
-    Self::copy_to_buffer(&self.q_buffer, &self.scratch_q);
-    Self::copy_to_buffer(&self.noise_i_buffer, &self.scratch_noise_i);
-    Self::copy_to_buffer(&self.noise_q_buffer, &self.scratch_noise_q);
+    Self::copy_to_buffer(&self.i_buffer, i_accumulator);
+    Self::copy_to_buffer(&self.q_buffer, q_accumulator);
+    Self::copy_to_buffer(&self.noise_i_buffer, noise_i);
+    Self::copy_to_buffer(&self.noise_q_buffer, noise_q);
 
     let command_buffer = self.queue.new_command_buffer();
     let encoder = command_buffer.new_compute_command_encoder();

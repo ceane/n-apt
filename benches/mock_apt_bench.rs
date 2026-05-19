@@ -13,6 +13,11 @@ fn mock_apt_generation_benchmark(c: &mut Criterion) {
   for fft_size in [32_768usize, 262_144usize] {
     group.bench_function(format!("read_samples_sync/{fft_size}"), |b| {
       let mut device = MockAptDevice::new_with_seed(20240513);
+      eprintln!(
+        "Mock APT benchmark backend ({}): {}",
+        fft_size,
+        device.generation_backend_label()
+      );
       device.read_samples_sync(1024).unwrap();
       b.iter(|| {
         black_box(device.read_samples_sync(fft_size).unwrap());
@@ -26,6 +31,10 @@ fn mock_apt_generation_benchmark(c: &mut Criterion) {
         if !device.gpu_backend_enabled() {
           return;
         }
+        eprintln!(
+          "Mock APT benchmark backend (metal/{fft_size}): {}",
+          device.generation_backend_label()
+        );
         device.read_samples_sync(1024).unwrap();
         b.iter(|| {
           black_box(device.read_samples_sync(fft_size).unwrap());

@@ -6,6 +6,11 @@ mod tests {
 
   static MOCK_APT_PERF_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+  fn new_perf_device(seed: u64) -> MockAptDevice {
+    // Keep the checksum-regression test on the canonical CPU path.
+    MockAptDevice::new_with_seed(seed)
+  }
+
   #[test]
   fn test_device_type() {
     let device = MockAptDevice::new();
@@ -150,7 +155,7 @@ mod tests {
     let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
 
     // Use a fixed seed for deterministic output
-    let mut device = MockAptDevice::new_with_seed(12345);
+    let mut device = new_perf_device(12345);
     let fft_size = 262144; // 256k samples (standard large frame)
 
     // 1. Warm up (settle time modeling)
@@ -163,6 +168,7 @@ mod tests {
 
     let throughput = (fft_size as f64 / duration.as_secs_f64()) / 1_000_000.0;
     println!("MOCK APT PERFORMANCE:");
+    println!("  Backend: {}", device.generation_backend_label());
     println!("  Generated {} samples in {:?}", fft_size, duration);
     println!("  Throughput: {:.2} MSPS", throughput);
 
@@ -174,7 +180,7 @@ mod tests {
     assert_eq!(checksum, 66846658, "mock APT waveform checksum changed");
 
     // Ensure determinism
-    let mut device2 = MockAptDevice::new_with_seed(12345);
+    let mut device2 = new_perf_device(12345);
     device2.read_samples(1024).unwrap();
     let samples2 = device2.read_samples(fft_size).unwrap();
     let checksum2: u64 = samples2.data.iter().map(|&b| b as u64).sum();
@@ -299,9 +305,14 @@ mod tests {
   fn test_mock_apt_metal_backend_smoke() {
     let mut device = MockAptDevice::new_with_seed_and_gpu_backend(12345);
     if !device.gpu_backend_enabled() {
-      eprintln!("Metal backend unavailable; skipping smoke assertions");
+      eprintln!(
+        "Metal backend unavailable; skipping smoke assertions: {}",
+        device.gpu_backend_error().unwrap_or("unknown initialization error")
+      );
       return;
     }
+
+    assert_eq!(device.device_type(), "Mock APT SDR (Metal)");
 
     device.read_samples(1024).unwrap();
     let frame1 = device.read_samples(32_768).unwrap();

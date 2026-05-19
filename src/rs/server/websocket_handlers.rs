@@ -199,7 +199,7 @@ pub async fn handle_ws_connection(
   let device_name = if device_connected {
     normalize_rtl_device_name(&device_info)
   } else {
-    "Mock APT SDR".to_string()
+    crate::server::utils::mock_apt_device_name(&device_info)
   };
 
   let initial_status = super::types::StatusMessage {
@@ -486,8 +486,10 @@ pub fn handle_message(
         let device_name = if device_connected {
           normalize_rtl_device_name(&device_info)
         } else {
-          "Mock APT SDR".to_string()
+          crate::server::utils::mock_apt_device_name(&device_info)
         };
+        let mock_backend_label =
+          crate::server::utils::mock_apt_backend_label(&device_info);
 
         let status = super::types::StatusMessage {
           message_type: "status".to_string(),
@@ -505,7 +507,7 @@ pub fn handle_message(
           device: if device_connected {
             "rtl-sdr".to_string()
           } else {
-            "mock_apt".to_string()
+            mock_backend_label.to_string()
           },
           device_profile: shared.device_profile.lock().unwrap().clone(),
         };

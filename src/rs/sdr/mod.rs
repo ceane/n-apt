@@ -122,13 +122,14 @@ impl SdrDeviceFactory {
     log::info!("Creating mock APT SDR device");
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
     {
-      return Box::new(crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend());
+      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
+        return Box::new(
+          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
+        );
+      }
     }
 
-    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    {
-      Box::new(crate::sdr::mock_apt::MockAptDevice::new())
-    }
+    Box::new(crate::sdr::mock_apt::MockAptDevice::new())
   }
 
   /// Force creation of an RTL-SDR device (will error if none available)
@@ -157,15 +158,14 @@ impl SdrDeviceFactory {
     );
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
     {
-      return Ok(Box::new(
-        crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
-      ));
+      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
+        return Ok(Box::new(
+          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
+        ));
+      }
     }
 
-    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    {
-      Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
-    }
+    Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
   }
 }
 

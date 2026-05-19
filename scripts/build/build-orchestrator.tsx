@@ -597,6 +597,38 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
 
+  const logMetalBackendAvailability = useCallback(async () => {
+    if (process.platform !== 'darwin') {
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:8765/status');
+      if (!response.ok) {
+        addLog(chalk.yellow(`Metal preflight: unable to query backend status (${response.status})`));
+        return;
+      }
+
+      const data = await response.json() as {
+        device?: string;
+        device_name?: string;
+      };
+      const backend = typeof data.device === 'string' ? data.device : '';
+      const deviceName = typeof data.device_name === 'string' ? data.device_name : '';
+      const metalActive =
+        backend === 'mock_apt_metal' ||
+        deviceName.toLowerCase().includes('(metal)');
+
+      if (metalActive) {
+        addLog(chalk.green(`Metal preflight: available (${deviceName || 'Mock APT SDR (Metal)'})`));
+      } else {
+        addLog(chalk.yellow(`Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'})`));
+      }
+    } catch (error: any) {
+      addLog(chalk.yellow(`Metal preflight: unavailable (${error.message})`));
+    }
+  }, [addLog]);
+
     const executeCompositeRustStep = useCallback(async (stepIndex: number): Promise<boolean> => {
       setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
@@ -661,7 +693,9 @@ exit 1
         if (!waitResult.success) {
           return false;
         }
-  
+
+        await logMetalBackendAvailability();
+ 
         addLog(chalk.green('Rust backend fully initialized and ready'));
         return true;
   
@@ -672,7 +706,7 @@ exit 1
       } finally {
         setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
       }
-    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail]);
+    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail, logMetalBackendAvailability]);
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));

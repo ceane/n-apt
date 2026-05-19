@@ -58,9 +58,20 @@ const getLiveInputLabel = (
   backend: string | null,
   deviceName?: string | null,
 ) => {
+  const normalizedDeviceName = deviceName?.trim();
+  if (
+    backend === "mock_apt_metal" ||
+    backend?.includes("metal")
+  ) {
+    if (normalizedDeviceName && normalizedDeviceName.includes("(Metal)")) {
+      return normalizedDeviceName;
+    }
+    return "Mock APT SDR (Metal)";
+  }
+
   // Use device_name directly if available
-  if (deviceName && deviceName.trim().length > 0) {
-    return deviceName.trim();
+  if (normalizedDeviceName && normalizedDeviceName.length > 0) {
+    return normalizedDeviceName;
   }
 
   // Fallback to backend-specific names

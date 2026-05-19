@@ -197,7 +197,7 @@ export interface StatusMessage {
   }>;
   channels: SpectrumFrame[];
   sdr_settings: SdrSettingsConfig;
-  device: "rtl-sdr" | "mock_apt";
+  device: "rtl-sdr" | "mock_apt" | "mock_apt_metal";
   device_profile: DeviceProfile;
 }
 
