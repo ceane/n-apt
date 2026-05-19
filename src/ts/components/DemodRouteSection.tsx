@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import styled from "styled-components";
-import { Play } from "lucide-react";
 import {
   ReactFlow,
   Node,
@@ -47,8 +46,6 @@ import {
 import {
   NodeContainer,
   FlowContainer,
-  ControlBar,
-  FullscreenModal,
 } from "@n-apt/components/react-flow/flows";
 // Removed local buildDemodFlowGraph call
 
@@ -368,7 +365,7 @@ const DemodRouteSectionInner: React.FC = () => {
     setEdges: setEdgesLocal,
   } = useDemod();
 
-  const [isLaidOut, setIsLaidOut] = useState(false);
+  const [, setIsLaidOut] = useState(false);
   const [isSwitchingFlow, setIsSwitchingFlow] = useState(false);
 
   const [menu, setMenu] = React.useState<{

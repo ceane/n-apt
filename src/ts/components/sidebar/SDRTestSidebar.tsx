@@ -1,7 +1,7 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
-import { Unplug, ChevronsLeftRightEllipsis, RotateCcw } from "lucide-react";
+import { Unplug, RotateCcw } from "lucide-react";
 
 import {
   useSpectrumStore,
@@ -60,16 +60,6 @@ const MultiFrameButton = styled(PauseButton)`
     opacity: 0.5;
     cursor: not-allowed;
   }
-`;
-
-const DiagnosticStatusDisplay = styled.div`
-  grid-column: 1 / -1;
-  font-size: 11px;
-  font-family: ${(props) => props.theme.typography.mono};
-  color: ${(props) => props.theme.textSecondary};
-  padding: 4px 12px;
-  margin-top: -8px;
-  border-left: 2px solid ${(props) => props.theme.borderHover};
 `;
 
 export const SDRTestSidebar: React.FC = () => {

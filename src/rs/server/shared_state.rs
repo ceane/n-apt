@@ -6,7 +6,7 @@ use std::time::Instant;
 use super::types::{
   CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
 };
-use super::utils::{load_channels, load_sdr_settings};
+use super::utils::{load_available_spectrum, load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
 pub const DEVICE_PROBE_INTERVAL: std::time::Duration =
@@ -61,6 +61,11 @@ pub struct SharedState {
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
+  /// Available spectrum bounds loaded from signals.yaml
+  pub available_spectrum: Option<(f64, f64)>,
+  /// Forces the live stream to emit noise when the frontend/backend
+  /// asks for an out-of-bounds tune request.
+  pub force_noise: AtomicBool,
   /// Redis client for persistent metadata and sessions
   pub redis_client: redis::Client,
 
@@ -113,6 +118,10 @@ impl SharedState {
       encryption_key,
       channels: Mutex::new(load_channels()),
       sdr_settings: Mutex::new(sdr_settings.clone()),
+      available_spectrum: load_available_spectrum().map(|range| {
+        (range.min_freq, range.max_freq)
+      }),
+      force_noise: AtomicBool::new(false),
       redis_client,
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),

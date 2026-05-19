@@ -99,7 +99,7 @@ export const AgentIntegrationProvider: React.FC<
   ]);
 
   // Get WebMCP tools for current route
-  const { isRegistered, availableTools, lastResult } = useWebMCP();
+  const { isRegistered, availableTools } = useWebMCP();
 
   // Debug information for development
   useEffect(() => {

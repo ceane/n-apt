@@ -1,9 +1,10 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useAppDispatch } from "@n-apt/redux";
-import { spectrumActions } from "@n-apt/redux";
+import { spectrumActions, useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
+import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
 
 // Styled Components
 const Container = styled.div`
@@ -45,6 +46,9 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const { state, dispatch: storeDispatch, wsConnection } = useSpectrumStore();
+  const hardwareSpectrumBounds = useAppSelector(
+    (reduxState) => reduxState.demod.hardwareRange,
+  );
 
   const areaKey = signalAreaKey ?? label;
 
@@ -150,18 +154,14 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         let newHardwareCenter = visualCenter;
         let newHardwareMin = newHardwareCenter - halfHardware;
         let newHardwareMax = newHardwareCenter + halfHardware;
+        const clampedHardwareRange = clampFrequencyRangeToBounds(
+          { min: newHardwareMin, max: newHardwareMax },
+          hardwareSpectrumBounds,
+        );
+        newHardwareCenter =
+          (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
 
-        if (newHardwareMin < minFreq) {
-          newHardwareMin = minFreq;
-          newHardwareMax = minFreq + hardwareSpan;
-        }
-        if (newHardwareMax > maxFreq) {
-          newHardwareMax = maxFreq;
-          newHardwareMin = maxFreq - hardwareSpan;
-        }
-        newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
-
-        const newRange = { min: newHardwareMin, max: newHardwareMax };
+        const newRange = clampedHardwareRange;
         dispatch(spectrumActions.setFrequencyRange(newRange));
         storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
         wsConnection.sendFrequencyRange(newRange);
@@ -172,9 +172,13 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         return;
       }
 
-      dispatch(spectrumActions.setFrequencyRange(range));
-      storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
-      wsConnection.sendFrequencyRange(range);
+      const clampedRange = clampFrequencyRangeToBounds(
+        range,
+        hardwareSpectrumBounds,
+      );
+      dispatch(spectrumActions.setFrequencyRange(clampedRange));
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
+      wsConnection.sendFrequencyRange(clampedRange);
     },
     [
       storeDispatch,
@@ -185,6 +189,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       hardwareSpan,
       minFreq,
       maxFreq,
+      hardwareSpectrumBounds,
     ],
   );
 

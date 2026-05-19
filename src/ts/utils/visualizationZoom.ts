@@ -10,7 +10,7 @@ export const clampVizZoom = (zoom: number, zoomFloor = 1) => {
 };
 
 export const getStableVizPanForZoomChange = ({
-  currentZoom,
+  currentZoom: _currentZoom,
   currentPan,
   nextZoom,
   rangeMin,

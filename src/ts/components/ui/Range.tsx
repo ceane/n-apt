@@ -127,9 +127,6 @@ export const Range: React.FC<RangeProps> = ({
   children,
   fullWidth = false,
 }) => {
-  const totalSpan = Math.max(0, max - min);
-  const descriptiveRange = `${formatFrequency(min)} to ${formatFrequency(max)}`;
-
   return (
     <RangeWrapper style={fullWidth ? { gridColumn: "1 / -1" } : undefined}>
       <RangeTitle>{label}</RangeTitle>

@@ -260,7 +260,6 @@ export const MapEndpointsRoute: React.FC = () => {
     isLoaded,
     loadError,
     previewLocation,
-    recenterLocation,
   } = useMapLocations();
   const { segments, setNearestEndpoints, setMapBounds } = useMapRoutePaths();
   const {

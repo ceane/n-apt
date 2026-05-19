@@ -263,5 +263,21 @@ describe("Redux WebSocket Migration", () => {
       expect(state.backend).toBe("RTL-SDR"); // Preserved
       expect(state.deviceName).toBe("Generic RTL2832U"); // Updated
     });
+
+    it("updateDeviceState carries limit markers from websocket status", () => {
+      const markers = [
+        { kind: "lower_limit", freq_hz: 100, label: "Low" },
+        { kind: "upper_limit", freq_hz: 200, label: "High" },
+      ];
+
+      store.dispatch(
+        updateDeviceState({
+          sdrLimitMarkers: markers,
+        }),
+      );
+
+      const state = (store.getState() as any).websocket;
+      expect(state.sdrLimitMarkers).toEqual(markers);
+    });
   });
 });

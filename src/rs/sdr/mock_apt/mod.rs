@@ -17,6 +17,11 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::SdrDevice;
 
+#[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+mod metal_backend;
+#[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+use metal_backend::MockAptMetalBackend;
+
 /// Mock APT signal configuration
 #[derive(Debug, Clone)]
 struct MockAptSignalConfig {
@@ -53,6 +58,8 @@ pub struct MockAptDevice {
   frame_log_counter: u64,
   signal_chunk_states: Vec<SignalChunkState>,
   recycled_byte_buffer: Option<Vec<u8>>,
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  metal_backend: Option<MockAptMetalBackend>,
 }
 
 /// Individual mock APT signal state
@@ -111,6 +118,20 @@ impl MockAptDevice {
   }
 
   fn new_with_rng(mut rng: StdRng) -> Self {
+    Self::new_with_rng_and_backend(rng, false)
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn new_with_gpu_backend() -> Self {
+    Self::new_with_rng_and_backend(StdRng::from_rng(&mut ::rand::rng()), true)
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn new_with_seed_and_gpu_backend(seed: u64) -> Self {
+    Self::new_with_rng_and_backend(StdRng::seed_from_u64(seed), true)
+  }
+
+  fn new_with_rng_and_backend(mut rng: StdRng, enable_gpu_backend: bool) -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals_with_rng(&mock_settings, &mut rng);
     let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
@@ -143,6 +164,24 @@ impl MockAptDevice {
       frame_log_counter: 0,
       signal_chunk_states: Vec::with_capacity(256),
       recycled_byte_buffer: None,
+      #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+      metal_backend: if enable_gpu_backend {
+        match MockAptMetalBackend::new() {
+          Ok(backend) => {
+            log::info!("Mock APT Metal backend enabled");
+            Some(backend)
+          }
+          Err(error) => {
+            log::warn!(
+              "Mock APT Metal backend unavailable, falling back to CPU: {}",
+              error
+            );
+            None
+          }
+        }
+      } else {
+        None
+      },
     }
   }
 
@@ -367,6 +406,13 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+    if rate == 0 {
+      log::warn!(
+        "Ignoring invalid mock device sample rate 0 Hz; keeping {} Hz",
+        self.sample_rate
+      );
+      return Ok(());
+    }
     self.sample_rate = rate;
     log::debug!("Mock device sample rate set to {} Hz", rate);
     Ok(())
@@ -699,9 +745,46 @@ impl MockAptDevice {
       }
     }
 
-    // Apply noise, clip and quantize (Sequential to keep RNG identical)
-    // Pre-compute noise amplitude as f64 once to avoid per-sample f32→f64 cast
+    // Apply noise, clip and quantize (Sequential to keep RNG identical).
+    // If Metal is enabled, we only offload the final conversion stage and
+    // keep the RNG on CPU so the seeded stream stays stable.
     let noise_amp_f64 = noise_amplitude as f64;
+
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    if let Some(backend) = self.metal_backend.as_mut() {
+      let (noise_i, noise_q) =
+        self.build_noise_buffers(fft_size, noise_amp_f64);
+
+      match backend.finalize_frame(
+        &self.i_accumulator[..fft_size],
+        &self.q_accumulator[..fft_size],
+        &noise_i,
+        &noise_q,
+      ) {
+        Ok(data) => {
+          self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
+          self.samples_since_init =
+            self.samples_since_init.wrapping_add(fft_size as u64);
+          self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
+          return Ok(RawSamples {
+            data,
+            sample_rate: self.sample_rate,
+          });
+        }
+        Err(error) => {
+          warn!(
+            "Mock APT Metal finalization failed, falling back to CPU: {}",
+            error
+          );
+          return self.finalize_samples_cpu_with_noise_buffers(
+            fft_size,
+            noise_i,
+            noise_q,
+          );
+        }
+      }
+    }
+
     // Write directly into the pre-reserved byte_buffer via pointer to avoid
     // 2×fft_size bounds-checked push() calls (already reserved on line 522).
     let buf_ptr = self.byte_buffer.as_mut_ptr();
@@ -723,6 +806,67 @@ impl MockAptDevice {
       }
     }
     // SAFETY: we wrote exactly fft_size*2 bytes above into reserved capacity
+    unsafe {
+      self.byte_buffer.set_len(fft_size * 2);
+    }
+
+    self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
+    self.samples_since_init =
+      self.samples_since_init.wrapping_add(fft_size as u64);
+
+    let next_buffer = self
+      .recycled_byte_buffer
+      .take()
+      .filter(|buffer| buffer.capacity() >= fft_size * 2)
+      .unwrap_or_else(|| Vec::with_capacity(fft_size * 2));
+    let data = std::mem::replace(&mut self.byte_buffer, next_buffer);
+    self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
+    Ok(RawSamples {
+      data,
+      sample_rate: self.sample_rate,
+    })
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn build_noise_buffers(
+    &mut self,
+    fft_size: usize,
+    noise_amp_f64: f64,
+  ) -> (Vec<f64>, Vec<f64>) {
+    let mut noise_i = Vec::with_capacity(fft_size);
+    let mut noise_q = Vec::with_capacity(fft_size);
+    for _ in 0..fft_size {
+      noise_i.push((self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64);
+      noise_q.push((self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64);
+    }
+    (noise_i, noise_q)
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn finalize_samples_cpu_with_noise_buffers(
+    &mut self,
+    fft_size: usize,
+    noise_i: Vec<f64>,
+    noise_q: Vec<f64>,
+  ) -> Result<RawSamples> {
+    self.byte_buffer.clear();
+    self.byte_buffer.reserve(fft_size * 2);
+    let buf_ptr = self.byte_buffer.as_mut_ptr();
+
+    for j in 0..fft_size {
+      let i_u8 = (((self.i_accumulator[j] + noise_i[j]).clamp(-1.0, 1.0)
+        * 127.0)
+        + 128.0) as u8;
+      let q_u8 = (((self.q_accumulator[j] + noise_q[j]).clamp(-1.0, 1.0)
+        * 127.0)
+        + 128.0) as u8;
+
+      unsafe {
+        *buf_ptr.add(j * 2) = i_u8;
+        *buf_ptr.add(j * 2 + 1) = q_u8;
+      }
+    }
+
     unsafe {
       self.byte_buffer.set_len(fft_size * 2);
     }
@@ -772,6 +916,11 @@ impl MockAptDevice {
       estimated_bytes_per_frame: fft_size.saturating_mul(2),
     }
   }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  pub fn gpu_backend_enabled(&self) -> bool {
+    self.metal_backend.is_some()
+  }
 }
 
 #[cfg(test)]
@@ -790,11 +939,6 @@ mod tests {
       r#"
 signals:
   sdr:
-    limits:
-      lower_limit_hz: !frequency 500kHz
-      upper_limit_hz: !frequency 28.8MHz
-      lower_limit_label: "low"
-      upper_limit_label: "high"
     sample_rate: !frequency 3.2MHz
     center_frequency: !frequency 1.6MHz
     gain:
@@ -812,6 +956,17 @@ signals:
       min_db: !dB -120dB
       max_db: !dB 0dB
       padding: 20
+    devices:
+      mock_apt:
+        sample_rate: !max
+        fft_display:
+          markers:
+            - kind: lower_limit
+              freq_hz: !frequency 500kHz
+              label: "low"
+            - kind: upper_limit
+              freq_hz: !frequency 28.8MHz
+              label: "high"
   mock_apt:
     channels:
       a:

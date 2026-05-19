@@ -466,7 +466,6 @@ const FFTCanvas = memo(
       frequencyRange,
       centerFrequencyHz,
       activeSignalArea: _activeSignalArea,
-      signalAreaBounds,
       isPaused,
       fftFrameRate,
       fftSize,
@@ -512,7 +511,6 @@ const FFTCanvas = memo(
       selectionDisabled = false,
       bandwidthAlignment = "centered",
       onSelectionChange,
-      vizZoomFloorPan = 0,
       onVizZoomFloorPanChange,
       autoZoomStability = false,
     } = props;
@@ -690,6 +688,9 @@ const FFTCanvas = memo(
     );
     const wfSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.wfSmoothEnabled,
+    );
+    const hardwareSpectrumBounds = useAppSelector(
+      (reduxState) => reduxState.demod.hardwareRange,
     );
 
     // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
@@ -1061,7 +1062,7 @@ const FFTCanvas = memo(
       frequencyRangeRef,
       spectrumWebgpuEnabled,
       activeSignalArea: _activeSignalArea,
-      signalAreaBounds,
+      hardwareSpectrumBounds,
       onFrequencyRangeChange,
       selectionRange,
       onSelectionChange,

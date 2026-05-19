@@ -91,8 +91,6 @@ export const syncRadioDemodFromSource = createAsyncThunk(
 
 const GLOBAL_BAND_EDGE_MIN_HZ = 0;
 const GLOBAL_BAND_EDGE_MAX_HZ = 30_000_000_000;
-const HARDWARE_MIN_CENTER_HZ = 0;
-const HARDWARE_MAX_CENTER_HZ = 30_000_000_000;
 const MIN_BANDWIDTH_HZ = 1_000;
 
 export type Alignment = "centered" | "start" | "end";
@@ -352,7 +350,7 @@ const dispatchSpanState = (
   next: ConsolidatedState,
   alignment: Alignment,
   updatePreview: boolean,
-  source: "center" | "bandwidth" | "start" | "external" | "alignment" | "preview_sync" | "file_sync",
+  _source?: "center" | "bandwidth" | "start" | "external" | "alignment" | "preview_sync" | "file_sync",
 ) => {
   dispatch(setCenterFreq(next.center));
   dispatch(setBandwidthCenterFreq(next.start + next.bandwidth / 2));
@@ -608,12 +606,3 @@ export const syncDemodSpanFromSourceContext = createAsyncThunk(
     dispatchSpanState(dispatch as AppDispatch, next, currentAlignment, true, "file_sync");
   },
 );
-
-const clampSourceStart = (
-  start: number,
-  range: FrequencyRange,
-  bandwidth: number,
-) => {
-  const hi = Math.max(range.min, range.max - bandwidth);
-  return Math.max(range.min, Math.min(hi, start));
-};

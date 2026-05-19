@@ -134,15 +134,6 @@ const TitleInput = styled.textarea`
   word-break: break-word;
 `;
 
-const Summary = styled.div`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.4;
-  white-space: pre-line;
-`;
-
 const SectionTitle = styled.div`
   color: ${({ theme }) => theme.colors.metadataLabel};
   font-family: ${({ theme }) => theme.typography.mono};

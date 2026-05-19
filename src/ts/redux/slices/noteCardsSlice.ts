@@ -132,10 +132,7 @@ const normalizeNoteCardStats = (
     : Date.now(),
 });
 
-const normalizeNoteCardTitle = (
-  card: NoteCardModel,
-  stats: NoteCardStatsSnapshot,
-): string => {
+const normalizeNoteCardTitle = (card: NoteCardModel): string => {
   const title = card.title?.trim() ?? "";
   if (!title || title.includes("undefined")) {
     return "";
@@ -211,7 +208,7 @@ export const createNoteCardFromSpectrum = createAsyncThunk<
   const { spectrum, waterfall } = getState();
   const stats = normalizeNoteCardStats({
     ...buildStatsSnapshot(spectrum, waterfall),
-    ...(args?.stats ?? {}),
+    ...args?.stats,
   });
   const card: NoteCardModel = {
     id: nanoid(),
@@ -236,7 +233,7 @@ const noteCardsSlice = createSlice({
         const stats = normalizeNoteCardStats(card.stats);
         return {
           ...card,
-          title: normalizeNoteCardTitle(card, stats),
+          title: normalizeNoteCardTitle(card),
           stats,
           position: card.position ?? DEFAULT_POSITION,
           size: card.size ?? DEFAULT_SIZE,

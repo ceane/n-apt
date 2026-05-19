@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useAppDispatch } from "@n-apt/redux";
 import {
   clearActivePlaybackMetadata,
-  incrementPlaybackFrameCounter,
   setStitchStatus,
   setActivePlaybackMetadata,
 } from "@n-apt/redux";

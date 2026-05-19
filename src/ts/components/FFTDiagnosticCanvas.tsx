@@ -534,7 +534,7 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
     setDragCurrent({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = () => {
     if (!dragStart || !dragCurrent || !data) {
       setDragStart(null);
       setDragCurrent(null);

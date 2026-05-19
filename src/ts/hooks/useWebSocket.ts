@@ -715,6 +715,7 @@ export const useWebSocket = (
         type: "frequency_range",
         min_hz: range.min,
         max_hz: range.max,
+        center_frequency: (range.min + range.max) / 2,
       });
       ws.send(message);
     }

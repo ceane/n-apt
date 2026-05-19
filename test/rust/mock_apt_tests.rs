@@ -283,6 +283,39 @@ mod tests {
   }
 
   #[test]
+  fn test_mock_apt_profile_snapshot_medium_frame() {
+    let device = MockAptDevice::new_with_seed(12345);
+    let profile = device.performance_profile(32768);
+
+    assert_eq!(profile.fft_size, 32768);
+    assert!(profile.active_signals > 0);
+    assert!(profile.est_signal_pairs > 0);
+    assert!(profile.estimated_operations_per_frame > 0);
+    assert!(profile.estimated_bytes_per_frame >= 32768 * 2);
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  #[test]
+  fn test_mock_apt_metal_backend_smoke() {
+    let mut device = MockAptDevice::new_with_seed_and_gpu_backend(12345);
+    if !device.gpu_backend_enabled() {
+      eprintln!("Metal backend unavailable; skipping smoke assertions");
+      return;
+    }
+
+    device.read_samples(1024).unwrap();
+    let frame1 = device.read_samples(32_768).unwrap();
+    let frame2 = device.read_samples(32_768).unwrap();
+
+    assert_eq!(frame1.data.len(), 32_768 * 2);
+    assert_eq!(frame2.data.len(), 32_768 * 2);
+    assert_ne!(
+      frame1.data, frame2.data,
+      "Metal-backed frames should continue advancing"
+    );
+  }
+
+  #[test]
   fn test_large_fft_frame_rate_regression() {
     assert_eq!(
       n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(

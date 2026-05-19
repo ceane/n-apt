@@ -17,7 +17,6 @@ import {
   setActivePlaybackMetadata,
   setPlaybackChannels,
   clearActivePlaybackMetadata,
-  incrementPlaybackFrameCounter,
   setActiveSignalArea,
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";

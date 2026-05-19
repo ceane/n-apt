@@ -56,7 +56,7 @@ export function useAudioDemodAPT(
     (
       iqData: Uint8Array,
       sampleRate: number,
-      frameCenterFrequencyHz?: number | null,
+      _frameCenterFrequencyHz?: number | null,
     ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);

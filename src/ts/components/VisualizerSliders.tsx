@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Slider } from "@n-apt/components/ui";
-import { COLORS, STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
+import { STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
 import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import { roundDbValue } from "@n-apt/utils/frequency";
 import {
@@ -12,7 +12,6 @@ import {
   RotateCcw,
   Sigma,
   Wand2,
-  WandSparkles,
 } from "lucide-react";
 
 const SlidersGrid = styled.div`
@@ -190,8 +189,9 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
     ? { min: -120, max: -10 }
     : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
+  const isZoomedIn = zoom > 1.0001;
   const hasZoomFloor = zoomFloor > 1.0001;
-  const canShowZoomFloorAction = zoom > 1.0001 || hasZoomFloor;
+  const canShowZoomFloorAction = autoZoomStability;
   const handleZoomFloorAction = hasZoomFloor
     ? onRefocusZoomFloor
     : onLockZoomFloor;
@@ -244,11 +244,14 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
           <ActionButton
             $refocus={hasZoomFloor}
             $outlined={!hasZoomFloor}
+            disabled={!isZoomedIn && !hasZoomFloor}
             onClick={handleZoomFloorAction}
             title={
               hasZoomFloor
                 ? "Refocus — snap zoom and pan back to the current floor window"
-                : "Lock zoom floor — save the current zoom and pan as the floor window"
+                : isZoomedIn
+                  ? "Lock zoom floor — save the current zoom and pan as the floor window"
+                  : "Zoom in first — lock zoom floor becomes available above 1.0x"
             }
           >
             {hasZoomFloor ? (

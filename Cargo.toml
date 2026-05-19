@@ -96,6 +96,10 @@ path = "src/rs/bin/dump_config.rs"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
 
+[features]
+default = []
+mock_apt_metal = ["dep:metal"]
+
 [dependencies]
 paste = "1.0"
 
@@ -122,6 +126,9 @@ serde-wasm-bindgen = "0.6"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.98"
 web-sys = { version = "0.3.98", features = ["console"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.31", optional = true }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -122,7 +122,7 @@ describe("VisualizerSliders", () => {
     expect(screen.queryByText("Refocus (Zoom Floor)")).toBeNull();
   });
 
-  test("shows the zoom floor action even when auto stability is off", () => {
+  test("hides the zoom floor action when auto stability is off", () => {
     render(
       <TestWrapper>
         <VisualizerSliders
@@ -134,7 +134,18 @@ describe("VisualizerSliders", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Lock Zoom Floor")).toBeInTheDocument();
+    expect(screen.queryByText("Lock Zoom Floor")).toBeNull();
+  });
+
+  test("disables lock zoom floor at the initial 1.0x zoom when auto stability is enabled", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={1} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    const button = screen.getByRole("button", { name: /lock zoom floor/i });
+    expect(button).toBeDisabled();
   });
 
   test("shows refocus zoom floor when a floor is locked", () => {

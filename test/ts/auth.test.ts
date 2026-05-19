@@ -5,6 +5,7 @@ import {
   fetchServerStatus,
   validateSession,
   authenticateWithPassword,
+  authenticateWithPasskey,
   buildWsUrl,
 } from "../../src/ts/services/auth";
 
@@ -113,6 +114,26 @@ describe("auth service", () => {
 
       await expect(authenticateWithPassword("pwd")).rejects.toThrow(
         "Server disconnected 500",
+      );
+    });
+
+    test("authenticateWithPassword explains when the server is unreachable", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(
+        new TypeError("Failed to fetch"),
+      );
+
+      await expect(authenticateWithPassword("pwd")).rejects.toThrow(
+        "The app isn't running, run `npm run dev` to start the server and login.",
+      );
+    });
+
+    test("authenticateWithPasskey explains when the server is unreachable", async () => {
+      (global.fetch as jest.Mock).mockRejectedValueOnce(
+        new TypeError("Failed to fetch"),
+      );
+
+      await expect(authenticateWithPasskey()).rejects.toThrow(
+        "The app isn't running, run `npm run dev` to start the server and login.",
       );
     });
   });

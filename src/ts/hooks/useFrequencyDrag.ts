@@ -4,6 +4,7 @@ import {
   clampVizZoom,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
+import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
 
 export interface FrequencyDragOptions {
   disabled?: boolean;
@@ -16,6 +17,7 @@ export interface FrequencyDragOptions {
   spectrumWebgpuEnabled: boolean;
   activeSignalArea: string;
   signalAreaBounds?: Record<string, { min: number; max: number }>;
+  hardwareSpectrumBounds?: FrequencyRange | null;
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
@@ -50,7 +52,7 @@ export function useFrequencyDrag({
   frequencyRangeRef,
   spectrumWebgpuEnabled,
   activeSignalArea,
-  signalAreaBounds,
+  hardwareSpectrumBounds,
   onFrequencyRangeChange,
   selectionRange,
   onSelectionChange,
@@ -80,7 +82,6 @@ export function useFrequencyDrag({
   const boxStartRef = useRef({ x: 0, y: 0 });
   const boxCurrentRef = useRef({ x: 0, y: 0 });
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
-  const selectionEdgeRef = useRef<"left" | "right" | null>(null);
   const selectionDraftRangeRef = useRef<FrequencyRange | null>(null);
   const selectionDragOriginFreqRef = useRef<number | null>(null);
   const selectionDragModeRef = useRef<"create" | "move" | "resize-left" | "resize-right" | null>(null);
@@ -210,6 +211,60 @@ export function useFrequencyDrag({
       if (container.classList) {
         container.classList.remove(className);
       }
+    };
+
+    const maybeRetuneHardwareWindow = ({
+      nextPan,
+      zoom,
+    }: {
+      nextPan: number;
+      zoom: number;
+    }) => {
+      if (!onFrequencyRangeChange || !onVizPanChange) return false;
+
+      const fullRange =
+        frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      if (!Number.isFinite(fullRange) || fullRange <= 0) return false;
+
+      const visualRange = fullRange / zoom;
+      const maxPan = Math.max(0, fullRange / 2 - visualRange / 2);
+      const retuneThreshold = Math.max(1, maxPan * 0.75);
+      if (Math.abs(nextPan) <= retuneThreshold) return false;
+
+      const clampedTargetPan = Math.max(
+        -retuneThreshold,
+        Math.min(retuneThreshold, nextPan),
+      );
+      const overflowPan = nextPan - clampedTargetPan;
+
+      const currentHardwareCenter =
+        (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
+      const visualCenter = currentHardwareCenter + overflowPan;
+      const hardwareSpan = fullRange;
+      const halfHardware = hardwareSpan / 2;
+
+      const clampedHardwareRange = clampFrequencyRangeToBounds(
+        {
+          min: visualCenter - halfHardware,
+          max: visualCenter + halfHardware,
+        },
+        hardwareSpectrumBounds,
+      );
+
+      const newHardwareCenter =
+        (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
+      onFrequencyRangeChange({
+        min: clampedHardwareRange.min,
+        max: clampedHardwareRange.max,
+      });
+
+      const remainingPan = visualCenter - newHardwareCenter;
+      onVizPanChange(remainingPan);
+
+      if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+        onVizZoomFloorPanChange?.(remainingPan);
+      }
+      return true;
     };
 
     const updateContainerRect = () => {
@@ -475,50 +530,8 @@ export function useFrequencyDrag({
         // so we SUBTRACT freqChange from the pan offset
         const desiredPan = dragStartPanRef.current - freqChange;
 
-        if (onFrequencyRangeChange) {
-          // Check if we need to shift the hardware window (pan-retune)
-          if (Math.abs(desiredPan) > maxPan + 0.001) {
-            // Calculate where the center SHOULD be in absolute frequency space
-            const currentHardwareCenter =
-              (dragStartRangeRef.current.min + dragStartRangeRef.current.max) /
-              2;
-            const visualCenter = currentHardwareCenter + desiredPan;
-
-            // Calculate a new hardware window centered on this visual center
-            const hardwareSpan = fullRange;
-            const halfHardware = hardwareSpan / 2;
-
-            let newHardwareMin = visualCenter - halfHardware;
-            let newHardwareMax = visualCenter + halfHardware;
-
-            // Clamp hardware window to signal area bounds
-            const bounds =
-              signalAreaBounds?.[activeSignalArea] ??
-              signalAreaBounds?.[activeSignalArea.toLowerCase()];
-            if (bounds) {
-              if (newHardwareMin < bounds.min) {
-                newHardwareMin = bounds.min;
-                newHardwareMax = bounds.min + hardwareSpan;
-              }
-              if (newHardwareMax > bounds.max) {
-                newHardwareMax = bounds.max;
-                newHardwareMin = newHardwareMax - hardwareSpan;
-              }
-            }
-
-            const newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
-
-            // 1. Notify hardware to shift its window
-            onFrequencyRangeChange({
-              min: newHardwareMin,
-              max: newHardwareMax,
-            });
-
-            // 2. Set visual pan relative to this NEW hardware center
-            const remainingPan = visualCenter - newHardwareCenter;
-            onVizPanChange(remainingPan);
-            return;
-          }
+        if (maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })) {
+          return;
         }
 
         // Standard behavior: Clamp to max allowable pan (stay within window)
@@ -536,54 +549,10 @@ export function useFrequencyDrag({
         const rangeWidth = fullRange;
         let newMaxFreq = newMinFreq + rangeWidth;
 
-        const bounds =
-          signalAreaBounds?.[activeSignalArea] ??
-          signalAreaBounds?.[activeSignalArea.toLowerCase()];
-        if (bounds) {
-          // Clamp to configured signal area bounds (e.g., from signals.yaml)
-          const minBoundary = bounds.min;
-          const maxBoundary = bounds.max;
-
-          if (rangeWidth >= maxBoundary - minBoundary) {
-            // Overscan: The window is larger than the bounds, so the bounds
-            // must be fully contained within the window.
-            // windowMax >= maxBoundary => newMinFreq + rangeWidth >= maxBoundary
-            // windowMin <= minBoundary => newMinFreq <= minBoundary
-            const minAllowedMinFreq = maxBoundary - rangeWidth;
-            const maxAllowedMinFreq = minBoundary;
-
-            newMinFreq = Math.max(
-              minAllowedMinFreq,
-              Math.min(maxAllowedMinFreq, newMinFreq),
-            );
-            newMaxFreq = newMinFreq + rangeWidth;
-          } else {
-            // Underscan: The window is smaller than the bounds.
-            if (newMinFreq < minBoundary) {
-              newMinFreq = minBoundary;
-              newMaxFreq = newMinFreq + rangeWidth;
-            }
-            if (newMaxFreq > maxBoundary) {
-              newMaxFreq = maxBoundary;
-              newMinFreq = newMaxFreq - rangeWidth;
-            }
-          }
-        } else {
-          // Fallback: clamp to the drag-start range so the VFO can't retune
-          // beyond the frequency window that was visible when the drag began.
-          const startMin = dragStartRangeRef.current.min;
-          const startMax = dragStartRangeRef.current.max;
-          if (newMinFreq < startMin) {
-            newMinFreq = startMin;
-            newMaxFreq = newMinFreq + rangeWidth;
-          }
-          if (newMaxFreq > startMax) {
-            newMaxFreq = startMax;
-            newMinFreq = newMaxFreq - rangeWidth;
-          }
-        }
-
-        const newRange = { min: newMinFreq, max: newMaxFreq };
+        const newRange = clampFrequencyRangeToBounds(
+          { min: newMinFreq, max: newMaxFreq },
+          hardwareSpectrumBounds,
+        );
         frequencyRangeRef.current = newRange;
         onFrequencyRangeChange(newRange);
       } else if (onVizPanChange) {
@@ -1028,7 +997,6 @@ export function useFrequencyDrag({
         containerRectRef.current || container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const vfoThreshold = 60;
 
       // 1. Handle Pinch-to-Zoom (ctrlKey is true on trackpad pinches)
       if (e.ctrlKey) {
@@ -1131,46 +1099,7 @@ export function useFrequencyDrag({
 
           // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
           let newPan = currentPan + freqChange;
-          if (onFrequencyRangeChange && Math.abs(newPan) > maxPan + 0.001) {
-            const currentHardwareCenter =
-              (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
-              2;
-            const visualCenter = currentHardwareCenter + newPan;
-            const hardwareSpan = fullRange;
-            const halfHardware = hardwareSpan / 2;
-
-            let newHardwareMin = visualCenter - halfHardware;
-            let newHardwareMax = visualCenter + halfHardware;
-
-            const bounds =
-              signalAreaBounds?.[activeSignalArea] ||
-              signalAreaBounds?.[activeSignalArea.toLowerCase()];
-            if (bounds) {
-              if (newHardwareMin < bounds.min) {
-                newHardwareMin = bounds.min;
-                newHardwareMax = bounds.min + hardwareSpan;
-              }
-              if (newHardwareMax > bounds.max) {
-                newHardwareMax = bounds.max;
-                newHardwareMin = newHardwareMax - hardwareSpan;
-              }
-            }
-
-            const newHardwareCenter = (newHardwareMin + newHardwareMax) / 2;
-            onFrequencyRangeChange({
-              min: newHardwareMin,
-              max: newHardwareMax,
-            });
-
-            const remainingPan = visualCenter - newHardwareCenter;
-            onVizPanChange(remainingPan);
-
-            if (
-              autoZoomStabilityRef?.current &&
-              (vizZoomFloorRef?.current ?? 1) > 1
-            ) {
-              onVizZoomFloorPanChange?.(remainingPan);
-            }
+          if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
             return;
           }
 
@@ -1187,28 +1116,12 @@ export function useFrequencyDrag({
           const currentMin = currentRange.min;
           const newMin = currentMin + freqChange;
           const newMax = newMin + fullRange;
-
-          // Simple boundary check
-          const bounds =
-            signalAreaBounds?.[activeSignalArea] ||
-            signalAreaBounds?.[activeSignalArea.toLowerCase()];
-          if (bounds) {
-            if (newMin < bounds.min) {
-              onFrequencyRangeChange({
-                min: bounds.min,
-                max: bounds.min + fullRange,
-              });
-            } else if (newMax > bounds.max) {
-              onFrequencyRangeChange({
-                min: bounds.max - fullRange,
-                max: bounds.max,
-              });
-            } else {
-              onFrequencyRangeChange({ min: newMin, max: newMax });
-            }
-          } else {
-            onFrequencyRangeChange({ min: newMin, max: newMax });
-          }
+          onFrequencyRangeChange(
+            clampFrequencyRangeToBounds(
+              { min: newMin, max: newMax },
+              hardwareSpectrumBounds,
+            ),
+          );
         }
       }
     };
@@ -1269,6 +1182,7 @@ export function useFrequencyDrag({
     vizDbMaxRef,
     onFftDbLimitsChange,
     onVizZoomChange,
+    hardwareSpectrumBounds,
     renderWaveformRef,
     selectionMode,
   ]);

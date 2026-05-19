@@ -1,16 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { styled } from "styled-components";
-import { Handle, Position } from "@xyflow/react";
 import { Zap, BookmarkPlus, Trash2, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { FrequencyRange } from "@n-apt/consts/types";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { updateSpanStateThunk } from "@n-apt/redux/thunks/demodThunks";
-import { setFrequencyRange, setPreviewRange, setPreviewAlignment } from "@n-apt/redux/slices/spectrumSlice";
-import {
-  clampFrequencyHz,
-  getCenteredFrequencyHz,
-} from "@n-apt/utils/frequency";
+import { setFrequencyRange, setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
+import { clampFrequencyHz } from "@n-apt/utils/frequency";
 import { FrequencyInput } from "../../ui/FrequencyInput";
 
 
@@ -50,19 +45,6 @@ const SyncingIndicator = styled.div`
   }
 `;
 
-
-const InfoRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  margin-bottom: 6px;
-  color: ${({ theme }) => theme.colors.textMuted};
-`;
-
-const InfoValue = styled.span`
-  color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ theme }) => theme.typography.mono};
-`;
 
 const InputGroup = styled.div`
   margin-top: 16px;
@@ -260,16 +242,6 @@ interface SpanPreset {
   hardwareSpanHz?: number;
 }
 
-function maxBandwidthForCenter(centerHz: number, sampleRateHz: number): number {
-  if (!Number.isFinite(centerHz) || !Number.isFinite(sampleRateHz)) {
-    return MIN_BANDWIDTH_HZ;
-  }
-  const byLowEdge = 2 * (centerHz - GLOBAL_BAND_EDGE_MIN_HZ);
-  const byHighEdge = 2 * (GLOBAL_BAND_EDGE_MAX_HZ - centerHz);
-  const raw = Math.min(sampleRateHz, byLowEdge, byHighEdge);
-  return Math.max(MIN_BANDWIDTH_HZ, raw);
-}
-
 /** Keeps selection [start, start+bw] inside capture [center−span/2, center+span/2] and global band. */
 export function clampBandwidthStartHz(params: {
   centerHz: number;
@@ -343,7 +315,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const hardwareSpanHz = useAppSelector((state) => state.demod.hardwareSpanHz);
   const bandwidthHz = useAppSelector((state) => state.demod.bandwidthHz);
   const bandwidthStartHz = useAppSelector((state) => state.demod.bandwidthStartHz);
-  const bandwidthCenterFreqHz = useAppSelector((state) => state.demod.bandwidthCenterFreqHz);
   const alignment = useAppSelector((state) => state.demod.alignment) as Alignment;
   const sourceMode = useAppSelector((state) => state.demod.sourceMode);
 

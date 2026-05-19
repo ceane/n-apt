@@ -462,19 +462,6 @@ const ClearStatusButton = styled.button`
   padding: 2px 4px;
 `;
 
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  font-size: 11px;
-  color: ${(props) => props.theme.metadataLabel};
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
-  font-family: ${(props) => props.theme.typography.mono};
-`;
-
 const SectionBody = styled.div`
   display: grid;
   gap: 12px;

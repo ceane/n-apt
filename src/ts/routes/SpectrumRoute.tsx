@@ -25,6 +25,8 @@ import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
 import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
+import { useAppSelector } from "@n-apt/redux";
+import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
@@ -117,13 +119,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     state.vizPanOffset,
     (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan }),
   ] as const;
+  const hardwareSpectrumBounds = useAppSelector(
+    (reduxState) => reduxState.demod.hardwareRange,
+  );
   const limitMarkers = useMemo(
     () =>
-      buildSdrLimitMarkers(
-        effectiveSdrSettings ?? null,
-        sdrLimitMarkers,
-      ),
-    [effectiveSdrSettings, sdrLimitMarkers],
+      buildSdrLimitMarkers(sdrLimitMarkers),
+    [sdrLimitMarkers],
   );
   // themeState removed — FFTCanvas now handles theme reactivity internally
 
@@ -201,10 +203,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
-      dispatch({ type: "SET_FREQUENCY_RANGE", range });
-      sendFrequencyRange(range);
+      const hardwareClampedRange = clampFrequencyRangeToBounds(
+        range,
+        hardwareSpectrumBounds,
+      );
+      dispatch({ type: "SET_FREQUENCY_RANGE", range: hardwareClampedRange });
+      sendFrequencyRange(hardwareClampedRange);
     },
-    [sendFrequencyRange, dispatch],
+    [sendFrequencyRange, dispatch, hardwareSpectrumBounds],
   );
 
   const centerFrequencyHz = useMemo(() => {
@@ -353,25 +359,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             const newMin = currentRange.min + shiftHz;
             const newMax = newMin + fullRange;
 
-            // Clamping logic
-            const bounds =
-              signalAreaBounds?.[state.activeSignalArea] ||
-              signalAreaBounds?.[state.activeSignalArea.toLowerCase()];
-
-            let finalMin = newMin;
-            let finalMax = newMax;
-
-            if (bounds) {
-              if (finalMin < bounds.min) {
-                finalMin = bounds.min;
-                finalMax = finalMin + fullRange;
-              } else if (finalMax > bounds.max) {
-                finalMax = bounds.max;
-                finalMin = finalMax - fullRange;
-              }
-            }
-
-            handleFrequencyRangeChange({ min: finalMin, max: finalMax });
+            handleFrequencyRangeChange({ min: newMin, max: newMax });
           }
         } else if (state.sourceMode === "file") {
           // In file mode, move the visual pan offset

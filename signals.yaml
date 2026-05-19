@@ -11,13 +11,13 @@
 # - Mock APT settings are used for generating test signals when no real SDR is connected
 
 signals:
+  # Available frequency range for the spectrum display (not device-specific)
+  available_spectrum:
+    min_freq: !frequency 0Hz
+    max_freq: !frequency 30GHz
+
   # SDR hardware and processing settings
   sdr:
-    limits:
-      lower_limit_hz: !frequency 500kHz
-      upper_limit_hz: !frequency 28.8MHz
-      lower_limit_label: "RTL-SDR v4 lower limit"
-      upper_limit_label: "Potential hardware spur"
     # Sample rate for SDR processing
     sample_rate: !frequency 3.2MHz  # RTL-SDR compatible sample rate
     
@@ -68,7 +68,7 @@ signals:
     devices:
       rtl_sdr:
         sample_rate: !max
-        limits:
+        fft_display:
           markers:
             - kind: lower_limit
               freq_hz: !frequency 500kHz
@@ -79,9 +79,19 @@ signals:
             - kind: max_hardware_frequency
               freq_hz: !frequency 3.2MHz
               label: "RTL-SDR max hardware sample rate"
+      mock_apt:
+        sample_rate: !max
+        fft_display:
+          markers:
+            - kind: lower_limit
+              freq_hz: !frequency 500kHz
+              label: "Mock APT lower limit"
+            - kind: upper_limit
+              freq_hz: !frequency 28.8MHz
+              label: "Mock APT upper limit"
       hack_one:
         sample_rate: !floor...!max
-        limits:
+        fft_display:
           markers:
             - kind: min_hardware_frequency
               freq_hz: !frequency 1MHz

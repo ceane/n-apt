@@ -1,6 +1,5 @@
-import React, { useMemo, useRef } from "react";
+import React from "react";
 import styled from "styled-components";
-import { Handle, Position } from "@xyflow/react";
 import { Radio as RadioIcon } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";

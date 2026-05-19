@@ -44,7 +44,6 @@ import type {
   CaptureRequest,
   CaptureFileType,
 } from "@n-apt/consts/schemas/websocket";
-import { type GeolocationData } from "@n-apt/consts/schemas/websocket";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
@@ -1118,11 +1117,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const limitMarkers = useMemo(
     () =>
-      buildSdrLimitMarkers(
-        liveSdrSettingsToUse,
-        wsConnection.sdrLimitMarkers,
-      ),
-    [liveSdrSettingsToUse, wsConnection.sdrLimitMarkers],
+      buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
+    [wsConnection.sdrLimitMarkers],
   );
 
   const resetLiveControls = useCallback(() => {

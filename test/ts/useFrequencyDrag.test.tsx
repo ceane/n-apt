@@ -300,10 +300,10 @@ describe("useFrequencyDrag Hook", () => {
     expect(next.max).toBeLessThanOrEqual(109.5);
   });
 
-  it("should clamp VFO dragging to signal area bounds if provided", () => {
+  it("should clamp VFO dragging to hardware spectrum bounds if provided", () => {
     const boundsOptions = {
       ...defaultOptions,
-      signalAreaBounds: { TEST: { min: 100, max: 110 } },
+      hardwareSpectrumBounds: { min: 100, max: 110 },
     };
     renderHook(() => useFrequencyDrag(boundsOptions));
 

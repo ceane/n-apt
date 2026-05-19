@@ -120,7 +120,15 @@ impl SdrDeviceFactory {
   /// Force creation of a mock APT device
   pub fn create_mock_device() -> Box<dyn SdrDevice> {
     log::info!("Creating mock APT SDR device");
-    Box::new(crate::sdr::mock_apt::MockAptDevice::new())
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      return Box::new(crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend());
+    }
+
+    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
+    {
+      Box::new(crate::sdr::mock_apt::MockAptDevice::new())
+    }
   }
 
   /// Force creation of an RTL-SDR device (will error if none available)
@@ -147,7 +155,17 @@ impl SdrDeviceFactory {
     log::info!(
       "No RTL-SDR or HackRF device found, using mock APT implementation"
     );
-    Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      return Ok(Box::new(
+        crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
+      ));
+    }
+
+    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
+    {
+      Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
+    }
   }
 }
 

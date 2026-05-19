@@ -85,9 +85,9 @@ pub(crate) fn broadcast_device_status(
     if let Some(device_cfg) = sdr_settings.devices.get(&device_profile.kind) {
       (
         device_cfg
-          .limits
+          .fft_display
           .as_ref()
-          .map(|limits| limits.resolve_markers())
+          .map(|display| display.resolve_markers())
           .unwrap_or_default(),
         device_cfg.sample_rate.resolve_options(
           sdr_settings
@@ -97,14 +97,7 @@ pub(crate) fn broadcast_device_status(
         ),
       )
     } else {
-      (
-        sdr_settings
-          .limits
-          .as_ref()
-          .map(|limits| limits.resolve_markers())
-          .unwrap_or_default(),
-        vec![sdr_settings.sample_rate],
-      )
+      (Vec::new(), vec![sdr_settings.sample_rate])
     };
 
   let normalize_rtl_device_name = |raw_name: &str| {
@@ -888,13 +881,23 @@ impl WebSocketServer {
                 processor.frame.avg_spectrum = None;
               }
 
-              let waveform = processor.read_and_process_frame()?;
+              let force_noise =
+                cloned_shared.force_noise.load(std::sync::atomic::Ordering::Relaxed);
+              let waveform =
+                processor.read_and_process_frame_with_noise(force_noise)?;
               let timestamp = chrono::Utc::now().timestamp_millis();
               let center_frequency = processor.get_center_frequency();
               let is_mock_apt = processor.device_type().contains("Mock");
               let device_type = processor.device_type().to_string();
               let power_scale = processor.get_power_scale();
-              let sample_rate = processor.get_sample_rate();
+              let sample_rate = {
+                let processor_sample_rate = processor.get_sample_rate();
+                if processor_sample_rate == 0 {
+                  cloned_shared.sdr_settings.lock().unwrap().sample_rate.max(1)
+                } else {
+                  processor_sample_rate
+                }
+              };
               let raw_iq = processor.frame.last_frame_raw_iq.clone();
               let fps = processor.display_frame_rate;
               Ok((

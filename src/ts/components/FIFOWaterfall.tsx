@@ -54,9 +54,6 @@ const WaterfallCanvas = styled.canvas`
     theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
 `;
 
-const WATERFALL_PLACEHOLDER_TEXT = "Loading data from source...";
-const WATERFALL_PLACEHOLDER_COLOR = "#888888";
-
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -234,9 +231,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     useEffect(() => {
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-      const { width: cssWidth, height: cssHeight } = resolveCssSize();
-      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
-      const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
+      const { width, height } = resolveCssSize();
+      const renderWidth = Math.max(1, Math.round(width * dpr));
+      const renderHeight = Math.max(1, Math.round(height * dpr));
       const expectedLen = renderWidth * renderHeight * 4;
       const previousDims = bufferDimsRef.current;
       if (
@@ -335,7 +332,6 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       awaitingDeviceData,
     ]);
 
-    const { width: cssWidth, height: cssHeight } = resolveCssSize();
     return (
       <WaterfallViewport ref={viewportRef}>
         <WaterfallCanvas ref={canvasRef} />

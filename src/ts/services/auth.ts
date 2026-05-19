@@ -33,6 +33,8 @@ const getApiBase = (): string => {
 
 const API_BASE = getApiBase();
 const SESSION_KEY = ENV_SESSION_KEY ?? "n-apt-session-token";
+const AUTH_SERVER_DISCONNECTED_MESSAGE =
+  "The app isn't running, run `npm run dev` to start the server and login.";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -83,6 +85,25 @@ export function clearSession(): void {
 }
 
 // ── REST API calls ─────────────────────────────────────────────────────
+
+function isFetchNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  return (
+    error.message === "Failed to fetch" ||
+    error.message === "fetch failed" ||
+    error.message.includes("NetworkError") ||
+    error.message.includes("Load failed")
+  );
+}
+
+function authServerDisconnectedError(error: unknown): Error {
+  if (isFetchNetworkError(error)) {
+    return new Error(AUTH_SERVER_DISCONNECTED_MESSAGE);
+  }
+
+  return error instanceof Error ? error : new Error("Authentication failed");
+}
 
 /** GET /auth/info — check if passkeys are registered. */
 export async function fetchAuthInfo(): Promise<AuthInfo> {
@@ -232,11 +253,16 @@ export async function authenticateWithPassword(
   password: string,
 ): Promise<AuthResult> {
   // Step 1: Get challenge from server
-  const challengeRes = await fetch(`${API_BASE}/auth/challenge`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let challengeRes: Response;
+  try {
+    challengeRes = await fetch(`${API_BASE}/auth/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!challengeRes.ok)
     throw new Error("Authentication failed — Server disconnected 500");
   const { challenge_id, nonce } = await challengeRes.json();
@@ -245,11 +271,16 @@ export async function authenticateWithPassword(
   const hmacB64 = await computeHmac(password, nonce);
 
   // Step 3: Send HMAC to server for verification
-  const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ challenge_id, hmac: hmacB64 }),
-  });
+  let verifyRes: Response;
+  try {
+    verifyRes = await fetch(`${API_BASE}/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id, hmac: hmacB64 }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!verifyRes.ok) {
     const err = await verifyRes
@@ -278,11 +309,16 @@ export async function registerPasskey(): Promise<void> {
   console.log("Starting passkey registration...");
 
   // Step 1: Get registration options from server
-  const startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let startRes: Response;
+  try {
+    startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!startRes.ok) {
     const text = await startRes.text();
     console.error("Failed to start passkey registration:", text);
@@ -303,16 +339,21 @@ export async function registerPasskey(): Promise<void> {
   console.log("Created credential:", credential);
 
   // Step 3: Send credential to server
-  const finishRes = await fetch(`${API_BASE}/auth/passkey/register/finish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      challenge_id,
-      credential: serializeRegistrationCredential(
-        credential as PublicKeyCredential,
-      ),
-    }),
-  });
+  let finishRes: Response;
+  try {
+    finishRes = await fetch(`${API_BASE}/auth/passkey/register/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge_id,
+        credential: serializeRegistrationCredential(
+          credential as PublicKeyCredential,
+        ),
+      }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!finishRes.ok) {
     const text = await finishRes.text();
@@ -325,11 +366,16 @@ export async function registerPasskey(): Promise<void> {
 /** Authenticate with an existing passkey. */
 export async function authenticateWithPasskey(): Promise<AuthResult> {
   // Step 1: Get authentication options from server
-  const startRes = await fetch(`${API_BASE}/auth/passkey/auth/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let startRes: Response;
+  try {
+    startRes = await fetch(`${API_BASE}/auth/passkey/auth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!startRes.ok) throw new Error("Failed to start passkey authentication");
   const { challenge_id, options } = await startRes.json();
 
@@ -340,16 +386,21 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
   if (!credential) throw new Error("Passkey authentication cancelled");
 
   // Step 3: Send assertion to server
-  const finishRes = await fetch(`${API_BASE}/auth/passkey/auth/finish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      challenge_id,
-      credential: serializeAuthenticationCredential(
-        credential as PublicKeyCredential,
-      ),
-    }),
-  });
+  let finishRes: Response;
+  try {
+    finishRes = await fetch(`${API_BASE}/auth/passkey/auth/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge_id,
+        credential: serializeAuthenticationCredential(
+          credential as PublicKeyCredential,
+        ),
+      }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!finishRes.ok) {
     const err = await finishRes

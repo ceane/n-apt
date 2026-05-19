@@ -16,7 +16,6 @@ import {
 } from "@n-apt/utils/frequency";
 import type {
   CaptureFileType,
-  CaptureStatus,
 } from "@n-apt/hooks/useWebSocket";
 
 // Redefining types as needed, or use the ones from @xyflow/react

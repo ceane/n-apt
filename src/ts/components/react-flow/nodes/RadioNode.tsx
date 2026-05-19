@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from "react";
 import styled from "styled-components";
-import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { useReactFlow } from "@xyflow/react";
 import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {

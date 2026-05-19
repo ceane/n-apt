@@ -55,17 +55,6 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
-  limits?: {
-    lower_limit_hz?: number;
-    upper_limit_hz?: number;
-    lower_limit_label?: string;
-    upper_limit_label?: string;
-    markers?: Array<{
-      kind: string;
-      freq_hz: number;
-      label?: string;
-    }>;
-  };
   devices?: Record<
     string,
     {
@@ -73,11 +62,7 @@ export type SdrSettingsConfig = {
         | number
         | string
         | Array<string>;
-      limits?: {
-        lower_limit_hz?: number;
-        upper_limit_hz?: number;
-        lower_limit_label?: string;
-        upper_limit_label?: string;
+      fft_display?: {
         markers?: Array<{
           kind: string;
           freq_hz: number;
@@ -221,6 +206,7 @@ export type WebSocketMessage =
       type: "frequency_range" | "set_frequency_range";
       min_hz: number;
       max_hz: number;
+      center_frequency?: number;
     }
   | { type: "pause"; paused: boolean }
   | { type: "gain"; gain: number }

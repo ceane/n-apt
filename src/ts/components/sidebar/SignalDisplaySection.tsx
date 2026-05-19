@@ -43,13 +43,6 @@ const SectionText = styled.span`
   align-items: center;
 `;
 
-const SettingValue = styled.span`
-  font-size: 12px;
-  color: ${(props) => props.theme.textPrimary};
-  font-weight: 500;
-  justify-self: end;
-`;
-
 const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;

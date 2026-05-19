@@ -295,6 +295,8 @@ pub struct SdrProcessor {
   pub capture_ref_based_demod_baseline: Option<String>,
   /// Whether capture is ephemeral (not persisted to disk)
   pub capture_is_ephemeral: bool,
+  /// Available spectrum bounds loaded from signals.yaml
+  pub available_spectrum: Option<(f64, f64)>,
   /// Last read gain (dB)
   pub current_gain_db: f64,
   /// Last read PPM
@@ -334,6 +336,8 @@ impl SdrProcessor {
 
     // Load settings from signals.yaml
     let sdr_settings = crate::server::utils::load_sdr_settings();
+    let available_spectrum = crate::server::utils::load_available_spectrum()
+      .map(|range| (range.min_freq, range.max_freq));
 
     let fft_size = sdr_settings.fft.default_size;
     let min_db = sdr_settings.display.min_db;
@@ -392,6 +396,7 @@ impl SdrProcessor {
       capture_requested_range: None,
       capture_ref_based_demod_baseline: None,
       capture_is_ephemeral: false,
+      available_spectrum,
       current_gain_db: -999.0, // Force first update
       current_ppm: -999999,    // Force first update
       current_tuner_agc: false,
@@ -513,8 +518,39 @@ impl SdrProcessor {
 
   /// Read and process one frame from the device
   pub fn read_and_process_frame(&mut self) -> Result<Vec<f32>> {
+    self.read_and_process_frame_with_noise(false)
+  }
+
+  /// Read and process one frame from the device, optionally forcing noise.
+  pub fn read_and_process_frame_with_noise(
+    &mut self,
+    force_noise: bool,
+  ) -> Result<Vec<f32>> {
     let fft_size = self.fft_processor.config().fft_size;
     let sample_rate = self.get_sample_rate();
+
+    if force_noise || sample_rate == 0 {
+      let noise = Self::synthesize_noise_frame(
+        fft_size,
+        self.frame.frame_counter,
+      );
+      self.frame.last_frame_raw_iq.clear();
+      self.frame.last_stable_spectrum = Some(noise.clone());
+      return Ok(noise);
+    }
+
+    if let Some((min_freq, max_freq)) = self.available_spectrum {
+      let center_freq = self.get_center_frequency() as f64;
+      if center_freq < min_freq || center_freq > max_freq {
+        let noise = Self::synthesize_noise_frame(
+          fft_size,
+          self.frame.frame_counter,
+        );
+        self.frame.last_frame_raw_iq.clear();
+        self.frame.last_stable_spectrum = Some(noise.clone());
+        return Ok(noise);
+      }
+    }
 
     // If we're in a retune cooldown window, avoid touching the device
     if let Some(until) = self.frame.retune_cooldown_until {
@@ -663,6 +699,17 @@ impl SdrProcessor {
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
 
     Ok(final_spectrum)
+  }
+
+  fn synthesize_noise_frame(fft_size: usize, frame_counter: u64) -> Vec<f32> {
+    let base_noise = -112.0f32;
+    let span = 8.0f32;
+    (0..fft_size)
+      .map(|idx| {
+        let phase = (idx as f32 * 0.11) + (frame_counter as f32 * 0.017);
+        base_noise + phase.sin() * span + (phase * 0.37).cos() * (span * 0.35)
+      })
+      .collect()
   }
 
   /// Apply settings to both the device and FFT processor

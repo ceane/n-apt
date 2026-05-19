@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { ChevronsLeftRightEllipsis } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setSignalAreaAndRange } from "@n-apt/redux";
-import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
@@ -291,7 +290,6 @@ export const Channels: React.FC<ChannelsProps> = ({
   hideTitle = false,
 }) => {
   const reduxDispatch = useAppDispatch();
-  const isPaused = useAppSelector((s) => s.websocket.isPaused);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
   const activeSignalArea = useAppSelector((s) => s.spectrum.activeSignalArea);
   const {

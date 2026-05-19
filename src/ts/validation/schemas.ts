@@ -91,14 +91,6 @@ export const SdrSettingsConfigSchema = z.object({
       padding: z.number(),
     })
     .optional(),
-  limits: z
-    .object({
-      lower_limit_hz: z.number().optional(),
-      upper_limit_hz: z.number().optional(),
-      lower_limit_label: z.string().optional(),
-      upper_limit_label: z.string().optional(),
-    })
-    .optional(),
 });
 
 export const DeviceProfileSchema = z.object({

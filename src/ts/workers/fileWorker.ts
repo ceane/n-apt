@@ -709,14 +709,11 @@ self.onmessage = async function (e) {
               }
             } else if (lower.endsWith(".napt") && aesKey) {
               // Robust header parsing logic reproduced here
-              let detectedHeaderSize = 4096;
               let naptJsonStr = "";
               let jsonEndIdx = -1;
 
               for (const headerSize of [4096, 2048, 8192, 1024]) {
                 if (file.fileData.byteLength < headerSize) continue;
-                detectedHeaderSize = headerSize;
-                
                 const maxHeaderBytes = new Uint8Array(file.fileData, 0, headerSize);
                 const newlineIdx = maxHeaderBytes.indexOf(10);
 
@@ -751,7 +748,7 @@ self.onmessage = async function (e) {
                 try {
                   const testObj = JSON.parse(naptJsonStr);
                   if (testObj) break;
-                } catch (e) {
+                } catch {
                   continue;
                 }
               }

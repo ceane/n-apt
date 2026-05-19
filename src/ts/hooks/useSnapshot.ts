@@ -28,7 +28,7 @@ import {
   getAntiAliasingParams,
 } from "@n-apt/utils/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
-import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   escapeAttr,
   sanitizeNumeric,

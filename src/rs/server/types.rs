@@ -234,6 +234,13 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub max_freq: Option<f64>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "centerFrequency",
+    alias = "center_frequency_hz"
+  )]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
+  pub center_frequency: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -575,10 +582,20 @@ pub struct SignalsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalsData {
+  #[serde(default)]
+  pub available_spectrum: Option<AvailableSpectrumConfig>,
   #[serde(alias = "mock")]
   pub mock_apt: MockAptSignalsConfig,
   pub n_apt: NaptConfig,
   pub sdr: SdrConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableSpectrumConfig {
+  #[serde(rename = "min_freq")]
+  pub min_freq: f64,
+  #[serde(rename = "max_freq")]
+  pub max_freq: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -613,8 +630,6 @@ pub struct SdrConfig {
   pub fft: SdrFftConfig,
   pub display: SdrDisplayConfig,
   #[serde(default)]
-  pub limits: Option<SdrLimitsConfig>,
-  #[serde(default)]
   pub devices: IndexMap<String, SdrDeviceConfig>,
 }
 
@@ -622,7 +637,7 @@ pub struct SdrConfig {
 pub struct SdrDeviceConfig {
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
-  pub limits: Option<SdrLimitsConfig>,
+  pub fft_display: Option<SdrFftDisplayConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -687,27 +702,9 @@ impl SdrSampleRateSpec {
   }
 }
 
-impl SdrLimitsConfig {
+impl SdrFftDisplayConfig {
   pub fn resolve_markers(&self) -> Vec<SdrLimitMarkerConfig> {
-    let mut markers = self.markers.clone();
-
-    if let Some(lower) = self.lower_limit_hz {
-      markers.push(SdrLimitMarkerConfig {
-        kind: "lower_limit".to_string(),
-        freq_hz: lower,
-        label: self.lower_limit_label.clone(),
-      });
-    }
-
-    if let Some(upper) = self.upper_limit_hz {
-      markers.push(SdrLimitMarkerConfig {
-        kind: "upper_limit".to_string(),
-        freq_hz: upper,
-        label: self.upper_limit_label.clone(),
-      });
-    }
-
-    markers
+    self.markers.clone()
   }
 }
 
@@ -735,13 +732,7 @@ pub struct SdrDisplayConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SdrLimitsConfig {
-  #[serde(rename = "lower_limit_hz", alias = "lower_limit_mhz")]
-  pub lower_limit_hz: Option<f64>,
-  #[serde(rename = "upper_limit_hz", alias = "upper_limit_mhz")]
-  pub upper_limit_hz: Option<f64>,
-  pub lower_limit_label: Option<String>,
-  pub upper_limit_label: Option<String>,
+pub struct SdrFftDisplayConfig {
   #[serde(default)]
   pub markers: Vec<SdrLimitMarkerConfig>,
 }

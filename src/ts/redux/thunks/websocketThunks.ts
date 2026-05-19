@@ -14,10 +14,12 @@ const getSampleRateHz = (state: RootState): number | null => {
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
-): { min_hz: number; max_hz: number } => {
+): { min_hz: number; max_hz: number; center_frequency: number } => {
+  const center_frequency = (range.min + range.max) / 2;
   return {
     min_hz: range.min,
     max_hz: range.max,
+    center_frequency,
   };
 };
 

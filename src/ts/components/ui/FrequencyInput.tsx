@@ -158,7 +158,6 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(({
       const shiftMultiplier = e.shiftKey ? 10 : 1;
       
       const currentHz = hzRef.current;
-      const { unit: currentOptimalUnit } = getOptimalFrequencyScale(currentHz);
       
       // If stepHz is provided, use it. Otherwise, use a smart step based on current unit.
       let resolvedStepHz = 1;

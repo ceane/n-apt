@@ -215,13 +215,6 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
     dispatch(setPreviewRange(range));
   }, [dispatch]);
 
-  const handlePointerUp = useCallback(() => {
-    // When dragging ends, we could commit the frequency range
-    // but SpanNode usually has an "Apply" button or auto-applies.
-    // However, the user wants "immediate, lag-free UI updates".
-    // We'll let SpanNode handle the actual commitment to avoid double-dispatching.
-  }, []);
-
   /** Spectrum slice from Span / Apply — not the same as sample rate or radio demod BW. */
   const selectionDemodOverlay = useMemo(() => {
     if (!demodCenterFreqHz || !Number.isFinite(demodCenterFreqHz)) {

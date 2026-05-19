@@ -29,6 +29,40 @@ fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
   (sizes, recommended)
 }
 
+fn resolve_live_center_frequency(
+  min_freq: f64,
+  max_freq: f64,
+  center_frequency: Option<f64>,
+) -> u32 {
+  if let Some(center_freq) = center_frequency {
+    return center_freq.round() as u32;
+  }
+
+  ((min_freq + max_freq) / 2.0).round() as u32
+}
+
+fn live_tune_is_out_of_bounds(
+  min_freq: f64,
+  max_freq: f64,
+  available_spectrum: Option<(f64, f64)>,
+) -> bool {
+  if !min_freq.is_finite() || !max_freq.is_finite() {
+    return true;
+  }
+  if min_freq < 0.0 || max_freq < 0.0 {
+    return true;
+  }
+  if max_freq < min_freq {
+    return true;
+  }
+
+  if let Some((available_min, available_max)) = available_spectrum {
+    min_freq < available_min || max_freq > available_max
+  } else {
+    false
+  }
+}
+
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
 pub async fn ws_upgrade_handler(
   ws: WebSocketUpgrade,
@@ -314,13 +348,16 @@ pub async fn handle_ws_connection(
                 info!("Client requested hardware info");
                 let _device_connected = shared.device_connected.load(Ordering::Relaxed);
                 let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+                let available_spectrum = shared
+                  .available_spectrum
+                  .unwrap_or((0.0, 30_000_000_000.0));
 
                 // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
                 let response = super::types::HardwareInfoResponse {
                   message_type: "hardware_info".to_string(),
                   hardware_freq_range: super::types::HardwareFreqRange {
-                    min: 0.0,
-                    max: 1_700_000_000.0,
+                    min: available_spectrum.0,
+                    max: available_spectrum.1,
                   },
                   sample_rate,
                 };
@@ -361,12 +398,25 @@ pub fn handle_message(
       if let (Some(min_freq), Some(_max_freq)) =
         (message.min_freq, message.max_freq)
       {
-        // Calculate center frequency based on the start of the range plus half the sample rate
-        // This ensures the SDR tunes to exactly the right center frequency to capture the requested range
-        let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
-        let sample_rate = sdr_settings_guard.sample_rate as f64;
+        let available_spectrum = shared.available_spectrum;
+        if live_tune_is_out_of_bounds(min_freq, _max_freq, available_spectrum) {
+          warn!(
+            "Ignoring out-of-bounds live tune request: {}..{} Hz",
+            min_freq, _max_freq
+          );
+          shared.force_noise.store(true, Ordering::Relaxed);
+          return;
+        }
 
-        let center_freq = (min_freq + (sample_rate / 2.0)) as u32;
+        shared.force_noise.store(false, Ordering::Relaxed);
+        // The frontend treats this as a live-tune request. The backend already
+        // knows the sample rate, so center directly on the requested frequency
+        // when provided, otherwise fall back to the midpoint of the range.
+        let center_freq = resolve_live_center_frequency(
+          min_freq,
+          _max_freq,
+          message.center_frequency,
+        );
 
         shared
           .pending_center_freq
@@ -734,5 +784,46 @@ pub fn handle_message(
     _ => {
       debug!("Unknown message type: {}", message.message_type);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{live_tune_is_out_of_bounds, resolve_live_center_frequency};
+
+  #[test]
+  fn resolves_frequency_center_from_range_midpoint() {
+    let center =
+      resolve_live_center_frequency(1_190_000.0, 4_390_000.0, None);
+    assert_eq!(center, 2_790_000);
+  }
+
+  #[test]
+  fn prefers_bandwidth_center_frequency_when_present() {
+    let center = resolve_live_center_frequency(
+      1_190_000.0,
+      4_390_000.0,
+      Some(2_812_345.0),
+    );
+    assert_eq!(center, 2_812_345);
+  }
+
+  #[test]
+  fn rejects_negative_or_out_of_bounds_live_tunes() {
+    assert!(live_tune_is_out_of_bounds(
+      -10.0,
+      4_390_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
+    assert!(live_tune_is_out_of_bounds(
+      1_000.0,
+      31_000_000_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
+    assert!(!live_tune_is_out_of_bounds(
+      1_190_000.0,
+      4_390_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
   }
 }

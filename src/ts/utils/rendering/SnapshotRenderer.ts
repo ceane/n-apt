@@ -917,7 +917,7 @@ export class SnapshotRenderer {
     padX: number,
     padY: number,
     lh: number,
-    areaWidth: number,
+    _areaWidth: number,
   ): {
     kind: "single" | "double";
     boxW: number;

@@ -6,7 +6,7 @@ use sha2::Digest;
 use std::io::Write;
 use std::sync::RwLock;
 
-use super::types::{CaptureArtifact, ChannelSpec};
+use super::types::{AvailableSpectrumConfig, CaptureArtifact, ChannelSpec};
 use super::types::{NaptConfig, SdrConfig};
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
@@ -417,6 +417,20 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
   let mut sdr = config.signals.sdr.clone();
   apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
   sdr
+}
+
+pub fn load_available_spectrum() -> Option<AvailableSpectrumConfig> {
+  let config = signals_config();
+  config
+    .signals
+    .available_spectrum
+    .clone()
+    .or_else(|| {
+      Some(AvailableSpectrumConfig {
+        min_freq: 0.0,
+        max_freq: 30_000_000_000.0,
+      })
+    })
 }
 
 /// Load mock APT signal settings (panic if missing/malformed)

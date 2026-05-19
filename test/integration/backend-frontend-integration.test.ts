@@ -64,7 +64,7 @@ describe("Backend-Frontend Hz Pipeline Integration (True E2E)", () => {
           max_db: config.signals.sdr.display.max_db,
           padding: config.signals.sdr.display.padding,
         },
-        limits: config.signals.sdr.limits || undefined,
+        devices: config.signals.sdr.devices,
       },
       device: "rtl-sdr",
       device_profile: {

@@ -788,7 +788,6 @@ export function useWasmSimdMath(
       spectrumData,
       maxMarkers = 96,
       frequencyRange,
-      temporalPersistence,
     } = params;
     const length = spectrumData.length;
     if (length < 5) return [];

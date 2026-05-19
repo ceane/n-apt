@@ -265,8 +265,6 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
   );
-  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
-
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
   const gridRef = useRef<HTMLDivElement>(null);
