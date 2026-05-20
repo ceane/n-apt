@@ -322,6 +322,25 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastCall.min).toBe(100);
   });
 
+  it("should clamp VFO dragging to the active channel bounds", () => {
+    const channelOptions = {
+      ...defaultOptions,
+      signalAreaBounds: { TEST: { min: 100, max: 110 } },
+      hardwareSpectrumBounds: { min: 0, max: 1000 },
+    };
+    renderHook(() => useFrequencyDrag(channelOptions));
+
+    triggerPointerDown(500, 550);
+    triggerPointerMove(400, 550);
+
+    const lastCall =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    expect(lastCall.max).toBe(110);
+    expect(lastCall.min).toBe(100);
+  });
+
   it("should retune the hardware window when zoomed wheel panning crosses the edge", () => {
     renderHook(() =>
       useFrequencyDrag({
@@ -345,6 +364,37 @@ describe("useFrequencyDrag Hook", () => {
       ][0];
     expect(lastCall.min).toBeGreaterThan(100);
     expect(lastCall.max).toBeGreaterThan(110);
+  });
+
+  it("should keep zoomed wheel panning inside the active channel bounds", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 2.4 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 1000,
+      ctrlKey: false,
+    } as any);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    const lastPan =
+      mockOnVizPanChange.mock.calls[mockOnVizPanChange.mock.calls.length - 1][0];
+
+    expect(lastRange.min).toBe(100);
+    expect(lastRange.max).toBe(110);
+    expect(lastPan).toBeLessThanOrEqual(2.5);
   });
 
   it("should make pinch zoom feel more responsive and keep the gesture anchored", () => {

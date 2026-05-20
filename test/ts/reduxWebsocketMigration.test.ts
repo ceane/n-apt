@@ -8,7 +8,11 @@ import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   shouldAcceptPausedFrameRequest,
   resetPausedFrameRequestGate,
+  isFrameStale,
+  getFrequencyRequestCenterHz,
+  shouldResendRetuneRequest,
 } from "@n-apt/redux/middleware/websocketMiddleware";
+import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   sendFrequencyRange,
   sendCenterFrequency,
@@ -84,6 +88,34 @@ describe("Redux WebSocket Migration", () => {
       expect(state.websocket.sampleRateHz).toBe(2_400_000);
     });
 
+    it("sendCenterFrequency includes explicit center_frequency", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: { sampleRateHz: 2_400_000 },
+          spectrum: {},
+        }) as any;
+
+      await (sendCenterFrequency(101_000_000) as any)(
+        dispatch,
+        getState,
+        undefined,
+      );
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 99_800_000,
+            max_hz: 102_200_000,
+            center_frequency: 101_000_000,
+          },
+        },
+      });
+    });
+
     it("sendCaptureCommand clears previous capture status", async () => {
       // Set initial capture status
       store.dispatch(
@@ -118,6 +150,92 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Live data ref isolation", () => {
+    it("does not silently reject live frames by center-frequency mismatch", () => {
+      expect(isFrameStale(1_618_000)).toBe(false);
+      expect(isFrameStale(26_738_000)).toBe(false);
+    });
+
+    it("keeps the live stream buffered while retuning frequency range", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+      const mockFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        iq_data: new Uint8Array([127, 129, 130, 126]),
+        sample_rate: 2_400_000,
+        center_frequency_hz: 100_000_000,
+        timestamp: Date.now(),
+      } as IqRawFrame;
+      liveDataRef.current = mockFrame;
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: { min_freq: 99_000_000, max_freq: 101_000_000 },
+        },
+      });
+
+      expect(liveDataRef.current).toBe(mockFrame);
+    });
+
+    it("derives the expected retune center from outbound frequency payloads", () => {
+      expect(
+        getFrequencyRequestCenterHz("frequency_range", {
+          min_hz: 99,
+          max_hz: 103,
+          center_frequency: 101,
+        }),
+      ).toBe(101);
+      expect(
+        getFrequencyRequestCenterHz("frequency_range", {
+          min_hz: 99,
+          max_hz: 103,
+        }),
+      ).toBe(101);
+      expect(getFrequencyRequestCenterHz("settings", {})).toBeNull();
+    });
+
+    it("resends a retune only after repeated wrong-center live frames", () => {
+      const base = {
+        expectedCenterHz: 101_000_000,
+        frameCenterHz: 100_000_000,
+        requestedAt: 1_000,
+        lastResendAt: 1_000,
+      };
+
+      expect(
+        shouldResendRetuneRequest({
+          ...base,
+          mismatchFrames: 3,
+          now: 2_000,
+        }),
+      ).toBe(false);
+      expect(
+        shouldResendRetuneRequest({
+          ...base,
+          mismatchFrames: 8,
+          now: 2_000,
+        }),
+      ).toBe(true);
+      expect(
+        shouldResendRetuneRequest({
+          ...base,
+          frameCenterHz: 101_000_005,
+          mismatchFrames: 8,
+          now: 2_000,
+        }),
+      ).toBe(false);
+    });
+
     it("liveDataRef is separate from Redux state", () => {
       // Verify the ref exists and is independent
       expect(liveDataRef).toBeDefined();

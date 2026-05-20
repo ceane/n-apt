@@ -185,6 +185,7 @@ export interface WebGPUFIFOWaterfallOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   fftData: Float32Array;
+  fftDataBuffer?: GPUBuffer;
   fftMin?: number;
   fftMax?: number;
   driftAmount?: number;
@@ -295,6 +296,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         device,
         format,
         fftData,
+        fftDataBuffer,
         fftMin = -80,
         fftMax = 20,
         driftAmount = 0,
@@ -455,9 +457,14 @@ export function useDrawWebGPUFIFOWaterfall() {
         // =========================================================
         // updateWaterfall() — push one row of raw dB into buffer
         // =========================================================
-        if (!freeze && s.dataTex && fftData.length > 0) {
+        const enc = device.createCommandEncoder();
+
+        const hasCpuFftRow = fftData.length > 0;
+        const useGpuFftRow = !hasCpuFftRow && !!fftDataBuffer;
+
+        if (!freeze && s.dataTex && (hasCpuFftRow || useGpuFftRow)) {
           // Validate FFT data on first frame or when paused
-          if (isFirstFrame || isPaused) {
+          if (fftData && fftData.length > 0 && (isFirstFrame || isPaused)) {
             const validationResult = validateSpectrumDataComprehensive(
               fftData,
               {
@@ -496,20 +503,40 @@ export function useDrawWebGPUFIFOWaterfall() {
             Math.min(Math.floor(driftAmount || 0), s.texH - 1),
           );
 
-          for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
-            const f32 = new Float32Array(s.rowBuf);
-            for (let i = 0; i < s.texW; i++) {
-              f32[i] = fftData[i] ?? -200;
+          if (useGpuFftRow) {
+            for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
+              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              enc.copyBufferToTexture(
+                {
+                  buffer: fftDataBuffer,
+                  offset: 0,
+                  bytesPerRow: s.paddedRowBytes,
+                  rowsPerImage: 1,
+                },
+                {
+                  texture: s.dataTex,
+                  origin: { x: 0, y: row },
+                },
+                { width: s.texW, height: 1 },
+              );
             }
-            const row = (s.writeRow - smearIdx + s.texH) % s.texH;
-            device.queue.writeTexture(
-              { texture: s.dataTex, origin: { x: 0, y: row } },
-              new Uint8Array(s.rowBuf),
-              { bytesPerRow: s.paddedRowBytes },
-              { width: s.texW, height: 1 },
-            );
+            s.writeRow = (s.writeRow + 1) % s.texH;
+          } else {
+            for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
+              const f32 = new Float32Array(s.rowBuf);
+              for (let i = 0; i < s.texW; i++) {
+                f32[i] = fftData[i] ?? -200;
+              }
+              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              device.queue.writeTexture(
+                { texture: s.dataTex, origin: { x: 0, y: row } },
+                new Uint8Array(s.rowBuf),
+                { bytesPerRow: s.paddedRowBytes },
+                { width: s.texW, height: 1 },
+              );
+            }
+            s.writeRow = (s.writeRow + 1) % s.texH;
           }
-          s.writeRow = (s.writeRow + 1) % s.texH;
         }
 
         // =========================================================
@@ -593,7 +620,6 @@ export function useDrawWebGPUFIFOWaterfall() {
           ) as ArrayBuffer,
         );
 
-        const enc = device.createCommandEncoder();
         const pass = enc.beginRenderPass({
           colorAttachments: [
             {

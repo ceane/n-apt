@@ -91,9 +91,21 @@ const TestComponent = () => {
 };
 
 describe("APT Analysis", () => {
-  beforeAll(() => {
-    jestGlobal?.setTimeout?.(15000);
+  beforeEach(() => {
+    if (jestGlobal) jestGlobal.useFakeTimers();
+    else if (viGlobal) viGlobal.useFakeTimers();
   });
+
+  afterEach(() => {
+    if (jestGlobal) jestGlobal.useRealTimers();
+    else if (viGlobal) viGlobal.useRealTimers();
+  });
+
+  const flushMicrotasks = async () => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
 
   it("should initialize APT analysis with correct parameters", async () => {
     render(
@@ -103,6 +115,8 @@ describe("APT Analysis", () => {
         </DemodProvider>
       </Provider>,
     );
+
+    await flushMicrotasks();
 
     expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
     expect(screen.getByTestId("analysis-type")).toHaveTextContent("apt");
@@ -121,33 +135,37 @@ describe("APT Analysis", () => {
       </Provider>,
     );
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("apt-progress")).toHaveTextContent("0.2");
-      },
-      { timeout: 5000 },
+    await flushMicrotasks();
+
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
+
+    // Advance 3 seconds for countdown
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(3000);
+      else if (viGlobal) viGlobal.advanceTimersByTime(3000);
+    });
+
+    // Advance 500ms for first tick of progress
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(500);
+      else if (viGlobal) viGlobal.advanceTimersByTime(500);
+    });
+
+    expect(screen.getByTestId("apt-progress")).toHaveTextContent("0.2");
+    expect(screen.getByTestId("apt-stage")).toHaveTextContent(
+      "subcarrier_isolation",
     );
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("apt-stage")).toHaveTextContent(
-          "subcarrier_isolation",
-        );
-      },
-      { timeout: 5000 },
-    );
+    // Advance 2000ms for remaining ticks to complete
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(2000);
+      else if (viGlobal) viGlobal.advanceTimersByTime(2000);
+    });
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("analysis-state")).toHaveTextContent(
-          "result",
-        );
-        expect(screen.getByTestId("apt-progress")).toHaveTextContent("1");
-        expect(screen.getByTestId("apt-stage")).toHaveTextContent("completed");
-      },
-      { timeout: 10000 },
-    );
-  }, 15000);
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
+    expect(screen.getByTestId("apt-progress")).toHaveTextContent("1");
+    expect(screen.getByTestId("apt-stage")).toHaveTextContent("completed");
+  });
 
   it("should clear analysis when requested", async () => {
     render(
@@ -158,21 +176,20 @@ describe("APT Analysis", () => {
       </Provider>,
     );
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("analysis-state")).toHaveTextContent(
-          "result",
-        );
-      },
-      { timeout: 10000 },
-    );
+    await flushMicrotasks();
 
-    await act(async () => {
+    // Advance to completed state
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(5500);
+      else if (viGlobal) viGlobal.advanceTimersByTime(5500);
+    });
+
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
+
+    act(() => {
       screen.getByTestId("clear-btn").click();
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("analysis-state")).toHaveTextContent("idle");
-    });
-  }, 15000);
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("idle");
+  });
 });

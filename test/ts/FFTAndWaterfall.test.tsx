@@ -92,7 +92,7 @@ describe("FFTAndWaterfall", () => {
     expect(screen.getByTestId("visualizer-sliders")).toBeInTheDocument();
   });
 
-  it("remounts the live FFT canvas when fftSize changes", () => {
+  it("keeps the live FFT canvas mounted when fftSize changes", () => {
     const { rerender } = render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -120,8 +120,44 @@ describe("FFTAndWaterfall", () => {
       />,
     );
 
-    expect(fftCanvasMountSpy).toHaveBeenCalledTimes(2);
-    expect(fftCanvasUnmountSpy).toHaveBeenCalledTimes(1);
+    expect(fftCanvasMountSpy).toHaveBeenCalledTimes(1);
+    expect(fftCanvasUnmountSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it("retunes the hardware window when zooming out would otherwise clamp pan", () => {
+    const onVizZoomChange = jest.fn();
+    const onVizPanChange = jest.fn();
+    const onFrequencyRangeChange = jest.fn();
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 200 }}
+        centerFrequencyHz={150_000_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={8}
+        vizZoomFloor={1}
+        vizPanOffset={44}
+        onVizZoomChange={onVizZoomChange}
+        onVizPanChange={onVizPanChange}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+
+    const sliderCalls = visualizerSlidersMock.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0];
+    expect(sliderProps).toBeTruthy();
+
+    sliderProps.onZoomChange(2);
+
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 119,
+      max: 219,
+    });
+    expect(onVizPanChange).toHaveBeenCalledWith(25);
+    expect(onVizZoomChange).toHaveBeenCalledWith(2);
   });
 
   it("recenters to pan 0 when reset is requested", () => {

@@ -15,6 +15,7 @@ import {
 import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
 import {
   clampVizZoom,
+  getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
 
@@ -90,13 +91,29 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     const handleZoomChange = useCallback(
       (nextZoom: number) => {
         const clampedZoom = clampVizZoom(nextZoom, zoomFloor);
-        const nextPan = getStableVizPanForZoomChange({
-          currentZoom: zoom,
+        const activeBounds =
+          props.signalAreaBounds?.[props.activeSignalArea] ??
+          props.signalAreaBounds?.[props.activeSignalArea?.toLowerCase?.()] ??
+          null;
+        const retune = getRetunedVizPanForZoomChange({
           currentPan: pan,
           nextZoom: clampedZoom,
           rangeMin: props.frequencyRange.min,
           rangeMax: props.frequencyRange.max,
+          bounds: activeBounds,
         });
+        const nextPan = retune.retuned
+          ? retune.pan
+          : getStableVizPanForZoomChange({
+              currentZoom: zoom,
+              currentPan: pan,
+              nextZoom: clampedZoom,
+              rangeMin: props.frequencyRange.min,
+              rangeMax: props.frequencyRange.max,
+            });
+        if (retune.retuned) {
+          props.onFrequencyRangeChange?.(retune.frequencyRange);
+        }
         if (props.onVizPanChange && nextPan !== pan) {
           props.onVizPanChange(nextPan);
         }
@@ -106,8 +123,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
         zoom,
         zoomFloor,
         pan,
+        props.activeSignalArea,
         props.frequencyRange.min,
         props.frequencyRange.max,
+        props.signalAreaBounds,
+        props.onFrequencyRangeChange,
         props.onVizPanChange,
         props.onVizZoomChange,
       ],
@@ -118,7 +138,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
         <Left>
           <SpectrumStage>
           <FFTCanvas
-            key={props.fftSize}
             ref={ref}
             {...props}
             waterfallCanvasBindings={waterfallCanvasBindings}

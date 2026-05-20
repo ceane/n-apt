@@ -198,6 +198,7 @@ export interface StatusMessage {
   channels: SpectrumFrame[];
   sdr_settings: SdrSettingsConfig;
   device: "rtl-sdr" | "mock_apt" | "mock_apt_metal";
+  device_backend_error?: string | null;
   device_profile: DeviceProfile;
 }
 

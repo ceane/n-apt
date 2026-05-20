@@ -42,6 +42,8 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const rustBackendFeatureArgs =
+  process.platform === 'darwin' ? '--features mock_apt_metal' : '';
 
 // Types
 interface ProcessStatus {
@@ -247,6 +249,7 @@ const BuildOrchestrator = () => {
     activeBuildOutputStep: undefined,
   });
   const [liveDeviceState, setLiveDeviceState] = useState<string | null>(null);
+  const metalBackendStatusRef = useRef<string | null>(null);
 
   const addLog = useCallback((_message: string) => {
     // Placeholder for future log streaming
@@ -597,35 +600,53 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
 
-  const logMetalBackendAvailability = useCallback(async () => {
+  const logMetalBackendAvailability = useCallback(async (): Promise<string> => {
     if (process.platform !== 'darwin') {
-      return;
+      return '';
     }
 
     try {
       const response = await fetch('http://localhost:8765/status');
       if (!response.ok) {
-        addLog(chalk.yellow(`Metal preflight: unable to query backend status (${response.status})`));
-        return;
+        const message = `Metal preflight: unable to query backend status (${response.status})`;
+        metalBackendStatusRef.current = message;
+        addLog(chalk.yellow(message));
+        return message;
       }
 
       const data = await response.json() as {
         device?: string;
         device_name?: string;
+        device_backend_error?: string | null;
       };
       const backend = typeof data.device === 'string' ? data.device : '';
       const deviceName = typeof data.device_name === 'string' ? data.device_name : '';
+      const deviceBackendError =
+        typeof data.device_backend_error === 'string'
+          ? data.device_backend_error.trim()
+          : '';
       const metalActive =
         backend === 'mock_apt_metal' ||
         deviceName.toLowerCase().includes('(metal)');
 
+      const message = metalActive
+        ? `Metal preflight: available (${deviceName || 'Mock APT SDR (Metal)'})`
+        : deviceBackendError
+          ? `Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'}) — ${deviceBackendError}`
+          : `Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'})`;
+      metalBackendStatusRef.current = message;
+
       if (metalActive) {
-        addLog(chalk.green(`Metal preflight: available (${deviceName || 'Mock APT SDR (Metal)'})`));
+        addLog(chalk.green(message));
       } else {
-        addLog(chalk.yellow(`Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'})`));
+        addLog(chalk.yellow(message));
       }
+      return message;
     } catch (error: any) {
-      addLog(chalk.yellow(`Metal preflight: unavailable (${error.message})`));
+      const message = `Metal preflight: unavailable (${error.message})`;
+      metalBackendStatusRef.current = message;
+      addLog(chalk.yellow(message));
+      return message;
     }
   }, [addLog]);
 
@@ -639,7 +660,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          'cargo build --profile dev-fast --bin n-apt-backend',
+          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend',
           stepIndex
         );
@@ -695,7 +716,7 @@ exit 1
         }
 
         await logMetalBackendAvailability();
- 
+
         addLog(chalk.green('Rust backend fully initialized and ready'));
         return true;
   
@@ -805,7 +826,7 @@ if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
   exit 1
 fi
 echo "Checking Rust syntax..."
-cargo check --bin n-apt-backend 2>&1
+cargo check --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
 `,
         description: 'Validating Rust backend code',
         isBackground: false,
@@ -818,10 +839,10 @@ cargo check --bin n-apt-backend 2>&1
           : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-if [ -f "./target/debug/n-apt-backend" ]; then
+if [ -f "./target/debug/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
   ./target/debug/n-apt-backend --validate-config 2>&1
 else
-  cargo run --bin n-apt-backend -- --validate-config 2>&1
+  cargo run --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
 fi
 `,
         description: 'Validating signals.yaml',
@@ -961,7 +982,12 @@ exit 1
           const { message, label } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', message, label);
         } else if (step.index === 7) {
-          updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
+          updateProcessStatus(
+            step.index,
+            'success',
+            metalBackendStatusRef.current ?? undefined,
+            'Rust backend running...',
+          );
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }

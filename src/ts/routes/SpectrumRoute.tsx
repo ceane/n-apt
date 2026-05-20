@@ -122,6 +122,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
+  const activeSignalAreaBounds =
+    signalAreaBounds?.[state.activeSignalArea] ?? null;
   const limitMarkers = useMemo(
     () =>
       buildSdrLimitMarkers(sdrLimitMarkers),
@@ -203,14 +205,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
-      const hardwareClampedRange = clampFrequencyRangeToBounds(
+      const channelClampedRange = clampFrequencyRangeToBounds(
         range,
+        activeSignalAreaBounds,
+      );
+      const hardwareClampedRange = clampFrequencyRangeToBounds(
+        channelClampedRange,
         hardwareSpectrumBounds,
       );
       dispatch({ type: "SET_FREQUENCY_RANGE", range: hardwareClampedRange });
       sendFrequencyRange(hardwareClampedRange);
     },
-    [sendFrequencyRange, dispatch, hardwareSpectrumBounds],
+    [
+      sendFrequencyRange,
+      dispatch,
+      hardwareSpectrumBounds,
+      activeSignalAreaBounds,
+    ],
   );
 
   const centerFrequencyHz = useMemo(() => {

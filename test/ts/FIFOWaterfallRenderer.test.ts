@@ -36,6 +36,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
         end: jest.fn(),
       })),
       finish: jest.fn(),
+      copyBufferToTexture: jest.fn(),
       copyTextureToTexture: jest.fn(),
     })),
     queue: {
@@ -80,6 +81,40 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     expect(mockDevice.createTexture).toHaveBeenCalled();
     expect(mockDevice.queue.writeTexture).toHaveBeenCalled();
     expect(mockDevice.createCommandEncoder).toHaveBeenCalled();
+  });
+
+  it("uses the CPU FFT row when present so waterfall never waits on an async GPU row", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
+
+    const fftData = new Float32Array(4096).fill(-45);
+    const gpuRowBuffer = { destroy: jest.fn() } as any;
+
+    const success = await result.current.drawWebGPUFIFOWaterfall({
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      fftData,
+      fftDataBuffer: gpuRowBuffer,
+      fftMin: -100,
+      fftMax: 0,
+    });
+
+    expect(success).toBe(true);
+    expect(mockDevice.queue.writeTexture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: expect.objectContaining({ y: expect.any(Number) }),
+      }),
+      expect.any(Uint8Array),
+      expect.objectContaining({ bytesPerRow: expect.any(Number) }),
+      expect.objectContaining({ width: 4096, height: 1 }),
+    );
+
+    const encoders = mockDevice.createCommandEncoder.mock.results.map(
+      (entry) => entry.value,
+    );
+    expect(
+      encoders.some((encoder) => encoder.copyBufferToTexture.mock.calls.length > 0),
+    ).toBe(false);
   });
 
   it("should handle resizing", async () => {

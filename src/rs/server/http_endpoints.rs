@@ -575,6 +575,8 @@ pub async fn status_handler(
   let device_state = state.shared.device_state.lock().unwrap().clone();
   let device_loading_reason =
     state.shared.device_loading_reason.lock().unwrap().clone();
+  let device_backend_error =
+    state.shared.device_backend_error.lock().unwrap().clone();
   let device_loading = *state.shared.device_loading.lock().unwrap();
   let paused = state.shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
@@ -642,6 +644,7 @@ pub async fn status_handler(
     } else {
       crate::server::utils::mock_apt_backend_label(&device_info)
     },
+    "device_backend_error": device_backend_error,
     "device_profile": device_profile,
     "clients": client_count,
     "authenticated_clients": authenticated_count,

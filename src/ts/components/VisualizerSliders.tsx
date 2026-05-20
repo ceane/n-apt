@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import styled from "styled-components";
 import { Slider } from "@n-apt/components/ui";
 import { STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
@@ -159,7 +159,11 @@ export interface VisualizerSlidersProps {
   onRefocusZoomFloor?: () => void;
 }
 
-export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
+// Module-level format functions — avoid inline lambdas that break React.memo
+const formatZoom = (v: number) => `${v.toFixed(1)}x`;
+const formatDbValue = (dbUnit: string) => (v: number) => `${roundDbValue(v)}${dbUnit}`;
+
+export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(({
   zoom,
   dbMax,
   dbMin,
@@ -189,12 +193,19 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
     ? { min: -120, max: -10 }
     : { min: FFT_MIN_DB, max: -10 };
   const dbUnit = isDbm ? "dBm" : "dB";
+  const formatDb = React.useMemo(() => formatDbValue(dbUnit), [dbUnit]);
   const isZoomedIn = zoom > 1.0001;
   const hasZoomFloor = zoomFloor > 1.0001;
   const canShowZoomFloorAction = autoZoomStability;
   const handleZoomFloorAction = hasZoomFloor
     ? onRefocusZoomFloor
     : onLockZoomFloor;
+
+  const toggleFftAvg = useCallback(() => onFftAvgChange?.(!fftAvgEnabled), [fftAvgEnabled, onFftAvgChange]);
+  const toggleFftSmooth = useCallback(() => onFftSmoothChange?.(!fftSmoothEnabled), [fftSmoothEnabled, onFftSmoothChange]);
+  const toggleWfSmooth = useCallback(() => onWfSmoothChange?.(!wfSmoothEnabled), [wfSmoothEnabled, onWfSmoothChange]);
+  const toggleAutoZoom = useCallback(() => onAutoZoomStabilityChange?.(!autoZoomStability), [autoZoomStability, onAutoZoomStabilityChange]);
+
   return (
     <SlidersGrid>
       <ActionButtonsContainer>
@@ -210,7 +221,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         </ResetButton>
         <ActionButton
           $active={fftAvgEnabled}
-          onClick={() => onFftAvgChange?.(!fftAvgEnabled)}
+          onClick={toggleFftAvg}
           title="Toggle FFT averaging"
         >
           <Sigma size={13} strokeWidth={1.5} />
@@ -218,7 +229,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         </ActionButton>
         <ActionButton
           $active={fftSmoothEnabled}
-          onClick={() => onFftSmoothChange?.(!fftSmoothEnabled)}
+          onClick={toggleFftSmooth}
           title="Toggle FFT smoothing"
         >
           <Wand2 size={13} strokeWidth={1.5} />
@@ -226,7 +237,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         </ActionButton>
         <ActionButton
           $active={wfSmoothEnabled}
-          onClick={() => onWfSmoothChange?.(!wfSmoothEnabled)}
+          onClick={toggleWfSmooth}
           title="Toggle waterfall smoothing"
         >
           <PaintbrushVertical size={19} strokeWidth={1.5} />
@@ -234,7 +245,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         </ActionButton>
         <ActionButton
           $active={autoZoomStability}
-          onClick={() => onAutoZoomStabilityChange?.(!autoZoomStability)}
+          onClick={toggleAutoZoom}
           title="Toggle auto zoom stability — keeps zoom floor tracking as you pan"
         >
           <Maximize2 size={13} strokeWidth={1.5} />
@@ -271,7 +282,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={1000}
         step={0.1}
         onChange={onZoomChange}
-        formatValue={(v) => `${v.toFixed(1)}x`}
+        formatValue={formatZoom}
         orientation="vertical"
         labelPlacement="bottom"
       />
@@ -282,7 +293,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={maxDbRange.max}
         step={5}
         onChange={onDbMaxChange}
-        formatValue={(v) => `${roundDbValue(v)}${dbUnit}`}
+        formatValue={formatDb}
         invertFill
         orientation="vertical"
         labelPlacement="bottom"
@@ -294,12 +305,14 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = ({
         max={minDbRange.max}
         step={5}
         onChange={onDbMinChange}
-        formatValue={(v) => `${roundDbValue(v)}${dbUnit}`}
+        formatValue={formatDb}
         orientation="vertical"
         labelPlacement="bottom"
       />
     </SlidersGrid>
   );
-};
+});
+
+VisualizerSliders.displayName = "VisualizerSliders";
 
 export default VisualizerSliders;

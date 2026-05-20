@@ -51,6 +51,10 @@ import {
   type PendingWaterfallRestore,
 } from "@n-apt/utils/waterfallRestore";
 import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
+import {
+  copyValidWaterfallRow,
+  peakResampleWaterfallRow,
+} from "@n-apt/utils/waterfallRows";
 import { roundDbValue } from "@n-apt/utils/frequency";
 
 // Use dynamic import for WASM module loading
@@ -466,6 +470,7 @@ const FFTCanvas = memo(
       frequencyRange,
       centerFrequencyHz,
       activeSignalArea: _activeSignalArea,
+      signalAreaBounds,
       isPaused,
       fftFrameRate,
       fftSize,
@@ -616,6 +621,9 @@ const FFTCanvas = memo(
       writeRow: number;
     } | null>(null);
     const heterodyningHistoryRef = useRef<Float32Array[]>([]);
+    const heterodyningWriteIndexRef = useRef(0);
+    const heterodyningHistoryCountRef = useRef(0);
+    const activeHistoryRef = useRef<Float32Array[]>([]);
     const lastHeterodyningRequestIdRef = useRef(0);
     const pendingWaterfallRestoreRef = useRef<PendingWaterfallRestore | null>(
       null,
@@ -706,6 +714,7 @@ const FFTCanvas = memo(
         pendingWaterfallRestoreRef.current = null;
         restoredWaterfallRef.current = false;
         heterodyningHistoryRef.current = [];
+        heterodyningWriteIndexRef.current = 0;
         onResetWaterfallCleared?.();
       }
     }, [
@@ -967,6 +976,79 @@ const FFTCanvas = memo(
     const activeScaleDbMax = vizDbMax;
     const gpuProcessingDevice = webgpuDeviceRef.current;
 
+    // Temporal frames ring buffer refs
+    const temporalFramePoolRef = useRef<Float32Array[]>([]);
+    const temporalWriteIndexRef = useRef(0);
+    const temporalActiveCountRef = useRef(0);
+    const activeTemporalFramesRef = useRef<Float32Array[]>([]);
+
+    // Refs for volatile rendering parameters to stabilize callbacks
+    const fftColorRef = useRef(fftColor);
+    const fillColorRef = useRef(fillColor);
+    const colormapRef = useRef(colormap);
+    const waterfallThemeRef = useRef(waterfallTheme);
+    const fftAvgEnabledRef = useRef(fftAvgEnabled);
+    const fftSmoothEnabledRef = useRef(fftSmoothEnabled);
+    const wfSmoothEnabledRef = useRef(wfSmoothEnabled);
+    const effectivePowerScaleRef = useRef(effectivePowerScale);
+    const activeScaleDbMinRef = useRef(activeScaleDbMin);
+    const activeScaleDbMaxRef = useRef(activeScaleDbMax);
+    const showSpikeOverlayRef = useRef(showSpikeOverlay);
+    const awaitingDeviceDataRef = useRef(awaitingDeviceData);
+    const demodFocusOverlayRef = useRef(demodFocusOverlay);
+    const nodePreviewRef = useRef(nodePreview);
+
+    useEffect(() => {
+      fftColorRef.current = fftColor;
+      fillColorRef.current = fillColor;
+      colormapRef.current = colormap;
+      waterfallThemeRef.current = waterfallTheme;
+      fftAvgEnabledRef.current = fftAvgEnabled;
+      fftSmoothEnabledRef.current = fftSmoothEnabled;
+      wfSmoothEnabledRef.current = wfSmoothEnabled;
+      effectivePowerScaleRef.current = effectivePowerScale;
+      activeScaleDbMinRef.current = activeScaleDbMin;
+      activeScaleDbMaxRef.current = activeScaleDbMax;
+      showSpikeOverlayRef.current = showSpikeOverlay;
+      awaitingDeviceDataRef.current = awaitingDeviceData;
+      demodFocusOverlayRef.current = demodFocusOverlay;
+      nodePreviewRef.current = nodePreview;
+    }, [
+      fftColor,
+      fillColor,
+      colormap,
+      waterfallTheme,
+      fftAvgEnabled,
+      fftSmoothEnabled,
+      wfSmoothEnabled,
+      effectivePowerScale,
+      activeScaleDbMin,
+      activeScaleDbMax,
+      showSpikeOverlay,
+      awaitingDeviceData,
+      demodFocusOverlay,
+      nodePreview,
+    ]);
+
+    const forceRenderRef = useRef<(() => void) | null>(null);
+
+    const handleSpikeCount = useCallback(
+      (count: number) => {
+        dispatch(setGpuSpikeCount(count));
+      },
+      [dispatch],
+    );
+
+    const handleVizPanChange = useCallback(
+      (pan: number) => {
+        setVizPanOffset(pan);
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+        if (isPaused) forceRenderRef.current?.();
+      },
+      [isPaused, setVizPanOffset],
+    );
+
     const { processUnified } = useUnifiedFFTWaterfall({
       device: webgpuDeviceRef.current ?? null,
       fftSize: effectiveFftSize,
@@ -1062,6 +1144,7 @@ const FFTCanvas = memo(
       frequencyRangeRef,
       spectrumWebgpuEnabled,
       activeSignalArea: _activeSignalArea,
+      signalAreaBounds,
       hardwareSpectrumBounds,
       onFrequencyRangeChange,
       selectionRange,
@@ -1070,12 +1153,7 @@ const FFTCanvas = memo(
       vizZoomRef,
       vizZoomFloorRef,
       vizPanOffsetRef,
-      onVizPanChange: (pan: number) => {
-        setVizPanOffset(pan);
-        overlayDirtyRef.current.grid = true;
-        overlayDirtyRef.current.markers = true;
-        if (isPaused) forceRender();
-      },
+      onVizPanChange: handleVizPanChange,
       vizDbMinRef,
       vizDbMaxRef,
       onFftDbLimitsChange: applyDbLimits,
@@ -1157,7 +1235,7 @@ const FFTCanvas = memo(
           currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
         );
         const showLoadingPlaceholder =
-          awaitingDeviceData &&
+          awaitingDeviceDataRef.current &&
           isDeviceConnected &&
           !hasRenderableWaveform &&
           !hasIncomingData &&
@@ -1172,7 +1250,7 @@ const FFTCanvas = memo(
         clearOverlayCanvas(spectrumOverlayCanvas);
         clearOverlayCanvas(waterfallOverlayCanvas);
 
-        const powerScale = effectivePowerScale;
+        const powerScale = effectivePowerScaleRef.current;
         const isDbmMode = powerScale === "dBm";
         const powerScaleChanged =
           lastRenderedPowerScaleRef.current !== powerScale;
@@ -1211,8 +1289,8 @@ const FFTCanvas = memo(
               void processUnified(liveIqChunk, {
                 inputMode: "complex_iq",
                 powerMode: isDbmMode ? "dbm" : "db",
-                minDb: activeScaleDbMin,
-                maxDb: activeScaleDbMax,
+                minDb: activeScaleDbMinRef.current,
+                maxDb: activeScaleDbMaxRef.current,
                 hardwareSampleRateHz: currentFrame.sample_rate,
                 centerFrequencyHz: currentFrame.center_frequency_hz,
               })
@@ -1236,8 +1314,8 @@ const FFTCanvas = memo(
             spectrumOutputBufferRef.current ?? undefined,
           );
           spectrumOutputBufferRef.current = rawSpectrum;
-          const minClamp = activeScaleDbMin;
-          const maxClamp = activeScaleDbMax;
+          const minClamp = activeScaleDbMinRef.current;
+          const maxClamp = activeScaleDbMaxRef.current;
 
           for (let i = 0; i < rawSpectrum.length; i++) {
             rawSpectrum[i] = Math.min(
@@ -1323,45 +1401,52 @@ const FFTCanvas = memo(
             // GPU processing path that races the visible renderer, causing
             // flashing and color shifts during dBm/dB-range transitions.
 
-            // Frame buffering: reuse existing arrays to minimize GC pressure during animation
-            const frameBuffer = frameBufferRef.current;
-            let newFrame: Float32Array;
-
-            if (
-              frameBuffer.length > 0 &&
-              frameBuffer[0].length === waveform.length
-            ) {
-              // Reuse existing array to minimize memory allocation
-              newFrame = frameBuffer.shift()!;
-              newFrame.set(waveform);
-            } else {
-              // Create new array only when necessary
-              newFrame = new Float32Array(waveform);
-            }
-
-            frameBuffer.push(newFrame);
-
-            // Keep buffer size limited and clear dropped arrays to help GC
-            if (frameBuffer.length > maxFrameBufferSize) {
-              const dropped = frameBuffer.shift();
-              if (dropped) {
-                dropped.fill(0);
-              }
-            }
-
             const temporalWindow = getTemporalResolutionWindow(
               displayTemporalResolution,
+              fftFrameRate,
             );
             if (temporalWindow <= 1) {
-              renderWaveformRef.current = new Float32Array(waveform);
-              frameBufferRef.current = [new Float32Array(waveform)];
+              // Fast path: single frame, no averaging needed. Reuse the render buffer.
+              const prev = renderWaveformRef.current;
+              if (!prev || prev.length !== waveform.length) {
+                renderWaveformRef.current = new Float32Array(waveform);
+              } else {
+                prev.set(waveform);
+              }
+              temporalActiveCountRef.current = 0;
             } else {
-              frameBufferRef.current.push(new Float32Array(waveform));
-              while (frameBufferRef.current.length > temporalWindow) {
-                frameBufferRef.current.shift();
+              const pool = temporalFramePoolRef.current;
+              if (pool.length !== temporalWindow || (pool.length > 0 && pool[0].length !== waveform.length)) {
+                pool.length = 0;
+                for (let i = 0; i < temporalWindow; i++) {
+                  pool.push(new Float32Array(waveform.length));
+                }
+                temporalWriteIndexRef.current = 0;
+                temporalActiveCountRef.current = 0;
+              }
+
+              const writeIdx = temporalWriteIndexRef.current;
+              pool[writeIdx].set(waveform);
+              temporalWriteIndexRef.current = (writeIdx + 1) % temporalWindow;
+              temporalActiveCountRef.current = Math.min(
+                temporalWindow,
+                temporalActiveCountRef.current + 1,
+              );
+
+              const activeFrames = activeTemporalFramesRef.current;
+              const activeCount = temporalActiveCountRef.current;
+              activeFrames.length = activeCount;
+              for (let i = 0; i < activeCount; i++) {
+                const idx = (temporalWriteIndexRef.current - 1 - i + temporalWindow) % temporalWindow;
+                activeFrames[i] = pool[idx];
+              }
+
+              if (!renderWaveformRef.current || renderWaveformRef.current.length !== waveform.length) {
+                renderWaveformRef.current = new Float32Array(waveform.length);
               }
               renderWaveformRef.current = averageTemporalWaveforms(
-                frameBufferRef.current,
+                activeFrames,
+                renderWaveformRef.current,
                 renderWaveformRef.current,
               );
             }
@@ -1444,7 +1529,7 @@ const FFTCanvas = memo(
 
           // CPU-side fallback for averaging/smoothing when unified GPU path isn't active
           if (!unifiedSourceWaveform) {
-            if (fftAvgEnabled) {
+            if (fftAvgEnabledRef.current) {
               if (
                 !fftProcessedBufferRef.current ||
                 fftProcessedBufferRef.current.length !==
@@ -1473,7 +1558,7 @@ const FFTCanvas = memo(
             }
 
             // Disable FFT smoothing to prevent noise floor animation when moving dB sliders
-            // if (fftSmoothEnabled && slicedWaveform.length > 4) {
+            // if (fftSmoothEnabledRef.current && slicedWaveform.length > 4) {
             //   if (
             //     !fftSmoothedBufferRef.current ||
             //     fftSmoothedBufferRef.current.length !== slicedWaveform.length
@@ -1507,10 +1592,10 @@ const FFTCanvas = memo(
               format: webgpuFormatRef.current,
               waveform: slicedWaveform,
               frequencyRange: visualRange,
-              fftMin: activeScaleDbMin,
-              fftMax: activeScaleDbMax,
-              powerScale: effectivePowerScale,
-              nodePreview,
+              fftMin: activeScaleDbMinRef.current,
+              fftMax: activeScaleDbMaxRef.current,
+              powerScale: effectivePowerScaleRef.current,
+              nodePreview: nodePreviewRef.current,
               gridOverlayRenderer: compact
                 ? undefined
                 : gridOverlayRendererRef.current,
@@ -1523,14 +1608,14 @@ const FFTCanvas = memo(
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
-              showSpikeOverlay,
-              demodFocusOverlay,
+              showSpikeOverlay: showSpikeOverlayRef.current,
+              demodFocusOverlay: demodFocusOverlayRef.current,
               selectionOverlay,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
-              lineColor: fftColor,
-              fillColor: fillColor,
+              lineColor: fftColorRef.current,
+              fillColor: fillColorRef.current,
             });
           }
 
@@ -1561,8 +1646,6 @@ const FFTCanvas = memo(
               // texture resets when zoom changes. The shader handles the final
               // mapping from 4096 bins to display pixels.
               const FIXED_WATERFALL_BINS = 4096;
-              let waterfallBins: Float32Array;
-
               // Ensure we have a persistent buffer for the fixed-width data
               if (
                 !waterfallCappedBufferRef.current ||
@@ -1573,41 +1656,56 @@ const FFTCanvas = memo(
                 );
               }
               const processed = waterfallCappedBufferRef.current;
+              let waterfallBins: Float32Array = processed;
+
+              // The visible waterfall must advance only with a complete row.
+              // Async GPU readback can lag under load and caused ring-buffer
+              // holes that showed up as black horizontal bars when paused.
+              waterfallBins = peakResampleWaterfallRow(
+                slicedWaveform,
+                processed,
+              );
 
               if (shouldUpdateWaterfallRow) {
-                // Peak-resampling: for each output bin, take the max of the
-                // corresponding input bin range. Preserves spikes better than averaging.
-                const srcLen = slicedWaveform.length;
-                const ratio = srcLen / FIXED_WATERFALL_BINS;
-                for (let i = 0; i < FIXED_WATERFALL_BINS; i++) {
-                  const start = Math.floor(i * ratio);
-                  const end = Math.floor((i + 1) * ratio);
-                  let maxVal = -200;
-                  for (let j = start; j < Math.max(end, start + 1); j++) {
-                    const val = slicedWaveform[j] ?? -200;
-                    if (val > maxVal) maxVal = val;
-                  }
-                  processed[i] = maxVal;
-                }
-                waterfallBins = processed;
-
                 // Cache the last row for pause state and snapshots
                 if (
                   !lastWaterfallRowRef.current ||
                   lastWaterfallRowRef.current.length !== waterfallBins.length
                 ) {
-                  lastWaterfallRowRef.current = new Float32Array(waterfallBins);
-                } else {
-                  lastWaterfallRowRef.current.set(waterfallBins);
-                }
-                // Accumulate history for heterodyning detection (96 frames max)
-                if (hasNewData) {
-                  heterodyningHistoryRef.current.push(
-                    new Float32Array(waterfallBins),
+                  lastWaterfallRowRef.current = new Float32Array(
+                    waterfallBins.length,
                   );
-                  if (heterodyningHistoryRef.current.length > 96) {
-                    heterodyningHistoryRef.current.shift();
+                  copyValidWaterfallRow(
+                    waterfallBins,
+                    lastWaterfallRowRef.current,
+                    null,
+                  );
+                } else {
+                  copyValidWaterfallRow(
+                    waterfallBins,
+                    lastWaterfallRowRef.current,
+                    lastWaterfallRowRef.current,
+                  );
+                }
+
+                // Accumulate history for heterodyning detection (ring buffer, 96 frames max)
+                if (hasNewData) {
+                  const maxHistory = 96;
+                  const history = heterodyningHistoryRef.current;
+                  if (history.length === 0) {
+                    for (let i = 0; i < maxHistory; i++) {
+                      history.push(new Float32Array(FIXED_WATERFALL_BINS));
+                    }
+                    heterodyningWriteIndexRef.current = 0;
+                    heterodyningHistoryCountRef.current = 0;
                   }
+                  const writeIdx = heterodyningWriteIndexRef.current;
+                  history[writeIdx].set(waterfallBins);
+                  heterodyningWriteIndexRef.current = (writeIdx + 1) % maxHistory;
+                  heterodyningHistoryCountRef.current = Math.min(
+                    maxHistory,
+                    heterodyningHistoryCountRef.current + 1,
+                  );
                 }
                 lastWaterfallVisualRangeRef.current = { ...visualRange };
               } else {
@@ -1675,14 +1773,14 @@ const FFTCanvas = memo(
                 device: webgpuDeviceRef.current,
                 format: webgpuFormatRef.current,
                 fftData: waterfallBins,
-                fftMin: activeScaleDbMin,
-                fftMax: activeScaleDbMax,
+                fftMin: activeScaleDbMinRef.current,
+                fftMax: activeScaleDbMaxRef.current,
                 driftAmount: retuneSmearRef.current,
                 freeze: !shouldUpdateWaterfallRow,
                 restoreTexture,
-                wfSmooth: wfSmoothEnabled,
-                colormap: colormap,
-                colormapName: waterfallTheme,
+                wfSmooth: wfSmoothEnabledRef.current,
+                colormap: colormapRef.current,
+                colormapName: waterfallThemeRef.current,
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -1718,13 +1816,13 @@ const FFTCanvas = memo(
                   device: webgpuDeviceRef.current!,
                   format: webgpuFormatRef.current!,
                   fftData: rowBuffer,
-                  fftMin: activeScaleDbMin,
-                  fftMax: activeScaleDbMax,
+                  fftMin: activeScaleDbMinRef.current,
+                  fftMax: activeScaleDbMaxRef.current,
                   driftAmount: retuneSmearRef.current,
                   freeze: true,
                   restoreTexture: restore,
-                  colormap,
-                  colormapName: waterfallTheme,
+                  colormap: colormapRef.current,
+                  colormapName: waterfallThemeRef.current,
                 });
               }
             }
@@ -1745,24 +1843,11 @@ const FFTCanvas = memo(
         isDeviceConnected,
         spectrumGpuCanvasNode,
         waterfallGpuCanvasNode,
-        fftColor,
-        fillColor,
-        colormap,
-        waterfallTheme,
-        fftAvgEnabled,
-        fftSmoothEnabled,
-        wfSmoothEnabled,
-        effectivePowerScale,
-        activeScaleDbMin,
-        activeScaleDbMax,
-        showSpikeOverlay,
-        awaitingDeviceData,
         drawLoadingPlaceholder,
         clearOverlayCanvas,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
-        demodFocusOverlay,
-        nodePreview,
+        fftFrameRate,
       ],
     );
 
@@ -1777,6 +1862,7 @@ const FFTCanvas = memo(
       onBecomeVisible,
       targetFPS: fftFrameRate,
     });
+    forceRenderRef.current = forceRender;
 
     // Effect: Cleanup placeholder. Most cleanup is handled by useFFTAnimation and other hooks.
     // Intentionally minimal - actual resources are managed by child hooks and their own cleanup.
@@ -1822,8 +1908,21 @@ const FFTCanvas = memo(
       }
 
       lastHeterodyningRequestIdRef.current = heterodyningVerifyRequestId;
+
+      const count = heterodyningHistoryCountRef.current;
+      const history = heterodyningHistoryRef.current;
+      const writeIdx = heterodyningWriteIndexRef.current;
+      const maxHistory = 96;
+
+      const activeList = activeHistoryRef.current;
+      activeList.length = count;
+      for (let i = 0; i < count; i++) {
+        const idx = (writeIdx - count + i + maxHistory) % maxHistory;
+        activeList[i] = history[idx];
+      }
+
       onHeterodyningAnalyzed(
-        detectHeterodyningFromHistory(heterodyningHistoryRef.current),
+        detectHeterodyningFromHistory(activeList),
       );
     }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 

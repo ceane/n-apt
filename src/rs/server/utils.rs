@@ -133,6 +133,12 @@ pub(crate) fn cwd_lock() -> &'static std::sync::Mutex<()> {
   LOCK.get_or_init(|| std::sync::Mutex::new(()))
 }
 
+#[cfg(test)]
+pub(crate) fn clear_signals_config_cache() {
+  let mut guard = SIGNALS_CONFIG.write().unwrap();
+  *guard = None;
+}
+
 struct CachedSignalsConfig {
   config: super::types::SignalsConfig,
   modified: std::time::SystemTime,

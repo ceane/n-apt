@@ -46,6 +46,8 @@ pub struct SharedState {
   pub shutdown: AtomicBool,
   /// Device info string (set once at init)
   pub device_info: Mutex<String>,
+  /// Backend/device error string surfaced to the frontend when available.
+  pub device_backend_error: Mutex<Option<String>>,
   /// Current device profile/capabilities for frontend feature gating
   pub device_profile: Mutex<DeviceProfile>,
   /// Device loading state (when device is being initialized)
@@ -106,6 +108,7 @@ impl SharedState {
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
+      device_backend_error: Mutex::new(None),
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
@@ -151,6 +154,10 @@ impl SharedState {
     // Reset debounce counters on any definitive state change
     self.health_failure_streak.store(0, Ordering::Relaxed);
     self.recovery_attempts.store(0, Ordering::Relaxed);
+  }
+
+  pub fn set_device_backend_error(&self, error: Option<String>) {
+    *self.device_backend_error.lock().unwrap() = error;
   }
 
   /// Transition device_state and immediately update the loading fields.

@@ -128,6 +128,17 @@ const DISCONNECT_GRACE_MS = 150;
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 let lastFrameRequestTime = 0;
 const FRAME_REQUEST_THROTTLE_MS = 100;
+const RETUNE_CENTER_TOLERANCE_HZ = 10;
+const RETUNE_WATCHDOG_GRACE_MS = 500;
+const RETUNE_WATCHDOG_MIN_MISMATCH_FRAMES = 8;
+const RETUNE_WATCHDOG_RESEND_MS = 1000;
+let lastFrequencyRangeRequest: {
+  data: any;
+  centerHz: number;
+  requestedAt: number;
+  lastResendAt: number;
+  mismatchFrames: number;
+} | null = null;
 
 export const collapsePausedFrameBatch = <T,>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
@@ -216,11 +227,121 @@ const getPausedValue = (payload: unknown): boolean | null => {
   return null;
 };
 
+export const isFrameStale = (_centerFrequencyHz: number): boolean => false;
+
+export const getFrequencyRequestCenterHz = (
+  type: string,
+  data: any,
+): number | null => {
+  if (type !== "frequency_range" && type !== "set_frequency_range") {
+    return null;
+  }
+
+  const explicitCenter = Number(data?.center_frequency);
+  if (Number.isFinite(explicitCenter) && explicitCenter > 0) {
+    return explicitCenter;
+  }
+
+  const minHz = Number(data?.min_hz ?? data?.min_freq);
+  const maxHz = Number(data?.max_hz ?? data?.max_freq);
+  if (
+    Number.isFinite(minHz) &&
+    Number.isFinite(maxHz) &&
+    maxHz >= minHz
+  ) {
+    return (minHz + maxHz) / 2;
+  }
+
+  return null;
+};
+
+export const shouldResendRetuneRequest = ({
+  expectedCenterHz,
+  frameCenterHz,
+  requestedAt,
+  lastResendAt,
+  mismatchFrames,
+  now,
+}: {
+  expectedCenterHz: number;
+  frameCenterHz: number;
+  requestedAt: number;
+  lastResendAt: number;
+  mismatchFrames: number;
+  now: number;
+}): boolean => {
+  if (
+    Math.abs(frameCenterHz - expectedCenterHz) <= RETUNE_CENTER_TOLERANCE_HZ
+  ) {
+    return false;
+  }
+  if (now - requestedAt < RETUNE_WATCHDOG_GRACE_MS) {
+    return false;
+  }
+  if (mismatchFrames < RETUNE_WATCHDOG_MIN_MISMATCH_FRAMES) {
+    return false;
+  }
+  return now - lastResendAt >= RETUNE_WATCHDOG_RESEND_MS;
+};
+
+const trackFrequencyRangeRequest = (type: string, data: any) => {
+  const centerHz = getFrequencyRequestCenterHz(type, data);
+  if (centerHz === null) return;
+
+  lastFrequencyRangeRequest = {
+    data,
+    centerHz,
+    requestedAt: Date.now(),
+    lastResendAt: 0,
+    mismatchFrames: 0,
+  };
+};
+
+const checkRetuneWatchdog = (frameCenterHz: number) => {
+  const request = lastFrequencyRangeRequest;
+  if (!request || !Number.isFinite(frameCenterHz)) return;
+
+  if (
+    Math.abs(frameCenterHz - request.centerHz) <= RETUNE_CENTER_TOLERANCE_HZ
+  ) {
+    lastFrequencyRangeRequest = null;
+    return;
+  }
+
+  request.mismatchFrames += 1;
+  const now = Date.now();
+  if (
+    shouldResendRetuneRequest({
+      expectedCenterHz: request.centerHz,
+      frameCenterHz,
+      requestedAt: request.requestedAt,
+      lastResendAt: request.lastResendAt,
+      mismatchFrames: request.mismatchFrames,
+      now,
+    }) &&
+    wsInstance.ws &&
+    wsInstance.ws.readyState === WebSocket.OPEN
+  ) {
+    wsInstance.ws.send(
+      JSON.stringify({ type: "frequency_range", ...request.data }),
+    );
+    request.lastResendAt = now;
+  }
+};
+
 const queueLiveData = (
-  data: unknown,
+  data: any,
   dispatch: Dispatch,
   getState: () => any,
 ) => {
+  const centerFrequencyHz = data?.center_frequency_hz;
+  if (typeof centerFrequencyHz === "number") {
+    checkRetuneWatchdog(centerFrequencyHz);
+  }
+  if (typeof centerFrequencyHz === "number" && isFrameStale(centerFrequencyHz)) {
+    return;
+  }
+
   if (pendingDataUpdate === null) {
     pendingDataUpdate = [data];
   } else {
@@ -589,6 +710,11 @@ const processBinaryMessage = async (
       return;
     }
 
+    if (isFrameStale(centerFrequencyHz)) {
+      return;
+    }
+    checkRetuneWatchdog(centerFrequencyHz);
+
     const spectrumData = {
       type: "spectrum",
       is_mock_apt: false,
@@ -654,6 +780,8 @@ const createWebSocketMiddleware =
 
         // Cleanup existing connection
         cleanupSocket();
+        liveDataRef.current = [];
+        pendingDataUpdate = null;
 
         if (!enabled || !url) {
           dispatch(setDisconnected());
@@ -828,6 +956,7 @@ const createWebSocketMiddleware =
 
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
+        trackFrequencyRangeRequest(type, data);
 
         // Track intended FFT size to prevent clobbering from status broadcasts
         const requestedFftSize =

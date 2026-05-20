@@ -12,10 +12,17 @@ struct Params {
   padding: f32,
 }
 
+struct FloorResult {
+  sum_bits: u32,
+  count: u32,
+  partial_sum: i32,
+}
+
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
 @group(0) @binding(1) var<storage, read> params: Params;
 @group(0) @binding(2) var<storage, read_write> spikes: array<SpikeMarker>;
 @group(0) @binding(3) var<storage, read_write> spike_count: atomic<u32>;
+@group(0) @binding(4) var<storage, read> floor_result: FloorResult;
 
 const MAX_SPIKES: u32 = 128u;
 
@@ -81,7 +88,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   if (local_count == 0u) { return; }
 
   let local_avg = local_sum / f32(local_count);
-  let global_floor = params.padding;
+  let global_floor = bitcast<f32>(floor_result.sum_bits);
   let avg_prominence = val - local_avg;
   let global_floor_score = val - global_floor;
   let competitor_gap = val - local_max;

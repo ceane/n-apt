@@ -171,6 +171,7 @@ export const StatusMessageSchema = z.object({
   channels: z.array(SpectrumFrameSchema),
   sdr_settings: SdrSettingsConfigSchema,
   device: z.enum(["rtl-sdr", "mock_apt", "mock_apt_metal", "hackrf"]),
+  device_backend_error: z.string().nullable().optional(),
   device_profile: DeviceProfileSchema,
 });
 

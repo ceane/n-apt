@@ -80,6 +80,25 @@ const sampleGradient = (t: number): [number, number, number] => {
   ];
 };
 
+// Precomputed 256-entry RGBA gradient LUT — eliminates per-pixel sampleGradient
+// calls (Math.floor + lerp ×3) in the waterfall hot loop.
+const GRADIENT_LUT_SIZE = 256;
+const GRADIENT_LUT = new Uint8ClampedArray(GRADIENT_LUT_SIZE * 4);
+{
+  for (let i = 0; i < GRADIENT_LUT_SIZE; i++) {
+    const [r, g, b] = sampleGradient(i / (GRADIENT_LUT_SIZE - 1));
+    GRADIENT_LUT[i * 4] = r;
+    GRADIENT_LUT[i * 4 + 1] = g;
+    GRADIENT_LUT[i * 4 + 2] = b;
+    GRADIENT_LUT[i * 4 + 3] = 255;
+  }
+}
+
+// Cached ImageData to avoid per-frame ctx.createImageData allocation
+let cachedImageData: ImageData | null = null;
+let cachedImageDataWidth = 0;
+let cachedImageDataHeight = 0;
+
 const fillWaterfallBuffer = (
   buffer: Uint8ClampedArray,
   width: number,
@@ -107,29 +126,30 @@ const addWaterfallFrame = (
   minDb: number,
   maxDb: number,
 ) => {
-  for (let y = height - 1; y > 0; y--) {
-    for (let x = 0; x < width; x++) {
-      const dst = (y * width + x) * 4;
-      const src = ((y - 1) * width + x) * 4;
-      buffer[dst] = buffer[src];
-      buffer[dst + 1] = buffer[src + 1];
-      buffer[dst + 2] = buffer[src + 2];
-      buffer[dst + 3] = 255;
-    }
-  }
+  // Shift all rows down by 1 using a single native memmove instead of
+  // the previous O(width × height) nested loop with 4 assignments per pixel.
+  const rowBytes = width * 4;
+  buffer.copyWithin(rowBytes, 0, (height - 1) * rowBytes);
+
+  // Fill the top row using the precomputed gradient LUT
+  const dbRange = maxDb - minDb || 1;
+  const lutMax = GRADIENT_LUT_SIZE - 1;
+  const smear = Math.max(0, Math.min(Math.floor(retuneSmear), height - 1));
 
   for (let x = 0; x < width; x++) {
     const value = fftFrame[x];
     const dbValue = Number.isFinite(value) ? value : minDb;
-    const normalized = (dbValue - minDb) / (maxDb - minDb || 1);
-    const [r, g, b] = sampleGradient(normalized);
+    const normalized = (dbValue - minDb) / dbRange;
+    const lutIdx = Math.max(0, Math.min(lutMax, Math.round(normalized * lutMax))) * 4;
+    const r = GRADIENT_LUT[lutIdx];
+    const g = GRADIENT_LUT[lutIdx + 1];
+    const b = GRADIENT_LUT[lutIdx + 2];
     const idx = x * 4;
     buffer[idx] = r;
     buffer[idx + 1] = g;
     buffer[idx + 2] = b;
     buffer[idx + 3] = 255;
 
-    const smear = Math.max(0, Math.min(Math.floor(retuneSmear), height - 1));
     for (let dy = 1; dy <= smear; dy++) {
       const smearIdx = (dy * width + x) * 4;
       buffer[smearIdx] = Math.max(buffer[smearIdx], r);
@@ -155,9 +175,14 @@ const drawWaterfall = ({
   if (waterfallBuffer.length < expectedSize) {
     return;
   }
-  const imageData = ctx.createImageData(width, height);
-  imageData.data.set(waterfallBuffer.subarray(0, expectedSize));
-  ctx.putImageData(imageData, 0, 0);
+  // Reuse cached ImageData when dimensions match to avoid per-frame allocation
+  if (!cachedImageData || cachedImageDataWidth !== width || cachedImageDataHeight !== height) {
+    cachedImageData = ctx.createImageData(width, height);
+    cachedImageDataWidth = width;
+    cachedImageDataHeight = height;
+  }
+  cachedImageData.data.set(waterfallBuffer.subarray(0, expectedSize));
+  ctx.putImageData(cachedImageData, 0, 0);
 };
 
 export const FIFOWaterfall = memo<FIFOWaterfallProps>(

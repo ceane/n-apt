@@ -569,6 +569,12 @@ impl SdrDevice for MockAptDevice {
     }
   }
 
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn get_error(&self) -> Option<String> {
+    self.metal_backend_error.clone()
+  }
+
+  #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
   fn get_error(&self) -> Option<String> {
     None
   }

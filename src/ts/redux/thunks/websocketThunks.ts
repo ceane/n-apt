@@ -111,10 +111,12 @@ export const sendCenterFrequency = createAsyncThunk(
       ? {
           min_hz: centerHz - sampleRateHz / 2,
           max_hz: centerHz + sampleRateHz / 2,
+          center_frequency: centerHz,
         }
       : {
           min_hz: centerHz,
           max_hz: centerHz,
+          center_frequency: centerHz,
         };
     if (state.websocket.isConnected) {
       dispatch({

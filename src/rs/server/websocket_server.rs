@@ -81,6 +81,7 @@ pub(crate) fn broadcast_device_status(
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
+  let device_backend_error = shared.device_backend_error.lock().unwrap().clone();
   let (device_limits, sample_rate_options) =
     if let Some(device_cfg) = sdr_settings.devices.get(&device_profile.kind) {
       (
@@ -163,6 +164,7 @@ pub(crate) fn broadcast_device_status(
       } else {
         crate::server::utils::mock_apt_backend_label(&device_info)
       },
+      "device_backend_error": device_backend_error,
       "device_profile": device_profile,
   });
   let _ = broadcast_tx.send(msg.to_string());
@@ -247,6 +249,7 @@ impl WebSocketServer {
       sdr_processor.get_device_info(),
       build_device_profile(sdr_processor.device_type()),
     );
+    shared.set_device_backend_error(sdr_processor.get_error());
 
     Self {
       sdr_processor: Arc::new(Mutex::new(sdr_processor)),
@@ -378,6 +381,7 @@ impl WebSocketServer {
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 } else {
                   shared_state.update_device_status(
@@ -385,6 +389,7 @@ impl WebSocketServer {
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
@@ -403,6 +408,7 @@ impl WebSocketServer {
                   processor.get_device_info(),
                   build_device_profile(processor.device_type()),
                 );
+                shared_state.set_device_backend_error(processor.get_error());
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
             }
@@ -952,6 +958,11 @@ impl WebSocketServer {
                 device_type_str.clone(),
                 build_device_profile(device_type_str.as_str()),
               );
+              let device_backend_error = {
+                let processor = sdr_processor.lock().await;
+                processor.get_error()
+              };
+              shared_state.set_device_backend_error(device_backend_error);
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
           }
@@ -1036,6 +1047,7 @@ impl WebSocketServer {
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
               } else if !is_recovery_budget_exhausted(
@@ -1115,6 +1127,7 @@ impl WebSocketServer {
                         processor.get_device_info(),
                         build_device_profile(processor.device_type()),
                       );
+                      shared_state.set_device_backend_error(processor.get_error());
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }
@@ -1133,6 +1146,7 @@ impl WebSocketServer {
                         processor.get_device_info(),
                         build_device_profile(processor.device_type()),
                       );
+                      shared_state.set_device_backend_error(processor.get_error());
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }
@@ -1152,6 +1166,7 @@ impl WebSocketServer {
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
@@ -1353,6 +1368,8 @@ mod tests {
   #[test]
   #[serial]
   fn broadcast_device_status_includes_websocket_payload_fields() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     let shared = SharedState::new("redis://127.0.0.1:6379");
     let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);

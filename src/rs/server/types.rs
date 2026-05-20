@@ -547,6 +547,7 @@ pub struct StatusMessage {
   pub channels: Vec<SpectrumFrameMessage>,
   pub sdr_settings: SdrConfig,
   pub device: String,
+  pub device_backend_error: Option<String>,
   pub device_profile: DeviceProfile,
 }
 

@@ -201,6 +201,7 @@ pub async fn handle_ws_connection(
   } else {
     crate::server::utils::mock_apt_device_name(&device_info)
   };
+  let device_backend_error = shared.device_backend_error.lock().unwrap().clone();
 
   let initial_status = super::types::StatusMessage {
     message_type: "status".to_string(),
@@ -230,6 +231,7 @@ pub async fn handle_ws_connection(
       "mock_apt"
     })
     .to_string(),
+    device_backend_error,
     device_profile: shared.device_profile.lock().unwrap().clone(),
   };
 
@@ -490,6 +492,8 @@ pub fn handle_message(
         };
         let mock_backend_label =
           crate::server::utils::mock_apt_backend_label(&device_info);
+        let device_backend_error =
+          shared.device_backend_error.lock().unwrap().clone();
 
         let status = super::types::StatusMessage {
           message_type: "status".to_string(),
@@ -509,6 +513,7 @@ pub fn handle_message(
           } else {
             mock_backend_label.to_string()
           },
+          device_backend_error,
           device_profile: shared.device_profile.lock().unwrap().clone(),
         };
 

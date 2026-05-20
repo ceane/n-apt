@@ -511,6 +511,11 @@ impl SdrProcessor {
     self.device.get_device_info()
   }
 
+  /// Get the last backend/device error if any.
+  pub fn get_error(&self) -> Option<String> {
+    self.device.get_error()
+  }
+
   /// Check if the device is ready for reading
   pub fn is_ready(&self) -> bool {
     self.device.is_ready()

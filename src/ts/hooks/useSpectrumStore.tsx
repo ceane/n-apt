@@ -63,6 +63,7 @@ import {
   createFFTVisualizerMachine,
   type FFTVisualizerMachine,
 } from "@n-apt/utils/fftVisualizerMachine";
+import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -1392,12 +1393,32 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       return bounds;
     }, [effectiveFrames]);
 
+    const activeSignalAreaBounds =
+      signalAreaBounds?.[mergedState.activeSignalArea] ??
+      signalAreaBounds?.[mergedState.activeSignalArea?.toLowerCase?.()] ??
+      null;
+
+    const clampLiveFrequencyRange = useCallback(
+      (range: FrequencyRange) =>
+        clampFrequencyRangeToBounds(range, activeSignalAreaBounds),
+      [activeSignalAreaBounds],
+    );
+
+    const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
+
+    useEffect(() => {
+      if (!isConnected || deviceState !== "connected") {
+        lastSentFrequencyRangeRef.current = null;
+      }
+    }, [deviceState, isConnected]);
+
     // Initialize frequencyRange if either it is null or unset
     // based on the first available frame (usually area 'A')
     // and the current sample rate. This is placed after variable
     // declarations to satisfy closure requirements.
     useEffect(() => {
       if (mergedState.frequencyRange) return;
+      if (!isConnected || deviceState !== "connected") return;
       if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0)
         return;
 
@@ -1410,7 +1431,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const max = sampleRateHz
         ? Math.min(primaryFrame.max_hz, min + sampleRateHz)
         : primaryFrame.max_hz;
-      const nextRange = { min, max };
+      const nextRange = clampLiveFrequencyRange({ min, max });
 
       const range = nextRange;
       if (
@@ -1426,8 +1447,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       mergedState.frequencyRange,
       sampleRateHz,
       effectiveFrames,
+      isConnected,
+      deviceState,
       wsConnection.sendFrequencyRange,
       storeDispatch,
+      clampLiveFrequencyRange,
     ]);
 
     // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
@@ -1466,10 +1490,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       });
     }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
 
-    const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
     useEffect(() => {
-      if (!isConnected || !mergedState.frequencyRange) return;
-      const range = mergedState.frequencyRange;
+      if (
+        !isConnected ||
+        deviceState !== "connected" ||
+        !mergedState.frequencyRange
+      )
+        return;
+      const range = clampLiveFrequencyRange(mergedState.frequencyRange);
+      if (
+        range.min !== mergedState.frequencyRange.min ||
+        range.max !== mergedState.frequencyRange.max
+      ) {
+        storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
+      }
       if (
         lastSentFrequencyRangeRef.current?.min === range.min &&
         lastSentFrequencyRangeRef.current?.max === range.max
@@ -1481,6 +1515,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [
       isConnected,
       mergedState.frequencyRange,
+      clampLiveFrequencyRange,
+      deviceState,
+      storeDispatch,
       wsConnection.sendFrequencyRange,
     ]);
 
