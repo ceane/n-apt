@@ -85,7 +85,16 @@ fn sampleDb(col: i32, displayRow: i32, renderRow: i32, texH: i32) -> f32 {
 
 // Helper: normalise dB → [0,1] then map through colour LUT
 fn dbToColor(rawDb: f32, dbMin: f32, dbMax: f32, colorCount: f32) -> vec4<f32> {
-  let normalized = clamp((rawDb - dbMin) / max(dbMax - dbMin, 0.001), 0.0, 1.0);
+  let range = max(dbMax - dbMin, 0.001);
+  let onscreen = clamp((rawDb - dbMin) / range, 0.0, 1.0);
+  let onscreenColorMax = 0.58;
+  let overrangeHeadroom = min(24.0, max(6.0, range * 0.25));
+  let overrange = clamp((rawDb - dbMax) / overrangeHeadroom, 0.0, 1.0);
+  let normalized = select(
+    onscreen * onscreenColorMax,
+    onscreenColorMax + (1.0 - onscreenColorMax) * overrange,
+    rawDb > dbMax,
+  );
   var ci = i32(round(normalized * (colorCount - 1.0)));
   ci = clamp(ci, 0, i32(colorCount) - 1);
   return textureLoad(colorTex, vec2<i32>(ci, 0), 0);

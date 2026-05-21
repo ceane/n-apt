@@ -66,3 +66,70 @@ export const copyValidWaterfallRow = (
 
   return target;
 };
+
+const smootherStep = (value: number) => {
+  const x = Math.max(0, Math.min(1, value));
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+const sampleShiftedRow = (
+  row: Float32Array,
+  index: number,
+  fallbackDb: number,
+) => {
+  if (index < 0 || index > row.length - 1) {
+    return fallbackDb;
+  }
+
+  if (index >= row.length - 1) {
+    const edgeValue = row[row.length - 1];
+    return Number.isFinite(edgeValue) ? edgeValue : fallbackDb;
+  }
+
+  const lowerIndex = Math.floor(index);
+  const upperIndex = lowerIndex + 1;
+  const fraction = index - lowerIndex;
+  const lower = row[lowerIndex];
+  const upper = row[upperIndex];
+  const safeLower = Number.isFinite(lower) ? lower : fallbackDb;
+  const safeUpper = Number.isFinite(upper) ? upper : safeLower;
+
+  return safeLower + (safeUpper - safeLower) * fraction;
+};
+
+export const synthesizeWaterfallTransitionRow = ({
+  previous,
+  current,
+  target,
+  driftBins,
+  progress,
+  floorDb = DEFAULT_WATERFALL_FLOOR_DB,
+}: {
+  previous: Float32Array;
+  current: Float32Array;
+  target: Float32Array;
+  driftBins: number;
+  progress: number;
+  floorDb?: number;
+}): Float32Array => {
+  if (
+    previous.length !== current.length ||
+    target.length !== current.length ||
+    current.length === 0
+  ) {
+    return copyValidWaterfallRow(current, target, previous, floorDb);
+  }
+
+  const blend = smootherStep(progress);
+  const shift = driftBins * progress;
+
+  for (let i = 0; i < target.length; i++) {
+    const currentValue = Number.isFinite(current[i])
+      ? current[i]
+      : floorDb;
+    const previousValue = sampleShiftedRow(previous, i + shift, currentValue);
+    target[i] = previousValue + (currentValue - previousValue) * blend;
+  }
+
+  return target;
+};

@@ -17,6 +17,7 @@ import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
+import { useWaterfallRetuneCompute } from "@n-apt/hooks/useWaterfallRetuneCompute";
 import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
@@ -58,6 +59,7 @@ import { getWaterfallMotion } from "@n-apt/utils/waterfallMotion";
 import {
   copyValidWaterfallRow,
   peakResampleWaterfallRow,
+  synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
 import { roundDbValue } from "@n-apt/utils/frequency";
 import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
@@ -274,6 +276,7 @@ const DB_MIN_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
   dB: { min: FFT_MIN_DB, max: -10 },
   dBm: { min: -120, max: -10 },
 };
+const RETUNE_ROW_BLEND_PROGRESS = 0.65;
 
 const clampDbMaxValue = (value: number, scale: "dB" | "dBm") => {
   const bounds = DB_MAX_RANGE[scale];
@@ -658,6 +661,7 @@ const FFTCanvas = memo(
 
     const lastWaterfallRowRef = useRef<Float32Array | null>(null);
     const pausedWaterfallRowRef = useRef<Float32Array | null>(null);
+    const retuneTransitionRowRef = useRef<Float32Array | null>(null);
     const waterfallTextureSnapshotRef = useRef<Uint8Array | null>(null);
     const waterfallTextureMetaRef = useRef<{
       width: number;
@@ -1239,6 +1243,10 @@ const FFTCanvas = memo(
     // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
     const { drawSpectrum, cleanup: cleanupSpectrum } = useSpectrumRenderer();
     const { drawWebGPUFIFOWaterfall } = useDrawWebGPUFIFOWaterfall();
+    const {
+      computeWaterfallRetuneRow,
+      cleanup: cleanupWaterfallRetuneCompute,
+    } = useWaterfallRetuneCompute();
 
     // Simplified renderer initialization
 
@@ -1717,7 +1725,7 @@ const FFTCanvas = memo(
                 !isPaused &&
                 (hasNewData || waterfallMotion.shouldPaintMotionRow);
               retuneDriftPxRef.current = waterfallMotion.driftBins;
-              retuneSmearRef.current = waterfallMotion.smearRows;
+              retuneSmearRef.current = 0;
 
               // Waterfall texture strategy: Always resample to constant 4096 bins.
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
@@ -1744,7 +1752,44 @@ const FFTCanvas = memo(
                 processed,
               );
 
+              const rowsToDraw: Float32Array[] = [];
+              let waterfallGpuRowBuffer: GPUBuffer | null = null;
+
               if (shouldUpdateWaterfallRow) {
+                const previousWaterfallRow = lastWaterfallRowRef.current;
+                if (
+                  waterfallMotion.shouldPaintMotionRow &&
+                  previousWaterfallRow?.length === waterfallBins.length
+                ) {
+                  waterfallGpuRowBuffer = computeWaterfallRetuneRow({
+                    device: webgpuDeviceRef.current,
+                    previous: previousWaterfallRow,
+                    current: waterfallBins,
+                    driftBins: waterfallMotion.driftBins,
+                    progress: RETUNE_ROW_BLEND_PROGRESS,
+                  });
+
+                  if (
+                    !retuneTransitionRowRef.current ||
+                    retuneTransitionRowRef.current.length !==
+                      waterfallBins.length
+                  ) {
+                    retuneTransitionRowRef.current = new Float32Array(
+                      waterfallBins.length,
+                    );
+                  }
+                  synthesizeWaterfallTransitionRow({
+                    previous: previousWaterfallRow,
+                    current: waterfallBins,
+                    target: retuneTransitionRowRef.current,
+                    driftBins: waterfallMotion.driftBins,
+                    progress: RETUNE_ROW_BLEND_PROGRESS,
+                  });
+                  waterfallBins = retuneTransitionRowRef.current;
+                }
+
+                rowsToDraw.push(waterfallBins);
+
                 // Cache the last row for pause state and snapshots
                 if (
                   !lastWaterfallRowRef.current ||
@@ -1792,6 +1837,7 @@ const FFTCanvas = memo(
                 retuneDriftPxRef.current = 0;
                 retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
+                rowsToDraw.push(waterfallBins);
               }
 
               // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
@@ -1824,42 +1870,48 @@ const FFTCanvas = memo(
                 snapshot &&
                 meta.width === FIXED_WATERFALL_BINS
               ) {
-                const rowBytes = new Uint8Array(
-                  waterfallBins.buffer,
-                  waterfallBins.byteOffset,
-                  waterfallBins.byteLength,
-                );
-                const smear = Math.max(
-                  0,
-                  Math.min(
-                    Math.floor(retuneSmearRef.current || 0),
-                    dims.height - 1,
-                  ),
-                );
-                for (let s = 0; s <= smear; s++) {
-                  const row = (meta.writeRow - s + dims.height) % dims.height;
+                for (const rowData of rowsToDraw) {
+                  const rowBytes = new Uint8Array(
+                    rowData.buffer,
+                    rowData.byteOffset,
+                    rowData.byteLength,
+                  );
+                  const row = meta.writeRow % dims.height;
                   const offset = row * textureBytesPerRow;
                   snapshot.set(rowBytes, offset);
+                  meta.writeRow = (meta.writeRow + 1) % dims.height;
                 }
-                meta.writeRow = (meta.writeRow + 1) % dims.height;
                 pendingWaterfallRestoreRef.current = null;
                 restoredWaterfallRef.current = false;
               }
 
-              // Pass 4096 bins to hook — shader handles pixel mapping
-              drawWebGPUFIFOWaterfall({
-                canvas: waterfallGpuCanvas,
-                device: webgpuDeviceRef.current,
-                format: webgpuFormatRef.current,
-                fftData: waterfallBins,
-                fftMin: activeScaleDbMinRef.current,
-                fftMax: activeScaleDbMaxRef.current,
-                driftAmount: retuneSmearRef.current,
-                freeze: !shouldUpdateWaterfallRow,
-                restoreTexture,
-                wfSmooth: wfSmoothEnabledRef.current,
-                colormap: colormapRef.current,
-                colormapName: waterfallThemeRef.current,
+              const waterfallDevice = webgpuDeviceRef.current;
+              const waterfallFormat = webgpuFormatRef.current;
+              if (!waterfallDevice || !waterfallFormat) return;
+
+              rowsToDraw.forEach((rowData, index) => {
+                // Pass 4096 bins to hook — shader handles pixel mapping.
+                drawWebGPUFIFOWaterfall({
+                  canvas: waterfallGpuCanvas,
+                  device: waterfallDevice,
+                  format: waterfallFormat,
+                  fftData:
+                    waterfallGpuRowBuffer && index === rowsToDraw.length - 1
+                      ? new Float32Array(0)
+                      : rowData,
+                  fftDataBuffer:
+                    index === rowsToDraw.length - 1
+                      ? waterfallGpuRowBuffer ?? undefined
+                      : undefined,
+                  fftMin: activeScaleDbMinRef.current,
+                  fftMax: activeScaleDbMaxRef.current,
+                  driftAmount: 0,
+                  freeze: !shouldUpdateWaterfallRow,
+                  restoreTexture: index === 0 ? restoreTexture : undefined,
+                  wfSmooth: wfSmoothEnabledRef.current,
+                  colormap: colormapRef.current,
+                  colormapName: waterfallThemeRef.current,
+                });
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -1911,6 +1963,7 @@ const FFTCanvas = memo(
       [
         drawSpectrum,
         drawWebGPUFIFOWaterfall,
+        computeWaterfallRetuneRow,
         isPaused,
         displayTemporalResolution,
         spectrumWebgpuEnabled,
@@ -2149,8 +2202,10 @@ const FFTCanvas = memo(
       return () => {
         persistVisualizerSession();
         cleanupSpectrum();
+        cleanupWaterfallRetuneCompute();
       };
     }, [
+      cleanupWaterfallRetuneCompute,
       cleanupSpectrum,
       forceRender,
       persistVisualizerSession,

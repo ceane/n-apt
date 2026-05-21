@@ -157,6 +157,7 @@ type FFTWebGPUState = {
   scratchSpikeParamsF32: Float32Array;
   scratchResampleParams: Uint32Array;
   scratchZeroCount: Uint32Array;
+  lastFrameCanvas?: HTMLCanvasElement;
 };
 
 export interface WebGPUFFTSignalOptions {
@@ -887,6 +888,23 @@ export function useDrawWebGPUFFTSignal() {
         }
         pass.end();
         state.device.queue.submit([encoder.finish()]);
+
+        if (canvas instanceof HTMLCanvasElement) {
+          if (!state.lastFrameCanvas) {
+            state.lastFrameCanvas = document.createElement("canvas");
+          }
+          const cacheCanvas = state.lastFrameCanvas;
+          if (cacheCanvas.width !== canvas.width || cacheCanvas.height !== canvas.height) {
+            cacheCanvas.width = canvas.width;
+            cacheCanvas.height = canvas.height;
+          }
+          const cacheCtx = cacheCanvas.getContext("2d");
+          if (cacheCtx) {
+            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
+            cacheCtx.drawImage(canvas, 0, 0);
+          }
+          (canvas as any)._lastFrameCanvas = cacheCanvas;
+        }
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
           const readbackBuffer = state.spikeCountReadbackBuffer;
