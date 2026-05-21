@@ -176,9 +176,10 @@ type WaterfallState = {
   texH: number;
   paddedRowBytes: number;
   rowBuf: ArrayBuffer;
+  rowBytes: Uint8Array;
+  rowFloats: Float32Array;
   writeRow: number;
   currentColorMapName?: string;
-  lastFrameCanvas?: HTMLCanvasElement;
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -281,6 +282,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         texH: 0,
         paddedRowBytes: 0,
         rowBuf: new ArrayBuffer(0),
+        rowBytes: new Uint8Array(0),
+        rowFloats: new Float32Array(0),
         writeRow: 0,
       };
     },
@@ -291,7 +294,7 @@ export function useDrawWebGPUFIFOWaterfall() {
   // Main draw — mirrors demo's updateWaterfall() + drawWaterfall()
   // -------------------------------------------------------------------
   const drawWebGPUFIFOWaterfall = useCallback(
-    async (options: WebGPUFIFOWaterfallOptions) => {
+    (options: WebGPUFIFOWaterfallOptions) => {
       const {
         canvas,
         device,
@@ -347,6 +350,8 @@ export function useDrawWebGPUFIFOWaterfall() {
           s.texH = needH;
           s.paddedRowBytes = alignTo(s.texW * 4, 256);
           s.rowBuf = new ArrayBuffer(s.paddedRowBytes);
+          s.rowBytes = new Uint8Array(s.rowBuf);
+          s.rowFloats = new Float32Array(s.rowBuf);
 
           s.dataTex = device.createTexture({
             size: { width: s.texW, height: s.texH },
@@ -417,6 +422,8 @@ export function useDrawWebGPUFIFOWaterfall() {
               s.texH = height;
               s.paddedRowBytes = alignTo(s.texW * 4, 256);
               s.rowBuf = new ArrayBuffer(s.paddedRowBytes);
+              s.rowBytes = new Uint8Array(s.rowBuf);
+              s.rowFloats = new Float32Array(s.rowBuf);
               s.dataTex = device.createTexture({
                 size: { width: s.texW, height: s.texH },
                 format: "r32float",
@@ -436,7 +443,7 @@ export function useDrawWebGPUFIFOWaterfall() {
             }
             const rowBytes = width * 4;
             for (let y = 0; y < height; y++) {
-              const upload = new Uint8Array(s.rowBuf);
+              const upload = s.rowBytes;
               upload.fill(0);
               upload.set(
                 data.subarray(y * rowBytes, y * rowBytes + rowBytes),
@@ -521,15 +528,15 @@ export function useDrawWebGPUFIFOWaterfall() {
             }
             s.writeRow = (s.writeRow + 1) % s.texH;
           } else {
+            const f32 = s.rowFloats;
+            for (let i = 0; i < s.texW; i++) {
+              f32[i] = fftData[i] ?? -200;
+            }
             for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
-              const f32 = new Float32Array(s.rowBuf);
-              for (let i = 0; i < s.texW; i++) {
-                f32[i] = fftData[i] ?? -200;
-              }
               const row = (s.writeRow - smearIdx + s.texH) % s.texH;
               device.queue.writeTexture(
                 { texture: s.dataTex, origin: { x: 0, y: row } },
-                new Uint8Array(s.rowBuf),
+                s.rowBytes,
                 { bytesPerRow: s.paddedRowBytes },
                 { width: s.texW, height: 1 },
               );
@@ -613,10 +620,9 @@ export function useDrawWebGPUFIFOWaterfall() {
         device.queue.writeBuffer(
           s.uniformBuf,
           0,
-          s.uniforms.buffer.slice(
-            s.uniforms.byteOffset,
-            s.uniforms.byteOffset + s.uniforms.byteLength,
-          ) as ArrayBuffer,
+          s.uniforms.buffer as ArrayBuffer,
+          s.uniforms.byteOffset,
+          s.uniforms.byteLength,
         );
 
         const pass = enc.beginRenderPass({
@@ -634,23 +640,6 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.draw(3);
         pass.end();
         device.queue.submit([enc.finish()]);
-
-        if (canvas instanceof HTMLCanvasElement) {
-          if (!s.lastFrameCanvas) {
-            s.lastFrameCanvas = document.createElement("canvas");
-          }
-          const cacheCanvas = s.lastFrameCanvas;
-          if (cacheCanvas.width !== canvas.width || cacheCanvas.height !== canvas.height) {
-            cacheCanvas.width = canvas.width;
-            cacheCanvas.height = canvas.height;
-          }
-          const cacheCtx = cacheCanvas.getContext("2d");
-          if (cacheCtx) {
-            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
-            cacheCtx.drawImage(canvas, 0, 0);
-          }
-          (canvas as any)._lastFrameCanvas = cacheCanvas;
-        }
 
         return true;
       } catch (error) {

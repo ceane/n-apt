@@ -1384,15 +1384,6 @@ const FFTCanvas = memo(
             spectrumOutputBufferRef.current ?? undefined,
           );
           spectrumOutputBufferRef.current = rawSpectrum;
-          const minClamp = activeScaleDbMinRef.current;
-          const maxClamp = activeScaleDbMaxRef.current;
-
-          for (let i = 0; i < rawSpectrum.length; i++) {
-            rawSpectrum[i] = Math.min(
-              maxClamp,
-              Math.max(minClamp, rawSpectrum[i]),
-            );
-          }
           const prev = renderWaveformRef.current;
           if (!prev || prev.length !== rawSpectrum.length) {
             renderWaveformRef.current = new Float32Array(rawSpectrum);
@@ -1405,7 +1396,7 @@ const FFTCanvas = memo(
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
-            lastProcessedDataRef.current = currentData;
+            lastProcessedDataRef.current = currentFrame;
             lastRenderedPowerScaleRef.current = effectivePowerScale;
 
             // Accumulate frequency-hop data into full-channel composite buffer.
@@ -1415,8 +1406,8 @@ const FFTCanvas = memo(
               const channelRange = frequencyRangeRef.current;
               if (!channelRange) return;
               const channelSpan = channelRange.max - channelRange.min;
-              const hopCenterHz = currentData.center_frequency_hz;
-              const hopSampleRate = currentData.sample_rate;
+              const hopCenterHz = currentFrame.center_frequency_hz;
+              const hopSampleRate = currentFrame.sample_rate;
               if (
                 channelSpan > 0 &&
                 typeof hopCenterHz === "number" &&
@@ -1716,7 +1707,7 @@ const FFTCanvas = memo(
             waterfallGpuCanvas
           ) {
             const dims = waterfallGpuDimsRef.current;
-            if (dims && currentData) {
+            if (dims && currentFrame) {
               const waterfallMotion = getWaterfallMotion({
                 previousVisualRange: lastWaterfallVisualRangeRef.current,
                 currentVisualRange: visualRange,

@@ -54,6 +54,7 @@ describe("canvas API integration", () => {
     });
 
     global.expectCanvasContext("webgpu");
+    expect(global.countCanvasCalls("drawImage")).toBe(0);
     global.expectWebGPUCall("configure");
     global.expectWebGPUCall("createRenderPipeline");
     global.expectWebGPUCall("writeTexture");
