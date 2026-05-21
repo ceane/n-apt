@@ -270,7 +270,8 @@ async function decryptNaptPayloadAtOffsets(
     try {
       if (wrappedDekBase64) {
         const wrappedDekBytes = base64ToBytes(wrappedDekBase64);
-        if (wrappedDekBytes.length < 12) throw new Error("Invalid wrapped DEK length");
+        if (wrappedDekBytes.length < 12)
+          throw new Error("Invalid wrapped DEK length");
 
         const ivDek = wrappedDekBytes.subarray(0, 12);
         const cipherDek = wrappedDekBytes.subarray(12);
@@ -307,7 +308,9 @@ async function decryptNaptPayloadAtOffsets(
     }
   }
 
-  throw lastError || new Error("Decryption failed for all possible header sizes.");
+  throw (
+    lastError || new Error("Decryption failed for all possible header sizes.")
+  );
 }
 
 function stitchAdjacentChannels(
@@ -511,8 +514,15 @@ self.onmessage = async function (e) {
     switch (type) {
       case "loadFile": {
         const { fileData, fileName, aesKey: rawAesKey } = data;
-        const aesKey = rawAesKey ? await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, true, ["decrypt"]) : null;
-        
+        const aesKey = rawAesKey
+          ? await crypto.subtle.importKey(
+              "raw",
+              rawAesKey,
+              { name: "AES-GCM" },
+              true,
+              ["decrypt"],
+            )
+          : null;
 
         const lower = fileName.toLowerCase();
         let rawData: Uint8Array = new Uint8Array(0);
@@ -537,7 +547,9 @@ self.onmessage = async function (e) {
           let jsonStr = "";
           let jsonEndIdx = -1;
           if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(maxHeaderBytes.subarray(0, newlineIdx));
+            jsonStr = new TextDecoder().decode(
+              maxHeaderBytes.subarray(0, newlineIdx),
+            );
             jsonEndIdx = newlineIdx;
           } else {
             // Fallback: find the end of the root JSON object by looking for the
@@ -581,7 +593,10 @@ self.onmessage = async function (e) {
 
           const metaObj = JSON.parse(jsonStr);
           const metadata = metaObj.metadata || metaObj;
-          const isEncrypted = metadata.encrypted === true || metadata.encrypted === "true" || metaObj.encrypted === true;
+          const isEncrypted =
+            metadata.encrypted === true ||
+            metadata.encrypted === "true" ||
+            metaObj.encrypted === true;
 
           const possibleHeaderSizes = [4096, 2048, 8192, 1024];
 
@@ -599,16 +614,26 @@ self.onmessage = async function (e) {
             try {
               let decryptedData: ArrayBuffer | null = null;
               if (!isEncrypted) {
-                const hSize = possibleHeaderSizes.find((size) => fileData.byteLength > size + 12) ?? 0;
+                const hSize =
+                  possibleHeaderSizes.find(
+                    (size) => fileData.byteLength > size + 12,
+                  ) ?? 0;
                 const encryptedView = new Uint8Array(fileData, hSize);
-                decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
+                decryptedData = encryptedView.buffer.slice(
+                  encryptedView.byteOffset,
+                );
               } else {
                 const wrappedDekBase64 =
-                  metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
-                  metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
-                  metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
-                  metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
-                  metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
+                  metaObj.wrapped_dek ||
+                  (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
+                  metaObj.encrypted_dek ||
+                  (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
+                  metaObj.wrapped_key ||
+                  (metaObj.metadata && metaObj.metadata.wrapped_key) ||
+                  metaObj.encrypted_key ||
+                  (metaObj.metadata && metaObj.metadata.encrypted_key) ||
+                  metaObj.session_key ||
+                  (metaObj.metadata && metaObj.metadata.session_key);
 
                 decryptedData = await decryptNaptPayloadAtOffsets(
                   fileData,
@@ -619,32 +644,49 @@ self.onmessage = async function (e) {
                 );
               }
 
-                if (!decryptedData) {
-                  throw new Error("Decryption failed for all possible header sizes.");
-                }
-
-                const payloadArray = new Uint8Array(decryptedData);
-                const chOffsetIq = firstChannel.offset_iq;
-                const iqByteLength = firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
-
-                const iqPart = payloadArray.slice(chOffsetIq, chOffsetIq + iqByteLength);
-
-                const responseData = { rawData: iqPart, fileName, metadata };
-                (self as any).postMessage(
-                  { type: "result", id, data: responseData },
-                  [iqPart.buffer],
+              if (!decryptedData) {
+                throw new Error(
+                  "Decryption failed for all possible header sizes.",
                 );
-              } catch (decryptErr: any) {
-              const errType = decryptErr instanceof Error ? decryptErr.name : typeof decryptErr;
-              console.error("NAPT Load Decryption Failed:", fileName, errType, decryptErr);
+              }
+
+              const payloadArray = new Uint8Array(decryptedData);
+              const chOffsetIq = firstChannel.offset_iq;
+              const iqByteLength =
+                firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
+
+              const iqPart = payloadArray.slice(
+                chOffsetIq,
+                chOffsetIq + iqByteLength,
+              );
+
+              const responseData = { rawData: iqPart, fileName, metadata };
+              (self as any).postMessage(
+                { type: "result", id, data: responseData },
+                [iqPart.buffer],
+              );
+            } catch (decryptErr: any) {
+              const errType =
+                decryptErr instanceof Error
+                  ? decryptErr.name
+                  : typeof decryptErr;
+              console.error(
+                "NAPT Load Decryption Failed:",
+                fileName,
+                errType,
+                decryptErr,
+              );
               let detail = decryptErr.message || String(decryptErr);
-              if (errType === 'OperationError') {
-                detail = "AES-GCM authentication failed (wrong key or corrupted data). Check if the file matches your current Vault session.";
+              if (errType === "OperationError") {
+                detail =
+                  "AES-GCM authentication failed (wrong key or corrupted data). Check if the file matches your current Vault session.";
               }
               throw new Error(`Decryption failed for ${fileName}: ${detail}`);
             }
           } else {
-            throw new Error(`Invalid .napt header in ${fileName}: missing offset_iq in channels`);
+            throw new Error(
+              `Invalid .napt header in ${fileName}: missing offset_iq in channels`,
+            );
           }
         } else {
           rawData = loadC64File(fileData, fileName);
@@ -654,7 +696,13 @@ self.onmessage = async function (e) {
       }
 
       case "stitchFiles": {
-        const { files, settings, fftSize, aesKey: rawAesKey, sampleRateOptions } = data;
+        const {
+          files,
+          settings,
+          fftSize,
+          aesKey: rawAesKey,
+          sampleRateOptions,
+        } = data;
         let aesKey: CryptoKey | null = null;
 
         if (rawAesKey) {
@@ -714,11 +762,17 @@ self.onmessage = async function (e) {
 
               for (const headerSize of [4096, 2048, 8192, 1024]) {
                 if (file.fileData.byteLength < headerSize) continue;
-                const maxHeaderBytes = new Uint8Array(file.fileData, 0, headerSize);
+                const maxHeaderBytes = new Uint8Array(
+                  file.fileData,
+                  0,
+                  headerSize,
+                );
                 const newlineIdx = maxHeaderBytes.indexOf(10);
 
                 if (newlineIdx > 0) {
-                  naptJsonStr = new TextDecoder().decode(maxHeaderBytes.subarray(0, newlineIdx));
+                  naptJsonStr = new TextDecoder().decode(
+                    maxHeaderBytes.subarray(0, newlineIdx),
+                  );
                   jsonEndIdx = newlineIdx;
                 } else {
                   const headerText = new TextDecoder().decode(maxHeaderBytes);
@@ -728,11 +782,23 @@ self.onmessage = async function (e) {
                   let foundStart = false;
                   for (let ci = 0; ci < headerText.length; ci++) {
                     const c = headerText[ci];
-                    if (escape) { escape = false; continue; }
-                    if (c === "\\") { escape = true; continue; }
-                    if (c === '"') { inString = !inString; continue; }
+                    if (escape) {
+                      escape = false;
+                      continue;
+                    }
+                    if (c === "\\") {
+                      escape = true;
+                      continue;
+                    }
+                    if (c === '"') {
+                      inString = !inString;
+                      continue;
+                    }
                     if (inString) continue;
-                    if (c === "{") { braceDepth++; foundStart = true; }
+                    if (c === "{") {
+                      braceDepth++;
+                      foundStart = true;
+                    }
                     if (c === "}") {
                       braceDepth--;
                       if (foundStart && braceDepth === 0) {
@@ -753,48 +819,65 @@ self.onmessage = async function (e) {
                 }
               }
 
-              if (!naptJsonStr) throw new Error(`Could not parse NAPT header for ${file.fileName}`);
+              if (!naptJsonStr)
+                throw new Error(
+                  `Could not parse NAPT header for ${file.fileName}`,
+                );
 
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
               const isEncrypted = !!(
-                (metadata && (metadata.encrypted === true || (metadata.encrypted as unknown as string) === "true")) ||
+                (metadata &&
+                  (metadata.encrypted === true ||
+                    (metadata.encrypted as unknown as string) === "true")) ||
                 (metaObj && metaObj.encrypted === true)
               );
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
-                channelsMetadata = [{
-                  offset_iq: metaObj.offset_iq,
-                  iq_length: metaObj.iq_length,
-                  center_freq_hz: metadata?.center_frequency_hz || 0,
-                  sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
-                }];
+                channelsMetadata = [
+                  {
+                    offset_iq: metaObj.offset_iq,
+                    iq_length: metaObj.iq_length,
+                    center_freq_hz: metadata?.center_frequency_hz || 0,
+                    sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
+                  },
+                ];
               }
 
               if (channelsMetadata && channelsMetadata.length > 0) {
                 let decryptedData: ArrayBuffer | null = null;
-              const possibleHeaderSizes = [4096, 2048, 8192, 1024];
-              const wrappedDekBase64 =
-                metaObj.wrapped_dek || (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
-                metaObj.encrypted_dek || (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
-                metaObj.wrapped_key || (metaObj.metadata && metaObj.metadata.wrapped_key) ||
-                metaObj.encrypted_key || (metaObj.metadata && metaObj.metadata.encrypted_key) ||
-                metaObj.session_key || (metaObj.metadata && metaObj.metadata.session_key);
+                const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+                const wrappedDekBase64 =
+                  metaObj.wrapped_dek ||
+                  (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
+                  metaObj.encrypted_dek ||
+                  (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
+                  metaObj.wrapped_key ||
+                  (metaObj.metadata && metaObj.metadata.wrapped_key) ||
+                  metaObj.encrypted_key ||
+                  (metaObj.metadata && metaObj.metadata.encrypted_key) ||
+                  metaObj.session_key ||
+                  (metaObj.metadata && metaObj.metadata.session_key);
 
-              if (!isEncrypted) {
-                const hSize = possibleHeaderSizes.find((size) => file.fileData.byteLength > size + 12) ?? 0;
-                const encryptedView = new Uint8Array(file.fileData, hSize);
-                decryptedData = encryptedView.buffer.slice(encryptedView.byteOffset);
-              } else {
-                decryptedData = await decryptNaptPayloadAtOffsets(
-                  file.fileData,
-                  aesKey as CryptoKey,
-                  file.fileName,
-                  possibleHeaderSizes,
-                  wrappedDekBase64,
-                );
-              }
+                if (!isEncrypted) {
+                  const hSize =
+                    possibleHeaderSizes.find(
+                      (size) => file.fileData.byteLength > size + 12,
+                    ) ?? 0;
+                  const encryptedView = new Uint8Array(file.fileData, hSize);
+                  decryptedData = encryptedView.buffer.slice(
+                    encryptedView.byteOffset,
+                  );
+                } else {
+                  decryptedData = await decryptNaptPayloadAtOffsets(
+                    file.fileData,
+                    aesKey as CryptoKey,
+                    file.fileName,
+                    possibleHeaderSizes,
+                    wrappedDekBase64,
+                  );
+                }
 
                 if (!decryptedData) throw new Error("Decryption failed");
 
@@ -803,9 +886,16 @@ self.onmessage = async function (e) {
                 for (let j = 0; j < channelsMetadata.length; j++) {
                   const ch = channelsMetadata[j];
                   const chOffsetIq = ch.offset_iq;
-                  const nextOffsetIq = j + 1 < channelsMetadata.length ? channelsMetadata[j + 1].offset_iq : payloadArray.length;
-                  const iqLength = ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
-                  const iqBytes = payloadArray.slice(chOffsetIq, chOffsetIq + iqLength);
+                  const nextOffsetIq =
+                    j + 1 < channelsMetadata.length
+                      ? channelsMetadata[j + 1].offset_iq
+                      : payloadArray.length;
+                  const iqLength =
+                    ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);
+                  const iqBytes = payloadArray.slice(
+                    chOffsetIq,
+                    chOffsetIq + iqLength,
+                  );
                   parsedChannels.push({
                     iq_data: iqBytes,
                     center_freq_hz: ch.center_freq_hz,
@@ -814,26 +904,43 @@ self.onmessage = async function (e) {
                     bins_per_frame: ch.bins_per_frame,
                     frame_rate: metadata?.frame_rate,
                     hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
-                    frequency_range: ch.requested_min_freq_hz ? [ch.requested_min_freq_hz, ch.requested_max_freq_hz] : undefined,
+                    frequency_range: ch.requested_min_freq_hz
+                      ? [ch.requested_min_freq_hz, ch.requested_max_freq_hz]
+                      : undefined,
                   });
                 }
 
                 const actualFftSize = metadata?.fft_size || 2048;
-                (metadata as any).raw_hardware_blocks = parsedChannels.map(ch => ({
+                (metadata as any).raw_hardware_blocks = parsedChannels.map(
+                  (ch) => ({
                     center_freq_hz: ch.center_freq_hz,
                     sample_rate_hz: ch.sample_rate_hz,
-                }));
+                  }),
+                );
 
-                const stitchedChannels = stitchAdjacentChannels(parsedChannels, actualFftSize, maxSampleRateHz);
+                const stitchedChannels = stitchAdjacentChannels(
+                  parsedChannels,
+                  actualFftSize,
+                  maxSampleRateHz,
+                );
                 (metadata as any).channels_data = stitchedChannels;
-                if (parsedChannels.length > 0) rawData = parsedChannels[0].iq_data;
+                if (parsedChannels.length > 0)
+                  rawData = parsedChannels[0].iq_data;
 
-                const groupsToRegister = stitchedChannels.length > 0 ? stitchedChannels : parsedChannels;
+                const groupsToRegister =
+                  stitchedChannels.length > 0
+                    ? stitchedChannels
+                    : parsedChannels;
                 groupsToRegister.forEach((group, groupIndex) => {
                   const groupIq = group.iq_data || group.iq;
                   if (!groupIq || groupIq.length === 0) return;
-                  const entryName = groupIndex === 0 ? file.fileName : `${file.fileName}__group${groupIndex}`;
-                  const entryCenterHz = group.frequency_range ? (group.frequency_range[0] + group.frequency_range[1]) / 2 : group.center_freq_hz;
+                  const entryName =
+                    groupIndex === 0
+                      ? file.fileName
+                      : `${file.fileName}__group${groupIndex}`;
+                  const entryCenterHz = group.frequency_range
+                    ? (group.frequency_range[0] + group.frequency_range[1]) / 2
+                    : group.center_freq_hz;
                   fileDataCache.set(entryName, groupIq);
                   freqMap.set(entryName, entryCenterHz);
                   metadataMap.set(entryName, {
@@ -841,7 +948,8 @@ self.onmessage = async function (e) {
                     center_frequency_hz: entryCenterHz,
                     capture_sample_rate_hz: group.sample_rate_hz,
                     sample_rate_hz: group.sample_rate_hz,
-                    frequency_range: group.frequency_range ?? metadata?.frequency_range,
+                    frequency_range:
+                      group.frequency_range ?? metadata?.frequency_range,
                   });
                 });
               }
@@ -850,23 +958,42 @@ self.onmessage = async function (e) {
             }
 
             if (rawData && rawData.length > 0) {
-              if (!fileDataCache.has(file.fileName)) fileDataCache.set(file.fileName, rawData);
-              if (metadata && !metadataMap.has(file.fileName)) metadataMap.set(file.fileName, metadata);
+              if (!fileDataCache.has(file.fileName))
+                fileDataCache.set(file.fileName, rawData);
+              if (metadata && !metadataMap.has(file.fileName))
+                metadataMap.set(file.fileName, metadata);
               loadedCount++;
             }
 
-            const baseFrequency = metadata?.center_frequency_hz || parseFrequencyFromFilename(file.fileName);
-            freqMap.set(file.fileName, baseFrequency * (1 + (settings.ppm || 0) * 1e-6));
+            const baseFrequency =
+              metadata?.center_frequency_hz ||
+              parseFrequencyFromFilename(file.fileName);
+            freqMap.set(
+              file.fileName,
+              baseFrequency * (1 + (settings.ppm || 0) * 1e-6),
+            );
 
             self.postMessage({
               type: "progress",
               id,
-              data: { current: i + 1, total: files.length, status: `Loaded ${sanitizeFilename(file.fileName)}` },
+              data: {
+                current: i + 1,
+                total: files.length,
+                status: `Loaded ${sanitizeFilename(file.fileName)}`,
+              },
             });
           } catch (error: any) {
-            console.error("[fileWorker] Failed to load %s:", file.fileName, error);
+            console.error(
+              "[fileWorker] Failed to load %s:",
+              file.fileName,
+              error,
+            );
             lastError = error;
-            if (error.name === "OperationError" || error.message?.includes("OperationError") || error.message?.includes("decrypt")) {
+            if (
+              error.name === "OperationError" ||
+              error.message?.includes("OperationError") ||
+              error.message?.includes("decrypt")
+            ) {
               decryptionErrorCount++;
             }
           }
@@ -874,9 +1001,13 @@ self.onmessage = async function (e) {
 
         if (loadedCount === 0) {
           if (decryptionErrorCount > 0) {
-            throw new Error(`File decryption failed, wrong key: ${lastError?.message || "OperationError"}`);
+            throw new Error(
+              `File decryption failed, wrong key: ${lastError?.message || "OperationError"}`,
+            );
           }
-          throw new Error(`No files could be loaded successfully: ${lastError?.message || "Unknown error"}`);
+          throw new Error(
+            `No files could be loaded successfully: ${lastError?.message || "Unknown error"}`,
+          );
         }
 
         const internalFftSize = fftSize || currentFftSize;

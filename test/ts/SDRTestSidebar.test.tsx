@@ -3,7 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
-import { SpectrumProvider, INITIAL_SPECTRUM_STATE } from "@n-apt/hooks/useSpectrumStore";
+import {
+  SpectrumProvider,
+  INITIAL_SPECTRUM_STATE,
+} from "@n-apt/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 
 // Mock Lucide icons
@@ -43,7 +46,9 @@ jest.mock("@n-apt/components/sidebar/ConnectionStatusSection", () => ({
     <div data-testid="connection-status-section">{extraActions}</div>
   ),
   PauseButton: ({ children, onClick, disabled }: any) => (
-    <button onClick={onClick} disabled={disabled}>{children}</button>
+    <button onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
   ),
 }));
 jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
@@ -63,7 +68,7 @@ jest.mock("@n-apt/components/ui", () => ({
 
 describe("SDRTestSidebar", () => {
   const mockDispatch = jest.fn();
-  
+
   const defaultMockValue = {
     state: INITIAL_SPECTRUM_STATE,
     dispatch: mockDispatch,
@@ -92,7 +97,11 @@ describe("SDRTestSidebar", () => {
       sdrLimitMarkers: [],
       dataRef: { current: null },
       spectrumFrames: [],
-      captureStatus: { status: "started" as const, progress: 0, jobId: "test-job" },
+      captureStatus: {
+        status: "started" as const,
+        progress: 0,
+        jobId: "test-job",
+      },
       autoFftOptions: null,
       error: null,
       cryptoCorrupted: false,
@@ -119,7 +128,7 @@ describe("SDRTestSidebar", () => {
         <SpectrumProvider mockValue={mockValue}>
           <SDRTestSidebar />
         </SpectrumProvider>
-      </TestWrapper>
+      </TestWrapper>,
     );
   };
 
@@ -147,7 +156,9 @@ describe("SDRTestSidebar", () => {
     };
     renderComponent(runningMockValue);
     expect(screen.getByText("Capturing data...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Capturing data\.\.\./ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Capturing data\.\.\./ }),
+    ).toBeDisabled();
   });
 
   it("shows 'Run Again' when capture is complete", () => {

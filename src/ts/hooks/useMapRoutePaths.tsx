@@ -144,9 +144,7 @@ export const useRouteSegmentDistances = (
       }),
     );
 
-    return matches
-      .sort((a, b) => a.distanceKm - b.distanceKm)
-      .slice(0, 20);
+    return matches.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 20);
   }, [segments, towers]);
 };
 
@@ -154,9 +152,9 @@ export const MapRoutePathsProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const [segments, setSegments] = useState<RouteSegment[]>([]);
-  const [nearestEndpoints, setNearestEndpoints] = useState<RouteEndpointMatch[]>(
-    [],
-  );
+  const [nearestEndpoints, setNearestEndpoints] = useState<
+    RouteEndpointMatch[]
+  >([]);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
 
   const routePoints = useMemo(
@@ -206,7 +204,9 @@ export const MapRoutePathsProvider: React.FC<{
 export const useMapRoutePaths = () => {
   const context = useContext(MapRoutePathsContext);
   if (!context) {
-    throw new Error("useMapRoutePaths must be used within MapRoutePathsProvider");
+    throw new Error(
+      "useMapRoutePaths must be used within MapRoutePathsProvider",
+    );
   }
   return context;
 };

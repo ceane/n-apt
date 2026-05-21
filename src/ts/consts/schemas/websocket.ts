@@ -58,10 +58,7 @@ export type SdrSettingsConfig = {
   devices?: Record<
     string,
     {
-      sample_rate:
-        | number
-        | string
-        | Array<string>;
+      sample_rate: number | string | Array<string>;
       fft_display?: {
         markers?: Array<{
           kind: string;

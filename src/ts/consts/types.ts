@@ -71,8 +71,6 @@ export interface NaptMetadata {
   geolocation?: any; // Import GeolocationData if needed, but any for now
 }
 
-
-
 export interface FrequencyRange {
   min: number;
   max: number;

@@ -62,5 +62,4 @@ export const PBKDF2_SALT_VAL =
   getEnvVar("VITE_PBKDF2_SALT") ??
   getEnvVar("NAPT_PBKDF2_SALT") ??
   "n-apt-aes-salt-v1";
-export const getGoogleMapsApiKey =
-  getEnvVar("VITE_GOOGLE_MAPS_API_KEY") ?? "";
+export const getGoogleMapsApiKey = getEnvVar("VITE_GOOGLE_MAPS_API_KEY") ?? "";

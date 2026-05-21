@@ -3,13 +3,12 @@ import {
   Range,
 } from "@n-apt/utils/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
-import {
-  formatFrequency,
-  formatFrequencyHighRes,
-  roundDbValue,
-} from "@n-apt/utils/frequency";
-import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
+import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
 import { escapeAttr, sanitizePath } from "../sanitization";
+import {
+  drawVfoAxis,
+  type VfoAxisContext,
+} from "@n-apt/utils/rendering/vfoAxis";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
@@ -390,98 +389,71 @@ export class SnapshotRenderer {
   ): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
-    const bandwidth = freqRange.max - freqRange.min;
-    const range = findBestFrequencyRange(bandwidth, 10);
-    const lowerFreq = Math.ceil(freqRange.min / range) * range;
     const FREQ_LABEL_Y = area.y + area.height + 25;
     const useHighRes = zoom >= 100;
 
-    dc.setFill(this.theme.text);
-    dc.setScaledFont(12, fontScale);
-
-    const startLabel = useHighRes
-      ? formatFrequencyHighRes(freqRange.min)
-      : formatFrequency(freqRange.min, {
-          precisionMHz: 4,
-          precisionKHz: 4,
-          trimTrailingZeros: true,
-        });
-    const endLabel = useHighRes
-      ? formatFrequencyHighRes(freqRange.max)
-      : formatFrequency(freqRange.max, {
-          precisionMHz: 4,
-          precisionKHz: 4,
-          trimTrailingZeros: true,
-        });
-    const { precisionMHz: tickPrecMHz, precisionKHz: tickPrecKHz } =
-      tickPrecisionForStep(range);
-    const centerPrecMHz = Math.max(4, tickPrecMHz);
-    const centerPrecKHz = Math.max(4, tickPrecKHz);
-    const centerLabelText =
-      Number.isNaN(centerFrequencyHz) || !Number.isFinite(centerFrequencyHz)
-        ? "--MHz"
-        : useHighRes
-          ? formatFrequencyHighRes(centerFrequencyHz)
-          : formatFrequency(centerFrequencyHz, {
-              precisionMHz: centerPrecMHz,
-              precisionKHz: centerPrecKHz,
-            });
-
-    // Collision detection
-    const startW = dc.measureTextWidth(startLabel);
-    const endW = dc.measureTextWidth(endLabel);
-    const centerW = dc.measureTextWidth(`○  ${centerLabelText}`);
-    const plotWidth = area.width;
-
-    const occupied: { x1: number; x2: number }[] = [
-      { x1: area.x - 5, x2: area.x + startW + 15 },
-      { x1: area.x + area.width - endW - 15, x2: area.x + area.width + 5 },
-      {
-        x1: area.x + plotWidth / 2 - centerW / 2 - 15,
-        x2: area.x + plotWidth / 2 + centerW / 2 + 15,
+    drawVfoAxis({
+      ctx: this.createVfoAxisContext(dc),
+      frequencyRange: freqRange,
+      centerFrequencyHz,
+      bounds: {
+        left: area.x,
+        right: area.x + area.width,
+        top: area.y,
+        bottom: area.y + area.height,
       },
-    ];
+      y: area.y + area.height,
+      labelY: FREQ_LABEL_Y,
+      orientation: "bottom",
+      tickDirection: "down",
+      targetTicks: 10,
+      showAxisLine: false,
+      icon: "circle",
+      theme: {
+        tick: this.theme.text,
+        label: this.theme.text,
+        center: this.theme.cfText,
+        centerLine: this.theme.cfText,
+      },
+      fontPx: 12 * fontScale,
+      centerFontPx: 12 * fontScale,
+      tickLength: 7,
+      centerTickLength: 9,
+      useHighResLabels: useHighRes,
+      precision: {
+        edgeMHz: 4,
+        edgeKHz: 4,
+        centerMinMHz: 4,
+        centerMinKHz: 4,
+      },
+      lineWidth: 1 / this.mapper.getDPR(),
+    });
+  }
 
-    const isColliding = (x: number, text: string) => {
-      const tw = dc.measureTextWidth(text);
-      const x1 = x - tw / 2 - 10;
-      const x2 = x + tw / 2 + 10;
-      return occupied.some((r) => x1 < r.x2 && x2 > r.x1);
+  private createVfoAxisContext(dc: DrawingContext): VfoAxisContext {
+    return {
+      save: () => dc.save(),
+      restore: () => dc.restore(),
+      beginPath: () => dc.beginPath(),
+      moveTo: (x, y) => dc.moveTo(x, y),
+      lineTo: (x, y) => dc.lineTo(x, y),
+      stroke: () => dc.stroke(),
+      fillText: (text, x, y) => dc.fillText(text, x, y),
+      measureTextWidth: (text) => dc.measureTextWidth(text),
+      setStroke: (color, width) => dc.setStroke(color, width ?? 1),
+      setFill: (color) => dc.setFill(color),
+      setFont: (font) => dc.setFont(font),
+      setTextAlign: (align) => dc.setTextAlign(align),
+      setTextBaseline: (baseline) =>
+        dc.setTextBaseline(
+          baseline === "top" ||
+            baseline === "bottom" ||
+            baseline === "middle" ||
+            baseline === "alphabetic"
+            ? baseline
+            : "alphabetic",
+        ),
     };
-
-    // Draw Ticks and Labels
-    for (let freq = lowerFreq; freq < freqRange.max - 0.0001; freq += range) {
-      const x = this.mapper.freqToX(freq);
-
-      // Tick mark
-      dc.setStroke(this.theme.text, 1 / this.mapper.getDPR());
-      dc.beginPath();
-      dc.moveTo(x, area.y + area.height);
-      dc.lineTo(x, area.y + area.height + 7);
-      dc.stroke();
-
-      // Label
-      const labelText = useHighRes
-        ? formatFrequencyHighRes(freq)
-        : fmtFreqTick(freq, range);
-      if (!isColliding(x, labelText)) {
-        dc.setTextAlign("center");
-        dc.fillText(labelText, x, FREQ_LABEL_Y);
-      }
-    }
-
-    // Edge labels
-    dc.setTextAlign("start");
-    dc.fillText(startLabel, area.x, FREQ_LABEL_Y);
-    dc.setTextAlign("end");
-    dc.fillText(endLabel, area.x + area.width, FREQ_LABEL_Y);
-
-    // Center label - Always white
-    const centerLabel = `○  ${centerLabelText}`;
-    dc.setScaledFont(12, fontScale);
-    dc.setFill(this.theme.cfText);
-    dc.setTextAlign("center");
-    dc.fillText(centerLabel, area.x + area.width / 2, FREQ_LABEL_Y);
   }
 
   private decimateWaveform(
@@ -698,7 +670,8 @@ export class SnapshotRenderer {
     fixedPlacement?: StatsBoxPlacement,
   ): StatsBoxPlacement | null {
     if (fixedPlacement) {
-      const { pos, boxW, boxH, lines, padX, padY, lh, columns } = fixedPlacement;
+      const { pos, boxW, boxH, lines, padX, padY, lh, columns } =
+        fixedPlacement;
 
       dc.setFill("rgba(0, 0, 0, 0.75)");
       dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -734,8 +707,12 @@ export class SnapshotRenderer {
     };
     let bestSafeSingle: StatsBoxCandidate | null = null;
     let bestSafeDouble: StatsBoxCandidate | null = null;
-    let bestFallbackSingle: (StatsBoxCandidate & { overlapRatio: number }) | null = null;
-    let bestFallbackDouble: (StatsBoxCandidate & { overlapRatio: number }) | null = null;
+    let bestFallbackSingle:
+      | (StatsBoxCandidate & { overlapRatio: number })
+      | null = null;
+    let bestFallbackDouble:
+      | (StatsBoxCandidate & { overlapRatio: number })
+      | null = null;
 
     for (const scale of scales) {
       const maxAllowedW = area.width * 0.7;
@@ -796,7 +773,10 @@ export class SnapshotRenderer {
               if (!bestSafeDouble || candidate.score > bestSafeDouble.score) {
                 bestSafeDouble = candidate;
               }
-            } else if (!bestSafeSingle || candidate.score > bestSafeSingle.score) {
+            } else if (
+              !bestSafeSingle ||
+              candidate.score > bestSafeSingle.score
+            ) {
               bestSafeSingle = candidate;
             }
             continue;
@@ -811,8 +791,9 @@ export class SnapshotRenderer {
             if (
               !bestFallbackDouble ||
               metrics.overlapRatio < bestFallbackDouble.overlapRatio - 1e-6 ||
-              (Math.abs(metrics.overlapRatio - bestFallbackDouble.overlapRatio) <=
-                1e-6 &&
+              (Math.abs(
+                metrics.overlapRatio - bestFallbackDouble.overlapRatio,
+              ) <= 1e-6 &&
                 candidate.score > bestFallbackDouble.score)
             ) {
               bestFallbackDouble = fallbackCandidate;
@@ -954,7 +935,8 @@ export class SnapshotRenderer {
       const leftWidth = Math.max(...leftLines.map((l) => l.width));
       const rightWidth = Math.max(...rightLines.map((l) => l.width));
       const boxW = leftWidth + rightWidth + columnGap + padX * 2;
-      const boxH = Math.max(leftLines.length, rightLines.length) * lh + padY * 2;
+      const boxH =
+        Math.max(leftLines.length, rightLines.length) * lh + padY * 2;
 
       if (boxH < singleColumn.boxH) {
         layouts.unshift({
@@ -987,15 +969,9 @@ export class SnapshotRenderer {
     const candidates: { x: number; y: number }[] = [];
     const seen = new Set<string>();
     const clampX = (x: number) =>
-      Math.max(
-        area.x + pad,
-        Math.min(area.x + area.width - boxW - pad, x),
-      );
+      Math.max(area.x + pad, Math.min(area.x + area.width - boxW - pad, x));
     const clampY = (y: number) =>
-      Math.max(
-        area.y + pad,
-        Math.min(area.y + area.height - boxH - pad, y),
-      );
+      Math.max(area.y + pad, Math.min(area.y + area.height - boxH - pad, y));
     const add = (x: number, y: number) => {
       const pos = { x: clampX(x), y: clampY(y) };
       const key = `${Math.round(pos.x)}:${Math.round(pos.y)}`;
@@ -1173,7 +1149,11 @@ export class SnapshotRenderer {
     const noOverlapBonus = boxAbove || boxBelow ? 2500 : 0;
     const clearanceScore = Math.max(0, clearance) * 10;
     const score =
-      avgDistance + cornerBonus + noOverlapBonus + clearanceScore - overlapRatio * 1000;
+      avgDistance +
+      cornerBonus +
+      noOverlapBonus +
+      clearanceScore -
+      overlapRatio * 1000;
 
     return {
       score,

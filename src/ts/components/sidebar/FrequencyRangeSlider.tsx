@@ -31,10 +31,11 @@ interface FrequencyRangeSliderProps {
   readOnly?: boolean; // Add read-only mode for scanning progress
   scanProgress?: number; // Scan progress for visual feedback
   scanCurrentFreq?: number; // Current scanning frequency
+  disabled?: boolean; // Disable slider interaction while keeping it visible
 }
 
 // Styled Components
-const SliderWrapper = styled.div`
+const SliderWrapper = styled.div<{ $disabled?: boolean }>`
   display: grid;
   grid-auto-flow: column;
   grid-template-columns: max-content 1fr;
@@ -44,6 +45,7 @@ const SliderWrapper = styled.div`
   user-select: none;
   box-sizing: border-box;
   max-width: 100%;
+  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
 `;
 
 const LabelContainer = styled.div`
@@ -61,7 +63,7 @@ const Label = styled.span<{ $isActive: boolean }>`
   transition: color 0.2s ease;
 `;
 
-const SliderContainer = styled.div<{ $isActive: boolean }>`
+const SliderContainer = styled.div<{ $isActive: boolean; $disabled?: boolean }>`
   user-select: none;
   outline: none;
   padding: 8px;
@@ -79,7 +81,7 @@ const SliderContainer = styled.div<{ $isActive: boolean }>`
   touch-action: none;
 `;
 
-const RangeTrack = styled.div`
+const RangeTrack = styled.div<{ $disabled?: boolean }>`
   position: relative;
   height: ${RANGE_TRACK_HEIGHT}px;
   background-color: ${(props) => props.theme.rangeTrackBackground};
@@ -87,6 +89,7 @@ const RangeTrack = styled.div`
   border-radius: 4px;
   overflow: hidden;
   user-select: none;
+  cursor: pointer;
 `;
 
 const RangeLabels = styled.div`
@@ -172,6 +175,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   readOnly = false,
   scanProgress = 0,
   scanCurrentFreq,
+  disabled = false,
 }) => {
   const totalRange = maxFreq - minFreq;
   const safeTotalRange =
@@ -405,7 +409,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isActive) return;
+      if (!isActive || readOnly || disabled) return;
 
       const activeEl = document.activeElement as HTMLElement | null;
       if (activeEl) {
@@ -433,7 +437,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isActive, moveWindow]);
+  }, [disabled, isActive, moveWindow, readOnly]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -487,7 +491,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [windowWidth, notifyParent]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (readOnly) return; // Disable dragging in read-only mode
+    if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
     onActivate?.();
     isDraggingRef.current = true;
@@ -501,7 +505,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   };
 
   const handleTrackMouseDown = (e: React.MouseEvent) => {
-    if (readOnly) return;
+    if (readOnly || disabled) return;
 
     if (
       e.target === thumbRef.current ||
@@ -524,18 +528,23 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   };
 
   return (
-    <SliderWrapper>
+    <SliderWrapper $disabled={disabled || readOnly}>
       <LabelContainer>
         <Label $isActive={isActive}>{label}</Label>
       </LabelContainer>
       <SliderContainer
         ref={containerRef}
         $isActive={isActive}
+        $disabled={disabled || readOnly}
         onClick={handleContainerClick}
         onMouseDown={handleTrackMouseDown}
         tabIndex={0}
       >
-        <RangeTrack ref={trackRef} className="range-track">
+        <RangeTrack
+          ref={trackRef}
+          className="range-track"
+          $disabled={disabled || readOnly}
+        >
           <RangeLabels>
             <span
               style={{
@@ -558,7 +567,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
           <VisibleWindow
             ref={thumbRef}
             $isActive={isActive}
-            $readOnly={readOnly}
+            $readOnly={readOnly || disabled}
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,

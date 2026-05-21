@@ -23,6 +23,8 @@ describe("useNAPTAudioDemod", () => {
     });
 
     expect(result.current.detectionResult).not.toBeNull();
-    expect(result.current.detectionResult?.candidates.length).toBeGreaterThanOrEqual(0);
+    expect(
+      result.current.detectionResult?.candidates.length,
+    ).toBeGreaterThanOrEqual(0);
   });
 });

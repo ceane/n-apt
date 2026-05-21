@@ -3,14 +3,10 @@ import styled from "styled-components";
 import { useReactFlow } from "@xyflow/react";
 import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import {
-  setAlgorithm,
-  setListening,
-} from "@n-apt/redux/slices/demodSlice";
+import { setAlgorithm, setListening } from "@n-apt/redux/slices/demodSlice";
 import { syncRadioDemodFromSource } from "@n-apt/redux/thunks/demodThunks";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-
 
 const Header = styled.div`
   display: flex;
@@ -128,7 +124,9 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
-  const isPaused = useAppSelector((state) => state.websocket?.isPaused ?? false);
+  const isPaused = useAppSelector(
+    (state) => state.websocket?.isPaused ?? false,
+  );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();
@@ -232,7 +230,11 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
       return;
     }
 
-    if (hasUpstreamConnection && centerHzFromPreview != null && bandwidthHzFromPreview != null) {
+    if (
+      hasUpstreamConnection &&
+      centerHzFromPreview != null &&
+      bandwidthHzFromPreview != null
+    ) {
       dispatch(
         syncRadioDemodFromSource({
           source: "span",
@@ -284,24 +286,23 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
-          value={hasFmNodeUpstream ? "fm" : algorithm}
-          onChange={(e) =>
+            value={hasFmNodeUpstream ? "fm" : algorithm}
+            onChange={(e) =>
               dispatch(setAlgorithm(e.target.value as "fm" | "apt" | "napt"))
             }
-          disabled={hasFmNodeUpstream}
-        >
-          <option value="fm">FM (Wideband/Narrow)</option>
-          <option value="apt">APT (NOAA Satellite)</option>
-          <option value="napt">N-APT (Audio)</option>
-        </StyledSelect>
-      </ControlItem>
+            disabled={hasFmNodeUpstream}
+          >
+            <option value="fm">FM (Wideband/Narrow)</option>
+            <option value="apt">APT (NOAA Satellite)</option>
+            <option value="napt">N-APT (Audio)</option>
+          </StyledSelect>
+        </ControlItem>
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>
         {isListening ? <Volume2 size={12} /> : <VolumeX size={12} />}
         {isListening ? "Stop Listening" : "Listen Real-time"}
       </ListenButton>
-
     </>
   );
 };

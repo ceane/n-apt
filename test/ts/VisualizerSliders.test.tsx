@@ -93,6 +93,37 @@ describe("VisualizerSliders", () => {
     expect(onAvg).toHaveBeenCalledWith(true);
   });
 
+  test("disables controls while loading", () => {
+    const onReset = jest.fn();
+    const onZoom = jest.fn();
+
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          disabled={true}
+          onResetZoomDb={onReset}
+          onZoomChange={onZoom}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: /reset/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /fft averaging/i }),
+    ).toBeDisabled();
+
+    const zoomText = screen.getByText(/1(\.0)?x/);
+    const track = zoomText.parentElement;
+
+    if (track) {
+      fireEvent.mouseDown(track, { clientX: 20, clientY: 5 });
+    }
+
+    expect(onReset).not.toHaveBeenCalled();
+    expect(onZoom).not.toHaveBeenCalled();
+  });
+
   test("shows a zoom floor badge only when zoom is locked in", () => {
     const { rerender } = render(
       <TestWrapper>

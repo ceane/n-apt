@@ -277,7 +277,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           {variant !== "diagnostic" && (
             <Row
               label={
-                <IconLabel icon={GalleryHorizontal} text="Frame rate (logical)" />
+                <IconLabel
+                  icon={GalleryHorizontal}
+                  text="Frame rate (logical)"
+                />
               }
               tooltipTitle="Frame Rate"
               tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
@@ -402,23 +405,24 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         </>
       )}
       {/* RTL-SDR specific power scale toggle - enabled for testing and file mode */}
-      {(showsApproxDbmToggle || sourceMode === "file") && variant !== "diagnostic" && (
-        <Row
-          label={<IconLabel icon={Zap} text="Power Scale" />}
-          tooltipTitle="Power Scale Mode"
-          tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm."
-        >
-          <WideSettingSelect
-            value={powerScale}
-            onChange={(e) => {
-              onPowerScaleChange(e.target.value as "dB" | "dBm");
-            }}
+      {(showsApproxDbmToggle || sourceMode === "file") &&
+        variant !== "diagnostic" && (
+          <Row
+            label={<IconLabel icon={Zap} text="Power Scale" />}
+            tooltipTitle="Power Scale Mode"
+            tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm."
           >
-            <option value="dB">dB (relative)</option>
-            <option value="dBm">dBm (approximate)</option>
-          </WideSettingSelect>
-        </Row>
-      )}
+            <WideSettingSelect
+              value={powerScale}
+              onChange={(e) => {
+                onPowerScaleChange(e.target.value as "dB" | "dBm");
+              }}
+            >
+              <option value="dB">dB (relative)</option>
+              <option value="dBm">dBm (approximate)</option>
+            </WideSettingSelect>
+          </Row>
+        )}
     </Section>
   );
 };

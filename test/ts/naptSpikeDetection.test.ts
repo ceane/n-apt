@@ -28,4 +28,3 @@ describe("detectNaptSpikeCandidates", () => {
     expect(result.confidence).toBe(0);
   });
 });
-

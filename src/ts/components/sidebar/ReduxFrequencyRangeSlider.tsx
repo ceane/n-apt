@@ -4,7 +4,10 @@ import { useAppDispatch } from "@n-apt/redux";
 import { spectrumActions, useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
-import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
+import {
+  clampFrequencyRangeToBounds,
+  normalizeFrequencyRangeToHz,
+} from "@n-apt/utils/frequency";
 
 // Styled Components
 const Container = styled.div`
@@ -27,6 +30,7 @@ interface ReduxFrequencyRangeSliderProps {
   isActive?: boolean;
   onActivate?: () => void;
   readOnly?: boolean;
+  disabled?: boolean;
   scanProgress?: number;
   scanCurrentFreq?: number;
 }
@@ -41,6 +45,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   isActive,
   onActivate,
   readOnly,
+  disabled = false,
   scanProgress,
   scanCurrentFreq,
 }) => {
@@ -130,6 +135,17 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   ]);
 
   const visibleRange = calculateVisibleRange();
+  const channelBounds = { min: minFreq, max: maxFreq };
+  const clampToChannelAndHardware = useCallback(
+    (range: FrequencyRange): FrequencyRange =>
+      normalizeFrequencyRangeToHz(
+        clampFrequencyRangeToBounds(
+          clampFrequencyRangeToBounds(range, channelBounds),
+          hardwareSpectrumBounds,
+        ),
+      ),
+    [channelBounds.min, channelBounds.max, hardwareSpectrumBounds],
+  );
 
   // Handle frequency range change
   const handleRangeChange = useCallback(
@@ -154,10 +170,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         let newHardwareCenter = visualCenter;
         let newHardwareMin = newHardwareCenter - halfHardware;
         let newHardwareMax = newHardwareCenter + halfHardware;
-        const clampedHardwareRange = clampFrequencyRangeToBounds(
-          { min: newHardwareMin, max: newHardwareMax },
-          hardwareSpectrumBounds,
-        );
+        const clampedHardwareRange = clampToChannelAndHardware({
+          min: newHardwareMin,
+          max: newHardwareMax,
+        });
         newHardwareCenter =
           (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
 
@@ -172,10 +188,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         return;
       }
 
-      const clampedRange = clampFrequencyRangeToBounds(
-        range,
-        hardwareSpectrumBounds,
-      );
+      const clampedRange = clampToChannelAndHardware(range);
       dispatch(spectrumActions.setFrequencyRange(clampedRange));
       storeDispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
       wsConnection.sendFrequencyRange(clampedRange);
@@ -187,9 +200,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       isCurrentActive,
       frequencyRange,
       hardwareSpan,
-      minFreq,
-      maxFreq,
-      hardwareSpectrumBounds,
+      clampToChannelAndHardware,
     ],
   );
 
@@ -212,6 +223,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         onRangeChange={handleRangeChange}
         externalFrequencyRange={externalFrequencyRange ?? undefined}
         readOnly={readOnly}
+        disabled={disabled}
         scanProgress={scanProgress}
         scanCurrentFreq={scanCurrentFreq}
       />

@@ -4,9 +4,9 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { type AppStyledTheme } from "@n-apt/components/ui/Theme";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { FFTDiagnosticCanvas } from "@n-apt/components/FFTDiagnosticCanvas";
-import { 
-  stitchWholeChannelWaveform, 
-  getAntiAliasingParams 
+import {
+  stitchWholeChannelWaveform,
+  getAntiAliasingParams,
 } from "@n-apt/utils/antiAliasing";
 
 const Container = styled.div`
@@ -72,7 +72,9 @@ const SegmentedSliderHandle = styled.div<{ $left: number }>`
   border-radius: 12px;
   z-index: 10;
   opacity: 0;
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
   pointer-events: none;
 `;
@@ -222,7 +224,10 @@ const BusyText = styled.div`
   color: ${({ theme }) => theme.colors.textSecondary};
 `;
 
-const SegmentedSliderLabel = styled.div<{ $active: boolean; $selected: boolean }>`
+const SegmentedSliderLabel = styled.div<{
+  $active: boolean;
+  $selected: boolean;
+}>`
   flex: 1;
   display: flex;
   align-items: center;
@@ -251,7 +256,10 @@ const SegmentedSlider: React.FC<{
   const handleInteraction = (clientX: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(0.999, (clientX - rect.left) / rect.width));
+    const pct = Math.max(
+      0,
+      Math.min(0.999, (clientX - rect.left) / rect.width),
+    );
     const count = max - min + 1;
     const val = Math.floor(pct * count) + min;
     onChange(val);
@@ -318,12 +326,13 @@ export const AntiAliasingDiagnostics: React.FC = () => {
   const { state, dispatch } = useSpectrumStore();
   const [result, setResult] = useState<any>(null);
   const [frameIndex, setFrameIndex] = useState(0);
-  const [frontendStitchedFrame, setFrontendStitchedFrame] = useState<Float32Array | null>(null);
+  const [frontendStitchedFrame, setFrontendStitchedFrame] =
+    useState<Float32Array | null>(null);
   const [isWasmProcessing, setIsWasmProcessing] = useState(false);
 
   // Zoom / Interaction
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const scrubberRef = useRef<HTMLDivElement>(null);
   const lastTriggerRef = useRef(state.diagnosticTrigger);
@@ -343,7 +352,9 @@ export const AntiAliasingDiagnostics: React.FC = () => {
     });
 
     const range = state.frequencyRange;
-    const center_hz = range ? Math.round((range.min + range.max) / 2) : undefined;
+    const center_hz = range
+      ? Math.round((range.min + range.max) / 2)
+      : undefined;
 
     try {
       const response = await fetch("/api/debug/stitch-diagnostic", {
@@ -361,22 +372,29 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         }),
       });
       if (!response.ok) {
-        if (response.status === 401) throw new Error("Unauthorized: Please log in again.");
+        if (response.status === 401)
+          throw new Error("Unauthorized: Please log in again.");
         const errText = await response.text();
         throw new Error(errText || "Failed to run diagnostic");
       }
 
       const arrayBuffer = await response.arrayBuffer();
       const view = new DataView(arrayBuffer);
-      
+
       // Check magic "NAPT"
-      const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
-      if (magic !== 'NAPT') throw new Error("Invalid response format from server");
-      
+      const magic = String.fromCharCode(
+        view.getUint8(0),
+        view.getUint8(1),
+        view.getUint8(2),
+        view.getUint8(3),
+      );
+      if (magic !== "NAPT")
+        throw new Error("Invalid response format from server");
+
       const headerLen = view.getUint32(4, true);
       const headerBytes = new Uint8Array(arrayBuffer, 8, headerLen);
       const metadata = JSON.parse(new TextDecoder().decode(headerBytes));
-      
+
       const binaryStart = 8 + headerLen;
       // Use Uint8Array to read the binary section
       const { fft_size, num_frames } = metadata;
@@ -417,7 +435,10 @@ export const AntiAliasingDiagnostics: React.FC = () => {
       setFrameIndex(0);
       dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: "Capture complete" });
     } catch (e: any) {
-      dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: `Error: ${e.message}` });
+      dispatch({
+        type: "SET_DIAGNOSTIC_STATUS",
+        status: `Error: ${e.message}`,
+      });
     } finally {
       dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: false });
       isRequestingRef.current = false;
@@ -470,25 +491,35 @@ export const AntiAliasingDiagnostics: React.FC = () => {
       try {
         const hop1 = result.getFrame("hop1", frameIndex);
         const hop2 = result.getFrame("hop2", frameIndex);
-        const h1_range = result.hop1_freq_hz || (result.hop1_freq_mhz || []).map((v: number) => v * 1e6);
-        const h2_range = result.hop2_freq_hz || (result.hop2_freq_mhz || []).map((v: number) => v * 1e6);
-        const stitched_range = result.stitched_freq_hz || (result.stitched_freq_mhz || []).map((v: number) => v * 1e6);
+        const h1_range =
+          result.hop1_freq_hz ||
+          (result.hop1_freq_mhz || []).map((v: number) => v * 1e6);
+        const h2_range =
+          result.hop2_freq_hz ||
+          (result.hop2_freq_mhz || []).map((v: number) => v * 1e6);
+        const stitched_range =
+          result.stitched_freq_hz ||
+          (result.stitched_freq_mhz || []).map((v: number) => v * 1e6);
 
         const segments = [
           {
             waveform: hop1,
-            visualRange: { min: h1_range[0], max: h1_range[1] }
+            visualRange: { min: h1_range[0], max: h1_range[1] },
           },
           {
             waveform: hop2,
-            visualRange: { min: h2_range[0], max: h2_range[1] }
-          }
+            visualRange: { min: h2_range[0], max: h2_range[1] },
+          },
         ];
 
         const fullRange = { min: stitched_range[0], max: stitched_range[1] };
         const params = getAntiAliasingParams(state.stitchOptions);
-        
-        const stitched = await stitchWholeChannelWaveform(segments, fullRange, params);
+
+        const stitched = await stitchWholeChannelWaveform(
+          segments,
+          fullRange,
+          params,
+        );
         setFrontendStitchedFrame(stitched);
       } catch (e) {
         console.error("Frontend WASM processing failed:", e);
@@ -506,8 +537,16 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         <h1 style={{ margin: "0", fontSize: theme.typography.headingSize }}>
           Anti-Aliasing Diagnostic
         </h1>
-        <p style={{ margin: "8px 0 0", fontSize: "12px", color: theme.colors.textSecondary }}>
-          Verify high-performance WASM signal processing against backend ground truth. Note: FFT size changes apply to the <strong>next</strong> capture request.
+        <p
+          style={{
+            margin: "8px 0 0",
+            fontSize: "12px",
+            color: theme.colors.textSecondary,
+          }}
+        >
+          Verify high-performance WASM signal processing against backend ground
+          truth. Note: FFT size changes apply to the <strong>next</strong>{" "}
+          capture request.
         </p>
       </header>
 
@@ -538,7 +577,13 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         <FFTDiagnosticCanvas
           title="Raw Hops (A/B Overlap)"
           tooltip="Sub-sample fractional delay tracking. We precisely offset time differences in the overlap, align their sine waves smoothly, and perform a hard midpoint cut to eliminate spectral artifacts."
-          badgeText={result?.acquisition_mode === "stepwise" ? "Stepwise Capture" : result ? "Time-Divided (interleaved)" : undefined}
+          badgeText={
+            result?.acquisition_mode === "stepwise"
+              ? "Stepwise Capture"
+              : result
+                ? "Time-Divided (interleaved)"
+                : undefined
+          }
           data={result}
           frameIndex={frameIndex}
           type="raw"
@@ -559,10 +604,16 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         <FFTDiagnosticCanvas
           title="Stitched Magnitude Output (Frontend WASM)"
           tooltip="Final product processed in-browser via WASM (Identical to Production Pipeline)."
-          data={result ? {
-            ...result,
-            stitched_frames: [frontendStitchedFrame || new Float32Array()]
-          } : null}
+          data={
+            result
+              ? {
+                  ...result,
+                  stitched_frames: [
+                    frontendStitchedFrame || new Float32Array(),
+                  ],
+                }
+              : null
+          }
           frameIndex={frameIndex}
           type="stitched"
           badgeText={isWasmProcessing ? "Processing..." : "WASM Verified"}
@@ -620,7 +671,8 @@ export const AntiAliasingDiagnostics: React.FC = () => {
               boxShadow: "inset 0 1px 2px rgba(0,0,0,0.1)",
             }}
           >
-            FRAME {String(frameIndex + 1).padStart(2, "0")} / {String(result.num_frames).padStart(2, "0")}
+            FRAME {String(frameIndex + 1).padStart(2, "0")} /{" "}
+            {String(result.num_frames).padStart(2, "0")}
           </span>
         </Card>
       )}

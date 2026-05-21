@@ -121,9 +121,8 @@ impl SharedState {
       encryption_key,
       channels: Mutex::new(load_channels()),
       sdr_settings: Mutex::new(sdr_settings.clone()),
-      available_spectrum: load_available_spectrum().map(|range| {
-        (range.min_freq, range.max_freq)
-      }),
+      available_spectrum: load_available_spectrum()
+        .map(|range| (range.min_freq, range.max_freq)),
       force_noise: AtomicBool::new(false),
       redis_client,
       health_failure_streak: AtomicU32::new(0),

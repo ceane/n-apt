@@ -4,6 +4,8 @@ import {
   dbToColor,
   getWholeChannelRenderRange,
   buildSnapshotStatsLines,
+  buildFastSpectrumCanvas,
+  buildFastWaterfallCanvas,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
@@ -158,6 +160,93 @@ describe("getWholeChannelRenderRange", () => {
   });
 });
 
+describe("fast snapshot canvases", () => {
+  beforeEach(() => {
+    global.clearCanvasCalls?.();
+  });
+
+  it("builds fast FFT snapshots from live canvases and replaces only the center icon", () => {
+    const spectrumGpu = document.createElement("canvas");
+    spectrumGpu.width = 320;
+    spectrumGpu.height = 180;
+    const spectrumOverlay = document.createElement("canvas");
+    spectrumOverlay.width = 320;
+    spectrumOverlay.height = 180;
+
+    const canvas = buildFastSpectrumCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        waveform: new Float32Array([0, 1, 2]),
+        vizZoom: 1,
+        vizPanOffset: 0,
+      } as any,
+      320,
+      180,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+      { spectrumGpu, spectrumOverlay },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.filter(
+        (call: any) => call.name === "drawImage",
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "fillText" &&
+          typeof call.args[0] === "string" &&
+          call.args[0].startsWith("○"),
+      ),
+    ).toBe(true);
+  });
+
+  it("trims the live waterfall render inset before adding the fast VFO axis", () => {
+    const waterfallGpu = document.createElement("canvas");
+    waterfallGpu.width = 320;
+    waterfallGpu.height = 180;
+
+    const canvas = buildFastWaterfallCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        vizZoom: 1,
+        vizPanOffset: 0,
+      } as any,
+      320,
+      180,
+      { min: 18_000, max: 3_218_000 },
+      { waterfallGpu, waterfallOverlay: null },
+      {
+        background: "#000000",
+        grid: "#333333",
+        tick: "#777777",
+        label: "#777777",
+        center: "#fefefe",
+      },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          call.args.length >= 9 &&
+          call.args[2] === 8,
+      ),
+    ).toBe(true);
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // useSnapshot Hook
 // ────────────────────────────────────────────────────────────────────────────
@@ -192,6 +281,7 @@ describe("useSnapshot", () => {
   });
 
   it("should handle snapshot when no data is available", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useSnapshot(null, false), {
       wrapper: TestWrapper,
     });
@@ -211,6 +301,50 @@ describe("useSnapshot", () => {
     });
 
     // Should not crash even if data is null
+  });
+
+  it("should export a provided canvas without building snapshot stats", async () => {
+    const click = jest.fn();
+    const toDataURL = jest.fn(() => "data:image/png;base64,mock");
+    const mockCanvas = {
+      width: 12,
+      height: 8,
+      toDataURL,
+    } as any;
+    const mockAnchor = {
+      click,
+      download: "",
+      href: "",
+    } as any;
+    const originalCreateElementNS = document.createElementNS.bind(document);
+    jest.spyOn(document, "createElement").mockImplementation((tagName) => {
+      if (tagName === "a") return mockAnchor;
+      return originalCreateElementNS("http://www.w3.org/1999/xhtml", tagName);
+    });
+
+    const { result } = renderHook(() => useSnapshot(null, false), {
+      wrapper: TestWrapper,
+    });
+
+    await act(async () => {
+      await result.current.handleSnapshot({
+        whole: false,
+        showWaterfall: false,
+        showStats: false,
+        showGeolocation: false,
+        showGrid: false,
+        format: "png",
+        getSnapshotData: () => null,
+        canvasOnly: {
+          getCanvas: () => mockCanvas,
+          filenamePrefix: "fast-fft-snapshot",
+        },
+      });
+    });
+
+    expect(toDataURL).toHaveBeenCalledWith("image/png");
+    expect(click).toHaveBeenCalled();
+    expect(mockAnchor.download).toContain("fast-fft-snapshot");
   });
 });
 

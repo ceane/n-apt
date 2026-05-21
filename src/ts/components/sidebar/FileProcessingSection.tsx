@@ -172,12 +172,16 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
   const stitchingActive =
     (stitchStatus?.toLowerCase().includes("loading") ||
-    stitchStatus?.toLowerCase().includes("processing") ||
-    stitchStatus?.toLowerCase().includes("computing") ||
-    stitchStatus?.toLowerCase().includes("loaded")) &&
+      stitchStatus?.toLowerCase().includes("processing") ||
+      stitchStatus?.toLowerCase().includes("computing") ||
+      stitchStatus?.toLowerCase().includes("loaded")) &&
     !stitchStatus?.toLowerCase().includes("successfully");
   const hasProcessedData = stitchStatus?.toLowerCase().includes("successfully");
-  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus.toLowerCase() !== "no files selected for stitching";
+  const isError =
+    stitchStatus &&
+    !stitchingActive &&
+    !hasProcessedData &&
+    stitchStatus.toLowerCase() !== "no files selected for stitching";
 
   return (
     <DropZone
@@ -222,11 +226,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
             <Button
               $variant={
-                stitchingActive
-                  ? "secondary"
-                  : isError
-                    ? "danger"
-                    : "primary"
+                stitchingActive ? "secondary" : isError ? "danger" : "primary"
               }
               ref={stitchButtonRef}
               onClick={() => {
@@ -247,8 +247,23 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               ) : isError ? (
                 "Error"
               ) : hasProcessedData ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "2px",
+                    width: "100%",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontWeight: 600,
+                    }}
+                  >
                     {isStitchPaused ? (
                       <>
                         <Play size={14} fill="currentColor" /> Play

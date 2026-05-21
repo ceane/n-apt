@@ -1,4 +1,10 @@
-import React, { useCallback, useMemo, useRef, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  useState,
+} from "react";
 import styled from "styled-components";
 import {
   ReactFlow,
@@ -53,7 +59,6 @@ const VisibleFrequencyRangeContext = React.createContext<{
   min: number;
   max: number;
 } | null>(null);
-
 
 const ContextMenuPanel = styled.div`
   position: fixed;
@@ -160,78 +165,70 @@ const calculateVisibleFrequencyRange = ({
   };
 };
 
-const CustomNode = React.memo(
-  ({
-    data,
-    id,
-  }: {
-    data: any;
-    id: string;
-  }) => {
-    let content: React.ReactNode;
+const CustomNode = React.memo(({ data, id }: { data: any; id: string }) => {
+  let content: React.ReactNode;
 
-    if (data.sourceNode) content = <SourceNode data={data} />;
-    else if (data.coremlOptions) content = <CoreMLNode data={data} />;
-    else if (data.spikeOptions) content = <SpikeDetectionNode data={data} />;
-    else if (data.beatOptions) content = <BeatNode data={data} />;
-    else if (data.fftOptions) content = <FFTNode data={data} id={id} />;
-    else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
-    else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
-    else if (data.channelNode) content = <ChannelNode data={data} />;
-    else if (data.signalOptions) content = <SignalConfigNode data={data} />;
-    else if (data.metadataNode) content = <MetadataNode data={data} />;
-    else if (data.channelOptions) content = <ChannelOptionsNode data={data} />;
-    else if (data.spanOptions) content = <SpanNode data={data} />;
-    else if (data.stimulusOptions) content = <StimulusNode data={data} />;
-    else if (data.tempoNoteOptions) content = <TempoNoteNode data={data} />;
-    else if (data.radioOptions) content = <RadioNode data={data} />;
-    else if (data.streamOptions) content = <StreamNode data={data} />;
-    else if (data.analysisOptions) content = <AnalysisNode data={data} />;
-    else if (data.aptOptions) content = <AptNode data={data} />;
-    else if (data.fmOptions) content = <FmNode data={data} />;
-    else if (data.fileOptions) content = <FileOptionsNode data={data} />;
-    else if (data.iqCaptureNode) content = <IQCaptureNode data={data} />;
-    else if (data.outputNode) content = <OutputNode data={data} />;
-    else {
-      content = (
-        <div className="node-container">
-          <div className="node-title">{data.label}</div>
-          <div className="node-description">{data.description}</div>
-        </div>
-      );
-    }
-
-    return (
-      <NodeContainer data-nodeid={id}>
-        {!data.sourceNode && (
-          <Handle
-            type="target"
-            position={Position.Top}
-            style={{
-              background: "#666",
-              border: "1px solid #999",
-              width: "8px",
-              height: "8px",
-            }}
-          />
-        )}
-        {content}
-        {!data.outputNode && (
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            style={{
-              background: "#666",
-              border: "1px solid #999",
-              width: "8px",
-              height: "8px",
-            }}
-          />
-        )}
-      </NodeContainer>
+  if (data.sourceNode) content = <SourceNode data={data} />;
+  else if (data.coremlOptions) content = <CoreMLNode data={data} />;
+  else if (data.spikeOptions) content = <SpikeDetectionNode data={data} />;
+  else if (data.beatOptions) content = <BeatNode data={data} />;
+  else if (data.fftOptions) content = <FFTNode data={data} id={id} />;
+  else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
+  else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
+  else if (data.channelNode) content = <ChannelNode data={data} />;
+  else if (data.signalOptions) content = <SignalConfigNode data={data} />;
+  else if (data.metadataNode) content = <MetadataNode data={data} />;
+  else if (data.channelOptions) content = <ChannelOptionsNode data={data} />;
+  else if (data.spanOptions) content = <SpanNode data={data} />;
+  else if (data.stimulusOptions) content = <StimulusNode data={data} />;
+  else if (data.tempoNoteOptions) content = <TempoNoteNode data={data} />;
+  else if (data.radioOptions) content = <RadioNode data={data} />;
+  else if (data.streamOptions) content = <StreamNode data={data} />;
+  else if (data.analysisOptions) content = <AnalysisNode data={data} />;
+  else if (data.aptOptions) content = <AptNode data={data} />;
+  else if (data.fmOptions) content = <FmNode data={data} />;
+  else if (data.fileOptions) content = <FileOptionsNode data={data} />;
+  else if (data.iqCaptureNode) content = <IQCaptureNode data={data} />;
+  else if (data.outputNode) content = <OutputNode data={data} />;
+  else {
+    content = (
+      <div className="node-container">
+        <div className="node-title">{data.label}</div>
+        <div className="node-description">{data.description}</div>
+      </div>
     );
-  },
-);
+  }
+
+  return (
+    <NodeContainer data-nodeid={id}>
+      {!data.sourceNode && (
+        <Handle
+          type="target"
+          position={Position.Top}
+          style={{
+            background: "#666",
+            border: "1px solid #999",
+            width: "8px",
+            height: "8px",
+          }}
+        />
+      )}
+      {content}
+      {!data.outputNode && (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          style={{
+            background: "#666",
+            border: "1px solid #999",
+            width: "8px",
+            height: "8px",
+          }}
+        />
+      )}
+    </NodeContainer>
+  );
+});
 
 const FrequencyAwareNode = React.memo(
   ({ data, id }: { data: any; id: string }) => {
@@ -434,7 +431,11 @@ const DemodRouteSectionInner: React.FC = () => {
         for (const [id, size] of sizeMap.entries()) {
           const prev = lastMeasuredSizesRef.current.get(id);
           // Add 1px tolerance to prevent jitter from subpixel rendering during drag/hover transitions
-          if (!prev || Math.abs(prev.w - size.w) > 1 || Math.abs(prev.h - size.h) > 1) {
+          if (
+            !prev ||
+            Math.abs(prev.w - size.w) > 1 ||
+            Math.abs(prev.h - size.h) > 1
+          ) {
             return true;
           }
         }
@@ -650,12 +651,7 @@ const DemodRouteSectionInner: React.FC = () => {
       scheduleMeasureAndLayout(true);
     }, 16); // ~1 frame
     return () => clearTimeout(timer);
-  }, [
-    edges.length,
-    nodes.length,
-    flowVersion,
-    scheduleMeasureAndLayout,
-  ]);
+  }, [edges.length, nodes.length, flowVersion, scheduleMeasureAndLayout]);
 
   // Re-layout on window resize with debouncing
   useEffect(() => {
@@ -812,19 +808,20 @@ const DemodRouteSectionInner: React.FC = () => {
       setNodesLocal((nds: Node[]) => {
         const isSpikeNode = !!nodeData.data?.spikeOptions;
         const fftNode = isSpikeNode
-          ? nds
+          ? (nds
               .filter((node) => node.data?.fftOptions)
-              .sort((a, b) => a.position.y - b.position.y)[0] ?? null
+              .sort((a, b) => a.position.y - b.position.y)[0] ?? null)
           : null;
-        const nextNode = isSpikeNode && fftNode
-          ? {
-              ...newNode,
-              position: {
-                x: fftNode.position.x,
-                y: fftNode.position.y + 180,
-              },
-            }
-          : newNode;
+        const nextNode =
+          isSpikeNode && fftNode
+            ? {
+                ...newNode,
+                position: {
+                  x: fftNode.position.x,
+                  y: fftNode.position.y + 180,
+                },
+              }
+            : newNode;
         const nextNodes = nds.concat(nextNode);
         if (!isSpikeNode || !fftNode) {
           return nextNodes;
@@ -843,7 +840,12 @@ const DemodRouteSectionInner: React.FC = () => {
         };
 
         setEdgesLocal((eds: Edge[]) => {
-          if (eds.some((edge) => edge.source === fftNode.id && edge.target === newNode.id)) {
+          if (
+            eds.some(
+              (edge) =>
+                edge.source === fftNode.id && edge.target === newNode.id,
+            )
+          ) {
             return eds;
           }
           return [...eds, nextEdge];
@@ -919,7 +921,6 @@ const DemodRouteSectionInner: React.FC = () => {
           <Controls />
         </StyledReactFlow>
       </VisibleFrequencyRangeContext.Provider>
-
 
       {menu && (
         <ContextMenuPanel style={{ top: menu.top, left: menu.left }}>

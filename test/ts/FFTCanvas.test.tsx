@@ -106,6 +106,58 @@ describe("FFTCanvas Component", () => {
     expect(screen.getByText(/FFT Signal Display/i)).toBeInTheDocument();
   });
 
+  it("shows a loading placeholder with the source label while awaiting data", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              dataRef={{ current: { waveform: null } }}
+              awaitingDeviceData
+              placeholderSourceLabel="Mock SDR"
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getAllByText((_, node) => node?.textContent === "Loading FFT..."),
+    ).toHaveLength(2);
+    expect(screen.getByText("from Mock SDR")).toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting for the first frame to arrive."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an error placeholder with a specific playback reason", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              dataRef={{ current: { waveform: null } }}
+              isDeviceConnected={false}
+              placeholderSourceLabel="Playback file"
+              placeholderErrorReason="file stream ended unexpectedly"
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      await screen.findByText("Error / file stream ended unexpectedly"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Can't playback from Playback file. Reason: file stream ended unexpectedly",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("preserves a restored waterfall snapshot across mount, unmount, and remount", async () => {
     const machine = createFFTVisualizerMachine();
     const seededSnapshot = {

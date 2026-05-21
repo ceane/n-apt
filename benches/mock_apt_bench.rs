@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use n_apt_backend::sdr::mock_apt::MockAptDevice;
-use std::sync::Mutex;
 use std::hint::black_box;
+use std::sync::Mutex;
 
 static MOCK_APT_BENCH_LOCK: Mutex<()> = Mutex::new(());
 
@@ -26,20 +26,24 @@ fn mock_apt_generation_benchmark(c: &mut Criterion) {
 
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
     {
-      group.bench_function(format!("read_samples_sync_metal/{fft_size}"), |b| {
-        let mut device = MockAptDevice::new_with_seed_and_gpu_backend(20240513);
-        if !device.gpu_backend_enabled() {
-          return;
-        }
-        eprintln!(
-          "Mock APT benchmark backend (metal/{fft_size}): {}",
-          device.generation_backend_label()
-        );
-        device.read_samples_sync(1024).unwrap();
-        b.iter(|| {
-          black_box(device.read_samples_sync(fft_size).unwrap());
-        });
-      });
+      group.bench_function(
+        format!("read_samples_sync_metal/{fft_size}"),
+        |b| {
+          let mut device =
+            MockAptDevice::new_with_seed_and_gpu_backend(20240513);
+          if !device.gpu_backend_enabled() {
+            return;
+          }
+          eprintln!(
+            "Mock APT benchmark backend (metal/{fft_size}): {}",
+            device.generation_backend_label()
+          );
+          device.read_samples_sync(1024).unwrap();
+          b.iter(|| {
+            black_box(device.read_samples_sync(fft_size).unwrap());
+          });
+        },
+      );
     }
   }
 

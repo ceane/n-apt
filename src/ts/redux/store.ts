@@ -59,11 +59,7 @@ export const store = configureStore({
         ignoredPaths: ["persistedState"],
         ignoredActionPaths: ["payload.aesKey", "meta.arg.aesKey"],
       },
-    }).concat(
-      websocketMiddleware,
-      localStorageMiddleware,
-      noteCardsMiddleware,
-    ),
+    }).concat(websocketMiddleware, localStorageMiddleware, noteCardsMiddleware),
   devTools: process.env.NODE_ENV !== "production",
 });
 

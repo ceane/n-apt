@@ -15,7 +15,11 @@ import {
 } from "../slices/websocketSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
-import { AutoFftOptionsResponse, type IqRawFrame, type SpectrumFrame } from "@n-apt/consts/schemas/websocket";
+import {
+  AutoFftOptionsResponse,
+  type IqRawFrame,
+  type SpectrumFrame,
+} from "@n-apt/consts/schemas/websocket";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
@@ -140,7 +144,7 @@ let lastFrequencyRangeRequest: {
   mismatchFrames: number;
 } | null = null;
 
-export const collapsePausedFrameBatch = <T,>(data: T | T[]): T => {
+export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
 };
 
@@ -183,7 +187,10 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         }
       }
       // Limit queue size to prevent memory leaks if processing falls behind
-      if (Array.isArray(liveDataRef.current) && liveDataRef.current.length > 100) {
+      if (
+        Array.isArray(liveDataRef.current) &&
+        liveDataRef.current.length > 100
+      ) {
         liveDataRef.current = liveDataRef.current.slice(-50);
       }
       // Dispatch action to trigger state machine updates
@@ -199,9 +206,11 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
 const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
   if (pendingStatusUpdates !== null) {
     const websocketState = getState().websocket;
-    const hasChanges = Object.entries(pendingStatusUpdates).some(([key, value]) => {
-      return !equalValue(websocketState[key], value);
-    });
+    const hasChanges = Object.entries(pendingStatusUpdates).some(
+      ([key, value]) => {
+        return !equalValue(websocketState[key], value);
+      },
+    );
     if (hasChanges) {
       dispatch(updateDeviceState(pendingStatusUpdates));
     }
@@ -244,11 +253,7 @@ export const getFrequencyRequestCenterHz = (
 
   const minHz = Number(data?.min_hz ?? data?.min_freq);
   const maxHz = Number(data?.max_hz ?? data?.max_freq);
-  if (
-    Number.isFinite(minHz) &&
-    Number.isFinite(maxHz) &&
-    maxHz >= minHz
-  ) {
+  if (Number.isFinite(minHz) && Number.isFinite(maxHz) && maxHz >= minHz) {
     return (minHz + maxHz) / 2;
   }
 
@@ -329,16 +334,15 @@ const checkRetuneWatchdog = (frameCenterHz: number) => {
   }
 };
 
-const queueLiveData = (
-  data: any,
-  dispatch: Dispatch,
-  getState: () => any,
-) => {
+const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
   const centerFrequencyHz = data?.center_frequency_hz;
   if (typeof centerFrequencyHz === "number") {
     checkRetuneWatchdog(centerFrequencyHz);
   }
-  if (typeof centerFrequencyHz === "number" && isFrameStale(centerFrequencyHz)) {
+  if (
+    typeof centerFrequencyHz === "number" &&
+    isFrameStale(centerFrequencyHz)
+  ) {
     return;
   }
 
@@ -347,7 +351,7 @@ const queueLiveData = (
   } else {
     pendingDataUpdate.push(data);
   }
-  
+
   if (dataBatchFrame === null) {
     dataBatchFrame = window.requestAnimationFrame(() =>
       processBatchedData(dispatch, getState),
@@ -467,8 +471,7 @@ const processMessage = (
           updates.sampleRateHz = sdrSettings.sample_rate;
         }
         if (typeof sdrSettings.min_receive_sample_rate === "number") {
-          updates.minReceiveSampleRateHz =
-            sdrSettings.min_receive_sample_rate;
+          updates.minReceiveSampleRateHz = sdrSettings.min_receive_sample_rate;
         }
       }
       if (typeof parsedData.device_state === "string") {
@@ -498,7 +501,8 @@ const processMessage = (
               label,
               min_hz,
               max_hz,
-              description: typeof f.description === "string" ? f.description : "",
+              description:
+                typeof f.description === "string" ? f.description : "",
             });
           }
           return acc;
@@ -732,7 +736,7 @@ const processBinaryMessage = async (
     } else {
       pendingDataUpdate.push(spectrumData);
     }
-    
+
     if (dataBatchFrame === null) {
       dataBatchFrame = window.requestAnimationFrame(() =>
         processBatchedData(dispatch, _getState),
@@ -971,14 +975,16 @@ const createWebSocketMiddleware =
         if (type === "request_next_frame") {
           const now = Date.now();
           if (now - lastFrameRequestTime < FRAME_REQUEST_THROTTLE_MS) {
-            console.debug("[WebSocket Middleware] Throttling redundant frame request");
+            console.debug(
+              "[WebSocket Middleware] Throttling redundant frame request",
+            );
             return next(action);
           }
 
           if (!shouldAcceptPausedFrameRequest()) {
             return next(action);
           }
-          
+
           lastFrameRequestTime = now;
           allowNextPausedFrame = true;
         }

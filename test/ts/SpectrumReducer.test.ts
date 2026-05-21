@@ -132,7 +132,9 @@ describe("spectrumReducer", () => {
   });
 
   it("SET_SELECTED_FILES updates files", () => {
-    const files = [{ id: "test-1", name: "test.iq", file: new File([], "test.iq") }];
+    const files = [
+      { id: "test-1", name: "test.iq", file: new File([], "test.iq") },
+    ];
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_SELECTED_FILES",
       files,

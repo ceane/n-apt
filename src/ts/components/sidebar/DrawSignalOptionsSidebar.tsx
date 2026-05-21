@@ -167,7 +167,10 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
 
   const handleAddBeat = () => {
     if (activeParams.beats.length >= 2) return;
-    handleParamChange("beats", [...activeParams.beats, { offsetHz: 30 }] as any);
+    handleParamChange("beats", [
+      ...activeParams.beats,
+      { offsetHz: 30 },
+    ] as any);
   };
 
   const handleRemoveBeat = (index: number) => {
@@ -179,7 +182,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
 
   return (
     <Wrap>
-      <React.Suspense fallback={<LoadingFallback>Loading Math…</LoadingFallback>}>
+      <React.Suspense
+        fallback={<LoadingFallback>Loading Math…</LoadingFallback>}
+      >
         <DrawMath />
       </React.Suspense>
       <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>
@@ -202,7 +207,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
               handleParamChange(
                 "beats",
                 activeParams.beats.map((b, index) =>
-                  index === i ? { ...b, offsetHz: v < 0.75 ? 0.5 : Math.round(v) } : b,
+                  index === i
+                    ? { ...b, offsetHz: v < 0.75 ? 0.5 : Math.round(v) }
+                    : b,
                 ) as any,
               )
             }
@@ -231,7 +238,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
           <ClumpTab
             key={i}
             $active={activeClumpIndex === i}
-            onClick={() => dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: i })}
+            onClick={() =>
+              dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: i })
+            }
           >
             Clump {i + 1}
           </ClumpTab>
@@ -259,7 +268,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
         min={-140}
         max={-40}
         step={1}
-        onChange={(noise) => dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })}
+        onChange={(noise) =>
+          dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
+        }
       />
       <Slider
         label="Simulated Noise (Data)"

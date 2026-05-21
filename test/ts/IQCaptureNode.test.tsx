@@ -4,13 +4,18 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { IQCaptureNode } from "../../src/ts/components/react-flow/nodes/IQCaptureNode";
 import { TestWrapper } from "./testUtils";
-import { sendCaptureCommand, sendCaptureStopCommand } from "../../src/ts/redux/thunks/websocketThunks";
+import {
+  sendCaptureCommand,
+  sendCaptureStopCommand,
+} from "../../src/ts/redux/thunks/websocketThunks";
 import { useAppDispatch, useAppSelector } from "../../src/ts/redux/store";
 
 // Mock the websocketThunks
 jest.mock("../../src/ts/redux/thunks/websocketThunks", () => ({
   sendCaptureCommand: jest.fn(() => ({ type: "MOCK_CAPTURE_COMMAND" })),
-  sendCaptureStopCommand: jest.fn(() => ({ type: "MOCK_CAPTURE_STOP_COMMAND" })),
+  sendCaptureStopCommand: jest.fn(() => ({
+    type: "MOCK_CAPTURE_STOP_COMMAND",
+  })),
 }));
 
 // Mock useAuthentication
@@ -76,7 +81,7 @@ const mockState = {
     captureEncrypted: true,
     capturePlayback: false,
     captureGeolocation: false,
-  }
+  },
 };
 
 describe("IQCaptureNode", () => {
@@ -84,7 +89,9 @@ describe("IQCaptureNode", () => {
 
   beforeEach(() => {
     (useAppDispatch as jest.Mock).mockReturnValue(mockDispatch);
-    (useAppSelector as jest.Mock).mockImplementation((selector) => selector(mockState));
+    (useAppSelector as jest.Mock).mockImplementation((selector) =>
+      selector(mockState),
+    );
     jest.clearAllMocks();
   });
 
@@ -92,7 +99,7 @@ describe("IQCaptureNode", () => {
     render(
       <TestWrapper>
         <IQCaptureNode id="node-1" data={{ label: "Capture" }} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Select 'Custom Range' button
@@ -108,7 +115,7 @@ describe("IQCaptureNode", () => {
       expect.objectContaining({
         bandwidth: 3200000,
         bandwidthCenterFrequency: 100000000,
-      })
+      }),
     );
     expect(mockDispatch).toHaveBeenCalledWith({ type: "MOCK_CAPTURE_COMMAND" });
   });
@@ -117,7 +124,7 @@ describe("IQCaptureNode", () => {
     render(
       <TestWrapper>
         <IQCaptureNode id="node-1" data={{ label: "Capture" }} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     // Find the 'Start' and 'End' inputs for Custom Range
@@ -137,7 +144,7 @@ describe("IQCaptureNode", () => {
       expect.objectContaining({
         bandwidth: 10000000,
         bandwidthCenterFrequency: 100000000,
-      })
+      }),
     );
   });
 });

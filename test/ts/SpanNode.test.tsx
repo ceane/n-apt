@@ -1,5 +1,11 @@
 import React from "react";
-import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  act,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
@@ -13,11 +19,13 @@ import {
 } from "../../src/ts/components/react-flow/nodes/SpanNode";
 
 jest.mock("../../src/ts/contexts/DemodContext", () => ({
-  useDemod: () => ({ fileCapturedRange: null })
+  useDemod: () => ({ fileCapturedRange: null }),
 }));
 
 import * as websocketThunks from "../../src/ts/redux/thunks/websocketThunks";
-import demodReducer, { setHardwareInfo } from "../../src/ts/redux/slices/demodSlice";
+import demodReducer, {
+  setHardwareInfo,
+} from "../../src/ts/redux/slices/demodSlice";
 import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
 import themeReducer from "../../src/ts/redux/slices/themeSlice";
 import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
@@ -61,19 +69,22 @@ function createMockStore(
   const rate = (initialDemodState as any).sampleRateHz || 3_200_000;
   const hardwareSpan = (initialDemodState as any).hardwareSpanHz ?? rate;
   const bw = (initialDemodState as any).bandwidthHz ?? 200_000;
-  const bwStart = (initialDemodState as any).bandwidthStartHz ?? (center - bw / 2);
-  const range =
-    spectrumRange ?? {
-      min: center - rate / 2,
-      max: center + rate / 2,
-    };
+  const bwStart =
+    (initialDemodState as any).bandwidthStartHz ?? center - bw / 2;
+  const range = spectrumRange ?? {
+    min: center - rate / 2,
+    max: center + rate / 2,
+  };
   return configureStore({
     reducer: {
       demod: demodReducer,
       spectrum: spectrumReducer,
       websocket: websocketReducer,
       theme: themeReducer,
-      waterfall: (state = { sourceMode: options.sourceMode ?? "live" }, action: any) => state,
+      waterfall: (
+        state = { sourceMode: options.sourceMode ?? "live" },
+        action: any,
+      ) => state,
     } as any,
     preloadedState: {
       demod: {
@@ -134,8 +145,11 @@ describe("SpanNode Integration", () => {
   });
 
   it("calculates the correct frequency floor based on sample rate", () => {
-    const store = createMockStore({ sampleRateHz: 3_200_000, centerFreqHz: 16_000_000 });
-    
+    const store = createMockStore({
+      sampleRateHz: 3_200_000,
+      centerFreqHz: 16_000_000,
+    });
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -143,7 +157,7 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
     const startInput = screen.getByLabelText("Bandwidth Start");
@@ -151,11 +165,11 @@ describe("SpanNode Integration", () => {
   });
 
   it("enforces the floor and displays correct labels", async () => {
-    const store = createMockStore({ 
-      sampleRateHz: 1_000_000, 
-      centerFreqHz: 500_000 
+    const store = createMockStore({
+      sampleRateHz: 1_000_000,
+      centerFreqHz: 500_000,
     });
-    
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -163,7 +177,7 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
     expect(screen.getByLabelText("Center Frequency")).toHaveValue("500.000");
@@ -172,8 +186,11 @@ describe("SpanNode Integration", () => {
   });
 
   it("updates hardware range on center/span change", async () => {
-    const store = createMockStore({ sampleRateHz: 3_200_000, centerFreqHz: 26_000_000 });
-    
+    const store = createMockStore({
+      sampleRateHz: 3_200_000,
+      centerFreqHz: 26_000_000,
+    });
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -181,7 +198,7 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
     const centerInput = screen.getByLabelText("Center Frequency");
@@ -217,9 +234,9 @@ describe("SpanNode Integration", () => {
     // Set Sample Rate to 1MHz
     const spanInput = screen.getByLabelText("Sample Rate");
     fireEvent.change(spanInput, { target: { value: "1.000" } });
-    
+
     // Current window is [25.5, 26.5]
-    
+
     // Set Bandwidth Start to 26.6MHz (crosses right edge)
     const startInput = screen.getByLabelText("Bandwidth Start");
     fireEvent.change(startInput, { target: { value: "27.500" } });
@@ -269,8 +286,6 @@ describe("SpanNode Integration", () => {
 
     expect(screen.getByLabelText("Load preset NOAA-19")).toBeInTheDocument();
   });
-
-
 
   it("preserves bandwidth start when toggling alignment modes", async () => {
     const store = createMockStore({
@@ -332,6 +347,4 @@ describe("SpanNode Integration", () => {
       expect(screen.getByLabelText("Bandwidth")).toHaveValue("1.000");
     });
   });
-
-
 });

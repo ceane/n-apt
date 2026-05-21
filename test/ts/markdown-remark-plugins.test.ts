@@ -4,10 +4,7 @@ import remarkSignalCanvasBlocks from "../../src/md-preview/utils/remarkSignalCan
 import remarkLatexCodeBlocks from "../../src/md-preview/utils/remarkLatexCodeBlocks";
 import remarkIconShortcodes from "../../src/md-preview/utils/remarkIconShortcodes";
 
-const applyPlugin = (
-  plugin: any,
-  tree: any,
-) => {
+const applyPlugin = (plugin: any, tree: any) => {
   if (plugin) {
     plugin(tree);
   }
@@ -245,7 +242,7 @@ describe("Markdown Remark Plugins", () => {
         type: "html",
         value: '<icon-inline data-icon="heart"></icon-inline>',
       });
-      expect((tree.children[1] as any)).toEqual({
+      expect(tree.children[1] as any).toEqual({
         type: "html",
         value: "<body-attenuation-canvas></body-attenuation-canvas>",
       });

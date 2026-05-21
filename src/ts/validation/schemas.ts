@@ -195,13 +195,15 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("frequency_range"),
-    min_hz: z.number(),
-    max_hz: z.number(),
+    min_hz: z.number().int(),
+    max_hz: z.number().int(),
+    center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
-    min_hz: z.number(),
-    max_hz: z.number(),
+    min_hz: z.number().int(),
+    max_hz: z.number().int(),
+    center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("pause"),

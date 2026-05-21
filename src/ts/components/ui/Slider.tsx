@@ -6,6 +6,7 @@ const MIN_THUMB_RATIO = 0.2;
 
 export const SliderContainer = styled.div<{
   $orientation: "vertical" | "horizontal";
+  $disabled?: boolean;
 }>`
   display: flex;
   flex-direction: column;
@@ -14,6 +15,7 @@ export const SliderContainer = styled.div<{
   gap: 10px;
   flex: 1;
   width: 100%;
+  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
 `;
 
 export const SliderLabel = styled.span<{
@@ -38,16 +40,18 @@ export interface SnapRange {
 
 export const SliderTrack = styled.div<{
   $orientation: "vertical" | "horizontal";
+  $disabled?: boolean;
 }>`
   position: relative;
   border-radius: 16px;
   background: ${(props) =>
     props.theme.mode === "light" ? props.theme.surface : "#212121"};
   display: flex;
-  cursor: pointer;
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
   transition: scale 0.2s ease-in-out;
   position: relative;
   border: 1px solid ${(props) => props.theme.border};
+  pointer-events: ${({ $disabled }) => ($disabled ? "none" : "auto")};
 
   ${({ $orientation }) =>
     $orientation === "vertical"
@@ -136,6 +140,7 @@ export const SliderThumb = styled.div<{
   $percent: number;
   $orientation: "vertical" | "horizontal";
   $isDragging: boolean;
+  $disabled?: boolean;
 }>`
   display: flex;
   align-items: center;
@@ -144,7 +149,7 @@ export const SliderThumb = styled.div<{
   background-color: ${(props) =>
     props.theme.mode === "light" ? props.theme.primary : "#3b3b3b"};
   border-radius: 16px;
-  cursor: grab;
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "grab")};
   /* Only animate when NOT dragging, for a 'snappy' feel when clicking/snapping */
   transition: ${({ $isDragging }) =>
     $isDragging
@@ -208,9 +213,7 @@ export const SliderValue = styled.span<{
   color: ${(props) =>
     props.theme.mode === "light" ? props.theme.textSecondary : "#fff"};
   text-shadow: ${(props) =>
-    props.theme.mode === "light"
-      ? "none"
-      : "0 0 4px rgba(0, 0, 0, 0.8)"};
+    props.theme.mode === "light" ? "none" : "0 0 4px rgba(0, 0, 0, 0.8)"};
   font-weight: 500;
   letter-spacing: 0.3px;
   pointer-events: none;
@@ -238,6 +241,7 @@ export interface SliderProps {
   hideLabelInComponent?: boolean;
   labelPlacement?: "top" | "bottom" | "left" | "right";
   snapRanges?: SnapRange[];
+  disabled?: boolean;
 }
 
 export const Slider: React.FC<SliderProps> = React.memo(
@@ -258,6 +262,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
     hideLabelInComponent = false,
     labelPlacement,
     snapRanges = [],
+    disabled = false,
   }) => {
     const [isDragging, setIsDragging] = React.useState(false);
 
@@ -350,6 +355,9 @@ export const Slider: React.FC<SliderProps> = React.memo(
 
     const handleMouseDown = useCallback(
       (e: React.MouseEvent<HTMLDivElement>) => {
+        if (disabled) {
+          return;
+        }
         e.preventDefault();
         const track = e.currentTarget;
         const rect = track.getBoundingClientRect();
@@ -367,14 +375,16 @@ export const Slider: React.FC<SliderProps> = React.memo(
         document.addEventListener("mousemove", onMouseMove);
         document.addEventListener("mouseup", onMouseUp);
       },
-      [handleTrackInteraction],
+      [disabled, handleTrackInteraction],
     );
 
     const TrackComponent = (
       <SliderTrack
         $orientation={orientation}
-        onMouseDown={handleMouseDown}
+        $disabled={disabled}
+        onMouseDown={disabled ? undefined : handleMouseDown}
         className={className}
+        aria-disabled={disabled}
       >
         <TrackClipper>
           {snapRanges.map((r, i) => {
@@ -395,6 +405,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
           $percent={percent}
           $orientation={orientation}
           $isDragging={isDragging}
+          $disabled={disabled}
         />
         {!hideThumbValue && (
           <SliderValue $orientation={orientation}>
@@ -412,7 +423,11 @@ export const Slider: React.FC<SliderProps> = React.memo(
     const isAfter = labelPlacement === "bottom" || labelPlacement === "right";
 
     return (
-      <SliderContainer $orientation={orientation} className={className}>
+      <SliderContainer
+        $orientation={orientation}
+        $disabled={disabled}
+        className={className}
+      >
         {!isAfter && (
           <SliderLabel $orientation={orientation}>{label}</SliderLabel>
         )}

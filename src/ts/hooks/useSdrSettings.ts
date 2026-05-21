@@ -76,7 +76,8 @@ const getLogicalSizeToFrameRate = (
       .reduce<[number, number][]>((acc, [size, frameRate]) => {
         const s = Number(size);
         const r = Number(frameRate);
-        if (Number.isFinite(s) && s > 0 && Number.isFinite(r) && r > 0) acc.push([s, r]);
+        if (Number.isFinite(s) && s > 0 && Number.isFinite(r) && r > 0)
+          acc.push([s, r]);
         return acc;
       }, [])
       .sort((a, b) => a[0] - b[0]),

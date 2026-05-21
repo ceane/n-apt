@@ -219,7 +219,6 @@ export const SDRTestSidebar: React.FC = () => {
           <SignalComposition sidebar />
 
           <Section>
-
             <Channels />
           </Section>
 

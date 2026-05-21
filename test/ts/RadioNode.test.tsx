@@ -10,7 +10,11 @@ const reactFlowState: {
   edges: any[];
 } = {
   nodes: [
-    { id: "radio", type: "custom", data: { label: "Radio", radioOptions: true } },
+    {
+      id: "radio",
+      type: "custom",
+      data: { label: "Radio", radioOptions: true },
+    },
     { id: "fm", type: "custom", data: { label: "FM", fmOptions: true } },
   ],
   edges: [{ id: "e-fm-radio", source: "fm", target: "radio" }],
@@ -75,10 +79,16 @@ function createStore() {
 describe("RadioNode", () => {
   it("shows From Node and uses FM bandwidth when connected upstream from FM", () => {
     reactFlowState.nodes = [
-      { id: "radio", type: "custom", data: { label: "Radio", radioOptions: true } },
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
       { id: "fm", type: "custom", data: { label: "FM", fmOptions: true } },
     ];
-    reactFlowState.edges = [{ id: "e-fm-radio", source: "fm", target: "radio" }];
+    reactFlowState.edges = [
+      { id: "e-fm-radio", source: "fm", target: "radio" },
+    ];
     const store = createStore();
 
     render(
@@ -96,10 +106,20 @@ describe("RadioNode", () => {
 
   it("shows From Node and uses the live span bandwidth when connected upstream from Span", () => {
     reactFlowState.nodes = [
-      { id: "radio", type: "custom", data: { label: "Radio", radioOptions: true } },
-      { id: "span", type: "custom", data: { label: "Span", spanOptions: true } },
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
+      {
+        id: "span",
+        type: "custom",
+        data: { label: "Span", spanOptions: true },
+      },
     ];
-    reactFlowState.edges = [{ id: "e-span-radio", source: "span", target: "radio" }];
+    reactFlowState.edges = [
+      { id: "e-span-radio", source: "span", target: "radio" },
+    ];
     const store = createStore();
     store.dispatch({
       type: "spectrum/setPreviewRange",
@@ -121,10 +141,16 @@ describe("RadioNode", () => {
 
   it("shows From Node and uses the FFT selection bandwidth when connected upstream from FFT", () => {
     reactFlowState.nodes = [
-      { id: "radio", type: "custom", data: { label: "Radio", radioOptions: true } },
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
       { id: "fft", type: "custom", data: { label: "FFT", fftOptions: true } },
     ];
-    reactFlowState.edges = [{ id: "e-fft-radio", source: "fft", target: "radio" }];
+    reactFlowState.edges = [
+      { id: "e-fft-radio", source: "fft", target: "radio" },
+    ];
     const store = createStore();
     store.dispatch({
       type: "spectrum/setPreviewRange",

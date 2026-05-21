@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { styled } from "styled-components";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
@@ -99,7 +105,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const initialFrame = Array.isArray(liveDataRef.current)
-    ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+    ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
     : liveDataRef.current;
   const dataRef = useRef<LiveFrameData | null>(initialFrame);
 
@@ -145,17 +151,21 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const demodBandwidthHz = useAppSelector(
     (state) => state.demod?.bandwidthHz ?? null,
   );
-  const { previewRange, previewAlignment } = useAppSelector((state) => state.spectrum);
+  const { previewRange, previewAlignment } = useAppSelector(
+    (state) => state.spectrum,
+  );
 
   // Use a ref to track the latest range without stale closures
   const rangeRef = useRef<{ min: number; max: number } | null>(null);
-  const [resolvedRange, setResolvedRange] = useState<FrequencyRange | undefined>(undefined);
+  const [resolvedRange, setResolvedRange] = useState<
+    FrequencyRange | undefined
+  >(undefined);
 
   // Sync live frame data and derive frequency range from frame metadata
   useEffect(() => {
     const id = setInterval(() => {
       const liveFrame = Array.isArray(liveDataRef.current)
-        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
         : liveDataRef.current;
       dataRef.current = liveFrame;
 
@@ -211,9 +221,12 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const selectionCenterHz =
     bandwidthCenterFreqHz ?? demodCenterFreqHz ?? currentCenterHz;
 
-  const handleSelectionChange = useCallback((range: FrequencyRange) => {
-    dispatch(setPreviewRange(range));
-  }, [dispatch]);
+  const handleSelectionChange = useCallback(
+    (range: FrequencyRange) => {
+      dispatch(setPreviewRange(range));
+    },
+    [dispatch],
+  );
 
   /** Spectrum slice from Span / Apply — not the same as sample rate or radio demod BW. */
   const selectionDemodOverlay = useMemo(() => {
@@ -231,9 +244,8 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
     };
   }, [demodBandwidthHz, demodBandwidthKhz, demodCenterFreqHz]);
 
-  const demodOverlayCenterHz = selectionDemodOverlay?.centerHz ??
-    demodCenterFreqHz ??
-    currentCenterHz;
+  const demodOverlayCenterHz =
+    selectionDemodOverlay?.centerHz ?? demodCenterFreqHz ?? currentCenterHz;
   const demodOverlayRangeHz =
     selectionDemodOverlay?.rangeHz ?? demodBandwidthKhz * 1000;
   return (
@@ -261,20 +273,20 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           isIqRecordingActive={true}
           demodulationCenterFreqHz={
             isSpanConnected
-              ? (previewRange
-                  ? selectionCenterHz
-                  : data.showDemodOverlay
-                    ? demodOverlayCenterHz
-                    : undefined)
+              ? previewRange
+                ? selectionCenterHz
+                : data.showDemodOverlay
+                  ? demodOverlayCenterHz
+                  : undefined
               : undefined
           }
           demodulationRangeHz={
             isSpanConnected
-              ? (previewRange
-                  ? previewRange.max - previewRange.min
-                  : data.showDemodOverlay
-                    ? demodOverlayRangeHz
-                    : undefined)
+              ? previewRange
+                ? previewRange.max - previewRange.min
+                : data.showDemodOverlay
+                  ? demodOverlayRangeHz
+                  : undefined
               : undefined
           }
           selectionRange={isSpanConnected ? selectionRange : undefined}
@@ -282,6 +294,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           selectionDisabled={!isSpanConnected}
           bandwidthAlignment={previewAlignment}
           onSelectionChange={handleSelectionChange}
+          placeholderSourceLabel={data.label}
         />
       </CanvasContainer>
     </NodeWrapper>

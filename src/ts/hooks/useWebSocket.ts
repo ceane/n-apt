@@ -401,10 +401,13 @@ export const useWebSocket = (
                 updates.maxSampleRateHz = parsedData.max_sample_rate;
               }
               if (Array.isArray(parsedData.sample_rate_options)) {
-                updates.sampleRateOptions = parsedData.sample_rate_options.filter(
-                  (rate: unknown) =>
-                    typeof rate === "number" && Number.isFinite(rate) && rate > 0,
-                );
+                updates.sampleRateOptions =
+                  parsedData.sample_rate_options.filter(
+                    (rate: unknown) =>
+                      typeof rate === "number" &&
+                      Number.isFinite(rate) &&
+                      rate > 0,
+                  );
               }
               if (parsedData.sdr_settings) {
                 updates.sdrSettings = parsedData.sdr_settings;
@@ -449,7 +452,8 @@ export const useWebSocket = (
                       label,
                       min_hz,
                       max_hz,
-                      description: typeof f.description === "string" ? f.description : "",
+                      description:
+                        typeof f.description === "string" ? f.description : "",
                     });
                   }
                   return acc;
@@ -463,8 +467,12 @@ export const useWebSocket = (
               ) {
                 updates.deviceLoadingReason = reason;
                 if (reason === "restart") {
-                  const attempt = Number(parsedData.device_loading_attempt || 0);
-                  const attemptMax = Number(parsedData.device_loading_attempt_max || 0);
+                  const attempt = Number(
+                    parsedData.device_loading_attempt || 0,
+                  );
+                  const attemptMax = Number(
+                    parsedData.device_loading_attempt_max || 0,
+                  );
                   const nowLabel = new Date().toLocaleTimeString([], {
                     hour: "numeric",
                     minute: "2-digit",

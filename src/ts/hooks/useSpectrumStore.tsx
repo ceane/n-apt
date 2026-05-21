@@ -63,7 +63,10 @@ import {
   createFFTVisualizerMachine,
   type FFTVisualizerMachine,
 } from "@n-apt/utils/fftVisualizerMachine";
-import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
+import {
+  clampFrequencyRangeToBounds,
+  normalizeFrequencyRangeToHz,
+} from "@n-apt/utils/frequency";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -314,8 +317,16 @@ export type SpectrumAction =
   | { type: "SET_DRAW_SIGNAL_3D"; enabled: boolean }
   | { type: "SET_DISPLAY_MODE"; displayMode: "fft" | "iq" }
   | { type: "SET_FFT_WINDOW"; fftWindow: string }
-  | { type: "SET_STITCH_OPTION"; option: keyof SpectrumState["stitchOptions"]; enabled: boolean }
-  | { type: "SET_STITCH_OPTION_VALUE"; option: keyof SpectrumState["stitchOptions"]; value: any };
+  | {
+      type: "SET_STITCH_OPTION";
+      option: keyof SpectrumState["stitchOptions"];
+      enabled: boolean;
+    }
+  | {
+      type: "SET_STITCH_OPTION_VALUE";
+      option: keyof SpectrumState["stitchOptions"];
+      value: any;
+    };
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
@@ -779,8 +790,8 @@ export type SpectrumStoreContextValue = {
   toggleVisualizerPause: () => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
-    deviceProfile: DeviceProfile | null;
-  };
+  deviceProfile: DeviceProfile | null;
+};
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
   null,
@@ -827,12 +838,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       (s) => s.websocket.deviceLoadingReason,
     );
     const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
-    const sampleRateOptions = useAppSelector((s) => s.websocket.sampleRateOptions);
+    const sampleRateOptions = useAppSelector(
+      (s) => s.websocket.sampleRateOptions,
+    );
     const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
     const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
-    const sdrLimitMarkers = useAppSelector(
-      (s) => s.websocket.sdrLimitMarkers,
-    );
+    const sdrLimitMarkers = useAppSelector((s) => s.websocket.sdrLimitMarkers);
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
@@ -1348,7 +1359,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
       }
       const minReceiveRate =
-        sdrSettings?.min_receive_sample_rate ?? sdrSettings?.sample_rate ?? rate;
+        sdrSettings?.min_receive_sample_rate ??
+        sdrSettings?.sample_rate ??
+        rate;
       if (
         typeof minReceiveRate === "number" &&
         minReceiveRate > 0 &&
@@ -1400,7 +1413,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const clampLiveFrequencyRange = useCallback(
       (range: FrequencyRange) =>
-        clampFrequencyRangeToBounds(range, activeSignalAreaBounds),
+        normalizeFrequencyRangeToHz(
+          clampFrequencyRangeToBounds(range, activeSignalAreaBounds),
+        ),
       [activeSignalAreaBounds],
     );
 
@@ -1418,7 +1433,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     // declarations to satisfy closure requirements.
     useEffect(() => {
       if (mergedState.frequencyRange) return;
-      if (!isConnected || deviceState !== "connected") return;
+      if (!isConnected) return;
       if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0)
         return;
 
@@ -1493,7 +1508,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       if (
         !isConnected ||
-        deviceState !== "connected" ||
         !mergedState.frequencyRange
       )
         return;
@@ -1516,7 +1530,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       isConnected,
       mergedState.frequencyRange,
       clampLiveFrequencyRange,
-      deviceState,
       storeDispatch,
       wsConnection.sendFrequencyRange,
     ]);

@@ -128,14 +128,8 @@ impl MockAptDevice {
         log::info!("Mock APT Metal backend validated and available");
       }
       Err(error) => {
-        eprintln!(
-          "Mock APT Metal backend unavailable at startup: {}",
-          error
-        );
-        log::warn!(
-          "Mock APT Metal backend unavailable at startup: {}",
-          error
-        );
+        eprintln!("Mock APT Metal backend unavailable at startup: {}", error);
+        log::warn!("Mock APT Metal backend unavailable at startup: {}", error);
       }
     });
   }
@@ -660,7 +654,8 @@ impl MockAptDevice {
 
         let rf_signal_db = signal.config.strength_db;
         let adc_signal_db = rf_signal_db + analog_gain;
-        let amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp() * settle_factor;
+        let amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp()
+          * settle_factor;
 
         let frame_start_phase = signal.phase;
         let (mut p_im, mut p_re) = (frame_start_phase as f64).sin_cos();
@@ -821,7 +816,8 @@ impl MockAptDevice {
 
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
     if self.metal_backend.is_some() {
-      let (noise_i, noise_q) = self.build_noise_buffers(fft_size, noise_amp_f64);
+      let (noise_i, noise_q) =
+        self.build_noise_buffers(fft_size, noise_amp_f64);
       let backend = self
         .metal_backend
         .as_mut()
@@ -834,8 +830,10 @@ impl MockAptDevice {
         .iter()
         .map(|&value| value as f32)
         .collect();
-      let noise_i_f32: Vec<f32> = noise_i.iter().copied().map(|value| value as f32).collect();
-      let noise_q_f32: Vec<f32> = noise_q.iter().copied().map(|value| value as f32).collect();
+      let noise_i_f32: Vec<f32> =
+        noise_i.iter().copied().map(|value| value as f32).collect();
+      let noise_q_f32: Vec<f32> =
+        noise_q.iter().copied().map(|value| value as f32).collect();
 
       match backend.finalize_frame(
         &i_accumulator,
@@ -854,14 +852,12 @@ impl MockAptDevice {
           });
         }
         Err(error) => {
-            log::warn!(
-              "Mock APT Metal finalization failed, falling back to CPU: {}",
-              error
-            );
+          log::warn!(
+            "Mock APT Metal finalization failed, falling back to CPU: {}",
+            error
+          );
           return self.finalize_samples_cpu_with_noise_buffers(
-            fft_size,
-            noise_i,
-            noise_q,
+            fft_size, noise_i, noise_q,
           );
         }
       }
@@ -871,10 +867,8 @@ impl MockAptDevice {
     // 2×fft_size bounds-checked push() calls (already reserved on line 522).
     let buf_ptr = self.byte_buffer.as_mut_ptr();
     for j in 0..fft_size {
-      let i_noise =
-        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
-      let q_noise =
-        (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
+      let i_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
+      let q_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
 
       let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0)
         + 128.0) as u8;

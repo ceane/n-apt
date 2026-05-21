@@ -35,7 +35,7 @@ const StyledReactFlowWrapper = styled(BaseReactFlow)`
       border-color: ${({ theme }) => theme.colors.primary};
       color: ${({ theme }) => theme.colors.primary};
     }
-    
+
     svg {
       fill: currentColor;
     }

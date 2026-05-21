@@ -59,10 +59,7 @@ const getLiveInputLabel = (
   deviceName?: string | null,
 ) => {
   const normalizedDeviceName = deviceName?.trim();
-  if (
-    backend === "mock_apt_metal" ||
-    backend?.includes("metal")
-  ) {
+  if (backend === "mock_apt_metal" || backend?.includes("metal")) {
     if (normalizedDeviceName && normalizedDeviceName.includes("(Metal)")) {
       return normalizedDeviceName;
     }

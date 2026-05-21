@@ -2,7 +2,10 @@ import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { AntiAliasingDiagnostics } from "@n-apt/routes/AntiAliasingDiagnostics";
-import { SpectrumProvider, INITIAL_SPECTRUM_STATE } from "@n-apt/hooks/useSpectrumStore";
+import {
+  SpectrumProvider,
+  INITIAL_SPECTRUM_STATE,
+} from "@n-apt/hooks/useSpectrumStore";
 import { ThemeProvider } from "styled-components";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
@@ -33,7 +36,7 @@ const defaultTheme = buildAppTheme({
 
 describe("AntiAliasingDiagnostics", () => {
   const mockDispatch = jest.fn();
-  
+
   const defaultMockValue = {
     state: INITIAL_SPECTRUM_STATE,
     dispatch: mockDispatch,
@@ -62,7 +65,11 @@ describe("AntiAliasingDiagnostics", () => {
       sdrLimitMarkers: [],
       dataRef: { current: null },
       spectrumFrames: [],
-      captureStatus: { status: "started" as const, progress: 0, jobId: "test-job" },
+      captureStatus: {
+        status: "started" as const,
+        progress: 0,
+        jobId: "test-job",
+      },
       autoFftOptions: null,
       error: null,
       cryptoCorrupted: false,
@@ -94,7 +101,7 @@ describe("AntiAliasingDiagnostics", () => {
         <SpectrumProvider mockValue={mockValue}>
           <AntiAliasingDiagnostics />
         </SpectrumProvider>
-      </ThemeProvider>
+      </ThemeProvider>,
     );
   };
 
@@ -102,8 +109,12 @@ describe("AntiAliasingDiagnostics", () => {
     renderComponent();
     // Check for containers instead of canvas text which isn't in DOM
     expect(screen.getByText("Raw Hops (A/B Overlap)")).toBeInTheDocument();
-    expect(screen.getByText("Stitched Magnitude Output (Backend)")).toBeInTheDocument();
-    expect(screen.getByText("Stitched Magnitude Output (Frontend WASM)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Stitched Magnitude Output (Backend)"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Stitched Magnitude Output (Frontend WASM)"),
+    ).toBeInTheDocument();
   });
 
   it("triggers diagnostic when diagnosticTrigger increases", async () => {
@@ -160,18 +171,30 @@ describe("AntiAliasingDiagnostics", () => {
         <SpectrumProvider mockValue={triggeredMockValue}>
           <AntiAliasingDiagnostics />
         </SpectrumProvider>
-      </ThemeProvider>
+      </ThemeProvider>,
     );
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith("/api/debug/stitch-diagnostic", expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/debug/stitch-diagnostic",
+        expect.any(Object),
+      );
     });
 
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "SET_DIAGNOSTIC_RUNNING", running: true });
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "SET_DIAGNOSTIC_STATUS", status: "Capturing 10 frames..." });
-    
+    expect(mockDispatch).toHaveBeenCalledWith({
+      type: "SET_DIAGNOSTIC_RUNNING",
+      running: true,
+    });
+    expect(mockDispatch).toHaveBeenCalledWith({
+      type: "SET_DIAGNOSTIC_STATUS",
+      status: "Capturing 10 frames...",
+    });
+
     await waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledWith({ type: "SET_DIAGNOSTIC_STATUS", status: "Capture complete" });
+      expect(mockDispatch).toHaveBeenCalledWith({
+        type: "SET_DIAGNOSTIC_STATUS",
+        status: "Capture complete",
+      });
     });
   });
 
@@ -196,7 +219,7 @@ describe("AntiAliasingDiagnostics", () => {
         <SpectrumProvider mockValue={triggeredMockValue}>
           <AntiAliasingDiagnostics />
         </SpectrumProvider>
-      </ThemeProvider>
+      </ThemeProvider>,
     );
 
     await waitFor(() => {

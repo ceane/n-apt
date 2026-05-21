@@ -25,19 +25,20 @@ const schedulePersist = (store: any) => {
   }, PERSIST_DEBOUNCE_MS);
 };
 
-const noteCardsMiddleware: Middleware<{}, any> = (store) => (next) => (action) => {
-  const result = next(action);
+const noteCardsMiddleware: Middleware<{}, any> =
+  (store) => (next) => (action) => {
+    const result = next(action);
 
-  const actionType =
-    typeof action === "object" && action && "type" in action
-      ? (action as { type?: unknown }).type
-      : null;
+    const actionType =
+      typeof action === "object" && action && "type" in action
+        ? (action as { type?: unknown }).type
+        : null;
 
-  if (typeof actionType === "string" && actionType.startsWith("noteCards/")) {
-    schedulePersist(store);
-  }
+    if (typeof actionType === "string" && actionType.startsWith("noteCards/")) {
+      schedulePersist(store);
+    }
 
-  return result;
-};
+    return result;
+  };
 
 export default noteCardsMiddleware;

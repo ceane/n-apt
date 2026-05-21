@@ -113,9 +113,7 @@ export const IQCaptureIntegrationTest: React.FC = () => {
       {deviceState && (
         <div data-testid="device-info">
           Device State: {deviceState}
-          {deviceInfo && (
-            <div data-testid="device-name">{deviceInfo}</div>
-          )}
+          {deviceInfo && <div data-testid="device-name">{deviceInfo}</div>}
         </div>
       )}
 

@@ -1,4 +1,11 @@
-import { forwardRef, useCallback, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  type ReactNode,
+} from "react";
 import styled from "styled-components";
 import FFTCanvas, {
   type FFTCanvasHandle,
@@ -7,17 +14,18 @@ import FFTCanvas, {
 } from "@n-apt/components/FFTCanvas";
 import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
-import {
-  useAppDispatch,
-  useAppSelector,
-  spectrumActions,
-} from "@n-apt/redux";
+import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
 import { VISUALIZER_PADDING, VISUALIZER_GAP } from "@n-apt/consts";
 import {
   clampVizZoom,
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
+
+type FFTAndWaterfallProps = FFTCanvasProps & {
+  waterfallHeaderActionContent?: ReactNode;
+  onLoadingStateChange?: (isLoading: boolean) => void;
+};
 
 const Container = styled.div`
   flex: 1;
@@ -52,7 +60,7 @@ const SlidersRail = styled.div`
   align-items: center;
 `;
 
-const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
+const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
   (props, ref) => {
     const dispatch = useAppDispatch();
     const fftAvgEnabled = useAppSelector(
@@ -70,10 +78,81 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
     const vizZoomFloorPan = useAppSelector(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
     );
+    const sourceMode = useAppSelector(
+      (reduxState) => reduxState.waterfall.sourceMode,
+    );
+    const wsState = useAppSelector((reduxState) => reduxState.websocket);
+
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
+    const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
+    const [isFftCanvasLoading, setIsFftCanvasLoading] = useState(true);
+    const currentFrame = Array.isArray(props.dataRef.current)
+      ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
+      : props.dataRef.current;
+    const hasIncomingData = !!(
+      currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
+    );
+    const hasLiveFrame = hasIncomingData || hasRenderableFrame;
+
+    const placeholderErrorReason = useMemo(() => {
+      if (props.placeholderErrorReason) {
+        return props.placeholderErrorReason;
+      }
+      if (sourceMode === "live") {
+        if (!wsState.isConnected) {
+          return "Server Disconnected";
+        }
+        if (wsState.cryptoCorrupted) {
+          return "Crypto Corrupted";
+        }
+        if (wsState.deviceState === "stale") {
+          return "Device Stream Frozen";
+        }
+      }
+      return null;
+    }, [
+      props.placeholderErrorReason,
+      sourceMode,
+      wsState.isConnected,
+      wsState.cryptoCorrupted,
+      wsState.deviceState,
+    ]);
+
+    const awaitingDeviceData = useMemo(() => {
+      if (sourceMode === "live") {
+        if (wsState.deviceState === "loading") {
+          return wsState.deviceLoadingReason === "restart"
+            ? "Restarting device..."
+            : "Loading device...";
+        }
+      }
+      return props.awaitingDeviceData || false;
+    }, [
+      sourceMode,
+      wsState.deviceState,
+      wsState.deviceLoadingReason,
+      props.awaitingDeviceData,
+    ]);
+
+    const isGlobalLoading = !!(
+      awaitingDeviceData ||
+      placeholderErrorReason ||
+      isFftCanvasLoading
+    );
+
+    useEffect(() => {
+      if (awaitingDeviceData || placeholderErrorReason) {
+        setHasRenderableFrame(false);
+        setIsFftCanvasLoading(true);
+      }
+    }, [awaitingDeviceData, placeholderErrorReason]);
+
+    useEffect(() => {
+      props.onLoadingStateChange?.(isGlobalLoading);
+    }, [isGlobalLoading, props.onLoadingStateChange]);
 
     const waterfallCanvasBindings: FFTCanvasWaterfallBindings = {
       waterfallGpuCanvasNode,
@@ -137,17 +216,29 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
       <Container>
         <Left>
           <SpectrumStage>
-          <FFTCanvas
-            ref={ref}
-            {...props}
-            waterfallCanvasBindings={waterfallCanvasBindings}
-          />
+            <FFTCanvas
+              ref={ref}
+              {...props}
+              interactionDisabled={isGlobalLoading}
+              awaitingDeviceData={awaitingDeviceData || !hasLiveFrame}
+              placeholderSourceLabel={props.placeholderSourceLabel}
+              placeholderPaneLabel="FFT"
+              placeholderErrorReason={placeholderErrorReason}
+              onRenderableFrameChange={setHasRenderableFrame}
+              onCanvasLoadingChange={setIsFftCanvasLoading}
+              waterfallCanvasBindings={waterfallCanvasBindings}
+            />
           </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+            headerActionContent={props.waterfallHeaderActionContent}
             heterodyningHighlightedBins={props.heterodyningHighlightedBins}
+            awaitingDeviceData={awaitingDeviceData || isFftCanvasLoading}
+            placeholderSourceLabel={props.placeholderSourceLabel}
+            placeholderPaneLabel="Waterfall"
+            placeholderErrorReason={placeholderErrorReason}
           />
         </Left>
         <SlidersRail>
@@ -156,6 +247,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTCanvasProps>(
             dbMax={dbMax}
             dbMin={dbMin}
             powerScale={props.powerScale ?? "dB"}
+            disabled={isGlobalLoading}
             zoomFloor={zoomFloor}
             onZoomChange={handleZoomChange}
             onDbMaxChange={(nextDbMax) =>

@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import { styled } from "styled-components";
 import { Zap, BookmarkPlus, Trash2, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { updateSpanStateThunk } from "@n-apt/redux/thunks/demodThunks";
-import { setFrequencyRange, setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  setFrequencyRange,
+  setPreviewRange,
+} from "@n-apt/redux/slices/spectrumSlice";
 import { clampFrequencyHz } from "@n-apt/utils/frequency";
 import { FrequencyInput } from "../../ui/FrequencyInput";
-
-
 
 const Header = styled.div`
   display: flex;
@@ -40,11 +47,16 @@ const SyncingIndicator = styled.div`
   animation: fadeIn 0.3s ease-out;
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateX(-4px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+      opacity: 0;
+      transform: translateX(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
   }
 `;
-
 
 const InputGroup = styled.div`
   margin-top: 16px;
@@ -225,7 +237,7 @@ export const AlignmentSelect = styled.select`
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  
+
   &:focus {
     border-color: ${({ theme }) => theme.colors.primary};
   }
@@ -311,11 +323,16 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
-  const centerFreqHz = useAppSelector((state) => state.demod.centerFreqHz) ?? 26_000_000;
+  const centerFreqHz =
+    useAppSelector((state) => state.demod.centerFreqHz) ?? 26_000_000;
   const hardwareSpanHz = useAppSelector((state) => state.demod.hardwareSpanHz);
   const bandwidthHz = useAppSelector((state) => state.demod.bandwidthHz);
-  const bandwidthStartHz = useAppSelector((state) => state.demod.bandwidthStartHz);
-  const alignment = useAppSelector((state) => state.demod.alignment) as Alignment;
+  const bandwidthStartHz = useAppSelector(
+    (state) => state.demod.bandwidthStartHz,
+  );
+  const alignment = useAppSelector(
+    (state) => state.demod.alignment,
+  ) as Alignment;
   const sourceMode = useAppSelector((state) => state.demod.sourceMode);
 
   const [presetNameDraft, setPresetNameDraft] = useState("");
@@ -329,8 +346,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     const timer = setTimeout(() => setIsSyncing(false), 800);
     return () => clearTimeout(timer);
   }, [sourceMode]);
-
-
 
   const displaySampleRateHz =
     sampleRateHz && sampleRateHz > 0 ? sampleRateHz : 3_200_000;
@@ -418,34 +433,82 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     [dispatch],
   );
 
-  const isRecentlyInteracted = Date.now() - lastUserActionTimeRef.current < 1500;
+  const isRecentlyInteracted =
+    Date.now() - lastUserActionTimeRef.current < 1500;
 
   useEffect(() => {
-    if (!previewRange || isRecentlyInteracted || isPublishingLocalRangeRef.current) return;
+    if (
+      !previewRange ||
+      isRecentlyInteracted ||
+      isPublishingLocalRangeRef.current
+    )
+      return;
 
     const bw = previewRange.max - previewRange.min;
 
-    updateState(centerFreqHz, bw, previewRange.min, hardwareSpanHz, alignment, "preview_sync");
-  }, [previewRange, updateState, hardwareSpanHz, alignment, isRecentlyInteracted, centerFreqHz]);
+    updateState(
+      centerFreqHz,
+      bw,
+      previewRange.min,
+      hardwareSpanHz,
+      alignment,
+      "preview_sync",
+    );
+  }, [
+    previewRange,
+    updateState,
+    hardwareSpanHz,
+    alignment,
+    isRecentlyInteracted,
+    centerFreqHz,
+  ]);
 
   const handleBandwidthStartChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
-    updateState(centerFreqHz, bandwidthHz, val, hardwareSpanHz, alignment, 'start');
+    updateState(
+      centerFreqHz,
+      bandwidthHz,
+      val,
+      hardwareSpanHz,
+      alignment,
+      "start",
+    );
   };
 
   const handleCenterFreqChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
-    updateState(val, bandwidthHz, bandwidthStartHz, hardwareSpanHz, alignment, 'center');
+    updateState(
+      val,
+      bandwidthHz,
+      bandwidthStartHz,
+      hardwareSpanHz,
+      alignment,
+      "center",
+    );
   };
 
   const handleHardwareSpanChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
-    updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, val, alignment, 'external');
+    updateState(
+      centerFreqHz,
+      bandwidthHz,
+      bandwidthStartHz,
+      val,
+      alignment,
+      "external",
+    );
   };
 
   const handleBandwidthChange = (val: number) => {
     lastUserActionTimeRef.current = Date.now();
-    updateState(centerFreqHz, val, bandwidthStartHz, hardwareSpanHz, alignment, 'bandwidth');
+    updateState(
+      centerFreqHz,
+      val,
+      bandwidthStartHz,
+      hardwareSpanHz,
+      alignment,
+      "bandwidth",
+    );
   };
 
   useEffect(() => {
@@ -460,36 +523,33 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const handleApply = () => {
     lastUserActionTimeRef.current = Date.now();
     isPublishingLocalRangeRef.current = true;
-    
+
     const halfSpan = hardwareSpanHz / 2;
-    const range = { 
-      min: centerFreqHz - halfSpan, 
-      max: centerFreqHz + halfSpan 
+    const range = {
+      min: centerFreqHz - halfSpan,
+      max: centerFreqHz + halfSpan,
     };
-    
+
     dispatch(setFrequencyRange(range));
     dispatch(sendFrequencyRange(range));
-    
+
     dispatch(
       updateSpanStateThunk({
-        params: { 
-          center: centerFreqHz, 
-          bandwidth: bandwidthHz, 
+        params: {
+          center: centerFreqHz,
+          bandwidth: bandwidthHz,
           start: bandwidthStartHz,
           span: hardwareSpanHz,
-          mode: alignment
+          mode: alignment,
         },
-        source: 'external'
-      })
+        source: "external",
+      }),
     );
 
     setTimeout(() => {
       isPublishingLocalRangeRef.current = false;
     }, 100);
   };
-
-
-
 
   const handleSavePreset = useCallback(() => {
     const name = presetNameDraft.trim();
@@ -509,12 +569,28 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
       return next;
     });
     setPresetNameDraft("");
-  }, [presetNameDraft, centerFreqHz, bandwidthHz, bandwidthStartHz, hardwareSpanHz]);
+  }, [
+    presetNameDraft,
+    centerFreqHz,
+    bandwidthHz,
+    bandwidthStartHz,
+    hardwareSpanHz,
+  ]);
 
-  const handleLoadPreset = useCallback((p: SpanPreset) => {
-    lastUserActionTimeRef.current = Date.now();
-    updateState(p.centerFreqHz, p.bandwidthHz, p.bandwidthStartHz, p.hardwareSpanHz ?? 3_200_000, alignment, "external");
-  }, [alignment, updateState]);
+  const handleLoadPreset = useCallback(
+    (p: SpanPreset) => {
+      lastUserActionTimeRef.current = Date.now();
+      updateState(
+        p.centerFreqHz,
+        p.bandwidthHz,
+        p.bandwidthStartHz,
+        p.hardwareSpanHz ?? 3_200_000,
+        alignment,
+        "external",
+      );
+    },
+    [alignment, updateState],
+  );
 
   const handleDeletePreset = useCallback((id: string) => {
     setPresets((prev) => {
@@ -538,7 +614,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
           )}
         </Title>
       </Header>
-
 
       <InputGroup>
         <InputField>
@@ -584,12 +659,19 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
         </InputField>
         <InputField>
           <Label htmlFor="bw-alignment">Bandwidth Alignment</Label>
-          <AlignmentSelect 
+          <AlignmentSelect
             id="bw-alignment"
-            value={alignment} 
+            value={alignment}
             onChange={(e) => {
               const newMode = e.target.value as Alignment;
-              updateState(centerFreqHz, bandwidthHz, bandwidthStartHz, hardwareSpanHz, newMode, 'alignment');
+              updateState(
+                centerFreqHz,
+                bandwidthHz,
+                bandwidthStartHz,
+                hardwareSpanHz,
+                newMode,
+                "alignment",
+              );
             }}
           >
             <option value="centered">Centered</option>
@@ -649,7 +731,6 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
       </PresetSection>
 
       <ApplyButton onClick={handleApply}>Apply Span</ApplyButton>
-
     </>
   );
 };

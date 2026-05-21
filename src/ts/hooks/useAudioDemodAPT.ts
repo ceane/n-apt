@@ -61,11 +61,7 @@ export function useAudioDemodAPT(
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
       const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
-      const filteredIq = applyComplexLowPass(
-        shiftedIq,
-        sampleRate,
-        200_000,
-      );
+      const filteredIq = applyComplexLowPass(shiftedIq, sampleRate, 200_000);
       const i = new Float32Array(samples);
       const q = new Float32Array(samples);
       for (let j = 0; j < samples; j++) {

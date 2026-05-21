@@ -195,6 +195,19 @@ pub(crate) fn is_recovery_budget_exhausted(
   recovery_attempts >= max_recovery_attempts
 }
 
+fn has_post_swap_success(
+  state: &HotplugState,
+  shared_state: &SharedState,
+) -> bool {
+  match (
+    state.last_hardware_swap,
+    *shared_state.last_successful_read.lock().unwrap(),
+  ) {
+    (Some(swap_at), Some(success_at)) => success_at > swap_at,
+    _ => false,
+  }
+}
+
 pub async fn drain_hotplug_events(
   monitor: &HotplugMonitor,
   state: &mut HotplugState,
@@ -364,7 +377,9 @@ pub async fn handle_real_hardware_health(
     .last_hardware_swap
     .map(|t| t.elapsed() < Duration::from_secs(5))
     .unwrap_or(false);
-  if processor.is_healthy() || is_warming_up {
+  let warming_up_after_success =
+    is_warming_up && has_post_swap_success(state, shared_state);
+  if processor.is_healthy() || warming_up_after_success {
     let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
     if prev > 0 {
       info!("Device health restored after {} failure(s)", prev);
@@ -548,5 +563,14 @@ mod tests {
     .await;
 
     assert_eq!(state.last_poll, before);
+  }
+
+  #[test]
+  fn warming_up_requires_a_successful_read_after_swap() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared_state = SharedState::new("redis://127.0.0.1:6379");
+    let state = HotplugState::new();
+
+    assert!(!has_post_swap_success(&state, &shared_state));
   }
 }

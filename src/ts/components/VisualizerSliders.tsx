@@ -34,7 +34,11 @@ const ActionButtonsContainer = styled.div`
   width: 84px;
 `;
 
-const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean; $refocus?: boolean }>`
+const ActionButton = styled.button<{
+  $active?: boolean;
+  $outlined?: boolean;
+  $refocus?: boolean;
+}>`
   font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
   font-size: 9px;
   font-weight: 500;
@@ -104,6 +108,19 @@ const ActionButton = styled.button<{ $active?: boolean; $outlined?: boolean; $re
   &:active {
     transform: scale(0.96);
   }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: ${(props) => props.theme.textMuted};
+    background: transparent;
+    transform: none;
+  }
+
+  &:disabled:hover {
+    background: transparent;
+    color: ${(props) => props.theme.textMuted};
+  }
 `;
 
 const ResetButton = styled(ActionButton)<{ $hasZoomFloor?: boolean }>`
@@ -157,161 +174,189 @@ export interface VisualizerSlidersProps {
   onAutoZoomStabilityChange?: (enabled: boolean) => void;
   onLockZoomFloor?: () => void;
   onRefocusZoomFloor?: () => void;
+  /** Disable the control rail while the canvas is loading. */
+  disabled?: boolean;
 }
 
 // Module-level format functions — avoid inline lambdas that break React.memo
 const formatZoom = (v: number) => `${v.toFixed(1)}x`;
-const formatDbValue = (dbUnit: string) => (v: number) => `${roundDbValue(v)}${dbUnit}`;
+const formatDbValue = (dbUnit: string) => (v: number) =>
+  `${roundDbValue(v)}${dbUnit}`;
 
-export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(({
-  zoom,
-  dbMax,
-  dbMin,
-  powerScale = "dB",
-  onZoomChange,
-  onDbMaxChange,
-  onDbMinChange,
-  fftAvgEnabled = false,
-  fftSmoothEnabled = false,
-  wfSmoothEnabled = false,
-  onFftAvgChange,
-  onFftSmoothChange,
-  onWfSmoothChange,
-  onResetZoomDb,
-  zoomFloor = 1,
-  autoZoomStability = true,
-  onAutoZoomStabilityChange,
-  onLockZoomFloor,
-  onRefocusZoomFloor,
-}) => {
-  // Calculate appropriate ranges based on power scale
-  const isDbm = powerScale === "dBm";
-  const maxDbRange = isDbm
-    ? { min: -100, max: 30 }
-    : { min: FFT_MIN_DB, max: FFT_MAX_DB };
-  const minDbRange = isDbm
-    ? { min: -120, max: -10 }
-    : { min: FFT_MIN_DB, max: -10 };
-  const dbUnit = isDbm ? "dBm" : "dB";
-  const formatDb = React.useMemo(() => formatDbValue(dbUnit), [dbUnit]);
-  const isZoomedIn = zoom > 1.0001;
-  const hasZoomFloor = zoomFloor > 1.0001;
-  const canShowZoomFloorAction = autoZoomStability;
-  const handleZoomFloorAction = hasZoomFloor
-    ? onRefocusZoomFloor
-    : onLockZoomFloor;
+export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
+  ({
+    zoom,
+    dbMax,
+    dbMin,
+    powerScale = "dB",
+    onZoomChange,
+    onDbMaxChange,
+    onDbMinChange,
+    fftAvgEnabled = false,
+    fftSmoothEnabled = false,
+    wfSmoothEnabled = false,
+    onFftAvgChange,
+    onFftSmoothChange,
+    onWfSmoothChange,
+    onResetZoomDb,
+    zoomFloor = 1,
+    autoZoomStability = true,
+    onAutoZoomStabilityChange,
+    onLockZoomFloor,
+    onRefocusZoomFloor,
+    disabled = false,
+  }) => {
+    // Calculate appropriate ranges based on power scale
+    const isDbm = powerScale === "dBm";
+    const maxDbRange = isDbm
+      ? { min: -100, max: 30 }
+      : { min: FFT_MIN_DB, max: FFT_MAX_DB };
+    const minDbRange = isDbm
+      ? { min: -120, max: -10 }
+      : { min: FFT_MIN_DB, max: -10 };
+    const dbUnit = isDbm ? "dBm" : "dB";
+    const formatDb = React.useMemo(() => formatDbValue(dbUnit), [dbUnit]);
+    const isZoomedIn = zoom > 1.0001;
+    const hasZoomFloor = zoomFloor > 1.0001;
+    const canShowZoomFloorAction = autoZoomStability;
+    const handleZoomFloorAction = hasZoomFloor
+      ? onRefocusZoomFloor
+      : onLockZoomFloor;
 
-  const toggleFftAvg = useCallback(() => onFftAvgChange?.(!fftAvgEnabled), [fftAvgEnabled, onFftAvgChange]);
-  const toggleFftSmooth = useCallback(() => onFftSmoothChange?.(!fftSmoothEnabled), [fftSmoothEnabled, onFftSmoothChange]);
-  const toggleWfSmooth = useCallback(() => onWfSmoothChange?.(!wfSmoothEnabled), [wfSmoothEnabled, onWfSmoothChange]);
-  const toggleAutoZoom = useCallback(() => onAutoZoomStabilityChange?.(!autoZoomStability), [autoZoomStability, onAutoZoomStabilityChange]);
+    const toggleFftAvg = useCallback(
+      () => onFftAvgChange?.(!fftAvgEnabled),
+      [fftAvgEnabled, onFftAvgChange],
+    );
+    const toggleFftSmooth = useCallback(
+      () => onFftSmoothChange?.(!fftSmoothEnabled),
+      [fftSmoothEnabled, onFftSmoothChange],
+    );
+    const toggleWfSmooth = useCallback(
+      () => onWfSmoothChange?.(!wfSmoothEnabled),
+      [wfSmoothEnabled, onWfSmoothChange],
+    );
+    const toggleAutoZoom = useCallback(
+      () => onAutoZoomStabilityChange?.(!autoZoomStability),
+      [autoZoomStability, onAutoZoomStabilityChange],
+    );
 
-  return (
-    <SlidersGrid>
-      <ActionButtonsContainer>
-        <ResetButton
-          $outlined={hasZoomFloor}
-          $hasZoomFloor={hasZoomFloor}
-          onClick={onResetZoomDb}
-          title="Reset Zoom and dB limits"
-        >
-          <RotateCcw size={13} strokeWidth={1.5} />
-          Reset
-          {hasZoomFloor ? <ResetBadge data-testid="zoom-floor-indicator" /> : null}
-        </ResetButton>
-        <ActionButton
-          $active={fftAvgEnabled}
-          onClick={toggleFftAvg}
-          title="Toggle FFT averaging"
-        >
-          <Sigma size={13} strokeWidth={1.5} />
-          FFT Averaging
-        </ActionButton>
-        <ActionButton
-          $active={fftSmoothEnabled}
-          onClick={toggleFftSmooth}
-          title="Toggle FFT smoothing"
-        >
-          <Wand2 size={13} strokeWidth={1.5} />
-          FFT Smoothing
-        </ActionButton>
-        <ActionButton
-          $active={wfSmoothEnabled}
-          onClick={toggleWfSmooth}
-          title="Toggle waterfall smoothing"
-        >
-          <PaintbrushVertical size={19} strokeWidth={1.5} />
-          Waterfall Smoothing
-        </ActionButton>
-        <ActionButton
-          $active={autoZoomStability}
-          onClick={toggleAutoZoom}
-          title="Toggle auto zoom stability — keeps zoom floor tracking as you pan"
-        >
-          <Maximize2 size={13} strokeWidth={1.5} />
-          Auto Zoom Stability
-        </ActionButton>
-        {canShowZoomFloorAction && (
-          <ActionButton
-            $refocus={hasZoomFloor}
-            $outlined={!hasZoomFloor}
-            disabled={!isZoomedIn && !hasZoomFloor}
-            onClick={handleZoomFloorAction}
-            title={
-              hasZoomFloor
-                ? "Refocus — snap zoom and pan back to the current floor window"
-                : isZoomedIn
-                  ? "Lock zoom floor — save the current zoom and pan as the floor window"
-                  : "Zoom in first — lock zoom floor becomes available above 1.0x"
-            }
+    return (
+      <SlidersGrid>
+        <ActionButtonsContainer>
+          <ResetButton
+            $outlined={hasZoomFloor}
+            $hasZoomFloor={hasZoomFloor}
+            disabled={disabled}
+            onClick={onResetZoomDb}
+            title="Reset Zoom and dB limits"
           >
+            <RotateCcw size={13} strokeWidth={1.5} />
+            Reset
             {hasZoomFloor ? (
-              <FoldHorizontal size={13} strokeWidth={1.5} />
-            ) : (
-              <Lock size={13} strokeWidth={1.5} />
-            )}
-            {hasZoomFloor ? "Refocus (Zoom Floor)" : "Lock Zoom Floor"}
+              <ResetBadge data-testid="zoom-floor-indicator" />
+            ) : null}
+          </ResetButton>
+          <ActionButton
+            $active={fftAvgEnabled}
+            disabled={disabled}
+            onClick={toggleFftAvg}
+            title="Toggle FFT averaging"
+          >
+            <Sigma size={13} strokeWidth={1.5} />
+            FFT Averaging
           </ActionButton>
-        )}
-      </ActionButtonsContainer>
+          <ActionButton
+            $active={fftSmoothEnabled}
+            disabled={disabled}
+            onClick={toggleFftSmooth}
+            title="Toggle FFT smoothing"
+          >
+            <Wand2 size={13} strokeWidth={1.5} />
+            FFT Smoothing
+          </ActionButton>
+          <ActionButton
+            $active={wfSmoothEnabled}
+            disabled={disabled}
+            onClick={toggleWfSmooth}
+            title="Toggle waterfall smoothing"
+          >
+            <PaintbrushVertical size={19} strokeWidth={1.5} />
+            Waterfall Smoothing
+          </ActionButton>
+          <ActionButton
+            $active={autoZoomStability}
+            disabled={disabled}
+            onClick={toggleAutoZoom}
+            title="Toggle auto zoom stability — keeps zoom floor tracking as you pan"
+          >
+            <Maximize2 size={13} strokeWidth={1.5} />
+            Auto Zoom Stability
+          </ActionButton>
+          {canShowZoomFloorAction && (
+            <ActionButton
+              $refocus={hasZoomFloor}
+              $outlined={!hasZoomFloor}
+              disabled={disabled || (!isZoomedIn && !hasZoomFloor)}
+              onClick={handleZoomFloorAction}
+              title={
+                hasZoomFloor
+                  ? "Refocus — snap zoom and pan back to the current floor window"
+                  : isZoomedIn
+                    ? "Lock zoom floor — save the current zoom and pan as the floor window"
+                    : "Zoom in first — lock zoom floor becomes available above 1.0x"
+              }
+            >
+              {hasZoomFloor ? (
+                <FoldHorizontal size={13} strokeWidth={1.5} />
+              ) : (
+                <Lock size={13} strokeWidth={1.5} />
+              )}
+              {hasZoomFloor ? "Refocus (Zoom Floor)" : "Lock Zoom Floor"}
+            </ActionButton>
+          )}
+        </ActionButtonsContainer>
 
-      <Slider
-        label="Zoom"
-        value={zoom}
-        min={1}
-        max={1000}
-        step={0.1}
-        onChange={onZoomChange}
-        formatValue={formatZoom}
-        orientation="vertical"
-        labelPlacement="bottom"
-      />
-      <Slider
-        label="Max"
-        value={dbMax}
-        min={maxDbRange.min}
-        max={maxDbRange.max}
-        step={5}
-        onChange={onDbMaxChange}
-        formatValue={formatDb}
-        invertFill
-        orientation="vertical"
-        labelPlacement="bottom"
-      />
-      <Slider
-        label="Min"
-        value={dbMin}
-        min={minDbRange.min}
-        max={minDbRange.max}
-        step={5}
-        onChange={onDbMinChange}
-        formatValue={formatDb}
-        orientation="vertical"
-        labelPlacement="bottom"
-      />
-    </SlidersGrid>
-  );
-});
+        <Slider
+          label="Zoom"
+          value={zoom}
+          min={1}
+          max={1000}
+          step={0.1}
+          disabled={disabled}
+          onChange={onZoomChange}
+          formatValue={formatZoom}
+          orientation="vertical"
+          labelPlacement="bottom"
+        />
+        <Slider
+          label="Max"
+          value={dbMax}
+          min={maxDbRange.min}
+          max={maxDbRange.max}
+          step={5}
+          disabled={disabled}
+          onChange={onDbMaxChange}
+          formatValue={formatDb}
+          invertFill
+          orientation="vertical"
+          labelPlacement="bottom"
+        />
+        <Slider
+          label="Min"
+          value={dbMin}
+          min={minDbRange.min}
+          max={minDbRange.max}
+          step={5}
+          disabled={disabled}
+          onChange={onDbMinChange}
+          formatValue={formatDb}
+          orientation="vertical"
+          labelPlacement="bottom"
+        />
+      </SlidersGrid>
+    );
+  },
+);
 
 VisualizerSliders.displayName = "VisualizerSliders";
 

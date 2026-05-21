@@ -1,6 +1,7 @@
 /**
  * Frequency formatting utilities for precise and consistent display
  */
+import type { FrequencyRange } from "@n-apt/consts/types";
 
 /**
  * Standard frequency formatting: 100.000 MHz or 500 kHz
@@ -58,16 +59,93 @@ export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
   return { value: hz, unit: "Hz" };
 };
 
-export const getCenteredFrequencyHz = (centerHz: number, bandwidthHz: number): number =>
-  centerHz - bandwidthHz / 2;
+export const getCenteredFrequencyHz = (
+  centerHz: number,
+  bandwidthHz: number,
+): number => centerHz - bandwidthHz / 2;
 
-export const getBandwidthEndHz = (startHz: number, bandwidthHz: number): number =>
-  startHz + bandwidthHz;
+export const getBandwidthEndHz = (
+  startHz: number,
+  bandwidthHz: number,
+): number => startHz + bandwidthHz;
 
-export const getBandwidthStartHz = (endHz: number, bandwidthHz: number): number =>
-  endHz - bandwidthHz;
+export const getBandwidthStartHz = (
+  endHz: number,
+  bandwidthHz: number,
+): number => endHz - bandwidthHz;
 
 export const MIN_CAPTURE_BANDWIDTH_HZ = 3_200_000;
+
+export const AVAILABLE_SPECTRUM_FALLBACK: FrequencyRange = {
+  min: 0,
+  max: 30_000_000_000,
+};
+
+export const normalizeFrequencyRangeToHz = (
+  range: FrequencyRange,
+): FrequencyRange => {
+  const min = Math.round(range.min);
+  const max = Math.round(range.max);
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 0 };
+  }
+
+  return min <= max ? { min, max } : { min: max, max: min };
+};
+
+export const getFrequencyRangeCenterHz = (range: FrequencyRange): number =>
+  Math.round((range.min + range.max) / 2);
+
+export const getAvailableSpectrumBounds = (
+  bounds?: FrequencyRange | null,
+): FrequencyRange => {
+  if (
+    bounds &&
+    Number.isFinite(bounds.min) &&
+    Number.isFinite(bounds.max) &&
+    bounds.max > bounds.min
+  ) {
+    return bounds;
+  }
+  return AVAILABLE_SPECTRUM_FALLBACK;
+};
+
+export const clampFrequencyRangeToBounds = (
+  range: FrequencyRange,
+  bounds?: FrequencyRange | null,
+): FrequencyRange => {
+  const safeBounds = getAvailableSpectrumBounds(bounds);
+  const span = range.max - range.min;
+  const boundsSpan = safeBounds.max - safeBounds.min;
+  if (!Number.isFinite(span) || span <= 0) {
+    return {
+      min: safeBounds.min,
+      max: safeBounds.min,
+    };
+  }
+
+  if (span >= boundsSpan) {
+    return {
+      min: safeBounds.min,
+      max: safeBounds.max,
+    };
+  }
+
+  let min = range.min;
+  let max = range.max;
+
+  if (min < safeBounds.min) {
+    min = safeBounds.min;
+    max = min + span;
+  }
+  if (max > safeBounds.max) {
+    max = safeBounds.max;
+    min = max - span;
+  }
+
+  return { min, max };
+};
 
 export const clampBandwidthWithMinSpan = (
   startHz: number,

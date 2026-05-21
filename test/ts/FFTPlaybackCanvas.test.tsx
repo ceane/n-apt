@@ -182,7 +182,10 @@ describe("FFTPlaybackCanvas Component", () => {
     });
 
     render(
-      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "invalid", name: "test.txt" }]} />,
+      <FFTPlaybackCanvas
+        {...defaultProps}
+        selectedFiles={[{ id: "invalid", name: "test.txt" }]}
+      />,
     );
 
     // Should not crash and should show error handling
@@ -194,7 +197,12 @@ describe("FFTPlaybackCanvas Component", () => {
       type: "application/octet-stream",
     });
 
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "empty", name: "empty.napt" }]} />);
+    render(
+      <FFTPlaybackCanvas
+        {...defaultProps}
+        selectedFiles={[{ id: "empty", name: "empty.napt" }]}
+      />,
+    );
 
     // Should not crash
     expect(screen.getByText("empty.napt")).toBeInTheDocument();
@@ -203,7 +211,12 @@ describe("FFTPlaybackCanvas Component", () => {
   it("should handle large files efficiently", () => {
     const largeFile = createMockFile("large.wav", 1048576); // 1MB file
 
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[{ id: "large", name: "large.wav" }]} />);
+    render(
+      <FFTPlaybackCanvas
+        {...defaultProps}
+        selectedFiles={[{ id: "large", name: "large.wav" }]}
+      />,
+    );
 
     // Should not crash with large file
     expect(screen.getByText("large.wav")).toBeInTheDocument();
@@ -211,8 +224,14 @@ describe("FFTPlaybackCanvas Component", () => {
 
   it("should handle multiple files", () => {
     const manyFiles = [
-      ...Array.from({ length: 5 }, (_, i) => ({ id: `test${i}`, name: `test${i}.napt` })),
-      ...Array.from({ length: 5 }, (_, i) => ({ id: `wav${i}`, name: `wav${i}.wav` })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: `test${i}`,
+        name: `test${i}.napt`,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: `wav${i}`,
+        name: `wav${i}.wav`,
+      })),
     ];
 
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);

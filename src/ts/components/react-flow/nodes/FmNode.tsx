@@ -89,8 +89,6 @@ const StationPill = styled.button<{ $active: boolean }>`
   }
 `;
 
-
-
 const FM_STATIONS = [
   88.1, 88.5, 88.9, 89.3, 89.5, 89.7, 90.3, 90.5, 90.7, 91.1, 91.7, 92.3, 92.7,
   93.3, 94.1, 94.5, 95.3, 96.5, 97.3, 98.1, 98.5, 99.7, 100.3, 101.3, 102.1,
@@ -137,8 +135,6 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
     dispatch(setBandwidth(200));
   };
 
-
-
   return (
     <NodeContainer>
       <Header>
@@ -167,9 +163,6 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
           ))}
         </StationsGrid>
       </StationsSection>
-
-
-
     </NodeContainer>
   );
 };

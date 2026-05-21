@@ -53,25 +53,39 @@ describe("Redux WebSocket Migration", () => {
     });
 
     // Clear the live data ref
-      liveDataRef.current = null;
+    liveDataRef.current = null;
     resetPausedFrameRequestGate();
   });
 
   describe("Thunk payload shaping", () => {
-    it("sendFrequencyRange uses Redux sample rate to shape payload", async () => {
-      // Set up state with a known sample rate
-      store.dispatch(
-        updateDeviceState({
-          sampleRateHz: 2_400_000,
-        }),
-      );
+    it("sendFrequencyRange emits integer-Hz tuning payloads", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: {},
+          spectrum: {},
+        }) as any;
 
-      const range = { min: 100, max: 102 };
-      await (store.dispatch as any)(sendFrequencyRange(range));
+      await (
+        sendFrequencyRange({
+          min: 929_130.434_782_601_9,
+          max: 4_129_130.434_782_606_5,
+        }) as any
+      )(dispatch, getState, undefined);
 
-      const state = store.getState() as any;
-      // Verify the thunk completed
-      expect(state.websocket.sampleRateHz).toBe(2_400_000);
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 929_130,
+            max_hz: 4_129_130,
+            center_frequency: 2_529_130,
+            bandwidth_center_frequency: undefined,
+          },
+        },
+      });
     });
 
     it("sendCenterFrequency derives min/max from sample rate", async () => {

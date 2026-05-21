@@ -218,7 +218,11 @@ export function useNAPTAudioDemod(
         }
       }
       if (inputSampleRate !== targetSampleRate) {
-        finalAudio = resampleAudio(finalAudio, inputSampleRate, targetSampleRate);
+        finalAudio = resampleAudio(
+          finalAudio,
+          inputSampleRate,
+          targetSampleRate,
+        );
       }
       if (finalAudio.length === 0) {
         processedAudioBufferRef.current = null;
@@ -226,7 +230,12 @@ export function useNAPTAudioDemod(
       }
       processedAudioBufferRef.current = finalAudio;
     },
-    [demodulateNAPTBaseband, envelopeDetectNAPT, resampleAudio, targetSampleRate],
+    [
+      demodulateNAPTBaseband,
+      envelopeDetectNAPT,
+      resampleAudio,
+      targetSampleRate,
+    ],
   );
 
   const stopAudio = useCallback(() => {
@@ -245,7 +254,10 @@ export function useNAPTAudioDemod(
   }, []);
 
   const playAudio = useCallback(() => {
-    if (!processedAudioBufferRef.current || processedAudioBufferRef.current.length === 0) {
+    if (
+      !processedAudioBufferRef.current ||
+      processedAudioBufferRef.current.length === 0
+    ) {
       return;
     }
     try {

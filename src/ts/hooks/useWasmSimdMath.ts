@@ -257,10 +257,7 @@ export function computeIqToDbSpectrumScalar(
   return shifted;
 }
 
-const writeSpectrumOutput = (
-  source: Float32Array,
-  output?: Float32Array,
-) => {
+const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
   if (output && output.length === source.length) {
     output.set(source);
     return output;
@@ -459,9 +456,14 @@ export function useWasmSimdMath(
             ) => Float32Array | Float32Array;
           };
           if (typeof processor.process_iq_to_dbm_spectrum === "function") {
-            const result = processor.process_iq_to_dbm_spectrum(input, offsetDb);
+            const result = processor.process_iq_to_dbm_spectrum(
+              input,
+              offsetDb,
+            );
             const typedResult =
-              result instanceof Float32Array ? result : new Float32Array(result);
+              result instanceof Float32Array
+                ? result
+                : new Float32Array(result);
             return writeSpectrumOutput(typedResult, output);
           }
         } catch (error) {
@@ -784,11 +786,7 @@ export function useWasmSimdMath(
   );
 
   const detectProminentSpikes = useCallback((params: SpikeDetectionParams) => {
-    const {
-      spectrumData,
-      maxMarkers = 96,
-      frequencyRange,
-    } = params;
+    const { spectrumData, maxMarkers = 96, frequencyRange } = params;
     const length = spectrumData.length;
     if (length < 5) return [];
 
@@ -826,7 +824,7 @@ export function useWasmSimdMath(
       for (let j = start; j <= end; j++) {
         // Exclude the peak and its immediate neighbors
         if (Math.abs(j - i) <= 2) continue;
-        
+
         const neighbor = spectrumData[j];
         if (Number.isFinite(neighbor)) {
           sum += neighbor;
@@ -838,16 +836,19 @@ export function useWasmSimdMath(
       if (count < 2) continue;
 
       const mean = sum / count;
-      const variance = Math.max(0, (sumSq / count) - (mean * mean));
-      
+      const variance = Math.max(0, sumSq / count - mean * mean);
+
       // Floor stdDev to prevent extreme z-scores in completely flat noise regions
-      const stdDev = Math.max(1.0, Math.sqrt(variance)); 
-      
+      const stdDev = Math.max(1.0, Math.sqrt(variance));
+
       const zScore = (val - mean) / stdDev;
 
       if (zScore >= minZScore) {
         // Base radius on Z-score magnitude
-        const normalizedScore = Math.max(0, Math.min(1, (zScore - minZScore) / 10.0));
+        const normalizedScore = Math.max(
+          0,
+          Math.min(1, (zScore - minZScore) / 10.0),
+        );
 
         candidates.push({
           index: i,

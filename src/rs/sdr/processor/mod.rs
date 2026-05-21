@@ -535,37 +535,11 @@ impl SdrProcessor {
     let sample_rate = self.get_sample_rate();
 
     if force_noise || sample_rate == 0 {
-      let noise = Self::synthesize_noise_frame(
-        fft_size,
-        self.frame.frame_counter,
-      );
+      let noise =
+        Self::synthesize_noise_frame(fft_size, self.frame.frame_counter);
       self.frame.last_frame_raw_iq.clear();
       self.frame.last_stable_spectrum = Some(noise.clone());
       return Ok(noise);
-    }
-
-    if let Some((min_freq, max_freq)) = self.available_spectrum {
-      let center_freq = self.get_center_frequency() as f64;
-      if center_freq < min_freq || center_freq > max_freq {
-        let noise = Self::synthesize_noise_frame(
-          fft_size,
-          self.frame.frame_counter,
-        );
-        self.frame.last_frame_raw_iq.clear();
-        self.frame.last_stable_spectrum = Some(noise.clone());
-        return Ok(noise);
-      }
-    }
-
-    // If we're in a retune cooldown window, avoid touching the device
-    if let Some(until) = self.frame.retune_cooldown_until {
-      if Instant::now() < until {
-        if let Some(ref avg) = self.frame.avg_spectrum {
-          return Ok(avg.clone());
-        }
-        return Ok(vec![-120.0; fft_size]);
-      }
-      self.frame.retune_cooldown_until = None;
     }
 
     if let Some(freq) = self.frame.pending_freq {
@@ -580,6 +554,30 @@ impl SdrProcessor {
             self.post_retune_discard_frame_count();
         }
       }
+    }
+
+    if let Some((min_freq, max_freq)) = self.available_spectrum {
+      let center_freq = self.get_center_frequency() as f64;
+      if center_freq < min_freq || center_freq > max_freq {
+        let noise =
+          Self::synthesize_noise_frame(fft_size, self.frame.frame_counter);
+        self.frame.last_frame_raw_iq.clear();
+        self.frame.last_stable_spectrum = Some(noise.clone());
+        return Ok(noise);
+      }
+    }
+
+    // If we're in a retune cooldown window, avoid touching the device after
+    // queued retunes have been applied. A new pending tune must never wait
+    // behind old cooldown data.
+    if let Some(until) = self.frame.retune_cooldown_until {
+      if Instant::now() < until {
+        if let Some(ref avg) = self.frame.avg_spectrum {
+          return Ok(avg.clone());
+        }
+        return Ok(vec![-120.0; fft_size]);
+      }
+      self.frame.retune_cooldown_until = None;
     }
 
     // 0. Handle capture fragment hopping
@@ -922,6 +920,7 @@ impl SdrProcessor {
     self.device.set_center_frequency(freq)?;
     self.fft_processor.set_center_frequency(freq);
     self.frame.avg_spectrum = None;
+    self.flush_read_queue();
     self.frame.last_retune_at = Some(std::time::Instant::now());
     self.frame.post_retune_discard_frames =
       self.post_retune_discard_frame_count();

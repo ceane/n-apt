@@ -5,6 +5,7 @@ import {
   forwardRef,
   useImperativeHandle,
   useMemo,
+  useState,
   memo,
   Suspense,
   type ReactNode,
@@ -22,6 +23,9 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setGpuSpikeCount } from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import CanvasPlaceholder, {
+  type CanvasPlaceholderState,
+} from "@n-apt/components/ui/CanvasPlaceholder";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
@@ -56,6 +60,8 @@ import {
   peakResampleWaterfallRow,
 } from "@n-apt/utils/waterfallRows";
 import { roundDbValue } from "@n-apt/utils/frequency";
+import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
+
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -107,6 +113,8 @@ const SpectrumSection = memo(styled.div`
   flex-direction: column;
   position: relative;
   min-height: 0;
+  padding: 2px 2px 12px;
+  box-sizing: border-box;
 `);
 
 const SectionTitle = memo(styled.div`
@@ -114,7 +122,8 @@ const SectionTitle = memo(styled.div`
   color: ${SECTION_TITLE_COLOR};
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  line-height: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -128,8 +137,10 @@ const SectionTitle = memo(styled.div`
 const SectionTitleRow = memo(styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 0 0 10px;
+  margin-bottom: 0;
 `);
 
 const SectionTitleActions = memo(styled.div`
@@ -137,6 +148,12 @@ const SectionTitleActions = memo(styled.div`
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  transition: opacity 0.15s ease;
+
+  &[data-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 `);
 
 const CanvasWrapper = memo(styled.div`
@@ -241,7 +258,10 @@ const WATERFALL_PLACEHOLDER_FONT = "20px 'JetBrains Mono', monospace";
 const LOADING_PLACEHOLDER_COLOR = "#888888";
 const MIN_FFT_DB_SPAN = 5;
 const NODE_PREVIEW_BACKGROUND_STYLE = { backgroundColor: "#05070d" } as const;
-const COMPACT_VISUALIZER_STYLE = { backgroundColor: "#05070d", minHeight: 0 } as const;
+const COMPACT_VISUALIZER_STYLE = {
+  backgroundColor: "#05070d",
+  minHeight: 0,
+} as const;
 const COMPACT_VISUALIZER_CONTENT_STYLE = { gap: 0 } as const;
 const EMPTY_STYLE = {} as const;
 
@@ -360,6 +380,18 @@ export interface FFTCanvasProps {
   overlayContent?: ReactNode;
   /** Optional action content rendered beside the FFT section title */
   headerActionContent?: ReactNode;
+  /** Optional label used to personalize loading / error placeholders. */
+  placeholderSourceLabel?: string;
+  /** Optional pane label used by the placeholder copy. */
+  placeholderPaneLabel?: string;
+  /** Optional explicit playback error message for the placeholder overlay. */
+  placeholderErrorReason?: string | null;
+  /** Disable canvas interactions while a placeholder is shown. */
+  interactionDisabled?: boolean;
+  /** Emits when the rAF loop sees a real live frame from a mutable data ref. */
+  onRenderableFrameChange?: (hasRenderableFrame: boolean) => void;
+  /** Emits the actual placeholder/loading state owned by the FFT canvas. */
+  onCanvasLoadingChange?: (isLoading: boolean) => void;
   showSpikeOverlay?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
@@ -397,7 +429,7 @@ export interface FFTCanvasProps {
     statusText: string;
     highlightedBins: Array<{ start: number; end: number }>;
   }) => void;
-  awaitingDeviceData?: boolean;
+  awaitingDeviceData?: boolean | string;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
@@ -417,7 +449,7 @@ export const getLatestLiveFrame = <T,>(
 ): T | null => {
   if (!liveData) return null;
   return Array.isArray(liveData)
-    ? liveData[liveData.length - 1] ?? null
+    ? (liveData[liveData.length - 1] ?? null)
     : liveData;
 };
 
@@ -448,12 +480,16 @@ export type SnapshotData = {
   webgpuEnabled: boolean;
   hardwareSampleRateHz?: number;
   isIqRecordingActive?: boolean;
+  demodFocusOverlay?: DemodFocusOverlay | null;
+
   colormap: number[][];
 };
 
 export type FFTCanvasHandle = {
   getSpectrumCanvas: () => HTMLCanvasElement | null;
   getWaterfallCanvas: () => HTMLCanvasElement | null;
+  getSpectrumOverlayCanvas: () => HTMLCanvasElement | null;
+  getWaterfallOverlayCanvas: () => HTMLCanvasElement | null;
   triggerSnapshotRender: () => void;
   getSnapshotData: () => SnapshotData | null;
   getCompositeSnapshot: () => {
@@ -484,6 +520,12 @@ const FFTCanvas = memo(
       showSpikeOverlay = false,
       overlayContent,
       headerActionContent,
+      placeholderSourceLabel,
+      placeholderPaneLabel = "FFT",
+      placeholderErrorReason = null,
+      interactionDisabled = false,
+      onRenderableFrameChange,
+      onCanvasLoadingChange,
       vizZoom = 1,
       vizZoomFloor = 1,
       vizPanOffset = 0,
@@ -521,7 +563,7 @@ const FFTCanvas = memo(
     } = props;
     const dispatch = useAppDispatch();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
-    
+
     const autoZoomStabilityRef = useRef(autoZoomStability);
     useEffect(() => {
       autoZoomStabilityRef.current = autoZoomStability;
@@ -564,6 +606,8 @@ const FFTCanvas = memo(
     const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
     const lastIncomingFrameRef = useRef<LiveFrameData | null>(null);
     const liveGpuProcessInFlightRef = useRef(false);
+    const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
+      useState(false);
 
     const {
       waterfallBufferRef,
@@ -800,7 +844,7 @@ const FFTCanvas = memo(
       bandwidthAlignment,
     ]);
 
-  const selectionOverlay = useMemo(() => {
+    const selectionOverlay = useMemo(() => {
       if (
         !selectionRange ||
         !Number.isFinite(selectionRange.min) ||
@@ -814,35 +858,35 @@ const FFTCanvas = memo(
         minFrequencyHz: selectionRange.min,
         maxFrequencyHz: selectionRange.max,
       };
-  }, [selectionRange]);
+    }, [selectionRange]);
 
-  const selectionTooltipText = useMemo(() => {
-    if (!selectionRange) return null;
-    if (
-      !Number.isFinite(selectionRange.min) ||
-      !Number.isFinite(selectionRange.max) ||
-      selectionRange.max <= selectionRange.min
-    ) {
-      return null;
-    }
+    const selectionTooltipText = useMemo(() => {
+      if (!selectionRange) return null;
+      if (
+        !Number.isFinite(selectionRange.min) ||
+        !Number.isFinite(selectionRange.max) ||
+        selectionRange.max <= selectionRange.min
+      ) {
+        return null;
+      }
 
-    const startHz = selectionRange.min.toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    });
-    const endHz = selectionRange.max.toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    });
-    const spanHz = (selectionRange.max - selectionRange.min).toLocaleString(
-      undefined,
-      { maximumFractionDigits: 0 },
-    );
+      const startHz = selectionRange.min.toLocaleString(undefined, {
+        maximumFractionDigits: 0,
+      });
+      const endHz = selectionRange.max.toLocaleString(undefined, {
+        maximumFractionDigits: 0,
+      });
+      const spanHz = (selectionRange.max - selectionRange.min).toLocaleString(
+        undefined,
+        { maximumFractionDigits: 0 },
+      );
 
-    return {
-      startHz,
-      endHz,
-      spanHz,
-    };
-  }, [selectionRange]);
+      return {
+        startHz,
+        endHz,
+        spanHz,
+      };
+    }, [selectionRange]);
 
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
@@ -1135,8 +1179,29 @@ const FFTCanvas = memo(
       }
     }, [sendGetAutoFftOptions, autoFftOptions]);
 
+    const hasRealWaveform = !!(
+      waveformFloatRef.current && waveformFloatRef.current.length > 0
+    );
+    const hasRestoredSnapshot = !!(
+      waveformFloatRef.current && lastProcessedDataRef.current
+    );
+    const isLoadingPlaceholder =
+      !placeholderErrorReason && !hasRenderedSpectrumFrame;
+
+    useEffect(() => {
+      if (awaitingDeviceData || placeholderErrorReason) {
+        setHasRenderedSpectrumFrame(false);
+        onRenderableFrameChange?.(false);
+      }
+    }, [awaitingDeviceData, onRenderableFrameChange, placeholderErrorReason]);
+
+    useEffect(() => {
+      onCanvasLoadingChange?.(isLoadingPlaceholder);
+    }, [isLoadingPlaceholder, onCanvasLoadingChange]);
+
     useFrequencyDrag({
-      disabled: selectionDisabled,
+      disabled:
+        selectionDisabled || interactionDisabled || isLoadingPlaceholder,
       selectionMode,
       spectrumGpuCanvasRef,
       spectrumGpuCanvasNode,
@@ -1227,21 +1292,26 @@ const FFTCanvas = memo(
 
         const currentData = dataRef.current;
         const currentFrame = getLatestLiveFrame(currentData);
-
-        const hasRenderableWaveform = !!(
-          renderWaveformRef.current && renderWaveformRef.current.length > 0
+        const hasRenderableFrame = !!(
+          currentFrame &&
+          currentFrame.iq_data &&
+          currentFrame.iq_data.length > 0
         );
-        const hasIncomingData = !!(
-          currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
+
+        const hasDrawableCachedWaveform = !!(
+          (renderWaveformRef.current && renderWaveformRef.current.length > 0) ||
+          (waveformFloatRef.current && waveformFloatRef.current.length > 0) ||
+          (waveformFloatRef.current && lastProcessedDataRef.current)
         );
         const showLoadingPlaceholder =
-          awaitingDeviceDataRef.current &&
-          isDeviceConnected &&
-          !hasRenderableWaveform &&
-          !hasIncomingData &&
-          !(isPaused && pendingWaterfallRestoreRef.current);
+          isLoadingPlaceholder &&
+          !hasRenderableFrame &&
+          !hasDrawableCachedWaveform;
+        const showErrorPlaceholder =
+          !!placeholderErrorReason ||
+          (!isDeviceConnected && !hasRenderableFrame);
 
-        if (showLoadingPlaceholder) {
+        if (showLoadingPlaceholder || showErrorPlaceholder) {
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
           return;
@@ -1416,7 +1486,10 @@ const FFTCanvas = memo(
               temporalActiveCountRef.current = 0;
             } else {
               const pool = temporalFramePoolRef.current;
-              if (pool.length !== temporalWindow || (pool.length > 0 && pool[0].length !== waveform.length)) {
+              if (
+                pool.length !== temporalWindow ||
+                (pool.length > 0 && pool[0].length !== waveform.length)
+              ) {
                 pool.length = 0;
                 for (let i = 0; i < temporalWindow; i++) {
                   pool.push(new Float32Array(waveform.length));
@@ -1437,11 +1510,16 @@ const FFTCanvas = memo(
               const activeCount = temporalActiveCountRef.current;
               activeFrames.length = activeCount;
               for (let i = 0; i < activeCount; i++) {
-                const idx = (temporalWriteIndexRef.current - 1 - i + temporalWindow) % temporalWindow;
+                const idx =
+                  (temporalWriteIndexRef.current - 1 - i + temporalWindow) %
+                  temporalWindow;
                 activeFrames[i] = pool[idx];
               }
 
-              if (!renderWaveformRef.current || renderWaveformRef.current.length !== waveform.length) {
+              if (
+                !renderWaveformRef.current ||
+                renderWaveformRef.current.length !== waveform.length
+              ) {
                 renderWaveformRef.current = new Float32Array(waveform.length);
               }
               renderWaveformRef.current = averageTemporalWaveforms(
@@ -1503,7 +1581,11 @@ const FFTCanvas = memo(
         // Update waveform reference after potential restoration
         const currentWaveform = renderWaveformRef.current;
 
-        if (currentWaveform && currentWaveform.length > 0 && frequencyRangeRef.current) {
+        if (
+          currentWaveform &&
+          currentWaveform.length > 0 &&
+          frequencyRangeRef.current
+        ) {
           const {
             slicedWaveform: rawSlicedWaveform,
             visualRange,
@@ -1617,6 +1699,11 @@ const FFTCanvas = memo(
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
             });
+
+            if (!hasRenderedSpectrumFrame) {
+              setHasRenderedSpectrumFrame(true);
+              onRenderableFrameChange?.(true);
+            }
           }
 
           // Waterfall render (only push new lines when not paused AND new data is available)
@@ -1701,7 +1788,8 @@ const FFTCanvas = memo(
                   }
                   const writeIdx = heterodyningWriteIndexRef.current;
                   history[writeIdx].set(waterfallBins);
-                  heterodyningWriteIndexRef.current = (writeIdx + 1) % maxHistory;
+                  heterodyningWriteIndexRef.current =
+                    (writeIdx + 1) % maxHistory;
                   heterodyningHistoryCountRef.current = Math.min(
                     maxHistory,
                     heterodyningHistoryCountRef.current + 1,
@@ -1845,6 +1933,10 @@ const FFTCanvas = memo(
         waterfallGpuCanvasNode,
         drawLoadingPlaceholder,
         clearOverlayCanvas,
+        placeholderErrorReason,
+        isLoadingPlaceholder,
+        hasRenderedSpectrumFrame,
+        onRenderableFrameChange,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
@@ -1921,9 +2013,7 @@ const FFTCanvas = memo(
         activeList[i] = history[idx];
       }
 
-      onHeterodyningAnalyzed(
-        detectHeterodyningFromHistory(activeList),
-      );
+      onHeterodyningAnalyzed(detectHeterodyningFromHistory(activeList));
     }, [heterodyningVerifyRequestId, onHeterodyningAnalyzed]);
 
     // Effect: Toggle spike detection overlay. The spike hook owns persistence.
@@ -2089,7 +2179,7 @@ const FFTCanvas = memo(
         frequencyRange &&
         prevRange &&
         (prevRange.min !== frequencyRange.min ||
-        prevRange.max !== frequencyRange.max)
+          prevRange.max !== frequencyRange.max)
       ) {
         lastProcessedDataRef.current = null;
         renderWaveformRef.current = null;
@@ -2154,13 +2244,11 @@ const FFTCanvas = memo(
         const spectrumRect =
           getLayoutSize(gpuCanvas?.parentElement) ??
           getLayoutSize(spectrumContainerRef.current);
-        const waterfallRect =
-          getLayoutSize(waterfallGpuCanvasRef.current?.parentElement);
+        const waterfallRect = getLayoutSize(
+          waterfallGpuCanvasRef.current?.parentElement,
+        );
 
-        if (
-          spectrumRect &&
-          spectrumOverlayCanvasRef.current
-        ) {
+        if (spectrumRect && spectrumOverlayCanvasRef.current) {
           const canvas = spectrumOverlayCanvasRef.current;
           canvas.width = spectrumRect.width * dpr;
           canvas.height = spectrumRect.height * dpr;
@@ -2169,11 +2257,7 @@ const FFTCanvas = memo(
           canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
 
-        if (
-          spectrumRect &&
-          spectrumWebgpuEnabled &&
-          gpuCanvas
-        ) {
+        if (spectrumRect && spectrumWebgpuEnabled && gpuCanvas) {
           gpuCanvas.width = Math.max(1, Math.round(spectrumRect.width * dpr));
           gpuCanvas.height = Math.max(1, Math.round(spectrumRect.height * dpr));
           gpuCanvas.style.width = `${spectrumRect.width}px`;
@@ -2185,10 +2269,7 @@ const FFTCanvas = memo(
           overlayDirtyRef.current.markers = true;
         }
 
-        if (
-          waterfallRect &&
-          waterfallOverlayCanvasRef.current
-        ) {
+        if (waterfallRect && waterfallOverlayCanvasRef.current) {
           const canvas = waterfallOverlayCanvasRef.current;
           canvas.width = waterfallRect.width * dpr;
           canvas.height = waterfallRect.height * dpr;
@@ -2197,10 +2278,7 @@ const FFTCanvas = memo(
           canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
 
-        if (
-          waterfallRect &&
-          waterfallGpuCanvasRef.current
-        ) {
+        if (waterfallRect && waterfallGpuCanvasRef.current) {
           const canvas = waterfallGpuCanvasRef.current;
           canvas.width = Math.max(1, Math.round(waterfallRect.width * dpr));
           canvas.height = Math.max(1, Math.round(waterfallRect.height * dpr));
@@ -2254,7 +2332,13 @@ const FFTCanvas = memo(
         window.removeEventListener("resize", handleResize);
         resizeObserver.disconnect();
       };
-    }, [forceRender, spectrumWebgpuEnabled, isPaused, ensurePausedFrame, spectrumGpuCanvasNode]);
+    }, [
+      forceRender,
+      spectrumWebgpuEnabled,
+      isPaused,
+      ensurePausedFrame,
+      spectrumGpuCanvasNode,
+    ]);
 
     // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool
     // and clears stale waveform data. Skips cleanup when paused to preserve snapshot state.
@@ -2378,7 +2462,9 @@ const FFTCanvas = memo(
         hardwareSampleRateHz,
         isIqRecordingActive,
         colormap: colormap || [],
+        demodFocusOverlay: demodFocusOverlayRef.current,
       };
+
     }, [
       colormap,
       effectiveFftSize,
@@ -2388,6 +2474,37 @@ const FFTCanvas = memo(
       isIqRecordingActive,
       webgpuEnabled,
     ]);
+
+    const canvasPlaceholderState =
+      useMemo<CanvasPlaceholderState | null>(() => {
+        if (placeholderErrorReason) {
+          return {
+            kind: "error",
+            sourceLabel: placeholderSourceLabel,
+            reason: placeholderErrorReason,
+          };
+        }
+
+        if (isLoadingPlaceholder) {
+          return {
+            kind: "loading",
+            sourceLabel: placeholderSourceLabel,
+            paneLabel: placeholderPaneLabel,
+            message:
+              typeof awaitingDeviceData === "string"
+                ? awaitingDeviceData
+                : undefined,
+          };
+        }
+
+        return null;
+      }, [
+        isLoadingPlaceholder,
+        placeholderErrorReason,
+        placeholderSourceLabel,
+        placeholderPaneLabel,
+        awaitingDeviceData,
+      ]);
 
     const getCompositeSnapshot = useCallback(() => {
       const spectrumCanvas = spectrumGpuCanvasRef.current;
@@ -2408,9 +2525,11 @@ const FFTCanvas = memo(
         return null;
       }
 
-      ctx.drawImage(spectrumCanvas, 0, 0);
+      const srcSpectrum = (spectrumCanvas as any)._lastFrameCanvas || spectrumCanvas;
+      ctx.drawImage(srcSpectrum, 0, 0);
       if (waterfallCanvas) {
-        ctx.drawImage(waterfallCanvas, 0, spectrumCanvas.height);
+        const srcWaterfall = (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
+        ctx.drawImage(srcWaterfall, 0, spectrumCanvas.height);
       }
 
       return {
@@ -2425,6 +2544,8 @@ const FFTCanvas = memo(
       () => ({
         getSpectrumCanvas: () => spectrumGpuCanvasRef.current,
         getWaterfallCanvas: () => waterfallGpuCanvasRef.current,
+        getSpectrumOverlayCanvas: () => spectrumOverlayCanvasRef.current,
+        getWaterfallOverlayCanvas: () => waterfallOverlayCanvasRef.current,
         triggerSnapshotRender: () => {
           forceRender();
         },
@@ -2446,6 +2567,9 @@ const FFTCanvas = memo(
             ref={spectrumContainerRef}
             style={NODE_PREVIEW_BACKGROUND_STYLE}
           >
+            {canvasPlaceholderState && (
+              <CanvasPlaceholder state={canvasPlaceholderState} />
+            )}
             {!isInitializingWebGPU && (
               <CanvasLayer
                 ref={setSpectrumGpuCanvasNode}
@@ -2485,7 +2609,7 @@ const FFTCanvas = memo(
                       FFT Signal Display {isPaused && "(Paused)"}
                     </SectionTitle>
                     {headerActionContent && (
-                      <SectionTitleActions>
+                      <SectionTitleActions data-disabled={!!canvasPlaceholderState}>
                         {headerActionContent}
                       </SectionTitleActions>
                     )}
@@ -2493,6 +2617,9 @@ const FFTCanvas = memo(
                 )}
                 <SpectrumRow>
                   <CanvasWrapper ref={spectrumContainerRef}>
+                    {canvasPlaceholderState && (
+                      <CanvasPlaceholder state={canvasPlaceholderState} />
+                    )}
                     {!isInitializingWebGPU && (
                       <CanvasLayer
                         ref={setSpectrumGpuCanvasNode}

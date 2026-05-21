@@ -292,8 +292,14 @@ export const MapEndpointsRoute: React.FC = () => {
     const points = segments.flatMap((segment) => [segment.start, segment.end]);
     const lats = points.map((point) => point.lat);
     const lngs = points.map((point) => point.lng);
-    const padLat = Math.max(0.02, (Math.max(...lats) - Math.min(...lats)) * 0.2);
-    const padLng = Math.max(0.02, (Math.max(...lngs) - Math.min(...lngs)) * 0.2);
+    const padLat = Math.max(
+      0.02,
+      (Math.max(...lats) - Math.min(...lats)) * 0.2,
+    );
+    const padLng = Math.max(
+      0.02,
+      (Math.max(...lngs) - Math.min(...lngs)) * 0.2,
+    );
 
     return {
       neLat: Math.max(...lats) + padLat,
@@ -332,20 +338,30 @@ export const MapEndpointsRoute: React.FC = () => {
       setZoom(targetLoc.zoom);
       map.setView(newCenter, targetLoc.zoom, { animate: false });
     }
-  }, [activeLocationId, locations, map, isLoaded, previewLocation, recenterTick]);
+  }, [
+    activeLocationId,
+    locations,
+    map,
+    isLoaded,
+    previewLocation,
+    recenterTick,
+  ]);
 
-  const onLoad = useCallback((mapInstance: L.Map) => {
-    setMap(mapInstance);
-    const bounds = mapInstance.getBounds();
-    if (bounds) {
-      setMapBounds({
-        north: bounds.getNorth(),
-        south: bounds.getSouth(),
-        east: bounds.getEast(),
-        west: bounds.getWest(),
-      });
-    }
-  }, [setMapBounds]);
+  const onLoad = useCallback(
+    (mapInstance: L.Map) => {
+      setMap(mapInstance);
+      const bounds = mapInstance.getBounds();
+      if (bounds) {
+        setMapBounds({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
+        });
+      }
+    },
+    [setMapBounds],
+  );
 
   const syncMapBounds = useCallback(() => {
     if (!map) return;

@@ -6,13 +6,16 @@ interface UseDragAndDropFilesOptions {
 
 const extractFiles = (dataTransfer: DataTransfer): File[] => {
   if (dataTransfer.items && dataTransfer.items.length > 0) {
-    const itemFiles = Array.from(dataTransfer.items).reduce<File[]>((acc, item) => {
-      if (item.kind === "file") {
-        const file = item.getAsFile();
-        if (file) acc.push(file);
-      }
-      return acc;
-    }, []);
+    const itemFiles = Array.from(dataTransfer.items).reduce<File[]>(
+      (acc, item) => {
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) acc.push(file);
+        }
+        return acc;
+      },
+      [],
+    );
 
     if (itemFiles.length > 0) {
       return itemFiles;

@@ -225,7 +225,7 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
     (isFileMode && activePlaybackMetadata
       ? activePlaybackMetadata.capture_sample_rate_hz
       : naptMetadata?.channels?.length === 1 &&
-        typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
+          typeof naptMetadata.channels[0]?.sample_rate_hz === "number"
         ? naptMetadata.channels[0].sample_rate_hz
         : (naptMetadata?.capture_sample_rate_hz ??
           naptMetadata?.sample_rate_hz ??
@@ -249,9 +249,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   );
   const fileRowDurationSeconds =
     selectedNaptFile &&
-      captureStatus?.status === "done" &&
-      captureStatus.filename === selectedNaptFile.name &&
-      typeof captureStatus.duration === "number"
+    captureStatus?.status === "done" &&
+    captureStatus.filename === selectedNaptFile.name &&
+    typeof captureStatus.duration === "number"
       ? captureStatus.duration
       : typeof naptMetadata?.duration_s === "number"
         ? naptMetadata.duration_s
@@ -260,7 +260,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const content = (
     <>
       {selectedNaptFile && (
-        <SettingRow style={{ height: "auto", padding: "12px", marginBottom: "16px" }}>
+        <SettingRow
+          style={{ height: "auto", padding: "12px", marginBottom: "16px" }}
+        >
           <SettingLabelContainer
             style={{ alignSelf: "start", paddingTop: "4px" }}
           >
@@ -350,8 +352,8 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <MetadataValue>
               {displayedFrequencyRange
                 ? formatFrequency(displayedFrequencyRange[0], {
-                  trimTrailingZeros: true,
-                })
+                    trimTrailingZeros: true,
+                  })
                 : "N/A"}
             </MetadataValue>
           </MetadataItem>
@@ -360,8 +362,8 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <MetadataValue>
               {displayedFrequencyRange
                 ? formatFrequency(displayedFrequencyRange[1], {
-                  trimTrailingZeros: true,
-                })
+                    trimTrailingZeros: true,
+                  })
                 : "N/A"}
             </MetadataValue>
           </MetadataItem>

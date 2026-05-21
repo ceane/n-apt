@@ -278,7 +278,6 @@ export function useWebGPUInit({
               workgroupSize: [256, 1, 1],
             },
           ]);
-
         } catch (error) {
           console.warn("Failed to preload shaders:", error);
         }

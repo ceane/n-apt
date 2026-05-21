@@ -30,4 +30,3 @@ export const SPIKE_COMPUTE_WGSL = spikeComputeShader;
 export const SPIKE_RENDER_WGSL = spikeRenderShader;
 export const FLOOR_AVG_WGSL = floorAvgShader;
 export const PEAK_RESAMPLE_WGSL = peakResampleShader;
-

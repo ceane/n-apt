@@ -135,7 +135,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         existing.waterfallTexture = device.createTexture({
           size: [requiredWaterfallWidth, waterfallHeight],
           format: "rgba8unorm",
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.RENDER_ATTACHMENT,
         });
       }
       return;
@@ -143,15 +146,16 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
     // Clean up if we must re-allocate
     if (existing) {
-      Object.values(existing).forEach(res => {
-        if (res && typeof res.destroy === 'function') res.destroy();
+      Object.values(existing).forEach((res) => {
+        if (res && typeof res.destroy === "function") res.destroy();
       });
     }
 
     const rawIqSize = Math.ceil((MAX_FFT_SIZE * 2) / 4) * 4;
     const complexSize = MAX_FFT_SIZE * 8;
     // Paged params buffer to avoid race conditions: 32 slots * 256 byte alignment
-    const paramsAlignment = device.limits.minUniformBufferOffsetAlignment || 256;
+    const paramsAlignment =
+      device.limits.minUniformBufferOffsetAlignment || 256;
     const paramsSize = 32 * paramsAlignment;
     const waterfallBufferSize = requiredWaterfallWidth * 8;
 
@@ -167,12 +171,18 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
     const fftOutputBuffer = device.createBuffer({
       size: complexSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST,
     });
 
     const fftTempBuffer = device.createBuffer({
       size: complexSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST,
     });
 
     const fftParamsBuffer = device.createBuffer({
@@ -182,18 +192,27 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
     const sharedSpectrumBuffer = device.createBuffer({
       size: complexSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST,
     });
 
     const waterfallTexture = device.createTexture({
       size: [requiredWaterfallWidth, waterfallHeight],
       format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
     const waterfallBuffer = device.createBuffer({
       size: waterfallBufferSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST,
     });
 
     buffersRef.current = {
@@ -221,16 +240,36 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       const paramsLayoutEntry = {
         binding: 3,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" as const, hasDynamicOffset: true, minBindingSize: 64 }
+        buffer: {
+          type: "uniform" as const,
+          hasDynamicOffset: true,
+          minBindingSize: 64,
+        },
       };
 
       const genericLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" as const },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" as const },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" as const },
+          },
           paramsLayoutEntry,
-          { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" as const } },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" as const },
+          },
         ],
       });
 
@@ -240,17 +279,23 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
       // Preprocess pipeline
       fftWindowPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [genericLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [genericLayout],
+        }),
         compute: { module: shaderModule, entryPoint: "fft_window" },
       });
 
       bitReversalPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [genericLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [genericLayout],
+        }),
         compute: { module: shaderModule, entryPoint: "fft_bit_reversal" },
       });
 
       rtlIqWindowPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [unpackLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [unpackLayout],
+        }),
         compute: { module: shaderModule, entryPoint: "rtl_sdr_iq_to_dbm" },
       });
 
@@ -262,31 +307,47 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
       // Power spectrum pipelines
       powerSpectrumPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spectrumLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spectrumLayout],
+        }),
         compute: { module: shaderModule, entryPoint: "fft_power_spectrum" },
       });
 
       dbmSpectrumPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spectrumLayout] }),
-        compute: { module: shaderModule, entryPoint: "rtl_sdr_power_spectrum_dbm" },
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spectrumLayout],
+        }),
+        compute: {
+          module: shaderModule,
+          entryPoint: "rtl_sdr_power_spectrum_dbm",
+        },
       });
 
       // Direct waterfall pipeline
       waterfallDirectPipelineRef.current = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spectrumLayout] }),
-        compute: { module: shaderModule, entryPoint: "waterfall_buffer_update" },
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spectrumLayout],
+        }),
+        compute: {
+          module: shaderModule,
+          entryPoint: "waterfall_buffer_update",
+        },
       });
 
       if (enableAveraging) {
         averagingPipelineRef.current = device.createComputePipeline({
-          layout: device.createPipelineLayout({ bindGroupLayouts: [genericLayout] }),
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [genericLayout],
+          }),
           compute: { module: shaderModule, entryPoint: "fft_average" },
         });
       }
 
       if (enableSmoothing) {
         smoothingPipelineRef.current = device.createComputePipeline({
-          layout: device.createPipelineLayout({ bindGroupLayouts: [spectrumLayout] }),
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [spectrumLayout],
+          }),
           compute: { module: shaderModule, entryPoint: "fft_smooth" },
         });
       }
@@ -300,7 +361,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftInputBuffer } },
           { binding: 1, resource: { buffer: buffers.fftOutputBuffer } }, // Dummy
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } },
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -311,7 +375,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftInputBuffer } }, // Dummy
           { binding: 1, resource: { buffer: buffers.fftOutputBuffer } },
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } },
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -322,7 +389,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftInputBuffer } }, // Dummy
           { binding: 1, resource: { buffer: buffers.fftTempBuffer } },
           { binding: 2, resource: { buffer: buffers.fftOutputBuffer } }, // Dummy
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } },
         ],
       });
@@ -334,7 +404,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftInputBuffer } }, // Dummy
           { binding: 1, resource: { buffer: buffers.fftTempBuffer } }, // Output
           { binding: 2, resource: { buffer: buffers.fftOutputBuffer } }, // Input
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -345,7 +418,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftInputBuffer } }, // Dummy
           { binding: 1, resource: { buffer: buffers.fftOutputBuffer } }, // Output
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } }, // Input
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -357,7 +433,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftOutputBuffer } },
           { binding: 1, resource: { buffer: buffers.sharedSpectrumBuffer } },
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } }, // Dummy
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -368,7 +447,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.fftOutputBuffer } },
           { binding: 1, resource: { buffer: buffers.sharedSpectrumBuffer } },
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } }, // Dummy
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -379,7 +461,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           { binding: 0, resource: { buffer: buffers.sharedSpectrumBuffer } },
           { binding: 1, resource: { buffer: buffers.waterfallBuffer } },
           { binding: 2, resource: { buffer: buffers.fftTempBuffer } }, // Dummy
-          { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+          {
+            binding: 3,
+            resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 },
+          },
           { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
         ],
       });
@@ -391,7 +476,14 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
             { binding: 0, resource: { buffer: buffers.sharedSpectrumBuffer } },
             { binding: 1, resource: { buffer: buffers.fftOutputBuffer } },
             { binding: 2, resource: { buffer: buffers.fftTempBuffer } },
-            { binding: 3, resource: { buffer: buffers.fftParamsBuffer, offset: 0, size: 64 } },
+            {
+              binding: 3,
+              resource: {
+                buffer: buffers.fftParamsBuffer,
+                offset: 0,
+                size: 64,
+              },
+            },
             { binding: 4, resource: { buffer: buffers.rawIqBuffer } }, // Dummy
           ],
         });
@@ -430,7 +522,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       uintView[0] = stage;
       new Int32Array(paramsBuffer)[1] = direction;
       uintView[2] = fftSize;
-      uintView[3] = windowTypeValue ?? windowTypeMap[windowType as keyof typeof windowTypeMap];
+      uintView[3] =
+        windowTypeValue ??
+        windowTypeMap[windowType as keyof typeof windowTypeMap];
       floatView[4] = normalizationOverride ?? normalizationFactor;
       floatView[5] = minDbValue ?? -120.0;
       floatView[6] = maxDbValue ?? 0.0;
@@ -440,10 +534,15 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       floatView[10] = calibrationOptions?.tunerGainDb ?? 0.0;
       floatView[11] = calibrationOptions?.baseCalibrationDb ?? 0.0;
       floatView[12] = calibrationOptions?.chainLossDb ?? 0.0;
-      uintView[13] = calibrationModeMap[calibrationOptions?.calibrationMode ?? "generic"];
+      uintView[13] =
+        calibrationModeMap[calibrationOptions?.calibrationMode ?? "generic"];
 
       const alignment = device.limits.minUniformBufferOffsetAlignment || 256;
-      device.queue.writeBuffer(buffersRef.current.fftParamsBuffer, slot * alignment, paramsBuffer);
+      device.queue.writeBuffer(
+        buffersRef.current.fftParamsBuffer,
+        slot * alignment,
+        paramsBuffer,
+      );
     },
     [device, fftSize, windowType, normalizationFactor, windowTypeMap],
   );
@@ -467,7 +566,8 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
       let activeNormalization = normalizationFactor;
       if (powerMode === "dbm" && inputMode === "complex_iq") {
-        activeNormalization = (processOptions?.hardwareSampleRateHz || 2_400_000) * fftSize;
+        activeNormalization =
+          (processOptions?.hardwareSampleRateHz || 2_400_000) * fftSize;
       }
 
       const calibrationOptions = {
@@ -484,17 +584,36 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       try {
         // Step 1: Upload Data
         if (inputMode === "complex_iq") {
-          device.queue.writeBuffer(buffersRef.current.rawIqBuffer, 0, inputData.buffer, inputData.byteOffset, inputData.byteLength);
+          device.queue.writeBuffer(
+            buffersRef.current.rawIqBuffer,
+            0,
+            inputData.buffer,
+            inputData.byteOffset,
+            inputData.byteLength,
+          );
         } else {
           const complexInput = new Float32Array(fftSize * 2);
           for (let i = 0; i < fftSize; i++) complexInput[i * 2] = inputData[i];
-          device.queue.writeBuffer(buffersRef.current.fftInputBuffer, 0, complexInput.buffer);
+          device.queue.writeBuffer(
+            buffersRef.current.fftInputBuffer,
+            0,
+            complexInput.buffer,
+          );
         }
 
         const encoder = device.createCommandEncoder();
 
         // Step 2: Windowing (Slot 0)
-        updateParams(0, 0, 1, undefined, minDb, maxDb, activeNormalization, calibrationOptions);
+        updateParams(
+          0,
+          0,
+          1,
+          undefined,
+          minDb,
+          maxDb,
+          activeNormalization,
+          calibrationOptions,
+        );
         const windowPass = encoder.beginComputePass();
         if (inputMode === "complex_iq" && rtlIqWindowPipelineRef.current) {
           windowPass.setPipeline(rtlIqWindowPipelineRef.current);
@@ -510,7 +629,9 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         updateParams(1, Math.log2(fftSize), 1);
         const brPass = encoder.beginComputePass();
         brPass.setPipeline(bitReversalPipelineRef.current!);
-        brPass.setBindGroup(0, bindGroupsRef.current.bitReversal!, [1 * alignment]);
+        brPass.setBindGroup(0, bindGroupsRef.current.bitReversal!, [
+          1 * alignment,
+        ]);
         brPass.dispatchWorkgroups(Math.ceil(fftSize / 256));
         brPass.end();
 
@@ -522,53 +643,106 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
           const fftPass = encoder.beginComputePass();
           fftPass.setPipeline(fftPipelineRef.current!);
           // Toggle bind groups to swap input/output roles
-          const bindGroup = stage % 2 === 0 ? bindGroupsRef.current.fft_AB! : bindGroupsRef.current.fft_BA!;
+          const bindGroup =
+            stage % 2 === 0
+              ? bindGroupsRef.current.fft_AB!
+              : bindGroupsRef.current.fft_BA!;
           fftPass.setBindGroup(0, bindGroup, [slot * alignment]);
           fftPass.dispatchWorkgroups(Math.ceil(fftSize / 512));
           fftPass.end();
         }
 
-        // If even number of stages, final result is in fftOutputBuffer. 
+        // If even number of stages, final result is in fftOutputBuffer.
         if (numStages % 2 !== 0) {
-          encoder.copyBufferToBuffer(buffersRef.current.fftTempBuffer, 0, buffersRef.current.fftOutputBuffer, 0, fftSize * 8);
+          encoder.copyBufferToBuffer(
+            buffersRef.current.fftTempBuffer,
+            0,
+            buffersRef.current.fftOutputBuffer,
+            0,
+            fftSize * 8,
+          );
         }
 
         // Step 5: Power Spectrum (includes FFT Shift) (Slot 20)
-        updateParams(20, 0, 1, undefined, minDb, maxDb, activeNormalization, calibrationOptions);
+        updateParams(
+          20,
+          0,
+          1,
+          undefined,
+          minDb,
+          maxDb,
+          activeNormalization,
+          calibrationOptions,
+        );
         const powerPass = encoder.beginComputePass();
-        const spectrumPipeline = (powerMode === "dbm" && dbmSpectrumPipelineRef.current) ? dbmSpectrumPipelineRef.current : powerSpectrumPipelineRef.current!;
-        const spectrumBG = (powerMode === "dbm" && bindGroupsRef.current.dbmSpectrum) ? bindGroupsRef.current.dbmSpectrum : bindGroupsRef.current.powerSpectrum!;
+        const spectrumPipeline =
+          powerMode === "dbm" && dbmSpectrumPipelineRef.current
+            ? dbmSpectrumPipelineRef.current
+            : powerSpectrumPipelineRef.current!;
+        const spectrumBG =
+          powerMode === "dbm" && bindGroupsRef.current.dbmSpectrum
+            ? bindGroupsRef.current.dbmSpectrum
+            : bindGroupsRef.current.powerSpectrum!;
         powerPass.setPipeline(spectrumPipeline);
         powerPass.setBindGroup(0, spectrumBG, [20 * alignment]);
         powerPass.dispatchWorkgroups(Math.ceil(fftSize / 256));
         powerPass.end();
 
         // Step 6: Waterfall Decimation (Max-Pooling) (Slot 21)
-        updateParams(21, 0, 1, undefined, minDb, maxDb, activeNormalization, calibrationOptions);
+        updateParams(
+          21,
+          0,
+          1,
+          undefined,
+          minDb,
+          maxDb,
+          activeNormalization,
+          calibrationOptions,
+        );
         const waterfallPass = encoder.beginComputePass();
         waterfallPass.setPipeline(waterfallDirectPipelineRef.current!);
-        waterfallPass.setBindGroup(0, bindGroupsRef.current.waterfall!, [21 * alignment]);
+        waterfallPass.setBindGroup(0, bindGroupsRef.current.waterfall!, [
+          21 * alignment,
+        ]);
         waterfallPass.dispatchWorkgroups(Math.ceil(waterfallWidth / 256));
         waterfallPass.end();
 
         // Copy to Texture
         encoder.copyBufferToTexture(
-          { buffer: buffersRef.current.waterfallBuffer, bytesPerRow: waterfallWidth * 4, rowsPerImage: 1 },
-          { texture: buffersRef.current.waterfallTexture, origin: [0, frameCountRef.current % waterfallHeight, 0] },
-          [waterfallWidth, 1, 1]
+          {
+            buffer: buffersRef.current.waterfallBuffer,
+            bytesPerRow: waterfallWidth * 4,
+            rowsPerImage: 1,
+          },
+          {
+            texture: buffersRef.current.waterfallTexture,
+            origin: [0, frameCountRef.current % waterfallHeight, 0],
+          },
+          [waterfallWidth, 1, 1],
         );
 
         device.queue.submit([encoder.finish()]);
 
         // Step 7: Readback (Extract .real)
         const complexReadSize = fftSize * 8;
-        const resultBuffer = device.createBuffer({ size: complexReadSize, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const resultBuffer = device.createBuffer({
+          size: complexReadSize,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
         const readEncoder = device.createCommandEncoder();
-        readEncoder.copyBufferToBuffer(buffersRef.current.sharedSpectrumBuffer, 0, resultBuffer, 0, complexReadSize);
+        readEncoder.copyBufferToBuffer(
+          buffersRef.current.sharedSpectrumBuffer,
+          0,
+          resultBuffer,
+          0,
+          complexReadSize,
+        );
         device.queue.submit([readEncoder.finish()]);
 
         await resultBuffer.mapAsync(GPUMapMode.READ);
-        const complexData = new Float32Array(resultBuffer.getMappedRange().slice(0));
+        const complexData = new Float32Array(
+          resultBuffer.getMappedRange().slice(0),
+        );
         resultBuffer.unmap();
         resultBuffer.destroy();
 
@@ -576,14 +750,27 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         for (let i = 0; i < fftSize; i++) spectrumData[i] = complexData[i * 2];
 
         frameCountRef.current++;
-        const result = { spectrumData, waterfallTexture: buffersRef.current.waterfallTexture, processedAt: performance.now(), frameCount: frameCountRef.current };
+        const result = {
+          spectrumData,
+          waterfallTexture: buffersRef.current.waterfallTexture,
+          processedAt: performance.now(),
+          frameCount: frameCountRef.current,
+        };
         lastResultRef.current = result;
         return result;
       } finally {
         isProcessingRef.current = false;
       }
     },
-    [isInitialized, device, fftSize, waterfallHeight, windowType, normalizationFactor, updateParams],
+    [
+      isInitialized,
+      device,
+      fftSize,
+      waterfallHeight,
+      windowType,
+      normalizationFactor,
+      updateParams,
+    ],
   );
 
   useEffect(() => {
@@ -595,8 +782,8 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
   useEffect(() => {
     return () => {
       if (buffersRef.current) {
-        Object.values(buffersRef.current).forEach(res => {
-          if (res && typeof res.destroy === 'function') res.destroy();
+        Object.values(buffersRef.current).forEach((res) => {
+          if (res && typeof res.destroy === "function") res.destroy();
         });
       }
     };
@@ -607,13 +794,22 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
     isProcessing: isProcessingRef.current,
     lastResult: lastResultRef.current,
     processUnified,
-    getWaterfallTexture: useCallback(() => buffersRef.current?.waterfallTexture || null, []),
+    getWaterfallTexture: useCallback(
+      () => buffersRef.current?.waterfallTexture || null,
+      [],
+    ),
     getBuffers: useCallback(() => buffersRef.current, []),
-    getProcessingStats: useCallback(() => ({
-      fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing,
-      frameCount: frameCountRef.current, lastProcessedAt: lastResultRef.current?.processedAt || null,
-    }), [fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing]),
+    getProcessingStats: useCallback(
+      () => ({
+        fftSize,
+        waterfallHeight,
+        windowType,
+        enableAveraging,
+        enableSmoothing,
+        frameCount: frameCountRef.current,
+        lastProcessedAt: lastResultRef.current?.processedAt || null,
+      }),
+      [fftSize, waterfallHeight, windowType, enableAveraging, enableSmoothing],
+    ),
   };
 }
-
-

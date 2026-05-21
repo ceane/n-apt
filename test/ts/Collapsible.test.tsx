@@ -10,7 +10,11 @@ describe("Collapsible", () => {
     const onOpenChange = jest.fn();
 
     render(
-      <Collapsible title="Psychology" defaultOpen={false} onOpenChange={onOpenChange}>
+      <Collapsible
+        title="Psychology"
+        defaultOpen={false}
+        onOpenChange={onOpenChange}
+      >
         <div>Brain model</div>
       </Collapsible>,
     );

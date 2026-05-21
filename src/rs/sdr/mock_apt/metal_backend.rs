@@ -58,13 +58,8 @@ impl MockAptMetalBackend {
       .map_err(|error| anyhow!("failed to create Metal pipeline: {error}"))?;
 
     let buffer_capacity_samples = 1;
-    let (
-      i_buffer,
-      q_buffer,
-      noise_i_buffer,
-      noise_q_buffer,
-      output_buffer,
-    ) = Self::allocate_buffers(&device, buffer_capacity_samples);
+    let (i_buffer, q_buffer, noise_i_buffer, noise_q_buffer, output_buffer) =
+      Self::allocate_buffers(&device, buffer_capacity_samples);
 
     Ok(Self {
       _device: device,

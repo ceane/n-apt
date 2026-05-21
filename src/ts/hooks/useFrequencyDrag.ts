@@ -4,7 +4,10 @@ import {
   clampVizZoom,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
-import { clampFrequencyRangeToBounds } from "@n-apt/utils/frequencyBounds";
+import {
+  clampFrequencyRangeToBounds,
+  normalizeFrequencyRangeToHz,
+} from "@n-apt/utils/frequency";
 
 export interface FrequencyDragOptions {
   disabled?: boolean;
@@ -85,25 +88,32 @@ export function useFrequencyDrag({
   const selectionBoxRef = useRef<HTMLDivElement | null>(null);
   const selectionDraftRangeRef = useRef<FrequencyRange | null>(null);
   const selectionDragOriginFreqRef = useRef<number | null>(null);
-  const selectionDragModeRef = useRef<"create" | "move" | "resize-left" | "resize-right" | null>(null);
-  const latestSelectionRangeRef = useRef<FrequencyRange | undefined>(selectionRange);
-  const latestOnSelectionChangeRef = useRef<typeof onSelectionChange>(onSelectionChange);
+  const selectionDragModeRef = useRef<
+    "create" | "move" | "resize-left" | "resize-right" | null
+  >(null);
+  const latestSelectionRangeRef = useRef<FrequencyRange | undefined>(
+    selectionRange,
+  );
+  const latestOnSelectionChangeRef =
+    useRef<typeof onSelectionChange>(onSelectionChange);
   const manualOverrideTimerRef = useRef<NodeJS.Timeout | null>(null);
   /** Cached bounding rect for the active spectrum canvas — captured on pointerDown,
    *  invalidated on resize. Avoids per-move getBoundingClientRect layout thrashing. */
   const canvasDragRectRef = useRef<DOMRect | null>(null);
 
   const setManualOverride = useCallback(() => {
-    if (manualOverrideTimerRef.current) clearTimeout(manualOverrideTimerRef.current);
+    if (manualOverrideTimerRef.current)
+      clearTimeout(manualOverrideTimerRef.current);
     // Block incoming WebSocket updates for 1.5s after interaction
     manualOverrideTimerRef.current = setTimeout(() => {
       manualOverrideTimerRef.current = null;
     }, 1500);
   }, []);
 
-  
   // Refs for multi-touch pinch-to-zoom
-  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(
+    new Map(),
+  );
   const initialPinchDistRef = useRef<number | null>(null);
   const lastPinchDistRef = useRef<number | null>(null);
   const initialPinchZoomRef = useRef<number>(1);
@@ -147,22 +157,24 @@ export function useFrequencyDrag({
     canvasRect: DOMRect,
     hardwareBounds: FrequencyRange,
     zoom: number = 1,
-    pan: number = 0
+    pan: number = 0,
   ) => {
     const plot = getPlotBounds(canvasRect);
     // Use double-precision math for sub-pixel accuracy at high zoom
-    const x = Math.max(plot.left, Math.min(plot.right, clientX - canvasRect.left));
+    const x = Math.max(
+      plot.left,
+      Math.min(plot.right, clientX - canvasRect.left),
+    );
     const frac = (x - plot.left) / plot.width;
-    
+
     const fullSpan = hardwareBounds.max - hardwareBounds.min;
     const visualSpan = fullSpan / zoom;
     const hardwareCenter = (hardwareBounds.min + hardwareBounds.max) / 2;
     const visualCenter = hardwareCenter + pan;
     const visualMin = visualCenter - visualSpan / 2;
-    
+
     return visualMin + frac * visualSpan;
   };
-
 
   useEffect(() => {
     latestSelectionRangeRef.current = selectionRange;
@@ -190,7 +202,10 @@ export function useFrequencyDrag({
       return spectrumGpuCanvasRef.current ?? getContainer();
     };
 
-    const setPointerCaptureIfAvailable = (container: HTMLElement, pointerId: number) => {
+    const setPointerCaptureIfAvailable = (
+      container: HTMLElement,
+      pointerId: number,
+    ) => {
       if (typeof container.setPointerCapture === "function") {
         container.setPointerCapture(pointerId);
       }
@@ -211,7 +226,10 @@ export function useFrequencyDrag({
       }
     };
 
-    const removeClassIfAvailable = (container: HTMLElement, className: string) => {
+    const removeClassIfAvailable = (
+      container: HTMLElement,
+      className: string,
+    ) => {
       if (container.classList) {
         container.classList.remove(className);
       }
@@ -233,11 +251,15 @@ export function useFrequencyDrag({
       return { min: bounds.min, max: bounds.max };
     };
 
-    const clampRangeToTuningBounds = (range: FrequencyRange): FrequencyRange => {
+    const clampRangeToTuningBounds = (
+      range: FrequencyRange,
+    ): FrequencyRange => {
       const channelBounds = getActiveSignalAreaBounds();
-      return clampFrequencyRangeToBounds(
-        clampFrequencyRangeToBounds(range, channelBounds),
-        hardwareSpectrumBounds,
+      return normalizeFrequencyRangeToHz(
+        clampFrequencyRangeToBounds(
+          clampFrequencyRangeToBounds(range, channelBounds),
+          hardwareSpectrumBounds,
+        ),
       );
     };
 
@@ -323,12 +345,10 @@ export function useFrequencyDrag({
       const hardwareSpan = fullRange;
       const halfHardware = hardwareSpan / 2;
 
-      const clampedHardwareRange = clampRangeToTuningBounds(
-        {
-          min: visualCenter - halfHardware,
-          max: visualCenter + halfHardware,
-        },
-      );
+      const clampedHardwareRange = clampRangeToTuningBounds({
+        min: visualCenter - halfHardware,
+        max: visualCenter + halfHardware,
+      });
 
       const newHardwareCenter =
         (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
@@ -344,7 +364,10 @@ export function useFrequencyDrag({
       );
       onVizPanChange(remainingPan);
 
-      if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+      if (
+        autoZoomStabilityRef?.current &&
+        (vizZoomFloorRef?.current ?? 1) > 1
+      ) {
         onVizZoomFloorPanChange?.(remainingPan);
       }
       return true;
@@ -368,18 +391,26 @@ export function useFrequencyDrag({
       }
 
       if (activePointersRef.current.has(e.pointerId)) {
-        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        activePointersRef.current.set(e.pointerId, {
+          x: e.clientX,
+          y: e.clientY,
+        });
       }
 
       // Handle multi-touch pinch-to-zoom (mobile)
-      if (activePointersRef.current.size === 2 && initialPinchDistRef.current && onVizZoomChange) {
+      if (
+        activePointersRef.current.size === 2 &&
+        initialPinchDistRef.current &&
+        onVizZoomChange
+      ) {
         const pointers = Array.from(activePointersRef.current.values());
         const p1 = pointers[0];
         const p2 = pointers[1];
-        
+
         const currentDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
         const zoomScale = currentDist / initialPinchDistRef.current;
-        const lastDist = lastPinchDistRef.current ?? initialPinchDistRef.current;
+        const lastDist =
+          lastPinchDistRef.current ?? initialPinchDistRef.current;
         const distDelta = currentDist - lastDist;
         const distVelocity = Math.abs(distDelta);
         const normalizedDelta = zoomScale - 1;
@@ -456,11 +487,13 @@ export function useFrequencyDrag({
               centerLine.style.bottom = "0";
               centerLine.style.left = "50%";
               centerLine.style.width = "1px";
-              centerLine.style.backgroundImage = "linear-gradient(to bottom, var(--color-fft-center-line, rgba(220, 255, 0, 0.7)) 20px, transparent 20px)";
+              centerLine.style.backgroundImage =
+                "linear-gradient(to bottom, var(--color-fft-center-line, rgba(220, 255, 0, 0.7)) 20px, transparent 20px)";
               centerLine.style.backgroundSize = "1px 28px";
               centerLine.style.backgroundRepeat = "repeat-y";
               centerLine.style.mixBlendMode = "difference";
-              centerLine.style.animation = "napt-zoom-line-scroll 0.8s linear infinite";
+              centerLine.style.animation =
+                "napt-zoom-line-scroll 0.8s linear infinite";
               centerLine.style.transform = "translateX(-50%)";
               centerLine.style.pointerEvents = "none";
               div.appendChild(centerLine);
@@ -496,22 +529,28 @@ export function useFrequencyDrag({
 
       const emitSelectionChange = latestOnSelectionChangeRef.current;
 
-      if (isSelectionDraggingRef.current && selectionMode !== "range" && emitSelectionChange) {
+      if (
+        isSelectionDraggingRef.current &&
+        selectionMode !== "range" &&
+        emitSelectionChange
+      ) {
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
 
-        const canvasRect = canvasDragRectRef.current || canvas.getBoundingClientRect();
+        const canvasRect =
+          canvasDragRectRef.current || canvas.getBoundingClientRect();
         const width = canvasRect.width;
 
         const deltaX = e.clientX - dragStartXRef.current;
         const zoom = vizZoomRef?.current || 1;
-        const fullRange = frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+        const fullRange =
+          frequencyRangeRef.current.max - frequencyRangeRef.current.min;
         const visualRange = fullRange / zoom;
         const freqChange = (deltaX / width) * visualRange;
 
         const newMin = dragStartSelectionRef.current.min + freqChange;
         const newMax = dragStartSelectionRef.current.max + freqChange;
-        
+
         const channelBounds =
           signalAreaBounds?.[activeSignalArea] ||
           hardwareSpectrumBounds ||
@@ -526,7 +565,6 @@ export function useFrequencyDrag({
         return;
       }
 
-
       if (
         selectionMode === "range" &&
         selectionDragModeRef.current &&
@@ -534,16 +572,18 @@ export function useFrequencyDrag({
       ) {
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
-        const canvasRect = canvasDragRectRef.current || canvas.getBoundingClientRect();
-        const bounds = dragStartRangeRef.current.max > dragStartRangeRef.current.min
-          ? dragStartRangeRef.current
-          : frequencyRangeRef.current;
+        const canvasRect =
+          canvasDragRectRef.current || canvas.getBoundingClientRect();
+        const bounds =
+          dragStartRangeRef.current.max > dragStartRangeRef.current.min
+            ? dragStartRangeRef.current
+            : frequencyRangeRef.current;
         const pointerFreq = frequencyFromClientX(
-          e.clientX, 
-          canvasRect, 
-          bounds, 
-          vizZoomRef?.current, 
-          vizPanOffsetRef?.current
+          e.clientX,
+          canvasRect,
+          bounds,
+          vizZoomRef?.current,
+          vizPanOffsetRef?.current,
         );
 
         const current =
@@ -568,7 +608,6 @@ export function useFrequencyDrag({
           return;
         }
 
-
         if (selectionDragModeRef.current === "move") {
           const origin = selectionDragOriginFreqRef.current ?? pointerFreq;
           const delta = pointerFreq - origin;
@@ -585,7 +624,6 @@ export function useFrequencyDrag({
           return;
         }
 
-
         if (selectionDragModeRef.current === "resize-left") {
           const next = normalizeSelectionRange(pointerFreq, base.max, bounds);
           selectionDraftRangeRef.current = next;
@@ -594,7 +632,6 @@ export function useFrequencyDrag({
           return;
         }
 
-
         if (selectionDragModeRef.current === "resize-right") {
           const next = normalizeSelectionRange(base.min, pointerFreq, bounds);
           selectionDraftRangeRef.current = next;
@@ -602,13 +639,13 @@ export function useFrequencyDrag({
           emitSelectionChange(next);
           return;
         }
-
       }
 
       const canvas = getActiveSpectrumCanvas();
       if (!isDraggingRef.current || !canvas) return;
 
-      const canvasRect = canvasDragRectRef.current || canvas.getBoundingClientRect();
+      const canvasRect =
+        canvasDragRectRef.current || canvas.getBoundingClientRect();
       const width = canvasRect.width;
 
       const deltaX = e.clientX - dragStartXRef.current;
@@ -639,7 +676,10 @@ export function useFrequencyDrag({
         onVizPanChange(clampedPan);
 
         // Auto zoom stability: track floor pan so Refocus can restore this position
-        if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+        if (
+          autoZoomStabilityRef?.current &&
+          (vizZoomFloorRef?.current ?? 1) > 1
+        ) {
           onVizZoomFloorPanChange?.(clampedPan);
         }
       } else if (onFrequencyRangeChange) {
@@ -649,9 +689,10 @@ export function useFrequencyDrag({
         const rangeWidth = fullRange;
         let newMaxFreq = newMinFreq + rangeWidth;
 
-        const newRange = clampRangeToTuningBounds(
-          { min: newMinFreq, max: newMaxFreq },
-        );
+        const newRange = clampRangeToTuningBounds({
+          min: newMinFreq,
+          max: newMaxFreq,
+        });
         frequencyRangeRef.current = newRange;
         onFrequencyRangeChange(newRange);
       } else if (onVizPanChange) {
@@ -674,7 +715,10 @@ export function useFrequencyDrag({
       container.focus();
 
       // Track all pointers for multi-touch
-      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      activePointersRef.current.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY,
+      });
 
       if (activePointersRef.current.size === 2) {
         // Start multi-touch pinch
@@ -689,7 +733,7 @@ export function useFrequencyDrag({
           x: (p1.x + p2.x) / 2,
           y: (p1.y + p2.y) / 2,
         };
-        
+
         // Cancel single-touch interactions
         isDraggingRef.current = false;
         isBoxDraggingRef.current = false;
@@ -713,7 +757,11 @@ export function useFrequencyDrag({
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
 
-      if (selectionMode === "range" && y < height - vfoThreshold && latestOnSelectionChangeRef.current) {
+      if (
+        selectionMode === "range" &&
+        y < height - vfoThreshold &&
+        latestOnSelectionChangeRef.current
+      ) {
         const canvas = getActiveSpectrumCanvas();
         if (canvas) {
           const canvasRect = canvas.getBoundingClientRect();
@@ -724,11 +772,11 @@ export function useFrequencyDrag({
           dragStartRangeRef.current = dragBounds;
           const fullRange = dragBounds.max - dragBounds.min;
           const freqAtClick = frequencyFromClientX(
-            e.clientX, 
-            canvasRect, 
-            dragBounds, 
-            vizZoomRef?.current, 
-            vizPanOffsetRef?.current
+            e.clientX,
+            canvasRect,
+            dragBounds,
+            vizZoomRef?.current,
+            vizPanOffsetRef?.current,
           );
           const existing =
             latestSelectionRangeRef.current ?? selectionDraftRangeRef.current;
@@ -741,7 +789,9 @@ export function useFrequencyDrag({
             if (e.altKey) {
               if (Math.abs(freqAtClick - existing.min) <= edgeThreshold) {
                 selectionDragModeRef.current = "resize-left";
-              } else if (Math.abs(freqAtClick - existing.max) <= edgeThreshold) {
+              } else if (
+                Math.abs(freqAtClick - existing.max) <= edgeThreshold
+              ) {
                 selectionDragModeRef.current = "resize-right";
               } else {
                 selectionDragModeRef.current = "move";
@@ -767,7 +817,10 @@ export function useFrequencyDrag({
           selectionDraftRangeRef.current = null;
           isSelectionDraggingRef.current = true;
           dragStartXRef.current = e.clientX;
-          dragStartSelectionRef.current = { min: freqAtClick, max: freqAtClick };
+          dragStartSelectionRef.current = {
+            min: freqAtClick,
+            max: freqAtClick,
+          };
           setPointerCaptureIfAvailable(container, e.pointerId);
           addClassIfAvailable(container, "cursor-grabbing");
           removeClassIfAvailable(container, "cursor-crosshair");
@@ -777,7 +830,12 @@ export function useFrequencyDrag({
       }
 
       // Check if clicking inside the demodulation selection box
-      if (selectionMode !== "range" && selectionRange && !disabled && y < height - vfoThreshold) {
+      if (
+        selectionMode !== "range" &&
+        selectionRange &&
+        !disabled &&
+        y < height - vfoThreshold
+      ) {
         const canvas = getActiveSpectrumCanvas();
         if (canvas) {
           const canvasRect = canvas.getBoundingClientRect();
@@ -790,10 +848,13 @@ export function useFrequencyDrag({
           const centerFreq = (fullMin + fullMax) / 2;
           const visualSpan = fullSpan / zoom;
           const visualMin = centerFreq + pan - visualSpan / 2;
-          
+
           const freqAtClick = visualMin + (x / canvasRect.width) * visualSpan;
-          
-          if (freqAtClick >= selectionRange.min && freqAtClick <= selectionRange.max) {
+
+          if (
+            freqAtClick >= selectionRange.min &&
+            freqAtClick <= selectionRange.max
+          ) {
             isSelectionDraggingRef.current = true;
             dragStartXRef.current = e.clientX;
             dragStartSelectionRef.current = { ...selectionRange };
@@ -1025,7 +1086,8 @@ export function useFrequencyDrag({
         selectionDraftRangeRef.current ?? latestSelectionRangeRef.current;
       if (!current || current.max <= current.min) return;
 
-      const stepBase = (frequencyRangeRef.current.max - frequencyRangeRef.current.min) / 200;
+      const stepBase =
+        (frequencyRangeRef.current.max - frequencyRangeRef.current.min) / 200;
       const step = Math.max(1, stepBase);
       let direction = 0;
       if (e.key === "ArrowLeft") {
@@ -1050,7 +1112,7 @@ export function useFrequencyDrag({
         e.preventDefault();
         return;
       }
-      
+
       if (!direction) return;
       e.preventDefault();
 
@@ -1062,7 +1124,7 @@ export function useFrequencyDrag({
         frequencyRangeRef.current,
       );
       selectionDraftRangeRef.current = next;
-      
+
       // If we are currently dragging, update the origin to prevent jumping on next move
       if (selectionDragOriginFreqRef.current !== null) {
         selectionDragOriginFreqRef.current += direction * step;
@@ -1075,19 +1137,26 @@ export function useFrequencyDrag({
       const container = getContainer();
       if (!container || isDraggingRef.current) return;
 
-      const rect = containerRectRef.current || container.getBoundingClientRect();
+      const rect =
+        containerRectRef.current || container.getBoundingClientRect();
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
 
       const isOverVfo = y >= rect.height - vfoThreshold;
-      
+
       if (isOverVfo) {
-        if (!container.classList || !container.classList.contains("cursor-grab")) {
+        if (
+          !container.classList ||
+          !container.classList.contains("cursor-grab")
+        ) {
           addClassIfAvailable(container, "cursor-grab");
           removeClassIfAvailable(container, "cursor-crosshair");
         }
       } else {
-        if (!container.classList || !container.classList.contains("cursor-crosshair")) {
+        if (
+          !container.classList ||
+          !container.classList.contains("cursor-crosshair")
+        ) {
           addClassIfAvailable(container, "cursor-crosshair");
           removeClassIfAvailable(container, "cursor-grab");
         }
@@ -1125,11 +1194,13 @@ export function useFrequencyDrag({
           if (canvas) {
             const canvasRect = canvas.getBoundingClientRect();
             const focusX =
-              activePointersRef.current.size === 2 && initialPinchCenterRef.current
+              activePointersRef.current.size === 2 &&
+              initialPinchCenterRef.current
                 ? initialPinchCenterRef.current.x
                 : e.clientX;
             const anchorX =
-              activePointersRef.current.size === 2 && initialPinchCenterRef.current
+              activePointersRef.current.size === 2 &&
+              initialPinchCenterRef.current
                 ? initialPinchCenterRef.current.x
                 : e.clientX;
             const currentAnchorX = focusX - canvasRect.left;
@@ -1143,8 +1214,7 @@ export function useFrequencyDrag({
             const centerFreq =
               (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
               2;
-            const visualMin =
-              centerFreq + currentPan - currentVisualRange / 2;
+            const visualMin = centerFreq + currentPan - currentVisualRange / 2;
 
             // Frequency currently under the gesture anchor at the start.
             const freqAtAnchor =
@@ -1173,7 +1243,8 @@ export function useFrequencyDrag({
 
       // 2. Lateral movement on scroll (panning/retuning)
       // Now triggered by scrolling over the margins instead of just the bottom VFO area.
-      const isOverMargin = x < 50 || x > rect.width - 40 || y < 20 || y > rect.height - 40;
+      const isOverMargin =
+        x < 50 || x > rect.width - 40 || y < 20 || y > rect.height - 40;
 
       if (isOverMargin) {
         // Move laterally on scroll
@@ -1211,7 +1282,10 @@ export function useFrequencyDrag({
           onVizPanChange(newPan);
 
           // Auto zoom stability: track floor pan so Refocus can restore this position
-          if (autoZoomStabilityRef?.current && (vizZoomFloorRef?.current ?? 1) > 1) {
+          if (
+            autoZoomStabilityRef?.current &&
+            (vizZoomFloorRef?.current ?? 1) > 1
+          ) {
             onVizZoomFloorPanChange?.(newPan);
           }
         } else if (onFrequencyRangeChange) {
@@ -1246,7 +1320,7 @@ export function useFrequencyDrag({
     container.addEventListener("pointermove", handlePointerMoveForCursor);
     container.addEventListener("pointerleave", handlePointerLeave);
     container.addEventListener("wheel", handleWheel, { passive: false });
-    
+
     addClassIfAvailable(container, "cursor-crosshair");
 
     const resizeObserver = new ResizeObserver(updateContainerRect);
@@ -1297,7 +1371,11 @@ export function useFrequencyDrag({
   ]);
 }
 
-function normalizeSelectionRange(a: number, b: number, bounds: FrequencyRange): FrequencyRange {
+function normalizeSelectionRange(
+  a: number,
+  b: number,
+  bounds: FrequencyRange,
+): FrequencyRange {
   return clampSelectionToFrequencyRange(
     { min: Math.min(a, b), max: Math.max(a, b) },
     bounds,

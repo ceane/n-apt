@@ -1,4 +1,5 @@
 use n_apt_backend::sdr::mock_apt::MockAptDevice;
+use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::sdr::SdrDevice;
 #[cfg(test)]
 mod tests {
@@ -56,6 +57,22 @@ mod tests {
     let mut device = MockAptDevice::new();
     device.set_center_frequency(28_000_000).unwrap();
     assert_eq!(device.get_center_frequency(), 28_000_000);
+  }
+
+  #[test]
+  fn test_queued_center_frequency_applies_during_retune_cooldown() {
+    let mut processor = SdrProcessor::new_mock_apt().unwrap();
+    processor.frame.retune_cooldown_until =
+      Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+
+    processor.queue_center_frequency(2_529_130);
+    let _ = processor.read_and_process_frame().unwrap();
+
+    assert_eq!(processor.get_center_frequency(), 2_529_130);
+    assert!(
+      processor.frame.pending_freq.is_none(),
+      "queued retunes should not be stuck behind cooldown"
+    );
   }
 
   #[test]
@@ -307,7 +324,9 @@ mod tests {
     if !device.gpu_backend_enabled() {
       eprintln!(
         "Metal backend unavailable; skipping smoke assertions: {}",
-        device.gpu_backend_error().unwrap_or("unknown initialization error")
+        device
+          .gpu_backend_error()
+          .unwrap_or("unknown initialization error")
       );
       return;
     }

@@ -280,10 +280,10 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   useEffect(() => {
     const id = setInterval(() => {
       const current = Array.isArray(liveDataRef.current)
-        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
         : liveDataRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
-      
+
       if (nextRef !== lastIqRefRef.current) {
         lastIqRefRef.current = nextRef;
         setFrameIqData(nextRef);

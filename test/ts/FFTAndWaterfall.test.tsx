@@ -1,14 +1,16 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
 
-const fftCanvasMock = jest.fn((_props?: any) => <div data-testid="fft-canvas" />);
+const fftCanvasMock = jest.fn((_props?: any) => (
+  <div data-testid="fft-canvas" />
+));
 const fftCanvasMountSpy = jest.fn();
 const fftCanvasUnmountSpy = jest.fn();
 const visualizerSlidersMock = jest.fn((_props: any) => (
   <div data-testid="visualizer-sliders" />
 ));
-const waterfallCanvasMock = jest.fn(() => (
+const waterfallCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fifo-waterfall-canvas" />
 ));
 
@@ -36,7 +38,7 @@ jest.mock("@n-apt/components/VisualizerSliders", () => ({
 
 jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
   __esModule: true,
-  default: (_props: any) => waterfallCanvasMock(),
+  default: (_props: any) => waterfallCanvasMock(_props),
 }));
 
 jest.mock("@n-apt/redux", () => ({
@@ -50,6 +52,16 @@ jest.mock("@n-apt/redux", () => ({
       theme: {
         fftColor: "#00d4ff",
         waterfallTheme: "classic",
+      },
+      waterfall: {
+        sourceMode: "live",
+      },
+      websocket: {
+        isConnected: true,
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        error: null,
+        cryptoCorrupted: false,
       },
     }),
   useAppDispatch: () => jest.fn(),
@@ -86,10 +98,56 @@ describe("FFTAndWaterfall", () => {
     expect(fftCanvasMock).toHaveBeenCalledWith(
       expect.objectContaining({
         waterfallCanvasBindings: expect.any(Object),
+        interactionDisabled: true,
       }),
     );
     expect(screen.getByTestId("fifo-waterfall-canvas")).toBeInTheDocument();
     expect(screen.getByTestId("visualizer-sliders")).toBeInTheDocument();
+
+    const sliderCalls = visualizerSlidersMock.mock.calls;
+    const sliderProps = sliderCalls[sliderCalls.length - 1]?.[0];
+    expect(sliderProps?.disabled).toBe(true);
+
+    const waterfallCalls = waterfallCanvasMock.mock.calls;
+    const waterfallProps = waterfallCalls[waterfallCalls.length - 1]?.[0];
+    expect(waterfallProps?.awaitingDeviceData).toBe(true);
+  });
+
+  it("clears waterfall and slider loading when FFT reports a rendered frame", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const initialSliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+    const initialWaterfallProps =
+      waterfallCanvasMock.mock.calls[waterfallCanvasMock.mock.calls.length - 1]?.[0];
+    expect(initialSliderProps?.disabled).toBe(true);
+    expect(initialWaterfallProps?.awaitingDeviceData).toBe(true);
+
+    const fftProps = fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+      fftProps.onCanvasLoadingChange(false);
+    });
+
+    const nextSliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+    const nextWaterfallProps =
+      waterfallCanvasMock.mock.calls[waterfallCanvasMock.mock.calls.length - 1]?.[0];
+    expect(nextSliderProps?.disabled).toBe(false);
+    expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

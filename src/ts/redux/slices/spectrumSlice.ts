@@ -331,7 +331,7 @@ const spectrumSlice = createSlice({
     setPreviewRange: (state, action: PayloadAction<FrequencyRange | null>) => {
       state.previewRange = action.payload;
     },
-    
+
     setPreviewAlignment: (state, action: PayloadAction<Alignment>) => {
       state.previewAlignment = action.payload;
     },

@@ -48,12 +48,30 @@ describe("SnapshotRenderer", () => {
 
     renderer.drawDbMarkers(mockContext, [-120, -89.6, -10.4, 0], "dB");
 
-    expect(fillText).toHaveBeenCalledWith("-120dB", expect.any(Number), expect.any(Number));
-    expect(fillText).toHaveBeenCalledWith("-90", expect.any(Number), expect.any(Number));
-    expect(fillText).toHaveBeenCalledWith("-10", expect.any(Number), expect.any(Number));
-    expect(fillText).toHaveBeenCalledWith("0", expect.any(Number), expect.any(Number));
+    expect(fillText).toHaveBeenCalledWith(
+      "-120dB",
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(fillText).toHaveBeenCalledWith(
+      "-90",
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(fillText).toHaveBeenCalledWith(
+      "-10",
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(fillText).toHaveBeenCalledWith(
+      "0",
+      expect.any(Number),
+      expect.any(Number),
+    );
     expect(
-      fillText.mock.calls.every(([text]) => typeof text === "string" && !text.includes(".")),
+      fillText.mock.calls.every(
+        ([text]) => typeof text === "string" && !text.includes("."),
+      ),
     ).toBe(true);
   });
 
@@ -142,7 +160,17 @@ describe("SnapshotRenderer", () => {
 
     const anyRenderer = renderer as any;
     anyRenderer.buildStatsLayouts = jest.fn(() => [
-      { kind: "double", boxW: 180, boxH: 48, columns: { splitIndex: 3, columnGap: 18, leftWidth: 80, rightWidth: 80 } },
+      {
+        kind: "double",
+        boxW: 180,
+        boxH: 48,
+        columns: {
+          splitIndex: 3,
+          columnGap: 18,
+          leftWidth: 80,
+          rightWidth: 80,
+        },
+      },
       { kind: "single", boxW: 120, boxH: 72 },
     ]);
     anyRenderer.generateCandidatePositions = jest.fn(() => [{ x: 12, y: 12 }]);

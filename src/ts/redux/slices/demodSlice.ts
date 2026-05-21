@@ -12,7 +12,7 @@ export interface DemodState {
   centerFreqHz: number | null;
   bandwidthCenterFreqHz: number | null;
   isListening: boolean;
-  
+
   hardwareSpanHz: number;
   bandwidthHz: number;
   bandwidthStartHz: number;
@@ -94,7 +94,10 @@ const demodSlice = createSlice({
     setBandwidthStartHz: (state, action: PayloadAction<number>) => {
       state.bandwidthStartHz = action.payload;
     },
-    setAlignment: (state, action: PayloadAction<"centered" | "start" | "end">) => {
+    setAlignment: (
+      state,
+      action: PayloadAction<"centered" | "start" | "end">,
+    ) => {
       state.alignment = action.payload;
     },
   },

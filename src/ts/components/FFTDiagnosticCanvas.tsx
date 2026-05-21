@@ -85,7 +85,10 @@ const decodeDbFrame = (
 ) => {
   if (!data) return [];
 
-  if (typeof data.decodeFrame === "function" && Number.isFinite(data.fft_size)) {
+  if (
+    typeof data.decodeFrame === "function" &&
+    Number.isFinite(data.fft_size)
+  ) {
     if (typeof data.getFrame === "function") {
       return data.getFrame(frameKind, frameIndex);
     }
@@ -138,13 +141,19 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
 }) => {
   const theme = useTheme() as AppStyledTheme;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [dragCurrent, setDragCurrent] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Helper to normalize frequency ranges to Hz
   const toHz = (r: [number, number] | undefined) => {
     if (!r) return [0, 0] as [number, number];
-    const multiplier = Math.max(Math.abs(r[0]), Math.abs(r[1])) < 10000 ? 1e6 : 1;
+    const multiplier =
+      Math.max(Math.abs(r[0]), Math.abs(r[1])) < 10000 ? 1e6 : 1;
     return [r[0] * multiplier, r[1] * multiplier] as [number, number];
   };
 
@@ -157,7 +166,10 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+    if (
+      canvas.width !== Math.floor(rect.width * dpr) ||
+      canvas.height !== Math.floor(rect.height * dpr)
+    ) {
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
     }
@@ -165,229 +177,308 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
     return { ctx, dpr, width: canvas.width, height: canvas.height, rect };
   }, []);
 
-  const drawTrace = useCallback((
-    ctx: CanvasRenderingContext2D,
-    logicalWidth: number,
-    logicalHeight: number,
-    traceData: number[] | Float32Array,
-    traceRange: [number, number],
-    color: string,
-    fill: string,
-    globalRange: [number, number],
-    isStitched: boolean
-  ) => {
-    if (!traceData || traceData.length === 0) return;
+  const drawTrace = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      logicalWidth: number,
+      logicalHeight: number,
+      traceData: number[] | Float32Array,
+      traceRange: [number, number],
+      color: string,
+      fill: string,
+      globalRange: [number, number],
+      isStitched: boolean,
+    ) => {
+      if (!traceData || traceData.length === 0) return;
 
-    const leftMargin = 70;
-    const rightMargin = 30;
-    const bottomMargin = 40;
-    const topMargin = isStitched ? 50 : 125;
+      const leftMargin = 70;
+      const rightMargin = 30;
+      const bottomMargin = 40;
+      const topMargin = isStitched ? 50 : 125;
 
-    const fftAreaMax = { x: logicalWidth - rightMargin, y: logicalHeight - bottomMargin };
-    const fftHeight = fftAreaMax.y - topMargin;
-    const plotWidth = fftAreaMax.x - leftMargin;
+      const fftAreaMax = {
+        x: logicalWidth - rightMargin,
+        y: logicalHeight - bottomMargin,
+      };
+      const fftHeight = fftAreaMax.y - topMargin;
+      const plotWidth = fftAreaMax.x - leftMargin;
 
-    const dbMin = FFT_MIN_DB;
-    const dbMax = FFT_MAX_DB;
-    const vertRange = dbMax - dbMin;
-    const scaleFactor = fftHeight / vertRange;
+      const dbMin = FFT_MIN_DB;
+      const dbMax = FFT_MAX_DB;
+      const vertRange = dbMax - dbMin;
+      const scaleFactor = fftHeight / vertRange;
 
-    const x0 = leftMargin + ((traceRange[0] - globalRange[0]) / (globalRange[1] - globalRange[0])) * plotWidth;
-    const x1 = leftMargin + ((traceRange[1] - globalRange[0]) / (globalRange[1] - globalRange[0])) * plotWidth;
-    const w = x1 - x0;
+      const x0 =
+        leftMargin +
+        ((traceRange[0] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
+          plotWidth;
+      const x1 =
+        leftMargin +
+        ((traceRange[1] - globalRange[0]) / (globalRange[1] - globalRange[0])) *
+          plotWidth;
+      const w = x1 - x0;
 
-    const decimated = decimateWaveform(traceData, Math.ceil(w));
-    const getY = (db: number) => fftAreaMax.y - (db - dbMin) * scaleFactor;
-    const clampY = (y: number) => Math.max(topMargin, Math.min(fftAreaMax.y, y));
+      const decimated = decimateWaveform(traceData, Math.ceil(w));
+      const getY = (db: number) => fftAreaMax.y - (db - dbMin) * scaleFactor;
+      const clampY = (y: number) =>
+        Math.max(topMargin, Math.min(fftAreaMax.y, y));
 
-    const gradient = ctx.createLinearGradient(0, topMargin, 0, fftAreaMax.y);
-    gradient.addColorStop(0, fill);
-    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+      const gradient = ctx.createLinearGradient(0, topMargin, 0, fftAreaMax.y);
+      gradient.addColorStop(0, fill);
+      gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
 
-    ctx.beginPath();
-    ctx.fillStyle = gradient;
-    ctx.moveTo(x0, fftAreaMax.y);
-    for (let i = 0; i < decimated.length; i++) {
-      const x = x0 + (i / (decimated.length - 1)) * w;
-      ctx.lineTo(x, clampY(getY(decimated[i])));
-    }
-    ctx.lineTo(x1, fftAreaMax.y);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    for (let i = 0; i < decimated.length; i++) {
-      const x = x0 + (i / (decimated.length - 1)) * w;
-      if (i === 0) ctx.moveTo(x, clampY(getY(decimated[i])));
-      else ctx.lineTo(x, clampY(getY(decimated[i])));
-    }
-    ctx.stroke();
-  }, [theme]);
-
-  const drawAxis = useCallback((
-    ctx: CanvasRenderingContext2D,
-    logicalWidth: number,
-    logicalHeight: number,
-    range: [number, number],
-    hop1_range?: [number, number],
-    hop2_range?: [number, number],
-    h1_phase?: number,
-    h2_phase?: number,
-    correction?: number,
-    fmDeviation?: number,
-    isStitched?: boolean
-  ) => {
-    const leftMargin = 70;
-    const rightMargin = 30;
-    const bottomMargin = 40;
-    const topMargin = isStitched ? 50 : 125;
-
-    const fftAreaMax = { x: logicalWidth - rightMargin, y: logicalHeight - bottomMargin };
-    const fftHeight = fftAreaMax.y - topMargin;
-    const plotWidth = fftAreaMax.x - leftMargin;
-
-    const dbMin = FFT_MIN_DB;
-    const dbMax = FFT_MAX_DB;
-    const vertRange = dbMax - dbMin;
-    const scaleFactor = fftHeight / vertRange;
-
-    ctx.strokeStyle = theme.colors.fftGrid;
-    ctx.fillStyle = theme.colors.fftText;
-    ctx.font = `11px ${theme.typography.mono}`;
-    ctx.textAlign = "right";
-    ctx.lineWidth = 1;
-
-    for (let line = dbMax; line >= dbMin; line -= 20) {
-      const yPos = fftAreaMax.y - (line - dbMin) * scaleFactor;
-      ctx.setLineDash([2, 4]);
       ctx.beginPath();
-      ctx.moveTo(leftMargin, Math.round(yPos));
-      ctx.lineTo(fftAreaMax.x, Math.round(yPos));
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText(`${line}dB`, leftMargin - 10, Math.round(yPos + 4));
-    }
-
-    ctx.textAlign = "center";
-    const steps = 4;
-    for (let i = 0; i <= steps; i++) {
-      const x = leftMargin + (i / steps) * plotWidth;
-      const val = range[0] + (i / steps) * (range[1] - range[0]);
-      ctx.strokeStyle = theme.colors.fftText;
-      ctx.beginPath();
-      ctx.moveTo(x, fftAreaMax.y);
-      ctx.lineTo(x, fftAreaMax.y + 7);
-      ctx.stroke();
-      ctx.fillText(formatFrequency(val), x, fftAreaMax.y + 22);
-    }
-
-    const drawHWBlock = (startFreq: number, endFreq: number, color: string, label: string, phaseDeg?: number) => {
-      if (startFreq < range[1] && endFreq > range[0]) {
-        const x1 = leftMargin + ((Math.max(startFreq, range[0]) - range[0]) / (range[1] - range[0])) * plotWidth;
-        const x2 = leftMargin + ((Math.min(endFreq, range[1]) - range[0]) / (range[1] - range[0])) * plotWidth;
-
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-
-        if (startFreq >= range[0]) {
-          ctx.beginPath();
-          ctx.moveTo(x1, topMargin); ctx.lineTo(x1, fftAreaMax.y); ctx.stroke();
-        }
-        if (endFreq <= range[1]) {
-          ctx.beginPath();
-          ctx.moveTo(x2, topMargin); ctx.lineTo(x2, fftAreaMax.y); ctx.stroke();
-        }
-
-        const cx = Math.max(x1 + 60, Math.min(x2 - 60, (x1 + x2) / 2));
-        ctx.fillStyle = color;
-        ctx.textAlign = "center";
-        ctx.font = `bold 13px ${theme.typography.mono}`;
-        ctx.fillText(label, cx, topMargin - 80);
-
-        if (phaseDeg !== undefined) {
-          ctx.font = `10px ${theme.typography.mono}`;
-          ctx.fillStyle = color.replace("0.45", "0.7");
-          let phaseStr = `${phaseDeg.toFixed(1)}°`;
-          if (label === "Hop B" && correction !== undefined && correction !== null) {
-            const aligned = (((phaseDeg || 0) + correction + 180) % 360) - 180;
-            phaseStr += ` (Aligned: ${aligned.toFixed(1)}°)`;
-          }
-          ctx.fillText(phaseStr, cx, topMargin - 62);
-        }
-        ctx.restore();
+      ctx.fillStyle = gradient;
+      ctx.moveTo(x0, fftAreaMax.y);
+      for (let i = 0; i < decimated.length; i++) {
+        const x = x0 + (i / (decimated.length - 1)) * w;
+        ctx.lineTo(x, clampY(getY(decimated[i])));
       }
-    };
+      ctx.lineTo(x1, fftAreaMax.y);
+      ctx.closePath();
+      ctx.fill();
 
-    if (!isStitched) {
-      if (hop1_range) drawHWBlock(hop1_range[0], hop1_range[1], theme.colors.danger + "73", "Hop A", h1_phase);
-      if (hop2_range) drawHWBlock(hop2_range[0], hop2_range[1], theme.colors.secondary + "73", "Hop B", h2_phase);
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < decimated.length; i++) {
+        const x = x0 + (i / (decimated.length - 1)) * w;
+        if (i === 0) ctx.moveTo(x, clampY(getY(decimated[i])));
+        else ctx.lineTo(x, clampY(getY(decimated[i])));
+      }
+      ctx.stroke();
+    },
+    [theme],
+  );
 
-      if (hop1_range && hop2_range) {
-        const overlapStart = hop2_range[0];
-        const overlapEnd = hop1_range[1];
-        if (overlapEnd > overlapStart) {
-          const x0 = leftMargin + ((overlapStart - range[0]) / (range[1] - range[0])) * plotWidth;
-          const x1 = leftMargin + ((overlapEnd - range[0]) / (range[1] - range[0])) * plotWidth;
-          const lineY = topMargin - 35;
+  const drawAxis = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      logicalWidth: number,
+      logicalHeight: number,
+      range: [number, number],
+      hop1_range?: [number, number],
+      hop2_range?: [number, number],
+      h1_phase?: number,
+      h2_phase?: number,
+      correction?: number,
+      fmDeviation?: number,
+      isStitched?: boolean,
+    ) => {
+      const leftMargin = 70;
+      const rightMargin = 30;
+      const bottomMargin = 40;
+      const topMargin = isStitched ? 50 : 125;
 
-          ctx.strokeStyle = theme.colors.textMuted + "4d";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x0, lineY); ctx.lineTo(x1, lineY);
-          ctx.moveTo(x0, lineY - 3); ctx.lineTo(x0, lineY + 3);
-          ctx.moveTo(x1, lineY - 3); ctx.lineTo(x1, lineY + 3);
-          ctx.stroke();
+      const fftAreaMax = {
+        x: logicalWidth - rightMargin,
+        y: logicalHeight - bottomMargin,
+      };
+      const fftHeight = fftAreaMax.y - topMargin;
+      const plotWidth = fftAreaMax.x - leftMargin;
 
-          const cutFreq = data.cut_point_hz || (overlapStart + overlapEnd) / 2;
-          const xMid = leftMargin + ((cutFreq - range[0]) / (range[1] - range[0])) * plotWidth;
+      const dbMin = FFT_MIN_DB;
+      const dbMax = FFT_MAX_DB;
+      const vertRange = dbMax - dbMin;
+      const scaleFactor = fftHeight / vertRange;
+
+      ctx.strokeStyle = theme.colors.fftGrid;
+      ctx.fillStyle = theme.colors.fftText;
+      ctx.font = `11px ${theme.typography.mono}`;
+      ctx.textAlign = "right";
+      ctx.lineWidth = 1;
+
+      for (let line = dbMax; line >= dbMin; line -= 20) {
+        const yPos = fftAreaMax.y - (line - dbMin) * scaleFactor;
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(leftMargin, Math.round(yPos));
+        ctx.lineTo(fftAreaMax.x, Math.round(yPos));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillText(`${line}dB`, leftMargin - 10, Math.round(yPos + 4));
+      }
+
+      ctx.textAlign = "center";
+      const steps = 4;
+      for (let i = 0; i <= steps; i++) {
+        const x = leftMargin + (i / steps) * plotWidth;
+        const val = range[0] + (i / steps) * (range[1] - range[0]);
+        ctx.strokeStyle = theme.colors.fftText;
+        ctx.beginPath();
+        ctx.moveTo(x, fftAreaMax.y);
+        ctx.lineTo(x, fftAreaMax.y + 7);
+        ctx.stroke();
+        ctx.fillText(formatFrequency(val), x, fftAreaMax.y + 22);
+      }
+
+      const drawHWBlock = (
+        startFreq: number,
+        endFreq: number,
+        color: string,
+        label: string,
+        phaseDeg?: number,
+      ) => {
+        if (startFreq < range[1] && endFreq > range[0]) {
+          const x1 =
+            leftMargin +
+            ((Math.max(startFreq, range[0]) - range[0]) /
+              (range[1] - range[0])) *
+              plotWidth;
+          const x2 =
+            leftMargin +
+            ((Math.min(endFreq, range[1]) - range[0]) / (range[1] - range[0])) *
+              plotWidth;
+
           ctx.save();
-          ctx.strokeStyle = theme.colors.success;
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 3]);
-          ctx.beginPath();
-          ctx.moveTo(xMid, topMargin); ctx.lineTo(xMid, fftAreaMax.y);
-          ctx.stroke();
-          ctx.fillStyle = theme.colors.success;
-          ctx.font = `bold 9px ${theme.typography.mono}`;
-          ctx.textAlign = "center";
-          ctx.fillText("CUT POINT", xMid, fftAreaMax.y + 35);
-          ctx.restore();
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1;
 
-          const spanMHz = overlapEnd - overlapStart;
-          ctx.fillStyle = theme.colors.textMuted;
-          ctx.font = `bold 9px ${theme.typography.mono}`;
-          ctx.textAlign = "center";
-          ctx.fillText(`${formatFrequency(spanMHz)} OVERLAP`, (x0 + x1) / 2, lineY - 8);
-
-          if (correction !== undefined) {
-            const midX = (x0 + x1) / 2;
-            ctx.fillStyle = theme.colors.textPrimary;
-            ctx.font = `bold 10px ${theme.typography.mono}`;
-            ctx.fillText(`${correction?.toFixed(1)}° PHASE SHIFT APPLIED`, midX, topMargin - 12);
-            const absDev = Math.abs(fmDeviation || 0);
-            const sign = (fmDeviation || 0) > 0 ? "+" : "-";
-            ctx.fillText(`Deviation: Δf ≈ ${sign}${absDev.toFixed(1)} kHz`, midX, topMargin - 26);
+          if (startFreq >= range[0]) {
+            ctx.beginPath();
+            ctx.moveTo(x1, topMargin);
+            ctx.lineTo(x1, fftAreaMax.y);
+            ctx.stroke();
           }
+          if (endFreq <= range[1]) {
+            ctx.beginPath();
+            ctx.moveTo(x2, topMargin);
+            ctx.lineTo(x2, fftAreaMax.y);
+            ctx.stroke();
+          }
+
+          const cx = Math.max(x1 + 60, Math.min(x2 - 60, (x1 + x2) / 2));
+          ctx.fillStyle = color;
+          ctx.textAlign = "center";
+          ctx.font = `bold 13px ${theme.typography.mono}`;
+          ctx.fillText(label, cx, topMargin - 80);
+
+          if (phaseDeg !== undefined) {
+            ctx.font = `10px ${theme.typography.mono}`;
+            ctx.fillStyle = color.replace("0.45", "0.7");
+            let phaseStr = `${phaseDeg.toFixed(1)}°`;
+            if (
+              label === "Hop B" &&
+              correction !== undefined &&
+              correction !== null
+            ) {
+              const aligned =
+                (((phaseDeg || 0) + correction + 180) % 360) - 180;
+              phaseStr += ` (Aligned: ${aligned.toFixed(1)}°)`;
+            }
+            ctx.fillText(phaseStr, cx, topMargin - 62);
+          }
+          ctx.restore();
+        }
+      };
+
+      if (!isStitched) {
+        if (hop1_range)
+          drawHWBlock(
+            hop1_range[0],
+            hop1_range[1],
+            theme.colors.danger + "73",
+            "Hop A",
+            h1_phase,
+          );
+        if (hop2_range)
+          drawHWBlock(
+            hop2_range[0],
+            hop2_range[1],
+            theme.colors.secondary + "73",
+            "Hop B",
+            h2_phase,
+          );
+
+        if (hop1_range && hop2_range) {
+          const overlapStart = hop2_range[0];
+          const overlapEnd = hop1_range[1];
+          if (overlapEnd > overlapStart) {
+            const x0 =
+              leftMargin +
+              ((overlapStart - range[0]) / (range[1] - range[0])) * plotWidth;
+            const x1 =
+              leftMargin +
+              ((overlapEnd - range[0]) / (range[1] - range[0])) * plotWidth;
+            const lineY = topMargin - 35;
+
+            ctx.strokeStyle = theme.colors.textMuted + "4d";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x0, lineY);
+            ctx.lineTo(x1, lineY);
+            ctx.moveTo(x0, lineY - 3);
+            ctx.lineTo(x0, lineY + 3);
+            ctx.moveTo(x1, lineY - 3);
+            ctx.lineTo(x1, lineY + 3);
+            ctx.stroke();
+
+            const cutFreq =
+              data.cut_point_hz || (overlapStart + overlapEnd) / 2;
+            const xMid =
+              leftMargin +
+              ((cutFreq - range[0]) / (range[1] - range[0])) * plotWidth;
+            ctx.save();
+            ctx.strokeStyle = theme.colors.success;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(xMid, topMargin);
+            ctx.lineTo(xMid, fftAreaMax.y);
+            ctx.stroke();
+            ctx.fillStyle = theme.colors.success;
+            ctx.font = `bold 9px ${theme.typography.mono}`;
+            ctx.textAlign = "center";
+            ctx.fillText("CUT POINT", xMid, fftAreaMax.y + 35);
+            ctx.restore();
+
+            const spanMHz = overlapEnd - overlapStart;
+            ctx.fillStyle = theme.colors.textMuted;
+            ctx.font = `bold 9px ${theme.typography.mono}`;
+            ctx.textAlign = "center";
+            ctx.fillText(
+              `${formatFrequency(spanMHz)} OVERLAP`,
+              (x0 + x1) / 2,
+              lineY - 8,
+            );
+
+            if (correction !== undefined) {
+              const midX = (x0 + x1) / 2;
+              ctx.fillStyle = theme.colors.textPrimary;
+              ctx.font = `bold 10px ${theme.typography.mono}`;
+              ctx.fillText(
+                `${correction?.toFixed(1)}° PHASE SHIFT APPLIED`,
+                midX,
+                topMargin - 12,
+              );
+              const absDev = Math.abs(fmDeviation || 0);
+              const sign = (fmDeviation || 0) > 0 ? "+" : "-";
+              ctx.fillText(
+                `Deviation: Δf ≈ ${sign}${absDev.toFixed(1)} kHz`,
+                midX,
+                topMargin - 26,
+              );
+            }
+          }
+        }
+
+        if (data.timing) {
+          ctx.textAlign = "center";
+          ctx.font = `10px ${theme.typography.mono}`;
+          ctx.fillStyle = theme.colors.textMuted;
+          let timeStr = `Latency: ${data.timing.total_latency_ms.toFixed(0)}ms / Settle: ${data.timing.settle_time_ms.toFixed(0)}ms / Slice: ${data.timing.slice_duration_ms.toFixed(1)}ms / Error: ${data.overlap_rms_error?.toFixed(2)}dB / TS: ${data.timing.capture_timestamp_ms}`;
+          if (fmDeviation !== undefined)
+            timeStr += ` / FM Dev: ${fmDeviation.toFixed(1)} kHz`;
+          ctx.fillText(timeStr, logicalWidth / 2, 22);
         }
       }
 
-      if (data.timing) {
-        ctx.textAlign = "center";
-        ctx.font = `10px ${theme.typography.mono}`;
-        ctx.fillStyle = theme.colors.textMuted;
-        let timeStr = `Latency: ${data.timing.total_latency_ms.toFixed(0)}ms / Settle: ${data.timing.settle_time_ms.toFixed(0)}ms / Slice: ${data.timing.slice_duration_ms.toFixed(1)}ms / Error: ${data.overlap_rms_error?.toFixed(2)}dB / TS: ${data.timing.capture_timestamp_ms}`;
-        if (fmDeviation !== undefined) timeStr += ` / FM Dev: ${fmDeviation.toFixed(1)} kHz`;
-        ctx.fillText(timeStr, logicalWidth / 2, 22);
-      }
-    }
-
-    ctx.strokeStyle = theme.colors.border;
-    ctx.strokeRect(leftMargin, topMargin, plotWidth, fftHeight);
-  }, [theme, data]);
+      ctx.strokeStyle = theme.colors.border;
+      ctx.strokeRect(leftMargin, topMargin, plotWidth, fftHeight);
+    },
+    [theme, data],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -433,7 +524,10 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
       const globalRange =
         zoomRange ||
         (type === "raw"
-          ? [Math.min(h1_range[0], h2_range[0]), Math.max(h1_range[1], h2_range[1])]
+          ? [
+              Math.min(h1_range[0], h2_range[0]),
+              Math.max(h1_range[1], h2_range[1]),
+            ]
           : hs_range);
 
       ctx.save();
@@ -517,7 +611,16 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleRender);
     };
-  }, [data, frameIndex, zoomRange, type, getCanvasContext, drawAxis, drawTrace, theme]);
+  }, [
+    data,
+    frameIndex,
+    zoomRange,
+    type,
+    getCanvasContext,
+    drawAxis,
+    drawTrace,
+    theme,
+  ]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -544,7 +647,14 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
     const h1_range = toHz(data.hop1_freq_hz || data.hop1_freq_mhz);
     const h2_range = toHz(data.hop2_freq_hz || data.hop2_freq_mhz);
     const hs_range = toHz(data.stitched_freq_hz || data.stitched_freq_mhz);
-    const currentRange = zoomRange || (type === "raw" ? [Math.min(h1_range[0], h2_range[0]), Math.max(h1_range[1], h2_range[1])] : hs_range);
+    const currentRange =
+      zoomRange ||
+      (type === "raw"
+        ? [
+            Math.min(h1_range[0], h2_range[0]),
+            Math.max(h1_range[1], h2_range[1]),
+          ]
+        : hs_range);
 
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) {

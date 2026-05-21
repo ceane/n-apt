@@ -2,7 +2,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 
-
 describe("canvas API integration", () => {
   it("tracks WebGL draw calls", () => {
     const canvas = document.createElement("canvas");

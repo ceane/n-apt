@@ -160,9 +160,18 @@ describe("Frequency Utilities", () => {
 
     test("should choose the most appropriate display scale", () => {
       expect(getOptimalFrequencyScale(999)).toEqual({ value: 999, unit: "Hz" });
-      expect(getOptimalFrequencyScale(1_500)).toEqual({ value: 1.5, unit: "kHz" });
-      expect(getOptimalFrequencyScale(1_500_000)).toEqual({ value: 1.5, unit: "MHz" });
-      expect(getOptimalFrequencyScale(1_500_000_000)).toEqual({ value: 1.5, unit: "GHz" });
+      expect(getOptimalFrequencyScale(1_500)).toEqual({
+        value: 1.5,
+        unit: "kHz",
+      });
+      expect(getOptimalFrequencyScale(1_500_000)).toEqual({
+        value: 1.5,
+        unit: "MHz",
+      });
+      expect(getOptimalFrequencyScale(1_500_000_000)).toEqual({
+        value: 1.5,
+        unit: "GHz",
+      });
     });
   });
 
@@ -172,7 +181,7 @@ describe("Frequency Utilities", () => {
       expect(formatChannelFreq(137500999)).toBe("137.500MHz");
       expect(formatChannelFreq(137500000)).toBe("137.5MHz");
       expect(formatChannelFreq(4399999)).toBe("4.399MHz");
-      
+
       // kHz case
       expect(formatChannelFreq(18999.9)).toBe("18.999kHz");
       expect(formatChannelFreq(18000)).toBe("18kHz");
@@ -185,6 +194,5 @@ describe("Frequency Utilities", () => {
     test("should handle Hz case", () => {
       expect(formatChannelFreq(123.4567)).toBe("123.456Hz");
     });
-
   });
 });

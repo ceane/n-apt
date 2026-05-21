@@ -35,25 +35,51 @@ mockApi("@n-apt/hooks/useSpectrumStore", () => ({
   SpectrumProvider: ({ children }: any) => <>{children}</>,
 }));
 
-const { DemodProvider, useDemod } = require("../../src/ts/contexts/DemodContext");
+const {
+  DemodProvider,
+  useDemod,
+} = require("../../src/ts/contexts/DemodContext");
 
 const mockStore = configureStore({
   reducer: {
-    websocket: (_state = { captureStatus: null, isPaused: false }, _action: any) => ({
+    websocket: (
+      _state = { captureStatus: null, isPaused: false },
+      _action: any,
+    ) => ({
       captureStatus: null,
       isPaused: false,
     }),
-    demod: (_state = { isListening: false, algorithm: "fm", centerFreqHz: 0, bandwidthKhz: 0 }, _action: any) => ({
+    demod: (
+      _state = {
+        isListening: false,
+        algorithm: "fm",
+        centerFreqHz: 0,
+        bandwidthKhz: 0,
+      },
+      _action: any,
+    ) => ({
       isListening: false,
       algorithm: "fm",
       centerFreqHz: 0,
       bandwidthKhz: 0,
     }),
-    waterfall: (_state = { activePlaybackMetadata: null, sourceMode: "live" }, _action: any) => ({
+    waterfall: (
+      _state = { activePlaybackMetadata: null, sourceMode: "live" },
+      _action: any,
+    ) => ({
       activePlaybackMetadata: null,
       sourceMode: "live",
     }),
-    spectrum: (_state = { frequencyRange: null, lastKnownRanges: {}, sampleRateHz: 48000, vizZoom: 1, vizPanOffset: 0 }, _action: any) => ({
+    spectrum: (
+      _state = {
+        frequencyRange: null,
+        lastKnownRanges: {},
+        sampleRateHz: 48000,
+        vizZoom: 1,
+        vizPanOffset: 0,
+      },
+      _action: any,
+    ) => ({
       frequencyRange: null,
       lastKnownRanges: {},
       sampleRateHz: 48000,

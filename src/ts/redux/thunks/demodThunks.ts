@@ -1,8 +1,22 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState, AppDispatch } from "@n-apt/redux/store";
 import type { FrequencyRange, NaptMetadata } from "@n-apt/consts/types";
-import { setSpanRange, setCenterFreq, setBandwidthCenterFreq, setBandwidth, setHardwareSpanHz, setBandwidthHz, setBandwidthStartHz, setAlignment, setSourceContext } from "../slices/demodSlice";
-import { setFrequencyRange, setPreviewRange, setPreviewAlignment } from "../slices/spectrumSlice";
+import {
+  setSpanRange,
+  setCenterFreq,
+  setBandwidthCenterFreq,
+  setBandwidth,
+  setHardwareSpanHz,
+  setBandwidthHz,
+  setBandwidthStartHz,
+  setAlignment,
+  setSourceContext,
+} from "../slices/demodSlice";
+import {
+  setFrequencyRange,
+  setPreviewRange,
+  setPreviewAlignment,
+} from "../slices/spectrumSlice";
 import { sendFrequencyRange } from "./websocketThunks";
 
 // Send get_hardware_info to server
@@ -57,9 +71,21 @@ export const syncRadioDemodFromSource = createAsyncThunk(
   "demod/syncRadioDemodFromSource",
   async (
     payload:
-      | { source: "fm"; centerFreqHz: number | null; bandwidthKhz?: number | null }
-      | { source: "span"; centerFreqHz: number | null; bandwidthHz: number | null }
-      | { source: "apt"; centerFreqHz: number | null; bandwidthHz: number | null },
+      | {
+          source: "fm";
+          centerFreqHz: number | null;
+          bandwidthKhz?: number | null;
+        }
+      | {
+          source: "span";
+          centerFreqHz: number | null;
+          bandwidthHz: number | null;
+        }
+      | {
+          source: "apt";
+          centerFreqHz: number | null;
+          bandwidthHz: number | null;
+        },
     { dispatch },
   ) => {
     if (payload.centerFreqHz != null && Number.isFinite(payload.centerFreqHz)) {
@@ -82,8 +108,13 @@ export const syncRadioDemodFromSource = createAsyncThunk(
     ) {
       dispatch(setBandwidth(payload.bandwidthHz / 1000));
       dispatch(setBandwidthHz(payload.bandwidthHz));
-      if (payload.centerFreqHz != null && Number.isFinite(payload.centerFreqHz)) {
-        dispatch(setBandwidthStartHz(payload.centerFreqHz - payload.bandwidthHz / 2));
+      if (
+        payload.centerFreqHz != null &&
+        Number.isFinite(payload.centerFreqHz)
+      ) {
+        dispatch(
+          setBandwidthStartHz(payload.centerFreqHz - payload.bandwidthHz / 2),
+        );
       }
     }
   },
@@ -156,7 +187,10 @@ const playbackRangeLooksBasebandAgainstMetadata = (
   playbackRange: FrequencyRange,
   metadataRange: FrequencyRange,
 ) => {
-  return playbackRange.min < 100_000 && metadataRange.min > playbackRange.max + 1_000_000;
+  return (
+    playbackRange.min < 100_000 &&
+    metadataRange.min > playbackRange.max + 1_000_000
+  );
 };
 
 const rangesOverlap = (a: FrequencyRange, b: FrequencyRange) =>
@@ -217,7 +251,7 @@ const rangeFromFileMetadata = (
 
   const channelRange = channel ? rangeFromMetadataChannel(channel) : null;
   const firstChannelRange = Array.isArray(metadata.channels)
-    ? metadata.channels.map(rangeFromMetadataChannel).find(Boolean) ?? null
+    ? (metadata.channels.map(rangeFromMetadataChannel).find(Boolean) ?? null)
     : null;
   const topLevelRange =
     normalizeRange(metadata.frequency_range) ??
@@ -235,15 +269,15 @@ const rangeFromFileMetadata = (
   if (
     firstChannelRange &&
     (!topLevelRange ||
-      playbackRangeLooksBasebandAgainstMetadata(topLevelRange, firstChannelRange))
+      playbackRangeLooksBasebandAgainstMetadata(
+        topLevelRange,
+        firstChannelRange,
+      ))
   ) {
     return firstChannelRange;
   }
 
-  return (
-    topLevelRange ??
-    firstChannelRange
-  );
+  return topLevelRange ?? firstChannelRange;
 };
 
 const parseFrequencyFromSelectedFile = (
@@ -264,18 +298,19 @@ const parseFrequencyFromSelectedFile = (
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
 
     const lower = token.toLowerCase();
-    const freq =
-      lower.includes("ghz")
-        ? numeric * 1_000_000_000
-        : lower.includes("khz")
-          ? numeric * 1_000
-          : numeric * 1_000_000;
+    const freq = lower.includes("ghz")
+      ? numeric * 1_000_000_000
+      : lower.includes("khz")
+        ? numeric * 1_000
+        : numeric * 1_000_000;
 
     minFreq = Math.min(minFreq, freq - sampleRate / 2);
     maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
   }
 
-  return minFreq === Infinity ? null : { min: Math.max(0, minFreq), max: maxFreq };
+  return minFreq === Infinity
+    ? null
+    : { min: Math.max(0, minFreq), max: maxFreq };
 };
 
 export const resolveDemodSourceRange = (
@@ -321,7 +356,10 @@ export const resolveDemodSourceRange = (
     payload.liveFrame?.sample_rate,
   );
   if (liveFrameRange) {
-    if (liveFrequencyRange && !rangesOverlap(liveFrameRange, liveFrequencyRange)) {
+    if (
+      liveFrequencyRange &&
+      !rangesOverlap(liveFrameRange, liveFrequencyRange)
+    ) {
       return { range: liveFrequencyRange, reason: "live_frequency_range" };
     }
     return { range: liveFrameRange, reason: "live_frame" };
@@ -335,7 +373,9 @@ export const resolveDemodSourceRange = (
     payload.liveSdrSettings?.center_frequency,
     payload.liveSdrSettings?.sample_rate,
   );
-  return liveSdrRange ? { range: liveSdrRange, reason: "live_sdr_settings" } : null;
+  return liveSdrRange
+    ? { range: liveSdrRange, reason: "live_sdr_settings" }
+    : null;
 };
 
 interface ConsolidatedState {
@@ -350,7 +390,14 @@ const dispatchSpanState = (
   next: ConsolidatedState,
   alignment: Alignment,
   updatePreview: boolean,
-  _source?: "center" | "bandwidth" | "start" | "external" | "alignment" | "preview_sync" | "file_sync",
+  _source?:
+    | "center"
+    | "bandwidth"
+    | "start"
+    | "external"
+    | "alignment"
+    | "preview_sync"
+    | "file_sync",
 ) => {
   dispatch(setCenterFreq(next.center));
   dispatch(setBandwidthCenterFreq(next.start + next.bandwidth / 2));
@@ -360,7 +407,9 @@ const dispatchSpanState = (
   dispatch(setHardwareSpanHz(next.span));
   dispatch(setAlignment(alignment));
   if (updatePreview) {
-    dispatch(setPreviewRange({ min: next.start, max: next.start + next.bandwidth }));
+    dispatch(
+      setPreviewRange({ min: next.start, max: next.start + next.bandwidth }),
+    );
     dispatch(setPreviewAlignment(alignment));
   }
 };
@@ -378,22 +427,25 @@ export function getConsolidatedSpanState(
     | "external"
     | "alignment"
     | "preview_sync"
-    | "file_sync"
+    | "file_sync",
 ): ConsolidatedState {
   let c = targetCenter;
   let b = targetBw;
   let s = targetStart;
   let span = targetSpan;
-  const isSelectionSource = primarySource === "preview_sync" || primarySource === "file_sync";
+  const isSelectionSource =
+    primarySource === "preview_sync" || primarySource === "file_sync";
 
   const halfSpan = span / 2;
   const minC = GLOBAL_BAND_EDGE_MIN_HZ + halfSpan;
   const maxC = GLOBAL_BAND_EDGE_MAX_HZ - halfSpan;
 
-
   b = Math.max(MIN_BANDWIDTH_HZ, Math.min(b, span));
 
-  if (!isSelectionSource && (primarySource === "center" || primarySource === "external")) {
+  if (
+    !isSelectionSource &&
+    (primarySource === "center" || primarySource === "external")
+  ) {
     c = Math.max(minC, Math.min(c, maxC));
     if (mode === "centered") {
       s = c - b / 2;
@@ -482,7 +534,7 @@ export const updateSpanStateThunk = createAsyncThunk(
         | "preview_sync"
         | "file_sync";
     },
-    { dispatch, getState }
+    { dispatch, getState },
   ) => {
     const state = getState() as RootState;
     const demod = state.demod;
@@ -507,7 +559,7 @@ export const updateSpanStateThunk = createAsyncThunk(
       targetStart,
       targetSpan,
       targetMode,
-      source
+      source,
     );
 
     const centerMoved = Math.abs(currentCenter - next.center) > 0.1;
@@ -523,12 +575,15 @@ export const updateSpanStateThunk = createAsyncThunk(
 
     if (centerMoved || spanMoved) {
       const halfSpan = next.span / 2;
-      const hwRange = { min: next.center - halfSpan, max: next.center + halfSpan };
+      const hwRange = {
+        min: next.center - halfSpan,
+        max: next.center + halfSpan,
+      };
 
       dispatch(setFrequencyRange(hwRange));
       dispatch(sendFrequencyRange(hwRange));
     }
-  }
+  },
 );
 
 export const syncDemodSpanFromSourceContext = createAsyncThunk(
@@ -578,7 +633,9 @@ export const syncDemodSpanFromSourceContext = createAsyncThunk(
     const nextSelection =
       validPreview ??
       clampSelectionToRange(
-        sourceRangeChanged ? center : demod.bandwidthStartHz + resetBandwidth / 2,
+        sourceRangeChanged
+          ? center
+          : demod.bandwidthStartHz + resetBandwidth / 2,
         resetBandwidth,
         range,
       );
@@ -603,6 +660,12 @@ export const syncDemodSpanFromSourceContext = createAsyncThunk(
       "file_sync",
     );
 
-    dispatchSpanState(dispatch as AppDispatch, next, currentAlignment, true, "file_sync");
+    dispatchSpanState(
+      dispatch as AppDispatch,
+      next,
+      currentAlignment,
+      true,
+      "file_sync",
+    );
   },
 );

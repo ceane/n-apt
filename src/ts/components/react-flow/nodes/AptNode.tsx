@@ -12,7 +12,7 @@ interface AptNodeProps {
 
 export const AptNode: React.FC<AptNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
-  
+
   React.useEffect(() => {
     dispatch(setBandwidth(200));
   }, [dispatch]);

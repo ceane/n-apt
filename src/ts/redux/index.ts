@@ -1,4 +1,4 @@
- // Redux store and hooks
+// Redux store and hooks
 export { store, useAppDispatch, useAppSelector } from "./store";
 export type { RootState, AppDispatch } from "./store";
 
@@ -212,6 +212,7 @@ export {
 export {
   setSnapshotProgress,
   clearSnapshotProgress,
+  bumpSnapshotSectionPulse,
 } from "./slices/snapshotSlice";
 
 // Import theme actions for collective export

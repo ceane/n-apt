@@ -1,7 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { NaptMetadata } from "@n-apt/consts/types";
 
-
 export type SourceMode = "live" | "file";
 export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 export type TrainingLabel = "target" | "noise";
@@ -66,7 +65,6 @@ export interface WaterfallState {
   loadedFileMetadata?: NaptMetadata | null;
 }
 
-
 const INITIAL_DRAW_PARAMS: DrawParams = {
   spikeCount: 40,
   spikeWidth: 0.25,
@@ -107,7 +105,6 @@ const initialState: WaterfallState = {
   loadedFileMetadata: null,
 };
 
-
 const waterfallSlice = createSlice({
   name: "waterfall",
   initialState,
@@ -143,7 +140,6 @@ const waterfallSlice = createSlice({
     setFileMetadata: (state, action: PayloadAction<NaptMetadata | null>) => {
       state.loadedFileMetadata = action.payload;
     },
-
 
     setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
       state.snapshotGridPreference = action.payload;

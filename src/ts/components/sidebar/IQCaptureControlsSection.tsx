@@ -834,7 +834,9 @@ export const IQCaptureControlsSection: React.FC<
         </RangeRowLabel>
         <RangeRowBody>
           <RangeGrid>
-            {rangeExtras ? <RangeGridExtras>{rangeExtras}</RangeGridExtras> : null}
+            {rangeExtras ? (
+              <RangeGridExtras>{rangeExtras}</RangeGridExtras>
+            ) : null}
             {availableCaptureAreas.map((area, idx) => {
               const isSelected = activeCaptureAreas.includes(area.label);
               const rangeVariant = idx % 2 === 0 ? "primary" : "secondary";
@@ -942,7 +944,9 @@ export const IQCaptureControlsSection: React.FC<
       </Row>
 
       <Row label={<IconLabel icon={FileIcon} text="File type" />}>
-        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", width: "100%" }}
+        >
           <SettingSelect
             value={captureFileType}
             onChange={(e) =>
@@ -1024,7 +1028,9 @@ export const IQCaptureControlsSection: React.FC<
             onChange={(e) => handleGeolocationToggle(e.target.checked)}
           />
           <ToggleSwitchSlider
-            $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
+            $disabled={
+              captureFileType !== ".napt" || !isSupported || geoLoading
+            }
           />
         </ToggleSwitch>
       </Row>
@@ -1058,7 +1064,10 @@ export const IQCaptureControlsSection: React.FC<
       <StatusDownloadsCard>
         <DownloadsHeader>
           <InfoCardTitle>Downloads</InfoCardTitle>
-          <ClearStatusButton onClick={onClearStatus} title="Clear capture status">
+          <ClearStatusButton
+            onClick={onClearStatus}
+            title="Clear capture status"
+          >
             <Trash2 size={12} /> Clear
           </ClearStatusButton>
         </DownloadsHeader>
@@ -1123,14 +1132,10 @@ export const IQCaptureControlsSection: React.FC<
           label="Take an I/Q Capture"
           defaultOpen={false}
         >
-          <SectionBody>
-            {captureContent}
-          </SectionBody>
+          <SectionBody>{captureContent}</SectionBody>
         </Collapsible>
       ) : (
-        <SectionBody>
-          {captureContent}
-        </SectionBody>
+        <SectionBody>{captureContent}</SectionBody>
       )}
     </Section>
   );

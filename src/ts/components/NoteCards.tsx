@@ -227,13 +227,13 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
     position: { x: number; y: number };
   } | null>(null);
   const frameRef = React.useRef<number | null>(null);
-  const resizeSyncTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const resizeSyncTimeoutRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const cardRef = useCardRef();
   const centerFrequencyHz = activeCardModel
-    ? activeCardModel.stats.centerFrequencyHz ??
-      calculateCenterFrequency(activeCardModel.stats.frequencyRange)
+    ? (activeCardModel.stats.centerFrequencyHz ??
+      calculateCenterFrequency(activeCardModel.stats.frequencyRange))
     : null;
 
   const flushPendingUpdates = React.useCallback(() => {
@@ -278,17 +278,20 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
     [scheduleFlush],
   );
 
-  const endDrag = React.useCallback((event: PointerEvent) => {
-    if (dragStateRef.current?.pointerId === event.pointerId) {
-      dragStateRef.current = null;
-      didDragRef.current = false;
-    }
-    if (frameRef.current !== null) {
-      window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-    flushPendingUpdates();
-  }, [flushPendingUpdates]);
+  const endDrag = React.useCallback(
+    (event: PointerEvent) => {
+      if (dragStateRef.current?.pointerId === event.pointerId) {
+        dragStateRef.current = null;
+        didDragRef.current = false;
+      }
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      flushPendingUpdates();
+    },
+    [flushPendingUpdates],
+  );
 
   const toggleCollapsed = React.useCallback(() => {
     if (didDragRef.current) {
@@ -354,13 +357,7 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
         frameRef.current = null;
       }
     };
-  }, [
-    activeCardModel,
-    cardRef,
-    endDrag,
-    onPointerMove,
-    scheduleFlush,
-  ]);
+  }, [activeCardModel, cardRef, endDrag, onPointerMove, scheduleFlush]);
 
   if (!activeCardModel || isCollapsed) {
     return null;

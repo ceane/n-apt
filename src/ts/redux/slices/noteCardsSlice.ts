@@ -140,9 +140,7 @@ const normalizeNoteCardTitle = (card: NoteCardModel): string => {
   return title;
 };
 
-export const buildNoteCardTitle = (
-  stats: NoteCardStatsSnapshot,
-): string => {
+export const buildNoteCardTitle = (stats: NoteCardStatsSnapshot): string => {
   const centerText = formatFrequencyText(stats.centerFrequencyHz);
   const zoomText = Number.isFinite(stats.vizZoom)
     ? `${stats.vizZoom.toFixed(1)}x`

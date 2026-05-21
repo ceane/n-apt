@@ -168,19 +168,13 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
         </Collapsible>
 
-        <Collapsible
-          icon={<Bone size={16} />}
-          label="Anatomy /"
-        >
+        <Collapsible icon={<Bone size={16} />} label="Anatomy /">
           <SectionDescription>
             Anatomical structures and bone mapping.
           </SectionDescription>
         </Collapsible>
 
-        <Collapsible
-          icon={<NotebookPen size={16} />}
-          label="Effects /"
-        >
+        <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
           <SectionDescription>Visual effects and overlays.</SectionDescription>
         </Collapsible>
 

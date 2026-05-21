@@ -3,7 +3,6 @@ import {
   parseCssColorToRgba,
 } from "../../src/ts/utils/webgpu";
 
-
 describe("WebGPU Utilities", () => {
   beforeEach(() => {
     // Clear call logs before each test

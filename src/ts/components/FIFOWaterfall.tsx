@@ -1,6 +1,9 @@
-import { memo, useRef, useEffect, useState } from "react";
+import { memo, useRef, useEffect, useState, useMemo } from "react";
 import styled from "styled-components";
 import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
+import CanvasPlaceholder, {
+  type CanvasPlaceholderState,
+} from "@n-apt/components/ui/CanvasPlaceholder";
 
 interface FrequencyRange {
   min: number;
@@ -29,6 +32,9 @@ interface FIFOWaterfallProps {
   fftMin?: number;
   fftMax?: number;
   awaitingDeviceData?: boolean;
+  placeholderSourceLabel?: string;
+  placeholderPaneLabel?: string;
+  placeholderErrorReason?: string | null;
 }
 
 const WaterfallViewport = styled.div`
@@ -39,6 +45,7 @@ const WaterfallViewport = styled.div`
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 `;
 
 const WaterfallCanvas = styled.canvas`
@@ -140,7 +147,8 @@ const addWaterfallFrame = (
     const value = fftFrame[x];
     const dbValue = Number.isFinite(value) ? value : minDb;
     const normalized = (dbValue - minDb) / dbRange;
-    const lutIdx = Math.max(0, Math.min(lutMax, Math.round(normalized * lutMax))) * 4;
+    const lutIdx =
+      Math.max(0, Math.min(lutMax, Math.round(normalized * lutMax))) * 4;
     const r = GRADIENT_LUT[lutIdx];
     const g = GRADIENT_LUT[lutIdx + 1];
     const b = GRADIENT_LUT[lutIdx + 2];
@@ -176,7 +184,11 @@ const drawWaterfall = ({
     return;
   }
   // Reuse cached ImageData when dimensions match to avoid per-frame allocation
-  if (!cachedImageData || cachedImageDataWidth !== width || cachedImageDataHeight !== height) {
+  if (
+    !cachedImageData ||
+    cachedImageDataWidth !== width ||
+    cachedImageDataHeight !== height
+  ) {
     cachedImageData = ctx.createImageData(width, height);
     cachedImageDataWidth = width;
     cachedImageDataHeight = height;
@@ -199,6 +211,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     fftMin = FFT_MIN_DB,
     fftMax = FFT_MAX_DB,
     awaitingDeviceData = false,
+    placeholderSourceLabel,
+    placeholderPaneLabel = "Waterfall",
+    placeholderErrorReason = null,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -212,6 +227,33 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       width: width,
       height: height,
     });
+
+    const placeholderState = useMemo<CanvasPlaceholderState | null>(() => {
+      const hasWaveform = !!(waveform && waveform.length > 0);
+      if (placeholderErrorReason) {
+        return {
+          kind: "error",
+          sourceLabel: placeholderSourceLabel,
+          reason: placeholderErrorReason,
+        };
+      }
+
+      if ((awaitingDeviceData || !hasWaveform) && !placeholderErrorReason) {
+        return {
+          kind: "loading",
+          sourceLabel: placeholderSourceLabel,
+          paneLabel: placeholderPaneLabel,
+        };
+      }
+
+      return null;
+    }, [
+      awaitingDeviceData,
+      placeholderErrorReason,
+      placeholderPaneLabel,
+      placeholderSourceLabel,
+      waveform,
+    ]);
 
     const resolveCssSize = () => viewportSize;
 
@@ -231,7 +273,10 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
           setViewportSize((current) => {
             const nextWidth = Math.max(1, Math.round(measuredWidth || width));
-            const nextHeight = Math.max(1, Math.round(measuredHeight || height));
+            const nextHeight = Math.max(
+              1,
+              Math.round(measuredHeight || height),
+            );
             if (current.width === nextWidth && current.height === nextHeight) {
               return current;
             }
@@ -297,7 +342,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       canvas.style.height = `${cssHeight}px`;
 
       const showPlaceholder =
-        awaitingDeviceData && (!waveform || waveform.length === 0);
+        !!placeholderErrorReason || !waveform || waveform.length === 0;
 
       if (showPlaceholder) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -360,6 +405,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     return (
       <WaterfallViewport ref={viewportRef}>
         <WaterfallCanvas ref={canvasRef} />
+        {placeholderState && <CanvasPlaceholder state={placeholderState} />}
       </WaterfallViewport>
     );
   },

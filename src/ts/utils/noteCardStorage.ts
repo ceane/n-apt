@@ -34,8 +34,7 @@ class NoteCardsDatabase extends Dexie {
   }
 }
 
-const db =
-  typeof window !== "undefined" ? new NoteCardsDatabase() : null;
+const db = typeof window !== "undefined" ? new NoteCardsDatabase() : null;
 
 const normalizePayload = (
   payload: Partial<PersistedNoteCardsPayload> | null | undefined,

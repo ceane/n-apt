@@ -186,7 +186,6 @@ export function useAudioDemodFM(
     [centerFrequency, bandwidth],
   );
 
-
   // Stateful linear resampling to prevent phase slips at chunk boundaries
   const resampleAudio = useCallback(
     (audio: Float32Array, fromRate: number, toRate: number): Float32Array => {

@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
 import { Routes, Route } from "react-router-dom";
@@ -72,11 +72,12 @@ import {
   useAppDispatch,
 } from "@n-apt/redux";
 
-const SpectrumRouteWithSidebar: React.FC<{ activeTab: "visualizer" | "analysis" | "draw" }> = ({
-  activeTab,
-}) => {
+const SpectrumRouteWithSidebar: React.FC<{
+  activeTab: "visualizer" | "analysis" | "draw";
+}> = ({ activeTab }) => {
   const dispatch = useAppDispatch();
   const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
+  const [visualizerLoading, setVisualizerLoading] = useState(false);
 
   const handleCreateNoteCard = useCallback(() => {
     const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
@@ -97,12 +98,21 @@ const SpectrumRouteWithSidebar: React.FC<{ activeTab: "visualizer" | "analysis" 
 
   return (
     <MainLayout
-      sidebar={<SpectrumSidebar onCreateNoteCard={handleCreateNoteCard} />}
+      sidebar={
+        <SpectrumSidebar
+          onCreateNoteCard={handleCreateNoteCard}
+          visualizerLoading={visualizerLoading}
+        />
+      }
     >
       <Suspense
         fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
       >
-        <SpectrumRoute activeTab={activeTab} fftCanvasRef={fftCanvasRef} />
+        <SpectrumRoute
+          activeTab={activeTab}
+          fftCanvasRef={fftCanvasRef}
+          onLoadingStateChange={setVisualizerLoading}
+        />
       </Suspense>
     </MainLayout>
   );
@@ -164,10 +174,7 @@ const RouteLoadingFallback = styled.div`
 `;
 
 const GlobalSpacePauseHandler: React.FC = () => {
-  const {
-    toggleVisualizerPause,
-    state: liveState,
-  } = useSpectrumStore();
+  const { toggleVisualizerPause, state: liveState } = useSpectrumStore();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -179,7 +186,9 @@ const GlobalSpacePauseHandler: React.FC = () => {
       if (isInputFocused) return;
 
       if (
-        (event.code === "Space" || event.key === " " || event.key === "Spacebar") &&
+        (event.code === "Space" ||
+          event.key === " " ||
+          event.key === "Spacebar") &&
         liveState.sourceMode === "live"
       ) {
         event.preventDefault();

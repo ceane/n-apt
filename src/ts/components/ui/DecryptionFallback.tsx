@@ -23,7 +23,8 @@ const FallbackContainer = styled.div`
         ? "rgba(214, 54, 54, 0.28)"
         : "rgba(255, 68, 68, 0.2)"};
   border-radius: 8px;
-  color: ${(props) => props.theme.danger || props.theme.colors?.danger || "#ff6666"};
+  color: ${(props) =>
+    props.theme.danger || props.theme.colors?.danger || "#ff6666"};
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   text-align: left;
@@ -39,7 +40,8 @@ const Header = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  color: ${(props) => props.theme.danger || props.theme.colors?.danger || "#ff4444"};
+  color: ${(props) =>
+    props.theme.danger || props.theme.colors?.danger || "#ff4444"};
 `;
 
 const Title = styled.div`
@@ -52,7 +54,10 @@ const Message = styled.div`
   opacity: 0.9;
   font-size: 11px;
   line-height: 1.5;
-  color: ${(props) => props.theme.textSecondary || props.theme.colors?.textSecondary || "#4a5568"};
+  color: ${(props) =>
+    props.theme.textSecondary ||
+    props.theme.colors?.textSecondary ||
+    "#4a5568"};
 `;
 
 const Instructions = styled.div`
@@ -63,7 +68,8 @@ const Instructions = styled.div`
   padding: 10px;
   border-radius: 4px;
   font-size: 10px;
-  color: ${(props) => props.theme.textSecondary || props.theme.colors?.textSecondary || "#bbb"};
+  color: ${(props) =>
+    props.theme.textSecondary || props.theme.colors?.textSecondary || "#bbb"};
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -73,13 +79,12 @@ const Instructions = styled.div`
         ? "rgba(214, 222, 235, 0.9)"
         : "rgba(255, 255, 255, 0.08)"};
   box-shadow: ${(props) =>
-    props.theme.mode === "light"
-      ? "0 1px 2px rgba(31, 37, 50, 0.04)"
-      : "none"};
+    props.theme.mode === "light" ? "0 1px 2px rgba(31, 37, 50, 0.04)" : "none"};
 `;
 
 const CodeBlock = styled.code`
-  color: ${(props) => props.theme.textPrimary || props.theme.colors?.textPrimary || "#eee"};
+  color: ${(props) =>
+    props.theme.textPrimary || props.theme.colors?.textPrimary || "#eee"};
   background: ${(props) =>
     props.theme.mode === "light"
       ? "rgba(0, 85, 255, 0.08)"
@@ -178,7 +183,9 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
         </div>
-        <div style={{ paddingLeft: 18, color: "inherit" }}>{troubleshooting}</div>
+        <div style={{ paddingLeft: 18, color: "inherit" }}>
+          {troubleshooting}
+        </div>
       </Instructions>
 
       <div style={{ display: "flex", gap: "8px" }}>

@@ -1,7 +1,7 @@
-import React, { useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Float, Stars } from '@react-three/drei';
-import * as THREE from 'three';
+import React, { useMemo, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, Float, Stars } from "@react-three/drei";
+import * as THREE from "three";
 
 const coronaVertexShader = `
   varying vec2 vUv;
@@ -167,16 +167,20 @@ const coronaFragmentShader = `
 
 export function Corona() {
   const mesh = useRef<THREE.Mesh>(null!);
-  
-  const uniforms = useMemo(() => ({
-    uTime: { value: 0 },
-    uColor: { value: new THREE.Color(0.85, 0.92, 1.0) } // Crisp silvery blue-white
-  }), []);
+
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uColor: { value: new THREE.Color(0.85, 0.92, 1.0) }, // Crisp silvery blue-white
+    }),
+    [],
+  );
 
   useFrame((state) => {
     if (mesh.current) {
       const { clock } = state;
-      (mesh.current.material as THREE.ShaderMaterial).uniforms.uTime.value = clock.getElapsedTime();
+      (mesh.current.material as THREE.ShaderMaterial).uniforms.uTime.value =
+        clock.getElapsedTime();
     }
   });
 
@@ -205,16 +209,24 @@ export function Moon() {
 }
 
 export const Background = () => {
-    return (
-        <group>
-            <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-            <mesh position={[0, 0, -20]}>
-                <sphereGeometry args={[70, 32, 32]} />
-                <meshBasicMaterial color="#020202" side={THREE.BackSide} />
-            </mesh>
-        </group>
-    )
-}
+  return (
+    <group>
+      <Stars
+        radius={100}
+        depth={50}
+        count={5000}
+        factor={4}
+        saturation={0}
+        fade
+        speed={1}
+      />
+      <mesh position={[0, 0, -20]}>
+        <sphereGeometry args={[70, 32, 32]} />
+        <meshBasicMaterial color="#020202" side={THREE.BackSide} />
+      </mesh>
+    </group>
+  );
+};
 
 export function CoronaScene() {
   return (
@@ -240,11 +252,11 @@ export default function App() {
       <div className="absolute inset-0 z-0">
         <Canvas camera={{ position: [0, 0, 10], fov: 60 }}>
           <CoronaScene />
-          
-          <OrbitControls 
-            enablePan={false} 
-            enableZoom={true} 
-            minDistance={5} 
+
+          <OrbitControls
+            enablePan={false}
+            enableZoom={true}
+            minDistance={5}
             maxDistance={30}
             rotateSpeed={0.5}
           />

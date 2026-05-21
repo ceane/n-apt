@@ -19,10 +19,7 @@ import {
   clearSession,
   type AuthInfo,
 } from "@n-apt/services/auth";
-import {
-  importAesKey,
-  base64ToBytes,
-} from "@n-apt/crypto/webcrypto";
+import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
 
 interface UseAuthenticationReturn {
   authState: AuthState;
@@ -295,7 +292,10 @@ const useAuthenticationInternal = (
               if (vaultKeyB64) {
                 const key = await importBase64Key(vaultKeyB64);
 
-                console.log("AuthInit: Setting session from storage. Key fetched?", !!vaultKeyB64);
+                console.log(
+                  "AuthInit: Setting session from storage. Key fetched?",
+                  !!vaultKeyB64,
+                );
                 dispatch({
                   type: "AUTH_SUCCESS",
                   sessionToken: storedToken,
@@ -355,7 +355,9 @@ const useAuthenticationInternal = (
       const result = await authenticateWithPassword(password);
       const vaultKeyB64 = await fetchVaultKey(result.token);
       if (!vaultKeyB64) {
-        throw new Error("Password authentication succeeded but vault key retrieval failed.");
+        throw new Error(
+          "Password authentication succeeded but vault key retrieval failed.",
+        );
       }
       const key = await importBase64Key(vaultKeyB64);
 

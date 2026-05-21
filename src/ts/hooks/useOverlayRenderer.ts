@@ -18,6 +18,10 @@ import {
   formatFrequencyHighRes,
 } from "@n-apt/utils/frequency";
 import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
+import {
+  createCanvasVfoAxisContext,
+  drawVfoAxis,
+} from "@n-apt/utils/rendering/vfoAxis";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -60,8 +64,14 @@ const getCanvasThemeColors = () => ({
   centerLabelText: readCssColor("--color-snap-center-label-text", "#666"),
   boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
   boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
-  spectrumOverlay: readCssColor("--color-spectrum-overlay", "rgba(255, 255, 255, 0.15)"),
-  spectrumOverlayBorder: readCssColor("--color-spectrum-overlay-border", "rgba(255, 255, 255, 0.75)"),
+  spectrumOverlay: readCssColor(
+    "--color-spectrum-overlay",
+    "rgba(255, 255, 255, 0.15)",
+  ),
+  spectrumOverlayBorder: readCssColor(
+    "--color-spectrum-overlay-border",
+    "rgba(255, 255, 255, 0.75)",
+  ),
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
 
@@ -444,35 +454,41 @@ export function useOverlayRenderer() {
         ? _fullCaptureRange.max - _fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
-      const useHighResLabels = zoom >= 100;
-      const step = findBestFrequencyRange(maxFreq - minFreq, 10);
-      const tickPrec = tickPrecisionForStep(step);
-      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
-      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
-
-      const centerLabel = useHighResLabels
-        ? formatFrequencyHighRes((minFreq + maxFreq) / 2)
-        : formatFrequency((minFreq + maxFreq) / 2, {
-            precisionMHz: centerPrecMHz,
-            precisionKHz: centerPrecKHz,
-          });
-      const centerX = (FFT_AREA_MIN.x + fftAreaMax.x) / 2;
-
-      ctx.save();
-      ctx.fillStyle = canvasTheme.centerLabelText;
-      ctx.font = "bold 12px JetBrains Mono";
-      ctx.textAlign = "center";
-      ctx.fillText(`👋  ${centerLabel}`, centerX, fftAreaMax.y + 25);
-      ctx.restore();
-
-      ctx.save();
-      ctx.strokeStyle = canvasTheme.centerLineColor;
-      ctx.lineWidth = Math.max(0.5 / dpr, 1);
-      ctx.beginPath();
-      ctx.moveTo(centerX, FFT_AREA_MIN.y);
-      ctx.lineTo(centerX, fftAreaMax.y);
-      ctx.stroke();
-      ctx.restore();
+      drawVfoAxis({
+        ctx: createCanvasVfoAxisContext(ctx),
+        frequencyRange: { min: minFreq, max: maxFreq },
+        centerFrequencyHz: (minFreq + maxFreq) / 2,
+        bounds: {
+          left: FFT_AREA_MIN.x,
+          right: fftAreaMax.x,
+          top: FFT_AREA_MIN.y,
+          bottom: fftAreaMax.y,
+        },
+        y: fftAreaMax.y,
+        labelY: fftAreaMax.y + 25,
+        orientation: "bottom",
+        tickDirection: "down",
+        targetTicks: 10,
+        showAxisLine: false,
+        showEdgeLabels: false,
+        showTickMarks: false,
+        showTickLabels: false,
+        showCenterLine: true,
+        centerLineTop: FFT_AREA_MIN.y,
+        centerLineBottom: fftAreaMax.y,
+        icon: "wave",
+        theme: {
+          tick: canvasTheme.textColor,
+          label: canvasTheme.textColor,
+          center: canvasTheme.centerLabelText,
+          centerLine: canvasTheme.centerLineColor,
+        },
+        fontPx: 12,
+        centerFontPx: 12,
+        textBaseline: "alphabetic",
+        useHighResLabels: zoom >= 100,
+        lineWidth: Math.max(0.5 / dpr, 1),
+      });
 
       if (_limitMarkers?.length) {
         const viewBandwidth = maxFreq - minFreq;
@@ -559,11 +575,12 @@ export function useOverlayRenderer() {
         Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
       );
       const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
-      
+
       const alignment = demodFocus.alignment || "centered";
-      const subLabel = alignment === "centered"
-        ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
-        : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
+      const subLabel =
+        alignment === "centered"
+          ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
+          : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
 
       ctx.save();
       const canvasTheme = getCanvasThemeColors();
@@ -589,7 +606,7 @@ export function useOverlayRenderer() {
       // 3. Boundary lines (Dotted from theme)
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([3, 4]); 
+      ctx.setLineDash([3, 4]);
       ctx.lineCap = "round";
 
       for (const x of [leftX, rightX]) {
@@ -638,7 +655,7 @@ export function useOverlayRenderer() {
 
       ctx.fillStyle = "#07111f"; // Dark text on light label bg
       ctx.fillText(label, labelX, plotTop + (nodePreview ? 6 : 13));
-      
+
       ctx.font = "bold 9px JetBrains Mono";
       ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
       ctx.fillText(subLabel, labelX, plotTop + (nodePreview ? 17 : 28));

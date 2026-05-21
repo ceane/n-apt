@@ -22,9 +22,9 @@ const DEFAULT_MAX_POSITIVE_FLOOR_SHIFT_DB = 0;
  * Maps UI-level stitch options to DSP-level stitching parameters.
  * Encapsulates the logic for anti-aliasing smoothing and noise floor matching.
  */
-export function getAntiAliasingParams(options?: { 
-  jsAntiAliasing: boolean; 
-  jsNoiseFloorMatching: boolean 
+export function getAntiAliasingParams(options?: {
+  jsAntiAliasing: boolean;
+  jsNoiseFloorMatching: boolean;
 }): WholeChannelStitchOptions {
   return {
     smoothingRadius: options?.jsAntiAliasing ? 1 : 0,
@@ -66,9 +66,13 @@ export async function stitchWholeChannelWaveform(
   options: WholeChannelStitchOptions = {},
 ): Promise<Float32Array> {
   const wasm = getWasm();
-  if (wasm && typeof wasm.stitch_whole_channel_waveform_wasm === 'function') {
+  if (wasm && typeof wasm.stitch_whole_channel_waveform_wasm === "function") {
     try {
-      return wasm.stitch_whole_channel_waveform_wasm(segments, fullRange, options);
+      return wasm.stitch_whole_channel_waveform_wasm(
+        segments,
+        fullRange,
+        options,
+      );
     } catch (e) {
       console.error("WASM stitching failed, falling back to JS:", e);
     }
@@ -80,9 +84,12 @@ export async function stitchWholeChannelWaveform(
  * Applies triangular smoothing to a waveform.
  * Uses the Rust/WASM implementation if available.
  */
-export async function smoothWaveform(input: Float32Array, radius: number): Promise<Float32Array> {
+export async function smoothWaveform(
+  input: Float32Array,
+  radius: number,
+): Promise<Float32Array> {
   const wasm = getWasm();
-  if (wasm && typeof wasm.smooth_waveform_wasm === 'function') {
+  if (wasm && typeof wasm.smooth_waveform_wasm === "function") {
     try {
       return wasm.smooth_waveform_wasm(input, radius);
     } catch (e) {
@@ -283,10 +290,10 @@ function stitchWholeChannelWaveformJS(
       }
 
       stitched[dst] =
-          weights[dst] > 0
-            ? (stitched[dst] * weights[dst] + sampled[i] * weight) /
-              (weights[dst] + weight)
-            : sampled[i];
+        weights[dst] > 0
+          ? (stitched[dst] * weights[dst] + sampled[i] * weight) /
+            (weights[dst] + weight)
+          : sampled[i];
       weights[dst] += weight;
     }
 

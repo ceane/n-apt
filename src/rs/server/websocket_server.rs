@@ -81,7 +81,8 @@ pub(crate) fn broadcast_device_status(
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
-  let device_backend_error = shared.device_backend_error.lock().unwrap().clone();
+  let device_backend_error =
+    shared.device_backend_error.lock().unwrap().clone();
   let (device_limits, sample_rate_options) =
     if let Some(device_cfg) = sdr_settings.devices.get(&device_profile.kind) {
       (
@@ -1127,7 +1128,8 @@ impl WebSocketServer {
                         processor.get_device_info(),
                         build_device_profile(processor.device_type()),
                       );
-                      shared_state.set_device_backend_error(processor.get_error());
+                      shared_state
+                        .set_device_backend_error(processor.get_error());
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }
@@ -1146,7 +1148,8 @@ impl WebSocketServer {
                         processor.get_device_info(),
                         build_device_profile(processor.device_type()),
                       );
-                      shared_state.set_device_backend_error(processor.get_error());
+                      shared_state
+                        .set_device_backend_error(processor.get_error());
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }

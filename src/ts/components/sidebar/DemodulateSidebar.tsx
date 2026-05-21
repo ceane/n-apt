@@ -77,9 +77,7 @@ interface DemodulateSidebarProps {
 
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
-import {
-  type FlowTemplate,
-} from "@n-apt/components/react-flow/flows";
+import { type FlowTemplate } from "@n-apt/components/react-flow/flows";
 
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   isScanning = false,
@@ -169,7 +167,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           const newlineIdx = headerBytes.indexOf(10);
           let jsonText: string;
           if (newlineIdx > 0) {
-            jsonText = new TextDecoder().decode(headerBytes.slice(0, newlineIdx));
+            jsonText = new TextDecoder().decode(
+              headerBytes.slice(0, newlineIdx),
+            );
           } else {
             const headerText = new TextDecoder().decode(headerBytes);
             let depth = 0;

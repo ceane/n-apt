@@ -113,7 +113,9 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       (entry) => entry.value,
     );
     expect(
-      encoders.some((encoder) => encoder.copyBufferToTexture.mock.calls.length > 0),
+      encoders.some(
+        (encoder) => encoder.copyBufferToTexture.mock.calls.length > 0,
+      ),
     ).toBe(false);
   });
 

@@ -25,7 +25,8 @@ const tabToStory = (tab: string) => {
   if (tab.includes("demod")) return "routes-routes--demodulate-route";
   if (tab.includes("3d-model")) return "routes-routes--model3-droute";
   if (tab.includes("map")) return "routes-routes--map-endpoints-route";
-  if (tab.includes("anti-aliasing")) return "routes-routes--anti-aliasing-diagnostics";
+  if (tab.includes("anti-aliasing"))
+    return "routes-routes--anti-aliasing-diagnostics";
   return "routes-routes--visualizer-route";
 };
 

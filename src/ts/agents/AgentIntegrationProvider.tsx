@@ -89,14 +89,7 @@ export const AgentIntegrationProvider: React.FC<
     };
 
     initialize();
-  }, [
-    pathname,
-    dispatch,
-    mapLocations,
-    model3D,
-    hotspotEditor,
-    spectrumStore,
-  ]);
+  }, [pathname, dispatch, mapLocations, model3D, hotspotEditor, spectrumStore]);
 
   // Get WebMCP tools for current route
   const { isRegistered, availableTools } = useWebMCP();

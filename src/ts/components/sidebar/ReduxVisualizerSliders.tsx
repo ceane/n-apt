@@ -30,7 +30,9 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
   const vizZoomFloor = useAppSelector((state) => state.spectrum.vizZoomFloor);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
-  const frequencyRange = useAppSelector((state) => state.spectrum.frequencyRange);
+  const frequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
   const powerScale = useAppSelector((state) => state.spectrum.powerScale);

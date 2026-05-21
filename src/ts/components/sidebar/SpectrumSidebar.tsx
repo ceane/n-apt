@@ -24,6 +24,7 @@ import {
   setFileMetadata,
   selectNoteCardsCollapsed,
   setNoteCardsCollapsed,
+  bumpSnapshotSectionPulse,
 } from "@n-apt/redux";
 import { NaptMetadata } from "@n-apt/consts/types";
 
@@ -171,8 +172,6 @@ const hasPersistedFftSize = (): boolean => {
   return false;
 };
 
-
-
 type PlaybackAfterCaptureArgs = {
   liveCaptureStatus: {
     status: string;
@@ -319,10 +318,12 @@ const playbackAfterCapture = async (
 
 interface SpectrumSidebarProps {
   onCreateNoteCard?: () => void;
+  visualizerLoading?: boolean;
 }
 
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   onCreateNoteCard,
+  visualizerLoading = false,
 }) => {
   const dispatch = useAppDispatch();
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
@@ -511,7 +512,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       ...(typeof liveState.fftSize !== "number" || liveState.fftSize <= 0
         ? { fftSize: derived.fftSize }
         : {}),
-      ...(typeof liveState.sampleRateHz !== "number" || liveState.sampleRateHz <= 0
+      ...(typeof liveState.sampleRateHz !== "number" ||
+      liveState.sampleRateHz <= 0
         ? { sampleRateHz: liveSdrSettingsToUse?.sample_rate ?? maxSampleRate }
         : {}),
       ...(typeof liveState.fftFrameRate !== "number" ||
@@ -595,6 +597,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     () => getSupportedSnapshotVideoFormat(),
     [],
   );
+  const snapshotPulseToken = useAppSelector(
+    (state) => state.snapshot.pulseToken,
+  );
   const [snapshotFormat, setSnapshotFormat] = useState<
     "png" | "svg" | SnapshotVideoFormat | "animated-svg"
   >("png");
@@ -614,7 +619,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   useEffect(() => {
     dispatch(setFileMetadata(naptMetadata));
   }, [naptMetadata, dispatch]);
-
 
   // Handle Playback after capture
   useEffect(() => {
@@ -922,6 +926,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   const handleSnapshot = () => {
+    dispatch(bumpSnapshotSectionPulse());
     window.dispatchEvent(
       new CustomEvent("napt-snapshot", {
         detail: {
@@ -1000,7 +1005,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
     const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
 
-    console.log("Metadata Effect: isNapt?", isNapt, "aesKey present?", !!aesKey);
+    console.log(
+      "Metadata Effect: isNapt?",
+      isNapt,
+      "aesKey present?",
+      !!aesKey,
+    );
     if (isNapt && !aesKey) {
       console.warn("Metadata Effect: NAPT file but NO aesKey!");
       setNaptMetadata(null);
@@ -1116,8 +1126,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [selectedPrimaryFile, aesKey]);
 
   const limitMarkers = useMemo(
-    () =>
-      buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
+    () => buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
     [wsConnection.sdrLimitMarkers],
   );
 
@@ -1234,6 +1243,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }}
             onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
+            titlePulseToken={snapshotPulseToken}
             isFileMode={true}
             hasFileLoaded={!!selectedPrimaryFile}
           />
@@ -1241,7 +1251,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
             minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
-            sampleRate={sampleRateHzLocal ?? liveSdrSettingsToUse?.sample_rate ?? maxSampleRate}
+            sampleRate={
+              sampleRateHzLocal ??
+              liveSdrSettingsToUse?.sample_rate ??
+              maxSampleRate
+            }
             sampleRateOptions={sampleRateOptions}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={4}
@@ -1309,9 +1323,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 $variant="secondary"
                 $active={!notesCollapsed}
                 type="button"
-                onClick={() =>
-                  dispatch(setNoteCardsCollapsed(!notesCollapsed))
-                }
+                onClick={() => dispatch(setNoteCardsCollapsed(!notesCollapsed))}
                 title={notesCollapsed ? "Show saved notes" : "Hide saved notes"}
               >
                 {notesCollapsed ? "Show Notes" : "Hide Notes"}
@@ -1379,19 +1391,25 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }}
             onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
+            titlePulseToken={snapshotPulseToken}
           />
 
           <Channels
             variant="spectrum"
             fileMode={false}
             limitMarkers={limitMarkers}
+            rangeSlidersDisabled={visualizerLoading}
           />
 
           <SignalDisplaySection
             sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
             minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
-            sampleRate={sampleRateHzLocal ?? liveSdrSettingsToUse?.sample_rate ?? maxSampleRate}
+            sampleRate={
+              sampleRateHzLocal ??
+              liveSdrSettingsToUse?.sample_rate ??
+              maxSampleRate
+            }
             sampleRateOptions={sampleRateOptions}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}

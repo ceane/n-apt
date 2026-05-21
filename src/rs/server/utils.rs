@@ -427,16 +427,12 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
 
 pub fn load_available_spectrum() -> Option<AvailableSpectrumConfig> {
   let config = signals_config();
-  config
-    .signals
-    .available_spectrum
-    .clone()
-    .or_else(|| {
-      Some(AvailableSpectrumConfig {
-        min_freq: 0.0,
-        max_freq: 30_000_000_000.0,
-      })
+  config.signals.available_spectrum.clone().or_else(|| {
+    Some(AvailableSpectrumConfig {
+      min_freq: 0.0,
+      max_freq: 30_000_000_000.0,
     })
+  })
 }
 
 /// Load mock APT signal settings (panic if missing/malformed)

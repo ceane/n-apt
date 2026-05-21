@@ -58,6 +58,33 @@ describe("FIFOWaterfallCanvas", () => {
     );
   });
 
+  it("shows a loading placeholder with a source label while awaiting data", () => {
+    const setWaterfallGpuCanvasNode = jest.fn();
+    const setWaterfallOverlayCanvasNode = jest.fn();
+
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
+          setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+          awaitingDeviceData
+          placeholderSourceLabel="Playback capture"
+        />
+      </ThemeProvider>,
+    );
+
+    expect(
+      screen.getAllByText(
+        (_, node) => node?.textContent === "Loading Waterfall...",
+      ),
+    ).toHaveLength(2);
+    expect(screen.getByText("from Playback capture")).toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting for the first frame to arrive."),
+    ).toBeInTheDocument();
+  });
+
   it("cleans up ref callbacks on unmount", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
@@ -74,7 +101,15 @@ describe("FIFOWaterfallCanvas", () => {
 
     unmount();
 
-    expect(setWaterfallGpuCanvasNode.mock.calls[setWaterfallGpuCanvasNode.mock.calls.length - 1]?.[0]).toBeNull();
-    expect(setWaterfallOverlayCanvasNode.mock.calls[setWaterfallOverlayCanvasNode.mock.calls.length - 1]?.[0]).toBeNull();
+    expect(
+      setWaterfallGpuCanvasNode.mock.calls[
+        setWaterfallGpuCanvasNode.mock.calls.length - 1
+      ]?.[0],
+    ).toBeNull();
+    expect(
+      setWaterfallOverlayCanvasNode.mock.calls[
+        setWaterfallOverlayCanvasNode.mock.calls.length - 1
+      ]?.[0],
+    ).toBeNull();
   });
 });

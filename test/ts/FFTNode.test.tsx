@@ -110,7 +110,7 @@ describe("FFTNode", () => {
     const canvas = screen.getByTestId("fft-canvas");
     const container = canvas.closest(".nodrag.nopan") as HTMLElement;
     expect(container).toBeInTheDocument();
-    
+
     const style = window.getComputedStyle(container);
     expect(style.pointerEvents).toBe("auto");
     expect(style.cursor).toBe("grab");

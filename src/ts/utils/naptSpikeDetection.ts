@@ -49,7 +49,11 @@ const movingAverage = (values: Float32Array, windowSize: number) => {
   for (let i = 0; i < values.length; i++) {
     let sum = 0;
     let count = 0;
-    for (let j = Math.max(0, i - half); j <= Math.min(values.length - 1, i + half); j++) {
+    for (
+      let j = Math.max(0, i - half);
+      j <= Math.min(values.length - 1, i + half);
+      j++
+    ) {
       sum += values[j];
       count += 1;
     }
@@ -90,9 +94,11 @@ export const detectNaptSpikeCandidates = (
   const smoothed = movingAverage(magnitude, 9);
   const values = Array.from(smoothed);
   const noiseFloor = median(values) || 1e-6;
-  const mad = median(values.map((value) => Math.abs(value - noiseFloor))) || 1e-6;
+  const mad =
+    median(values.map((value) => Math.abs(value - noiseFloor))) || 1e-6;
   const threshold = noiseFloor + mad * (options?.minProminenceRatio ?? 2.5);
-  const minPeakDistance = options?.minPeakDistance ?? Math.max(12, Math.floor(magnitude.length / 64));
+  const minPeakDistance =
+    options?.minPeakDistance ?? Math.max(12, Math.floor(magnitude.length / 64));
   const maxCandidates = options?.maxCandidates ?? 5;
 
   const peaks: NaptSpikeCandidate[] = [];
@@ -140,7 +146,14 @@ export const detectNaptSpikeCandidates = (
   const candidates = peaks.slice(0, maxCandidates);
   const selectedCandidate = candidates[0] ?? null;
   const confidence = selectedCandidate
-    ? clamp01(Math.min(1, selectedCandidate.score / 8) * 0.9 + Math.min(1, selectedCandidate.prominence / Math.max(noiseFloor, 1e-6)) * 0.1)
+    ? clamp01(
+        Math.min(1, selectedCandidate.score / 8) * 0.9 +
+          Math.min(
+            1,
+            selectedCandidate.prominence / Math.max(noiseFloor, 1e-6),
+          ) *
+            0.1,
+      )
     : 0;
 
   const segmentStats = candidates.map((candidate) => {
@@ -167,4 +180,3 @@ export const detectNaptSpikeCandidates = (
     selectedBandwidth: null,
   };
 };
-

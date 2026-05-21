@@ -123,7 +123,7 @@ const PillWrapper = styled.div`
 `;
 
 const Pill = styled.button<{ $color: string; $active: boolean }>`
-  padding: .5rem .75rem;
+  padding: 0.5rem 0.75rem;
   background: ${(props) =>
     props.$active ? props.$color : props.theme.surface};
   color: ${(props) => (props.$active ? "white" : props.theme.textPrimary)};

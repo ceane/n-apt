@@ -115,4 +115,39 @@ describe("FrequencyRangeSlider", () => {
     // Should not call onRangeChange because drag is disabled in readOnly
     expect(onRangeChange).not.toHaveBeenCalled();
   });
+
+  test("respects disabled mode without allowing drag interaction", () => {
+    const onRangeChange = jest.fn();
+    const onActivate = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          disabled={true}
+          onActivate={onActivate}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const sliderWrapper = screen.getByText("A").parentElement?.parentElement;
+    if (sliderWrapper) {
+      expect(sliderWrapper).toHaveStyle({ opacity: "0.5" });
+    }
+
+    const slider = screen.getByText("A").closest("div")?.nextElementSibling;
+    if (slider) {
+      fireEvent.click(slider);
+    }
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    if (thumb) {
+      fireEvent.mouseDown(thumb, { clientX: 100 });
+      fireEvent.mouseMove(window, { clientX: 150 });
+      fireEvent.mouseUp(window);
+    }
+
+    expect(onActivate).toHaveBeenCalled();
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
 });

@@ -171,7 +171,6 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
   const isAwaiting = state === "idle";
 
   if (!result || isProcessing || isAwaiting) {
-
     return (
       <NodeWrapper style={{ alignItems: "center", minWidth: "180px" }}>
         <Header style={{ width: "100%", justifyContent: "center" }}>

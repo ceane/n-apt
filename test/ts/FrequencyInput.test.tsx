@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { FrequencyInput } from "../../src/ts/components/ui/FrequencyInput";
@@ -25,10 +31,14 @@ const ControlledFrequencyInput: React.FC<any> = (props) => {
   const [val, setVal] = useState(props.valueHz);
   return (
     <TestWrapper>
-      <FrequencyInput {...props} valueHz={val} onChangeHz={(newVal: number) => {
-        setVal(newVal);
-        props.onChangeHz?.(newVal);
-      }} />
+      <FrequencyInput
+        {...props}
+        valueHz={val}
+        onChangeHz={(newVal: number) => {
+          setVal(newVal);
+          props.onChangeHz?.(newVal);
+        }}
+      />
     </TestWrapper>
   );
 };
@@ -42,7 +52,9 @@ describe("FrequencyInput", () => {
 
   it("calls onChangeHz when typing", () => {
     const onChange = jest.fn();
-    render(<ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />);
+    render(
+      <ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />,
+    );
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "2.5" } });
     expect(onChange).toHaveBeenCalledWith(2500000);
@@ -50,7 +62,9 @@ describe("FrequencyInput", () => {
 
   it("ignores spaces while typing numbers", () => {
     const onChange = jest.fn();
-    render(<ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />);
+    render(
+      <ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />,
+    );
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "2 5" } });
     expect(onChange).toHaveBeenCalledWith(25_000_000);
@@ -58,9 +72,11 @@ describe("FrequencyInput", () => {
 
   it("adjusts value with arrow keys using unit-aware steps", async () => {
     const onChange = jest.fn();
-    render(<ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />);
+    render(
+      <ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />,
+    );
     const input = screen.getByRole("textbox");
-    
+
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(onChange).toHaveBeenCalledWith(2000000);
     await waitFor(() => {
@@ -76,9 +92,15 @@ describe("FrequencyInput", () => {
 
   it("respects minHz boundary and caps correctly", async () => {
     const onChange = jest.fn();
-    render(<ControlledFrequencyInput valueHz={2000000} onChangeHz={onChange} minHz={1600000} />);
+    render(
+      <ControlledFrequencyInput
+        valueHz={2000000}
+        onChangeHz={onChange}
+        minHz={1600000}
+      />,
+    );
     const input = screen.getByRole("textbox");
-    
+
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(onChange).toHaveBeenCalledWith(1600000);
     await waitFor(() => {
@@ -88,13 +110,19 @@ describe("FrequencyInput", () => {
 
   it("respects maxHz boundary", async () => {
     const onChange = jest.fn();
-    render(<ControlledFrequencyInput valueHz={100} onChangeHz={onChange} maxHz={1000} />);
+    render(
+      <ControlledFrequencyInput
+        valueHz={100}
+        onChangeHz={onChange}
+        maxHz={1000}
+      />,
+    );
     const input = screen.getByRole("textbox");
-    
+
     // Type 2000 Hz while unit is Hz
     fireEvent.change(input, { target: { value: "2000" } });
     expect(onChange).toHaveBeenCalledWith(1000);
-    
+
     fireEvent.blur(input);
     // 1000 Hz -> 1.000 kHz in getOptimalUnit
     await waitFor(() => {
@@ -153,12 +181,7 @@ describe("FrequencyInput", () => {
   });
 
   it("updates immediately on the first arrow key press", async () => {
-    render(
-      <ControlledFrequencyInput
-        valueHz={31_750_000}
-        stepHz={500_000}
-      />,
-    );
+    render(<ControlledFrequencyInput valueHz={31_750_000} stepHz={500_000} />);
     const input = screen.getByRole("textbox");
 
     fireEvent.keyDown(input, { key: "ArrowUp" });
@@ -207,12 +230,7 @@ describe("FrequencyInput", () => {
   });
 
   it("increments on the first arrow press even after typing", async () => {
-    render(
-      <ControlledFrequencyInput
-        valueHz={31_750_000}
-        stepHz={500_000}
-      />,
-    );
+    render(<ControlledFrequencyInput valueHz={31_750_000} stepHz={500_000} />);
     const input = screen.getByRole("textbox");
 
     fireEvent.change(input, { target: { value: "31.750" } });
@@ -226,10 +244,10 @@ describe("FrequencyInput", () => {
   it("recalculates display value when unit is changed", () => {
     render(<ControlledFrequencyInput valueHz={1500} />);
     expect(screen.getByDisplayValue("1.500")).toBeInTheDocument();
-    
+
     const select = screen.getByRole("combobox");
     fireEvent.change(select, { target: { value: "Hz" } });
-    
+
     expect(screen.getByDisplayValue("1500.000")).toBeInTheDocument();
   });
 

@@ -113,12 +113,12 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({
           {analysisSession.result.naptFilePath}
         </DownloadCaptureLink>
         {analysisSession.result.timestamp && (
-        <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
+          <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
             {new Date(analysisSession.result.timestamp).toLocaleString()}
           </div>
         )}
         {analysisSession.result.fileSize && (
-        <div style={{ fontSize: "10px", color: "#666", marginTop: "2px" }}>
+          <div style={{ fontSize: "10px", color: "#666", marginTop: "2px" }}>
             Size: {(analysisSession.result.fileSize / 1024 / 1024).toFixed(2)}{" "}
             MB
           </div>

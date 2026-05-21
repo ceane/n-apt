@@ -239,7 +239,6 @@ export const useStitchingLogic = ({
       setChannelCount(channels.length);
       setActiveChannel(0);
 
-
       const firstChannel = channels.length > 0 ? channels[0] : null;
       const firstChannelRange =
         Array.isArray(firstChannel?.frequency_range) &&

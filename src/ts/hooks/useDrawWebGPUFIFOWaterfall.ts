@@ -178,6 +178,7 @@ type WaterfallState = {
   rowBuf: ArrayBuffer;
   writeRow: number;
   currentColorMapName?: string;
+  lastFrameCanvas?: HTMLCanvasElement;
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -381,9 +382,7 @@ export function useDrawWebGPUFIFOWaterfall() {
                 Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
               );
               const srcY =
-                prevH > 0
-                  ? (prevRenderRow - srcAge + prevH) % prevH
-                  : 0;
+                prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
               const dstY = (nextRenderRow - age + needH) % needH;
               enc.copyTextureToTexture(
                 { texture: prevTex, origin: { x: 0, y: srcY } },
@@ -635,6 +634,23 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.draw(3);
         pass.end();
         device.queue.submit([enc.finish()]);
+
+        if (canvas instanceof HTMLCanvasElement) {
+          if (!s.lastFrameCanvas) {
+            s.lastFrameCanvas = document.createElement("canvas");
+          }
+          const cacheCanvas = s.lastFrameCanvas;
+          if (cacheCanvas.width !== canvas.width || cacheCanvas.height !== canvas.height) {
+            cacheCanvas.width = canvas.width;
+            cacheCanvas.height = canvas.height;
+          }
+          const cacheCtx = cacheCanvas.getContext("2d");
+          if (cacheCtx) {
+            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
+            cacheCtx.drawImage(canvas, 0, 0);
+          }
+          (canvas as any)._lastFrameCanvas = cacheCanvas;
+        }
 
         return true;
       } catch (error) {

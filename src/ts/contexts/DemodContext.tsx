@@ -125,15 +125,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   });
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState<"fm" | "apt" | "napt">(
-    "fm",
-  );
-  const {
-    state,
-    wsConnection,
-    effectiveFrames,
-    effectiveSdrSettings,
-  } = useSpectrumStore();
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<
+    "fm" | "apt" | "napt"
+  >("fm");
+  const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
+    useSpectrumStore();
   const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } =
     wsConnection;
 
@@ -171,7 +167,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const id = window.setInterval(() => {
       const liveFrame = Array.isArray(liveDataRef.current)
-        ? liveDataRef.current[liveDataRef.current.length - 1] ?? null
+        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
         : liveDataRef.current;
 
       const next =
@@ -250,11 +246,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     reduxDispatch(syncDemodSpanFromSourceContext(sourceSyncPayload));
   }, [reduxDispatch, sourceSyncPayload]);
 
-
   const fileCapturedRange = useMemo(() => {
     return resolveDemodSourceRange(sourceSyncPayload)?.range ?? null;
   }, [sourceSyncPayload]);
-
 
   useEffect(() => {
     // Only build the initial graph if we don't have nodes yet.

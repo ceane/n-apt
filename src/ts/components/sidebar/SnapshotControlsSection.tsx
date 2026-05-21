@@ -233,6 +233,7 @@ interface SnapshotControlsSectionProps {
   onSnapshotGridPreferenceChange: (value: boolean) => void;
   onSnapshotAspectRatioChange: (value: SnapshotAspectRatio) => void;
   onSnapshot: () => void;
+  titlePulseToken?: number;
   isFileMode?: boolean;
   hasFileLoaded?: boolean;
 }
@@ -259,6 +260,7 @@ export const SnapshotControlsSection: React.FC<
   onSnapshotGridPreferenceChange,
   onSnapshotAspectRatioChange,
   onSnapshot,
+  titlePulseToken,
   isFileMode = false,
   hasFileLoaded = false,
 }) => {
@@ -280,6 +282,7 @@ export const SnapshotControlsSection: React.FC<
         icon={<Fullscreen size={14} />}
         label="Take a Snapshot"
         defaultOpen={false}
+        titlePulseToken={titlePulseToken}
       >
         <Row label={<IconLabel icon={Scan} text="Range" />}>
           <SettingSelect
@@ -323,9 +326,7 @@ export const SnapshotControlsSection: React.FC<
               type="checkbox"
               checked={snapshotUseThemeColors}
               disabled={isDisabled}
-              onChange={(e) =>
-                onSnapshotUseThemeColorsChange(e.target.checked)
-              }
+              onChange={(e) => onSnapshotUseThemeColorsChange(e.target.checked)}
             />
             <ToggleSwitchSlider />
           </ToggleSwitch>

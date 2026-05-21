@@ -23,7 +23,7 @@ export class FileWorkerManager {
   }
 
   private initializeWorker() {
-    if (typeof Worker === 'undefined') return;
+    if (typeof Worker === "undefined") return;
     try {
       this.worker = new Worker(new URL("./fileWorker.ts", import.meta.url), {
         type: "module",
@@ -85,9 +85,7 @@ export class FileWorkerManager {
         if (request) {
           this.pendingRequests.delete(id);
           reject(
-            new Error(
-              `File timed out after ${this.REQUEST_TIMEOUT / 1000}s`,
-            ),
+            new Error(`File timed out after ${this.REQUEST_TIMEOUT / 1000}s`),
           );
         }
       }, this.REQUEST_TIMEOUT);
@@ -129,7 +127,9 @@ export class FileWorkerManager {
     if (!file) throw new Error("File not found in registry");
 
     const fileData = await file.arrayBuffer();
-    const rawAesKey = aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null;
+    const rawAesKey = aesKey
+      ? await crypto.subtle.exportKey("raw", aesKey)
+      : null;
     return this.sendMessage("loadFile", {
       fileData,
       fileName: file.name,

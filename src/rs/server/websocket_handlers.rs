@@ -201,7 +201,8 @@ pub async fn handle_ws_connection(
   } else {
     crate::server::utils::mock_apt_device_name(&device_info)
   };
-  let device_backend_error = shared.device_backend_error.lock().unwrap().clone();
+  let device_backend_error =
+    shared.device_backend_error.lock().unwrap().clone();
 
   let initial_status = super::types::StatusMessage {
     message_type: "status".to_string(),
@@ -800,8 +801,7 @@ mod tests {
 
   #[test]
   fn resolves_frequency_center_from_range_midpoint() {
-    let center =
-      resolve_live_center_frequency(1_190_000.0, 4_390_000.0, None);
+    let center = resolve_live_center_frequency(1_190_000.0, 4_390_000.0, None);
     assert_eq!(center, 2_790_000);
   }
 

@@ -86,10 +86,15 @@ describe("useFrequencyDrag Hook", () => {
     jest.restoreAllMocks();
   });
 
-  const triggerPointerDown = (clientX: number, clientY: number, pointerId = 1) => {
-    const calls = spectrumContainerRef.current.addEventListener.mock.calls.filter(
-      (c: any) => c[0] === "pointerdown",
-    );
+  const triggerPointerDown = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
+    const calls =
+      spectrumContainerRef.current.addEventListener.mock.calls.filter(
+        (c: any) => c[0] === "pointerdown",
+      );
     const handler = calls[calls.length - 1][1];
     act(() => {
       handler({ clientX, clientY, pointerId } as any);
@@ -114,10 +119,13 @@ describe("useFrequencyDrag Hook", () => {
     }
   };
 
-  const triggerWheel = (payload: Partial<WheelEvent & { clientX: number; clientY: number }>) => {
-    const calls = spectrumContainerRef.current.addEventListener.mock.calls.filter(
-      (c: any) => c[0] === "wheel",
-    );
+  const triggerWheel = (
+    payload: Partial<WheelEvent & { clientX: number; clientY: number }>,
+  ) => {
+    const calls =
+      spectrumContainerRef.current.addEventListener.mock.calls.filter(
+        (c: any) => c[0] === "wheel",
+      );
     const handler = calls[calls.length - 1][1];
     act(() => {
       handler({
@@ -390,7 +398,9 @@ describe("useFrequencyDrag Hook", () => {
         mockOnFrequencyRangeChange.mock.calls.length - 1
       ][0];
     const lastPan =
-      mockOnVizPanChange.mock.calls[mockOnVizPanChange.mock.calls.length - 1][0];
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0];
 
     expect(lastRange.min).toBe(100);
     expect(lastRange.max).toBe(110);
@@ -419,7 +429,9 @@ describe("useFrequencyDrag Hook", () => {
 
     expect(mockOnVizZoomChange).toHaveBeenCalled();
     const zoomCall =
-      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+      mockOnVizZoomChange.mock.calls[
+        mockOnVizZoomChange.mock.calls.length - 1
+      ][0];
     expect(zoomCall).toBeGreaterThan(2.2);
   });
 
@@ -469,7 +481,9 @@ describe("useFrequencyDrag Hook", () => {
 
     expect(mockOnVizZoomChange).toHaveBeenCalled();
     const zoomCall =
-      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+      mockOnVizZoomChange.mock.calls[
+        mockOnVizZoomChange.mock.calls.length - 1
+      ][0];
     expect(zoomCall).toBeGreaterThanOrEqual(1);
   });
 
@@ -496,7 +510,9 @@ describe("useFrequencyDrag Hook", () => {
 
     expect(mockOnVizZoomChange).toHaveBeenCalled();
     const zoomCall =
-      mockOnVizZoomChange.mock.calls[mockOnVizZoomChange.mock.calls.length - 1][0];
+      mockOnVizZoomChange.mock.calls[
+        mockOnVizZoomChange.mock.calls.length - 1
+      ][0];
     expect(zoomCall).toBeGreaterThanOrEqual(3);
   });
 });

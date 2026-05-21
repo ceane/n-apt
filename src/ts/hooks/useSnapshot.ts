@@ -1,15 +1,18 @@
-import { useCallback } from "react";
-import { FFT_AREA_MIN } from "@n-apt/consts";
+import { useCallback, useState, useMemo, useRef, useEffect } from "react";
+import { FFT_AREA_MIN, findBestFrequencyRange } from "@n-apt/consts";
 import { THEME_TOKENS } from "@n-apt/consts";
 import {
   clearSnapshotProgress,
   setSnapshotProgress,
   useAppDispatch,
   useAppSelector,
+  bumpSnapshotSectionPulse,
 } from "@n-apt/redux";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { WholeChannelSnapshotSegment } from "@n-apt/hooks/useCaptureWholeChannelSegments";
+import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
+import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
 import {
   CoordinateMapper,
   Range,
@@ -29,6 +32,16 @@ import {
 } from "@n-apt/utils/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import {
+  buildFrequencyAxisTheme,
+  composeCanvasWithFrequencyAxis,
+  type FrequencyAxisTheme,
+} from "@n-apt/utils/rendering/frequencyAxis";
+import {
+  createCanvasVfoAxisContext,
+  drawVfoAxis,
+  formatVfoAxisCenterLabel,
+} from "@n-apt/utils/rendering/vfoAxis";
 import {
   escapeAttr,
   sanitizeNumeric,
@@ -81,6 +94,10 @@ export type SnapshotOptions = {
   fileTimestamp?: string;
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean };
   useThemeColors?: boolean;
+  canvasOnly?: {
+    getCanvas: () => HTMLCanvasElement | null;
+    filenamePrefix?: string;
+  };
 };
 
 export type SnapshotVideoFormat = "mp4" | "webm";
@@ -169,6 +186,16 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadCanvasAsPng(
+  canvas: HTMLCanvasElement,
+  filenamePrefix: string,
+): void {
+  const link = document.createElement("a");
+  link.download = `${filenamePrefix}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
 }
 
 export function normalizeSnapshotVideoFrameRate(frameRate?: number): number {
@@ -741,7 +768,7 @@ function drawWaterfallFrom2DBuffer(
   );
 }
 
-function renderWaterfallSnapshotCanvas(
+export function renderWaterfallSnapshotCanvas(
   data: SnapshotData,
   pixelWidth: number,
   pixelHeight: number,
@@ -790,7 +817,7 @@ function renderWaterfallSnapshotCanvas(
   return null;
 }
 
-function renderSpectrumSnapshotCanvas(
+export function renderSpectrumSnapshotCanvas(
   data: SnapshotData,
   frequencyRange: Range,
   showGrid: boolean,
@@ -821,7 +848,7 @@ function renderSpectrumSnapshotCanvas(
   ) as HTMLCanvasElement;
 }
 
-function composeWholeChannelWaterfallCanvas(
+export function composeWholeChannelWaterfallCanvas(
   segments: WholeChannelSnapshotSegment[],
   fullRange: { min: number; max: number },
   pixelWidth: number,
@@ -889,7 +916,7 @@ function composeWholeChannelWaterfallCanvas(
   return renderedAny ? canvas : null;
 }
 
-async function composeWholeChannelSpectrumCanvas(
+export async function composeWholeChannelSpectrumCanvas(
   segments: WholeChannelSnapshotSegment[],
   fullRange: Range,
   showGrid: boolean,
@@ -1109,11 +1136,682 @@ ${animatedContent}
 </svg>`;
 }
 
+// ── VFO Overlay and Fast Canvas Helpers ─────────────────────────────────────
+
+const readCssColor = (name: string, fallback: string) => {
+  if (typeof window === "undefined" || typeof document === "undefined")
+    return fallback;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return value || fallback;
+};
+
+export function drawDemodFocusOnContext2D(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  frequencyRange: { min: number; max: number },
+  demodFocus: DemodFocusOverlay | null | undefined,
+  plotTop: number,
+  plotBottom: number,
+  plotLeft: number,
+  plotRight: number,
+) {
+  if (!demodFocus) return;
+
+  const { centerFrequencyHz, halfBandwidthHz } = demodFocus;
+  if (
+    !Number.isFinite(centerFrequencyHz) ||
+    !Number.isFinite(halfBandwidthHz) ||
+    halfBandwidthHz <= 0
+  ) {
+    return;
+  }
+
+  const minFreq = frequencyRange.min;
+  const maxFreq = frequencyRange.max;
+  const viewBandwidth = maxFreq - minFreq;
+  if (
+    !Number.isFinite(minFreq) ||
+    !Number.isFinite(maxFreq) ||
+    viewBandwidth <= 0
+  ) {
+    return;
+  }
+
+  const bandMin = centerFrequencyHz - halfBandwidthHz;
+  const bandMax = centerFrequencyHz + halfBandwidthHz;
+
+  if (bandMax <= minFreq || bandMin >= maxFreq) return;
+
+  const plotWidth = plotRight - plotLeft;
+  if (plotWidth <= 0 || plotBottom <= plotTop) return;
+
+  const freqToX = (freq: number) =>
+    plotLeft + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+  const leftX = Math.max(plotLeft, Math.min(plotRight, freqToX(bandMin)));
+  const rightX = Math.max(plotLeft, Math.min(plotRight, freqToX(bandMax)));
+  const bandWidth = Math.max(2, rightX - leftX);
+  const centerX = Math.max(
+    plotLeft + 28,
+    Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
+  );
+  const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
+
+  const alignment = demodFocus.alignment || "centered";
+  const subLabel =
+    alignment === "centered"
+      ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
+      : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
+
+  ctx.save();
+  const dpr = window.devicePixelRatio || 1;
+  const canvasTheme = {
+    centerLineColor: readCssColor("--color-fft-center-line", "#ffff00"),
+    spectrumOverlay: readCssColor("--color-spectrum-overlay", "rgba(255, 255, 255, 0.15)"),
+    spectrumOverlayBorder: readCssColor("--color-spectrum-overlay-border", "rgba(255, 255, 255, 0.75)"),
+  };
+
+  // 1. Center Line (Themed)
+  const centerLineX = freqToX(centerFrequencyHz);
+  if (centerLineX >= plotLeft && centerLineX <= plotRight) {
+    ctx.save();
+    ctx.strokeStyle = canvasTheme.centerLineColor;
+    ctx.lineWidth = Math.max(1, 2.5 / dpr);
+    ctx.setLineDash([]); // Solid center line
+    ctx.beginPath();
+    ctx.moveTo(centerLineX, plotTop);
+    ctx.lineTo(centerLineX, plotBottom);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 2. Background Highlight
+  ctx.fillStyle = canvasTheme.spectrumOverlay;
+  ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
+
+  // 3. Boundary lines (Dotted)
+  ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
+  ctx.lineWidth = Math.max(1, 2 / dpr);
+  ctx.setLineDash([3, 4]);
+  ctx.lineCap = "round";
+
+  for (const x of [leftX, rightX]) {
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+  }
+
+  // 4. Drawing text labels and markers box
+  ctx.setLineDash([]);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.font = "bold 12px JetBrains Mono";
+
+  const labelWidth = Math.max(
+    ctx.measureText(label).width,
+    ctx.measureText(subLabel).width,
+  );
+  const labelX = Math.max(
+    plotLeft + labelWidth / 2 + 8,
+    Math.min(plotRight - labelWidth / 2 - 8, centerX),
+  );
+
+  // Multi-line Label Background (Opaque white)
+  const labelHeight = 38;
+  ctx.fillStyle = "rgba(255, 255, 255, 1.0)";
+  ctx.fillRect(
+    labelX - labelWidth / 2 - 8,
+    plotTop + 10,
+    labelWidth + 16,
+    labelHeight,
+  );
+
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.1)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    labelX - labelWidth / 2 - 8,
+    plotTop + 10,
+    labelWidth + 16,
+    labelHeight,
+  );
+
+  ctx.fillStyle = "#07111f"; // Dark text on light label bg
+  ctx.fillText(label, labelX, plotTop + 13);
+
+  ctx.font = "bold 9px JetBrains Mono";
+  ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
+  ctx.fillText(subLabel, labelX, plotTop + 28);
+
+  ctx.restore();
+}
+
+export const FAST_WATERFALL_VFO_HEADER_HEIGHT = 48;
+
+function drawFastSpectrumSnapshotCenterLabel(
+  canvas: HTMLCanvasElement,
+  frequencyRange: { min: number; max: number } | null | undefined,
+  theme?: SnapshotTheme,
+): void {
+  if (!frequencyRange) return;
+  const bandwidth = frequencyRange.max - frequencyRange.min;
+  if (!(bandwidth > 0)) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const logicalW = canvas.width / dpr;
+  const logicalH = canvas.height / dpr;
+  const plotLeft = FFT_AREA_MIN.x;
+  const plotRight = logicalW - 40;
+  const plotBottom = logicalH - 40;
+  const centerFrequencyHz = (frequencyRange.min + frequencyRange.max) / 2;
+  const centerX =
+    plotLeft +
+    ((centerFrequencyHz - frequencyRange.min) / bandwidth) *
+      Math.max(1, plotRight - plotLeft);
+  const labelY = plotBottom + 25;
+  const stepHz = findBestFrequencyRange(bandwidth, 10);
+  const useHighRes = bandwidth / Math.max(stepHz, 1) >= 100;
+  const centerText = formatVfoAxisCenterLabel(
+    centerFrequencyHz,
+    useHighRes,
+    stepHz,
+  );
+  const oldLabel = `👋  ${centerText}`;
+  const nextLabel = `○  ${centerText}`;
+
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = "bold 12px JetBrains Mono, monospace";
+  ctx.textBaseline = "alphabetic";
+  const clearWidth =
+    Math.max(ctx.measureText(oldLabel).width, ctx.measureText(nextLabel).width) +
+    28;
+  ctx.fillStyle = theme?.bg ?? "rgba(10, 10, 10, 1)";
+  ctx.fillRect(centerX - clearWidth / 2, labelY - 22, clearWidth, 34);
+
+  drawVfoAxis({
+    ctx: createCanvasVfoAxisContext(ctx),
+    frequencyRange,
+    centerFrequencyHz,
+    bounds: {
+      left: plotLeft,
+      right: plotRight,
+      top: FFT_AREA_MIN.y,
+      bottom: plotBottom,
+    },
+    y: plotBottom,
+    labelY,
+    tickDirection: "down",
+    showAxisLine: false,
+    showEdgeLabels: false,
+    showTickMarks: false,
+    showTickLabels: false,
+    showCenterLine: false,
+    showCenterTick: false,
+    icon: "circle",
+    theme: {
+      tick: theme?.text ?? "#ffffff",
+      label: theme?.text ?? "#ffffff",
+      center: theme?.cfText ?? "#ffffff",
+    },
+    fontPx: 12,
+    centerFontPx: 12,
+    textBaseline: "alphabetic",
+    useHighResLabels: useHighRes,
+  });
+  ctx.restore();
+}
+
+function cropCanvasVerticalInset(
+  source: HTMLCanvasElement,
+  insetPx: number,
+): HTMLCanvasElement {
+  const inset = Math.max(0, Math.min(insetPx, Math.floor(source.height / 2)));
+  if (inset === 0 || source.height <= inset * 2) {
+    return source;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = source.height - inset * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return source;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    source,
+    0,
+    inset,
+    source.width,
+    canvas.height,
+    0,
+    0,
+    source.width,
+    canvas.height,
+  );
+
+  return canvas;
+}
+
+export function buildFastSpectrumCanvas(
+  snapshotData: SnapshotData | null,
+  width: number,
+  height: number,
+  theme?: SnapshotTheme,
+  canvases?: {
+    spectrumGpu: HTMLCanvasElement | null;
+    spectrumOverlay: HTMLCanvasElement | null;
+  } | null,
+): HTMLCanvasElement | null {
+  if (canvases && canvases.spectrumGpu) {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvases.spectrumGpu.width;
+    canvas.height = canvases.spectrumGpu.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const srcGpu = (canvases.spectrumGpu as any)._lastFrameCanvas || canvases.spectrumGpu;
+      ctx.drawImage(srcGpu, 0, 0);
+      if (canvases.spectrumOverlay) {
+        ctx.drawImage(canvases.spectrumOverlay, 0, 0);
+      }
+      drawFastSpectrumSnapshotCenterLabel(
+        canvas,
+        getSnapshotVisualFrequencyRange(snapshotData, snapshotData?.frequencyRange),
+        theme,
+      );
+      return canvas;
+    }
+  }
+
+  if (!snapshotData || !snapshotData.waveform || snapshotData.waveform.length === 0) {
+    return null;
+  }
+
+  const { slicedWaveform, visualRange } =
+    snapshotData.vizZoom > 1
+      ? getZoomedSlice(
+          snapshotData.waveform,
+          snapshotData.frequencyRange,
+          snapshotData.vizZoom,
+          snapshotData.vizPanOffset,
+        )
+      : {
+          slicedWaveform: snapshotData.waveform,
+          visualRange: snapshotData.frequencyRange,
+        };
+
+  const canvas = renderSpectrumSnapshotCanvas(
+    { ...snapshotData, waveform: slicedWaveform },
+    visualRange,
+    false,
+    Math.max(1, width),
+    Math.max(1, height),
+    snapshotData.frequencyRange,
+    [],
+    slicedWaveform,
+    theme,
+    undefined,
+    undefined,
+    true,
+  );
+
+  // Draw demodFocus overlay if present
+  if (canvas && snapshotData.demodFocusOverlay) {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const logicalW = canvas.width / dpr;
+      const logicalH = canvas.height / dpr;
+      const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
+      const plotRight = logicalW - 40;
+      const plotTop = FFT_AREA_MIN.y;
+      const plotBottom = logicalH - 38; // matching plotBottom offset inside renderSpectrumSnapshot
+      drawDemodFocusOnContext2D(
+        ctx,
+        logicalW,
+        logicalH,
+        visualRange,
+        snapshotData.demodFocusOverlay,
+        plotTop,
+        plotBottom,
+        plotLeft,
+        plotRight,
+      );
+    }
+  }
+
+  return canvas;
+}
+
+export function drawFastWaterfallLabelStrip(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  frequencyRange: { min: number; max: number } | null | undefined,
+): void {
+  // Fill background
+  ctx.fillStyle = "rgba(10, 14, 22, 0.96)";
+  ctx.fillRect(0, 0, width, FAST_WATERFALL_VFO_HEADER_HEIGHT);
+
+  // Draw border
+  ctx.strokeStyle = "rgba(110, 163, 255, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    0.5,
+    0.5,
+    width - 1,
+    FAST_WATERFALL_VFO_HEADER_HEIGHT - 1,
+  );
+
+  if (!frequencyRange) {
+    return;
+  }
+
+  const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
+  const plotRight = width - 40;
+  const plotWidth = plotRight - plotLeft;
+
+  const min = frequencyRange.min;
+  const max = frequencyRange.max;
+  const span = max - min;
+  const center = calculateCenterFrequency(frequencyRange) ?? min + span / 2;
+  const quarter1 = min + span * 0.25;
+  const quarter3 = min + span * 0.75;
+
+  // Draw dial axis line at y = 38
+  ctx.strokeStyle = "rgba(110, 163, 255, 0.35)";
+  ctx.beginPath();
+  ctx.moveTo(plotLeft, 38);
+  ctx.lineTo(plotRight, 38);
+  ctx.stroke();
+
+  // Draw major ticks: 7px tall, color rgba(110, 163, 255, 0.5) at y = 38 (going up to 31)
+  ctx.strokeStyle = "rgba(110, 163, 255, 0.5)";
+  ctx.beginPath();
+  const majorXs = [
+    plotLeft,
+    plotLeft + plotWidth * 0.25,
+    plotLeft + plotWidth * 0.5,
+    plotLeft + plotWidth * 0.75,
+    plotRight
+  ];
+  for (const x of majorXs) {
+    ctx.moveTo(x, 38);
+    ctx.lineTo(x, 31);
+  }
+  ctx.stroke();
+
+  // Draw 20 minor ticks: 4px tall, color rgba(110, 163, 255, 0.25) at y = 38 (going up to 34)
+  // distributed evenly between the major ticks (5 ticks per interval)
+  ctx.strokeStyle = "rgba(110, 163, 255, 0.25)";
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const xStart = plotLeft + i * (plotWidth / 4);
+    for (let j = 1; j <= 5; j++) {
+      const x = xStart + j * (plotWidth / 24);
+      ctx.moveTo(x, 38);
+      ctx.lineTo(x, 34);
+    }
+  }
+  ctx.stroke();
+
+  // Draw frequency labels at y = 18 using bold 13px 'JetBrains Mono', monospace
+  const labels = [
+    {
+      x: plotLeft,
+      align: "left" as const,
+      text: formatFrequency(min, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      }),
+    },
+    {
+      x: plotLeft + plotWidth * 0.25,
+      align: "center" as const,
+      text: formatFrequency(quarter1, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      }),
+    },
+    {
+      x: plotLeft + plotWidth * 0.5,
+      align: "center" as const,
+      text: `👋  ${formatFrequency(center, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      })}`,
+      active: true,
+    },
+    {
+      x: plotLeft + plotWidth * 0.75,
+      align: "center" as const,
+      text: formatFrequency(quarter3, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      }),
+    },
+    {
+      x: plotRight,
+      align: "right" as const,
+      text: formatFrequency(max, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+        trimTrailingZeros: true,
+      }),
+    },
+  ];
+
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 13px 'JetBrains Mono', monospace";
+  for (const label of labels) {
+    ctx.textAlign = label.align;
+    ctx.fillStyle = label.active ? "#eef3fb" : "rgba(238, 243, 251, 0.7)";
+    ctx.fillText(label.text, label.x, 18);
+  }
+}
+
+function getSnapshotVisualFrequencyRange(
+  snapshotData: SnapshotData | null,
+  fallbackRange: { min: number; max: number } | null | undefined,
+): { min: number; max: number } | null {
+  if (!snapshotData) {
+    return fallbackRange ?? null;
+  }
+
+  const baseRange = snapshotData.frequencyRange || fallbackRange;
+  if (!baseRange) {
+    return null;
+  }
+
+  if (snapshotData.vizZoom > 1 && snapshotData.waveform && snapshotData.waveform.length > 0) {
+    return getZoomedSlice(
+      snapshotData.waveform,
+      baseRange,
+      snapshotData.vizZoom,
+      snapshotData.vizPanOffset,
+    ).visualRange;
+  }
+
+  return baseRange;
+}
+
+export function buildFastWaterfallCanvas(
+  snapshotData: SnapshotData | null,
+  width: number,
+  height: number,
+  frequencyRange: { min: number; max: number } | null | undefined,
+  canvases?: {
+    waterfallGpu: HTMLCanvasElement | null;
+    waterfallOverlay: HTMLCanvasElement | null;
+  } | null,
+  axisTheme?: FrequencyAxisTheme,
+): HTMLCanvasElement | null {
+  const fallbackAxisTheme =
+    axisTheme ??
+    buildFrequencyAxisTheme({
+      colors: {
+        background: "#05070d",
+        border: "rgba(110, 163, 255, 0.35)",
+        textMuted: "rgba(238, 243, 251, 0.7)",
+        textSecondary: "rgba(238, 243, 251, 0.7)",
+        textPrimary: "#eef3fb",
+      },
+    });
+
+  const effectiveRange = getSnapshotVisualFrequencyRange(
+    snapshotData,
+    frequencyRange,
+  );
+  let sourceCanvas: HTMLCanvasElement | null = null;
+  if (canvases?.waterfallGpu) {
+    const srcGpu =
+      (canvases.waterfallGpu as any)._lastFrameCanvas || canvases.waterfallGpu;
+    const liveCanvas = document.createElement("canvas");
+    liveCanvas.width = srcGpu.width;
+    liveCanvas.height = srcGpu.height;
+    const liveCtx = liveCanvas.getContext("2d");
+    if (liveCtx) {
+      liveCtx.imageSmoothingEnabled = false;
+      liveCtx.drawImage(srcGpu, 0, 0);
+      if (canvases.waterfallOverlay) {
+        liveCtx.drawImage(canvases.waterfallOverlay, 0, 0);
+      }
+      sourceCanvas = cropCanvasVerticalInset(
+        liveCanvas,
+        Math.round(8 * (window.devicePixelRatio || 1)),
+      );
+    }
+  } else if (snapshotData) {
+    sourceCanvas = renderWaterfallSnapshotCanvas(
+      snapshotData,
+      Math.max(1, width),
+      Math.max(1, height),
+      {
+        waterfallBg: "#05070d",
+        marginX: 40,
+        marginY: 0,
+      },
+    );
+  }
+
+  const composed = composeCanvasWithFrequencyAxis({
+    baseCanvas: sourceCanvas ?? document.createElement("canvas"),
+    frequencyRange: effectiveRange ?? { min: 0, max: 1 },
+    centerFrequencyHz:
+      calculateCenterFrequency(effectiveRange ?? null),
+    detail: "dense",
+    plotInsets: { left: 40, right: 40 },
+    showBorder: false,
+    tickDirection: "down",
+    theme: fallbackAxisTheme,
+  });
+
+  if (snapshotData?.demodFocusOverlay && composed) {
+    const ctx = composed.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const plotLeft = Math.round(40 * dpr);
+      const plotRight = composed.width - Math.round(40 * dpr);
+      const plotTop = FAST_WATERFALL_VFO_HEADER_HEIGHT;
+      const plotBottom = composed.height;
+
+      drawDemodFocusOnContext2D(
+        ctx,
+        composed.width,
+        composed.height,
+        effectiveRange || { min: 0, max: 1 },
+        snapshotData.demodFocusOverlay,
+        plotTop,
+        plotBottom,
+        plotLeft,
+        plotRight,
+      );
+    }
+  }
+
+  return composed;
+}
+
+const FAST_RECORDING_MAX_MS = 30_000;
+const FAST_RECORDING_FRAME_RATE = 30;
+const FAST_RECORDING_BITRATE = 12_000_000;
+
+const FAST_RECORDING_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
+  mp4: ["video/mp4;codecs=avc1.42E01E", "video/mp4"],
+  webm: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
+};
+
+const getFastRecordingMimeType = (
+  format: SnapshotVideoFormat | null,
+): string => {
+  if (typeof MediaRecorder === "undefined") return "";
+  if (!format) return "";
+  return (
+    FAST_RECORDING_MIME_TYPES[format].find((type) =>
+      MediaRecorder.isTypeSupported(type),
+    ) ?? ""
+  );
+};
+
+const downloadFastRecording = (
+  blob: Blob,
+  filenamePrefix: string,
+  mimeType: string,
+): void => {
+  const extension = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = `${filenamePrefix}-${Date.now()}.${extension}`;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+export type FastRecordingTarget = "spectrum" | "waterfall";
+
+export type FastCanvases = {
+  spectrumGpu: HTMLCanvasElement | null;
+  spectrumOverlay: HTMLCanvasElement | null;
+  waterfallGpu: HTMLCanvasElement | null;
+  waterfallOverlay: HTMLCanvasElement | null;
+};
+
+export type GetFastCanvases = () => FastCanvases | null;
+
+export type FastRecordingSession = {
+  target: FastRecordingTarget;
+  recorder: MediaRecorder;
+  chunks: BlobPart[];
+  filenamePrefix: string;
+  rafId?: number;
+  stream: MediaStream;
+  recordingCanvas: HTMLCanvasElement;
+};
+
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function useSnapshot(
-  _frequencyRange: { min: number; max: number } | null,
-  _isConnected: boolean,
+  frequencyRange: { min: number; max: number } | null,
+  isConnected: boolean,
 ) {
   const appMode = useAppSelector((state) => state.theme.appMode);
   const dispatch = useAppDispatch();
@@ -1123,15 +1821,72 @@ export function useSnapshot(
     colors?: Partial<AppStyledTheme["colors"]>;
   };
 
+  const [fastRecordingTarget, setFastRecordingTarget] = useState<FastRecordingTarget | null>(null);
+  const [recordingSecondsRemaining, setRecordingSecondsRemaining] = useState<number | null>(null);
+  const fastRecordingSessionRef = useRef<FastRecordingSession | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
+  const lastSecondsRef = useRef<number>(-1);
+
+  const supportedFastRecordingFormat = useMemo(
+    () => getSupportedSnapshotVideoFormat(),
+    [],
+  );
+
+  const resetFastRecordingState = useCallback(() => {
+    setFastRecordingTarget(null);
+    setRecordingSecondsRemaining(null);
+    recordingStartTimeRef.current = 0;
+    lastSecondsRef.current = -1;
+  }, []);
+
+  const renderFastRecordingFrame = useCallback(
+    (
+      target: FastRecordingTarget,
+      snapshotData: SnapshotData | null,
+      width: number,
+      height: number,
+      theme: SnapshotTheme,
+      canvases?: FastCanvases | null,
+    ): HTMLCanvasElement | null => {
+      if (!snapshotData) {
+        return null;
+      }
+
+      if (target === "spectrum") {
+        return buildFastSpectrumCanvas(snapshotData, width, height, theme, canvases);
+      }
+
+      const waterfallAxisTheme = buildFrequencyAxisTheme({
+        colors: {
+          background: staticThemeColors.waterfallBackground,
+          border: staticThemeColors.waterfallGrid,
+          textMuted: staticThemeColors.waterfallText,
+          textSecondary: staticThemeColors.waterfallText,
+          textPrimary: staticThemeColors.snapCenterLabelText,
+        },
+      });
+
+      return buildFastWaterfallCanvas(
+        snapshotData,
+        width,
+        height,
+        snapshotData.frequencyRange || frequencyRange,
+        canvases,
+        waterfallAxisTheme,
+      );
+    },
+    [frequencyRange, staticThemeColors],
+  );
+
   const buildSnapshotTheme = useCallback(
     (useThemeColors?: boolean): SnapshotTheme => {
       const fftLine = useThemeColors
-        ? styledTheme.fft ??
+        ? (styledTheme.fft ??
           styledTheme.colors?.fftLine ??
-          staticThemeColors.fftLine
+          staticThemeColors.fftLine)
         : staticThemeColors.fftLine;
       const fftShadow = useThemeColors
-        ? styledTheme.colors?.fftShadow ?? staticThemeColors.fftShadow
+        ? (styledTheme.colors?.fftShadow ?? staticThemeColors.fftShadow)
         : staticThemeColors.fftShadow;
 
       return {
@@ -1161,6 +1916,42 @@ export function useSnapshot(
         }),
       );
       try {
+        if (options.canvasOnly) {
+          const canvas = options.canvasOnly.getCanvas();
+          if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            dispatch(
+              setSnapshotProgress({
+                stage: "error",
+                message: "No canvas data available",
+                current: null,
+                total: null,
+                pulseToken: 0,
+              }),
+            );
+            return;
+          }
+
+          const timestamp = new Date()
+            .toISOString()
+            .slice(0, 19)
+            .replace(/:/g, "-");
+          downloadCanvasAsPng(
+            canvas,
+            `${options.canvasOnly.filenamePrefix ?? "canvas-snapshot"}-${timestamp}`,
+          );
+          dispatch(
+            setSnapshotProgress({
+              stage: "done",
+              message: "Snapshot saved",
+              current: null,
+              total: null,
+              pulseToken: 0,
+            }),
+          );
+          window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
+          return;
+        }
+
         const data = options.getSnapshotData();
         if (!data || !data.waveform || data.waveform.length === 0) {
           console.warn("[Snapshot] No waveform data available");
@@ -1170,6 +1961,7 @@ export function useSnapshot(
               message: "No waveform data available",
               current: null,
               total: null,
+              pulseToken: 0,
             }),
           );
           return;
@@ -1382,10 +2174,10 @@ export function useSnapshot(
           };
         };
 
-  const renderVideoFrameCanvas = async (
-    currentData: SnapshotData,
-    wholeChannelSegments?: WholeChannelSnapshotSegment[],
-  ) => {
+        const renderVideoFrameCanvas = async (
+          currentData: SnapshotData,
+          wholeChannelSegments?: WholeChannelSnapshotSegment[],
+        ) => {
           const {
             currentWaveform,
             currentRange,
@@ -1760,20 +2552,20 @@ export function useSnapshot(
 
               const wholeChannelSpectrumCanvas =
                 options.whole && options.wholeChannelSegments?.length
-              ? await composeWholeChannelSpectrumCanvas(
-                  options.wholeChannelSegments,
-                  currentRange,
+                  ? await composeWholeChannelSpectrumCanvas(
+                      options.wholeChannelSegments,
+                      currentRange,
                       options.showGrid,
                       pixelW,
                       pixelSpectrumH,
                       currentCaptureRange,
                       currentStatsLines,
-                  theme,
-                  options.stitchOptions,
-                  statsPlacementRef,
-                  true,
-                )
-              : null;
+                      theme,
+                      options.stitchOptions,
+                      statsPlacementRef,
+                      true,
+                    )
+                  : null;
 
               let spectrumSvg = "";
               if (options.whole && wholeChannelSpectrumCanvas) {
@@ -2121,6 +2913,7 @@ export function useSnapshot(
             message: "Snapshot saved",
             current: null,
             total: null,
+            pulseToken: 0,
           }),
         );
         window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
@@ -2131,6 +2924,7 @@ export function useSnapshot(
             message: error instanceof Error ? error.message : "Snapshot failed",
             current: null,
             total: null,
+            pulseToken: 0,
           }),
         );
         window.setTimeout(() => dispatch(clearSnapshotProgress()), 1800);
@@ -2140,5 +2934,281 @@ export function useSnapshot(
     [dispatch, buildSnapshotTheme, waterfallBg],
   );
 
-  return { handleSnapshot };
+  const stopFastRecording = useCallback(() => {
+    const session = fastRecordingSessionRef.current;
+    if (!session) return;
+
+    if (session.rafId !== undefined) {
+      window.cancelAnimationFrame(session.rafId);
+    }
+    try {
+      session.recorder.requestData();
+    } catch {
+      // ignore
+    }
+    if (session.recorder.state !== "inactive") {
+      session.recorder.stop();
+    }
+  }, []);
+
+  const startFastRecording = useCallback(
+    (
+      target: FastRecordingTarget,
+      getSnapshotData: () => SnapshotData | null,
+      getCanvasDimensions: () => { width: number; height: number },
+      filenamePrefix: string,
+      getCanvases: GetFastCanvases,
+    ) => {
+      if (fastRecordingSessionRef.current) {
+        stopFastRecording();
+        return;
+      }
+
+      const mimeType = getFastRecordingMimeType(supportedFastRecordingFormat);
+      if (!mimeType) return;
+
+      const snapshotData = getSnapshotData();
+      if (!snapshotData) return;
+
+      const theme = buildSnapshotTheme(false);
+      const dimensions = getCanvasDimensions();
+      const initialCanvases = getCanvases();
+      const initialFrame = renderFastRecordingFrame(
+        target,
+        snapshotData,
+        dimensions.width,
+        dimensions.height,
+        theme,
+        initialCanvases,
+      );
+      if (!initialFrame) return;
+
+      const recordingCanvas = document.createElement("canvas");
+      // Set fixed size
+      recordingCanvas.width = initialFrame.width;
+      recordingCanvas.height = initialFrame.height;
+      recordingCanvas.style.position = "fixed";
+      recordingCanvas.style.left = "-9999px";
+      recordingCanvas.style.top = "-9999px";
+      recordingCanvas.style.width = `${initialFrame.width}px`;
+      recordingCanvas.style.height = `${initialFrame.height}px`;
+      recordingCanvas.style.pointerEvents = "none";
+      recordingCanvas.style.zIndex = "-9999";
+      
+      document.body.appendChild(recordingCanvas);
+
+      const ctx = recordingCanvas.getContext("2d");
+      if (!ctx) {
+        document.body.removeChild(recordingCanvas);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(initialFrame, 0, 0);
+
+      const stream = recordingCanvas.captureStream(FAST_RECORDING_FRAME_RATE);
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: FAST_RECORDING_BITRATE,
+      });
+      const chunks: BlobPart[] = [];
+
+      fastRecordingSessionRef.current = {
+        target,
+        recorder,
+        chunks,
+        filenamePrefix,
+        stream,
+        recordingCanvas,
+      };
+
+      setFastRecordingTarget(target);
+      const startedAt = performance.now();
+      recordingStartTimeRef.current = startedAt;
+      lastSecondsRef.current = Math.ceil(FAST_RECORDING_MAX_MS / 1000);
+      setRecordingSecondsRemaining(lastSecondsRef.current);
+
+      const drawFrame = () => {
+        const session = fastRecordingSessionRef.current;
+        if (!session) return;
+        if (recorder.state === "inactive") return;
+
+        const elapsed = performance.now() - recordingStartTimeRef.current;
+        if (elapsed >= FAST_RECORDING_MAX_MS) {
+          stopFastRecording();
+          return;
+        }
+
+        const remaining = Math.max(0, FAST_RECORDING_MAX_MS - elapsed);
+        const seconds = Math.ceil(remaining / 1000);
+        if (seconds !== lastSecondsRef.current) {
+          lastSecondsRef.current = seconds;
+          setRecordingSecondsRemaining(seconds);
+        }
+
+        const currentSnapshotData = getSnapshotData();
+        const currentCanvases = getCanvases();
+        if (currentSnapshotData) {
+          const currentTheme = buildSnapshotTheme(false);
+          const frameCanvas = renderFastRecordingFrame(
+            target,
+            currentSnapshotData,
+            dimensions.width,
+            dimensions.height,
+            currentTheme,
+            currentCanvases,
+          );
+          if (frameCanvas) {
+            ctx.imageSmoothingEnabled = false;
+            ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+            ctx.drawImage(
+              frameCanvas,
+              0,
+              0,
+              frameCanvas.width,
+              frameCanvas.height,
+              0,
+              0,
+              recordingCanvas.width,
+              recordingCanvas.height,
+            );
+          }
+        }
+        const currentSession = fastRecordingSessionRef.current;
+        if (currentSession) {
+          currentSession.rafId = window.requestAnimationFrame(drawFrame);
+        }
+      };
+
+      const currentSession = fastRecordingSessionRef.current;
+      if (currentSession) {
+        currentSession.rafId = window.requestAnimationFrame(drawFrame);
+      }
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (recordingCanvas.parentNode) {
+          recordingCanvas.parentNode.removeChild(recordingCanvas);
+        }
+        resetFastRecordingState();
+        fastRecordingSessionRef.current = null;
+      };
+      recorder.onstop = () => {
+        if (fastRecordingSessionRef.current?.rafId !== undefined) {
+          window.cancelAnimationFrame(fastRecordingSessionRef.current.rafId);
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        
+        if (recordingCanvas.parentNode) {
+          recordingCanvas.parentNode.removeChild(recordingCanvas);
+        }
+        
+        resetFastRecordingState();
+        fastRecordingSessionRef.current = null;
+
+        if (chunks.length > 0) {
+          downloadFastRecording(
+            new Blob(chunks, { type: mimeType }),
+            filenamePrefix,
+            mimeType,
+          );
+        }
+      };
+
+      recorder.start(250);
+    },
+    [
+      supportedFastRecordingFormat,
+      buildSnapshotTheme,
+      renderFastRecordingFrame,
+      stopFastRecording,
+      resetFastRecordingState,
+    ],
+  );
+
+  useEffect(() => {
+    return () => {
+      stopFastRecording();
+    };
+  }, [stopFastRecording]);
+
+  const takeFastSnapshot = useCallback(
+    async (
+      target: "spectrum" | "waterfall",
+      getSnapshotData: () => SnapshotData | null,
+      width: number,
+      height: number,
+      getCanvases: GetFastCanvases,
+    ) => {
+      dispatch(bumpSnapshotSectionPulse());
+      const snapshotData = getSnapshotData();
+      const theme = buildSnapshotTheme(false);
+      const waterfallAxisTheme = buildFrequencyAxisTheme({
+        colors: {
+          background: staticThemeColors.waterfallBackground,
+          border: staticThemeColors.waterfallGrid,
+          textMuted: staticThemeColors.waterfallText,
+          textSecondary: staticThemeColors.waterfallText,
+          textPrimary: staticThemeColors.snapCenterLabelText,
+        },
+      });
+      const waterfallFrequencyRange = snapshotData?.frequencyRange || frequencyRange;
+
+      const getCanvas = () => {
+        const canvases = getCanvases();
+        if (target === "spectrum") {
+          return buildFastSpectrumCanvas(
+            snapshotData,
+            width,
+            height,
+            theme,
+            canvases,
+          );
+        }
+
+        return buildFastWaterfallCanvas(
+          snapshotData,
+          width,
+          height,
+          waterfallFrequencyRange,
+          canvases,
+          waterfallAxisTheme,
+        );
+      };
+
+      const filenamePrefix =
+        target === "spectrum" ? "fast-fft-snapshot" : "fast-waterfall-snapshot";
+
+      await handleSnapshot({
+        whole: false,
+        showWaterfall: false,
+        showStats: false,
+        showGeolocation: false,
+        showGrid: false,
+        format: "png",
+        useThemeColors: false,
+        getSnapshotData: () => snapshotData,
+        canvasOnly: {
+          getCanvas,
+          filenamePrefix,
+        },
+      });
+    },
+    [dispatch, buildSnapshotTheme, frequencyRange, handleSnapshot],
+  );
+
+  return {
+    handleSnapshot,
+    isRecording: fastRecordingTarget,
+    recordingSecondsRemaining,
+    supportedVideoFormat: supportedFastRecordingFormat,
+    startFastRecording,
+    stopFastRecording,
+    takeFastSnapshot,
+  };
 }

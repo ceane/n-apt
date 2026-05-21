@@ -90,7 +90,9 @@ describe("FileWorker 3.2MHz Sample Rate Tests", () => {
       };
 
       // Mock the worker onmessage handler
-      const onmessageHandler = mockFileWorker.onmessage as ((event: MessageEvent) => void) | null;
+      const onmessageHandler = mockFileWorker.onmessage as
+        | ((event: MessageEvent) => void)
+        | null;
       if (onmessageHandler) {
         onmessageHandler({ data: workerMessage } as MessageEvent);
       }

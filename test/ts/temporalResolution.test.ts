@@ -37,7 +37,11 @@ describe("temporalResolution", () => {
     const current = new Float32Array([0, 0]);
 
     const low = blendTemporalWaveform(previous, current, "low");
-    const medium = blendTemporalWaveform(new Float32Array([100, 100]), current, "medium");
+    const medium = blendTemporalWaveform(
+      new Float32Array([100, 100]),
+      current,
+      "medium",
+    );
 
     expect(low[0]).toBeGreaterThan(medium[0]);
   });

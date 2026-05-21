@@ -16,7 +16,6 @@ const _mockConsoleWarn = jest.spyOn(console, "warn").mockImplementation();
 const _mockConsoleError = jest.spyOn(console, "error").mockImplementation();
 const _mockConsoleLog = jest.spyOn(console, "log").mockImplementation();
 
-
 describe("GPUMemoryManager", () => {
   let memoryManager: GPUMemoryManager;
 

@@ -117,10 +117,8 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
   const isEnabled = useAppSelector((state) => state.spectrum.showSpikeOverlay);
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
-  const gpuSpikeCount = useAppSelector(
-    (state) => state.spectrum.gpuSpikeCount,
-  );
-  
+  const gpuSpikeCount = useAppSelector((state) => state.spectrum.gpuSpikeCount);
+
   const [scanStatus, setScanStatus] = useState<string>(
     "Ready to scan FFT for spikes.",
   );
