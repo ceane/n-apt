@@ -1,8 +1,27 @@
 import React from "react";
 import { render, screen, act, waitFor } from "@testing-library/react";
+import { Provider } from "react-redux";
+import { ThemeProvider } from "styled-components";
 import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
 import { TestWrapper } from "../ts/testUtils";
 import { getMockNaptBuffer } from "../ts/mockNaptData";
+import { configureStore } from "@reduxjs/toolkit";
+import demodReducer from "../../src/ts/redux/slices/demodSlice";
+import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
+import themeReducer from "../../src/ts/redux/slices/themeSlice";
+import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
+import waterfallReducer, {
+  setSourceMode,
+} from "../../src/ts/redux/slices/waterfallSlice";
+import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+
+const theme = buildAppTheme({
+  accentColor: "#00d4ff",
+  fftColor: "#00d4ff",
+  appMode: "system",
+  resolvedMode: "dark",
+  waterfallTheme: "classic",
+});
 
 // Mock requestAnimationFrame to control the rendering loop
 const mockRaf = jest.spyOn(window, "requestAnimationFrame");
@@ -85,17 +104,40 @@ describe("FFTAndWaterfall Integration", () => {
       clear: jest.fn(),
     };
 
+    mockDataRef.current = {
+      type: "spectrum",
+      center_frequency_hz: 101_000_000,
+      timestamp: Date.now(),
+      data_type: "iq_raw",
+      sample_rate: 2_000_000,
+      iq_data: getMockNaptBuffer(),
+    };
+
     let attachedRef: any = null;
+    const snapshotStore = configureStore({
+      reducer: {
+        demod: demodReducer,
+        spectrum: spectrumReducer,
+        websocket: websocketReducer,
+        theme: themeReducer,
+        waterfall: waterfallReducer,
+      },
+    });
+    snapshotStore.dispatch(setSourceMode("file"));
+
     const { unmount, container } = render(
-      <TestWrapper>
-        <FFTAndWaterfall
-          {...defaultProps}
-          ref={(val: any) => {
-            attachedRef = val;
-          }}
-          visualizerMachine={visualizerMachine as any}
-        />
-      </TestWrapper>,
+      <Provider store={snapshotStore}>
+        <ThemeProvider theme={theme}>
+          <FFTAndWaterfall
+            {...defaultProps}
+            isPaused={true}
+            ref={(val: any) => {
+              attachedRef = val;
+            }}
+            visualizerMachine={visualizerMachine as any}
+          />
+        </ThemeProvider>
+      </Provider>,
     );
 
     if (!attachedRef) {
@@ -107,15 +149,6 @@ describe("FFTAndWaterfall Integration", () => {
 
     // Trigger snapshot via imperative handle
     await act(async () => {
-      // Set a FRESH object to trigger hasNewData check (!== lastProcessedDataRef.current)
-      mockDataRef.current = {
-        type: "spectrum",
-        center_frequency_hz: 101000000,
-        data_type: "iq_raw",
-        sample_rate: 2000000,
-        iq_data: new Uint8Array([127, 129, 130, 126, 120, 136, 140, 116]),
-      };
-
       attachedRef?.triggerSnapshotRender();
 
       // Manually execute the RAF callback that forceRender() just triggered
@@ -126,6 +159,13 @@ describe("FFTAndWaterfall Integration", () => {
       // Allow any async effects to settle
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
+
+    await waitFor(
+      () => {
+        expect(attachedRef?.getSnapshotData() ?? null).not.toBeNull();
+      },
+      { timeout: 10000 },
+    );
 
     // Verify snapshot data can be retrieved
     const snapshotData = attachedRef?.getSnapshotData() ?? null;

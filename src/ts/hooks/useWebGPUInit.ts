@@ -188,12 +188,11 @@ async function getWebGPUDevice(): Promise<GPUDevice | null> {
         }
 
         // Request higher texture dimension limits to support larger canvases
+        const maxTextureDimension2D =
+          adapter.limits?.maxTextureDimension2D ?? 16384;
         const device = await adapter.requestDevice({
           requiredLimits: {
-            maxTextureDimension2D: Math.min(
-              adapter.limits.maxTextureDimension2D,
-              16384,
-            ),
+            maxTextureDimension2D: Math.min(maxTextureDimension2D, 16384),
           },
         });
         return device;
