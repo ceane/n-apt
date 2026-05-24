@@ -12,13 +12,13 @@ mod hackrf_integration_tests {
     match device {
       Ok(mut dev) => {
         dev.initialize()?;
-        assert_eq!(dev.device_type(), "hackrf");
+        assert_eq!(dev.device_type(), "hackrf_one");
         assert!(dev.get_sample_rate() >= 2_000_000);
         dev.cleanup()?;
       }
       Err(err) => {
         // Keep this test useful in environments without attached hardware.
-        eprintln!("Skipping live HackRF exercise: {}", err);
+        eprintln!("Skipping live HackRF One exercise: {}", err);
       }
     }
     Ok(())

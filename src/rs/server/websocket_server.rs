@@ -55,7 +55,10 @@ use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
-use super::utils::reconcile_device_state;
+use super::utils::{
+  device_config_key, reconcile_device_state, status_device_backend_label,
+  status_device_name,
+};
 use crate::sdr::hotplug::{
   is_recovery_budget_exhausted, scan_usb_for_supported_device,
 };
@@ -83,61 +86,33 @@ pub(crate) fn broadcast_device_status(
   let device_profile = shared.device_profile.lock().unwrap().clone();
   let device_backend_error =
     shared.device_backend_error.lock().unwrap().clone();
-  let (device_limits, sample_rate_options) =
-    if let Some(device_cfg) = sdr_settings.devices.get(&device_profile.kind) {
-      (
-        device_cfg
-          .fft_display
-          .as_ref()
-          .map(|display| display.resolve_markers())
-          .unwrap_or_default(),
-        device_cfg.sample_rate.resolve_options(
-          sdr_settings
-            .min_receive_sample_rate
-            .unwrap_or(sdr_settings.sample_rate),
-          sdr_settings.sample_rate,
-        ),
-      )
-    } else {
-      (Vec::new(), vec![sdr_settings.sample_rate])
-    };
-
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
+  let (device_limits, sample_rate_options) = if let Some(device_cfg) =
+    sdr_settings.devices.get(device_config_key(&device_profile))
+  {
+    (
+      device_cfg
+        .fft_display
+        .as_ref()
+        .map(|display| display.resolve_markers())
+        .unwrap_or_default(),
+      device_cfg.sample_rate.resolve_options(
+        sdr_settings
+          .min_receive_sample_rate
+          .unwrap_or(sdr_settings.sample_rate),
+        sdr_settings.sample_rate,
+      ),
+    )
   } else {
-    crate::server::utils::mock_apt_device_name(&device_info)
+    (Vec::new(), vec![sdr_settings.sample_rate])
   };
+
+  let device_name =
+    status_device_name(device_connected, &device_info, &device_profile);
+  let backend = status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   let msg = serde_json::json!({
       "type": "status",
@@ -155,16 +130,8 @@ pub(crate) fn broadcast_device_status(
       "sdr_settings": sdr_settings,
       "sdr_limit_markers": device_limits,
       "channels": channels,
-      "backend": if device_connected {
-        "rtl-sdr"
-      } else {
-        crate::server::utils::mock_apt_backend_label(&device_info)
-      },
-      "device": if device_connected {
-        "rtl-sdr"
-      } else {
-        crate::server::utils::mock_apt_backend_label(&device_info)
-      },
+      "backend": backend,
+      "device": backend,
       "device_backend_error": device_backend_error,
       "device_profile": device_profile,
   });
@@ -179,8 +146,8 @@ pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
       supports_approx_dbm: true,
       supports_raw_iq_stream: true,
     },
-    "hackrf" => DeviceProfile {
-      kind: "hackrf".to_string(),
+    "hackrf_one" => DeviceProfile {
+      kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: false,
       supports_raw_iq_stream: true,
@@ -1325,7 +1292,7 @@ mod tests {
     assert!(!should_enter_hardware_recovery("Mock APT SDR"));
     assert!(!should_enter_hardware_recovery("mock_apt"));
     assert!(should_enter_hardware_recovery("rtl-sdr"));
-    assert!(should_enter_hardware_recovery("hackrf"));
+    assert!(should_enter_hardware_recovery("hackrf_one"));
   }
 
   #[test]
@@ -1341,7 +1308,7 @@ mod tests {
     assert!(should_probe_for_hotplug("Mock APT SDR"));
     assert!(should_probe_for_hotplug("mock_apt"));
     assert!(!should_probe_for_hotplug("rtl-sdr"));
-    assert!(!should_probe_for_hotplug("hackrf"));
+    assert!(!should_probe_for_hotplug("hackrf_one"));
   }
 
   #[test]
@@ -1420,6 +1387,48 @@ mod tests {
       "expected lower limit marker in websocket payload"
     );
     assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+
+    shared.update_device_status(
+      true,
+      "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
+      DeviceProfile {
+        kind: "hackrf_one".to_string(),
+        is_rtl_sdr: false,
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: true,
+      },
+    );
+
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("status broadcast"),
+    )
+    .expect("status payload should be valid JSON");
+
+    assert_eq!(payload["backend"], "hackrf_one");
+    assert_eq!(payload["device"], "hackrf_one");
+    assert_eq!(payload["device_name"], "HackRF One");
+    assert_eq!(payload["device_profile"]["kind"], "hackrf_one");
+    let markers = payload["sdr_limit_markers"]
+      .as_array()
+      .expect("sdr_limit_markers should be an array");
+    assert!(
+      markers
+        .iter()
+        .any(|marker| marker["label"] == "HackRF One lower limit"),
+      "expected HackRF One to use the hackrf_one config block"
+    );
   }
 }
 

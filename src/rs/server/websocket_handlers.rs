@@ -15,6 +15,7 @@ use crate::crypto;
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::utils::reconcile_device_state;
+use super::utils::{status_device_backend_label, status_device_name};
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
@@ -153,6 +154,7 @@ pub async fn handle_ws_connection(
     guard.clone()
   };
   let sdr_settings = { shared.sdr_settings.lock().unwrap().clone() };
+  let device_profile = shared.device_profile.lock().unwrap().clone();
 
   let max_sample_rate = if device_connected {
     device_info
@@ -165,42 +167,13 @@ pub async fn handle_ws_connection(
     64_000_000
   };
 
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
-  } else {
-    crate::server::utils::mock_apt_device_name(&device_info)
-  };
+  let device_name =
+    status_device_name(device_connected, &device_info, &device_profile);
+  let device_backend = status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
   let device_backend_error =
     shared.device_backend_error.lock().unwrap().clone();
 
@@ -226,14 +199,9 @@ pub async fn handle_ws_connection(
       })
       .collect(),
     sdr_settings,
-    device: (if device_connected {
-      "rtl-sdr"
-    } else {
-      "mock_apt"
-    })
-    .to_string(),
+    device: device_backend,
     device_backend_error,
-    device_profile: shared.device_profile.lock().unwrap().clone(),
+    device_profile,
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
@@ -451,48 +419,14 @@ pub fn handle_message(
         );
         let channels = shared.channels.lock().unwrap().clone();
         let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-        let normalize_rtl_device_name = |raw_name: &str| {
-          let short_name =
-            raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-          let lower = short_name.to_ascii_lowercase();
-
-          if let Some(version) =
-            short_name.split_whitespace().find_map(|token| {
-              let cleaned = token
-                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-                .to_ascii_lowercase();
-              let version = cleaned.strip_prefix('v')?;
-              if !version.is_empty()
-                && version.chars().all(|c| c.is_ascii_digit())
-              {
-                Some(version.to_string())
-              } else {
-                None
-              }
-            })
-          {
-            return format!("RTL-SDR {}", format!("v{}", version));
-          }
-
-          if lower.contains("rtl-sdr blog")
-            || lower.contains("rtl2832")
-            || lower.contains("rtl-sdr")
-            || lower.contains("generic")
-            || lower.contains("rtl2382u")
-          {
-            return "RTL-SDR v4".to_string();
-          }
-
-          short_name.to_string()
-        };
-
-        let device_name = if device_connected {
-          normalize_rtl_device_name(&device_info)
-        } else {
-          crate::server::utils::mock_apt_device_name(&device_info)
-        };
-        let mock_backend_label =
-          crate::server::utils::mock_apt_backend_label(&device_info);
+        let device_profile = shared.device_profile.lock().unwrap().clone();
+        let device_name =
+          status_device_name(device_connected, &device_info, &device_profile);
+        let device_backend = status_device_backend_label(
+          device_connected,
+          &device_info,
+          &device_profile,
+        );
         let device_backend_error =
           shared.device_backend_error.lock().unwrap().clone();
 
@@ -509,13 +443,9 @@ pub fn handle_message(
           sample_rate_options: vec![sdr_settings.sample_rate],
           channels,
           sdr_settings,
-          device: if device_connected {
-            "rtl-sdr".to_string()
-          } else {
-            mock_backend_label.to_string()
-          },
+          device: device_backend,
           device_backend_error,
-          device_profile: shared.device_profile.lock().unwrap().clone(),
+          device_profile,
         };
 
         if let Ok(status_json) = serde_json::to_string(&status) {

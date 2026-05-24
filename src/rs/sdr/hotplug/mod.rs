@@ -149,7 +149,7 @@ fn device_type_hint<T: rusb::UsbContext>(device: &Device<T>) -> String {
       (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
         "rtl-sdr".to_string()
       }
-      (0x1d50, _) => "hackrf".to_string(),
+      (0x1d50, _) => "hackrf_one".to_string(),
       _ => "unknown".to_string(),
     }
   } else {
@@ -170,7 +170,7 @@ pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
         (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
           return Ok(Some("rtl-sdr".to_string()))
         }
-        (0x1d50, _) => return Ok(Some("hackrf".to_string())),
+        (0x1d50, _) => return Ok(Some("hackrf_one".to_string())),
         _ => {}
       }
     }

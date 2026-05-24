@@ -557,6 +557,83 @@ pub fn mock_apt_backend_label(device_info: &str) -> &'static str {
   }
 }
 
+pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
+  let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+  let lower = short_name.to_ascii_lowercase();
+
+  if let Some(version) = short_name.split_whitespace().find_map(|token| {
+    let cleaned = token
+      .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+      .to_ascii_lowercase();
+    let version = cleaned.strip_prefix('v')?;
+    if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+      Some(version.to_string())
+    } else {
+      None
+    }
+  }) {
+    return format!("RTL-SDR v{}", version);
+  }
+
+  if lower.contains("rtl-sdr blog")
+    || lower.contains("rtl2832")
+    || lower.contains("rtl-sdr")
+    || lower.contains("generic")
+    || lower.contains("rtl2382u")
+  {
+    return "RTL-SDR v4".to_string();
+  }
+
+  short_name.to_string()
+}
+
+pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => "rtl_sdr",
+    "hackrf_one" => "hackrf_one",
+    "mock_apt_metal" => "mock_apt",
+    "mock_apt" => "mock_apt",
+    kind => kind,
+  }
+}
+
+pub fn status_device_backend_label(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &super::types::DeviceProfile,
+) -> String {
+  if !device_connected {
+    return mock_apt_backend_label(device_info).to_string();
+  }
+
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => "rtl-sdr".to_string(),
+    "hackrf_one" => "hackrf_one".to_string(),
+    kind => kind.to_string(),
+  }
+}
+
+pub fn status_device_name(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &super::types::DeviceProfile,
+) -> String {
+  if !device_connected {
+    return mock_apt_device_name(device_info);
+  }
+
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
+    "hackrf_one" => "HackRF One".to_string(),
+    _ => device_info
+      .split(" - ")
+      .next()
+      .unwrap_or(device_info)
+      .trim()
+      .to_string(),
+  }
+}
+
 pub fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {
   if device_count == 0 {
     prev.saturating_add(1)
@@ -572,7 +649,7 @@ pub fn should_declare_disconnected(missing_streak: u32) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::server::types::{NaptConfig, SpectrumFrameConfig};
+  use crate::server::types::{DeviceProfile, NaptConfig, SpectrumFrameConfig};
   use indexmap::IndexMap;
   use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -613,6 +690,30 @@ mod tests {
   }
 
   #[test]
+  fn normalizes_hackrf_one_status_fields_from_profile() {
+    let profile = DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: true,
+    };
+
+    assert_eq!(
+      status_device_name(
+        true,
+        "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 200 Hz",
+        &profile,
+      ),
+      "HackRF One"
+    );
+    assert_eq!(
+      status_device_backend_label(true, "anything", &profile),
+      "hackrf_one"
+    );
+    assert_eq!(device_config_key(&profile), "hackrf_one");
+  }
+
+  #[test]
   fn computes_hackrf_receive_floor_from_widest_channel() {
     let mut channels = IndexMap::new();
     channels.insert(
@@ -644,7 +745,7 @@ signals:
     devices:
       rtl_sdr:
         sample_rate: !max
-      hack_one:
+      hackrf_one:
         sample_rate: !floor...!max
 "#;
     let processed = preprocess_sdr_sample_rate_tags(yaml);
@@ -670,10 +771,10 @@ signals:
       .cloned()
       .expect("expected rtl_sdr sample_rate");
     let hack = devices
-      .get("hack_one")
+      .get("hackrf_one")
       .and_then(|v| v.get("sample_rate"))
       .cloned()
-      .expect("expected hack_one sample_rate");
+      .expect("expected hackrf_one sample_rate");
     let rtl_rate: Result<crate::server::types::SdrSampleRateSpec, _> =
       serde_yaml::from_value(rtl);
     let hack_rate: Result<crate::server::types::SdrSampleRateSpec, _> =

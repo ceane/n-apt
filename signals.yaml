@@ -89,16 +89,16 @@ signals:
             - kind: upper_limit
               freq_hz: !frequency 28.8MHz
               label: "Mock APT upper limit"
-      hack_one:
+      hackrf_one:
         sample_rate: !floor...!max
         fft_display:
           markers:
             - kind: min_hardware_frequency
               freq_hz: !frequency 1MHz
-              label: "HackRF lower limit"
+              label: "HackRF One lower limit"
             - kind: max_hardware_frequency
               freq_hz: !frequency 6GHz
-              label: "HackRF max hardware frequency"
+              label: "HackRF One max hardware frequency"
 
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated

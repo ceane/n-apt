@@ -61,21 +61,21 @@ impl HackRfDevice {
   pub fn open(index: i32) -> Result<Self> {
     unsafe {
       if ffi::hackrf_init() != 0 {
-        return Err(anyhow!("Failed to initialize HackRF"));
+        return Err(anyhow!("Failed to initialize HackRF One"));
       }
       let list = ffi::hackrf_device_list();
       if list.is_null() {
         let _ = ffi::hackrf_exit();
-        return Err(anyhow!("No HackRF devices found"));
+        return Err(anyhow!("No HackRF One devices found"));
       }
       let mut dev: *mut ffi::HackRfDeviceHandle = ptr::null_mut();
       let ret = ffi::hackrf_device_list_open(list, index, &mut dev);
       ffi::hackrf_device_list_free(list);
       if ret != 0 || dev.is_null() {
         let _ = ffi::hackrf_exit();
-        return Err(anyhow!("Failed to open HackRF device #{}", index));
+        return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
-      info!("Opened HackRF device #{}", index);
+      info!("Opened HackRF One device #{}", index);
 
       let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
@@ -98,7 +98,7 @@ impl HackRfDevice {
       unsafe { ffi::hackrf_set_sample_rate_manual(self.dev, clamped, 1) };
     if ret != 0 {
       return Err(anyhow!(
-        "Failed to set HackRF sample rate to {} Hz",
+        "Failed to set HackRF One sample rate to {} Hz",
         clamped
       ));
     }
@@ -121,7 +121,7 @@ impl HackRfDevice {
       unsafe {
         drop(Box::from_raw(ctx_ptr as *mut RxContext));
       }
-      return Err(anyhow!("Failed to start HackRF RX streaming"));
+      return Err(anyhow!("Failed to start HackRF One RX streaming"));
     }
 
     self.rx_queue = rx;
@@ -133,7 +133,7 @@ impl HackRfDevice {
 
 impl SdrDevice for HackRfDevice {
   fn device_type(&self) -> &'static str {
-    "hackrf"
+    "hackrf_one"
   }
 
   fn get_device_info(&self) -> String {
@@ -161,7 +161,7 @@ impl SdrDevice for HackRfDevice {
     let mut frame = self
       .rx_queue
       .recv()
-      .map_err(|_| anyhow!("HackRF RX queue closed"))?;
+      .map_err(|_| anyhow!("HackRF One RX queue closed"))?;
 
     let target_len = fft_size.saturating_mul(2);
     if frame.len() > target_len {
@@ -191,7 +191,10 @@ impl SdrDevice for HackRfDevice {
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
     let ret = unsafe { ffi::hackrf_set_freq(self.dev, freq as u64) };
     if ret != 0 {
-      return Err(anyhow!("Failed to set HackRF center frequency to {}", freq));
+      return Err(anyhow!(
+        "Failed to set HackRF One center frequency to {}",
+        freq
+      ));
     }
     self.center_frequency = freq;
     Ok(())

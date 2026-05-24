@@ -582,43 +582,16 @@ pub async fn status_handler(
   let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
   let channels = state.shared.channels.lock().unwrap().clone();
   let device_profile = state.shared.device_profile.lock().unwrap().clone();
-
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
-  } else {
-    crate::server::utils::mock_apt_device_name(&device_info)
-  };
+  let device_name = crate::server::utils::status_device_name(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
+  let device_backend = crate::server::utils::status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   Json(serde_json::json!({
     "type": "status",
@@ -634,16 +607,8 @@ pub async fn status_handler(
     "max_sample_rate": sdr_settings.sample_rate,
     "channels": channels,
     "sdr_settings": sdr_settings,
-    "device": if device_connected {
-      "rtl-sdr"
-    } else {
-      crate::server::utils::mock_apt_backend_label(&device_info)
-    },
-    "backend": if device_connected {
-      "rtl-sdr"
-    } else {
-      crate::server::utils::mock_apt_backend_label(&device_info)
-    },
+    "device": device_backend,
+    "backend": device_backend,
     "device_backend_error": device_backend_error,
     "device_profile": device_profile,
     "clients": client_count,
@@ -918,7 +883,7 @@ pub async fn agent_info_handler(
       "/hotspot-editor"
     ],
     "hardware": {
-      "supported": ["rtl-sdr", "hackrf", "mock_apt"],
+      "supported": ["rtl-sdr", "hackrf_one", "mock_apt"],
       "frequency_range": freq_range,
       "max_sample_rate": sample_rate_label
     },
@@ -945,6 +910,7 @@ pub async fn agent_status_handler(
   let is_paused = shared.is_paused.load(Ordering::Relaxed);
   let center_freq_hz = shared.pending_center_freq.load(Ordering::Relaxed);
   let device_info = shared.device_info.lock().unwrap().clone();
+  let device_profile = shared.device_profile.lock().unwrap().clone();
   let device_state = shared.device_state.lock().unwrap().clone();
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
@@ -956,11 +922,16 @@ pub async fn agent_status_handler(
     state.shared.sdr_settings.lock().unwrap().sample_rate,
   ))
   .unwrap_or_else(|| "unknown".to_string());
+  let device_backend = crate::server::utils::status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   let status = serde_json::json!({
     "device": {
       "connected": device_connected,
-      "type": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "type": device_backend,
       "info": device_info,
       "state": device_state,
       "loading": device_loading,
