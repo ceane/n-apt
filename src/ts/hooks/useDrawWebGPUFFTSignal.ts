@@ -890,23 +890,10 @@ export function useDrawWebGPUFFTSignal() {
         state.device.queue.submit([encoder.finish()]);
 
         if (canvas instanceof HTMLCanvasElement) {
-          if (!state.lastFrameCanvas) {
-            state.lastFrameCanvas = document.createElement("canvas");
-          }
-          const cacheCanvas = state.lastFrameCanvas;
-          if (
-            cacheCanvas.width !== canvas.width ||
-            cacheCanvas.height !== canvas.height
-          ) {
-            cacheCanvas.width = canvas.width;
-            cacheCanvas.height = canvas.height;
-          }
-          const cacheCtx = cacheCanvas.getContext("2d");
-          if (cacheCtx) {
-            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
-            cacheCtx.drawImage(canvas, 0, 0);
-          }
-          (canvas as any)._lastFrameCanvas = cacheCanvas;
+          // Keep the rendered canvas itself as the latest-frame reference so
+          // snapshot helpers can reuse it without an extra canvas blit.
+          state.lastFrameCanvas = canvas;
+          (canvas as any)._lastFrameCanvas = canvas;
         }
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {

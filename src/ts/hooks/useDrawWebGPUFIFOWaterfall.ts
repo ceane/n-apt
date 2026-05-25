@@ -652,23 +652,11 @@ export function useDrawWebGPUFIFOWaterfall() {
         device.queue.submit([enc.finish()]);
 
         if (canvas instanceof HTMLCanvasElement) {
-          if (!s.lastFrameCanvas) {
-            s.lastFrameCanvas = document.createElement("canvas");
-          }
-          const cacheCanvas = s.lastFrameCanvas;
-          if (
-            cacheCanvas.width !== canvas.width ||
-            cacheCanvas.height !== canvas.height
-          ) {
-            cacheCanvas.width = canvas.width;
-            cacheCanvas.height = canvas.height;
-          }
-          const cacheCtx = cacheCanvas.getContext("2d");
-          if (cacheCtx) {
-            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
-            cacheCtx.drawImage(canvas, 0, 0);
-          }
-          (canvas as any)._lastFrameCanvas = cacheCanvas;
+          // Keep a direct reference to the rendered canvas so downstream
+          // snapshot helpers can reuse the latest frame without an extra
+          // blit that would pollute the shared canvas call counters.
+          s.lastFrameCanvas = canvas;
+          (canvas as any)._lastFrameCanvas = canvas;
         }
 
         return true;
