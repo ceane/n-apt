@@ -1198,13 +1198,28 @@ export function drawDemodFocusOnContext2D(
     plotLeft + 28,
     Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
   );
-  const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
+  const label = formatFrequency(centerFrequencyHz, {
+    showUnits: true,
+    precisionMHz: 3,
+    precisionGHz: 3,
+    precisionKHz: 0,
+  });
 
   const alignment = demodFocus.alignment || "centered";
   const subLabel =
     alignment === "centered"
-      ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
-      : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
+      ? `±${formatFrequency(halfBandwidthHz, {
+          showUnits: true,
+          precisionMHz: 3,
+          precisionGHz: 3,
+          precisionKHz: 0,
+        })}`
+      : formatFrequency(halfBandwidthHz * 2, {
+          showUnits: true,
+          precisionMHz: 3,
+          precisionGHz: 3,
+          precisionKHz: 0,
+        });
 
   ctx.save();
   const dpr = window.devicePixelRatio || 1;

@@ -189,6 +189,7 @@ type WaterfallState = {
   rowFloats: Float32Array;
   writeRow: number;
   currentColorMapName?: string;
+  lastFrameCanvas?: HTMLCanvasElement;
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -649,6 +650,26 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.draw(3);
         pass.end();
         device.queue.submit([enc.finish()]);
+
+        if (canvas instanceof HTMLCanvasElement) {
+          if (!s.lastFrameCanvas) {
+            s.lastFrameCanvas = document.createElement("canvas");
+          }
+          const cacheCanvas = s.lastFrameCanvas;
+          if (
+            cacheCanvas.width !== canvas.width ||
+            cacheCanvas.height !== canvas.height
+          ) {
+            cacheCanvas.width = canvas.width;
+            cacheCanvas.height = canvas.height;
+          }
+          const cacheCtx = cacheCanvas.getContext("2d");
+          if (cacheCtx) {
+            cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
+            cacheCtx.drawImage(canvas, 0, 0);
+          }
+          (canvas as any)._lastFrameCanvas = cacheCanvas;
+        }
 
         return true;
       } catch (error) {

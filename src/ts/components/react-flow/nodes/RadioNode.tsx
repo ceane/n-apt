@@ -213,7 +213,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const formatRadioFrequency = (valueHz: number) =>
     formatFrequency(valueHz, {
       precisionMHz: 3,
-      precisionKHz: 3,
+      precisionKHz: 0,
       precisionGHz: 6,
       trimTrailingZeros: true,
     });

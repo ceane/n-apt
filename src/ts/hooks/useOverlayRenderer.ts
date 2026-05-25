@@ -119,7 +119,7 @@ export function useOverlayRenderer() {
           ? formatFrequencyHighRes(f)
           : formatFrequency(f, {
               precisionMHz: 4,
-              precisionKHz: 4,
+              precisionKHz: 0,
               trimTrailingZeros: true,
             });
 
@@ -182,7 +182,7 @@ export function useOverlayRenderer() {
           : formatFrequency(freq, {
               trimTrailingZeros: true,
               precisionMHz: 4,
-              precisionKHz: 4,
+              precisionKHz: 0,
             });
       const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
@@ -205,11 +205,7 @@ export function useOverlayRenderer() {
       if (viewBandwidth2 <= 10_000) centerTicksHz.push(1_000);
 
       const formatOffset = (hz: number) => {
-        if (!Number.isFinite(hz)) return "---";
-        const abs = Math.abs(hz);
-        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
-        if (abs >= 1_000) return `${(hz / 1_000).toFixed(1)}kHz`;
-        return `${hz.toFixed(1)}Hz`;
+        return formatFrequency(hz, { trimTrailingZeros: true });
       };
 
       ctx.strokeStyle = canvasTheme.gridColor;
@@ -222,7 +218,7 @@ export function useOverlayRenderer() {
       const startLabel = formatFreq(minFreq);
       const endLabel = formatFreq(maxFreq);
       const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
-      const centerPrecKHz = Math.max(3, tickPrec.precisionKHz);
+      const centerPrecKHz = 0;
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "--MHz"
@@ -364,11 +360,7 @@ export function useOverlayRenderer() {
         ctx.textBaseline = "top";
 
         const formatOffset = (hz: number) => {
-          if (!Number.isFinite(hz)) return "---";
-          const abs = Math.abs(hz);
-          if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(1)}MHz`;
-          if (abs >= 1_000) return `${Math.round(hz / 1_000)}kHz`;
-          return `${Math.round(hz)}Hz`;
+          return formatFrequency(hz, { trimTrailingZeros: true });
         };
 
         let currentFreq = anchorRange.min;
@@ -574,18 +566,50 @@ export function useOverlayRenderer() {
         plotLeft + 28,
         Math.min(plotRight - 28, freqToX(centerFrequencyHz)),
       );
-      const label = `${(centerFrequencyHz / 1_000_000).toFixed(1)}MHz`;
+      const label = formatFrequency(centerFrequencyHz, {
+        showUnits: true,
+        precisionMHz: 3,
+        precisionGHz: 3,
+        precisionKHz: 0,
+      });
 
       const alignment = demodFocus.alignment || "centered";
       const subLabel =
         alignment === "centered"
-          ? `±${Math.round(halfBandwidthHz / 1_000)}kHz`
-          : `${Math.round((halfBandwidthHz * 2) / 1_000)}kHz`;
+          ? `±${formatFrequency(halfBandwidthHz, {
+              showUnits: true,
+              precisionMHz: 3,
+              precisionGHz: 3,
+              precisionKHz: 0,
+            })}`
+          : formatFrequency(halfBandwidthHz * 2, {
+              showUnits: true,
+              precisionMHz: 3,
+              precisionGHz: 3,
+              precisionKHz: 0,
+            });
 
       ctx.save();
       const canvasTheme = getCanvasThemeColors();
 
-      // 1. Center Line (Themed) - Drawn first so other elements can obscure it
+      // 1. Selection Box - Background Highlight (from theme)
+      ctx.fillStyle = canvasTheme.spectrumOverlay;
+      ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
+
+      // 2. Selection Box - Boundary lines (Dotted from theme)
+      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
+      ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([3, 4]);
+      ctx.lineCap = "round";
+
+      for (const x of [leftX, rightX]) {
+        ctx.beginPath();
+        ctx.moveTo(x, plotTop);
+        ctx.lineTo(x, plotBottom);
+        ctx.stroke();
+      }
+
+      // 3. Center Line (Themed) - Drawn on top of the selection highlight so it stands out cleanly
       const centerLineX = freqToX(centerFrequencyHz);
       if (centerLineX >= plotLeft && centerLineX <= plotRight) {
         ctx.save();
@@ -597,23 +621,6 @@ export function useOverlayRenderer() {
         ctx.lineTo(centerLineX, plotBottom);
         ctx.stroke();
         ctx.restore();
-      }
-
-      // 2. Background Highlight (from theme) - Now on top of the center line
-      ctx.fillStyle = canvasTheme.spectrumOverlay;
-      ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
-
-      // 3. Boundary lines (Dotted from theme)
-      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
-      ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([3, 4]);
-      ctx.lineCap = "round";
-
-      for (const x of [leftX, rightX]) {
-        ctx.beginPath();
-        ctx.moveTo(x, plotTop);
-        ctx.lineTo(x, plotBottom);
-        ctx.stroke();
       }
 
       // 4. Drawing text labels and markers box

@@ -72,6 +72,13 @@ describe("useFrequencyDrag Hook", () => {
     jest.clearAllMocks();
     listeners = {};
     frequencyRangeRef.current = { min: 100, max: 110 };
+    if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 1;
+    if (defaultOptions.vizZoomFloorRef)
+      defaultOptions.vizZoomFloorRef.current = 1;
+    if (defaultOptions.vizPanOffsetRef)
+      defaultOptions.vizPanOffsetRef.current = 0;
+    if (defaultOptions.vizDbMinRef) defaultOptions.vizDbMinRef.current = -120;
+    if (defaultOptions.vizDbMaxRef) defaultOptions.vizDbMaxRef.current = 0;
 
     // Mock window event listeners
     jest.spyOn(window, "addEventListener").mockImplementation((event, cb) => {
@@ -405,6 +412,32 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastRange.min).toBe(100);
     expect(lastRange.max).toBe(110);
     expect(lastPan).toBeLessThanOrEqual(2.5);
+  });
+
+  it("never retunes the hardware window below 0 Hz when edge panning left", () => {
+    const zeroClampOptions = {
+      ...defaultOptions,
+      frequencyRangeRef: { current: { min: 100, max: 110 } },
+      hardwareSpectrumBounds: { min: 0, max: 1000 },
+      vizZoomRef: { current: 2 },
+      vizPanOffsetRef: { current: -2.4 },
+    };
+
+    renderHook(() => useFrequencyDrag(zeroClampOptions));
+
+    triggerWheel({
+      clientX: 10,
+      clientY: 590,
+      deltaY: -200,
+      ctrlKey: false,
+    } as any);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastCall =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    expect(lastCall.min).toBeGreaterThanOrEqual(0);
   });
 
   it("should make pinch zoom feel more responsive and keep the gesture anchored", () => {

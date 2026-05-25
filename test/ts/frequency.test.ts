@@ -15,8 +15,8 @@ import {
 describe("Frequency Utilities", () => {
   describe("formatFrequency", () => {
     test("should format frequencies in kHz", () => {
-      expect(formatFrequency(500000)).toBe("500.0kHz");
-      expect(formatFrequency(1000)).toBe("1.0kHz");
+      expect(formatFrequency(500000)).toBe("500kHz");
+      expect(formatFrequency(1000)).toBe("1kHz");
     });
 
     test("should format sub-MHz metadata frequencies without awkward decimal MHz values", () => {

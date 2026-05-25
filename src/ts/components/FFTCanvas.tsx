@@ -814,6 +814,20 @@ const FFTCanvas = memo(
     vizPanOffsetRef.current = vizPanOffset;
 
     const demodFocusOverlay = useMemo(() => {
+      // Prioritize active selection range
+      if (
+        selectionRange &&
+        Number.isFinite(selectionRange.min) &&
+        Number.isFinite(selectionRange.max) &&
+        selectionRange.max > selectionRange.min
+      ) {
+        return {
+          centerFrequencyHz: (selectionRange.min + selectionRange.max) / 2,
+          halfBandwidthHz: (selectionRange.max - selectionRange.min) / 2,
+          alignment: bandwidthAlignment,
+        };
+      }
+
       if (
         demodulationCenterFreqHz === null ||
         demodulationCenterFreqHz === undefined ||
@@ -1690,7 +1704,19 @@ const FFTCanvas = memo(
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
               showSpikeOverlay: showSpikeOverlayRef.current,
-              demodFocusOverlay: demodFocusOverlayRef.current,
+              demodFocusOverlay: liveDragSelectionRef.current
+                ? {
+                    centerFrequencyHz:
+                      (liveDragSelectionRef.current.min +
+                        liveDragSelectionRef.current.max) /
+                      2,
+                    halfBandwidthHz:
+                      (liveDragSelectionRef.current.max -
+                        liveDragSelectionRef.current.min) /
+                      2,
+                    alignment: bandwidthAlignment,
+                  }
+                : demodFocusOverlayRef.current,
               selectionOverlay: liveDragSelectionRef.current
                 ? {
                     minFrequencyHz: liveDragSelectionRef.current.min,

@@ -197,7 +197,7 @@ export const formatFrequency = (
   const showUnits = options.showUnits ?? true;
   const precisionMHz = options.precisionMHz ?? 1;
   const precisionGHz = options.precisionGHz ?? 1;
-  const precisionKHz = options.precisionKHz ?? 1;
+  const precisionKHz = options.precisionKHz ?? 0;
   const trimTrailingZeros = options.trimTrailingZeros ?? false;
 
   if (

@@ -422,9 +422,9 @@ export class SnapshotRenderer {
       useHighResLabels: useHighRes,
       precision: {
         edgeMHz: 4,
-        edgeKHz: 4,
+        edgeKHz: 0,
         centerMinMHz: 4,
-        centerMinKHz: 4,
+        centerMinKHz: 0,
       },
       lineWidth: 1 / this.mapper.getDPR(),
     });

@@ -29,7 +29,7 @@ describe("fmtFreq", () => {
 
   it("formats values < 1 MHz as kHz", () => {
     expect(fmtFreq(0.5e6)).toBe("500kHz");
-    expect(fmtFreq(0.12345e6)).toBe("123.5kHz");
+    expect(fmtFreq(0.12345e6)).toBe("123kHz");
   });
 
   it("trims trailing zeros", () => {

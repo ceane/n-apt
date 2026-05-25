@@ -318,12 +318,18 @@ export function useFrequencyDrag({
       range: FrequencyRange,
     ): FrequencyRange => {
       const channelBounds = getActiveSignalAreaBounds();
-      return normalizeFrequencyRangeToHz(
+      const normalized = normalizeFrequencyRangeToHz(
         clampFrequencyRangeToBounds(
           clampFrequencyRangeToBounds(range, channelBounds),
           hardwareSpectrumBounds,
         ),
       );
+      return normalized.min < 0
+        ? {
+            min: 0,
+            max: Math.max(0, normalized.max - normalized.min),
+          }
+        : normalized;
     };
 
     const getVizPanBounds = (
@@ -429,6 +435,9 @@ export function useFrequencyDrag({
         zoom,
       );
       onVizPanChange(remainingPan);
+      if (vizPanOffsetRef) {
+        vizPanOffsetRef.current = remainingPan;
+      }
 
       if (
         autoZoomStabilityRef?.current &&
@@ -675,8 +684,12 @@ export function useFrequencyDrag({
               : null
             : dragStartBase;
 
-        // Allow selecting anywhere > 0Hz, regardless of hardware bounds
-        const allowedBounds = { min: 0, max: 10_000_000_000 };
+        // Allow selecting anywhere > 0Hz, regardless of hardware bounds,
+        // but clamp to active signal area bounds (channel start/end) if available.
+        const channelBounds = getActiveSignalAreaBounds();
+        const allowedBounds = channelBounds
+          ? { min: Math.max(0, channelBounds.min), max: channelBounds.max }
+          : { min: 0, max: 10_000_000_000 };
 
         let next: FrequencyRange;
 
@@ -738,12 +751,19 @@ export function useFrequencyDrag({
           shouldPan = true;
         }
 
-        if (shouldPan && onVizPanChange) {
-          // Limit panning bounds, but allow visual pan if full plot selection is active
-          const clampedPan = fullPlotSelection
-            ? Math.max(-centerFreq, newPan)
-            : clampVizPan(newPan, bounds, zoom);
-          onVizPanChange(clampedPan);
+        if (shouldPan) {
+          if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
+            // Hardware window retuned and pan updated
+          } else if (onVizPanChange) {
+            // Limit panning bounds, but allow visual pan if full plot selection is active
+            const clampedPan = fullPlotSelection
+              ? Math.max(-centerFreq, newPan)
+              : clampVizPan(newPan, bounds, zoom);
+            onVizPanChange(clampedPan);
+            if (vizPanOffsetRef) {
+              vizPanOffsetRef.current = clampedPan;
+            }
+          }
         }
 
         selectionDraftRangeRef.current = next;
