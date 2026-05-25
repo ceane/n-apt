@@ -894,7 +894,10 @@ export function useDrawWebGPUFFTSignal() {
             state.lastFrameCanvas = document.createElement("canvas");
           }
           const cacheCanvas = state.lastFrameCanvas;
-          if (cacheCanvas.width !== canvas.width || cacheCanvas.height !== canvas.height) {
+          if (
+            cacheCanvas.width !== canvas.width ||
+            cacheCanvas.height !== canvas.height
+          ) {
             cacheCanvas.width = canvas.width;
             cacheCanvas.height = canvas.height;
           }

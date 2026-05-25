@@ -330,6 +330,9 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const bandwidthStartHz = useAppSelector(
     (state) => state.demod.bandwidthStartHz,
   );
+  const bandwidthCenterFreqHz = useAppSelector(
+    (state) => state.demod.bandwidthCenterFreqHz,
+  );
   const alignment = useAppSelector(
     (state) => state.demod.alignment,
   ) as Alignment;
@@ -339,6 +342,26 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const [presets, setPresets] = useState<SpanPreset[]>(loadPresetsFromStorage);
   const [isSyncing, setIsSyncing] = useState(false);
   const isPublishingLocalRangeRef = useRef(false);
+
+  const updatePreviewFromState = useCallback(() => {
+    let start = bandwidthStartHz;
+    let end = bandwidthStartHz + bandwidthHz;
+
+    if (alignment === "centered") {
+      const center = bandwidthCenterFreqHz ?? centerFreqHz;
+      start = center - bandwidthHz / 2;
+      end = center + bandwidthHz / 2;
+    }
+
+    dispatch(setPreviewRange({ min: start, max: end }));
+  }, [
+    bandwidthStartHz,
+    bandwidthHz,
+    centerFreqHz,
+    bandwidthCenterFreqHz,
+    alignment,
+    dispatch,
+  ]);
 
   // Syncing indicator logic for source transitions
   useEffect(() => {
@@ -524,10 +547,24 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     lastUserActionTimeRef.current = Date.now();
     isPublishingLocalRangeRef.current = true;
 
+    // If the user has dragged a preview range, we want to apply THAT range.
+    // Specifically, if alignment is centered, we MUST update the hardware center
+    // to match the dragged selection center, otherwise the backend will snap the
+    // selection back to the old hardware center!
+    const applyCenter =
+      previewRange && alignment === "centered"
+        ? (previewRange.min + previewRange.max) / 2
+        : (bandwidthCenterFreqHz ?? centerFreqHz);
+
+    const applyStart = previewRange ? previewRange.min : bandwidthStartHz;
+    const applyBw = previewRange
+      ? previewRange.max - previewRange.min
+      : bandwidthHz;
+
     const halfSpan = hardwareSpanHz / 2;
     const range = {
-      min: centerFreqHz - halfSpan,
-      max: centerFreqHz + halfSpan,
+      min: applyCenter - halfSpan,
+      max: applyCenter + halfSpan,
     };
 
     dispatch(setFrequencyRange(range));
@@ -536,9 +573,9 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
     dispatch(
       updateSpanStateThunk({
         params: {
-          center: centerFreqHz,
-          bandwidth: bandwidthHz,
-          start: bandwidthStartHz,
+          center: applyCenter,
+          bandwidth: applyBw,
+          start: applyStart,
           span: hardwareSpanHz,
           mode: alignment,
         },

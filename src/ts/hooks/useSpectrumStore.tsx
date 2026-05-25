@@ -1506,11 +1506,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
 
     useEffect(() => {
-      if (
-        !isConnected ||
-        !mergedState.frequencyRange
-      )
-        return;
+      if (!isConnected || !mergedState.frequencyRange) return;
       const range = clampLiveFrequencyRange(mergedState.frequencyRange);
       if (
         range.min !== mergedState.frequencyRange.min ||

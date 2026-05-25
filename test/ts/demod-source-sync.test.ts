@@ -2,6 +2,7 @@ import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
   updateSpanStateThunk,
+  syncRadioDemodFromSource,
   type DemodSourceSyncPayload,
 } from "../../src/ts/redux/thunks/demodThunks";
 import { configureStore } from "@reduxjs/toolkit";
@@ -424,5 +425,68 @@ describe("updateSpanStateThunk preview sync", () => {
       hardwareSpanHz: 3_200_000,
     });
     expect(store.getState().spectrum.previewRange).toBeNull();
+  });
+});
+
+describe("syncRadioDemodFromSource - 1.6MHz Regression Prevention", () => {
+  it("does not overwrite centerFreqHz when synced from span node, preserving hardware center frequency", async () => {
+    const store = configureStore({
+      reducer: {
+        demod: demodReducer,
+        spectrum: spectrumReducer,
+      } as any,
+      preloadedState: {
+        demod: {
+          centerFreqHz: 1_600_000, // Hardware center locked at 1.6MHz
+          bandwidthCenterFreqHz: null,
+          hardwareSpanHz: 3_200_000,
+          bandwidthHz: 200_000,
+          bandwidthStartHz: 1_500_000,
+        },
+      } as any,
+    });
+
+    // Dispatch a sync update from the span node (which is selecting e.g. 1.25MHz center frequency)
+    await store.dispatch(
+      syncRadioDemodFromSource({
+        source: "span",
+        centerFreqHz: 1_250_000,
+        bandwidthHz: 200_000,
+      }) as any,
+    );
+
+    // Verify that the hardware center frequency (centerFreqHz) remains locked at 1.6MHz,
+    // while the selection bandwidth center (bandwidthCenterFreqHz) is correctly set to 1.25MHz.
+    // This locks down the regression and prevents snap-back bugs!
+    expect(store.getState().demod.centerFreqHz).toBe(1_600_000);
+    expect(store.getState().demod.bandwidthCenterFreqHz).toBe(1_250_000);
+  });
+
+  it("overwrites centerFreqHz when synced from normal radio source (e.g. fm)", async () => {
+    const store = configureStore({
+      reducer: {
+        demod: demodReducer,
+        spectrum: spectrumReducer,
+      } as any,
+      preloadedState: {
+        demod: {
+          centerFreqHz: 1_600_000,
+          bandwidthCenterFreqHz: null,
+          hardwareSpanHz: 3_200_000,
+          bandwidthHz: 200_000,
+        },
+      } as any,
+    });
+
+    await store.dispatch(
+      syncRadioDemodFromSource({
+        source: "fm",
+        centerFreqHz: 98_100_000,
+        bandwidthKhz: 200,
+      }) as any,
+    );
+
+    // For FM tuning, centerFreqHz (hardware/center freq) is updated
+    expect(store.getState().demod.centerFreqHz).toBe(98_100_000);
   });
 });

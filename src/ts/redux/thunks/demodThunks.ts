@@ -89,7 +89,11 @@ export const syncRadioDemodFromSource = createAsyncThunk(
     { dispatch },
   ) => {
     if (payload.centerFreqHz != null && Number.isFinite(payload.centerFreqHz)) {
-      dispatch(setCenterFreq(payload.centerFreqHz));
+      if (payload.source === "span") {
+        dispatch(setBandwidthCenterFreq(payload.centerFreqHz));
+      } else {
+        dispatch(setCenterFreq(payload.centerFreqHz));
+      }
     }
 
     if (payload.source === "fm") {
@@ -501,14 +505,9 @@ export function getConsolidatedSpanState(
 
     s = Math.max(windowMin, Math.min(s, windowMax - b));
   } else {
-    let windowMin = c - halfSpan;
-    let windowMax = c + halfSpan;
-
-    if (selectionMin < windowMin) {
-      c = Math.max(minC, selectionMin + halfSpan);
-    } else if (selectionMax > windowMax) {
-      c = Math.min(maxC, selectionMax - halfSpan);
-    }
+    // During preview_sync, we do not constrain the selection or force the hardware
+    // center to move. This prevents circular dependencies when edge panning.
+    // The selection can freely move, and the visual plot will pan if necessary.
   }
 
   return { center: c, bandwidth: b, start: s, span: span };

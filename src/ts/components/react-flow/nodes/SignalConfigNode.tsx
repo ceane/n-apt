@@ -266,8 +266,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     }
 
     if (
-      spectrum.displayTemporalResolution !==
-      effectiveQuality.temporalResolution
+      spectrum.displayTemporalResolution !== effectiveQuality.temporalResolution
     ) {
       dispatch(setTemporalResolution(effectiveQuality.temporalResolution));
     }
@@ -562,9 +561,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
               }}
             >
               {!qualityGuard.isLocked && <option value="low">Low</option>}
-              {!qualityGuard.isLocked && (
-                <option value="medium">Medium</option>
-              )}
+              {!qualityGuard.isLocked && <option value="medium">Medium</option>}
               <option value="high">High</option>
             </SettingSelect>
           </SettingRow>

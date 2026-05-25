@@ -208,8 +208,7 @@ export function drawVfoAxis({
   const plotWidth = Math.max(1, bounds.right - bounds.left);
   const stepHz = tickStepHz ?? findBestFrequencyRange(bandwidth, targetTicks);
   const lowerFreq = Math.ceil(frequencyRange.min / stepHz) * stepHz;
-  const useHighRes =
-    useHighResLabels ?? bandwidth / Math.max(stepHz, 1) >= 100;
+  const useHighRes = useHighResLabels ?? bandwidth / Math.max(stepHz, 1) >= 100;
   const freqToX = (freq: number) =>
     bounds.left + ((freq - frequencyRange.min) / bandwidth) * plotWidth;
 
@@ -229,7 +228,9 @@ export function drawVfoAxis({
     pad = 8,
   ) => {
     const rect = labelRect(x, ctx.measureTextWidth(text), align, pad);
-    return occupiedRects.some((occupied) => rect.x1 < occupied.x2 && rect.x2 > occupied.x1);
+    return occupiedRects.some(
+      (occupied) => rect.x1 < occupied.x2 && rect.x2 > occupied.x1,
+    );
   };
 
   const startLabel = formatVfoAxisEdgeLabel(
@@ -246,12 +247,22 @@ export function drawVfoAxis({
   );
   const centerText =
     typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
-      ? formatVfoAxisCenterLabel(centerFrequencyHz, useHighRes, stepHz, precision)
+      ? formatVfoAxisCenterLabel(
+          centerFrequencyHz,
+          useHighRes,
+          stepHz,
+          precision,
+        )
       : null;
-  const centerLabel = centerText ? `${getVfoAxisIcon(icon)}  ${centerText}` : null;
+  const centerLabel = centerText
+    ? `${getVfoAxisIcon(icon)}  ${centerText}`
+    : null;
   const centerX =
     typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
-      ? Math.min(bounds.right, Math.max(bounds.left, freqToX(centerFrequencyHz)))
+      ? Math.min(
+          bounds.right,
+          Math.max(bounds.left, freqToX(centerFrequencyHz)),
+        )
       : bounds.left + plotWidth / 2;
 
   ctx.save();
@@ -299,7 +310,11 @@ export function drawVfoAxis({
   const shouldDrawCenterTick =
     showCenterTick ?? (!!centerLabel && !showCenterLine && showTickMarks);
 
-  for (let freq = lowerFreq; freq < frequencyRange.max - 0.0001; freq += stepHz) {
+  for (
+    let freq = lowerFreq;
+    freq < frequencyRange.max - 0.0001;
+    freq += stepHz
+  ) {
     const x = freqToX(freq);
     const roundedX = Math.round(x);
     ctx.setStroke(theme.tick, lineWidth);
@@ -334,7 +349,9 @@ export function drawVfoAxis({
       }
     }
 
-    const label = useHighRes ? formatFrequencyHighRes(freq) : fmtFreqTick(freq, stepHz);
+    const label = useHighRes
+      ? formatFrequencyHighRes(freq)
+      : fmtFreqTick(freq, stepHz);
     if (showTickLabels && label.length > 0 && !isColliding(x, label)) {
       ctx.setFill(theme.label);
       ctx.setTextAlign("center");

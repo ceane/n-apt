@@ -130,11 +130,14 @@ describe("FFTAndWaterfall", () => {
         visualizerSlidersMock.mock.calls.length - 1
       ]?.[0];
     const initialWaterfallProps =
-      waterfallCanvasMock.mock.calls[waterfallCanvasMock.mock.calls.length - 1]?.[0];
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
     expect(initialSliderProps?.disabled).toBe(true);
     expect(initialWaterfallProps?.awaitingDeviceData).toBe(true);
 
-    const fftProps = fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       fftProps.onRenderableFrameChange(true);
       fftProps.onCanvasLoadingChange(false);
@@ -145,7 +148,9 @@ describe("FFTAndWaterfall", () => {
         visualizerSlidersMock.mock.calls.length - 1
       ]?.[0];
     const nextWaterfallProps =
-      waterfallCanvasMock.mock.calls[waterfallCanvasMock.mock.calls.length - 1]?.[0];
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
     expect(nextSliderProps?.disabled).toBe(false);
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
   });

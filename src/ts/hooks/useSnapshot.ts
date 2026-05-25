@@ -1210,8 +1210,14 @@ export function drawDemodFocusOnContext2D(
   const dpr = window.devicePixelRatio || 1;
   const canvasTheme = {
     centerLineColor: readCssColor("--color-fft-center-line", "#ffff00"),
-    spectrumOverlay: readCssColor("--color-spectrum-overlay", "rgba(255, 255, 255, 0.15)"),
-    spectrumOverlayBorder: readCssColor("--color-spectrum-overlay-border", "rgba(255, 255, 255, 0.75)"),
+    spectrumOverlay: readCssColor(
+      "--color-spectrum-overlay",
+      "rgba(255, 255, 255, 0.15)",
+    ),
+    spectrumOverlayBorder: readCssColor(
+      "--color-spectrum-overlay-border",
+      "rgba(255, 255, 255, 0.75)",
+    ),
   };
 
   // 1. Center Line (Themed)
@@ -1330,8 +1336,10 @@ function drawFastSpectrumSnapshotCenterLabel(
   ctx.font = "bold 12px JetBrains Mono, monospace";
   ctx.textBaseline = "alphabetic";
   const clearWidth =
-    Math.max(ctx.measureText(oldLabel).width, ctx.measureText(nextLabel).width) +
-    28;
+    Math.max(
+      ctx.measureText(oldLabel).width,
+      ctx.measureText(nextLabel).width,
+    ) + 28;
   ctx.fillStyle = theme?.bg ?? "rgba(10, 10, 10, 1)";
   ctx.fillRect(centerX - clearWidth / 2, labelY - 22, clearWidth, 34);
 
@@ -1415,21 +1423,29 @@ export function buildFastSpectrumCanvas(
     canvas.height = canvases.spectrumGpu.height;
     const ctx = canvas.getContext("2d");
     if (ctx) {
-      const srcGpu = (canvases.spectrumGpu as any)._lastFrameCanvas || canvases.spectrumGpu;
+      const srcGpu =
+        (canvases.spectrumGpu as any)._lastFrameCanvas || canvases.spectrumGpu;
       ctx.drawImage(srcGpu, 0, 0);
       if (canvases.spectrumOverlay) {
         ctx.drawImage(canvases.spectrumOverlay, 0, 0);
       }
       drawFastSpectrumSnapshotCenterLabel(
         canvas,
-        getSnapshotVisualFrequencyRange(snapshotData, snapshotData?.frequencyRange),
+        getSnapshotVisualFrequencyRange(
+          snapshotData,
+          snapshotData?.frequencyRange,
+        ),
         theme,
       );
       return canvas;
     }
   }
 
-  if (!snapshotData || !snapshotData.waveform || snapshotData.waveform.length === 0) {
+  if (
+    !snapshotData ||
+    !snapshotData.waveform ||
+    snapshotData.waveform.length === 0
+  ) {
     return null;
   }
 
@@ -1501,12 +1517,7 @@ export function drawFastWaterfallLabelStrip(
   // Draw border
   ctx.strokeStyle = "rgba(110, 163, 255, 0.35)";
   ctx.lineWidth = 1;
-  ctx.strokeRect(
-    0.5,
-    0.5,
-    width - 1,
-    FAST_WATERFALL_VFO_HEADER_HEIGHT - 1,
-  );
+  ctx.strokeRect(0.5, 0.5, width - 1, FAST_WATERFALL_VFO_HEADER_HEIGHT - 1);
 
   if (!frequencyRange) {
     return;
@@ -1538,7 +1549,7 @@ export function drawFastWaterfallLabelStrip(
     plotLeft + plotWidth * 0.25,
     plotLeft + plotWidth * 0.5,
     plotLeft + plotWidth * 0.75,
-    plotRight
+    plotRight,
   ];
   for (const x of majorXs) {
     ctx.moveTo(x, 38);
@@ -1642,7 +1653,11 @@ function getSnapshotVisualFrequencyRange(
     return null;
   }
 
-  if (snapshotData.vizZoom > 1 && snapshotData.waveform && snapshotData.waveform.length > 0) {
+  if (
+    snapshotData.vizZoom > 1 &&
+    snapshotData.waveform &&
+    snapshotData.waveform.length > 0
+  ) {
     return getZoomedSlice(
       snapshotData.waveform,
       baseRange,
@@ -1716,8 +1731,7 @@ export function buildFastWaterfallCanvas(
   const composed = composeCanvasWithFrequencyAxis({
     baseCanvas: sourceCanvas ?? document.createElement("canvas"),
     frequencyRange: effectiveRange ?? { min: 0, max: 1 },
-    centerFrequencyHz:
-      calculateCenterFrequency(effectiveRange ?? null),
+    centerFrequencyHz: calculateCenterFrequency(effectiveRange ?? null),
     detail: "dense",
     plotInsets: { left: 40, right: 40 },
     showBorder: false,
@@ -1821,8 +1835,11 @@ export function useSnapshot(
     colors?: Partial<AppStyledTheme["colors"]>;
   };
 
-  const [fastRecordingTarget, setFastRecordingTarget] = useState<FastRecordingTarget | null>(null);
-  const [recordingSecondsRemaining, setRecordingSecondsRemaining] = useState<number | null>(null);
+  const [fastRecordingTarget, setFastRecordingTarget] =
+    useState<FastRecordingTarget | null>(null);
+  const [recordingSecondsRemaining, setRecordingSecondsRemaining] = useState<
+    number | null
+  >(null);
   const fastRecordingSessionRef = useRef<FastRecordingSession | null>(null);
   const recordingStartTimeRef = useRef<number>(0);
   const lastSecondsRef = useRef<number>(-1);
@@ -1853,7 +1870,13 @@ export function useSnapshot(
       }
 
       if (target === "spectrum") {
-        return buildFastSpectrumCanvas(snapshotData, width, height, theme, canvases);
+        return buildFastSpectrumCanvas(
+          snapshotData,
+          width,
+          height,
+          theme,
+          canvases,
+        );
       }
 
       const waterfallAxisTheme = buildFrequencyAxisTheme({
@@ -2994,7 +3017,7 @@ export function useSnapshot(
       recordingCanvas.style.height = `${initialFrame.height}px`;
       recordingCanvas.style.pointerEvents = "none";
       recordingCanvas.style.zIndex = "-9999";
-      
+
       document.body.appendChild(recordingCanvas);
 
       const ctx = recordingCanvas.getContext("2d");
@@ -3103,11 +3126,11 @@ export function useSnapshot(
           window.cancelAnimationFrame(fastRecordingSessionRef.current.rafId);
         }
         stream.getTracks().forEach((track) => track.stop());
-        
+
         if (recordingCanvas.parentNode) {
           recordingCanvas.parentNode.removeChild(recordingCanvas);
         }
-        
+
         resetFastRecordingState();
         fastRecordingSessionRef.current = null;
 
@@ -3157,7 +3180,8 @@ export function useSnapshot(
           textPrimary: staticThemeColors.snapCenterLabelText,
         },
       });
-      const waterfallFrequencyRange = snapshotData?.frequencyRange || frequencyRange;
+      const waterfallFrequencyRange =
+        snapshotData?.frequencyRange || frequencyRange;
 
       const getCanvas = () => {
         const canvases = getCanvases();

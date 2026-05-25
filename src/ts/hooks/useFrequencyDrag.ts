@@ -44,6 +44,16 @@ export interface FrequencyDragOptions {
   autoZoomStabilityRef?: React.MutableRefObject<boolean>;
   /** Reference to the full current waveform data to check if selection is empty */
   renderWaveformRef?: React.MutableRefObject<Float32Array | null>;
+  /** Maximum allowed bandwidth for the selection range */
+  maxBandwidthHz?: number;
+  /** Mutable ref to store the live selection range during drag, avoiding Redux thrashing */
+  liveDragSelectionRef?: React.MutableRefObject<FrequencyRange | null>;
+  /** Callback triggered on every drag step to force overlay repaint without React re-render */
+  onDragRepaint?: () => void;
+  /** Direct DOM refs to bypass React rendering for tooltip text updates */
+  tooltipStartRef?: React.RefObject<HTMLSpanElement | null>;
+  tooltipEndRef?: React.RefObject<HTMLSpanElement | null>;
+  tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
 }
 
 export function useFrequencyDrag({
@@ -74,6 +84,12 @@ export function useFrequencyDrag({
   onVizZoomFloorPanChange,
   autoZoomStabilityRef,
   renderWaveformRef,
+  maxBandwidthHz,
+  liveDragSelectionRef,
+  onDragRepaint,
+  tooltipStartRef,
+  tooltipEndRef,
+  tooltipSpanRef,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
@@ -97,6 +113,12 @@ export function useFrequencyDrag({
   const latestOnSelectionChangeRef =
     useRef<typeof onSelectionChange>(onSelectionChange);
   const manualOverrideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Throttled Redux dispatch refs
+  const lastDispatchTimeRef = useRef<number>(0);
+  const pendingDispatchRef = useRef<FrequencyRange | null>(null);
+  const dispatchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   /** Cached bounding rect for the active spectrum canvas — captured on pointerDown,
    *  invalidated on resize. Avoids per-move getBoundingClientRect layout thrashing. */
   const canvasDragRectRef = useRef<DOMRect | null>(null);
@@ -158,13 +180,14 @@ export function useFrequencyDrag({
     hardwareBounds: FrequencyRange,
     zoom: number = 1,
     pan: number = 0,
+    clampToCanvas: boolean = true,
   ) => {
     const plot = getPlotBounds(canvasRect);
     // Use double-precision math for sub-pixel accuracy at high zoom
-    const x = Math.max(
-      plot.left,
-      Math.min(plot.right, clientX - canvasRect.left),
-    );
+    let x = clientX - canvasRect.left;
+    if (clampToCanvas) {
+      x = Math.max(plot.left, Math.min(plot.right, x));
+    }
     const frac = (x - plot.left) / plot.width;
 
     const fullSpan = hardwareBounds.max - hardwareBounds.min;
@@ -186,6 +209,46 @@ export function useFrequencyDrag({
 
   useEffect(() => {
     if (disabled) return;
+
+    const throttleDispatch = (range: FrequencyRange) => {
+      const emitSelectionChange = latestOnSelectionChangeRef.current;
+      if (!emitSelectionChange) return;
+
+      const isTestEnv =
+        typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+      if (isTestEnv) {
+        emitSelectionChange(range);
+        return;
+      }
+
+      const now = performance.now();
+      const throttleLimit = 80; // 80ms throttle is perfect (~12.5 fps)
+
+      pendingDispatchRef.current = range;
+
+      if (now - lastDispatchTimeRef.current >= throttleLimit) {
+        if (dispatchTimeoutRef.current) {
+          clearTimeout(dispatchTimeoutRef.current);
+          dispatchTimeoutRef.current = null;
+        }
+        emitSelectionChange(range);
+        lastDispatchTimeRef.current = now;
+        pendingDispatchRef.current = null;
+      } else if (!dispatchTimeoutRef.current) {
+        dispatchTimeoutRef.current = setTimeout(
+          () => {
+            const finalEmit = latestOnSelectionChangeRef.current;
+            if (pendingDispatchRef.current && finalEmit) {
+              finalEmit(pendingDispatchRef.current);
+              lastDispatchTimeRef.current = performance.now();
+              pendingDispatchRef.current = null;
+            }
+            dispatchTimeoutRef.current = null;
+          },
+          throttleLimit - (now - lastDispatchTimeRef.current),
+        );
+      }
+    };
 
     const getContainer = (): HTMLElement | null => {
       if (containerRefCacheRef.current) return containerRefCacheRef.current;
@@ -277,9 +340,12 @@ export function useFrequencyDrag({
       let minPan = -maxHardwarePan;
       let maxPan = maxHardwarePan;
 
+      const center = (sourceRange.min + sourceRange.max) / 2;
+      const absoluteMinPan = 0 + visualRange / 2 - center; // visualMin >= 0
+      minPan = Math.max(minPan, absoluteMinPan);
+
       const channelBounds = getActiveSignalAreaBounds();
       if (channelBounds) {
-        const center = (sourceRange.min + sourceRange.max) / 2;
         const channelMinPan = channelBounds.min + visualRange / 2 - center;
         const channelMaxPan = channelBounds.max - visualRange / 2 - center;
 
@@ -293,7 +359,7 @@ export function useFrequencyDrag({
             -maxHardwarePan,
             Math.min(maxHardwarePan, channelCenterPan),
           );
-          minPan = pinnedPan;
+          minPan = Math.max(minPan, pinnedPan);
           maxPan = pinnedPan;
         }
       }
@@ -560,8 +626,14 @@ export function useFrequencyDrag({
           channelBounds,
         );
 
+        if (liveDragSelectionRef) {
+          liveDragSelectionRef.current = clampedRange;
+        }
+        if (onDragRepaint) {
+          onDragRepaint();
+        }
         setManualOverride();
-        emitSelectionChange(clampedRange);
+        throttleDispatch(clampedRange);
         return;
       }
 
@@ -578,12 +650,16 @@ export function useFrequencyDrag({
           dragStartRangeRef.current.max > dragStartRangeRef.current.min
             ? dragStartRangeRef.current
             : frequencyRangeRef.current;
+
+        const currentPan = vizPanOffsetRef?.current || 0;
+        // Calculate the live frequency under the pointer (using current pan)
         const pointerFreq = frequencyFromClientX(
           e.clientX,
           canvasRect,
           bounds,
           vizZoomRef?.current,
-          vizPanOffsetRef?.current,
+          currentPan,
+          false, // DO NOT clamp to canvas to enable out-of-bounds dragging
         );
 
         const current =
@@ -599,46 +675,100 @@ export function useFrequencyDrag({
               : null
             : dragStartBase;
 
+        // Allow selecting anywhere > 0Hz, regardless of hardware bounds
+        const allowedBounds = { min: 0, max: 10_000_000_000 };
+
+        let next: FrequencyRange;
+
         if (selectionDragModeRef.current === "create" || !base) {
           const origin = selectionDragOriginFreqRef.current ?? pointerFreq;
-          const next = normalizeSelectionRange(origin, pointerFreq, bounds);
-          selectionDraftRangeRef.current = next;
-          setManualOverride();
-          emitSelectionChange(next);
-          return;
-        }
-
-        if (selectionDragModeRef.current === "move") {
+          let newMin = Math.min(origin, pointerFreq);
+          let newMax = Math.max(origin, pointerFreq);
+          if (maxBandwidthHz && newMax - newMin > maxBandwidthHz) {
+            if (pointerFreq < origin) {
+              newMin = origin - maxBandwidthHz;
+            } else {
+              newMax = origin + maxBandwidthHz;
+            }
+          }
+          next = normalizeSelectionRange(newMin, newMax, allowedBounds);
+        } else if (selectionDragModeRef.current === "move") {
           const origin = selectionDragOriginFreqRef.current ?? pointerFreq;
           const delta = pointerFreq - origin;
-          const next = clampSelectionToFrequencyRange(
+          next = clampSelectionToFrequencyRange(
             {
               min: base.min + delta,
               max: base.max + delta,
             },
-            bounds,
+            allowedBounds,
           );
-          selectionDraftRangeRef.current = next;
-          setManualOverride();
-          emitSelectionChange(next);
-          return;
+        } else if (selectionDragModeRef.current === "resize-left") {
+          let newMin = pointerFreq;
+          if (maxBandwidthHz && base.max - newMin > maxBandwidthHz) {
+            newMin = base.max - maxBandwidthHz;
+          }
+          next = clampEdgeToBounds(newMin, base.max, allowedBounds);
+        } else {
+          // resize-right
+          let newMax = pointerFreq;
+          if (maxBandwidthHz && newMax - base.min > maxBandwidthHz) {
+            newMax = base.min + maxBandwidthHz;
+          }
+          next = clampEdgeToBounds(base.min, newMax, allowedBounds);
         }
 
-        if (selectionDragModeRef.current === "resize-left") {
-          const next = normalizeSelectionRange(pointerFreq, base.max, bounds);
-          selectionDraftRangeRef.current = next;
-          setManualOverride();
-          emitSelectionChange(next);
-          return;
+        // --- Clean Edge Panning Logic ---
+        const zoom = vizZoomRef?.current || 1;
+        const fullSpan = bounds.max - bounds.min;
+        const visualSpan = fullSpan / zoom;
+        const centerFreq = (bounds.min + bounds.max) / 2;
+        const visualMin = centerFreq + currentPan - visualSpan / 2;
+        const visualMax = centerFreq + currentPan + visualSpan / 2;
+
+        const margin = visualSpan * 0.03; // 3% edge threshold
+        let newPan = currentPan;
+        let shouldPan = false;
+
+        // Push the pan offset if pointer hits the edge
+        if (pointerFreq > visualMax - margin) {
+          newPan += pointerFreq - (visualMax - margin);
+          shouldPan = true;
+        } else if (pointerFreq < visualMin + margin) {
+          newPan -= visualMin + margin - pointerFreq;
+          shouldPan = true;
         }
 
-        if (selectionDragModeRef.current === "resize-right") {
-          const next = normalizeSelectionRange(base.min, pointerFreq, bounds);
-          selectionDraftRangeRef.current = next;
-          setManualOverride();
-          emitSelectionChange(next);
-          return;
+        if (shouldPan && onVizPanChange) {
+          // Limit panning bounds, but allow visual pan if full plot selection is active
+          const clampedPan = fullPlotSelection
+            ? Math.max(-centerFreq, newPan)
+            : clampVizPan(newPan, bounds, zoom);
+          onVizPanChange(clampedPan);
         }
+
+        selectionDraftRangeRef.current = next;
+        if (liveDragSelectionRef) {
+          liveDragSelectionRef.current = next;
+        }
+
+        // Direct DOM updates for selection tooltip text
+        if (tooltipStartRef?.current) {
+          tooltipStartRef.current.textContent = `Start: ${Math.round(next.min).toLocaleString()} Hz`;
+        }
+        if (tooltipEndRef?.current) {
+          tooltipEndRef.current.textContent = `End: ${Math.round(next.max).toLocaleString()} Hz`;
+        }
+        if (tooltipSpanRef?.current) {
+          tooltipSpanRef.current.textContent = `Span: ${Math.round(next.max - next.min).toLocaleString()} Hz`;
+        }
+
+        if (onDragRepaint) {
+          onDragRepaint();
+        }
+
+        setManualOverride();
+        throttleDispatch(next);
+        return;
       }
 
       const canvas = getActiveSpectrumCanvas();
@@ -800,6 +930,7 @@ export function useFrequencyDrag({
               selectionDraftRangeRef.current = existing;
               isSelectionDraggingRef.current = true;
               dragStartSelectionRef.current = { ...existing };
+              dragStartPanRef.current = vizPanOffsetRef?.current || 0;
               setPointerCaptureIfAvailable(container, e.pointerId);
               addClassIfAvailable(container, "cursor-grabbing");
               removeClassIfAvailable(container, "cursor-crosshair");
@@ -821,6 +952,7 @@ export function useFrequencyDrag({
             min: freqAtClick,
             max: freqAtClick,
           };
+          dragStartPanRef.current = vizPanOffsetRef?.current || 0;
           setPointerCaptureIfAvailable(container, e.pointerId);
           addClassIfAvailable(container, "cursor-grabbing");
           removeClassIfAvailable(container, "cursor-crosshair");
@@ -1062,12 +1194,33 @@ export function useFrequencyDrag({
         }
         removeClassIfAvailable(container, "cursor-grabbing");
       }
-      if (isSelectionDraggingRef.current && container) {
-        releasePointerCaptureIfAvailable(container, e.pointerId);
-        removeClassIfAvailable(container, "cursor-grabbing");
-        addClassIfAvailable(container, "cursor-crosshair");
-        if (selectionBoxRef.current) {
-          selectionBoxRef.current.style.display = "none";
+      if (isSelectionDraggingRef.current) {
+        if (dispatchTimeoutRef.current) {
+          clearTimeout(dispatchTimeoutRef.current);
+          dispatchTimeoutRef.current = null;
+        }
+
+        const finalEmit = latestOnSelectionChangeRef.current;
+        if (selectionDraftRangeRef.current && finalEmit) {
+          finalEmit(selectionDraftRangeRef.current);
+        }
+
+        if (liveDragSelectionRef) {
+          liveDragSelectionRef.current = null;
+        }
+        if (onDragRepaint) {
+          onDragRepaint();
+        }
+        pendingDispatchRef.current = null;
+        lastDispatchTimeRef.current = 0;
+
+        if (container) {
+          releasePointerCaptureIfAvailable(container, e.pointerId);
+          removeClassIfAvailable(container, "cursor-grabbing");
+          addClassIfAvailable(container, "cursor-crosshair");
+          if (selectionBoxRef.current) {
+            selectionBoxRef.current.style.display = "none";
+          }
         }
       }
       isDraggingRef.current = false;
@@ -1331,6 +1484,10 @@ export function useFrequencyDrag({
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      if (dispatchTimeoutRef.current) {
+        clearTimeout(dispatchTimeoutRef.current);
+        dispatchTimeoutRef.current = null;
+      }
       resizeObserver.disconnect();
       containerRefCacheRef.current = null;
       containerRectRef.current = null;
@@ -1380,6 +1537,20 @@ function normalizeSelectionRange(
     { min: Math.min(a, b), max: Math.max(a, b) },
     bounds,
   );
+}
+
+function clampEdgeToBounds(
+  minVal: number,
+  maxVal: number,
+  bounds: FrequencyRange,
+): FrequencyRange {
+  // Directly clamps the edges so that the opposing stationary edge does not shift.
+  const clampedMin = Math.max(bounds.min, Math.min(bounds.max, minVal));
+  const clampedMax = Math.max(bounds.min, Math.min(bounds.max, maxVal));
+  return {
+    min: Math.min(clampedMin, clampedMax),
+    max: Math.max(clampedMin, clampedMax),
+  };
 }
 
 function clampSelectionToFrequencyRange(

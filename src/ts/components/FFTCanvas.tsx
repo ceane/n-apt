@@ -64,7 +64,6 @@ import {
 import { roundDbValue } from "@n-apt/utils/frequency";
 import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
 
-
 // Use dynamic import for WASM module loading
 (async () => {
   try {
@@ -405,6 +404,8 @@ export interface FFTCanvasProps {
   onVizZoomFloorChange?: (zoomFloor: number) => void;
   onVizZoomFloorPanChange?: (pan: number) => void;
   onVizPanChange?: (pan: number) => void;
+  /** Maximum allowed bandwidth for the selection range */
+  maxBandwidthHz?: number;
   fftMin?: number;
   fftMax?: number;
   onFftDbLimitsChange?: (min: number, max: number) => void;
@@ -534,8 +535,10 @@ const FFTCanvas = memo(
       vizPanOffset = 0,
       onVizZoomChange,
       onVizZoomFloorChange,
+      onVizZoomFloorPanChange,
       onVizPanChange,
-      fftMin,
+      maxBandwidthHz,
+      fftMin = FFT_MIN_DB,
       fftMax,
       onFftDbLimitsChange,
       sendGetAutoFftOptions,
@@ -561,7 +564,6 @@ const FFTCanvas = memo(
       selectionDisabled = false,
       bandwidthAlignment = "centered",
       onSelectionChange,
-      onVizZoomFloorPanChange,
       autoZoomStability = false,
     } = props;
     const dispatch = useAppDispatch();
@@ -813,19 +815,6 @@ const FFTCanvas = memo(
 
     const demodFocusOverlay = useMemo(() => {
       if (
-        selectionRange &&
-        Number.isFinite(selectionRange.min) &&
-        Number.isFinite(selectionRange.max) &&
-        selectionRange.max > selectionRange.min
-      ) {
-        return {
-          centerFrequencyHz: (selectionRange.min + selectionRange.max) / 2,
-          halfBandwidthHz: (selectionRange.max - selectionRange.min) / 2,
-          alignment: bandwidthAlignment,
-        };
-      }
-
-      if (
         demodulationCenterFreqHz === null ||
         demodulationCenterFreqHz === undefined ||
         !Number.isFinite(demodulationCenterFreqHz)
@@ -906,8 +895,8 @@ const FFTCanvas = memo(
         visualRange: FrequencyRange;
         clampedPan: number;
       } => {
-        // Fast path: no zoom means show the full waveform unmodified
-        if (zoom === 1) {
+        // Fast path: no zoom and no pan means show the full waveform unmodified
+        if (zoom === 1 && panOffset === 0) {
           return {
             slicedWaveform: fullWaveform,
             visualRange: fullRange,
@@ -921,17 +910,10 @@ const FFTCanvas = memo(
         const fullSpan = fullRange.max - fullRange.min;
         const halfSpan = fullSpan / (2 * zoom);
 
-        // Clamp pan offset so the visual window never exceeds the hardware frequency range
-        const maxPan = fullSpan / 2 - halfSpan;
+        // The event handlers (useFrequencyDrag, useFFTHandlers) already properly clamp the pan
+        // based on the component's state (e.g. allowing full plot panning if edge-panning is active).
+        // Re-clamping here causes snap-back bugs when live frames arrive.
         let clampedPan = panOffset;
-        if (maxPan >= 0) {
-          clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
-        } else {
-          // Edge case: when zoom is very small, maxPan becomes negative
-          // Invert and use as symmetric bounds
-          const outPan = -maxPan;
-          clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
-        }
 
         const centerFreq = (fullRange.min + fullRange.max) / 2;
         const visualCenter = centerFreq + clampedPan;
@@ -948,29 +930,30 @@ const FFTCanvas = memo(
           max: visualCenter + halfSpan,
         };
 
-        // Zoom < 1: Pad with minimum dB values to fill the display
-        if (zoom < 1) {
-          const paddedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
+        let slicedWaveform: Float32Array;
+
+        // Pad with minimum dB values to fill the display if out of bounds or zoomed out
+        if (startBin < 0 || startBin + visibleBins > totalBins || zoom < 1) {
+          slicedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
           const destOffset = Math.max(0, -startBin);
           const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
           const srcOffset = Math.max(0, startBin);
 
-          if (dataToCopy > 0) {
-            paddedWaveform.set(
-              fullWaveform.subarray(srcOffset, srcOffset + dataToCopy),
-              destOffset,
-            );
+          if (dataToCopy > 0 && srcOffset < totalBins) {
+            const validDataToCopy = Math.min(dataToCopy, totalBins - srcOffset);
+            if (validDataToCopy > 0) {
+              slicedWaveform.set(
+                fullWaveform.subarray(srcOffset, srcOffset + validDataToCopy),
+                destOffset,
+              );
+            }
           }
-          return { slicedWaveform: paddedWaveform, visualRange, clampedPan };
+        } else {
+          // Extract the visible slice from the waveform
+          const validStart = Math.max(0, startBin);
+          const validEnd = Math.min(totalBins, startBin + visibleBins);
+          slicedWaveform = fullWaveform.slice(validStart, validEnd);
         }
-
-        // Zoom > 1: Extract a subarray of the waveform (clamped to valid bounds)
-        startBin = Math.max(0, Math.min(totalBins - visibleBins, startBin));
-
-        const slicedWaveform = fullWaveform.subarray(
-          startBin,
-          startBin + visibleBins,
-        );
 
         return { slicedWaveform, visualRange, clampedPan };
       },
@@ -1044,7 +1027,13 @@ const FFTCanvas = memo(
     const showSpikeOverlayRef = useRef(showSpikeOverlay);
     const awaitingDeviceDataRef = useRef(awaitingDeviceData);
     const demodFocusOverlayRef = useRef(demodFocusOverlay);
+    const selectionOverlayRef = useRef(selectionOverlay);
     const nodePreviewRef = useRef(nodePreview);
+
+    const liveDragSelectionRef = useRef<FrequencyRange | null>(null);
+    const tooltipStartRef = useRef<HTMLSpanElement | null>(null);
+    const tooltipEndRef = useRef<HTMLSpanElement | null>(null);
+    const tooltipSpanRef = useRef<HTMLSpanElement | null>(null);
 
     useEffect(() => {
       fftColorRef.current = fftColor;
@@ -1060,6 +1049,7 @@ const FFTCanvas = memo(
       showSpikeOverlayRef.current = showSpikeOverlay;
       awaitingDeviceDataRef.current = awaitingDeviceData;
       demodFocusOverlayRef.current = demodFocusOverlay;
+      selectionOverlayRef.current = selectionOverlay;
       nodePreviewRef.current = nodePreview;
     }, [
       fftColor,
@@ -1075,6 +1065,7 @@ const FFTCanvas = memo(
       showSpikeOverlay,
       awaitingDeviceData,
       demodFocusOverlay,
+      selectionOverlay,
       nodePreview,
     ]);
 
@@ -1231,6 +1222,15 @@ const FFTCanvas = memo(
       onVizZoomFloorPanChange,
       autoZoomStabilityRef,
       renderWaveformRef,
+      maxBandwidthHz,
+      liveDragSelectionRef,
+      onDragRepaint: useCallback(() => {
+        overlayDirtyRef.current.markers = true;
+        forceRenderRef.current?.();
+      }, [overlayDirtyRef]),
+      tooltipStartRef,
+      tooltipEndRef,
+      tooltipSpanRef,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -1691,7 +1691,12 @@ const FFTCanvas = memo(
               limitMarkers: compact ? [] : limitMarkers,
               showSpikeOverlay: showSpikeOverlayRef.current,
               demodFocusOverlay: demodFocusOverlayRef.current,
-              selectionOverlay,
+              selectionOverlay: liveDragSelectionRef.current
+                ? {
+                    minFrequencyHz: liveDragSelectionRef.current.min,
+                    maxFrequencyHz: liveDragSelectionRef.current.max,
+                  }
+                : selectionOverlayRef.current,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
@@ -1901,7 +1906,7 @@ const FFTCanvas = memo(
                       : rowData,
                   fftDataBuffer:
                     index === rowsToDraw.length - 1
-                      ? waterfallGpuRowBuffer ?? undefined
+                      ? (waterfallGpuRowBuffer ?? undefined)
                       : undefined,
                   fftMin: activeScaleDbMinRef.current,
                   fftMax: activeScaleDbMaxRef.current,
@@ -2510,7 +2515,6 @@ const FFTCanvas = memo(
         colormap: colormap || [],
         demodFocusOverlay: demodFocusOverlayRef.current,
       };
-
     }, [
       colormap,
       effectiveFftSize,
@@ -2571,10 +2575,12 @@ const FFTCanvas = memo(
         return null;
       }
 
-      const srcSpectrum = (spectrumCanvas as any)._lastFrameCanvas || spectrumCanvas;
+      const srcSpectrum =
+        (spectrumCanvas as any)._lastFrameCanvas || spectrumCanvas;
       ctx.drawImage(srcSpectrum, 0, 0);
       if (waterfallCanvas) {
-        const srcWaterfall = (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
+        const srcWaterfall =
+          (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
         ctx.drawImage(srcWaterfall, 0, spectrumCanvas.height);
       }
 
@@ -2655,7 +2661,9 @@ const FFTCanvas = memo(
                       FFT Signal Display {isPaused && "(Paused)"}
                     </SectionTitle>
                     {headerActionContent && (
-                      <SectionTitleActions data-disabled={!!canvasPlaceholderState}>
+                      <SectionTitleActions
+                        data-disabled={!!canvasPlaceholderState}
+                      >
                         {headerActionContent}
                       </SectionTitleActions>
                     )}
@@ -2693,9 +2701,15 @@ const FFTCanvas = memo(
                     {selectionTooltipText && selectionMode === "range" && (
                       <SelectionTooltip>
                         <strong>Selection</strong>
-                        <span>Start: {selectionTooltipText.startHz} Hz</span>
-                        <span>End: {selectionTooltipText.endHz} Hz</span>
-                        <span>Span: {selectionTooltipText.spanHz} Hz</span>
+                        <span ref={tooltipStartRef}>
+                          Start: {selectionTooltipText.startHz} Hz
+                        </span>
+                        <span ref={tooltipEndRef}>
+                          End: {selectionTooltipText.endHz} Hz
+                        </span>
+                        <span ref={tooltipSpanRef}>
+                          Span: {selectionTooltipText.spanHz} Hz
+                        </span>
                       </SelectionTooltip>
                     )}
                     {overlayContent}

@@ -1,12 +1,17 @@
 import { composeCanvasWithFrequencyAxis } from "@n-apt/utils/rendering/frequencyAxis";
-import { drawVfoAxis, type VfoAxisContext } from "@n-apt/utils/rendering/vfoAxis";
+import {
+  drawVfoAxis,
+  type VfoAxisContext,
+} from "@n-apt/utils/rendering/vfoAxis";
 
 describe("frequency axis rendering", () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  function mockCanvasContext(textWidth: (text: string) => number = (text) => text.length * 8) {
+  function mockCanvasContext(
+    textWidth: (text: string) => number = (text) => text.length * 8,
+  ) {
     const fillTextCalls: Array<{
       text: string;
       x: number;
@@ -82,8 +87,7 @@ describe("frequency axis rendering", () => {
     const plotLeft = 50 * 2;
     const plotWidth = baseCanvas.width - plotLeft - 40 * 2;
     const expectedCenterX =
-      plotLeft +
-      ((2_096_000 - 496_000) / (3_700_000 - 496_000)) * plotWidth;
+      plotLeft + ((2_096_000 - 496_000) / (3_700_000 - 496_000)) * plotWidth;
 
     expect(centerLabelCall).toBeDefined();
     expect(centerLabelCall?.align).toBe("center");

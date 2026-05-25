@@ -124,9 +124,7 @@ export const synthesizeWaterfallTransitionRow = ({
   const shift = driftBins * progress;
 
   for (let i = 0; i < target.length; i++) {
-    const currentValue = Number.isFinite(current[i])
-      ? current[i]
-      : floorDb;
+    const currentValue = Number.isFinite(current[i]) ? current[i] : floorDb;
     const previousValue = sampleShiftedRow(previous, i + shift, currentValue);
     target[i] = previousValue + (currentValue - previousValue) * blend;
   }

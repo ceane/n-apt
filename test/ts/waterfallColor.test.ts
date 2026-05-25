@@ -23,15 +23,18 @@ describe("waterfallColor", () => {
     const lower = normalizeWaterfallDbForColor(-55, -100, -35);
     const higher = normalizeWaterfallDbForColor(-45, -100, -35);
 
-    expect(higher - lower).toBeCloseTo((10 / 65) * WATERFALL_ONSCREEN_COLOR_MAX, 5);
+    expect(higher - lower).toBeCloseTo(
+      (10 / 65) * WATERFALL_ONSCREEN_COLOR_MAX,
+      5,
+    );
   });
 
   it("reserves the hottest colors for above-ceiling peaks", () => {
     const headroom = getWaterfallOverRangeHeadroomDb(-100, -35);
 
     expect(normalizeWaterfallDbForColor(-35 + headroom, -100, -35)).toBe(1);
-    expect(normalizeWaterfallDbForColor(-35 + headroom / 2, -100, -35)).toBeGreaterThan(
-      WATERFALL_ONSCREEN_COLOR_MAX,
-    );
+    expect(
+      normalizeWaterfallDbForColor(-35 + headroom / 2, -100, -35),
+    ).toBeGreaterThan(WATERFALL_ONSCREEN_COLOR_MAX);
   });
 });

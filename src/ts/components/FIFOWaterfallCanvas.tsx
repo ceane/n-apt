@@ -150,9 +150,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
             Waterfall Display {isPaused && "(Paused)"}
           </SectionTitle>
           {headerActionContent && (
-            <SectionTitleActions
-              data-disabled={!!placeholderState}
-            >
+            <SectionTitleActions data-disabled={!!placeholderState}>
               {headerActionContent}
             </SectionTitleActions>
           )}

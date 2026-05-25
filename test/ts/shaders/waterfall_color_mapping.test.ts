@@ -12,7 +12,9 @@ describe("waterfall WebGPU color mapping", () => {
   );
 
   it("keeps the shader's onscreen color ceiling aligned with the TS reference", () => {
-    expect(source).toContain(`let onscreenColorMax = ${WATERFALL_ONSCREEN_COLOR_MAX}`);
+    expect(source).toContain(
+      `let onscreenColorMax = ${WATERFALL_ONSCREEN_COLOR_MAX}`,
+    );
     expect(source).toContain("rawDb > dbMax");
   });
 

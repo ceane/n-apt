@@ -347,4 +347,43 @@ describe("SpanNode Integration", () => {
       expect(screen.getByLabelText("Bandwidth")).toHaveValue("1.000");
     });
   });
+
+  it("allows bandwidth selection to be dragged freely below the minimum hardware bounds", async () => {
+    // Hardware is locked to a 3.2M sample rate, which means the center freq
+    // cannot drop below 1.6MHz (0Hz to 3.2MHz window).
+    // However, the user should be able to select a bandwidth anywhere > 0Hz.
+    const store = createMockStore(
+      {
+        centerFreqHz: 1_600_000,
+        hardwareSpanHz: 3_200_000,
+        bandwidthHz: 200_000,
+        bandwidthKhz: 200,
+        bandwidthStartHz: 1_500_000,
+      },
+      {},
+      { min: 0, max: 3_200_000 },
+      {
+        sourceMode: "live",
+        // Simulate the user dragging the selection box all the way down to 0.5MHz
+        previewRange: { min: 500_000, max: 700_000 },
+      },
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <ReactFlow>
+            <SpanNode data={{ label: "Span Control" }} />
+          </ReactFlow>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      // The bandwidth start should update to 0.5MHz (from the preview sync)
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("500.000");
+      // The hardware center should remain safely at 1.6MHz, not forced out of bounds
+      expect(screen.getByLabelText("Center Frequency")).toHaveValue("1.600");
+    });
+  });
 });

@@ -221,8 +221,6 @@ const FastSnapshotControl: React.FC<{
   );
 };
 
-
-
 type SpectrumViewSnapshot = Partial<{
   activeSignalArea: string;
   frequencyRange: FrequencyRange;
@@ -351,7 +349,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       spectrumCanvas?.height ?? FAST_SPECTRUM_FALLBACK_HEIGHT;
     return (
       <FastSnapshotControl
-        disabled={fftSnapshotLoading || (isRecording !== null && isRecording !== "spectrum")}
+        disabled={
+          fftSnapshotLoading ||
+          (isRecording !== null && isRecording !== "spectrum")
+        }
         isRecording={isRecording === "spectrum"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}
@@ -400,7 +401,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       waterfallCanvas?.height ?? FAST_WATERFALL_FALLBACK_HEIGHT;
     return (
       <FastSnapshotControl
-        disabled={fftSnapshotLoading || (isRecording !== null && isRecording !== "waterfall")}
+        disabled={
+          fftSnapshotLoading ||
+          (isRecording !== null && isRecording !== "waterfall")
+        }
         isRecording={isRecording === "waterfall"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}

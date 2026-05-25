@@ -39,9 +39,7 @@ export function buildFrequencyAxisTheme(
   const colors = styledTheme.colors ?? {};
   return {
     background:
-      colors.background ??
-      styledTheme.background ??
-      "rgba(10, 10, 10, 1)",
+      colors.background ?? styledTheme.background ?? "rgba(10, 10, 10, 1)",
     grid: colors.border ?? styledTheme.border ?? "rgba(50, 50, 50, 1)",
     tick: colors.textMuted ?? styledTheme.textMuted ?? "#666666",
     label: colors.textSecondary ?? styledTheme.textSecondary ?? "#888888",
@@ -88,18 +86,11 @@ export function composeCanvasWithFrequencyAxis({
   const centerFontPx = detail === "dense" ? 18 : 15;
   const tickLen = detail === "dense" ? 9 : 7;
   const minorTickLen = detail === "dense" ? 5 : 4;
-  const labelY =
-    placement === "top"
-      ? 24
-      : output.height - 11;
+  const labelY = placement === "top" ? 24 : output.height - 11;
   const tickTop =
-    placement === "top"
-      ? axisHeight - 16
-      : output.height - axisHeight + 3;
+    placement === "top" ? axisHeight - 16 : output.height - axisHeight + 3;
   const axisLineY =
-    placement === "top"
-      ? axisHeight - 1
-      : output.height - axisHeight;
+    placement === "top" ? axisHeight - 1 : output.height - axisHeight;
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -167,7 +158,8 @@ export function composeWaterfallSnapshotCanvas({
     return null;
   }
 
-  const srcCanvas = (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
+  const srcCanvas =
+    (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
   const base = document.createElement("canvas");
   base.width = srcCanvas.width;
   base.height = srcCanvas.height;
