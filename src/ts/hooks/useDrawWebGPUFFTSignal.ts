@@ -158,6 +158,8 @@ type FFTWebGPUState = {
   scratchResampleParams: Uint32Array;
   scratchZeroCount: Uint32Array;
   lastFrameCanvas?: HTMLCanvasElement;
+  cacheCanvas?: HTMLCanvasElement;
+  cacheCtx?: CanvasRenderingContext2D | null;
 };
 
 export interface WebGPUFFTSignalOptions {
@@ -890,10 +892,23 @@ export function useDrawWebGPUFFTSignal() {
         state.device.queue.submit([encoder.finish()]);
 
         if (canvas instanceof HTMLCanvasElement) {
-          // Keep the rendered canvas itself as the latest-frame reference so
-          // snapshot helpers can reuse it without an extra canvas blit.
-          state.lastFrameCanvas = canvas;
-          (canvas as any)._lastFrameCanvas = canvas;
+          if (!state.cacheCanvas) {
+            state.cacheCanvas = document.createElement("canvas");
+            state.cacheCtx = state.cacheCanvas.getContext("2d");
+          }
+          if (
+            state.cacheCanvas.width !== canvas.width ||
+            state.cacheCanvas.height !== canvas.height
+          ) {
+            state.cacheCanvas.width = canvas.width;
+            state.cacheCanvas.height = canvas.height;
+          }
+          if (state.cacheCtx) {
+            state.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
+            state.cacheCtx.drawImage(canvas, 0, 0);
+          }
+          state.lastFrameCanvas = state.cacheCanvas;
+          (canvas as any)._lastFrameCanvas = state.cacheCanvas;
         }
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
