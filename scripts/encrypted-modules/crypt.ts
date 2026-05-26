@@ -41,12 +41,13 @@ function getCurrentBranch(): string | null {
 }
 
 function shouldRunEncryptedModules(): boolean {
-  return getCurrentBranch() === 'encrypted-modules';
+  const branch = getCurrentBranch();
+  return branch === 'encrypted-modules' || branch === 'demod-progress';
 }
 
 function deriveKey(password: string, salt: Buffer): Buffer {
   // Use scryptSync for better security than PBKDF2
-  return crypto.scryptSync(password, salt, KEY_LENGTH, { N: 131072, r: 8, p: 1 });
+  return crypto.scryptSync(password, salt, KEY_LENGTH, { N: 131072, r: 8, p: 1, maxmem: 134217728 * 2 });
 }
 
 function encrypt(data: string, password: string): Buffer {
@@ -178,13 +179,17 @@ if (!shouldRunEncryptedModules()) {
     process.exit(0);
   }
 
-  console.log('ℹ [skip] Encrypted module operations only run on the `encrypted-modules` branch.');
+  console.log('ℹ [skip] Encrypted module operations only run on the `encrypted-modules` or `demod-progress` branch.');
   process.exit(0);
 }
 
 const { latex, demod } = getPasswords();
 
 if (mode === 'encrypt') {
+  if (getCurrentBranch() !== 'encrypted-modules') {
+    console.log('ℹ [skip] Encryption is only allowed on the `encrypted-modules` branch.');
+    process.exit(0);
+  }
   try {
     // Encrypt LaTeX
     if (latex) {
