@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use log::info;
+use log::{debug, info};
 use std::os::raw::c_int;
 use std::ptr;
 use std::thread::JoinHandle;
@@ -17,6 +17,21 @@ struct RxContext {
   tx: Sender<Vec<u8>>,
 }
 
+fn apply_ppm_correction(freq_hz: u32, ppm: i32) -> u32 {
+  if freq_hz == 0 || ppm == 0 {
+    return freq_hz;
+  }
+
+  let numerator = i128::from(freq_hz) * 1_000_000i128;
+  let denominator = 1_000_000i128 - i128::from(ppm);
+  if denominator <= 0 {
+    return freq_hz;
+  }
+
+  let corrected = (numerator + (denominator / 2)) / denominator;
+  corrected.clamp(0, u32::MAX as i128) as u32
+}
+
 pub struct HackRfDevice {
   dev: *mut ffi::HackRfDeviceHandle,
   rx_queue: Receiver<Vec<u8>>,
@@ -26,6 +41,8 @@ pub struct HackRfDevice {
   last_error: Option<String>,
   sample_rate: u32,
   center_frequency: u32,
+  requested_center_frequency: u32,
+  ppm: i32,
   iq_buffer: Vec<u8>,
   streaming_started: bool,
 }
@@ -86,6 +103,8 @@ impl HackRfDevice {
         last_error: None,
         sample_rate: HACKRF_MIN_SAMPLE_RATE,
         center_frequency: 0,
+        requested_center_frequency: 0,
+        ppm: 0,
         iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
         streaming_started: false,
       })
@@ -129,6 +148,29 @@ impl HackRfDevice {
     self.streaming_started = true;
     Ok(())
   }
+
+  fn cleanup_inner(&mut self) {
+    if self.streaming_started {
+      let _ = unsafe { ffi::hackrf_stop_rx(self.dev) };
+      self.streaming_started = false;
+    }
+    if let Some(ctx_ptr) = self.rx_context.take() {
+      unsafe {
+        drop(Box::from_raw(ctx_ptr as *mut RxContext));
+      }
+    }
+    if !self.dev.is_null() {
+      let _ = unsafe { ffi::hackrf_close(self.dev) };
+      self.dev = ptr::null_mut();
+    }
+    let _ = unsafe { ffi::hackrf_exit() };
+  }
+}
+
+impl Drop for HackRfDevice {
+  fn drop(&mut self) {
+    self.cleanup_inner();
+  }
 }
 
 impl SdrDevice for HackRfDevice {
@@ -139,7 +181,7 @@ impl SdrDevice for HackRfDevice {
   fn get_device_info(&self) -> String {
     format!(
       "HackRF One - Freq: {} Hz, Rate: {} Hz",
-      self.center_frequency, self.sample_rate
+      self.requested_center_frequency, self.sample_rate
     )
   }
 
@@ -189,14 +231,23 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    let ret = unsafe { ffi::hackrf_set_freq(self.dev, freq as u64) };
+    let corrected_freq = apply_ppm_correction(freq, self.ppm);
+    let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
     if ret != 0 {
       return Err(anyhow!(
         "Failed to set HackRF One center frequency to {}",
         freq
       ));
     }
+    self.requested_center_frequency = freq;
     self.center_frequency = freq;
+    debug!(
+      "HackRF center frequency set to {} Hz (requested {}, ppm {}, applied {})",
+      freq,
+      self.requested_center_frequency,
+      self.ppm,
+      corrected_freq
+    );
     Ok(())
   }
 
@@ -213,7 +264,27 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
-  fn set_ppm(&mut self, _ppm: i32) -> Result<()> {
+  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+    if self.requested_center_frequency > 0 {
+      let corrected_freq =
+        apply_ppm_correction(self.requested_center_frequency, ppm);
+      let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
+      if ret != 0 {
+        return Err(anyhow!(
+          "Failed to set HackRF One frequency correction to {} ppm",
+          ppm
+        ));
+      }
+      debug!(
+        "HackRF PPM correction set to {} ppm (requested {}, applied {})",
+        ppm,
+        self.requested_center_frequency,
+        corrected_freq
+      );
+    } else {
+      debug!("HackRF PPM correction set to {} ppm", ppm);
+    }
+    self.ppm = ppm;
     Ok(())
   }
 
@@ -251,6 +322,10 @@ impl SdrDevice for HackRfDevice {
     self.sample_rate
   }
 
+  fn get_max_sample_rate(&mut self) -> u32 {
+    HACKRF_MAX_SAMPLE_RATE
+  }
+
   fn reset_buffer(&mut self) -> Result<()> {
     if self.streaming_started {
       let _ = unsafe { ffi::hackrf_stop_rx(self.dev) };
@@ -266,20 +341,7 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn cleanup(&mut self) -> Result<()> {
-    if self.streaming_started {
-      let _ = unsafe { ffi::hackrf_stop_rx(self.dev) };
-      self.streaming_started = false;
-    }
-    if let Some(ctx_ptr) = self.rx_context.take() {
-      unsafe {
-        drop(Box::from_raw(ctx_ptr as *mut RxContext));
-      }
-    }
-    if !self.dev.is_null() {
-      let _ = unsafe { ffi::hackrf_close(self.dev) };
-      self.dev = ptr::null_mut();
-    }
-    let _ = unsafe { ffi::hackrf_exit() };
+    self.cleanup_inner();
     Ok(())
   }
 
@@ -300,5 +362,12 @@ mod tests {
   fn clamps_sample_rate_to_hackrf_bounds() {
     assert_eq!(HACKRF_MIN_SAMPLE_RATE, 2_000_000);
     assert_eq!(HACKRF_MAX_SAMPLE_RATE, 20_000_000);
+  }
+
+  #[test]
+  fn applies_ppm_correction_by_adjusting_tune_frequency() {
+    assert_eq!(apply_ppm_correction(100_000_000, 0), 100_000_000);
+    assert_eq!(apply_ppm_correction(100_000_000, 10), 100_001_000);
+    assert_eq!(apply_ppm_correction(100_000_000, -10), 99_999_000);
   }
 }

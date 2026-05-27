@@ -30,8 +30,13 @@ import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
 import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
-import { bumpSnapshotSectionPulse } from "@n-apt/redux";
+import {
+  useAppSelector,
+  useAppDispatch,
+  createNoteCardFromSpectrum,
+  selectNoteCardsCollapsed,
+  setNoteCardsCollapsed,
+} from "@n-apt/redux";
 import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
@@ -62,8 +67,14 @@ const SpectrumContent = styled.div`
 `;
 
 const FFTBackButton = styled(Button)`
-  min-width: 108px;
-  padding-inline: 14px;
+  min-width: 0;
+  height: 24px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: 10px;
+  line-height: 1;
+  margin-left: auto;
 `;
 
 const FastSnapshotPill = styled.div<{ $disabled?: boolean }>`
@@ -128,6 +139,23 @@ const FastSnapshotStopButton = styled(FastSnapshotModeButton)`
   padding: 0 12px;
   color: ${(props) => props.theme.primary};
   font-weight: 700;
+`;
+
+const NotesSnapshotPill = styled(FastSnapshotPill)`
+  min-height: 24px;
+`;
+
+const NotesSnapshotLabel = styled(FastSnapshotLabel)`
+  padding-inline: 9px;
+`;
+
+const NotesSnapshotButton = styled(FastSnapshotModeButton)`
+  padding-inline: 10px;
+`;
+
+const HeaderActionSpacer = styled.span`
+  flex: 1 1 auto;
+  min-width: 12px;
 `;
 
 const FastRecordingDot = styled.span`
@@ -250,6 +278,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
+  const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
     state,
@@ -445,6 +474,45 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     stopFastRecording,
     getCanvases,
   ]);
+
+  const handleCreateNoteCard = useCallback(() => {
+    const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
+    const snapshot = fftCanvasRef.current?.getCompositeSnapshot() ?? null;
+    reduxDispatch(setNoteCardsCollapsed(false));
+    void reduxDispatch(
+      createNoteCardFromSpectrum({
+        snapshot,
+        stats: snapshotData
+          ? {
+              centerFrequencyHz: snapshotData.centerFrequencyHz,
+              frequencyRange: snapshotData.frequencyRange,
+            }
+          : undefined,
+      }),
+    );
+  }, [fftCanvasRef, reduxDispatch]);
+
+  const notesActionPill = (
+    <NotesSnapshotPill>
+      <NotesSnapshotLabel>Notes</NotesSnapshotLabel>
+      <FastSnapshotDivider />
+      <NotesSnapshotButton
+        type="button"
+        onClick={handleCreateNoteCard}
+        title="Create a note from the current spectrum"
+      >
+        New
+      </NotesSnapshotButton>
+      <FastSnapshotDivider />
+      <NotesSnapshotButton
+        type="button"
+        onClick={() => reduxDispatch(setNoteCardsCollapsed(!notesCollapsed))}
+        title={notesCollapsed ? "Show saved notes" : "Hide saved notes"}
+      >
+        {notesCollapsed ? "Show Notes" : "Hide Notes"}
+      </NotesSnapshotButton>
+    </NotesSnapshotPill>
+  );
 
   const captureWholeChannelSegments = useCaptureWholeChannelSegments({
     frequencyRange: state.frequencyRange,
@@ -776,13 +844,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 headerActionContent={
                   <>
                     {fastSpectrumSnapshotAction}
+                    {notesActionPill}
+                    <HeaderActionSpacer />
                     {fftHistoryRef.current.length > 0 ? (
                       <FFTBackButton
                         type="button"
                         $variant="secondary"
                         onClick={handleBackFromNoteView}
                       >
-                        Back
+                        👈 Back
                       </FFTBackButton>
                     ) : null}
                   </>

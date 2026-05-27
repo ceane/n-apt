@@ -146,7 +146,23 @@ function wsReducer(state: WsState, action: WsAction): WsState {
         cryptoCorrupted: false,
       };
     case "DISCONNECTED":
-      return { ...state, isConnected: false };
+      return {
+        ...state,
+        isConnected: false,
+        deviceState: null,
+        deviceLoadingReason: null,
+        backend: null,
+        deviceInfo: null,
+        deviceName: null,
+        deviceProfile: null,
+        maxSampleRateHz: null,
+        sampleRateOptions: [],
+        sampleRateHz: null,
+        minReceiveSampleRateHz: null,
+        sdrSettings: null,
+        sdrLimitMarkers: [],
+        captureStatus: null,
+      };
     case "RESET":
       return INITIAL_WS_STATE;
     case "ERROR":

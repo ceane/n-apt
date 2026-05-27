@@ -203,6 +203,18 @@ const websocketSlice = createSlice({
     setDisconnected: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      state.deviceState = null;
+      state.deviceLoadingReason = null;
+      state.backend = null;
+      state.deviceInfo = null;
+      state.deviceName = null;
+      state.deviceProfile = null;
+      state.maxSampleRateHz = null;
+      state.sampleRateOptions = [];
+      state.sampleRateHz = null;
+      state.sdrSettings = null;
+      state.sdrLimitMarkers = [];
+      state.captureStatus = null;
     },
 
     setReconnecting: (state, action: PayloadAction<number>) => {

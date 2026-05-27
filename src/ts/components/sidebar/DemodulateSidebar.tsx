@@ -293,18 +293,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           }}
           stitchStatus={stitchStatus}
           isStitchPaused={isStitchPaused}
-          onStitch={() => {
-            dispatch(triggerStitch());
-            storeDispatch({ type: "TRIGGER_STITCH" });
-          }}
           onClear={() => {
             dispatch(setSelectedFiles([]));
             storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
-          }}
-          onStitchPauseToggle={() => {
-            const nextPaused = !isStitchPaused;
-            dispatch(setStitchPaused(nextPaused));
-            storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
           }}
           selectedPrimaryFile={selectedPrimaryFile}
           naptMetadata={null}

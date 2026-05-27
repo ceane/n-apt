@@ -188,10 +188,27 @@ export function useDrawWebGPUFFTSignal() {
   const onSpikeCountRef = useRef<((count: number) => void) | undefined>(
     undefined,
   );
+  const retiredBuffersRef = useRef<GPUBuffer[]>([]);
   const lastDataRef = useRef<{
     waveform: Float32Array;
     frequencyRange: any;
   } | null>(null);
+
+  const flushRetiredBuffers = useCallback(() => {
+    const buffers = retiredBuffersRef.current;
+    retiredBuffersRef.current = [];
+    for (const buffer of buffers) {
+      buffer.destroy();
+    }
+  }, []);
+
+  const retireBuffer = useCallback(
+    (buffer: GPUBuffer | null | undefined) => {
+      if (!buffer) return;
+      retiredBuffersRef.current.push(buffer);
+    },
+    [],
+  );
 
   const createFFTWebGPUState = useCallback(
     (
@@ -590,7 +607,7 @@ export function useDrawWebGPUFFTSignal() {
           !state.resampleInputBuffer ||
           srcLen !== state.resampleInputLength
         ) {
-          state.resampleInputBuffer?.destroy();
+          retireBuffer(state.resampleInputBuffer);
           state.resampleInputBuffer = state.device.createBuffer({
             size: srcLen * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -605,7 +622,7 @@ export function useDrawWebGPUFFTSignal() {
           !state.resampleOutputBuffer ||
           displayWidth !== state.resampleOutputLength
         ) {
-          state.resampleOutputBuffer?.destroy();
+          retireBuffer(state.resampleOutputBuffer);
           state.resampleOutputBuffer = state.device.createBuffer({
             size: displayWidth * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -639,13 +656,13 @@ export function useDrawWebGPUFFTSignal() {
 
         // --- Spikes buffers rebuild ---
         if (!state.spikeBuffer || srcLen !== state.spikeWaveformLength) {
-          state.spikeBuffer?.destroy();
+          retireBuffer(state.spikeBuffer);
           state.spikeBuffer = state.device.createBuffer({
             // 128 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
             size: 128 * 16,
             usage: GPUBufferUsage.STORAGE,
           });
-          state.spikeCountBuffer?.destroy();
+          retireBuffer(state.spikeCountBuffer);
           state.spikeCountBuffer = state.device.createBuffer({
             size: 4,
             usage:
@@ -653,7 +670,7 @@ export function useDrawWebGPUFFTSignal() {
               GPUBufferUsage.COPY_DST |
               GPUBufferUsage.COPY_SRC,
           });
-          state.spikeCountReadbackBuffer?.destroy();
+          retireBuffer(state.spikeCountReadbackBuffer);
           state.spikeCountReadbackBuffer = state.device.createBuffer({
             size: 4,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
@@ -939,9 +956,10 @@ export function useDrawWebGPUFFTSignal() {
   );
 
   const cleanup = useCallback(() => {
+    flushRetiredBuffers();
     rendererRef.current = null;
     lastDataRef.current = null;
-  }, []);
+  }, [flushRetiredBuffers]);
 
   return {
     drawWebGPUFFTSignal,

@@ -26,6 +26,8 @@ interface ReduxFrequencyRangeSliderProps {
   minFreq: number;
   maxFreq: number;
   sampleRateHz?: number | null;
+  allowWideSampleRateOverscan?: boolean;
+  wideSampleRateZoomThreshold?: number;
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive?: boolean;
   onActivate?: () => void;
@@ -41,6 +43,8 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   minFreq,
   maxFreq,
   sampleRateHz,
+  allowWideSampleRateOverscan = false,
+  wideSampleRateZoomThreshold = 1.5,
   limitMarkers,
   isActive,
   onActivate,
@@ -66,10 +70,14 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     areaKey.length > 0 &&
     areaKey.toLowerCase() === activeSignalArea?.toLowerCase();
   const span = maxFreq - minFreq;
-  const hardwareSpan =
+  const requestedHardwareSpan =
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
-      ? Math.min(sampleRateHz, span)
+      ? sampleRateHz
       : span;
+  const wideSampleRateActive =
+    allowWideSampleRateOverscan && requestedHardwareSpan > span;
+  const hardwareSpan =
+    wideSampleRateActive ? requestedHardwareSpan : Math.min(requestedHardwareSpan, span);
   const rememberedRange =
     lastKnownRanges[areaKey] ?? lastKnownRanges[areaKey.toLowerCase()] ?? null;
   const externalFrequencyRange =
@@ -103,6 +111,12 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     if (safeZoom <= 1) {
       const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
       const halfHardware = hardwareSpan / 2;
+      if (wideSampleRateActive) {
+        return {
+          min: hardwareCenter - halfHardware,
+          max: hardwareCenter + halfHardware,
+        };
+      }
       return {
         min: Math.max(minFreq, hardwareCenter - halfHardware),
         max: Math.min(maxFreq, hardwareCenter + halfHardware),
@@ -132,6 +146,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     minFreq,
     maxFreq,
     hardwareSpan,
+    wideSampleRateActive,
   ]);
 
   const visibleRange = calculateVisibleRange();
@@ -141,16 +156,31 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       normalizeFrequencyRangeToHz(
         clampFrequencyRangeToBounds(
           clampFrequencyRangeToBounds(range, channelBounds),
-          hardwareSpectrumBounds,
+          allowWideSampleRateOverscan &&
+            requestedHardwareSpan > span &&
+            (Number.isFinite(vizZoom) ? vizZoom : 1) < wideSampleRateZoomThreshold
+            ? hardwareSpectrumBounds
+            : clampFrequencyRangeToBounds(hardwareSpectrumBounds, channelBounds),
         ),
       ),
-    [channelBounds.min, channelBounds.max, hardwareSpectrumBounds],
+    [
+      allowWideSampleRateOverscan,
+      channelBounds.min,
+      channelBounds.max,
+      hardwareSpectrumBounds,
+      requestedHardwareSpan,
+      span,
+      vizZoom,
+      wideSampleRateZoomThreshold,
+    ],
   );
 
   // Handle frequency range change
   const handleRangeChange = useCallback(
     (range: { min: number; max: number }) => {
       const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
+      const allowFreeWideRange =
+        wideSampleRateActive && safeZoom < wideSampleRateZoomThreshold;
 
       if (isCurrentActive && safeZoom > 1 && frequencyRange) {
         const visualCenter = (range.min + range.max) / 2;
@@ -167,7 +197,9 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
           return;
         }
 
-        let newHardwareCenter = visualCenter;
+        const overflowPan =
+          desiredPan - Math.max(-maxPan, Math.min(maxPan, desiredPan));
+        let newHardwareCenter = currentHardwareCenter + overflowPan;
         let newHardwareMin = newHardwareCenter - halfHardware;
         let newHardwareMax = newHardwareCenter + halfHardware;
         const clampedHardwareRange = clampToChannelAndHardware({
@@ -182,13 +214,18 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
         wsConnection.sendFrequencyRange(newRange);
 
-        const remainingPan = visualCenter - newHardwareCenter;
+        const remainingPan = Math.max(
+          -maxPan,
+          Math.min(maxPan, desiredPan - (newHardwareCenter - currentHardwareCenter)),
+        );
         dispatch(spectrumActions.setVizPan(remainingPan));
         storeDispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
         return;
       }
 
-      const clampedRange = clampToChannelAndHardware(range);
+      const clampedRange = allowFreeWideRange
+        ? normalizeFrequencyRangeToHz(range)
+        : clampToChannelAndHardware(range);
       dispatch(spectrumActions.setFrequencyRange(clampedRange));
       storeDispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
       wsConnection.sendFrequencyRange(clampedRange);
@@ -200,6 +237,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       isCurrentActive,
       frequencyRange,
       hardwareSpan,
+      allowWideSampleRateOverscan,
+      requestedHardwareSpan,
+      span,
+      wideSampleRateActive,
       clampToChannelAndHardware,
     ],
   );
@@ -212,11 +253,9 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         maxFreq={maxFreq}
         visibleMin={visibleRange.min}
         visibleMax={visibleRange.max}
-        sampleRateHz={
-          typeof hardwareSpan === "number"
-            ? hardwareSpan / (isCurrentActive ? Math.max(1, vizZoom) : 1)
-            : null
-        }
+        sampleRateHz={hardwareSpan}
+        allowWideSampleRateOverscan={allowWideSampleRateOverscan}
+        wideSampleRateZoomThreshold={wideSampleRateZoomThreshold}
         limitMarkers={limitMarkers}
         isActive={isActive ?? isCurrentActive}
         onActivate={onActivate ?? (() => {})}

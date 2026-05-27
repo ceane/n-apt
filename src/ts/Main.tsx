@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "@n-apt/App";
 import ReduxProvider from "@n-apt/components/ReduxProvider";
+import { HelmetProvider } from "react-helmet-async";
 import "katex/dist/katex.min.css";
 
 const root = ReactDOM.createRoot(
@@ -11,7 +12,9 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <ReduxProvider>
-      <App />
+      <HelmetProvider>
+        <App />
+      </HelmetProvider>
     </ReduxProvider>
   </React.StrictMode>,
 );

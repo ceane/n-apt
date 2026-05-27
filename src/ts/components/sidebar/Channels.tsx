@@ -406,6 +406,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                   maxFreq={maxFreq}
                   disabled={rangeSlidersDisabled}
                   sampleRateHz={sampleRateHz}
+                  allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
                     const rememberedRange =
@@ -419,15 +420,20 @@ export const Channels: React.FC<ChannelsProps> = ({
                           ? Math.min(sampleRateHz, span)
                           : span),
                     };
-                    const clampedRange = normalizeFrequencyRangeToHz(
-                      clampFrequencyRangeToBounds(
-                        clampFrequencyRangeToBounds(nextRange, {
-                          min: minFreq,
-                          max: maxFreq,
-                        }),
-                        hardwareSpectrumBounds,
-                      ),
-                    );
+                    const channelSpan = maxFreq - minFreq;
+                    const clampedRange =
+                      typeof sampleRateHz === "number" &&
+                      sampleRateHz > channelSpan
+                        ? normalizeFrequencyRangeToHz(nextRange)
+                        : normalizeFrequencyRangeToHz(
+                            clampFrequencyRangeToBounds(
+                              clampFrequencyRangeToBounds(nextRange, {
+                                min: minFreq,
+                                max: maxFreq,
+                              }),
+                              hardwareSpectrumBounds,
+                            ),
+                          );
                     reduxDispatch(
                       setSignalAreaAndRange({
                         area: label,
@@ -613,6 +619,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                     maxFreq={ch.max_hz}
                     disabled={rangeSlidersDisabled}
                     sampleRateHz={sampleRateHz}
+                    allowWideSampleRateOverscan
                     onActivate={() => handleTune(ch)}
                     readOnly={isChannelScanning}
                     scanProgress={isChannelScanning ? scanProgress : 0}

@@ -437,6 +437,12 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       parsed.fftMinDb = -120;
     }
 
+    // The live sample rate must stay in sync with the websocket/backend.
+    // Keeping a persisted value here causes HMR/reload drift.
+    if ("sampleRateHz" in parsed) {
+      delete parsed.sampleRateHz;
+    }
+
     return parsed;
   } catch {
     return {};
@@ -1354,7 +1360,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Sync sample rate from backend to store state
     useEffect(() => {
-      const rate = sdrSettings?.sample_rate ?? sampleRateHz ?? maxSampleRateHz;
+      const rate =
+        sdrSettings?.sample_rate ??
+        (isConnected ? sampleRateHz : null) ??
+        maxSampleRateHz;
       if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
         storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
       }
@@ -1377,6 +1386,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       sdrSettings?.min_receive_sample_rate,
       sampleRateHz,
       maxSampleRateHz,
+      isConnected,
       state.sampleRateHz,
       state.minReceiveSampleRateHz,
       storeDispatch,

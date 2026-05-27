@@ -157,6 +157,7 @@ interface SignalDisplaySectionProps {
   minReceiveSampleRate?: number;
   sampleRate: number;
   sampleRateOptions: number[];
+  wholeChannelSampleRate?: number | null;
   fileCapturedRange: { min: number; max: number } | null;
   fftFrameRate: number;
   maxFrameRate: number;
@@ -194,6 +195,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   minReceiveSampleRate: _minReceiveSampleRate,
   sampleRate,
   sampleRateOptions,
+  wholeChannelSampleRate = null,
   fftFrameRate,
   maxFrameRate,
   fftSize,
@@ -245,6 +247,27 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
       ).sort((a, b) => a - b),
     [autoFftOptions],
   );
+  const sampleRateOptionList = React.useMemo(() => {
+    const rates = new Set(sampleRateOptions);
+    if (
+      typeof wholeChannelSampleRate === "number" &&
+      Number.isFinite(wholeChannelSampleRate) &&
+      wholeChannelSampleRate > 0
+    ) {
+      rates.add(Math.round(wholeChannelSampleRate));
+    }
+    return Array.from(rates).sort((a, b) => a - b);
+  }, [sampleRateOptions, wholeChannelSampleRate]);
+  const wholeChannelLabel = React.useMemo(() => {
+    if (
+      typeof wholeChannelSampleRate !== "number" ||
+      !Number.isFinite(wholeChannelSampleRate) ||
+      wholeChannelSampleRate <= 0
+    ) {
+      return "Whole Channel";
+    }
+    return `Whole Channel (${formatFrequency(wholeChannelSampleRate)})`;
+  }, [wholeChannelSampleRate]);
 
   return (
     <Section>
@@ -266,10 +289,23 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                   onSampleRateChange(Number(e.target.value));
                 }}
               >
-                {sampleRateOptions.map((rate) => (
+                {typeof wholeChannelSampleRate === "number" &&
+                  Number.isFinite(wholeChannelSampleRate) &&
+                  wholeChannelSampleRate > 0 && (
+                    <option
+                      key="whole-channel"
+                      value={Math.round(wholeChannelSampleRate)}
+                    >
+                      {wholeChannelLabel}
+                    </option>
+                  )}
+                {sampleRateOptionList.map((rate) => (
+                  typeof wholeChannelSampleRate === "number" &&
+                  Math.round(wholeChannelSampleRate) === rate ? null : (
                   <option key={rate} value={rate}>
                     {formatFrequency(rate)}
                   </option>
+                  )
                 ))}
               </SettingSelect>
             </Row>

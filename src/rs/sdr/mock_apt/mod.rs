@@ -531,6 +531,10 @@ impl SdrDevice for MockAptDevice {
     self.sample_rate
   }
 
+  fn get_max_sample_rate(&mut self) -> u32 {
+    self.sample_rate
+  }
+
   fn reset_buffer(&mut self) -> Result<()> {
     log::debug!("Mock APT device buffer reset");
     self.total_samples = 0;

@@ -748,7 +748,7 @@ impl SdrProcessor {
 
     // Sample rate (Hardware)
     if let Some(rate) = sample_rate {
-      let max_rate = 3_200_000;
+      let max_rate = self.device.get_max_sample_rate().max(1);
       let min_rate = 1;
       let clamped_rate = rate.clamp(min_rate, max_rate);
       if clamped_rate != rate {

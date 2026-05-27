@@ -43,6 +43,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       writeTexture: jest.fn(),
       writeBuffer: jest.fn(),
       submit: jest.fn(),
+      onSubmittedWorkDone: jest.fn(() => Promise.resolve()),
     },
   };
 

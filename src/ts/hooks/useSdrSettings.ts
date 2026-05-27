@@ -11,6 +11,7 @@ import {
 interface UseSdrSettingsProps {
   maxSampleRate: number;
   minReceiveSampleRate?: number;
+  sampleRateOptions?: number[];
   sdrSettings?: SdrSettingsConfig | null;
   onSettingsChange?: (settings: SDRSettings) => void;
   spectrumStateOverride?: Pick<
@@ -215,6 +216,7 @@ const buildSampleRateOptions = (
 export const useSdrSettings = ({
   maxSampleRate,
   minReceiveSampleRate,
+  sampleRateOptions: backendSampleRateOptions,
   sdrSettings,
   onSettingsChange,
   spectrumStateOverride,
@@ -229,12 +231,28 @@ export const useSdrSettings = ({
     return getLogicalMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings);
   }, [maxSampleRate, state.fftSize, sdrSettings]);
   const sampleRateOptions = useMemo(
-    () =>
-      buildSampleRateOptions(
+    () => {
+      const backendRates = backendSampleRateOptions
+        ?.filter(
+          (rate) => Number.isFinite(rate) && rate > 0,
+        )
+        .sort((a, b) => a - b);
+
+      if (backendRates && backendRates.length > 0) {
+        return Array.from(new Set(backendRates));
+      }
+
+      return buildSampleRateOptions(
         maxSampleRate,
         minReceiveSampleRate ?? sdrSettings?.min_receive_sample_rate,
-      ),
-    [maxSampleRate, minReceiveSampleRate, sdrSettings?.min_receive_sample_rate],
+      );
+    },
+    [
+      maxSampleRate,
+      minReceiveSampleRate,
+      sdrSettings?.min_receive_sample_rate,
+      backendSampleRateOptions,
+    ],
   );
 
   const stateRef = useRef(state);

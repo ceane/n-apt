@@ -76,11 +76,12 @@ export const SDRTestSidebar: React.FC = () => {
       isConnected,
       deviceState,
       backend,
-      deviceLoadingReason,
-      maxSampleRateHz,
-      sendSettings,
-      sendRestartDevice,
-      autoFftOptions,
+    deviceLoadingReason,
+    maxSampleRateHz,
+    sampleRateOptions,
+    sendSettings,
+    sendRestartDevice,
+    autoFftOptions,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
   } = useSpectrumStore();
@@ -108,6 +109,7 @@ export const SDRTestSidebar: React.FC = () => {
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate,
+    sampleRateOptions,
     sdrSettings: effectiveSdrSettings ?? null,
     onSettingsChange: (settings) => {
       sendSettings(settings);

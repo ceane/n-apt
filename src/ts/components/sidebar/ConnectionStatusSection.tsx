@@ -4,6 +4,7 @@ import type {
   DeviceState,
   DeviceLoadingReason,
 } from "@n-apt/hooks/useWebSocket";
+import { CheckCircle2, Loader2, Pause, Play } from "lucide-react";
 
 const ConnectionStatusContainer = styled.div`
   display: grid;
@@ -140,6 +141,70 @@ const ActionsColumn = styled.div`
   width: 100%;
 `;
 
+const FileActionButton = styled(PauseButton)<{
+  $variant: "primary" | "secondary" | "danger" | "filePrimary";
+  $isDisabled?: boolean;
+}>`
+  background-color: ${(props) =>
+    props.$variant === "filePrimary"
+      ? props.theme.primaryAnchor
+      : props.$variant === "primary"
+      ? props.theme.surface
+      : props.$variant === "secondary"
+        ? props.theme.primaryAnchor
+        : `${props.theme.danger}12`};
+  border-color: ${(props) =>
+    props.$variant === "filePrimary"
+      ? props.theme.primary
+      : props.$variant === "primary"
+      ? props.theme.borderHover
+      : props.$variant === "secondary"
+        ? props.theme.primary
+        : props.theme.danger};
+  color: ${(props) =>
+    props.$variant === "filePrimary"
+      ? props.theme.primary
+      : props.$variant === "primary"
+      ? props.theme.textPrimary
+      : props.$variant === "secondary"
+        ? props.theme.primary
+        : props.theme.danger};
+
+  ${(props) =>
+    props.$isDisabled &&
+    `
+    opacity: 0.65;
+    cursor: not-allowed;
+  `}
+
+  &:hover {
+    background-color: ${(props) =>
+      props.$variant === "filePrimary"
+        ? `${props.theme.primary}12`
+        : props.$variant === "primary"
+        ? `${props.theme.primary}0d`
+        : props.$variant === "secondary"
+          ? `${props.theme.primary}12`
+          : `${props.theme.danger}18`};
+    border-color: ${(props) =>
+      props.$variant === "filePrimary"
+        ? props.theme.primary
+        : props.$variant === "primary"
+        ? props.theme.primary
+        : props.$variant === "secondary"
+          ? props.theme.primary
+          : props.theme.danger};
+    color: ${(props) =>
+      props.$variant === "filePrimary"
+        ? props.theme.primary
+        : props.$variant === "primary"
+        ? props.theme.primary
+        : props.$variant === "secondary"
+          ? props.theme.primary
+          : props.theme.danger};
+  }
+`;
+
 interface ConnectionStatusSectionProps {
   isConnected: boolean;
   deviceState: DeviceState;
@@ -151,9 +216,107 @@ interface ConnectionStatusSectionProps {
   children?: React.ReactNode;
   hidePauseButton?: boolean;
   extraActions?: React.ReactNode;
+  fileMode?: boolean;
+  fileProcessingStatus?: string;
+  fileIsPaused?: boolean;
+  hasFileSelected?: boolean;
+  isMockFile?: boolean;
+  onFileProcess?: () => void;
+  onFilePauseToggle?: () => void;
+  onFileClearError?: () => void;
 }
 
 import { DecryptionFallback } from "../ui/DecryptionFallback";
+
+const getFileStatus = (
+  stitchStatus?: string | null,
+  hasFileSelected = false,
+) => {
+  const status = stitchStatus?.trim() ?? "";
+  const lower = status.toLowerCase();
+
+  if (!status) {
+    return {
+      label: hasFileSelected ? "File not processed" : "Choose file",
+      state: hasFileSelected
+        ? ("not-processed" as const)
+        : ("choose-file" as const),
+      isProcessing: false,
+      isProcessed: false,
+      isError: false,
+      isDecryptionError: false,
+    };
+  }
+
+  const isDecryptionError = lower.includes("decryption");
+  const isProcessed = lower.includes("successfully");
+  const isExplicitError =
+    lower.includes("error") || lower.includes("failed") || lower.includes("failure");
+  const isProcessing =
+    (lower.includes("loading") ||
+      lower.includes("computing") ||
+      lower.includes("loaded") ||
+      lower === "processing") &&
+    !isProcessed;
+  const isError =
+    !isProcessing &&
+    !isProcessed &&
+    lower !== "no files selected for stitching" &&
+    (isExplicitError || !!status);
+
+  if (isDecryptionError) {
+    return {
+      label: "Decryption error",
+      state: "decryption-error" as const,
+      isProcessing: false,
+      isProcessed: false,
+      isError: true,
+      isDecryptionError: true,
+    };
+  }
+
+  if (isProcessing) {
+    return {
+      label: "File processing",
+      state: "processing" as const,
+      isProcessing: true,
+      isProcessed: false,
+      isError: false,
+      isDecryptionError: false,
+    };
+  }
+
+  if (isProcessed) {
+    return {
+      label: "File processed",
+      state: "processed" as const,
+      isProcessing: false,
+      isProcessed: true,
+      isError: false,
+      isDecryptionError: false,
+    };
+  }
+
+  if (isError) {
+    return {
+      label: "File processing error",
+      state: "error" as const,
+      isProcessing: false,
+      isProcessed: false,
+      isError: true,
+      isDecryptionError: false,
+    };
+  }
+
+  return {
+    label: "File not processed",
+    state: "not-processed" as const,
+    isProcessing: false,
+    isProcessed: false,
+    isError: false,
+    isDecryptionError: false,
+  };
+};
 
 export const ConnectionStatusSection: React.FC<
   ConnectionStatusSectionProps
@@ -167,14 +330,26 @@ export const ConnectionStatusSection: React.FC<
   onRestartDevice,
   hidePauseButton,
   extraActions,
+  fileMode = false,
+  fileProcessingStatus,
+  fileIsPaused = false,
+  hasFileSelected = false,
+  isMockFile = false,
+  onFileProcess,
+  onFilePauseToggle,
+  onFileClearError,
 }) => {
+  const fileStatus = fileMode
+    ? getFileStatus(fileProcessingStatus, hasFileSelected)
+    : null;
+
   return (
     <>
       <ConnectionStatusContainer>
         <ConnectionStatus>
           <StatusDot
             $connected={isConnected && deviceState === "connected"}
-            $loading={deviceState === "loading" || deviceState === "stale"}
+            $loading={deviceState === "loading"}
             $color={
               cryptoCorrupted
                 ? deviceState === "connected"
@@ -186,34 +361,86 @@ export const ConnectionStatusSection: React.FC<
             }
           />
           <StatusText>
-            {cryptoCorrupted
-              ? "CRYPTO CORRUPTED"
-              : !isConnected
-                ? "Disconnected"
-                : deviceState === "loading"
-                  ? deviceLoadingReason === "restart"
-                    ? "Restarting device..."
-                    : "Loading device..."
-                  : deviceState === "stale"
-                    ? "Device stream frozen"
+            {fileMode && fileStatus
+              ? fileStatus.label
+              : cryptoCorrupted
+                ? "CRYPTO CORRUPTED"
+                : !isConnected
+                  ? "Disconnected"
+                  : deviceState === "loading"
+                    ? deviceLoadingReason === "restart"
+                      ? "Restarting device..."
+                      : "Loading device..."
                     : deviceState === "connected"
-                      ? "Connected to server and device"
-                      : "Connected to server but device not connected"}
+                        ? "Connected to server and device"
+                        : "Connected to server but device not connected"}
           </StatusText>
         </ConnectionStatus>
 
         <ActionsColumn>
-          {isConnected &&
-            (deviceState === "stale" ? (
-              <WarningButton
+          {fileMode ? (
+            !hasFileSelected ? (
+              <FileActionButton
                 $paused={false}
-                $narrow
-                onClick={() => onRestartDevice?.()}
-                title="Restart the SDR device connection"
+                $variant={isMockFile ? "primary" : "filePrimary"}
+                onClick={onFileProcess}
               >
-                Restart
-              </WarningButton>
-            ) : deviceState === "loading" &&
+                <Play size={14} fill="currentColor" /> Choose file
+              </FileActionButton>
+            ) : fileStatus?.isProcessing ? (
+              <FileActionButton
+                $paused={false}
+                $variant="secondary"
+                $isDisabled
+                disabled
+                onClick={() => {}}
+                title="File is being processed..."
+              >
+                <Loader2 size={16} className="animate-spin" /> Processing…
+              </FileActionButton>
+            ) : fileStatus?.isProcessed ? (
+              <FileActionButton
+                $paused={fileIsPaused}
+                $variant={fileIsPaused ? "secondary" : isMockFile ? "primary" : "filePrimary"}
+                onClick={onFilePauseToggle}
+              >
+                {fileIsPaused ? (
+                  <>
+                    <Play size={14} fill="currentColor" /> Play
+                  </>
+                ) : (
+                  <>
+                    <Pause size={14} fill="currentColor" /> Pause
+                  </>
+                )}
+              </FileActionButton>
+            ) : fileStatus?.isDecryptionError ? (
+              <FileActionButton
+                $paused={false}
+                $variant="danger"
+                onClick={onFileClearError ?? onFileProcess ?? (() => {})}
+              >
+                <CheckCircle2 size={16} /> Retry process
+              </FileActionButton>
+            ) : fileStatus?.isError ? (
+              <FileActionButton
+                $paused={false}
+                $variant="danger"
+                onClick={onFileClearError ?? onFileProcess ?? (() => {})}
+              >
+                <CheckCircle2 size={16} /> Retry process
+              </FileActionButton>
+            ) : (
+              <FileActionButton
+                $paused={false}
+                $variant={isMockFile ? "primary" : "filePrimary"}
+                onClick={onFileProcess}
+              >
+                <Play size={14} fill="currentColor" /> Process
+              </FileActionButton>
+            )
+          ) : isConnected &&
+            (deviceState === "loading" &&
               deviceLoadingReason === "restart" ? (
               <WarningButton
                 $paused={false}
@@ -255,7 +482,7 @@ export const ConnectionStatusSection: React.FC<
         )}
       </ConnectionStatusContainer>
 
-      {cryptoCorrupted && (
+      {cryptoCorrupted && !fileMode && (
         <div style={{ gridColumn: "1 / -1", marginTop: "8px" }}>
           <DecryptionFallback moduleName="Live Stream" errorType="vault" />
         </div>

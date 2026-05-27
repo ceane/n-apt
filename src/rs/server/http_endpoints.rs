@@ -19,6 +19,7 @@ use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
+use super::websocket_server::reconcile_stale_device_snapshot;
 use crate::fft::anti_aliasing;
 use crate::sdr::rtlsdr::RtlSdrDevice;
 
@@ -561,6 +562,7 @@ pub async fn towers_bounds_handler(
 pub async fn status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  let _ = reconcile_stale_device_snapshot(&state.shared);
   let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
   let device_info = state.shared.device_info.lock().unwrap().clone();
   let client_count = state.shared.client_count.load(Ordering::Relaxed);
@@ -903,6 +905,7 @@ pub async fn agent_status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   let shared = &state.shared;
+  let _ = reconcile_stale_device_snapshot(shared);
 
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let client_count = shared.client_count.load(Ordering::Relaxed);

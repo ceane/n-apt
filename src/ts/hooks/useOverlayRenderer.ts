@@ -347,7 +347,8 @@ export function useOverlayRenderer() {
       const anchorRange = fullCaptureRange || _frequencyRange;
       const totalSpan = anchorRange.max - anchorRange.min;
       const hwSpanHz = _hardwareSampleRateHz ? _hardwareSampleRateHz : 0;
-      const shouldShowHWGrid = totalSpan > hwSpanHz + 1 && hwSpanHz > 0;
+      const shouldShowHWGrid =
+        !!_isIqRecordingActive && totalSpan > hwSpanHz + 1 && hwSpanHz > 0;
 
       if (shouldShowHWGrid) {
         ctx.save();

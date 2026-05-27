@@ -15,7 +15,11 @@ use crate::crypto;
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::utils::reconcile_device_state;
-use super::utils::{status_device_backend_label, status_device_name};
+use super::utils::{
+  resolve_device_sample_rate_options, status_device_backend_label,
+  status_device_name,
+};
+use super::websocket_server::reconcile_stale_device_snapshot;
 
 /// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
 /// Returns (available_sizes, recommended_size).
@@ -131,6 +135,7 @@ pub async fn handle_ws_connection(
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
+  let _ = reconcile_stale_device_snapshot(&shared);
 
   // Send initial status
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
@@ -156,16 +161,13 @@ pub async fn handle_ws_connection(
   let sdr_settings = { shared.sdr_settings.lock().unwrap().clone() };
   let device_profile = shared.device_profile.lock().unwrap().clone();
 
-  let max_sample_rate = if device_connected {
-    device_info
-      .split("Rate: ")
-      .nth(1)
-      .and_then(|s| s.split(" Hz").next())
-      .and_then(|s| s.parse::<u32>().ok())
-      .unwrap_or(64_000_000)
-  } else {
-    64_000_000
-  };
+  let (max_sample_rate, sample_rate_options) =
+    resolve_device_sample_rate_options(
+      device_connected,
+      &device_info,
+      &device_profile,
+      &sdr_settings,
+    );
 
   let device_name =
     status_device_name(device_connected, &device_info, &device_profile);
@@ -187,7 +189,7 @@ pub async fn handle_ws_connection(
     device_state,
     paused,
     max_sample_rate,
-    sample_rate_options: vec![max_sample_rate],
+    sample_rate_options,
     channels: channels
       .into_iter()
       .map(|c| super::types::SpectrumFrameMessage {
@@ -429,6 +431,13 @@ pub fn handle_message(
         );
         let device_backend_error =
           shared.device_backend_error.lock().unwrap().clone();
+        let (max_sample_rate, sample_rate_options) =
+          resolve_device_sample_rate_options(
+            device_connected,
+            &device_info,
+            &device_profile,
+            &sdr_settings,
+          );
 
         let status = super::types::StatusMessage {
           message_type: "status".to_string(),
@@ -439,8 +448,8 @@ pub fn handle_message(
           device_loading_reason,
           device_state,
           paused,
-          max_sample_rate: sdr_settings.sample_rate,
-          sample_rate_options: vec![sdr_settings.sample_rate],
+          max_sample_rate,
+          sample_rate_options,
           channels,
           sdr_settings,
           device: device_backend,

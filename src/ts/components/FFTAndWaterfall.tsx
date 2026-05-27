@@ -108,9 +108,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         if (wsState.cryptoCorrupted) {
           return "Crypto Corrupted";
         }
-        if (wsState.deviceState === "stale") {
-          return "Device Stream Frozen";
-        }
       }
       return null;
     }, [
@@ -118,7 +115,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       sourceMode,
       wsState.isConnected,
       wsState.cryptoCorrupted,
-      wsState.deviceState,
     ]);
 
     const awaitingDeviceData = useMemo(() => {

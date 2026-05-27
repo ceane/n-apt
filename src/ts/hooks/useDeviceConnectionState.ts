@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Dispatch } from "react";
 
 interface UseDeviceConnectionStateOptions {
@@ -16,21 +16,39 @@ export const useDeviceConnectionState = ({
   showSpikeOverlay,
   dispatch,
 }: UseDeviceConnectionStateOptions) => {
+  const lastUnavailableStateRef = useRef<{
+    deviceState: string;
+    showSpikeOverlay: boolean;
+  } | null>(null);
+
   useEffect(() => {
+    if (deviceState === "connected") {
+      lastUnavailableStateRef.current = null;
+      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
+      return;
+    }
+
+    const lastUnavailableState = lastUnavailableStateRef.current;
+    if (
+      lastUnavailableState &&
+      lastUnavailableState.deviceState === deviceState &&
+      lastUnavailableState.showSpikeOverlay === showSpikeOverlay
+    ) {
+      return;
+    }
+
+    lastUnavailableStateRef.current = { deviceState, showSpikeOverlay };
+
     if (deviceState !== "connected" && showSpikeOverlay) {
       dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
     }
-    if (deviceState !== "connected") {
-      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });
-      dispatch({
-        type: "SET_HETERODYNING_RESULT",
-        detected: false,
-        confidence: null,
-        statusText: "Unavailable",
-        highlightedBins: [],
-      });
-    } else {
-      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
-    }
+    dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });
+    dispatch({
+      type: "SET_HETERODYNING_RESULT",
+      detected: false,
+      confidence: null,
+      statusText: "Unavailable",
+      highlightedBins: [],
+    });
   }, [deviceState, showSpikeOverlay, dispatch]);
 };

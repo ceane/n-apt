@@ -413,13 +413,12 @@ export function useFrequencyDrag({
 
       const currentHardwareCenter =
         (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
-      const visualCenter = currentHardwareCenter + overflowPan;
       const hardwareSpan = fullRange;
       const halfHardware = hardwareSpan / 2;
 
       const clampedHardwareRange = clampRangeToTuningBounds({
-        min: visualCenter - halfHardware,
-        max: visualCenter + halfHardware,
+        min: currentHardwareCenter + overflowPan - halfHardware,
+        max: currentHardwareCenter + overflowPan + halfHardware,
       });
 
       const newHardwareCenter =
@@ -430,7 +429,7 @@ export function useFrequencyDrag({
       });
 
       const remainingPan = clampVizPan(
-        visualCenter - newHardwareCenter,
+        nextPan - (newHardwareCenter - currentHardwareCenter),
         clampedHardwareRange,
         zoom,
       );

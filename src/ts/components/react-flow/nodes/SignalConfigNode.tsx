@@ -157,6 +157,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     backend: liveBackend,
     deviceProfile: liveDeviceProfileToUse,
     autoFftOptions: liveAutoFftOptions,
+    sampleRateOptions: liveSampleRateOptions,
   } = wsConnection;
 
   const {
@@ -172,6 +173,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     maxSampleRate: sampleRateHzEffective || 3_200_000,
     minReceiveSampleRate:
       liveSdrSettingsConfig?.min_receive_sample_rate ?? undefined,
+    sampleRateOptions: liveSampleRateOptions,
     sdrSettings: liveSdrSettingsConfig,
     onSettingsChange: (settings) => dispatch(sendSettings(settings)),
   });

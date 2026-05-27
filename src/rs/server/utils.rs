@@ -7,7 +7,7 @@ use std::io::Write;
 use std::sync::RwLock;
 
 use super::types::{AvailableSpectrumConfig, CaptureArtifact, ChannelSpec};
-use super::types::{NaptConfig, SdrConfig};
+use super::types::{DeviceProfile, NaptConfig, SdrConfig};
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
@@ -597,6 +597,51 @@ pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
   }
 }
 
+pub fn parse_device_info_sample_rate(device_info: &str) -> Option<u32> {
+  device_info
+    .split("Rate: ")
+    .nth(1)
+    .and_then(|s| s.split(" Hz").next())
+    .and_then(|s| s.parse::<u32>().ok())
+}
+
+pub fn device_sample_rate_ceiling(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &DeviceProfile,
+  sdr_settings: &SdrConfig,
+) -> u32 {
+  if matches!(device_profile.kind.as_str(), "hackrf_one") {
+    return 20_000_000;
+  }
+
+  if device_connected {
+    parse_device_info_sample_rate(device_info).unwrap_or(sdr_settings.sample_rate)
+  } else {
+    sdr_settings.sample_rate
+  }
+}
+
+pub fn resolve_device_sample_rate_options(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &DeviceProfile,
+  sdr_settings: &SdrConfig,
+) -> (u32, Vec<u32>) {
+  let ceiling =
+    device_sample_rate_ceiling(device_connected, device_info, device_profile, sdr_settings);
+  let floor = sdr_settings.min_receive_sample_rate.unwrap_or(sdr_settings.sample_rate);
+
+  if let Some(device_cfg) = sdr_settings.devices.get(device_config_key(device_profile)) {
+    (
+      ceiling,
+      device_cfg.sample_rate.resolve_options(floor, ceiling),
+    )
+  } else {
+    (ceiling, vec![ceiling])
+  }
+}
+
 pub fn status_device_backend_label(
   device_connected: bool,
   device_info: &str,
@@ -735,6 +780,31 @@ mod tests {
     let napt = NaptConfig { channels };
     let floor = compute_min_receive_sample_rate(&napt, 20_000_000);
     assert_eq!(floor, 9_125_000);
+  }
+
+  #[test]
+  fn resolves_hackrf_sample_rate_options_from_device_ceiling() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: true,
+    };
+
+    let settings = load_sdr_settings();
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      true,
+      "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 20_000_000);
+    assert!(options.len() > 1);
+    assert_eq!(options.last().copied(), Some(20_000_000));
   }
 
   #[test]

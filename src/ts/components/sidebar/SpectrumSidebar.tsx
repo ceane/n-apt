@@ -1,7 +1,14 @@
 import React, { useMemo, useState, useEffect, useCallback, memo } from "react";
 import styled from "styled-components";
-import { Unplug } from "lucide-react";
-import { useAppSelector, useAppDispatch } from "@n-apt/redux";
+import { Trash2, Unplug } from "lucide-react";
+import {
+  useAppSelector,
+  useAppDispatch,
+  selectNoteCards,
+  selectNoteCardsCollapsed,
+  setNoteCardsCollapsed,
+  removeNoteCard,
+} from "@n-apt/redux";
 import {
   getSupportedSnapshotVideoFormat,
   type SnapshotVideoFormat,
@@ -22,8 +29,6 @@ import {
   setDisplayMode,
   setFftWindow as setFftWindowAction,
   setFileMetadata,
-  selectNoteCardsCollapsed,
-  setNoteCardsCollapsed,
   bumpSnapshotSectionPulse,
 } from "@n-apt/redux";
 import { NaptMetadata } from "@n-apt/consts/types";
@@ -57,8 +62,14 @@ import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
+import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
-import { parseFrequency } from "@n-apt/utils/frequency";
+import {
+  getFrequencyRangeCenterHz,
+  clampFrequencyRangeToBounds,
+  normalizeFrequencyRangeToHz,
+  parseFrequency,
+} from "@n-apt/utils/frequency";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -114,23 +125,6 @@ const ResetButton = memo(styled(Button)`
   border: 1px solid ${(props) => props.theme.borderHover};
 `);
 
-const NoteCardActionSection = memo(styled.div`
-  grid-column: 1 / -1;
-  position: sticky;
-  top: 112px;
-  z-index: 99;
-  margin: 12px 0 20px;
-  padding: 8px 0 4px;
-  background-color: ${(props) => props.theme.background};
-  backdrop-filter: blur(4px);
-`);
-
-const NoteCardActionButtons = memo(styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-`);
-
 const NoteCardActionButton = memo(styled(Button)<{ $active?: boolean }>`
   width: 100%;
   border: 1px solid
@@ -144,6 +138,31 @@ const NoteCardActionButton = memo(styled(Button)<{ $active?: boolean }>`
     border-color: ${({ theme }) => theme.borderHover};
     color: ${({ theme }) => theme.textPrimary};
     background-color: ${({ theme }) => theme.surfaceHover};
+  }
+`);
+
+const NoteRow = memo(styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+  width: 100%;
+`);
+
+const NoteDeleteButton = memo(styled(Button)`
+  min-width: 38px;
+  width: 38px;
+  padding: 0;
+  justify-content: center;
+  border: 1px solid ${(props) => props.theme.border};
+  background-color: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textSecondary};
+  box-shadow: none;
+
+  &:hover {
+    border-color: ${(props) => props.theme.danger};
+    background-color: ${(props) => props.theme.danger}20;
+    color: ${(props) => props.theme.danger};
   }
 `);
 
@@ -327,12 +346,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
+  const noteCards = useAppSelector(selectNoteCards);
+  const { showPrompt } = usePrompt();
   const {
     state: liveState,
     dispatch: storeDispatch,
     effectiveFrames,
     effectiveSdrSettings,
     sampleRateHzEffective,
+    signalAreaBounds,
     wsConnection,
     manualVisualizerPaused,
     toggleVisualizerPause: toggleLiveVisualizerPause,
@@ -364,6 +386,24 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     vizPanOffset,
     displayMode,
   } = liveState;
+  const activeSignalAreaBounds =
+    signalAreaBounds?.[activeSignalArea] ??
+    signalAreaBounds?.[activeSignalArea?.toLowerCase?.()] ??
+    null;
+  const activeFrameForArea = useMemo(() => {
+    const area = activeSignalArea?.toLowerCase?.() ?? "";
+    return (
+      effectiveFrames.find((frame) => frame.label.toLowerCase() === area) ??
+      effectiveFrames.find((frame) => frame.label === activeSignalArea) ??
+      null
+    );
+  }, [activeSignalArea, effectiveFrames]);
+  const activeChannelSampleRate =
+    activeFrameForArea && activeFrameForArea.max_hz > activeFrameForArea.min_hz
+      ? activeFrameForArea.max_hz - activeFrameForArea.min_hz
+      : activeSignalAreaBounds
+        ? activeSignalAreaBounds.max - activeSignalAreaBounds.min
+        : null;
 
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const connectionStatus = useAppSelector((s) => s.websocket.connectionStatus);
@@ -400,6 +440,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveDeviceName ?? wsConnection.deviceName ?? deviceName;
   const liveDeviceProfileToUse =
     liveDeviceProfile ?? wsConnection.deviceProfile ?? deviceProfile;
+  const isHackrfOne =
+    liveDeviceProfileToUse?.kind === "hackrf_one" ||
+    liveBackend?.toLowerCase() === "hackrf_one";
+  const liveSampleRateOptions = wsConnection.sampleRateOptions;
   const isMockLiveSource =
     sourceMode === "live" &&
     (liveBackend?.toLowerCase().includes("mock") ||
@@ -452,6 +496,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxSampleRate,
     minReceiveSampleRate:
       liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
+    sampleRateOptions: liveSampleRateOptions,
     sdrSettings: liveSdrSettingsToUse,
     spectrumStateOverride: {
       fftSize,
@@ -496,6 +541,77 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sendLiveSettings(settings);
     },
   });
+
+  const handleSampleRateChange = useCallback(
+    (nextSampleRate: number) => {
+      setSampleRate(nextSampleRate);
+
+      if (
+        sourceMode !== "live" ||
+        !frequencyRange ||
+        !Number.isFinite(nextSampleRate) ||
+        nextSampleRate <= 0
+      ) {
+        return;
+      }
+
+      const centerHz = getFrequencyRangeCenterHz(frequencyRange);
+      const nextRange = normalizeFrequencyRangeToHz({
+        min: centerHz - nextSampleRate / 2,
+        max: centerHz + nextSampleRate / 2,
+      });
+      const channelSpan = activeSignalAreaBounds
+        ? activeSignalAreaBounds.max - activeSignalAreaBounds.min
+        : 0;
+      const clampedRange =
+        channelSpan > 0 && nextSampleRate > channelSpan
+          ? normalizeFrequencyRangeToHz(nextRange)
+          : clampFrequencyRangeToBounds(nextRange, activeSignalAreaBounds);
+
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
+      wsConnection.sendFrequencyRange(clampedRange);
+    },
+    [
+      activeSignalAreaBounds,
+      frequencyRange,
+      setSampleRate,
+      sourceMode,
+      storeDispatch,
+      wsConnection,
+    ],
+  );
+
+  useEffect(() => {
+    if (sourceMode !== "live" || !isHackrfOne || !activeChannelSampleRate) {
+      return;
+    }
+
+    const channelSpan = activeChannelSampleRate;
+    if (!Number.isFinite(channelSpan) || channelSpan <= 0) return;
+
+    const nextRate = Math.round(channelSpan);
+    if (liveState.sampleRateHz === nextRate) return;
+
+    setSampleRate(nextRate);
+    if (frequencyRange) {
+      const centerHz = getFrequencyRangeCenterHz(frequencyRange);
+      const nextRange = normalizeFrequencyRangeToHz({
+        min: centerHz - nextRate / 2,
+        max: centerHz + nextRate / 2,
+      });
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+      wsConnection.sendFrequencyRange(nextRange);
+    }
+  }, [
+    activeChannelSampleRate,
+    frequencyRange,
+    isHackrfOne,
+    liveState.sampleRateHz,
+    setSampleRate,
+    sourceMode,
+    storeDispatch,
+    wsConnection,
+  ]);
 
   useEffect(() => {
     if (!liveSdrSettingsToUse) return;
@@ -565,7 +681,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   // Capture UI state
-  const { showPrompt } = usePrompt();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>([
     "Onscreen",
   ]);
@@ -615,10 +730,38 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
     null,
   );
+  const [lastAutoProcessSignature, setLastAutoProcessSignature] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     dispatch(setFileMetadata(naptMetadata));
   }, [naptMetadata, dispatch]);
+
+  useEffect(() => {
+    if (sourceMode !== "file") return;
+    if (selectedFiles.length === 0) {
+      setLastAutoProcessSignature(null);
+      return;
+    }
+
+    const signature = selectedFiles
+      .map((file) => `${file.id}:${file.name}`)
+      .sort()
+      .join("|");
+
+    if (!signature || signature === lastAutoProcessSignature) return;
+
+    setLastAutoProcessSignature(signature);
+    dispatch(triggerStitch());
+    storeDispatch({ type: "TRIGGER_STITCH" });
+  }, [
+    sourceMode,
+    selectedFiles,
+    lastAutoProcessSignature,
+    dispatch,
+    storeDispatch,
+  ]);
 
   // Handle Playback after capture
   useEffect(() => {
@@ -671,6 +814,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const lower = f.name.toLowerCase();
     return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
   }, [sourceMode, selectedFiles]);
+
+  const isMockFile = useMemo(() => {
+    const metadataSource = [
+      naptMetadata?.source_device,
+      naptMetadata?.hardware,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return metadataSource.includes("mock");
+  }, [naptMetadata]);
 
   // Initial paused state for file mode - always reset to paused when entering file mode
   useEffect(() => {
@@ -1188,6 +1343,32 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
       {sourceMode === "file" && (
         <>
+          <ConnectionStatusSection
+            isConnected={isConnected}
+            deviceState={liveDeviceState}
+            deviceLoadingReason={liveDeviceLoadingReason}
+            isPaused={isPaused}
+            cryptoCorrupted={liveCryptoCorrupted}
+            onPauseToggle={toggleVisualizerPause}
+            hidePauseButton
+            fileMode
+            fileProcessingStatus={stitchStatus}
+            fileIsPaused={isStitchPaused}
+            hasFileSelected={selectedFiles.length > 0}
+            isMockFile={isMockFile}
+            onFileProcess={() => {
+              dispatch(triggerStitch());
+              storeDispatch({ type: "TRIGGER_STITCH" });
+            }}
+            onFilePauseToggle={() => {
+              dispatch(setStitchPaused(!isStitchPaused));
+              storeDispatch({
+                type: "SET_STITCH_PAUSED",
+                paused: !isStitchPaused,
+              });
+            }}
+          />
+
           <FileSelectionSidebar
             selectedFiles={selectedFiles}
             onSelectedFilesChange={(
@@ -1198,21 +1379,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }}
             stitchStatus={stitchStatus}
             isStitchPaused={isStitchPaused}
-            onStitch={() => {
-              dispatch(triggerStitch());
-              storeDispatch({ type: "TRIGGER_STITCH" });
-            }}
             onClear={() => {
               dispatch(setSelectedFiles([]));
               storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
               dispatch(clearWaterfall());
-            }}
-            onStitchPauseToggle={() => {
-              dispatch(setStitchPaused(!isStitchPaused));
-              storeDispatch({
-                type: "SET_STITCH_PAUSED",
-                paused: !isStitchPaused,
-              });
             }}
             selectedPrimaryFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
@@ -1257,6 +1427,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               maxSampleRate
             }
             sampleRateOptions={sampleRateOptions}
+            wholeChannelSampleRate={
+              isHackrfOne && activeChannelSampleRate
+                ? activeChannelSampleRate
+                : null
+            }
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={4}
             maxFrameRate={4}
@@ -1308,8 +1483,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onRestartDevice={handleRestartDevice}
           />
 
-          <NoteCardActionSection>
-            <NoteCardActionButtons>
+          <Collapsible
+            key={`notes-collapsible-${notesCollapsed ? "closed" : "open"}`}
+            title="Notes"
+            defaultOpen={!notesCollapsed}
+            onOpenChange={(isOpen) => dispatch(setNoteCardsCollapsed(!isOpen))}
+          >
+            <Section $marginBottom="12px">
               <NoteCardActionButton
                 $variant="secondary"
                 type="button"
@@ -1317,7 +1497,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 disabled={!onCreateNoteCard}
                 title="Create a note from the current spectrum"
               >
-                Add New Note
+                New Note
               </NoteCardActionButton>
               <NoteCardActionButton
                 $variant="secondary"
@@ -1328,8 +1508,54 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               >
                 {notesCollapsed ? "Show Notes" : "Hide Notes"}
               </NoteCardActionButton>
-            </NoteCardActionButtons>
-          </NoteCardActionSection>
+            </Section>
+            <Section>
+              {noteCards.length === 0 ? (
+                <div
+                  style={{
+                    color: "inherit",
+                    opacity: 0.7,
+                    fontSize: "12px",
+                    gridColumn: "1 / -1",
+                  }}
+                >
+                  No notes
+                </div>
+              ) : (
+                noteCards.map((noteCard) => (
+                  <NoteRow key={noteCard.id}>
+                    <NoteCardActionButton
+                      $variant="secondary"
+                      type="button"
+                      title={noteCard.title || "Saved note"}
+                      style={{ justifyContent: "flex-start" }}
+                    >
+                      {noteCard.title?.trim() || "Untitled note"}
+                    </NoteCardActionButton>
+                    <NoteDeleteButton
+                      $variant="secondary"
+                      type="button"
+                      aria-label={`Delete note ${noteCard.title?.trim() || "Untitled note"}`}
+                      title="Delete note"
+                      onClick={() => {
+                        showPrompt({
+                          title: "Delete note?",
+                          message:
+                            "This will permanently remove the saved note from the sidebar.",
+                          confirmText: "Delete",
+                          cancelText: "Cancel",
+                          variant: "danger",
+                          onConfirm: () => dispatch(removeNoteCard(noteCard.id)),
+                        });
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </NoteDeleteButton>
+                  </NoteRow>
+                ))
+              )}
+            </Section>
+          </Collapsible>
 
           <Section>
             <ResetButton
@@ -1425,7 +1651,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
-            onSampleRateChange={setSampleRate}
+            onSampleRateChange={handleSampleRateChange}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });

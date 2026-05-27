@@ -52,6 +52,7 @@ jest.mock("@n-apt/hooks/useWebSocket", () => ({
 
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
+  sampleRateOptions?: number[];
   spectrumStateOverride?: Pick<
     SpectrumState,
     | "fftSize"
@@ -66,11 +67,13 @@ type HookHarnessProps = {
 
 const HookHarness: React.FC<HookHarnessProps> = ({
   sdrSettings,
+  sampleRateOptions,
   spectrumStateOverride,
 }) => {
   const { fftSize, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, fftSizeOptions } =
     useSdrSettings({
       maxSampleRate: sdrSettings.sample_rate,
+      sampleRateOptions,
       onSettingsChange: jest.fn(),
       sdrSettings,
       spectrumStateOverride,
@@ -85,6 +88,9 @@ const HookHarness: React.FC<HookHarnessProps> = ({
       <div data-testid="tunerAGC">{String(tunerAGC)}</div>
       <div data-testid="rtlAGC">{String(rtlAGC)}</div>
       <div data-testid="fftSizeOptions">{fftSizeOptions.join(",")}</div>
+      <div data-testid="sampleRateOptions">
+        {sampleRateOptions?.join(",")}
+      </div>
     </div>
   );
 };
@@ -137,6 +143,35 @@ describe("useSdrSettings", () => {
     expect(screen.getByTestId("rtlAGC")).toHaveTextContent("true");
     expect(screen.getByTestId("fftSizeOptions")).toHaveTextContent(
       "8192,16384",
+    );
+  });
+
+  it("prefers backend sample rate options when provided", () => {
+    const backendSampleRates = [
+      9_125_000,
+      10_000_000,
+      12_800_000,
+      16_000_000,
+      20_000_000,
+    ];
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <AuthProvider>
+            <SpectrumProvider>
+              <HookHarness
+                sdrSettings={mockSdrSettings}
+                sampleRateOptions={backendSampleRates}
+              />
+            </SpectrumProvider>
+          </AuthProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(screen.getByTestId("sampleRateOptions")).toHaveTextContent(
+      "9125000,10000000,12800000,16000000,20000000",
     );
   });
 

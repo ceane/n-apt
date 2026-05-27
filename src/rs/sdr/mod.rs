@@ -13,6 +13,39 @@
 
 use crate::fft::types::RawSamples;
 use anyhow::Result;
+use std::thread;
+use std::time::Duration;
+
+#[cfg(has_hackrf)]
+const HACKRF_OPEN_RETRY_ATTEMPTS: usize = 5;
+#[cfg(has_hackrf)]
+const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(250);
+
+#[cfg(has_hackrf)]
+fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
+  let mut last_err = None;
+  for attempt in 1..=HACKRF_OPEN_RETRY_ATTEMPTS {
+    match crate::sdr::hackrf::HackRfDevice::open_first() {
+      Ok(device) => {
+        log::info!(
+          "Using HackRF One device after {} attempt(s)",
+          attempt
+        );
+        return Ok(Box::new(device));
+      }
+      Err(err) => {
+        last_err = Some(err);
+        if attempt < HACKRF_OPEN_RETRY_ATTEMPTS {
+          thread::sleep(HACKRF_OPEN_RETRY_DELAY);
+        }
+      }
+    }
+  }
+
+  Err(last_err.unwrap_or_else(|| {
+    anyhow::anyhow!("Failed to open HackRF One device")
+  }))
+}
 
 /// Common interface for all SDR device implementations
 pub trait SdrDevice: Send {
@@ -67,6 +100,12 @@ pub trait SdrDevice: Send {
   /// Get current sample rate
   fn get_sample_rate(&self) -> u32;
 
+  /// Get the maximum supported sample rate.
+  /// Defaults to the current sample rate for devices that do not expose a ceiling.
+  fn get_max_sample_rate(&mut self) -> u32 {
+    self.get_sample_rate()
+  }
+
   /// Flush software-side sample buffers (overflow + async queue) without
   /// touching the hardware. Called after frequency hops to discard stale
   /// samples from the previous tuning / PLL settling period.
@@ -102,9 +141,8 @@ impl SdrDeviceFactory {
     // then finally to the mock device.
     #[cfg(has_hackrf)]
     {
-      if let Ok(device) = crate::sdr::hackrf::HackRfDevice::open_first() {
-        log::info!("Using HackRF One device");
-        return Ok(Box::new(device));
+      if let Ok(device) = open_hackrf_with_retry() {
+        return Ok(device);
       }
     }
 
@@ -142,9 +180,7 @@ impl SdrDeviceFactory {
   /// Force creation of a HackRF One device (will error if none available)
   #[cfg(has_hackrf)]
   pub fn create_hackrf_device() -> Result<Box<dyn SdrDevice>> {
-    let device = crate::sdr::hackrf::HackRfDevice::open_first()?;
-    log::info!("Using HackRF One device");
-    Ok(Box::new(device))
+    open_hackrf_with_retry()
   }
 
   #[cfg(not(has_hackrf))]

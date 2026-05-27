@@ -1,4 +1,6 @@
 use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
+#[cfg(has_hackrf)]
+use crate::sdr::hackrf::ffi as hackrf_ffi;
 use crate::server::shared_state::{
   SharedState, DEVICE_PROBE_INTERVAL, DISCONNECT_FAILURE_THRESHOLD,
   MAX_RECOVERY_ATTEMPTS,
@@ -6,6 +8,10 @@ use crate::server::shared_state::{
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
+#[cfg(has_hackrf)]
+use std::os::raw::c_int;
+#[cfg(has_hackrf)]
+use std::slice;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -16,6 +22,9 @@ use tokio::sync::broadcast;
 use crate::server::websocket_server::{
   broadcast_device_status, build_device_profile,
 };
+
+const HACKRF_DISCONNECT_ADVISORY: &str =
+  "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
 #[derive(Debug)]
 pub struct HotplugState {
@@ -61,6 +70,19 @@ pub enum HotplugEventKind {
 pub struct HotplugEvent {
   pub kind: HotplugEventKind,
   pub device_type: String,
+  pub vendor_id: Option<u16>,
+  pub product_id: Option<u16>,
+  pub bus_number: u8,
+  pub address: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsbDeviceSnapshot {
+  pub device_type: String,
+  pub vendor_id: u16,
+  pub product_id: u16,
+  pub bus_number: u8,
+  pub address: u8,
 }
 
 struct MonitorCallback {
@@ -69,18 +91,26 @@ struct MonitorCallback {
 
 impl Hotplug<Context> for MonitorCallback {
   fn device_arrived(&mut self, device: Device<Context>) {
-    let device_type = device_type_hint(&device);
+    let snapshot = hotplug_event_snapshot(&device);
     let _ = self.tx.send(HotplugEvent {
       kind: HotplugEventKind::Attached,
-      device_type,
+      device_type: snapshot.device_type,
+      vendor_id: snapshot.vendor_id,
+      product_id: snapshot.product_id,
+      bus_number: snapshot.bus_number,
+      address: snapshot.address,
     });
   }
 
   fn device_left(&mut self, device: Device<Context>) {
-    let device_type = device_type_hint(&device);
+    let snapshot = hotplug_event_snapshot(&device);
     let _ = self.tx.send(HotplugEvent {
       kind: HotplugEventKind::Detached,
-      device_type,
+      device_type: snapshot.device_type,
+      vendor_id: snapshot.vendor_id,
+      product_id: snapshot.product_id,
+      bus_number: snapshot.bus_number,
+      address: snapshot.address,
     });
   }
 }
@@ -117,6 +147,48 @@ fn supported_usb_device_present() -> bool {
   matches!(scan_usb_for_supported_device(), Ok(Some(_)))
 }
 
+#[cfg(has_hackrf)]
+fn is_supported_hackrf_board_id(board_id: c_int) -> bool {
+  matches!(
+    board_id,
+    hackrf_ffi::USB_BOARD_ID_JAWBREAKER
+      | hackrf_ffi::USB_BOARD_ID_HACKRF_ONE
+      | hackrf_ffi::USB_BOARD_ID_RAD1O
+  )
+}
+
+#[cfg(has_hackrf)]
+fn hackrf_device_present() -> bool {
+  unsafe {
+    if hackrf_ffi::hackrf_init() != 0 {
+      return false;
+    }
+
+    let list = hackrf_ffi::hackrf_device_list();
+    if list.is_null() {
+      let _ = hackrf_ffi::hackrf_exit();
+      return false;
+    }
+
+    let found = {
+      let device_list = &*list;
+      if device_list.devicecount <= 0 || device_list.usb_board_ids.is_null() {
+        false
+      } else {
+        let ids = slice::from_raw_parts(
+          device_list.usb_board_ids,
+          device_list.devicecount as usize,
+        );
+        ids.iter().any(|id| is_supported_hackrf_board_id(*id))
+      }
+    };
+
+    hackrf_ffi::hackrf_device_list_free(list);
+    let _ = hackrf_ffi::hackrf_exit();
+    found
+  }
+}
+
 fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
   let context = Context::new()
     .map_err(|e| anyhow!("Failed to initialize libusb context: {}", e))?;
@@ -142,38 +214,88 @@ fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
   }
 }
 
-fn device_type_hint<T: rusb::UsbContext>(device: &Device<T>) -> String {
-  let desc = device.device_descriptor();
-  if let Ok(desc) = desc {
-    match (desc.vendor_id(), desc.product_id()) {
-      (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
-        "rtl-sdr".to_string()
-      }
-      (0x1d50, _) => "hackrf_one".to_string(),
-      _ => "unknown".to_string(),
+fn device_type_from_ids(vendor_id: u16, product_id: u16) -> &'static str {
+  match (vendor_id, product_id) {
+    (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
+      "rtl-sdr"
     }
-  } else {
-    "unknown".to_string()
+    (0x1d50, _) => "hackrf_one",
+    (0x1fc9, 0x000c) => "hackrf_dfu",
+    _ => "unknown",
   }
 }
 
-pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
+fn hotplug_event_snapshot<T: rusb::UsbContext>(
+  device: &Device<T>,
+) -> HotplugEventSnapshot {
+  let (vendor_id, product_id, device_type) = match device.device_descriptor() {
+    Ok(desc) => {
+      let vendor_id = desc.vendor_id();
+      let product_id = desc.product_id();
+      (
+        Some(vendor_id),
+        Some(product_id),
+        device_type_from_ids(vendor_id, product_id).to_string(),
+      )
+    }
+    Err(_) => (None, None, "unknown".to_string()),
+  };
+
+  HotplugEventSnapshot {
+    device_type,
+    vendor_id,
+    product_id,
+    bus_number: device.bus_number(),
+    address: device.address(),
+  }
+}
+
+struct HotplugEventSnapshot {
+  device_type: String,
+  vendor_id: Option<u16>,
+  product_id: Option<u16>,
+  bus_number: u8,
+  address: u8,
+}
+
+pub fn scan_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
   let context = Context::new()
     .map_err(|e| anyhow!("Failed to initialize libusb context: {}", e))?;
   let devices = context
     .devices()
     .map_err(|e| anyhow!("Failed to enumerate USB devices: {}", e))?;
 
+  let mut snapshots = Vec::new();
   for device in devices.iter() {
     if let Ok(desc) = device.device_descriptor() {
-      match (desc.vendor_id(), desc.product_id()) {
-        (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
-          return Ok(Some("rtl-sdr".to_string()))
-        }
-        (0x1d50, _) => return Ok(Some("hackrf_one".to_string())),
-        _ => {}
-      }
+      let vendor_id = desc.vendor_id();
+      let product_id = desc.product_id();
+      snapshots.push(UsbDeviceSnapshot {
+        device_type: device_type_from_ids(vendor_id, product_id).to_string(),
+        vendor_id,
+        product_id,
+        bus_number: device.bus_number(),
+        address: device.address(),
+      });
     }
+  }
+
+  Ok(snapshots)
+}
+
+pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
+  for snapshot in scan_usb_device_snapshots()? {
+    match snapshot.device_type.as_str() {
+      "rtl-sdr" | "hackrf_one" | "hackrf_dfu" => {
+        return Ok(Some(snapshot.device_type))
+      }
+      _ => {}
+    }
+  }
+
+  #[cfg(has_hackrf)]
+  if hackrf_device_present() {
+    return Ok(Some("hackrf_one".to_string()));
   }
 
   Ok(None)
@@ -216,11 +338,22 @@ pub async fn drain_hotplug_events(
   broadcast_tx: &broadcast::Sender<String>,
 ) {
   let current_count = if supported_usb_device_present() { 1 } else { 0 };
-  if current_count != state.last_seen_device_count {
-    info!(
-      "Supported USB device presence changed from {} to {}",
-      state.last_seen_device_count, current_count
-    );
+  let should_reconcile = should_reconcile_hotplug_state(
+    current_count,
+    state.last_seen_device_count,
+    processor.is_mock(),
+  );
+  if should_reconcile {
+    if current_count != state.last_seen_device_count {
+      info!(
+        "Supported USB device presence changed from {} to {}",
+        state.last_seen_device_count, current_count
+      );
+    } else {
+      info!(
+        "Supported USB device still present while processor is mock; attempting attach"
+      );
+    }
     state.last_seen_device_count = current_count;
     if current_count == 0 && !processor.is_mock() {
       let _ =
@@ -243,26 +376,56 @@ pub async fn drain_hotplug_events(
     match event.kind {
       HotplugEventKind::Attached => {
         if event.device_type == "unknown" {
-          debug!("Ignoring unrelated USB attach event");
+          debug!(
+            "Ignoring unrelated USB attach event: {}",
+            format_hotplug_event_device(&event)
+          );
         } else {
           info!(
-            "USB attach event received for {} (will reconcile on device count)",
-            event.device_type
+            "USB attach event received for {} ({})",
+            event.device_type,
+            format_hotplug_event_device(&event)
           );
         }
       }
       HotplugEventKind::Detached => {
         if event.device_type == "unknown" {
-          debug!("Ignoring unrelated USB detach event");
+          debug!(
+            "Ignoring unrelated USB detach event: {}",
+            format_hotplug_event_device(&event)
+          );
         } else {
           info!(
-            "USB detach event received for {} (will reconcile on device count)",
-            event.device_type
+            "USB detach event received for {} ({})",
+            event.device_type,
+            format_hotplug_event_device(&event)
           );
         }
       }
     }
   }
+}
+
+fn format_hotplug_event_device(event: &HotplugEvent) -> String {
+  match (event.vendor_id, event.product_id) {
+    (Some(vendor_id), Some(product_id)) => format!(
+      "vid=0x{:04x} pid=0x{:04x} bus={} address={}",
+      vendor_id, product_id, event.bus_number, event.address
+    ),
+    _ => format!(
+      "descriptor unavailable bus={} address={}",
+      event.bus_number, event.address
+    ),
+  }
+}
+
+fn should_reconcile_hotplug_state(
+  current_count: u32,
+  last_seen_device_count: u32,
+  processor_is_mock: bool,
+) -> bool {
+  current_count != last_seen_device_count
+    || (processor_is_mock && current_count > 0)
 }
 
 async fn attach_real_device(
@@ -331,7 +494,12 @@ async fn disconnect_to_mock(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
+  let previous_device_type = processor.device_type();
   shared_state.set_device_state("disconnected", None);
+  if previous_device_type == "hackrf_one" {
+    shared_state
+      .set_device_backend_error(Some(HACKRF_DISCONNECT_ADVISORY.to_string()));
+  }
   broadcast_device_status(shared_state, broadcast_tx);
   let mock_device = SdrDeviceFactory::create_mock_device();
   processor.swap_device(mock_device)?;
@@ -404,7 +572,13 @@ pub async fn handle_real_hardware_health(
     let supported_device_present = supported_usb_device_present();
     if !supported_device_present {
       warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
+      let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
+      if was_hackrf {
+        shared_state.set_device_backend_error(Some(
+          HACKRF_DISCONNECT_ADVISORY.to_string(),
+        ));
+      }
       broadcast_device_status(shared_state, broadcast_tx);
       let _ = stop_capture(processor);
       let mock_device = SdrDeviceFactory::create_mock_device();
@@ -419,6 +593,11 @@ pub async fn handle_real_hardware_health(
           processor.get_device_info(),
           build_device_profile(processor.device_type()),
         );
+        if was_hackrf {
+          shared_state.set_device_backend_error(Some(
+            HACKRF_DISCONNECT_ADVISORY.to_string(),
+          ));
+        }
         broadcast_device_status(shared_state, broadcast_tx);
       }
       return;
@@ -458,7 +637,13 @@ pub async fn handle_real_hardware_health(
     let supported_device_present = supported_usb_device_present();
     if !supported_device_present {
       warn!("Supported device confirmed unplugged. Falling back to mock.");
+      let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
+      if was_hackrf {
+        shared_state.set_device_backend_error(Some(
+          HACKRF_DISCONNECT_ADVISORY.to_string(),
+        ));
+      }
       broadcast_device_status(shared_state, broadcast_tx);
       let _ = stop_capture(processor);
       let mock_device = SdrDeviceFactory::create_mock_device();
@@ -473,6 +658,11 @@ pub async fn handle_real_hardware_health(
           processor.get_device_info(),
           build_device_profile(processor.device_type()),
         );
+        if was_hackrf {
+          shared_state.set_device_backend_error(Some(
+            HACKRF_DISCONNECT_ADVISORY.to_string(),
+          ));
+        }
         broadcast_device_status(shared_state, broadcast_tx);
         state.last_failure_at = Some(Instant::now());
         info!("Fell back to mock mode after confirmed unplug");
@@ -563,6 +753,50 @@ mod tests {
     .await;
 
     assert_eq!(state.last_poll, before);
+  }
+
+  #[test]
+  fn mock_startup_with_supported_device_should_attach_even_without_count_change() {
+    assert!(should_reconcile_hotplug_state(1, 1, true));
+    assert!(!should_reconcile_hotplug_state(1, 1, false));
+    assert!(should_reconcile_hotplug_state(1, 0, false));
+  }
+
+  #[cfg(has_hackrf)]
+  #[test]
+  fn hackrf_board_ids_are_recognized() {
+    assert!(is_supported_hackrf_board_id(
+      hackrf_ffi::USB_BOARD_ID_JAWBREAKER as c_int
+    ));
+    assert!(is_supported_hackrf_board_id(
+      hackrf_ffi::USB_BOARD_ID_HACKRF_ONE as c_int
+    ));
+    assert!(is_supported_hackrf_board_id(
+      hackrf_ffi::USB_BOARD_ID_RAD1O as c_int
+    ));
+    assert!(!is_supported_hackrf_board_id(0x1234));
+  }
+
+  #[test]
+  fn hackrf_dfu_mode_is_classified() {
+    let classified = {
+      let desc_vendor = 0x1fc9;
+      let desc_product = 0x000c;
+      match (desc_vendor, desc_product) {
+        (0x1fc9, 0x000c) => "hackrf_dfu",
+        _ => "unknown",
+      }
+    };
+
+    assert_eq!(classified, "hackrf_dfu");
+  }
+
+  #[test]
+  fn hackrf_disconnect_advisory_mentions_reset_wait_and_firmware() {
+    assert!(HACKRF_DISCONNECT_ADVISORY.contains("reset button"));
+    assert!(HACKRF_DISCONNECT_ADVISORY.contains("USB LED"));
+    assert!(HACKRF_DISCONNECT_ADVISORY.contains("firmware"));
+    assert!(HACKRF_DISCONNECT_ADVISORY.contains("15-20 seconds"));
   }
 
   #[test]

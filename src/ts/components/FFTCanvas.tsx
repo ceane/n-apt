@@ -147,6 +147,7 @@ const SectionTitleRow = memo(styled.div`
 const SectionTitleActions = memo(styled.div`
   display: flex;
   align-items: center;
+  flex: 1;
   gap: 8px;
   flex-shrink: 0;
   transition: opacity 0.15s ease;

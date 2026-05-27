@@ -840,6 +840,10 @@ impl SdrDevice for RtlSdrDevice {
     unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
   }
 
+  fn get_max_sample_rate(&mut self) -> u32 {
+    RtlSdrDevice::get_max_sample_rate(self)
+  }
+
   fn cleanup(&mut self) -> Result<()> {
     // Device is automatically cleaned up by Drop trait
     Ok(())

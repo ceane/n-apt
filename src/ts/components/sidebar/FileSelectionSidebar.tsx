@@ -45,9 +45,7 @@ interface FileSelectionSidebarProps {
   ) => void;
   stitchStatus: string;
   isStitchPaused: boolean;
-  onStitch: () => void;
   onClear: () => void;
-  onStitchPauseToggle: () => void;
   selectedPrimaryFile: {
     id: string;
     name: string;
@@ -57,6 +55,7 @@ interface FileSelectionSidebarProps {
   naptMetadataError: string | null;
   sessionToken?: string | null;
   showMetadata?: boolean;
+  fileModeActions?: React.ReactNode;
 }
 
 export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({

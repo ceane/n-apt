@@ -412,4 +412,38 @@ describe("Redux WebSocket Migration", () => {
       expect(state.sdrLimitMarkers).toEqual(markers);
     });
   });
+
+  describe("WebSocket disconnect handling", () => {
+    it("clears stale live device metadata when the socket disconnects", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          backend: "hackrf-one",
+          deviceInfo: "HackRF One",
+          deviceName: "HackRF One",
+          deviceState: "connected" as any,
+        }),
+      );
+
+      middlewareStore.dispatch({ type: "websocket/disconnect" });
+
+      const state = middlewareStore.getState() as any;
+      expect(state.websocket.isConnected).toBe(false);
+      expect(state.websocket.connectionStatus).toBe("disconnected");
+      expect(state.websocket.backend).toBeNull();
+      expect(state.websocket.deviceInfo).toBeNull();
+      expect(state.websocket.deviceName).toBeNull();
+      expect(state.websocket.deviceProfile).toBeNull();
+    });
+  });
 });

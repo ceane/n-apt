@@ -373,12 +373,16 @@ describe("useFrequencyDrag Hook", () => {
     } as any);
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenCalled();
     const lastCall =
       mockOnFrequencyRangeChange.mock.calls[
         mockOnFrequencyRangeChange.mock.calls.length - 1
       ][0];
     expect(lastCall.min).toBeGreaterThan(100);
     expect(lastCall.max).toBeGreaterThan(110);
+    expect(
+      mockOnVizPanChange.mock.calls[mockOnVizPanChange.mock.calls.length - 1][0],
+    ).toBeGreaterThan(0);
   });
 
   it("should keep zoomed wheel panning inside the active channel bounds", () => {
@@ -468,7 +472,7 @@ describe("useFrequencyDrag Hook", () => {
     expect(zoomCall).toBeGreaterThan(2.2);
   });
 
-  it("snaps small pinch zoom offsets back to center", () => {
+  it("preserves small pinch zoom offsets during zoom changes", () => {
     const pinchOptions = {
       ...defaultOptions,
       vizZoomRef: { current: 2 },
@@ -489,7 +493,7 @@ describe("useFrequencyDrag Hook", () => {
     });
 
     expect(mockOnVizZoomChange).toHaveBeenCalled();
-    expect(mockOnVizPanChange).toHaveBeenCalledWith(0);
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
   });
 
   it("should ease pinch-out zoom so it does not feel linear", () => {

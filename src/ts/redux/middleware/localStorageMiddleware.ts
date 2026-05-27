@@ -78,7 +78,6 @@ const createLocalStorageMiddleware =
         activeSignalArea: spectrumState.activeSignalArea,
         lastKnownRanges: spectrumState.lastKnownRanges,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
-        sampleRateHz: spectrumState.sampleRateHz,
       };
       safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
     }
@@ -184,6 +183,12 @@ export const loadPersistedSdrSettings = () => {
     if (parsed.fftMaxDb !== 0) {
       parsed.fftMaxDb = 0;
       parsed.fftMinDb = -120;
+    }
+
+    // Live sample rate should come from the websocket/backend on reconnect.
+    // Persisting it here tends to reintroduce stale rates during HMR.
+    if ("sampleRateHz" in parsed) {
+      delete parsed.sampleRateHz;
     }
 
     return parsed;
