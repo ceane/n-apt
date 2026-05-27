@@ -62,6 +62,7 @@ import {
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
 import { roundDbValue } from "@n-apt/utils/frequency";
+import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
 
 // Use dynamic import for WASM module loading
@@ -545,6 +546,8 @@ const FFTCanvas = memo(
       sendGetAutoFftOptions,
       autoFftOptions,
       hardwareSampleRateHz,
+      deviceProfile,
+      tunerGainDb,
       isIqRecordingActive = false,
       limitMarkers = [],
       isWaterfallCleared = false,
@@ -694,6 +697,15 @@ const FFTCanvas = memo(
     const lastWaterfallVisualRangeRef = useRef<FrequencyRange | null>(null);
 
     const effectivePowerScale = powerScale ?? "dB";
+    const isHackrfDevice = deviceProfile?.kind === "hackrf_one";
+    const effectiveDbmOffsetDb =
+      effectivePowerScale === "dBm"
+        ? isHackrfDevice
+          ? computeHackrfApproxDbmOffsetDb({
+              totalGainDb: tunerGainDb ?? 0,
+            })
+          : 30.0
+        : 0.0;
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
@@ -1272,10 +1284,9 @@ const FFTCanvas = memo(
       // using the CPU path (authoritative spectrum source).
       const lastData = lastProcessedDataRef.current;
       if (lastData?.iq_data && lastData.iq_data.length >= 2) {
-        const isDbm = effectivePowerScale === "dBm";
         const restored = processIqToDbmSpectrum(
           lastData.iq_data,
-          isDbm ? 30.0 : 0.0,
+          effectiveDbmOffsetDb,
           effectiveFftSize,
           fftWindow,
           spectrumOutputBufferRef.current ?? undefined,
@@ -1386,6 +1397,11 @@ const FFTCanvas = memo(
                 maxDb: activeScaleDbMaxRef.current,
                 hardwareSampleRateHz: currentFrame.sample_rate,
                 centerFrequencyHz: currentFrame.center_frequency_hz,
+                tunerGainDb: tunerGainDb ?? 0,
+                calibrationMode: isHackrfDevice ? "hackrf_one" : "generic",
+                ...(isHackrfDevice
+                  ? { baseCalibrationDb: 30, chainLossDb: 0 }
+                  : {}),
               })
                 .finally(() => {
                   liveGpuProcessInFlightRef.current = false;
@@ -1398,10 +1414,9 @@ const FFTCanvas = memo(
 
           let waveform: Float32Array;
 
-          const offsetDb = isDbmMode ? 30.0 : 0.0;
           const rawSpectrum = processIqToDbmSpectrum(
             iqBytes,
-            offsetDb,
+            effectiveDbmOffsetDb,
             effectiveFftSize,
             fftWindow,
             spectrumOutputBufferRef.current ?? undefined,
@@ -1551,7 +1566,7 @@ const FFTCanvas = memo(
           // Paused: ingest once to avoid blank frames (file mode or first paused frame)
           const processedWaveform = processIqToDbmSpectrum(
             currentFrame.iq_data,
-            isDbmMode ? 30.0 : 0.0,
+            effectiveDbmOffsetDb,
             effectiveFftSize,
             fftWindow,
             spectrumOutputBufferRef.current ?? undefined,

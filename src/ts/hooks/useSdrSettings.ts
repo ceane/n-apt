@@ -13,6 +13,7 @@ interface UseSdrSettingsProps {
   minReceiveSampleRate?: number;
   sampleRateOptions?: number[];
   sdrSettings?: SdrSettingsConfig | null;
+  deviceType?: string;
   onSettingsChange?: (settings: SDRSettings) => void;
   spectrumStateOverride?: Pick<
     SpectrumState,
@@ -20,6 +21,10 @@ interface UseSdrSettingsProps {
     | "fftWindow"
     | "fftFrameRate"
     | "gain"
+    | "hackrfLnaGain"
+    | "hackrfVgaGain"
+    | "hackrfAmpEnabled"
+    | "hackrfBasebandBandwidth"
     | "ppm"
     | "tunerAGC"
     | "rtlAGC"
@@ -32,6 +37,10 @@ interface UseSdrSettingsReturn {
   fftFrameRate: number;
   maxFrameRate: number;
   gain: number;
+  hackrfLnaGain: number;
+  hackrfVgaGain: number;
+  hackrfAmpEnabled: boolean;
+  hackrfBasebandBandwidth: number;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -43,6 +52,10 @@ interface UseSdrSettingsReturn {
   setFftFrameRate: (rate: number) => void;
   setSampleRate: (rate: number) => void;
   setGain: (gain: number) => void;
+  setHackrfLnaGain: (gain: number) => void;
+  setHackrfVgaGain: (gain: number) => void;
+  setHackrfAmpEnabled: (enabled: boolean) => void;
+  setHackrfBasebandBandwidth: (bandwidth: number) => void;
   setPpm: (ppm: number) => void;
   setTunerAGC: (enabled: boolean) => void;
   setRtlAGC: (enabled: boolean) => void;
@@ -182,6 +195,19 @@ export const deriveStateFromConfig = (
       : rawFrameRate,
     gain:
       typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 0,
+    hackrfLnaGain:
+      typeof gainConfig?.hackrf_lna_gain === "number"
+        ? gainConfig.hackrf_lna_gain
+        : 49.6,
+    hackrfVgaGain:
+      typeof gainConfig?.hackrf_vga_gain === "number"
+        ? gainConfig.hackrf_vga_gain
+        : 62,
+    hackrfAmpEnabled: gainConfig?.hackrf_amp_enable ?? false,
+    hackrfBasebandBandwidth:
+      typeof gainConfig?.tuner_bandwidth === "number"
+        ? gainConfig.tuner_bandwidth
+        : 0,
     tunerAGC: gainConfig?.tuner_agc ?? false,
     rtlAGC: gainConfig?.rtl_agc ?? false,
     ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 0,
@@ -218,6 +244,7 @@ export const useSdrSettings = ({
   minReceiveSampleRate,
   sampleRateOptions: backendSampleRateOptions,
   sdrSettings,
+  deviceType,
   onSettingsChange,
   spectrumStateOverride,
 }: UseSdrSettingsProps): UseSdrSettingsReturn => {
@@ -278,10 +305,18 @@ export const useSdrSettings = ({
         ppm: stateRef.current.ppm,
         tunerAGC: stateRef.current.tunerAGC,
         rtlAGC: stateRef.current.rtlAGC,
+        ...(deviceType === "hackrf_one"
+          ? {
+              hackrfLnaGain: stateRef.current.hackrfLnaGain,
+              hackrfVgaGain: stateRef.current.hackrfVgaGain,
+              hackrfAmpEnabled: stateRef.current.hackrfAmpEnabled,
+              tunerBandwidth: stateRef.current.hackrfBasebandBandwidth,
+            }
+          : {}),
         ...overrides,
       });
     },
-    [],
+    [deviceType],
   );
 
   const setFftSize = useCallback(
@@ -316,6 +351,34 @@ export const useSdrSettings = ({
     (gain: number) => {
       dispatch(setSdrSettingsBundle({ gain }));
       sendCurrentSettings({ gain });
+    },
+    [dispatch, sendCurrentSettings],
+  );
+  const setHackrfLnaGain = useCallback(
+    (hackrfLnaGain: number) => {
+      dispatch(setSdrSettingsBundle({ hackrfLnaGain }));
+      sendCurrentSettings({ hackrfLnaGain });
+    },
+    [dispatch, sendCurrentSettings],
+  );
+  const setHackrfVgaGain = useCallback(
+    (hackrfVgaGain: number) => {
+      dispatch(setSdrSettingsBundle({ hackrfVgaGain }));
+      sendCurrentSettings({ hackrfVgaGain });
+    },
+    [dispatch, sendCurrentSettings],
+  );
+  const setHackrfAmpEnabled = useCallback(
+    (hackrfAmpEnabled: boolean) => {
+      dispatch(setSdrSettingsBundle({ hackrfAmpEnabled }));
+      sendCurrentSettings({ hackrfAmpEnabled });
+    },
+    [dispatch, sendCurrentSettings],
+  );
+  const setHackrfBasebandBandwidth = useCallback(
+    (hackrfBasebandBandwidth: number) => {
+      dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth }));
+      sendCurrentSettings({ tunerBandwidth: hackrfBasebandBandwidth });
     },
     [dispatch, sendCurrentSettings],
   );
@@ -452,6 +515,10 @@ export const useSdrSettings = ({
     const configSignature = JSON.stringify({
       fftDefaultSize: sdrSettings?.fft?.default_size ?? null,
       tunerGain: sdrSettings?.gain?.tuner_gain ?? null,
+      hackrfLnaGain: sdrSettings?.gain?.hackrf_lna_gain ?? null,
+      hackrfVgaGain: sdrSettings?.gain?.hackrf_vga_gain ?? null,
+      hackrfAmpEnabled: sdrSettings?.gain?.hackrf_amp_enable ?? null,
+      hackrfBasebandBandwidth: sdrSettings?.gain?.tuner_bandwidth ?? null,
       ppm: sdrSettings?.ppm ?? null,
       rtlAgc: sdrSettings?.gain?.rtl_agc ?? null,
       tunerAgc: sdrSettings?.gain?.tuner_agc ?? null,
@@ -475,6 +542,18 @@ export const useSdrSettings = ({
     if (sdrSettings?.gain?.tuner_gain) {
       setGain(sdrSettings.gain.tuner_gain);
     }
+    if (sdrSettings?.gain?.hackrf_lna_gain !== undefined) {
+      setHackrfLnaGain(sdrSettings.gain.hackrf_lna_gain);
+    }
+    if (sdrSettings?.gain?.hackrf_vga_gain !== undefined) {
+      setHackrfVgaGain(sdrSettings.gain.hackrf_vga_gain);
+    }
+    if (sdrSettings?.gain?.hackrf_amp_enable !== undefined) {
+      setHackrfAmpEnabled(sdrSettings.gain.hackrf_amp_enable);
+    }
+    if (sdrSettings?.gain?.tuner_bandwidth !== undefined) {
+      setHackrfBasebandBandwidth(sdrSettings.gain.tuner_bandwidth);
+    }
     if (sdrSettings?.ppm !== undefined) {
       setPpm(sdrSettings.ppm);
     }
@@ -484,7 +563,18 @@ export const useSdrSettings = ({
     if (sdrSettings?.gain?.tuner_agc !== undefined) {
       setTunerAGC(sdrSettings.gain.tuner_agc);
     }
-  }, [sdrSettings, setFftSize, setGain, setPpm, setRtlAGC, setTunerAGC]);
+  }, [
+    sdrSettings,
+    setFftSize,
+    setGain,
+    setHackrfAmpEnabled,
+    setHackrfLnaGain,
+    setHackrfVgaGain,
+    setHackrfBasebandBandwidth,
+    setPpm,
+    setRtlAGC,
+    setTunerAGC,
+  ]);
 
   useEffect(() => {
     if (!maxFrameRate) return;
@@ -508,6 +598,10 @@ export const useSdrSettings = ({
     setFftFrameRate,
     setSampleRate,
     setGain,
+    setHackrfLnaGain,
+    setHackrfVgaGain,
+    setHackrfAmpEnabled,
+    setHackrfBasebandBandwidth,
     setPpm,
     setTunerAGC,
     setRtlAGC,

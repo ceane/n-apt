@@ -507,6 +507,23 @@ pub fn handle_message(
           None
         }
       });
+      let hackrf_lna_gain = message.hackrf_lna_gain.and_then(|g| {
+        if g.is_finite() && (0.0..=49.6).contains(&g) {
+          Some(g)
+        } else {
+          warn!("Ignoring invalid HackRF LNA gain from client: {}", g);
+          None
+        }
+      });
+      let hackrf_vga_gain = message.hackrf_vga_gain.and_then(|g| {
+        if g.is_finite() && (0.0..=62.0).contains(&g) {
+          Some(g)
+        } else {
+          warn!("Ignoring invalid HackRF VGA gain from client: {}", g);
+          None
+        }
+      });
+      let hackrf_amp_enable = message.hackrf_amp_enable;
 
       let ppm = message.ppm.and_then(|p| {
         // i32 cannot be NaN, but we still guard against extreme values
@@ -523,6 +540,10 @@ pub fn handle_message(
         && message.fft_window.is_none()
         && frame_rate.is_none()
         && gain.is_none()
+        && hackrf_lna_gain.is_none()
+        && hackrf_vga_gain.is_none()
+        && hackrf_amp_enable.is_none()
+        && message.tuner_bandwidth.is_none()
         && ppm.is_none()
         && sample_rate.is_none()
         && message.tuner_agc.is_none()
@@ -539,6 +560,9 @@ pub fn handle_message(
           frame_rate,
           sample_rate,
           gain,
+          hackrf_lna_gain,
+          hackrf_vga_gain,
+          hackrf_amp_enable,
           ppm,
           tuner_agc: message.tuner_agc,
           rtl_agc: message.rtl_agc,
@@ -562,6 +586,18 @@ pub fn handle_message(
       }
       if let Some(g) = gain {
         sdr_settings.gain.tuner_gain = g;
+      }
+      if let Some(lna) = hackrf_lna_gain {
+        sdr_settings.gain.hackrf_lna_gain = Some(lna);
+      }
+      if let Some(vga) = hackrf_vga_gain {
+        sdr_settings.gain.hackrf_vga_gain = Some(vga);
+      }
+      if let Some(amp) = hackrf_amp_enable {
+        sdr_settings.gain.hackrf_amp_enable = Some(amp);
+      }
+      if let Some(bandwidth) = message.tuner_bandwidth {
+        sdr_settings.gain.tuner_bandwidth = Some(bandwidth);
       }
       if let Some(p) = ppm {
         sdr_settings.ppm = p as f64;

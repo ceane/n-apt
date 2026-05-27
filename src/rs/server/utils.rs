@@ -579,7 +579,7 @@ pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
     || lower.contains("rtl2832")
     || lower.contains("rtl-sdr")
     || lower.contains("generic")
-    || lower.contains("rtl2382u")
+    || lower.contains("rtl2832u")
   {
     return "RTL-SDR v4".to_string();
   }
@@ -739,7 +739,7 @@ mod tests {
     let profile = DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
-      supports_approx_dbm: false,
+      supports_approx_dbm: true,
       supports_raw_iq_stream: true,
     };
 
@@ -756,6 +756,21 @@ mod tests {
       "hackrf_one"
     );
     assert_eq!(device_config_key(&profile), "hackrf_one");
+  }
+
+  #[test]
+  fn normalizes_generic_rtl2832u_oem_to_rtl_sdr_v4() {
+    let profile = DeviceProfile {
+      kind: "rtl_sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    assert_eq!(
+      status_device_name(true, "Generic RTL2832U OEM", &profile),
+      "RTL-SDR v4"
+    );
   }
 
   #[test]
@@ -790,7 +805,7 @@ mod tests {
     let profile = DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
-      supports_approx_dbm: false,
+      supports_approx_dbm: true,
       supports_raw_iq_stream: true,
     };
 

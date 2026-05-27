@@ -150,4 +150,44 @@ describe("FrequencyRangeSlider", () => {
     expect(onActivate).toHaveBeenCalled();
     expect(onRangeChange).not.toHaveBeenCalled();
   });
+
+  test("caps wide sample-rate windows to the channel track and channel labels", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={20_018_000}
+          sampleRateHz={300_000}
+          allowWideSampleRateOverscan={true}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/18kHz.*-.*318kHz/).parentElement;
+    expect(thumb).toBeInTheDocument();
+    expect(screen.queryByText(/20\.018MHz/)).not.toBeInTheDocument();
+  });
+
+  test("fills the channel when sample rate is larger than the channel span", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={20_018_000}
+          sampleRateHz={20_000_000}
+          allowWideSampleRateOverscan={true}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/18kHz.*-.*4\.39MHz/).parentElement;
+    expect(thumb).toBeInTheDocument();
+    expect(thumb).toHaveStyle({ width: "100%" });
+  });
 });

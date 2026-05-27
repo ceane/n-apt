@@ -198,13 +198,10 @@ impl MockAptDevice {
     };
 
     #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    let metal_backend = {
-      let _ = _enable_gpu_backend;
-      None::<()>
-    };
+    let _ = _enable_gpu_backend;
 
     #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    let metal_backend_error = None::<String>;
+    let _metal_backend_error = None::<String>;
 
     Self {
       center_freq: 1_600_000, // 1.6 MHz default

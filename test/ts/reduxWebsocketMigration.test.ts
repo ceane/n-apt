@@ -88,6 +88,36 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
+    it("sendFrequencyRange preserves channel-anchored wide sample ranges", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: {},
+          spectrum: {},
+        }) as any;
+
+      await (
+        sendFrequencyRange({
+          min: 18_000,
+          max: 20_018_000,
+        }) as any
+      )(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 18_000,
+            max_hz: 20_018_000,
+            center_frequency: 10_018_000,
+            bandwidth_center_frequency: undefined,
+          },
+        },
+      });
+    });
+
     it("sendCenterFrequency derives min/max from sample rate", async () => {
       store.dispatch(
         updateDeviceState({

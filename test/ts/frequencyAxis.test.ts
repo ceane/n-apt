@@ -190,6 +190,52 @@ describe("frequency axis rendering", () => {
     expect(centerLabelCall?.x).toBeCloseTo(expectedCenterX, 2);
   });
 
+  it("updates edge ticks when the plotted frequency range changes between sample sizes", () => {
+    const fillTextCalls = mockCanvasContext();
+    const baseCanvas = document.createElement("canvas");
+    baseCanvas.width = 2048;
+    baseCanvas.height = 734;
+
+    composeCanvasWithFrequencyAxis({
+      baseCanvas,
+      frequencyRange: { min: 24_720_000, max: 29_920_000 },
+      centerFrequencyHz: 27_320_000,
+      detail: "dense",
+      theme: {
+        background: "#000",
+        grid: "#111",
+        tick: "#333",
+        label: "#777",
+        center: "#fff",
+      },
+      devicePixelRatio: 2,
+    });
+
+    expect(fillTextCalls.some((call) => call.text.includes("24.7"))).toBe(true);
+    expect(fillTextCalls.some((call) => call.text.includes("29.9"))).toBe(true);
+
+    fillTextCalls.length = 0;
+
+    composeCanvasWithFrequencyAxis({
+      baseCanvas,
+      frequencyRange: { min: 20_920_000, max: 33_720_000 },
+      centerFrequencyHz: 27_320_000,
+      detail: "dense",
+      theme: {
+        background: "#000",
+        grid: "#111",
+        tick: "#333",
+        label: "#777",
+        center: "#fff",
+      },
+      devicePixelRatio: 2,
+    });
+
+    expect(fillTextCalls.some((call) => call.text.includes("20.9"))).toBe(true);
+    expect(fillTextCalls.some((call) => call.text.includes("33.7"))).toBe(true);
+    expect(fillTextCalls.some((call) => call.text.includes("24.7"))).toBe(false);
+  });
+
   it("draws a center-colored tick for snapshot VFOs without a center line", () => {
     const strokes: Array<{
       color: string;

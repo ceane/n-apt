@@ -35,6 +35,10 @@ export interface SpectrumState {
 
   // SDR settings
   gain: number;
+  hackrfLnaGain: number;
+  hackrfVgaGain: number;
+  hackrfAmpEnabled: boolean;
+  hackrfBasebandBandwidth: number;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -74,6 +78,10 @@ const LIVE_CONTROL_DEFAULTS = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   gain: 49.6,
+  hackrfLnaGain: 49.6,
+  hackrfVgaGain: 62,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 0,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -105,6 +113,10 @@ const initialState: SpectrumState = {
   wfSmoothEnabled: false,
 
   gain: 30,
+  hackrfLnaGain: 49.6,
+  hackrfVgaGain: 62,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 0,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -259,6 +271,18 @@ const spectrumSlice = createSlice({
       state.gain = action.payload;
     },
 
+    setHackrfLnaGain: (state, action: PayloadAction<number>) => {
+      state.hackrfLnaGain = action.payload;
+    },
+
+    setHackrfVgaGain: (state, action: PayloadAction<number>) => {
+      state.hackrfVgaGain = action.payload;
+    },
+
+    setHackrfAmpEnabled: (state, action: PayloadAction<boolean>) => {
+      state.hackrfAmpEnabled = action.payload;
+    },
+
     setPpm: (state, action: PayloadAction<number>) => {
       state.ppm = action.payload;
     },
@@ -368,6 +392,10 @@ const spectrumSlice = createSlice({
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
+        hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
+        hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
+        hackrfAmpEnabled: LIVE_CONTROL_DEFAULTS.hackrfAmpEnabled,
+        hackrfBasebandBandwidth: LIVE_CONTROL_DEFAULTS.hackrfBasebandBandwidth,
         ppm: LIVE_CONTROL_DEFAULTS.ppm,
         tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
         rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
@@ -403,6 +431,9 @@ export const {
   setFftSmoothEnabled,
   setWfSmoothEnabled,
   setGain,
+  setHackrfLnaGain,
+  setHackrfVgaGain,
+  setHackrfAmpEnabled,
   setPpm,
   setTunerAGC,
   setRtlAGC,

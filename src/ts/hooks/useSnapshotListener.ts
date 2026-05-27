@@ -68,11 +68,18 @@ export const useSnapshotListener = ({
       let sdrSettingsLabel: string | undefined;
 
       if (effectiveSdrSettings) {
-        const gainValue =
-          effectiveSdrSettings.gain?.tuner_gain != null
-            ? effectiveSdrSettings.gain.tuner_gain
-            : null;
-        const gainStr = gainValue !== null ? `${gainValue}dB` : "Auto";
+        const gainConfig = effectiveSdrSettings.gain;
+        const hasHackrfControls =
+          gainConfig?.hackrf_lna_gain != null ||
+          gainConfig?.hackrf_vga_gain != null ||
+          gainConfig?.hackrf_amp_enable != null;
+        const gainStr = hasHackrfControls
+          ? `LNA ${gainConfig?.hackrf_lna_gain ?? 0}dB | VGA ${
+              gainConfig?.hackrf_vga_gain ?? 0
+            }dB | AMP ${gainConfig?.hackrf_amp_enable ? "on" : "off"}`
+          : gainConfig?.tuner_gain != null
+            ? `${gainConfig.tuner_gain}dB`
+            : "Auto";
         const ppmStr =
           effectiveSdrSettings.ppm !== undefined
             ? effectiveSdrSettings.ppm.toString()

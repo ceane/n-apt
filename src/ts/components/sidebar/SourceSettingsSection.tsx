@@ -159,8 +159,14 @@ const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
 
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
+  deviceType?: string;
   ppm: number;
   gain: number;
+  hackrfLnaGain?: number;
+  hackrfVgaGain?: number;
+  hackrfAmpEnabled?: boolean;
+  hackrfBasebandBandwidth?: number;
+  hackrfCurrentSampleRate?: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
   stitchSourceSettings: { gain: number; ppm: number };
@@ -169,6 +175,10 @@ interface SourceSettingsSectionProps {
   maxGain?: number;
   onPpmChange: (value: number) => void;
   onGainChange: (value: number) => void;
+  onHackrfLnaGainChange?: (value: number) => void;
+  onHackrfVgaGainChange?: (value: number) => void;
+  onHackrfAmpEnabledChange?: (value: boolean) => void;
+  onHackrfBasebandBandwidthChange?: (value: number) => void;
   onTunerAGCChange: (value: boolean) => void;
   onRtlAGCChange: (value: boolean) => void;
   onStitchSourceSettingsChange: (settings: {
@@ -180,8 +190,14 @@ interface SourceSettingsSectionProps {
 
 export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   sourceMode,
+  deviceType,
   ppm,
   gain,
+  hackrfLnaGain = 49.6,
+  hackrfVgaGain = 62,
+  hackrfAmpEnabled = false,
+  hackrfBasebandBandwidth = 0,
+  hackrfCurrentSampleRate = 0,
   tunerAGC,
   rtlAGC,
   stitchSourceSettings,
@@ -190,14 +206,34 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   maxGain = 49.6,
   onPpmChange,
   onGainChange,
+  onHackrfLnaGainChange,
+  onHackrfVgaGainChange,
+  onHackrfAmpEnabledChange,
+  onHackrfBasebandBandwidthChange,
   onTunerAGCChange,
   onRtlAGCChange,
   onStitchSourceSettingsChange,
   onAgcModeChange,
 }) => {
+  const isHackrfLive = sourceMode === "live" && deviceType === "hackrf_one";
+  const isRtlSdrLive =
+    sourceMode === "live" &&
+    (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
+  const isHackrfBasebandEnabled = hackrfBasebandBandwidth > 0;
+
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
     return Math.max(0, Math.min(maxGain, val));
+  };
+
+  const clampHackrfLnaGain = (val: number) => {
+    if (Number.isNaN(val)) return 0;
+    return Math.max(0, Math.min(49.6, val));
+  };
+
+  const clampHackrfVgaGain = (val: number) => {
+    if (Number.isNaN(val)) return 0;
+    return Math.max(0, Math.min(62, val));
   };
 
   const handlePpmChange = (raw: string) => {
@@ -250,6 +286,54 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     }
   };
 
+  const handleHackrfLnaChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    onHackrfLnaGainChange?.(clampHackrfLnaGain(val));
+  };
+
+  const handleHackrfLnaKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "ArrowUp" ? 0.1 : -0.1;
+    onHackrfLnaGainChange?.(clampHackrfLnaGain((hackrfLnaGain || 0) + delta));
+  };
+
+  const handleHackrfVgaChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    onHackrfVgaGainChange?.(clampHackrfVgaGain(val));
+  };
+
+  const handleHackrfVgaKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "ArrowUp" ? 1 : -1;
+    onHackrfVgaGainChange?.(clampHackrfVgaGain((hackrfVgaGain || 0) + delta));
+  };
+
+  const handleHackrfAmpChange = (enabled: boolean) => {
+    onHackrfAmpEnabledChange?.(enabled);
+  };
+
+  const handleHackrfBasebandBandwidthChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    onHackrfBasebandBandwidthChange?.(
+      Math.max(0, Number.isFinite(val) ? Math.round(val) : 0),
+    );
+  };
+
+  const handleHackrfBasebandToggle = (enabled: boolean) => {
+    if (!onHackrfBasebandBandwidthChange) return;
+    onHackrfBasebandBandwidthChange(
+      enabled ? Math.max(0, Math.round(hackrfCurrentSampleRate || 0)) : 0,
+    );
+  };
+
   const handleTunerAGCChange = (enabled: boolean) => {
     if (disableAgcControls) return;
     onTunerAGCChange(enabled);
@@ -291,27 +375,118 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           step="1"
         />
       </Row>
-      <Row
-        label={<IconLabel icon={ArrowBigUp} text="Gain" />}
-        tooltipTitle="Gain Setting"
-        tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
-      >
-        <InputGroup>
-          <NarrowSettingInput
-            type="number"
-            step="1"
-            value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
-            onChange={(e) =>
-              handleGainChange(Math.round(Number(e.target.value)))
-            }
-            onKeyDown={handleGainKeyDown}
-            min="0"
-            max={sourceMode === "file" ? undefined : maxGain.toString()}
-          />
-          <UnitLabel>dB</UnitLabel>
-        </InputGroup>
-      </Row>
-      {sourceMode === "live" && (
+      {!isHackrfLive && (
+        <Row
+          label={<IconLabel icon={ArrowBigUp} text="Gain" />}
+          tooltipTitle="Gain Setting"
+          tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
+        >
+          <InputGroup>
+            <NarrowSettingInput
+              type="number"
+              step="1"
+              value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
+              onChange={(e) =>
+                handleGainChange(Math.round(Number(e.target.value)))
+              }
+              onKeyDown={handleGainKeyDown}
+              min="0"
+              max={sourceMode === "file" ? undefined : maxGain.toString()}
+            />
+            <UnitLabel>dB</UnitLabel>
+          </InputGroup>
+        </Row>
+      )}
+      {isHackrfLive && (
+        <>
+          <Row
+            label={<IconLabel icon={ArrowBigUp} text="LNA gain" />}
+            tooltipTitle="HackRF LNA Gain"
+            tooltip="HackRF One low-noise amplifier gain in dB."
+          >
+            <InputGroup>
+              <NarrowSettingInput
+                type="number"
+                step="0.1"
+                value={hackrfLnaGain}
+                onChange={(e) => handleHackrfLnaChange(e.target.value)}
+                onKeyDown={handleHackrfLnaKeyDown}
+                min="0"
+                max="49.6"
+              />
+              <UnitLabel>dB</UnitLabel>
+            </InputGroup>
+          </Row>
+          <Row
+            label={<IconLabel icon={ArrowBigUp} text="VGA gain" />}
+            tooltipTitle="HackRF VGA Gain"
+            tooltip="HackRF One variable gain amplifier gain in dB."
+          >
+            <InputGroup>
+              <NarrowSettingInput
+                type="number"
+                step="1"
+                value={hackrfVgaGain}
+                onChange={(e) => handleHackrfVgaChange(e.target.value)}
+                onKeyDown={handleHackrfVgaKeyDown}
+                min="0"
+                max="62"
+              />
+              <UnitLabel>dB</UnitLabel>
+            </InputGroup>
+          </Row>
+          <Row
+            label="AMP enabled"
+            tooltipTitle="HackRF AMP"
+            tooltip="HackRF One RF amplifier enable toggle."
+          >
+            <ToggleSwitch $disabled={!isConnected}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={hackrfAmpEnabled}
+                onChange={(e) => handleHackrfAmpChange(e.target.checked)}
+                disabled={!isConnected}
+              />
+              <ToggleSwitchSlider $disabled={!isConnected} />
+            </ToggleSwitch>
+          </Row>
+          <Row
+            label="Baseband filter"
+            tooltipTitle="HackRF baseband filter bandwidth"
+            tooltip="HackRF One baseband filter bandwidth. When enabled, it should follow the active sample rate for the current channel."
+          >
+            <InputGroup>
+              <ToggleSwitch $disabled={!isConnected}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={isHackrfBasebandEnabled}
+                  onChange={(e) =>
+                    handleHackrfBasebandToggle(e.target.checked)
+                  }
+                  disabled={!isConnected}
+                />
+                <ToggleSwitchSlider $disabled={!isConnected} />
+              </ToggleSwitch>
+              {isHackrfBasebandEnabled && (
+                <>
+                  <NarrowSettingInput
+                    type="number"
+                    step="1"
+                    value={hackrfBasebandBandwidth}
+                    onChange={(e) =>
+                      handleHackrfBasebandBandwidthChange(e.target.value)
+                    }
+                    min="0"
+                    max="20000000"
+                  />
+                  <UnitLabel>Hz</UnitLabel>
+                </>
+              )}
+            </InputGroup>
+          </Row>
+        </>
+      )}
+      {isRtlSdrLive && (
         <>
           <Row
             label="Tuner AGC"

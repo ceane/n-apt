@@ -162,6 +162,10 @@ export const LIVE_CONTROL_DEFAULTS = {
   fftMaxDb: 0,
   fftWindow: "Rectangular",
   gain: 49.6,
+  hackrfLnaGain: 49.6,
+  hackrfVgaGain: 62,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 0,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -215,6 +219,10 @@ export type SpectrumState = {
   fftWindow: string;
   showSpikeOverlay: boolean;
   gain: number;
+  hackrfLnaGain: number;
+  hackrfVgaGain: number;
+  hackrfAmpEnabled: boolean;
+  hackrfBasebandBandwidth: number;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -375,6 +383,10 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   fftWindow: "Rectangular",
   showSpikeOverlay: false,
   gain: 10,
+  hackrfLnaGain: 49.6,
+  hackrfVgaGain: 62,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 0,
   ppm: 0,
   tunerAGC: false,
   rtlAGC: false,
@@ -431,12 +443,6 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       parsed.lastKnownRanges = {};
     }
 
-    // Fix outdated cached dB ranges
-    if (parsed.fftMaxDb !== 0) {
-      parsed.fftMaxDb = 0;
-      parsed.fftMinDb = -120;
-    }
-
     // The live sample rate must stay in sync with the websocket/backend.
     // Keeping a persisted value here causes HMR/reload drift.
     if ("sampleRateHz" in parsed) {
@@ -447,6 +453,57 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
   } catch {
     return {};
   }
+};
+
+export const selectLiveSampleRateForSync = ({
+  isConnected,
+  websocketSampleRateHz,
+  sdrSettingsSampleRateHz,
+  maxSampleRateHz,
+}: {
+  isConnected: boolean;
+  websocketSampleRateHz?: number | null;
+  sdrSettingsSampleRateHz?: number | null;
+  maxSampleRateHz?: number | null;
+}): number | null => {
+  const candidates = isConnected
+    ? [websocketSampleRateHz, sdrSettingsSampleRateHz, maxSampleRateHz]
+    : [sdrSettingsSampleRateHz, maxSampleRateHz];
+
+  for (const rate of candidates) {
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      return rate;
+    }
+  }
+
+  return null;
+};
+
+export const resolveEffectiveLiveSampleRateHz = ({
+  localSampleRateHz,
+  websocketSampleRateHz,
+  sdrSettingsSampleRateHz,
+  maxSampleRateHz,
+}: {
+  localSampleRateHz?: number | null;
+  websocketSampleRateHz?: number | null;
+  sdrSettingsSampleRateHz?: number | null;
+  maxSampleRateHz?: number | null;
+}): number | null => {
+  const candidates = [
+    localSampleRateHz,
+    websocketSampleRateHz,
+    sdrSettingsSampleRateHz,
+    maxSampleRateHz,
+  ];
+
+  for (const rate of candidates) {
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      return rate;
+    }
+  }
+
+  return null;
 };
 
 export function spectrumReducer(
@@ -692,6 +749,10 @@ export function spectrumReducer(
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
+        hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
+        hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
+        hackrfAmpEnabled: LIVE_CONTROL_DEFAULTS.hackrfAmpEnabled,
+        hackrfBasebandBandwidth: LIVE_CONTROL_DEFAULTS.hackrfBasebandBandwidth,
         ppm: LIVE_CONTROL_DEFAULTS.ppm,
         tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
         rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
@@ -1358,14 +1419,31 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     }, [sdrSettings]);
 
-    // Sync sample rate from backend to store state
+    const hydratedBackendSampleRateRef = useRef(false);
+
+    // Hydrate sample rate from backend once. After user interaction, the
+    // frontend is authoritative because sample-rate changes are one-way.
     useEffect(() => {
-      const rate =
-        sdrSettings?.sample_rate ??
-        (isConnected ? sampleRateHz : null) ??
-        maxSampleRateHz;
-      if (typeof rate === "number" && rate > 0 && rate !== state.sampleRateHz) {
+      const rate = selectLiveSampleRateForSync({
+        isConnected,
+        websocketSampleRateHz: sampleRateHz,
+        sdrSettingsSampleRateHz: sdrSettings?.sample_rate,
+        maxSampleRateHz,
+      });
+      const hasValidLocalRate =
+        typeof state.sampleRateHz === "number" &&
+        Number.isFinite(state.sampleRateHz) &&
+        state.sampleRateHz > 0;
+      const shouldHydrateRate =
+        typeof rate === "number" &&
+        rate > 0 &&
+        (!hasValidLocalRate || !hydratedBackendSampleRateRef.current);
+
+      if (shouldHydrateRate && rate !== state.sampleRateHz) {
         storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+      }
+      if (typeof rate === "number" && rate > 0) {
+        hydratedBackendSampleRateRef.current = true;
       }
       const minReceiveRate =
         sdrSettings?.min_receive_sample_rate ??
@@ -1400,7 +1478,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           : [];
     const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
 
-    const sampleRateHzEffective = sampleRateHz;
+    const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
+      localSampleRateHz: mergedState.sampleRateHz,
+      websocketSampleRateHz: sampleRateHz,
+      sdrSettingsSampleRateHz: effectiveSdrSettings?.sample_rate,
+      maxSampleRateHz,
+    });
 
     const signalAreaBounds = useMemo(() => {
       if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
@@ -1422,10 +1505,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       null;
 
     const clampLiveFrequencyRange = useCallback(
-      (range: FrequencyRange) =>
-        normalizeFrequencyRangeToHz(
-          clampFrequencyRangeToBounds(range, activeSignalAreaBounds),
-        ),
+      (range: FrequencyRange) => {
+        const bounds = activeSignalAreaBounds;
+        if (!bounds) return normalizeFrequencyRangeToHz(range);
+
+        const rangeSpan = range.max - range.min;
+        const boundsSpan = bounds.max - bounds.min;
+        if (Number.isFinite(rangeSpan) && rangeSpan > boundsSpan) {
+          return normalizeFrequencyRangeToHz(range);
+        }
+
+        return normalizeFrequencyRangeToHz(
+          clampFrequencyRangeToBounds(range, bounds),
+        );
+      },
       [activeSignalAreaBounds],
     );
 
@@ -1454,7 +1547,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
       const min = primaryFrame.min_hz;
       const max = sampleRateHz
-        ? Math.min(primaryFrame.max_hz, min + sampleRateHz)
+        ? Math.max(min, Math.min(primaryFrame.max_hz, min + sampleRateHz))
         : primaryFrame.max_hz;
       const nextRange = clampLiveFrequencyRange({ min, max });
 

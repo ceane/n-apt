@@ -642,6 +642,18 @@ export const useWebSocket = (
     if (isValidNonNegative(settings.gain)) {
       sanitized.gain = settings.gain;
     }
+    if (isValidNonNegative(settings.hackrfLnaGain)) {
+      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
+    }
+    if (isValidNonNegative(settings.hackrfVgaGain)) {
+      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
+    }
+    if (typeof settings.hackrfAmpEnabled === "boolean") {
+      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
+    }
+    if (isValidNonNegative(settings.tunerBandwidth)) {
+      sanitized.tunerBandwidth = settings.tunerBandwidth;
+    }
 
     if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
       sanitized.ppm = Math.round(settings.ppm);

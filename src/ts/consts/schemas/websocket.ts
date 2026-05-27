@@ -28,6 +28,10 @@ export type SDRSettings = {
   frameRate?: number;
   sampleRate?: number;
   gain?: number;
+  hackrfLnaGain?: number;
+  hackrfVgaGain?: number;
+  hackrfAmpEnabled?: boolean;
+  tunerBandwidth?: number;
   ppm?: number;
   tunerAGC?: boolean;
   rtlAGC?: boolean;
@@ -41,6 +45,10 @@ export type SdrSettingsConfig = {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
+    hackrf_lna_gain?: number;
+    hackrf_vga_gain?: number;
+    hackrf_amp_enable?: boolean;
+    tuner_bandwidth?: number;
   };
   ppm?: number;
   fft?: {

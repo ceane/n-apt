@@ -335,6 +335,12 @@ export const Channels: React.FC<ChannelsProps> = ({
           String(activeSignalArea).toLowerCase(),
       )
     : undefined;
+  const isWholeChannelMode =
+    typeof sampleRateHz === "number" &&
+    Number.isFinite(sampleRateHz) &&
+    !!activeFrame &&
+    Math.round(sampleRateHz) ===
+      Math.round(Math.max(0, activeFrame.max_hz - activeFrame.min_hz));
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
   const widthHz = activeFrame
@@ -406,21 +412,30 @@ export const Channels: React.FC<ChannelsProps> = ({
                   maxFreq={maxFreq}
                   disabled={rangeSlidersDisabled}
                   sampleRateHz={sampleRateHz}
+                  isWholeChannelMode={isWholeChannelMode}
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
+                    const channelSpan = maxFreq - minFreq;
+                    const sampleRateCoversChannel =
+                      typeof sampleRateHz === "number" &&
+                      Number.isFinite(sampleRateHz) &&
+                      sampleRateHz >= channelSpan;
                     const rememberedRange =
-                      state.lastKnownRanges[label] ??
-                      state.lastKnownRanges[label.toLowerCase()];
+                      sampleRateCoversChannel
+                        ? null
+                        : state.lastKnownRanges[label] ??
+                          state.lastKnownRanges[label.toLowerCase()];
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
                       max:
                         minFreq +
                         (typeof sampleRateHz === "number"
-                          ? Math.min(sampleRateHz, span)
+                          ? sampleRateCoversChannel
+                            ? sampleRateHz
+                            : Math.min(sampleRateHz, span)
                           : span),
                     };
-                    const channelSpan = maxFreq - minFreq;
                     const clampedRange =
                       typeof sampleRateHz === "number" &&
                       sampleRateHz > channelSpan
@@ -619,6 +634,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                     maxFreq={ch.max_hz}
                     disabled={rangeSlidersDisabled}
                     sampleRateHz={sampleRateHz}
+                    isWholeChannelMode={isWholeChannelMode}
                     allowWideSampleRateOverscan
                     onActivate={() => handleTune(ch)}
                     readOnly={isChannelScanning}

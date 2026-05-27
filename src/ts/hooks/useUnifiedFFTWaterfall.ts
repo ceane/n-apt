@@ -19,7 +19,7 @@ export interface UnifiedProcessOptions {
   hardwareSampleRateHz?: number;
   centerFrequencyHz?: number;
   tunerGainDb?: number;
-  calibrationMode?: "generic" | "rtl_sdr";
+  calibrationMode?: "generic" | "rtl_sdr" | "hackrf_one";
   baseCalibrationDb?: number;
   chainLossDb?: number;
 }
@@ -117,6 +117,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
   const calibrationModeMap = {
     generic: 0,
     rtl_sdr: 1,
+    hackrf_one: 2,
   } as const;
 
   // Initialize unified buffers with pooling logic

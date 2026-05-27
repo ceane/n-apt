@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
   println!("cargo:rerun-if-changed=build.rs");
 
   let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
   if target_arch != "wasm32" {
+    link_homebrew_libusb();
     link_rtlsdr();
     link_hackrf();
   }
@@ -26,6 +28,23 @@ fn link_rtlsdr() {
   panic!(
     "librtlsdr/rtlsdr not found. Install the native library and pkg-config, then rerun cargo."
   );
+}
+
+fn link_homebrew_libusb() {
+  if !cfg!(target_os = "macos") {
+    return;
+  }
+
+  for candidate in [
+    "/opt/homebrew/opt/libusb/lib",
+    "/usr/local/opt/libusb/lib",
+  ] {
+    let path = PathBuf::from(candidate);
+    if path.exists() {
+      println!("cargo:rustc-link-search=native={}", path.display());
+      return;
+    }
+  }
 }
 
 fn link_hackrf() {

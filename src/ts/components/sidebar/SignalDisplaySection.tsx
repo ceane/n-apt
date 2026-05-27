@@ -440,13 +440,13 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           )}
         </>
       )}
-      {/* RTL-SDR specific power scale toggle - enabled for testing and file mode */}
+      {/* Device-specific power scale toggle - enabled when approximate dBm is supported */}
       {(showsApproxDbmToggle || sourceMode === "file") &&
         variant !== "diagnostic" && (
           <Row
             label={<IconLabel icon={Zap} text="Power Scale" />}
             tooltipTitle="Power Scale Mode"
-            tooltip="Signal power measurement: dB (relative scale) or Approximated dBm (raw RTL-SDR I/Q based estimate). RTL-SDR readings are more accurate than rlt_power and are around ±3-5dBm within accuracy of signal's measured power. Approximated dBm is useful for stable absolute-like comparisons, but it is not lab-calibrated true dBm."
+            tooltip="Signal power measurement: dB (relative scale) or approximate dBm from the device calibration model. The reading is hardware-specific and useful for stable comparisons, but it is not lab-calibrated true dBm."
           >
             <WideSettingSelect
               value={powerScale}

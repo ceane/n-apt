@@ -173,7 +173,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   isDeviceConnected: _isDeviceConnected = true,
   externalFrequencyRange,
   sampleRateHz = null,
-  allowWideSampleRateOverscan = false,
+  allowWideSampleRateOverscan: _allowWideSampleRateOverscan = false,
   wideSampleRateZoomThreshold = 1.5,
   limitMarkers: _limitMarkers,
   readOnly = false,
@@ -186,17 +186,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     Number.isFinite(totalRange) && totalRange > 0 ? totalRange : 1;
   const requestedVisibleMin = visibleMin;
   const requestedVisibleMax = Math.max(requestedVisibleMin, visibleMax);
-  const wideSampleRateActive =
-    allowWideSampleRateOverscan &&
-    typeof sampleRateHz === "number" &&
-    Number.isFinite(sampleRateHz) &&
-    sampleRateHz > totalRange;
-  const clampedVisibleMin = wideSampleRateActive
-    ? requestedVisibleMin
-    : Math.max(minFreq, Math.min(maxFreq, requestedVisibleMin));
-  const rateLimitedMax = wideSampleRateActive
-    ? Math.max(clampedVisibleMin, clampedVisibleMin + (sampleRateHz ?? 0))
-    : typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+  const clampedVisibleMin = Math.max(
+    minFreq,
+    Math.min(maxFreq, requestedVisibleMin),
+  );
+  const rateLimitedMax =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? Math.min(maxFreq, clampedVisibleMin + sampleRateHz)
       : Math.min(maxFreq, requestedVisibleMax);
   const clampedVisibleMax = Math.max(clampedVisibleMin, rateLimitedMax);
@@ -298,7 +293,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }, [isActive]);
 
-  const widthPercent = Math.max(0, windowWidth * 100);
+  const widthPercent = Math.max(0, Math.min(100, windowWidth * 100));
   const logicalThumbWidth = Math.max(0, windowWidth * trackWidth);
   const minContentThumbWidth = Math.max(0, Math.ceil(windowLabelWidth) + 16);
   const renderedThumbWidth = Math.max(logicalThumbWidth, minContentThumbWidth);
@@ -350,13 +345,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
 
   const rawCurrentMin = minFreq + windowStart * safeTotalRange;
-  const currentMin = wideSampleRateActive
-    ? rawCurrentMin
-    : Math.max(minFreq, rawCurrentMin);
+  const currentMin = Math.max(minFreq, rawCurrentMin);
   const rawCurrentMax = minFreq + (windowStart + windowWidth) * safeTotalRange;
-  const currentMax = wideSampleRateActive
-    ? rawCurrentMax
-    : Math.min(maxFreq, rawCurrentMax);
+  const currentMax = Math.min(maxFreq, rawCurrentMax);
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {
@@ -587,7 +578,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
-              width: `max(${widthPercent}%, ${minContentThumbWidth}px)`,
+              width:
+                widthPercent >= 100
+                  ? "100%"
+                  : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
             }}
             onMouseDown={handleMouseDown}
           >

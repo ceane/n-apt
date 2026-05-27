@@ -59,6 +59,10 @@ type HookHarnessProps = {
     | "fftWindow"
     | "fftFrameRate"
     | "gain"
+    | "hackrfLnaGain"
+    | "hackrfVgaGain"
+    | "hackrfAmpEnabled"
+    | "hackrfBasebandBandwidth"
     | "ppm"
     | "tunerAGC"
     | "rtlAGC"
@@ -188,6 +192,10 @@ describe("useSdrSettings", () => {
                   fftWindow: "Rectangular",
                   fftFrameRate: 42,
                   gain: 49.6,
+                  hackrfLnaGain: 49.6,
+                  hackrfVgaGain: 62,
+                  hackrfAmpEnabled: false,
+                  hackrfBasebandBandwidth: 0,
                   ppm: 2,
                   tunerAGC: false,
                   rtlAGC: true,

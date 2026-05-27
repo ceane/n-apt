@@ -76,6 +76,24 @@ pub trait SdrDevice: Send {
   /// Set tuner gain in dB
   fn set_gain(&mut self, gain: f64) -> Result<()>;
 
+  /// Set HackRF LNA gain in dB.
+  /// Defaults to a no-op for devices that do not expose split gain controls.
+  fn set_lna_gain(&mut self, _gain: f64) -> Result<()> {
+    Ok(())
+  }
+
+  /// Set HackRF VGA gain in dB.
+  /// Defaults to a no-op for devices that do not expose split gain controls.
+  fn set_vga_gain(&mut self, _gain: f64) -> Result<()> {
+    Ok(())
+  }
+
+  /// Enable/disable the HackRF RF amplifier.
+  /// Defaults to a no-op for devices that do not expose an RF amp control.
+  fn set_amp_enable(&mut self, _enabled: bool) -> Result<()> {
+    Ok(())
+  }
+
   /// Set frequency correction in PPM
   fn set_ppm(&mut self, ppm: i32) -> Result<()>;
 

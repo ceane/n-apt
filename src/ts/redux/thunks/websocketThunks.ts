@@ -190,6 +190,22 @@ export const sendSettings = createAsyncThunk(
     if (isValidNonNegative(settings.gain)) {
       sanitized.gain = settings.gain;
     }
+    if (isValidNonNegative(settings.hackrfLnaGain)) {
+      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
+    }
+    if (isValidNonNegative(settings.hackrfVgaGain)) {
+      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
+    }
+    if (typeof settings.hackrfAmpEnabled === "boolean") {
+      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
+    }
+    if (
+      typeof settings.tunerBandwidth === "number" &&
+      Number.isFinite(settings.tunerBandwidth) &&
+      settings.tunerBandwidth >= 0
+    ) {
+      sanitized.tunerBandwidth = Math.round(settings.tunerBandwidth);
+    }
 
     if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
       sanitized.ppm = Math.round(settings.ppm);

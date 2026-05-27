@@ -140,6 +140,9 @@ pub struct SdrProcessorSettings {
   pub frame_rate: Option<u32>,
   pub sample_rate: Option<u32>,
   pub gain: Option<f64>,
+  pub hackrf_lna_gain: Option<f64>,
+  pub hackrf_vga_gain: Option<f64>,
+  pub hackrf_amp_enable: Option<bool>,
   pub ppm: Option<i32>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
@@ -246,6 +249,14 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0.0, max = 100.0))]
   pub gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfLnaGain")]
+  #[validate(range(min = 0.0, max = 49.6))]
+  pub hackrf_lna_gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfVgaGain")]
+  #[validate(range(min = 0.0, max = 62.0))]
+  pub hackrf_vga_gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
+  pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = -1000, max = 1000))]
   pub ppm: Option<i32>,
@@ -714,6 +725,14 @@ pub struct SdrGainConfig {
   pub tuner_gain: f64,
   pub rtl_agc: bool,
   pub tuner_agc: bool,
+  #[serde(default)]
+  pub hackrf_lna_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_vga_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_amp_enable: Option<bool>,
+  #[serde(default)]
+  pub tuner_bandwidth: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -38,6 +38,9 @@ export type SdrSettingsConfig = {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
+    hackrf_lna_gain?: number;
+    hackrf_vga_gain?: number;
+    hackrf_amp_enable?: boolean;
   };
   ppm?: number;
   fft?: {

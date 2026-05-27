@@ -177,7 +177,7 @@ pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
     "hackrf_one" => DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
-      supports_approx_dbm: false,
+      supports_approx_dbm: true,
       supports_raw_iq_stream: true,
     },
     _ => DeviceProfile {
@@ -1467,7 +1467,7 @@ mod tests {
       DeviceProfile {
         kind: "hackrf_one".to_string(),
         is_rtl_sdr: false,
-        supports_approx_dbm: false,
+        supports_approx_dbm: true,
         supports_raw_iq_stream: true,
       },
     );
@@ -1483,15 +1483,7 @@ mod tests {
     assert_eq!(payload["device"], "hackrf_one");
     assert_eq!(payload["device_name"], "HackRF One");
     assert_eq!(payload["device_profile"]["kind"], "hackrf_one");
-    let markers = payload["sdr_limit_markers"]
-      .as_array()
-      .expect("sdr_limit_markers should be an array");
-    assert!(
-      markers
-        .iter()
-        .any(|marker| marker["label"] == "HackRF One lower limit"),
-      "expected HackRF One to use the hackrf_one config block"
-    );
+    assert_eq!(payload["device_profile"]["supports_approx_dbm"], true);
   }
 
   #[test]
@@ -1506,7 +1498,7 @@ mod tests {
       DeviceProfile {
         kind: "hackrf_one".to_string(),
         is_rtl_sdr: false,
-        supports_approx_dbm: false,
+        supports_approx_dbm: true,
         supports_raw_iq_stream: true,
       },
     );

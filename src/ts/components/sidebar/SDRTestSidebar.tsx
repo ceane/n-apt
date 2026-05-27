@@ -96,12 +96,14 @@ export const SDRTestSidebar: React.FC = () => {
     fftFrameRate,
     maxFrameRate,
     gain,
+    hackrfBasebandBandwidth,
     ppm,
     tunerAGC,
     rtlAGC,
     setFftSize,
     setFftFrameRate,
     setGain,
+    setHackrfBasebandBandwidth,
     setPpm,
     setTunerAGC,
     setRtlAGC,
@@ -111,6 +113,7 @@ export const SDRTestSidebar: React.FC = () => {
     maxSampleRate,
     sampleRateOptions,
     sdrSettings: effectiveSdrSettings ?? null,
+    deviceType: deviceProfile?.kind,
     onSettingsChange: (settings) => {
       sendSettings(settings);
     },
@@ -134,6 +137,7 @@ export const SDRTestSidebar: React.FC = () => {
       fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
       frameRate: recommendedFrameRate,
       gain: LIVE_CONTROL_DEFAULTS.gain,
+      tunerBandwidth: 0,
       ppm: LIVE_CONTROL_DEFAULTS.ppm,
       tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
       rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
@@ -258,13 +262,17 @@ export const SDRTestSidebar: React.FC = () => {
 
           <SourceSettingsSection
             sourceMode={state.sourceMode}
+            deviceType={deviceProfile?.kind}
             gain={gain}
+            hackrfBasebandBandwidth={hackrfBasebandBandwidth}
+            hackrfCurrentSampleRate={sampleRateHzEffective ?? state.sampleRateHz}
             ppm={ppm}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             isConnected={isConnected}
             stitchSourceSettings={state.stitchSourceSettings}
             onGainChange={setGain}
+            onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
             onPpmChange={setPpm}
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}

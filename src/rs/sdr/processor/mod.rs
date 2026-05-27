@@ -419,6 +419,9 @@ impl SdrProcessor {
       frame_rate: Some(sdr_settings.fft.default_frame_rate),
       sample_rate: Some(sdr_settings.sample_rate),
       gain: Some(sdr_settings.gain.tuner_gain),
+      hackrf_lna_gain: sdr_settings.gain.hackrf_lna_gain,
+      hackrf_vga_gain: sdr_settings.gain.hackrf_vga_gain,
+      hackrf_amp_enable: sdr_settings.gain.hackrf_amp_enable,
       ppm: Some(sdr_settings.ppm as i32),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
       rtl_agc: Some(sdr_settings.gain.rtl_agc),
@@ -728,9 +731,13 @@ impl SdrProcessor {
     let frame_rate = settings.frame_rate;
     let sample_rate = settings.sample_rate;
     let gain = settings.gain;
+    let hackrf_lna_gain = settings.hackrf_lna_gain;
+    let hackrf_vga_gain = settings.hackrf_vga_gain;
+    let hackrf_amp_enable = settings.hackrf_amp_enable;
     let ppm = settings.ppm;
     let tuner_agc = settings.tuner_agc;
     let rtl_agc = settings.rtl_agc;
+    let is_hackrf = self.device.device_type() == "hackrf_one";
 
     // Always ensure the FFT processor sample rate matches the device
     let device_sample_rate = self.device.get_sample_rate();
@@ -826,7 +833,52 @@ impl SdrProcessor {
     }
 
     // Device settings
-    if let Some(g_db) = gain {
+    let mut hardware_gain_changed = false;
+    if is_hackrf {
+      if let Some(lna_gain) = hackrf_lna_gain {
+        if let Err(e) = self.device.set_lna_gain(lna_gain) {
+          warn!("Failed to set HackRF LNA gain: {}", e);
+        } else {
+          hardware_gain_changed = true;
+        }
+      }
+      if let Some(vga_gain) = hackrf_vga_gain {
+        if let Err(e) = self.device.set_vga_gain(vga_gain) {
+          warn!("Failed to set HackRF VGA gain: {}", e);
+        } else {
+          hardware_gain_changed = true;
+        }
+      }
+      if let Some(amp_enabled) = hackrf_amp_enable {
+        if let Err(e) = self.device.set_amp_enable(amp_enabled) {
+          warn!("Failed to set HackRF amp enable: {}", e);
+        } else {
+          hardware_gain_changed = true;
+        }
+      }
+
+      if hardware_gain_changed {
+        let effective_lna = hackrf_lna_gain.unwrap_or(0.0);
+        let effective_vga = hackrf_vga_gain.unwrap_or(0.0);
+        let effective_amp = if hackrf_amp_enable.unwrap_or(false) {
+          14.0
+        } else {
+          0.0
+        };
+        self.current_gain_db = effective_lna + effective_vga + effective_amp;
+        config.gain = 1.0;
+        config_changed = true;
+      } else if let Some(g_db) = gain {
+        if (self.current_gain_db - g_db).abs() > 0.01 {
+          if let Err(e) = self.device.set_gain(g_db) {
+            warn!("Failed to set hardware gain: {}", e);
+          }
+          self.current_gain_db = g_db;
+        }
+        config.gain = 1.0;
+        config_changed = true;
+      }
+    } else if let Some(g_db) = gain {
       if (self.current_gain_db - g_db).abs() > 0.01 {
         if let Err(e) = self.device.set_gain(g_db) {
           warn!("Failed to set hardware gain: {}", e);
@@ -1665,5 +1717,162 @@ impl SdrProcessor {
     );
 
     (audio_buffer, target_rate as u32)
+  }
+}
+
+#[cfg(test)]
+mod hackrf_settings_tests {
+  use super::*;
+  use crate::fft::types::RawSamples;
+  use crate::server::types::SdrProcessorSettings;
+  use std::sync::{Arc, Mutex};
+
+  #[derive(Clone, Default)]
+  struct RecordingDevice {
+    calls: Arc<Mutex<Vec<String>>>,
+    sample_rate: u32,
+    center_frequency: u32,
+  }
+
+  impl RecordingDevice {
+    fn record(&self, entry: impl Into<String>) {
+      self.calls.lock().unwrap().push(entry.into());
+    }
+  }
+
+  impl SdrDevice for RecordingDevice {
+    fn device_type(&self) -> &'static str {
+      "hackrf_one"
+    }
+
+    fn get_device_info(&self) -> String {
+      "HackRF One".to_string()
+    }
+
+    fn initialize(&mut self) -> Result<()> {
+      Ok(())
+    }
+
+    fn is_ready(&self) -> bool {
+      true
+    }
+
+    fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples> {
+      Ok(RawSamples {
+        data: vec![0; fft_size.saturating_mul(2)],
+        sample_rate: self.sample_rate,
+      })
+    }
+
+    fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+      self.sample_rate = rate;
+      self.record(format!("sample_rate:{rate}"));
+      Ok(())
+    }
+
+    fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
+      self.center_frequency = freq;
+      self.record(format!("center_frequency:{freq}"));
+      Ok(())
+    }
+
+    fn set_gain(&mut self, gain: f64) -> Result<()> {
+      self.record(format!("gain:{gain:.1}"));
+      Ok(())
+    }
+
+    fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+      self.record(format!("ppm:{ppm}"));
+      Ok(())
+    }
+
+    fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
+      self.record(format!("tuner_agc:{enabled}"));
+      Ok(())
+    }
+
+    fn set_rtl_agc(&mut self, enabled: bool) -> Result<()> {
+      self.record(format!("rtl_agc:{enabled}"));
+      Ok(())
+    }
+
+    fn set_offset_tuning(&mut self, _enabled: bool) -> Result<()> {
+      Ok(())
+    }
+
+    fn set_tuner_bandwidth(&mut self, _bw: u32) -> Result<()> {
+      Ok(())
+    }
+
+    fn set_direct_sampling(&mut self, _mode: u8) -> Result<()> {
+      Ok(())
+    }
+
+    fn get_center_frequency(&self) -> u32 {
+      self.center_frequency
+    }
+
+    fn get_sample_rate(&self) -> u32 {
+      self.sample_rate
+    }
+
+    fn reset_buffer(&mut self) -> Result<()> {
+      Ok(())
+    }
+
+    fn cleanup(&mut self) -> Result<()> {
+      Ok(())
+    }
+
+    fn is_healthy(&self) -> bool {
+      true
+    }
+
+    fn get_error(&self) -> Option<String> {
+      None
+    }
+
+    fn set_lna_gain(&mut self, gain: f64) -> Result<()> {
+      self.record(format!("lna:{gain:.1}"));
+      Ok(())
+    }
+
+    fn set_vga_gain(&mut self, gain: f64) -> Result<()> {
+      self.record(format!("vga:{gain:.1}"));
+      Ok(())
+    }
+
+    fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
+      self.record(format!("amp:{enabled}"));
+      Ok(())
+    }
+  }
+
+  #[test]
+  fn apply_settings_routes_hackrf_gain_fields_to_hardware_calls() {
+    let device = RecordingDevice::default();
+    let calls = device.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+
+    calls.lock().unwrap().clear();
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        hackrf_lna_gain: Some(49.6),
+        hackrf_vga_gain: Some(62.0),
+        hackrf_amp_enable: Some(true),
+        ..Default::default()
+      })
+      .expect("apply settings");
+
+    assert_eq!(
+      *calls.lock().unwrap(),
+      vec![
+        "lna:49.6".to_string(),
+        "vga:62.0".to_string(),
+        "amp:true".to_string(),
+      ],
+    );
   }
 }

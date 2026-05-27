@@ -42,6 +42,7 @@ import {
   normalizeFrequencyRangeToHz,
   formatFrequency,
 } from "@n-apt/utils/frequency";
+import { estimateHackrfTotalGainDb } from "@n-apt/utils/hackrfCalibration";
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
@@ -304,6 +305,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     toggleVisualizerPause,
   } = useSpectrumStore();
   const storeDispatch = dispatch as React.Dispatch<any>;
+
+  const effectiveTunerGainDb = useMemo(() => {
+    if (deviceProfile?.kind === "hackrf_one") {
+      return estimateHackrfTotalGainDb({
+        ampEnabled: effectiveSdrSettings?.gain?.hackrf_amp_enable,
+        lnaGainDb: effectiveSdrSettings?.gain?.hackrf_lna_gain,
+        vgaGainDb: effectiveSdrSettings?.gain?.hackrf_vga_gain,
+      });
+    }
+
+    return effectiveSdrSettings?.gain?.tuner_gain ?? 0;
+  }, [
+    deviceProfile?.kind,
+    effectiveSdrSettings?.gain?.hackrf_amp_enable,
+    effectiveSdrSettings?.gain?.hackrf_lna_gain,
+    effectiveSdrSettings?.gain?.hackrf_vga_gain,
+    effectiveSdrSettings?.gain?.tuner_gain,
+  ]);
 
   const handleVisualizerLoadingStateChange = useCallback(
     (isLoading: boolean) => {
@@ -791,7 +810,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
                 deviceProfile={deviceProfile}
-                tunerGainDb={effectiveSdrSettings?.gain?.tuner_gain}
+                tunerGainDb={effectiveTunerGainDb}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={manualVisualizerPaused}

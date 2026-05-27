@@ -179,12 +179,6 @@ export const loadPersistedSdrSettings = () => {
       delete parsed.powerScale;
     }
 
-    // Fix outdated cached dB ranges
-    if (parsed.fftMaxDb !== 0) {
-      parsed.fftMaxDb = 0;
-      parsed.fftMinDb = -120;
-    }
-
     // Live sample rate should come from the websocket/backend on reconnect.
     // Persisting it here tends to reintroduce stale rates during HMR.
     if ("sampleRateHz" in parsed) {

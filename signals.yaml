@@ -32,6 +32,12 @@ signals:
       rtl_agc: false
       # Tuner AGC
       tuner_agc: false
+      # HackRF LNA gain in dB
+      hackrf_lna_gain: !dB 49.6dB
+      # HackRF VGA gain in dB
+      hackrf_vga_gain: !dB 62dB
+      # HackRF RF amplifier enable
+      hackrf_amp_enable: false
     
     # Frequency correction
     ppm: 1.0
@@ -95,7 +101,7 @@ signals:
           markers:
             - kind: min_hardware_frequency
               freq_hz: !frequency 1MHz
-              label: "HackRF One lower limit"
+              label: "1MHz / HackRF One, lower limit"
             - kind: max_hardware_frequency
               freq_hz: !frequency 6GHz
               label: "HackRF One max hardware frequency"

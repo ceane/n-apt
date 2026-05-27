@@ -255,12 +255,29 @@ impl SdrDevice for HackRfDevice {
     let gain = gain.clamp(0.0, 47.0);
     let lna = if gain >= 16.0 { 16 } else { 0 };
     let vga = ((gain - lna as f64).round() as i32).clamp(0, 62) as u32;
+    self.set_lna_gain(lna as f64)?;
+    self.set_vga_gain(vga as f64)?;
+    self.set_amp_enable(false)?;
     unsafe {
-      let _ = ffi::hackrf_set_lna_gain(self.dev, lna);
-      let _ = ffi::hackrf_set_vga_gain(self.dev, vga);
-      let _ = ffi::hackrf_set_amp_enable(self.dev, 0);
       let _ = ffi::hackrf_set_antenna_enable(self.dev, 0);
     }
+    Ok(())
+  }
+
+  fn set_lna_gain(&mut self, gain: f64) -> Result<()> {
+    let lna = gain.clamp(0.0, 49.6).round() as u32;
+    let _ = unsafe { ffi::hackrf_set_lna_gain(self.dev, lna) };
+    Ok(())
+  }
+
+  fn set_vga_gain(&mut self, gain: f64) -> Result<()> {
+    let vga = gain.clamp(0.0, 62.0).round() as u32;
+    let _ = unsafe { ffi::hackrf_set_vga_gain(self.dev, vga) };
+    Ok(())
+  }
+
+  fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
+    let _ = unsafe { ffi::hackrf_set_amp_enable(self.dev, enabled as u8) };
     Ok(())
   }
 
@@ -289,7 +306,10 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
-    let _ = unsafe { ffi::hackrf_set_amp_enable(self.dev, enabled as u8) };
+    debug!(
+      "Ignoring tuner AGC request on HackRF One; use AMP enabled instead: {}",
+      enabled
+    );
     Ok(())
   }
 
