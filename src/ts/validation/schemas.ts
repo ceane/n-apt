@@ -78,7 +78,7 @@ export const SdrSettingsConfigSchema = z.object({
       tuner_bandwidth: z.number().min(0).max(20_000_000).optional(),
     })
     .optional(),
-  ppm: z.number().optional(),
+  ppm: z.number().int().nonnegative().optional(),
   fft: z
     .object({
       default_size: z.number(),
@@ -94,6 +94,28 @@ export const SdrSettingsConfigSchema = z.object({
       max_db: z.number(),
       padding: z.number(),
     })
+    .optional(),
+  devices: z
+    .record(
+      z.string(),
+      z.object({
+        sample_rate: z.any(),
+        fft_display: z.any().optional(),
+        gain_limits: z
+          .object({
+            min: z.number().optional(),
+            max: z.number().optional(),
+            step: z.number().optional(),
+            lna_min: z.number().optional(),
+            lna_max: z.number().optional(),
+            lna_step: z.number().optional(),
+            vga_min: z.number().optional(),
+            vga_max: z.number().optional(),
+            vga_step: z.number().optional(),
+          })
+          .optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -219,7 +241,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("ppm"),
-    ppm: z.number(),
+    ppm: z.number().int().nonnegative(),
   }),
   z.object({
     type: z.literal("frame_rate"),
@@ -235,7 +257,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     hackrfVgaGain: z.number().min(0).max(62).optional(),
     hackrfAmpEnabled: z.boolean().optional(),
     tunerBandwidth: z.number().min(0).max(20_000_000).optional(),
-    ppm: z.number().optional(),
+    ppm: z.number().int().nonnegative().optional(),
     tunerAGC: z.boolean().optional(),
     rtlAGC: z.boolean().optional(),
   }),

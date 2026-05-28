@@ -36,7 +36,7 @@ pub struct MockAptDevice {
   center_freq: u32,
   sample_rate: u32,
   gain: f64,
-  ppm: i32,
+  ppm: u32,
   tuner_agc: bool,
   rtl_agc: bool,
   offset_tuning: bool,
@@ -484,7 +484,7 @@ impl SdrDevice for MockAptDevice {
     Ok(())
   }
 
-  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
     self.ppm = ppm;
     log::debug!("Mock device PPM set to {}", ppm);
     Ok(())
@@ -645,7 +645,7 @@ impl MockAptDevice {
         let abs_freq_hz =
           signal.config.center_frequency_hz + (signal.drift_offset as f64);
         let effective_center_freq =
-          center_freq * (1.0 - self.ppm as f64 / 1_000_000.0);
+          center_freq * (1.0 - (self.ppm as f64) / 1_000_000.0);
         let rel_freq = abs_freq_hz - effective_center_freq;
 
         // Skip signals way out of range

@@ -421,11 +421,10 @@ export const Channels: React.FC<ChannelsProps> = ({
                       typeof sampleRateHz === "number" &&
                       Number.isFinite(sampleRateHz) &&
                       sampleRateHz >= channelSpan;
-                    const rememberedRange =
-                      sampleRateCoversChannel
-                        ? null
-                        : state.lastKnownRanges[label] ??
-                          state.lastKnownRanges[label.toLowerCase()];
+                    const rememberedRange = sampleRateCoversChannel
+                      ? null
+                      : (state.lastKnownRanges[label] ??
+                        state.lastKnownRanges[label.toLowerCase()]);
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
                       max:

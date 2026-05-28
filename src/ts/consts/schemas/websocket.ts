@@ -74,6 +74,17 @@ export type SdrSettingsConfig = {
           label?: string;
         }>;
       };
+      gain_limits?: {
+        min?: number;
+        max?: number;
+        step?: number;
+        lna_min?: number;
+        lna_max?: number;
+        lna_step?: number;
+        vga_min?: number;
+        vga_max?: number;
+        vga_step?: number;
+      };
     }
   >;
 };

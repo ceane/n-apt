@@ -202,13 +202,10 @@ export function useDrawWebGPUFFTSignal() {
     }
   }, []);
 
-  const retireBuffer = useCallback(
-    (buffer: GPUBuffer | null | undefined) => {
-      if (!buffer) return;
-      retiredBuffersRef.current.push(buffer);
-    },
-    [],
-  );
+  const retireBuffer = useCallback((buffer: GPUBuffer | null | undefined) => {
+    if (!buffer) return;
+    retiredBuffersRef.current.push(buffer);
+  }, []);
 
   const createFFTWebGPUState = useCallback(
     (

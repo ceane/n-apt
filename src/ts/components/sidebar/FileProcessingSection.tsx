@@ -96,7 +96,6 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     }));
 
     onSelectedFilesChange(registeredFiles);
-
   };
 
   const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } =

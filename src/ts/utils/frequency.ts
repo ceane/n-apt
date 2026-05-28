@@ -253,6 +253,16 @@ export const formatFrequencyHz = (freqHz: number): string => {
 };
 
 /**
+ * Format a raw frequency value to at most 3 decimal places and drop trailing zeros.
+ * @param val Numeric value to format
+ * @returns Formatted string
+ */
+export const formatFrequencyValue = (val: number): string => {
+  if (!Number.isFinite(val)) return "0";
+  return Number(val.toFixed(3)).toString();
+};
+
+/**
  * High resolution frequency formatting: 100.000.000 MHz
  * @param freqHz Frequency in Hz
  * @returns Formatted frequency string with dot separators for thousands

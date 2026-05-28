@@ -79,9 +79,12 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       : span;
   const channelCardCoversWholeSpan =
     safeSpan > 0 && requestedHardwareSpan >= safeSpan;
-  const wholeChannelDisplayMode = isWholeChannelMode || channelCardCoversWholeSpan;
+  const wholeChannelDisplayMode =
+    isWholeChannelMode || channelCardCoversWholeSpan;
   const wideHardwareRangeActive =
-    allowWideSampleRateOverscan && safeSpan > 0 && requestedHardwareSpan > safeSpan;
+    allowWideSampleRateOverscan &&
+    safeSpan > 0 &&
+    requestedHardwareSpan > safeSpan;
   const channelClampZoomThreshold = wideHardwareRangeActive
     ? requestedHardwareSpan / safeSpan
     : 1;
@@ -90,11 +93,12 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     : Math.min(requestedHardwareSpan, safeSpan);
   const rememberedRange = wholeChannelDisplayMode
     ? null
-    : lastKnownRanges[areaKey] ?? lastKnownRanges[areaKey.toLowerCase()] ?? null;
-  const externalFrequencyRange =
-    wholeChannelDisplayMode
-      ? null
-      : isCurrentActive && (Number.isFinite(vizZoom) ? vizZoom : 1) > 1
+    : (lastKnownRanges[areaKey] ??
+      lastKnownRanges[areaKey.toLowerCase()] ??
+      null);
+  const externalFrequencyRange = wholeChannelDisplayMode
+    ? null
+    : isCurrentActive && (Number.isFinite(vizZoom) ? vizZoom : 1) > 1
       ? null
       : isCurrentActive
         ? frequencyRange
@@ -242,7 +246,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
         const remainingPan = Math.max(
           -maxPan,
-          Math.min(maxPan, desiredPan - (newHardwareCenter - currentHardwareCenter)),
+          Math.min(
+            maxPan,
+            desiredPan - (newHardwareCenter - currentHardwareCenter),
+          ),
         );
         dispatch(spectrumActions.setVizPan(remainingPan));
         storeDispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
@@ -280,10 +287,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       <FrequencyRangeSlider
         label={label}
         minFreq={minFreq}
-      maxFreq={maxFreq}
-      visibleMin={visibleRange.min}
-      visibleMax={visibleRange.max}
-      sampleRateHz={hardwareSpan}
+        maxFreq={maxFreq}
+        visibleMin={visibleRange.min}
+        visibleMax={visibleRange.max}
+        sampleRateHz={hardwareSpan}
         allowWideSampleRateOverscan={false}
         wideSampleRateZoomThreshold={wideSampleRateZoomThreshold}
         limitMarkers={limitMarkers}

@@ -1,10 +1,4 @@
-import React, {
-  useMemo,
-  useState,
-  useEffect,
-  useCallback,
-  memo,
-} from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef, memo } from "react";
 import styled from "styled-components";
 import { Trash2, Unplug } from "lucide-react";
 import {
@@ -49,9 +43,7 @@ import {
   deriveStateFromConfig,
   useSdrSettings,
 } from "@n-apt/hooks/useSdrSettings";
-import {
-  useLiveSampleRateControl,
-} from "@n-apt/hooks/useLiveSampleRateControl";
+import { useLiveSampleRateControl } from "@n-apt/hooks/useLiveSampleRateControl";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -366,6 +358,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceName: liveDeviceName,
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
+  const lastSampleRateRef = useRef<number | null>(null);
 
   // Get state from Redux
   const {
@@ -408,9 +401,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [activeSignalArea, effectiveFrames]);
   const activeChannelSampleRate = useMemo(
     () =>
-      activeSignalAreaBounds && activeSignalAreaBounds.max > activeSignalAreaBounds.min
+      activeSignalAreaBounds &&
+      activeSignalAreaBounds.max > activeSignalAreaBounds.min
         ? activeSignalAreaBounds.max - activeSignalAreaBounds.min
-        : activeFrameForArea && activeFrameForArea.max_hz > activeFrameForArea.min_hz
+        : activeFrameForArea &&
+            activeFrameForArea.max_hz > activeFrameForArea.min_hz
           ? activeFrameForArea.max_hz - activeFrameForArea.min_hz
           : null,
     [activeFrameForArea, activeSignalAreaBounds],
@@ -454,6 +449,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveDeviceName ?? wsConnection.deviceName ?? deviceName;
   const liveDeviceProfileToUse =
     liveDeviceProfile ?? wsConnection.deviceProfile ?? deviceProfile;
+  const deviceTypeToUse =
+    liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined;
+  const deviceTypeNormalized =
+    deviceTypeToUse === "rtl-sdr" ? "rtl_sdr" : deviceTypeToUse;
+  const activeDeviceConfig = deviceTypeNormalized
+    ? liveSdrSettingsToUse?.devices?.[deviceTypeNormalized]
+    : undefined;
+  const gainLimits = activeDeviceConfig?.gain_limits;
   const isHackrfOne =
     liveDeviceProfileToUse?.kind === "hackrf_one" ||
     liveBackend?.toLowerCase() === "hackrf_one";
@@ -490,8 +493,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           sampleRateHz > 0
         ? sampleRateHz
         : typeof sampleRateHzEffective === "number" &&
-          Number.isFinite(sampleRateHzEffective) &&
-          sampleRateHzEffective > 0
+            Number.isFinite(sampleRateHzEffective) &&
+            sampleRateHzEffective > 0
           ? sampleRateHzEffective
           : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
               Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
@@ -630,7 +633,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const hackrfBasebandCurrentSampleRate =
     isHackrfOne && sourceMode === "live"
-      ? hackrfWholeChannelSampleRate ?? sampleRateHzLocal ?? null
+      ? (sampleRateHzLocal ?? null)
       : null;
 
   useEffect(() => {
@@ -639,20 +642,19 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sourceMode !== "live" ||
       typeof hackrfBasebandCurrentSampleRate !== "number" ||
       !Number.isFinite(hackrfBasebandCurrentSampleRate) ||
-      hackrfBasebandCurrentSampleRate <= 0 ||
-      liveState.hackrfBasebandBandwidth <= 0
+      hackrfBasebandCurrentSampleRate <= 0
     ) {
       return;
     }
 
     const nextBandwidth = Math.round(hackrfBasebandCurrentSampleRate);
-    if (liveState.hackrfBasebandBandwidth !== nextBandwidth) {
+    if (lastSampleRateRef.current !== nextBandwidth) {
+      lastSampleRateRef.current = nextBandwidth;
       setHackrfBasebandBandwidth(nextBandwidth);
     }
   }, [
     hackrfBasebandCurrentSampleRate,
     isHackrfOne,
-    liveState.hackrfBasebandBandwidth,
     setHackrfBasebandBandwidth,
     sourceMode,
   ]);
@@ -669,7 +671,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       ...(typeof derived.rtlAGC === "boolean"
         ? { rtlAGC: derived.rtlAGC }
         : {}),
-      ...(typeof derived.hackrfBasebandBandwidth === "number"
+      // Only apply bandwidth from config on initial load (when it's 0/unset);
+      // once the user or sample-rate sync has set a value, don't overwrite it.
+      ...(typeof derived.hackrfBasebandBandwidth === "number" &&
+      (typeof liveState.hackrfBasebandBandwidth !== "number" ||
+        liveState.hackrfBasebandBandwidth <= 0)
         ? { hackrfBasebandBandwidth: derived.hackrfBasebandBandwidth }
         : {}),
       ...(typeof liveState.fftSize !== "number" || liveState.fftSize <= 0
@@ -699,6 +705,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveState.sampleRateHz,
     liveState.fftFrameRate,
     liveState.fftWindow,
+    liveState.hackrfBasebandBandwidth,
   ]);
 
   useEffect(() => {
@@ -863,10 +870,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [sourceMode, selectedFiles]);
 
   const isMockFile = useMemo(() => {
-    const metadataSource = [
-      naptMetadata?.source_device,
-      naptMetadata?.hardware,
-    ]
+    const metadataSource = [naptMetadata?.source_device, naptMetadata?.hardware]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -1588,7 +1592,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                           confirmText: "Delete",
                           cancelText: "Cancel",
                           variant: "danger",
-                          onConfirm: () => dispatch(removeNoteCard(noteCard.id)),
+                          onConfirm: () =>
+                            dispatch(removeNoteCard(noteCard.id)),
                         });
                       }}
                     >
@@ -1720,9 +1725,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
           <SourceSettingsSection
             sourceMode="live"
-            deviceType={liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined}
+            deviceType={
+              liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined
+            }
             ppm={ppm}
             gain={gain}
+            gainLimits={gainLimits}
             hackrfLnaGain={liveState.hackrfLnaGain}
             hackrfVgaGain={liveState.hackrfVgaGain}
             hackrfAmpEnabled={liveState.hackrfAmpEnabled}
@@ -1730,6 +1738,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             hackrfCurrentSampleRate={
               hackrfBasebandCurrentSampleRate ?? undefined
             }
+            frequencyRangeMin={frequencyRange?.min ?? undefined}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             stitchSourceSettings={{ gain: 0, ppm: 0 }}

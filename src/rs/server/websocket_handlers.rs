@@ -526,9 +526,8 @@ pub fn handle_message(
       let hackrf_amp_enable = message.hackrf_amp_enable;
 
       let ppm = message.ppm.and_then(|p| {
-        // i32 cannot be NaN, but we still guard against extreme values
-        const MAX_ABS_PPM: i32 = 200;
-        if (-MAX_ABS_PPM..=MAX_ABS_PPM).contains(&p) {
+        const MAX_PPM: u32 = 200;
+        if (0..=MAX_PPM).contains(&p) {
           Some(p)
         } else {
           warn!("Ignoring implausible ppm from client: {}", p);
@@ -807,5 +806,25 @@ mod tests {
       4_390_000.0,
       Some((0.0, 30_000_000_000.0))
     ));
+  }
+
+  #[test]
+  fn validates_websocket_message_ppm() {
+    use crate::server::types::WebSocketMessage;
+    use validator::Validate;
+
+    // Valid PPM values
+    let msg: WebSocketMessage = serde_json::from_str(r#"{"type": "ppm", "ppm": 10}"#).unwrap();
+    assert!(msg.validate().is_ok());
+
+    let msg: WebSocketMessage = serde_json::from_str(r#"{"type": "ppm", "ppm": 0}"#).unwrap();
+    assert!(msg.validate().is_ok());
+
+    // Invalid PPM values (negative)
+    let msg_result: Result<WebSocketMessage, _> = serde_json::from_str(r#"{"type": "ppm", "ppm": -5}"#);
+    // Since ppm is u32, deserializing a negative number should either fail to deserialize
+    // or if we deserialize, it shouldn't validate. Actually, serde_json fails to deserialize
+    // a negative number into a u32, which is correct and safe! Let's assert either case.
+    assert!(msg_result.is_err() || msg_result.unwrap().validate().is_err());
   }
 }

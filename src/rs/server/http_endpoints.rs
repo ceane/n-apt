@@ -1637,7 +1637,7 @@ async fn handle_set_ppm(
   if let Some(ppm) = params.get("ppm").and_then(|p| p.as_i64()) {
     if let Err(e) = state
       .cmd_tx
-      .send(super::types::SdrCommand::SetPpm(ppm as i32))
+      .send(super::types::SdrCommand::SetPpm(ppm.max(0) as u32))
     {
       WebMCPToolResponse {
         success: false,

@@ -782,8 +782,8 @@ impl SdrDevice for RtlSdrDevice {
     self.set_tuner_gain((gain * 10.0) as i32)
   }
 
-  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
-    self.set_freq_correction(ppm)
+  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
+    self.set_freq_correction(ppm as i32)
   }
 
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {

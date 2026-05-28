@@ -257,30 +257,25 @@ export const useSdrSettings = ({
   const maxFrameRate = useMemo(() => {
     return getLogicalMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings);
   }, [maxSampleRate, state.fftSize, sdrSettings]);
-  const sampleRateOptions = useMemo(
-    () => {
-      const backendRates = backendSampleRateOptions
-        ?.filter(
-          (rate) => Number.isFinite(rate) && rate > 0,
-        )
-        .sort((a, b) => a - b);
+  const sampleRateOptions = useMemo(() => {
+    const backendRates = backendSampleRateOptions
+      ?.filter((rate) => Number.isFinite(rate) && rate > 0)
+      .sort((a, b) => a - b);
 
-      if (backendRates && backendRates.length > 0) {
-        return Array.from(new Set(backendRates));
-      }
+    if (backendRates && backendRates.length > 0) {
+      return Array.from(new Set(backendRates));
+    }
 
-      return buildSampleRateOptions(
-        maxSampleRate,
-        minReceiveSampleRate ?? sdrSettings?.min_receive_sample_rate,
-      );
-    },
-    [
+    return buildSampleRateOptions(
       maxSampleRate,
-      minReceiveSampleRate,
-      sdrSettings?.min_receive_sample_rate,
-      backendSampleRateOptions,
-    ],
-  );
+      minReceiveSampleRate ?? sdrSettings?.min_receive_sample_rate,
+    );
+  }, [
+    maxSampleRate,
+    minReceiveSampleRate,
+    sdrSettings?.min_receive_sample_rate,
+    backendSampleRateOptions,
+  ]);
 
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
@@ -342,10 +337,25 @@ export const useSdrSettings = ({
   );
   const setSampleRate = useCallback(
     (sampleRate: number) => {
-      dispatch(setSdrSettingsBundle({ sampleRateHz: sampleRate }));
-      sendCurrentSettings({ sampleRate });
+      if (deviceType === "hackrf_one") {
+        dispatch(
+          setSdrSettingsBundle({
+            sampleRateHz: sampleRate,
+            hackrfBasebandBandwidth: sampleRate,
+          }),
+        );
+        // Pass tunerBandwidth explicitly — stateRef hasn't re-rendered yet so
+        // stateRef.current.hackrfBasebandBandwidth would still be the old value.
+        sendCurrentSettings({
+          sampleRate,
+          tunerBandwidth: sampleRate,
+        });
+      } else {
+        dispatch(setSdrSettingsBundle({ sampleRateHz: sampleRate }));
+        sendCurrentSettings({ sampleRate });
+      }
     },
-    [dispatch, sendCurrentSettings],
+    [dispatch, sendCurrentSettings, deviceType],
   );
   const setGain = useCallback(
     (gain: number) => {

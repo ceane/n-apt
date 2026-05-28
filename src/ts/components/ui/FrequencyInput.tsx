@@ -10,6 +10,7 @@ import {
   clampFrequencyHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
+  formatFrequencyValue,
 } from "@n-apt/utils/frequency";
 
 const OuterContainer = styled.div`
@@ -50,6 +51,11 @@ const StyledInput = styled.input`
     box-shadow: 0 0 0 2px ${({ theme }) => theme.colors.primary}22;
   }
 
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   &::-webkit-inner-spin-button,
   &::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -73,8 +79,13 @@ const UnitSelect = styled.select`
   text-align: center;
   transition: all 0.2s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: ${({ theme }) => theme.colors.border}44;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   &:focus {
@@ -96,6 +107,8 @@ interface FrequencyInputProps {
   stepHz?: number;
   label?: string;
   id?: string;
+  disabled?: boolean;
+  className?: string;
 }
 
 export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
@@ -107,11 +120,13 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     stepHz,
     label,
     id,
+    disabled,
+    className,
   }) => {
     // Use useMemo for initial scale to avoid flicker on first mount
     const initialScale = useMemo(() => getOptimalFrequencyScale(valueHz), []);
     const [displayValue, setDisplayValue] = useState<string>(
-      initialScale.value.toFixed(3),
+      formatFrequencyValue(initialScale.value),
     );
     const [displayUnit, setDisplayUnit] = useState<string>(initialScale.unit);
 
@@ -125,25 +140,34 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
     // Synchronize internal state with props when NOT focused
     useEffect(() => {
+      console.log("[FrequencyInput debug] useEffect triggered. valueHz:", valueHz, "minHz:", minHz, "maxHz:", maxHz);
       // Check if the current value is valid
       const clamped = clampFrequencyHz(valueHz, minHz, maxHz);
       if (Math.abs(clamped - valueHz) > 0.001) {
+        console.log("[FrequencyInput debug] Clamped value differs. clamped:", clamped, "valueHz:", valueHz);
         // Value is invalid, notify parent to correct it
         onChangeHz(clamped);
         return;
       }
 
       // Only update internal state if the prop differs from our current known value
-      if (Math.abs(valueHz - hzRef.current) < 0.001) return;
+      if (Math.abs(valueHz - hzRef.current) < 0.001) {
+        console.log("[FrequencyInput debug] No change in value. valueHz:", valueHz, "hzRef.current:", hzRef.current);
+        return;
+      }
 
+      console.log("[FrequencyInput debug] Updating internal state to:", valueHz);
       hzRef.current = valueHz;
       prevValueHzRef.current = valueHz;
 
       // Only update display strings if the user is not actively editing
       if (!isFocusedRef.current) {
         const { value, unit } = getOptimalFrequencyScale(valueHz);
-        setDisplayValue(value.toFixed(3));
+        console.log("[FrequencyInput debug] Setting display value:", formatFrequencyValue(value), "unit:", unit);
+        setDisplayValue(formatFrequencyValue(value));
         setDisplayUnit(unit);
+      } else {
+        console.log("[FrequencyInput debug] Skipped UI update because field is focused");
       }
     }, [valueHz]);
 
@@ -156,7 +180,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         if (forceRefreshUI) {
           const { value, unit } = getOptimalFrequencyScale(cappedHz);
-          setDisplayValue(value.toFixed(3));
+          setDisplayValue(formatFrequencyValue(value));
           setDisplayUnit(unit);
         }
       },
@@ -164,6 +188,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     );
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (disabled) return;
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.stopPropagation();
         e.preventDefault();
@@ -191,6 +216,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const valStr = e.target.value.replace(/\s+/g, "");
       setDisplayValue(valStr);
 
@@ -202,7 +228,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         // Don't refresh the UI string while typing unless it's clamped
         if (Math.abs(cappedHz - newHz) > 0.1) {
-          setDisplayValue((cappedHz / multiplier).toFixed(3));
+          setDisplayValue(formatFrequencyValue(cappedHz / multiplier));
         }
 
         hzRef.current = cappedHz;
@@ -212,6 +238,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const handleFocus = () => {
+      if (disabled) return;
       isFocusedRef.current = true;
     };
 
@@ -219,19 +246,20 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       isFocusedRef.current = false;
       // On blur, normalize the display value
       const { value, unit } = getOptimalFrequencyScale(hzRef.current);
-      setDisplayValue(value.toFixed(3));
+      setDisplayValue(formatFrequencyValue(value));
       setDisplayUnit(unit);
     };
 
     const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (disabled) return;
       const newUnit = e.target.value;
       setDisplayUnit(newUnit);
       const multiplier = getFrequencyUnitScale(newUnit as any);
-      setDisplayValue((hzRef.current / multiplier).toFixed(3));
+      setDisplayValue(formatFrequencyValue(hzRef.current / multiplier));
     };
 
     return (
-      <OuterContainer>
+      <OuterContainer className={className}>
         {label && <Label htmlFor={id}>{label}</Label>}
         <InputContainer>
           <StyledInput
@@ -245,8 +273,13 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
             onBlur={handleBlur}
             autoComplete="off"
             spellCheck={false}
+            disabled={disabled}
           />
-          <UnitSelect value={displayUnit} onChange={handleUnitChange}>
+          <UnitSelect
+            value={displayUnit}
+            onChange={handleUnitChange}
+            disabled={disabled}
+          >
             <option value="Hz">Hz</option>
             <option value="kHz">kHz</option>
             <option value="MHz">MHz</option>

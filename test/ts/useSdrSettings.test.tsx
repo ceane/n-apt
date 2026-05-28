@@ -92,9 +92,7 @@ const HookHarness: React.FC<HookHarnessProps> = ({
       <div data-testid="tunerAGC">{String(tunerAGC)}</div>
       <div data-testid="rtlAGC">{String(rtlAGC)}</div>
       <div data-testid="fftSizeOptions">{fftSizeOptions.join(",")}</div>
-      <div data-testid="sampleRateOptions">
-        {sampleRateOptions?.join(",")}
-      </div>
+      <div data-testid="sampleRateOptions">{sampleRateOptions?.join(",")}</div>
     </div>
   );
 };
@@ -152,11 +150,7 @@ describe("useSdrSettings", () => {
 
   it("prefers backend sample rate options when provided", () => {
     const backendSampleRates = [
-      9_125_000,
-      10_000_000,
-      12_800_000,
-      16_000_000,
-      20_000_000,
+      9_125_000, 10_000_000, 12_800_000, 16_000_000, 20_000_000,
     ];
 
     render(

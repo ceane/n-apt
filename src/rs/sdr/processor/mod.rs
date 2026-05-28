@@ -193,7 +193,7 @@ pub struct CaptureResult {
   pub actual_frame_count: u32,
   pub fft_window: String,
   pub gain: f64,
-  pub ppm: i32,
+  pub ppm: u32,
   pub tuner_agc: bool,
   pub rtl_agc: bool,
   pub source_device: String,
@@ -274,7 +274,7 @@ pub struct SdrProcessor {
   /// Snapshot of gain at capture start
   pub capture_gain: f64,
   /// Snapshot of PPM at capture start
-  pub capture_ppm: i32,
+  pub capture_ppm: u32,
   /// Snapshot of FFT size at capture start
   pub capture_fft_size: usize,
   /// Snapshot of tuner AGC at capture start
@@ -300,7 +300,7 @@ pub struct SdrProcessor {
   /// Last read gain (dB)
   pub current_gain_db: f64,
   /// Last read PPM
-  pub current_ppm: i32,
+  pub current_ppm: u32,
   /// Last applied Tuner AGC
   pub current_tuner_agc: bool,
   /// Last applied RTL AGC
@@ -398,7 +398,7 @@ impl SdrProcessor {
       capture_is_ephemeral: false,
       available_spectrum,
       current_gain_db: -999.0, // Force first update
-      current_ppm: -999999,    // Force first update
+      current_ppm: u32::MAX,    // Force first update
       current_tuner_agc: false,
       current_rtl_agc: false,
       last_phase_spectrum: None,
@@ -422,7 +422,7 @@ impl SdrProcessor {
       hackrf_lna_gain: sdr_settings.gain.hackrf_lna_gain,
       hackrf_vga_gain: sdr_settings.gain.hackrf_vga_gain,
       hackrf_amp_enable: sdr_settings.gain.hackrf_amp_enable,
-      ppm: Some(sdr_settings.ppm as i32),
+      ppm: Some(sdr_settings.ppm as u32),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
       rtl_agc: Some(sdr_settings.gain.rtl_agc),
       ..Default::default()
@@ -472,13 +472,13 @@ impl SdrProcessor {
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
-    self.current_ppm = -999;
+    self.current_ppm = u32::MAX;
 
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
     self.apply_settings(crate::server::types::SdrProcessorSettings {
       gain: Some(settings.gain.tuner_gain),
-      ppm: Some(settings.ppm as i32),
+      ppm: Some(settings.ppm as u32),
       tuner_agc: Some(settings.gain.tuner_agc),
       rtl_agc: Some(settings.gain.rtl_agc),
       ..Default::default()
@@ -1781,7 +1781,7 @@ mod hackrf_settings_tests {
       Ok(())
     }
 
-    fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+    fn set_ppm(&mut self, ppm: u32) -> Result<()> {
       self.record(format!("ppm:{ppm}"));
       Ok(())
     }

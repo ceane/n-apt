@@ -45,7 +45,12 @@ describe("ReduxFrequencyRangeSlider", () => {
                 },
                 dispatch: jest.fn(),
                 effectiveFrames: [
-                  { id: "b", label: "B", min_hz: 24_720_000, max_hz: 29_920_000 },
+                  {
+                    id: "b",
+                    label: "B",
+                    min_hz: 24_720_000,
+                    max_hz: 29_920_000,
+                  },
                 ],
                 sampleRateHzEffective: 5_200_000,
                 wsConnection: { sendFrequencyRange: jest.fn() },

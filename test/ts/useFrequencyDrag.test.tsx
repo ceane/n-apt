@@ -381,7 +381,9 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastCall.min).toBeGreaterThan(100);
     expect(lastCall.max).toBeGreaterThan(110);
     expect(
-      mockOnVizPanChange.mock.calls[mockOnVizPanChange.mock.calls.length - 1][0],
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0],
     ).toBeGreaterThan(0);
   });
 

@@ -79,7 +79,7 @@ pub struct AptAnalysisConfig {
 pub enum SdrCommand {
   SetFrequency(u32),
   SetGain(f64),
-  SetPpm(i32),
+  SetPpm(u32),
   SetTunerAGC(bool),
   SetRtlAGC(bool),
   SetOffsetTuning(bool),
@@ -143,7 +143,7 @@ pub struct SdrProcessorSettings {
   pub hackrf_lna_gain: Option<f64>,
   pub hackrf_vga_gain: Option<f64>,
   pub hackrf_amp_enable: Option<bool>,
-  pub ppm: Option<i32>,
+  pub ppm: Option<u32>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
   pub offset_tuning: Option<bool>,
@@ -258,8 +258,8 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
-  #[validate(range(min = -1000, max = 1000))]
-  pub ppm: Option<i32>,
+  #[validate(range(min = 0, max = 1000))]
+  pub ppm: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
   pub tuner_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
@@ -646,10 +646,34 @@ pub struct SdrConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceGainLimits {
+  #[serde(default)]
+  pub min: Option<f64>,
+  #[serde(default)]
+  pub max: Option<f64>,
+  #[serde(default)]
+  pub step: Option<f64>,
+  #[serde(default)]
+  pub lna_min: Option<f64>,
+  #[serde(default)]
+  pub lna_max: Option<f64>,
+  #[serde(default)]
+  pub lna_step: Option<f64>,
+  #[serde(default)]
+  pub vga_min: Option<f64>,
+  #[serde(default)]
+  pub vga_max: Option<f64>,
+  #[serde(default)]
+  pub vga_step: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDeviceConfig {
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
   pub fft_display: Option<SdrFftDisplayConfig>,
+  #[serde(default)]
+  pub gain_limits: Option<DeviceGainLimits>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -164,9 +164,7 @@ export const useLiveSampleRateControl = ({
       typeof currentRate === "number" &&
       manualSampleRateOptions.length > 0 &&
       manualSampleRateOptions.some(
-        (rate) =>
-          Number.isFinite(rate) &&
-          Math.round(rate) === currentRate,
+        (rate) => Number.isFinite(rate) && Math.round(rate) === currentRate,
       );
     const currentRateIsKnownInvalidManual =
       typeof currentRate === "number" &&
@@ -175,7 +173,8 @@ export const useLiveSampleRateControl = ({
 
     if (
       (currentRateIsPreviousWhole ||
-        (currentRateIsKnownInvalidManual && sampleRateModeRef.current !== "manual")) &&
+        (currentRateIsKnownInvalidManual &&
+          sampleRateModeRef.current !== "manual")) &&
       currentRate !== null &&
       nextRate !== currentRate &&
       sampleRateModeRef.current !== "manual"

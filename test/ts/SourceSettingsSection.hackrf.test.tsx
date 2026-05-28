@@ -60,12 +60,12 @@ describe("SourceSettingsSection HackRF controls", () => {
     const ampInput = within(ampRow).getByRole("checkbox");
     const basebandToggle = within(basebandRow).getByRole("checkbox");
 
-    fireEvent.change(lnaInput, { target: { value: "49.6" } });
+    fireEvent.change(lnaInput, { target: { value: "40.0" } });
     fireEvent.change(vgaInput, { target: { value: "62" } });
     fireEvent.click(ampInput);
     fireEvent.click(basebandToggle);
 
-    expect(onHackrfLnaGainChange).toHaveBeenLastCalledWith(49.6);
+    expect(onHackrfLnaGainChange).toHaveBeenLastCalledWith(40.0);
     expect(onHackrfVgaGainChange).toHaveBeenLastCalledWith(62);
     expect(onHackrfAmpEnabledChange).toHaveBeenLastCalledWith(true);
     expect(onHackrfBasebandBandwidthChange).toHaveBeenLastCalledWith(3_200_000);
@@ -142,10 +142,8 @@ describe("SourceSettingsSection HackRF controls", () => {
     expect(rtlLabel).toBeInTheDocument();
     expect(screen.queryByText("LNA gain")).not.toBeInTheDocument();
 
-    const tunerRow = tunerLabel.closest("div")
-      ?.parentElement as HTMLElement;
-    const rtlRow = rtlLabel.closest("div")
-      ?.parentElement as HTMLElement;
+    const tunerRow = tunerLabel.closest("div")?.parentElement as HTMLElement;
+    const rtlRow = rtlLabel.closest("div")?.parentElement as HTMLElement;
 
     const tunerInput = within(tunerRow).getByRole("checkbox");
     const rtlInput = within(rtlRow).getByRole("checkbox");

@@ -1,6 +1,12 @@
 /** @jest-environment jsdom */
 import React from "react";
-import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
@@ -60,7 +66,9 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
         default_frame_rate: mockLiveState.fftFrameRate,
         max_size: mockLiveState.fftSize,
         max_frame_rate: mockLiveState.fftFrameRate,
-        size_to_frame_rate: { [String(mockLiveState.fftSize)]: mockLiveState.fftFrameRate },
+        size_to_frame_rate: {
+          [String(mockLiveState.fftSize)]: mockLiveState.fftFrameRate,
+        },
       },
     },
     sampleRateHzEffective: mockLiveState.sampleRateHz,
@@ -113,7 +121,9 @@ jest.mock("@n-apt/components/ui/Collapsible", () => ({
 }));
 
 jest.mock("@n-apt/components/ui/Button", () => ({
-  Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
+  Button: ({ children }: { children: React.ReactNode }) => (
+    <button>{children}</button>
+  ),
 }));
 
 const theme = buildAppTheme({
@@ -233,15 +243,8 @@ const initMockState = () => {
     captureStatus: null,
     autoFftOptions: null,
     sampleRateOptions: [
-      3_200_000,
-      4_000_000,
-      5_000_000,
-      6_400_000,
-      8_000_000,
-      10_000_000,
-      12_800_000,
-      16_000_000,
-      20_000_000,
+      3_200_000, 4_000_000, 5_000_000, 6_400_000, 8_000_000, 10_000_000,
+      12_800_000, 16_000_000, 20_000_000,
     ],
     sampleRateHz: 5_200_000,
     deviceName: "HackRF One",

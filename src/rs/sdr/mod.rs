@@ -95,7 +95,7 @@ pub trait SdrDevice: Send {
   }
 
   /// Set frequency correction in PPM
-  fn set_ppm(&mut self, ppm: i32) -> Result<()>;
+  fn set_ppm(&mut self, ppm: u32) -> Result<()>;
 
   /// Enable/disable tuner AGC
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()>;

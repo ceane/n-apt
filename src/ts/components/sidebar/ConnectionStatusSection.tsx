@@ -149,26 +149,26 @@ const FileActionButton = styled(PauseButton)<{
     props.$variant === "filePrimary"
       ? props.theme.primaryAnchor
       : props.$variant === "primary"
-      ? props.theme.surface
-      : props.$variant === "secondary"
-        ? props.theme.primaryAnchor
-        : `${props.theme.danger}12`};
+        ? props.theme.surface
+        : props.$variant === "secondary"
+          ? props.theme.primaryAnchor
+          : `${props.theme.danger}12`};
   border-color: ${(props) =>
     props.$variant === "filePrimary"
       ? props.theme.primary
       : props.$variant === "primary"
-      ? props.theme.borderHover
-      : props.$variant === "secondary"
-        ? props.theme.primary
-        : props.theme.danger};
+        ? props.theme.borderHover
+        : props.$variant === "secondary"
+          ? props.theme.primary
+          : props.theme.danger};
   color: ${(props) =>
     props.$variant === "filePrimary"
       ? props.theme.primary
       : props.$variant === "primary"
-      ? props.theme.textPrimary
-      : props.$variant === "secondary"
-        ? props.theme.primary
-        : props.theme.danger};
+        ? props.theme.textPrimary
+        : props.$variant === "secondary"
+          ? props.theme.primary
+          : props.theme.danger};
 
   ${(props) =>
     props.$isDisabled &&
@@ -182,26 +182,26 @@ const FileActionButton = styled(PauseButton)<{
       props.$variant === "filePrimary"
         ? `${props.theme.primary}12`
         : props.$variant === "primary"
-        ? `${props.theme.primary}0d`
-        : props.$variant === "secondary"
-          ? `${props.theme.primary}12`
-          : `${props.theme.danger}18`};
+          ? `${props.theme.primary}0d`
+          : props.$variant === "secondary"
+            ? `${props.theme.primary}12`
+            : `${props.theme.danger}18`};
     border-color: ${(props) =>
       props.$variant === "filePrimary"
         ? props.theme.primary
         : props.$variant === "primary"
-        ? props.theme.primary
-        : props.$variant === "secondary"
           ? props.theme.primary
-          : props.theme.danger};
+          : props.$variant === "secondary"
+            ? props.theme.primary
+            : props.theme.danger};
     color: ${(props) =>
       props.$variant === "filePrimary"
         ? props.theme.primary
         : props.$variant === "primary"
-        ? props.theme.primary
-        : props.$variant === "secondary"
           ? props.theme.primary
-          : props.theme.danger};
+          : props.$variant === "secondary"
+            ? props.theme.primary
+            : props.theme.danger};
   }
 `;
 
@@ -251,7 +251,9 @@ const getFileStatus = (
   const isDecryptionError = lower.includes("decryption");
   const isProcessed = lower.includes("successfully");
   const isExplicitError =
-    lower.includes("error") || lower.includes("failed") || lower.includes("failure");
+    lower.includes("error") ||
+    lower.includes("failed") ||
+    lower.includes("failure");
   const isProcessing =
     (lower.includes("loading") ||
       lower.includes("computing") ||
@@ -372,8 +374,8 @@ export const ConnectionStatusSection: React.FC<
                       ? "Restarting device..."
                       : "Loading device..."
                     : deviceState === "connected"
-                        ? "Connected to server and device"
-                        : "Connected to server but device not connected"}
+                      ? "Connected to server and device"
+                      : "Connected to server but device not connected"}
           </StatusText>
         </ConnectionStatus>
 
@@ -401,7 +403,13 @@ export const ConnectionStatusSection: React.FC<
             ) : fileStatus?.isProcessed ? (
               <FileActionButton
                 $paused={fileIsPaused}
-                $variant={fileIsPaused ? "secondary" : isMockFile ? "primary" : "filePrimary"}
+                $variant={
+                  fileIsPaused
+                    ? "secondary"
+                    : isMockFile
+                      ? "primary"
+                      : "filePrimary"
+                }
                 onClick={onFilePauseToggle}
               >
                 {fileIsPaused ? (
@@ -439,9 +447,9 @@ export const ConnectionStatusSection: React.FC<
                 <Play size={14} fill="currentColor" /> Process
               </FileActionButton>
             )
-          ) : isConnected &&
-            (deviceState === "loading" &&
-              deviceLoadingReason === "restart" ? (
+          ) : (
+            isConnected &&
+            (deviceState === "loading" && deviceLoadingReason === "restart" ? (
               <WarningButton
                 $paused={false}
                 $narrow
@@ -473,7 +481,8 @@ export const ConnectionStatusSection: React.FC<
                   <SpaceHint>[Space]</SpaceHint>
                 </PauseButton>
               )
-            ))}
+            ))
+          )}
         </ActionsColumn>
         {extraActions && (
           <div style={{ gridColumn: "1 / -1", width: "100%" }}>

@@ -233,7 +233,9 @@ describe("frequency axis rendering", () => {
 
     expect(fillTextCalls.some((call) => call.text.includes("20.9"))).toBe(true);
     expect(fillTextCalls.some((call) => call.text.includes("33.7"))).toBe(true);
-    expect(fillTextCalls.some((call) => call.text.includes("24.7"))).toBe(false);
+    expect(fillTextCalls.some((call) => call.text.includes("24.7"))).toBe(
+      false,
+    );
   });
 
   it("draws a center-colored tick for snapshot VFOs without a center line", () => {

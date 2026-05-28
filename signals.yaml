@@ -33,11 +33,13 @@ signals:
       # Tuner AGC
       tuner_agc: false
       # HackRF LNA gain in dB
-      hackrf_lna_gain: !dB 49.6dB
+      hackrf_lna_gain: !dB 0.0dB
       # HackRF VGA gain in dB
-      hackrf_vga_gain: !dB 62dB
+      hackrf_vga_gain: !dB 0.0dB
       # HackRF RF amplifier enable
-      hackrf_amp_enable: false
+      hackrf_amp_enable: true
+      # HackRF baseband filter bandwidth
+      tuner_bandwidth: 3200000
     
     # Frequency correction
     ppm: 1.0
@@ -74,6 +76,10 @@ signals:
     devices:
       rtl_sdr:
         sample_rate: !max
+        gain_limits:
+          min: 0.0
+          max: 49.6
+          step: 0.1
         fft_display:
           markers:
             - kind: lower_limit
@@ -87,6 +93,10 @@ signals:
               label: "RTL-SDR max hardware sample rate"
       mock_apt:
         sample_rate: !floor...!max
+        gain_limits:
+          min: 0.0
+          max: 49.6
+          step: 0.1
         fft_display:
           markers:
             - kind: lower_limit
@@ -97,6 +107,13 @@ signals:
               label: "Mock APT upper limit"
       hackrf_one:
         sample_rate: !floor...!max
+        gain_limits:
+          lna_min: 0.0
+          lna_max: 40.0
+          lna_step: 8.0
+          vga_min: 0.0
+          vga_max: 62.0
+          vga_step: 2.0
         fft_display:
           markers:
             - kind: min_hardware_frequency

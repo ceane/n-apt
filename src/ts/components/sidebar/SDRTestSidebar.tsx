@@ -76,12 +76,12 @@ export const SDRTestSidebar: React.FC = () => {
       isConnected,
       deviceState,
       backend,
-    deviceLoadingReason,
-    maxSampleRateHz,
-    sampleRateOptions,
-    sendSettings,
-    sendRestartDevice,
-    autoFftOptions,
+      deviceLoadingReason,
+      maxSampleRateHz,
+      sampleRateOptions,
+      sendSettings,
+      sendRestartDevice,
+      autoFftOptions,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
   } = useSpectrumStore();
@@ -89,6 +89,12 @@ export const SDRTestSidebar: React.FC = () => {
   const { showPrompt } = usePrompt();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
+  const deviceTypeNormalized =
+    deviceProfile?.kind === "rtl-sdr" ? "rtl_sdr" : deviceProfile?.kind;
+  const activeDeviceConfig = deviceTypeNormalized
+    ? effectiveSdrSettings?.devices?.[deviceTypeNormalized]
+    : undefined;
+  const gainLimits = activeDeviceConfig?.gain_limits;
 
   const {
     fftSize,
@@ -264,8 +270,11 @@ export const SDRTestSidebar: React.FC = () => {
             sourceMode={state.sourceMode}
             deviceType={deviceProfile?.kind}
             gain={gain}
+            gainLimits={gainLimits}
             hackrfBasebandBandwidth={hackrfBasebandBandwidth}
-            hackrfCurrentSampleRate={sampleRateHzEffective ?? state.sampleRateHz}
+            hackrfCurrentSampleRate={
+              sampleRateHzEffective ?? state.sampleRateHz
+            }
             ppm={ppm}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}

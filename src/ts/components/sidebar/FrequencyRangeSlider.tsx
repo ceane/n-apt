@@ -195,7 +195,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       ? Math.min(maxFreq, clampedVisibleMin + sampleRateHz)
       : Math.min(maxFreq, requestedVisibleMax);
   const clampedVisibleMax = Math.max(clampedVisibleMin, rateLimitedMax);
-  const windowWidth = Math.max(0, (clampedVisibleMax - clampedVisibleMin) / safeTotalRange);
+  const windowWidth = Math.max(
+    0,
+    (clampedVisibleMax - clampedVisibleMin) / safeTotalRange,
+  );
 
   // Initialize windowStart from props
   const [windowStart, setWindowStart] = useState(
@@ -301,7 +304,8 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const renderedThumbWidth = isWholeChannelWindow
     ? trackWidth
     : Math.max(logicalThumbWidth, minContentThumbWidth);
-  const logicalMaxWindowStart = renderedWindowWidth <= 1 ? Math.max(0, 1 - renderedWindowWidth) : 0;
+  const logicalMaxWindowStart =
+    renderedWindowWidth <= 1 ? Math.max(0, 1 - renderedWindowWidth) : 0;
   const clampedWindowStart =
     renderedWindowWidth <= 1
       ? Math.max(0, Math.min(logicalMaxWindowStart, windowStart))
@@ -349,9 +353,13 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
 
   const rawCurrentMin = minFreq + windowStart * safeTotalRange;
-  const currentMin = isWholeChannelWindow ? minFreq : Math.max(minFreq, rawCurrentMin);
+  const currentMin = isWholeChannelWindow
+    ? minFreq
+    : Math.max(minFreq, rawCurrentMin);
   const rawCurrentMax = minFreq + (windowStart + windowWidth) * safeTotalRange;
-  const currentMax = isWholeChannelWindow ? maxFreq : Math.min(maxFreq, rawCurrentMax);
+  const currentMax = isWholeChannelWindow
+    ? maxFreq
+    : Math.min(maxFreq, rawCurrentMax);
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {
@@ -582,12 +590,11 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
-                width:
-                isWholeChannelWindow
+              width: isWholeChannelWindow
+                ? "100%"
+                : widthPercent >= 100
                   ? "100%"
-                  : widthPercent >= 100
-                    ? "100%"
-                    : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
+                  : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
             }}
             onMouseDown={handleMouseDown}
           >

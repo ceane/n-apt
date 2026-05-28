@@ -23,7 +23,6 @@ const Section = styled.div`
   width: 100%;
 `;
 
-
 const SectionTitle = styled.div`
   font-size: 11px;
   color: ${(props) => props.theme.metadataLabel};
@@ -300,14 +299,14 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                       {wholeChannelLabel}
                     </option>
                   )}
-                {sampleRateOptionList.map((rate) => (
+                {sampleRateOptionList.map((rate) =>
                   typeof wholeChannelSampleRate === "number" &&
                   Math.round(wholeChannelSampleRate) === rate ? null : (
-                  <option key={rate} value={rate}>
-                    {formatFrequency(rate)}
-                  </option>
-                  )
-                ))}
+                    <option key={rate} value={rate}>
+                      {formatFrequency(rate)}
+                    </option>
+                  ),
+                )}
               </SettingSelect>
             </Row>
           )}

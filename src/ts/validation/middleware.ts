@@ -89,10 +89,7 @@ export function validateWebSocketMessage(data: unknown): boolean {
     // Status snapshots are the most important control-plane messages, so we
     // validate them via the dedicated status path first and tolerate minor
     // schema drift instead of dropping the entire update stream.
-    if (
-      isValidObject(data) &&
-      (data as { type?: unknown }).type === "status"
-    ) {
+    if (isValidObject(data) && (data as { type?: unknown }).type === "status") {
       const isStatusValid = validateStatusMessage(data);
       if (!isStatusValid) {
         logValidationFailure("WebSocket message", data);

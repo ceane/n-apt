@@ -48,6 +48,32 @@ describe("WebSocket Validation System", () => {
       });
     });
 
+    test("should validate PPM only if it is a positive whole number", () => {
+      // Valid PPM (positive whole number/integer)
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 10 })).toBe(true);
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 0 })).toBe(true);
+
+      // Invalid PPM (negative, float)
+      expect(validateWebSocketMessage({ type: "ppm", ppm: -5 })).toBe(false);
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 3.5 })).toBe(false);
+
+      // Valid settings with ppm
+      expect(
+        validateWebSocketMessage({
+          type: "settings",
+          ppm: 12,
+        }),
+      ).toBe(true);
+
+      // Invalid settings with ppm (negative)
+      expect(
+        validateWebSocketMessage({
+          type: "settings",
+          ppm: -1,
+        }),
+      ).toBe(false);
+    });
+
     test("should handle ArrayBuffer data (binary)", () => {
       const binaryData = new ArrayBuffer(1024);
       // Should skip validation for binary data

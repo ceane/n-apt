@@ -28,7 +28,9 @@ describe("ConnectionStatusSection file mode", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByRole("button", { name: /choose file/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /choose file/i }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /choose file/i }));
     expect(onFileProcess).toHaveBeenCalled();
   });

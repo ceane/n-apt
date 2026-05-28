@@ -1,10 +1,13 @@
 import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
+import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
+import { Tooltip } from "@n-apt/components/ui/Tooltip";
 import {
   ArrowBigUp,
   Pipette,
   SlidersVertical,
+  TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 
@@ -121,6 +124,10 @@ const NarrowSettingInput = styled(SettingInput)`
   width: 60px;
 `;
 
+const CompactFrequencyInput = styled(FrequencyInput)`
+  width: 95px;
+`;
+
 const InputGroup = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -147,6 +154,32 @@ const LabelWithIcon = styled.span`
   }
 `;
 
+const GainWarningIcon = styled(TriangleAlert)`
+  width: 13px !important;
+  height: 13px !important;
+  color: #f59e0b !important;
+  opacity: 1 !important;
+  flex-shrink: 0;
+`;
+
+const GAIN_WARNING_CONTENT =
+  "Warning: Excessive gain will amplify out-of-band noise, cause ADC clipping, " +
+  "and generate false signals (aliasing)." +
+  "<br/><br/>" +
+  "It is recommended to keep the gain beneath 30\u202fdB for signals under 10\u202fMHz." +
+  "<br/><br/>" +
+  "<strong>LNA</strong> \u2014 Max gain 40\u202fdB<br/>" +
+  "<strong>VGA</strong> \u2014 Max gain 62\u202fdB<br/>" +
+  "<strong>AMP</strong> \u2014 Gain 11\u202fdB";
+
+const GainWarning: React.FC = () => (
+  <Tooltip
+    title="Gain Warning"
+    content={GAIN_WARNING_CONTENT}
+    trigger={<GainWarningIcon />}
+  />
+);
+
 const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
   icon: IconComponent,
   text,
@@ -156,6 +189,18 @@ const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
     {text}
   </LabelWithIcon>
 );
+
+export interface GainLimits {
+  min?: number;
+  max?: number;
+  step?: number;
+  lna_min?: number;
+  lna_max?: number;
+  lna_step?: number;
+  vga_min?: number;
+  vga_max?: number;
+  vga_step?: number;
+}
 
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
@@ -173,6 +218,9 @@ interface SourceSettingsSectionProps {
   isConnected: boolean;
   disableAgcControls?: boolean;
   maxGain?: number;
+  gainLimits?: GainLimits;
+  /** Minimum frequency of the current spectrum view in Hz, used for gain warnings */
+  frequencyRangeMin?: number;
   onPpmChange: (value: number) => void;
   onGainChange: (value: number) => void;
   onHackrfLnaGainChange?: (value: number) => void;
@@ -193,7 +241,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   deviceType,
   ppm,
   gain,
-  hackrfLnaGain = 49.6,
+  hackrfLnaGain = 40.0,
   hackrfVgaGain = 62,
   hackrfAmpEnabled = false,
   hackrfBasebandBandwidth = 0,
@@ -204,6 +252,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   isConnected,
   disableAgcControls = false,
   maxGain = 49.6,
+  gainLimits,
+  frequencyRangeMin,
   onPpmChange,
   onGainChange,
   onHackrfLnaGainChange,
@@ -216,6 +266,22 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   onAgcModeChange,
 }) => {
   const isHackrfLive = sourceMode === "live" && deviceType === "hackrf_one";
+  /** True when the spectrum view includes sub-10 MHz frequencies */
+  const isLowFrequency =
+    typeof frequencyRangeMin === "number" && frequencyRangeMin < 10_000_000;
+
+  // Combined gain: each non-zero source contributes; AMP = 11 dB fixed
+  const lnaContrib = hackrfLnaGain > 0 ? hackrfLnaGain : 0;
+  const vgaContrib = hackrfVgaGain > 0 ? hackrfVgaGain : 0;
+  const ampContrib = hackrfAmpEnabled ? 11 : 0;
+  const totalGainDb = lnaContrib + vgaContrib + ampContrib;
+  const gainOverLimit = isHackrfLive && isLowFrequency && totalGainDb > 30;
+  /** Show warning on LNA row if LNA is a non-zero contributor to the over-limit total */
+  const showLnaWarning = gainOverLimit && lnaContrib > 0;
+  /** Show warning on VGA row if VGA is a non-zero contributor */
+  const showVgaWarning = gainOverLimit && vgaContrib > 0;
+  /** Show warning on AMP row if AMP is enabled and contributing */
+  const showAmpWarning = gainOverLimit && hackrfAmpEnabled;
   const isRtlSdrLive =
     sourceMode === "live" &&
     (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
@@ -223,21 +289,27 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
 
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(maxGain, val));
+    const minVal = gainLimits?.min ?? 0;
+    const maxVal = gainLimits?.max ?? maxGain;
+    return Math.max(minVal, Math.min(maxVal, val));
   };
 
   const clampHackrfLnaGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(49.6, val));
+    const minVal = gainLimits?.lna_min ?? 0.0;
+    const maxVal = gainLimits?.lna_max ?? 40.0;
+    return Math.max(minVal, Math.min(maxVal, val));
   };
 
   const clampHackrfVgaGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(62, val));
+    const minVal = gainLimits?.vga_min ?? 0.0;
+    const maxVal = gainLimits?.vga_max ?? 62.0;
+    return Math.max(minVal, Math.min(maxVal, val));
   };
 
   const handlePpmChange = (raw: string) => {
-    const val = raw === "" ? 0 : parseInt(raw, 10) || 0;
+    const val = raw === "" ? 0 : Math.max(0, parseInt(raw, 10) || 0);
     if (sourceMode === "file") {
       onStitchSourceSettingsChange({ ...stitchSourceSettings, ppm: val });
     } else {
@@ -253,10 +325,10 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     if (sourceMode === "file") {
       onStitchSourceSettingsChange({
         ...stitchSourceSettings,
-        ppm: (stitchSourceSettings.ppm || 0) + delta,
+        ppm: Math.max(0, (stitchSourceSettings.ppm || 0) + delta),
       });
     } else {
-      const next = (ppm || 0) + delta;
+      const next = Math.max(0, (ppm || 0) + delta);
       onPpmChange(next);
     }
   };
@@ -274,46 +346,62 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
-    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const stepVal = gainLimits?.step ?? 1.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
     if (sourceMode === "file") {
+      const next = (stitchSourceSettings.gain || 0) + delta;
+      const rounded =
+        stepVal === 0.1
+          ? Math.round(next * 10) / 10
+          : Math.round(next / stepVal) * stepVal;
       onStitchSourceSettingsChange({
         ...stitchSourceSettings,
-        gain: (stitchSourceSettings.gain || 0) + delta,
+        gain: rounded,
       });
     } else {
-      const next = clampGain((gain || 0) + delta);
-      onGainChange(next);
+      const next = (gain || 0) + delta;
+      const rounded =
+        stepVal === 0.1
+          ? Math.round(next * 10) / 10
+          : Math.round(next / stepVal) * stepVal;
+      onGainChange(clampGain(rounded));
     }
   };
 
   const handleHackrfLnaChange = (raw: string) => {
     const val = raw === "" ? 0 : Number(raw);
-    onHackrfLnaGainChange?.(clampHackrfLnaGain(val));
+    const stepVal = gainLimits?.lna_step ?? 8.0;
+    const rounded = Math.round(val / stepVal) * stepVal;
+    onHackrfLnaGainChange?.(clampHackrfLnaGain(rounded));
   };
 
-  const handleHackrfLnaKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
+  const handleHackrfLnaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
-    const delta = e.key === "ArrowUp" ? 0.1 : -0.1;
-    onHackrfLnaGainChange?.(clampHackrfLnaGain((hackrfLnaGain || 0) + delta));
+    const stepVal = gainLimits?.lna_step ?? 8.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
+    const next = (hackrfLnaGain || 0) + delta;
+    const rounded = Math.round(next / stepVal) * stepVal;
+    onHackrfLnaGainChange?.(clampHackrfLnaGain(rounded));
   };
 
   const handleHackrfVgaChange = (raw: string) => {
     const val = raw === "" ? 0 : Number(raw);
-    onHackrfVgaGainChange?.(clampHackrfVgaGain(val));
+    const stepVal = gainLimits?.vga_step ?? 2.0;
+    const rounded = Math.round(val / stepVal) * stepVal;
+    onHackrfVgaGainChange?.(clampHackrfVgaGain(rounded));
   };
 
-  const handleHackrfVgaKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
+  const handleHackrfVgaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
-    const delta = e.key === "ArrowUp" ? 1 : -1;
-    onHackrfVgaGainChange?.(clampHackrfVgaGain((hackrfVgaGain || 0) + delta));
+    const stepVal = gainLimits?.vga_step ?? 2.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
+    const next = (hackrfVgaGain || 0) + delta;
+    const rounded = Math.round(next / stepVal) * stepVal;
+    onHackrfVgaGainChange?.(clampHackrfVgaGain(rounded));
   };
 
   const handleHackrfAmpChange = (enabled: boolean) => {
@@ -373,6 +461,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           onChange={(e) => handlePpmChange(e.target.value)}
           onKeyDown={handlePpmKeyDown}
           step="1"
+          min="0"
         />
       </Row>
       {!isHackrfLive && (
@@ -384,14 +473,29 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           <InputGroup>
             <NarrowSettingInput
               type="number"
-              step="1"
-              value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
-              onChange={(e) =>
-                handleGainChange(Math.round(Number(e.target.value)))
+              step={(gainLimits?.step ?? 1.0).toString()}
+              value={
+                sourceMode === "file"
+                  ? stitchSourceSettings.gain
+                  : gainLimits?.step === 0.1
+                    ? Number(gain.toFixed(1))
+                    : gain
               }
+              onChange={(e) => {
+                const stepVal = gainLimits?.step ?? 1.0;
+                const val = Number(e.target.value);
+                const rounded = Math.round(val / stepVal) * stepVal;
+                const finalVal =
+                  stepVal === 0.1 ? Math.round(rounded * 10) / 10 : rounded;
+                handleGainChange(finalVal);
+              }}
               onKeyDown={handleGainKeyDown}
-              min="0"
-              max={sourceMode === "file" ? undefined : maxGain.toString()}
+              min={(gainLimits?.min ?? 0.0).toString()}
+              max={
+                sourceMode === "file"
+                  ? undefined
+                  : (gainLimits?.max ?? maxGain).toString()
+              }
             />
             <UnitLabel>dB</UnitLabel>
           </InputGroup>
@@ -400,45 +504,60 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       {isHackrfLive && (
         <>
           <Row
-            label={<IconLabel icon={ArrowBigUp} text="LNA gain" />}
+            label={
+              <>
+                <IconLabel icon={ArrowBigUp} text="LNA gain" />
+                {showLnaWarning && <GainWarning />}
+              </>
+            }
             tooltipTitle="HackRF LNA Gain"
-            tooltip="HackRF One low-noise amplifier gain in dB."
+            tooltip={`HackRF One low-noise amplifier. Max gain: ${gainLimits?.lna_max ?? 40} dB. Step: ${gainLimits?.lna_step ?? 8} dB.`}
           >
             <InputGroup>
               <NarrowSettingInput
                 type="number"
-                step="0.1"
+                step={(gainLimits?.lna_step ?? 8.0).toString()}
                 value={hackrfLnaGain}
                 onChange={(e) => handleHackrfLnaChange(e.target.value)}
                 onKeyDown={handleHackrfLnaKeyDown}
-                min="0"
-                max="49.6"
+                min={(gainLimits?.lna_min ?? 0.0).toString()}
+                max={(gainLimits?.lna_max ?? 40.0).toString()}
               />
               <UnitLabel>dB</UnitLabel>
             </InputGroup>
           </Row>
           <Row
-            label={<IconLabel icon={ArrowBigUp} text="VGA gain" />}
+            label={
+              <>
+                <IconLabel icon={ArrowBigUp} text="VGA gain" />
+                {showVgaWarning && <GainWarning />}
+              </>
+            }
             tooltipTitle="HackRF VGA Gain"
-            tooltip="HackRF One variable gain amplifier gain in dB."
+            tooltip={`HackRF One variable-gain amplifier. Max gain: ${gainLimits?.vga_max ?? 62} dB. Step: ${gainLimits?.vga_step ?? 2} dB.`}
           >
             <InputGroup>
               <NarrowSettingInput
                 type="number"
-                step="1"
+                step={(gainLimits?.vga_step ?? 2.0).toString()}
                 value={hackrfVgaGain}
                 onChange={(e) => handleHackrfVgaChange(e.target.value)}
                 onKeyDown={handleHackrfVgaKeyDown}
-                min="0"
-                max="62"
+                min={(gainLimits?.vga_min ?? 0.0).toString()}
+                max={(gainLimits?.vga_max ?? 62.0).toString()}
               />
               <UnitLabel>dB</UnitLabel>
             </InputGroup>
           </Row>
           <Row
-            label="AMP enabled"
+            label={
+              <>
+                AMP enabled
+                {showAmpWarning && <GainWarning />}
+              </>
+            }
             tooltipTitle="HackRF AMP"
-            tooltip="HackRF One RF amplifier enable toggle."
+            tooltip="HackRF One RF amplifier enable toggle. Adds a fixed 11 dB of gain when enabled."
           >
             <ToggleSwitch $disabled={!isConnected}>
               <ToggleSwitchInput
@@ -460,27 +579,19 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 <ToggleSwitchInput
                   type="checkbox"
                   checked={isHackrfBasebandEnabled}
-                  onChange={(e) =>
-                    handleHackrfBasebandToggle(e.target.checked)
-                  }
+                  onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
                   disabled={!isConnected}
                 />
                 <ToggleSwitchSlider $disabled={!isConnected} />
               </ToggleSwitch>
               {isHackrfBasebandEnabled && (
-                <>
-                  <NarrowSettingInput
-                    type="number"
-                    step="1"
-                    value={hackrfBasebandBandwidth}
-                    onChange={(e) =>
-                      handleHackrfBasebandBandwidthChange(e.target.value)
-                    }
-                    min="0"
-                    max="20000000"
-                  />
-                  <UnitLabel>Hz</UnitLabel>
-                </>
+                <CompactFrequencyInput
+                  valueHz={hackrfBasebandBandwidth}
+                  onChangeHz={(val) => onHackrfBasebandBandwidthChange?.(val)}
+                  disabled={!isConnected}
+                  minHz={0}
+                  maxHz={20000000}
+                />
               )}
             </InputGroup>
           </Row>

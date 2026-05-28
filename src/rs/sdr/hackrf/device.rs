@@ -17,7 +17,7 @@ struct RxContext {
   tx: Sender<Vec<u8>>,
 }
 
-fn apply_ppm_correction(freq_hz: u32, ppm: i32) -> u32 {
+fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
   if freq_hz == 0 || ppm == 0 {
     return freq_hz;
   }
@@ -42,7 +42,7 @@ pub struct HackRfDevice {
   sample_rate: u32,
   center_frequency: u32,
   requested_center_frequency: u32,
-  ppm: i32,
+  ppm: u32,
   iq_buffer: Vec<u8>,
   streaming_started: bool,
 }
@@ -220,6 +220,9 @@ impl SdrDevice for HackRfDevice {
     self.iq_buffer.clear();
     self.iq_buffer.extend_from_slice(&frame);
 
+    // Normalize signed i8 IQ data to unsigned u8 offset binary (centered at 128)
+    normalize_hackrf_buffer(&mut self.iq_buffer);
+
     Ok(crate::fft::types::RawSamples {
       data: std::mem::take(&mut self.iq_buffer),
       sample_rate: self.sample_rate,
@@ -265,13 +268,13 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_lna_gain(&mut self, gain: f64) -> Result<()> {
-    let lna = gain.clamp(0.0, 49.6).round() as u32;
+    let lna = (((gain / 8.0).round() * 8.0).clamp(0.0, 40.0)) as u32;
     let _ = unsafe { ffi::hackrf_set_lna_gain(self.dev, lna) };
     Ok(())
   }
 
   fn set_vga_gain(&mut self, gain: f64) -> Result<()> {
-    let vga = gain.clamp(0.0, 62.0).round() as u32;
+    let vga = (((gain / 2.0).round() * 2.0).clamp(0.0, 62.0)) as u32;
     let _ = unsafe { ffi::hackrf_set_vga_gain(self.dev, vga) };
     Ok(())
   }
@@ -281,7 +284,7 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
-  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
     if self.requested_center_frequency > 0 {
       let corrected_freq =
         apply_ppm_correction(self.requested_center_frequency, ppm);
@@ -374,6 +377,46 @@ impl SdrDevice for HackRfDevice {
   }
 }
 
+fn normalize_hackrf_buffer(buffer: &mut [u8]) {
+  let len = buffer.len();
+  let mut i = 0;
+
+  #[cfg(target_arch = "aarch64")]
+  {
+    use std::arch::aarch64::*;
+    unsafe {
+      let mask = vdupq_n_u8(0x80);
+      while i + 16 <= len {
+        let ptr = buffer.as_mut_ptr().add(i);
+        let data = vld1q_u8(ptr);
+        let result = veorq_u8(data, mask);
+        vst1q_u8(ptr, result);
+        i += 16;
+      }
+    }
+  }
+
+  #[cfg(target_arch = "x86_64")]
+  {
+    use std::arch::x86_64::*;
+    unsafe {
+      let mask = _mm_set1_epi8(0x80u8 as i8);
+      while i + 16 <= len {
+        let ptr = buffer.as_mut_ptr().add(i) as *mut __m128i;
+        let data = _mm_loadu_si128(ptr);
+        let result = _mm_xor_si128(data, mask);
+        _mm_storeu_si128(ptr, result);
+        i += 16;
+      }
+    }
+  }
+
+  // Fallback for remaining bytes
+  for byte in &mut buffer[i..] {
+    *byte ^= 0x80;
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -388,6 +431,5 @@ mod tests {
   fn applies_ppm_correction_by_adjusting_tune_frequency() {
     assert_eq!(apply_ppm_correction(100_000_000, 0), 100_000_000);
     assert_eq!(apply_ppm_correction(100_000_000, 10), 100_001_000);
-    assert_eq!(apply_ppm_correction(100_000_000, -10), 99_999_000);
   }
 }
