@@ -300,6 +300,54 @@ export class SnapshotRenderer {
     private theme: SnapshotTheme,
   ) {}
 
+  measureChannelLabelBox(
+    channelBounds: Range | null | undefined,
+    viewRange: Range,
+    channelLabel?: string,
+  ): { x: number; y: number; w: number; h: number } | null {
+    if (!channelBounds) return null;
+    const channelSpan = channelBounds.max - channelBounds.min;
+    const viewSpan = viewRange.max - viewRange.min;
+    if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
+    if (!Number.isFinite(viewSpan) || viewSpan <= 0) return null;
+
+    const area = this.mapper.getPlotArea();
+    const visibleMin = Math.max(channelBounds.min, viewRange.min);
+    const visibleMax = Math.min(channelBounds.max, viewRange.max);
+    if (!(visibleMax > visibleMin)) return null;
+
+    const rawStartX = this.mapper.freqToX(visibleMin);
+    const rawEndX = this.mapper.freqToX(visibleMax);
+    const plotRight = area.x + area.width;
+    const startX = Math.max(area.x, Math.min(plotRight, rawStartX));
+    const endX = Math.max(area.x, Math.min(plotRight, rawEndX));
+    const bandWidth = Math.max(1, endX - startX);
+    const centerX = startX + bandWidth / 2;
+    const labelText = channelLabel ? `Channel ${channelLabel}` : "Channel";
+    const labelWidth = labelText.length * 6;
+    const boxW = labelWidth + 20;
+    const boxH = 20;
+    const preferredBoxX = Math.min(
+      Math.max(area.x + 4, centerX - boxW / 2),
+      area.x + area.width - boxW - 4,
+    );
+    const candidateYs = [
+      area.y + 6,
+      area.y + area.height - boxH - 6,
+      area.y + area.height * 0.25 - boxH / 2,
+      area.y + area.height * 0.75 - boxH / 2,
+    ].map((y) =>
+      Math.max(area.y + 4, Math.min(area.y + area.height - boxH - 4, y)),
+    );
+
+    return {
+      x: preferredBoxX,
+      y: candidateYs[0] ?? area.y + 6,
+      w: boxW,
+      h: boxH,
+    };
+  }
+
   drawBackground(dc: DrawingContext): void {
     dc.setFill(this.theme.bg);
     const area = this.mapper.getPlotArea();
@@ -662,12 +710,160 @@ export class SnapshotRenderer {
     dc.restore();
   }
 
+  drawChannelBounds(
+    dc: DrawingContext,
+    channelBounds: Range | null | undefined,
+    viewRange: Range,
+    channelLabel?: string,
+    avoidPlacement?: Pick<StatsBoxPlacement, "pos" | "boxW" | "boxH"> | null,
+  ): void {
+    if (!channelBounds) return;
+    const channelSpan = channelBounds.max - channelBounds.min;
+    const viewSpan = viewRange.max - viewRange.min;
+    if (!Number.isFinite(channelSpan) || channelSpan <= 0) return;
+    if (!Number.isFinite(viewSpan) || viewSpan <= 0) return;
+
+    const area = this.mapper.getPlotArea();
+    const visibleMin = Math.max(channelBounds.min, viewRange.min);
+    const visibleMax = Math.min(channelBounds.max, viewRange.max);
+    if (!(visibleMax > visibleMin)) return;
+
+    const rawStartX = this.mapper.freqToX(visibleMin);
+    const rawEndX = this.mapper.freqToX(visibleMax);
+    const plotRight = area.x + area.width;
+    const startX = Math.max(area.x, Math.min(plotRight, rawStartX));
+    const endX = Math.max(area.x, Math.min(plotRight, rawEndX));
+    const bandWidth = Math.max(1, endX - startX);
+    const centerX = startX + bandWidth / 2;
+    const label = channelLabel ? `Channel ${channelLabel}` : "Channel";
+    const markerColor = "#ffb000";
+    const pillFill = "rgba(7, 10, 18, 0.94)";
+    const pillText = "#f8fafc";
+
+    dc.save();
+    dc.clipRect(area.x, area.y, area.width, area.height);
+    dc.setStroke(markerColor, 2 / this.mapper.getDPR(), [4, 4]);
+    dc.setFill(pillText);
+    dc.setFont("10px JetBrains Mono");
+    dc.setTextAlign("center");
+    dc.setTextBaseline("bottom");
+
+    const labelText = `${label}`;
+    const labelWidth = dc.measureTextWidth(labelText);
+    const boxW = labelWidth + 20;
+    const boxH = 20;
+    const preferredBoxX = Math.min(
+      Math.max(area.x + 4, centerX - boxW / 2),
+      area.x + area.width - boxW - 4,
+    );
+    const candidateYs = [
+      area.y + 6,
+      area.y + area.height - boxH - 6,
+      area.y + area.height * 0.25 - boxH / 2,
+      area.y + area.height * 0.75 - boxH / 2,
+    ].map((y) =>
+      Math.max(area.y + 4, Math.min(area.y + area.height - boxH - 4, y)),
+    );
+    const avoidBox = avoidPlacement
+      ? {
+          x: avoidPlacement.pos.x - 8,
+          y: avoidPlacement.pos.y - 8,
+          w: avoidPlacement.boxW + 16,
+          h: avoidPlacement.boxH + 16,
+        }
+      : null;
+    const overlapsAvoidBox = (x: number, y: number) =>
+      avoidBox != null &&
+      x < avoidBox.x + avoidBox.w &&
+      x + boxW > avoidBox.x &&
+      y < avoidBox.y + avoidBox.h &&
+      y + boxH > avoidBox.y;
+    const distanceFromAvoidBox = (x: number, y: number) => {
+      if (!avoidBox) return Number.POSITIVE_INFINITY;
+      const cx = x + boxW / 2;
+      const cy = y + boxH / 2;
+      const acx = avoidBox.x + avoidBox.w / 2;
+      const acy = avoidBox.y + avoidBox.h / 2;
+      return Math.hypot(cx - acx, cy - acy);
+    };
+    const boxY =
+      candidateYs.find((y) => !overlapsAvoidBox(preferredBoxX, y)) ??
+      candidateYs
+        .map((y) => ({ y, distance: distanceFromAvoidBox(preferredBoxX, y) }))
+        .sort((a, b) => b.distance - a.distance)[0]?.y ??
+      area.y + 6;
+    const boxX = preferredBoxX;
+    const labelY = boxY + boxH / 2;
+    const lineTop = area.y;
+    const lineBottom = area.y + area.height;
+    const lineGap = 2;
+    const obstacles = [
+      avoidBox
+        ? {
+            x: avoidBox.x,
+            y: avoidBox.y,
+            w: avoidBox.w,
+            h: avoidBox.h,
+          }
+        : null,
+      {
+        x: boxX,
+        y: boxY,
+        w: boxW,
+        h: boxH,
+      },
+    ].filter(Boolean) as { x: number; y: number; w: number; h: number }[];
+    function drawBoundary(x: number): void {
+      const blockedRanges = obstacles
+        .filter((obstacle) => x >= obstacle.x && x <= obstacle.x + obstacle.w)
+        .map((obstacle) => ({
+          top: obstacle.y - lineGap,
+          bottom: obstacle.y + obstacle.h + lineGap,
+        }))
+        .sort((a, b) => a.top - b.top);
+
+      if (blockedRanges.length === 0) {
+        dc.moveTo(x, lineTop);
+        dc.lineTo(x, lineBottom);
+        return;
+      }
+
+      let cursor = lineTop;
+      for (const range of blockedRanges) {
+        const start = Math.max(lineTop, Math.min(lineBottom, range.top));
+        const end = Math.max(lineTop, Math.min(lineBottom, range.bottom));
+        if (start > cursor) {
+          dc.moveTo(x, cursor);
+          dc.lineTo(x, start);
+        }
+        cursor = Math.max(cursor, end);
+      }
+      if (cursor < lineBottom) {
+        dc.moveTo(x, cursor);
+        dc.lineTo(x, lineBottom);
+      }
+    }
+
+    dc.beginPath();
+    drawBoundary(startX);
+    drawBoundary(endX);
+    dc.stroke();
+
+    dc.setFill(pillFill);
+    dc.roundRect(boxX, boxY, boxW, boxH, 4);
+    dc.setFill(pillText);
+    dc.setTextBaseline("middle");
+    dc.fillText(labelText, boxX + boxW / 2, labelY);
+    dc.restore();
+  }
+
   drawStatsBox(
     dc: DrawingContext,
     statsLines: string[],
     waveform: number[] | Float32Array,
     fontScale: number = 1,
     fixedPlacement?: StatsBoxPlacement,
+    avoidBoxes?: { x: number; y: number; w: number; h: number }[] | null,
   ): StatsBoxPlacement | null {
     if (fixedPlacement) {
       const { pos, boxW, boxH, lines, padX, padY, lh, columns } =
@@ -713,6 +909,7 @@ export class SnapshotRenderer {
     let bestFallbackDouble:
       | (StatsBoxCandidate & { overlapRatio: number })
       | null = null;
+    const obstacles = avoidBoxes ?? [];
 
     for (const scale of scales) {
       const maxAllowedW = area.width * 0.7;
@@ -755,6 +952,7 @@ export class SnapshotRenderer {
             layout.boxW,
             layout.boxH,
             waveform,
+            obstacles,
           );
           const candidate = {
             pos,
@@ -1071,6 +1269,7 @@ export class SnapshotRenderer {
     bw: number,
     bh: number,
     waveform: number[] | Float32Array,
+    avoidBoxes: { x: number; y: number; w: number; h: number }[] = [],
   ): { score: number; overlapRatio: number; safe: boolean } {
     const area = this.mapper.getPlotArea();
     const dataLen = waveform?.length ?? 0;
@@ -1096,6 +1295,13 @@ export class SnapshotRenderer {
     const boxAbove = boxBottom <= envelope.top - pad;
     const boxBelow = boxTop >= envelope.bottom + pad;
     const numSamples = Math.min(60, Math.max(8, Math.ceil(boxRight - boxLeft)));
+    const obstacleOverlap = avoidBoxes.some(
+      (obstacle) =>
+        bx < obstacle.x + obstacle.w &&
+        bx + bw > obstacle.x &&
+        by < obstacle.y + obstacle.h &&
+        by + bh > obstacle.y,
+    );
 
     let traceOverlapCount = 0;
     let totalDistance = 0;
@@ -1125,7 +1331,8 @@ export class SnapshotRenderer {
       return { score: 0, overlapRatio: 1, safe: false };
     }
 
-    const overlapRatio = traceOverlapCount / validSamples;
+    const overlapRatio =
+      traceOverlapCount / validSamples + (obstacleOverlap ? 0.5 : 0);
     const avgDistance = totalDistance / validSamples;
     const clearance = boxAbove
       ? envelope.top - boxBottom

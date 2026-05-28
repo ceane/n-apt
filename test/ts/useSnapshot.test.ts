@@ -358,7 +358,8 @@ describe("buildSnapshotStatsLines", () => {
       whole: false,
       fftSize: 2048,
       fftWindow: "Rectangular",
-      gainLabel: "Gain: 49.6dB | PPM: 1",
+      gain: 49.6,
+      ppm: 1,
     });
 
     expect(lines).toEqual([
@@ -378,12 +379,48 @@ describe("buildSnapshotStatsLines", () => {
       deviceName: "Mock APT SDR",
       channelName: "X",
       whole: true,
+      modeLabel: "Whole Channel",
       fftSize: 2048,
       fftWindow: "Rectangular",
-      gainLabel: "Gain: 49.6dB | PPM: 1",
+      gain: 49.6,
+      ppm: 1,
     });
 
-    expect(lines[3]).toBe("Channel X (Whole)");
+    expect(lines[3]).toBe("Whole Channel X");
+  });
+
+  it("uses whole-channel label when modeLabel says Whole Channel", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "X",
+      whole: false,
+      modeLabel: "Whole Channel",
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Whole Channel X");
+  });
+
+  it("uses whole-channel label when the rendered span covers the active channel", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 24_720_000, max: 29_880_000 },
+      timestampLabel: "2026-05-28 16:16:06 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "B",
+      activeSignalAreaBounds: { min: 25_000_000, max: 29_800_000 },
+      hardwareSampleRateHz: 5_120_000,
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Whole Channel B");
   });
 
   it("falls back to Onscreen when no channel name is present", () => {
@@ -394,7 +431,8 @@ describe("buildSnapshotStatsLines", () => {
       whole: false,
       fftSize: 2048,
       fftWindow: "Rectangular",
-      gainLabel: "Gain: 49.6dB | PPM: 1",
+      gain: 49.6,
+      ppm: 1,
     });
 
     expect(lines[3]).toBe("Onscreen");
@@ -409,9 +447,23 @@ describe("buildSnapshotStatsLines", () => {
       whole: false,
       fftSize: 2048,
       fftWindow: "Hann",
-      gainLabel: "Gain: 49.6dB | PPM: 1",
+      gain: 49.6,
+      ppm: 1,
     });
 
     expect(lines[4]).toBe("FFT size (# of points): 2048 | Window: Hann");
+  });
+
+  it("falls back to the legacy gain label when numbers are unavailable", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: Auto | PPM: 0",
+    });
+
+    expect(lines[5]).toBe("Gain: Auto | PPM: 0");
   });
 });

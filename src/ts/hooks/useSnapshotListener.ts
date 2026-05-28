@@ -102,6 +102,12 @@ export const useSnapshotListener = ({
         useThemeColors: options.useThemeColors ?? snapshotUseThemeColors,
         getSnapshotData: () => getSnapshotData(), // Use the provided function
         signalAreaBounds,
+        activeSignalAreaBounds:
+          options.activeSignalAreaBounds ??
+          (activeSignalArea
+            ? (signalAreaBounds?.[activeSignalArea] ??
+              signalAreaBounds?.[activeSignalArea.toLowerCase()])
+            : null),
         activeSignalArea,
         sourceName: deviceName || backend || deviceInfo || undefined,
         sdrSettingsLabel,

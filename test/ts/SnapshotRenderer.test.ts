@@ -196,4 +196,199 @@ describe("SnapshotRenderer", () => {
 
     expect(roundRect).toHaveBeenCalledWith(12, 12, 120, 72, 4);
   });
+
+  it("draws dotted channel bounds and labels when the view spans beyond the channel", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper(
+        { x: 0, y: 0, width: 400, height: 200 },
+        { min: 100, max: 140 },
+        { min: -120, max: 0 },
+        1,
+      ),
+      {
+        bg: "#000",
+        grid: "#111",
+        line: "#222",
+        shadow: "#333",
+        text: "#fff",
+        hwLine: "#444",
+        hwText: "#555",
+        cfText: "#666",
+      },
+    );
+
+    const fillText = jest.fn();
+    const setStroke = jest.fn();
+    const mockContext = {
+      setStroke,
+      setFill: jest.fn(),
+      setFont: jest.fn(),
+      setScaledFont: jest.fn(),
+      setTextAlign: jest.fn(),
+      setTextBaseline: jest.fn(),
+      setLineJoin: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      fill: jest.fn(),
+      closePath: jest.fn(),
+      fillRect: jest.fn(),
+      roundRect: jest.fn(),
+      fillText,
+      measureTextWidth: jest.fn((text: string) => text.length * 6),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clipRect: jest.fn(),
+    } as any;
+
+    renderer.drawChannelBounds(
+      mockContext,
+      { min: 110, max: 120 },
+      { min: 100, max: 140 },
+      "X",
+    );
+
+    expect(setStroke).toHaveBeenCalledWith(
+      "#ffb000",
+      expect.any(Number),
+      [4, 4],
+    );
+    expect(mockContext.fillRect).not.toHaveBeenCalled();
+    expect(mockContext.moveTo).toHaveBeenCalledWith(expect.any(Number), 0);
+    expect(mockContext.lineTo).toHaveBeenCalledWith(expect.any(Number), 200);
+    expect(fillText).toHaveBeenCalledWith(
+      "Channel X",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("draws dotted channel bounds and labels when the channel fills the visible view", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper(
+        { x: 0, y: 0, width: 400, height: 200 },
+        { min: 100, max: 140 },
+        { min: -120, max: 0 },
+        1,
+      ),
+      {
+        bg: "#000",
+        grid: "#111",
+        line: "#222",
+        shadow: "#333",
+        text: "#fff",
+        hwLine: "#444",
+        hwText: "#555",
+        cfText: "#666",
+      },
+    );
+
+    const fillText = jest.fn();
+    const setStroke = jest.fn();
+    const mockContext = {
+      setStroke,
+      setFill: jest.fn(),
+      setFont: jest.fn(),
+      setScaledFont: jest.fn(),
+      setTextAlign: jest.fn(),
+      setTextBaseline: jest.fn(),
+      setLineJoin: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      fill: jest.fn(),
+      closePath: jest.fn(),
+      fillRect: jest.fn(),
+      roundRect: jest.fn(),
+      fillText,
+      measureTextWidth: jest.fn((text: string) => text.length * 6),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clipRect: jest.fn(),
+    } as any;
+
+    renderer.drawChannelBounds(
+      mockContext,
+      { min: 100, max: 140 },
+      { min: 100, max: 140 },
+      "B",
+    );
+
+    expect(setStroke).toHaveBeenCalledWith(
+      "#ffb000",
+      expect.any(Number),
+      [4, 4],
+    );
+    expect(mockContext.fillRect).not.toHaveBeenCalled();
+    expect(mockContext.moveTo).toHaveBeenCalledWith(0, 0);
+    expect(mockContext.moveTo).toHaveBeenCalledWith(400, 0);
+    expect(fillText).toHaveBeenCalledWith(
+      "Channel B",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("moves the channel label away from the stats box", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper(
+        { x: 0, y: 0, width: 400, height: 200 },
+        { min: 100, max: 140 },
+        { min: -120, max: 0 },
+        1,
+      ),
+      {
+        bg: "#000",
+        grid: "#111",
+        line: "#222",
+        shadow: "#333",
+        text: "#fff",
+        hwLine: "#444",
+        hwText: "#555",
+        cfText: "#666",
+      },
+    );
+
+    const roundRect = jest.fn();
+    const mockContext = {
+      setStroke: jest.fn(),
+      setFill: jest.fn(),
+      setFont: jest.fn(),
+      setScaledFont: jest.fn(),
+      setTextAlign: jest.fn(),
+      setTextBaseline: jest.fn(),
+      setLineJoin: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      fill: jest.fn(),
+      closePath: jest.fn(),
+      fillRect: jest.fn(),
+      roundRect,
+      fillText: jest.fn(),
+      measureTextWidth: jest.fn((text: string) => text.length * 6),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clipRect: jest.fn(),
+    } as any;
+
+    renderer.drawChannelBounds(
+      mockContext,
+      { min: 100, max: 140 },
+      { min: 100, max: 140 },
+      "B",
+      {
+        pos: { x: 150, y: 0 },
+        boxW: 100,
+        boxH: 40,
+      },
+    );
+
+    const labelBoxCall = roundRect.mock.calls[roundRect.mock.calls.length - 1];
+    expect(labelBoxCall).toBeDefined();
+    expect(labelBoxCall[1]).not.toBe(6);
+  });
 });

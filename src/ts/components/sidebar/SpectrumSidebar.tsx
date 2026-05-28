@@ -1,4 +1,11 @@
-import React, { useMemo, useState, useEffect, useCallback, useRef, memo } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  memo,
+} from "react";
 import styled from "styled-components";
 import { Trash2, Unplug } from "lucide-react";
 import {
@@ -387,10 +394,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     vizPanOffset,
     displayMode,
   } = liveState;
-  const activeSignalAreaBounds =
-    signalAreaBounds?.[activeSignalArea] ??
-    signalAreaBounds?.[activeSignalArea?.toLowerCase?.()] ??
-    null;
   const activeFrameForArea = useMemo(() => {
     const area = activeSignalArea?.toLowerCase?.() ?? "";
     return (
@@ -399,6 +402,24 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       null
     );
   }, [activeSignalArea, effectiveFrames]);
+  const activeSignalAreaBounds = useMemo(() => {
+    const mappedBounds =
+      signalAreaBounds?.[activeSignalArea] ??
+      signalAreaBounds?.[activeSignalArea?.toLowerCase?.()];
+    if (mappedBounds && mappedBounds.max > mappedBounds.min) {
+      return mappedBounds;
+    }
+    if (
+      activeFrameForArea &&
+      activeFrameForArea.max_hz > activeFrameForArea.min_hz
+    ) {
+      return {
+        min: activeFrameForArea.min_hz,
+        max: activeFrameForArea.max_hz,
+      };
+    }
+    return null;
+  }, [activeFrameForArea, activeSignalArea, signalAreaBounds]);
   const activeChannelSampleRate = useMemo(
     () =>
       activeSignalAreaBounds &&
@@ -632,9 +653,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   });
 
   const hackrfBasebandCurrentSampleRate =
-    isHackrfOne && sourceMode === "live"
-      ? (sampleRateHzLocal ?? null)
-      : null;
+    isHackrfOne && sourceMode === "live" ? (sampleRateHzLocal ?? null) : null;
 
   useEffect(() => {
     if (
@@ -1141,6 +1160,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           showStats: snapshotShowStats,
           showGeolocation: snapshotShowGeolocation && snapshotShowStats,
           geolocation: snapshotGeolocationPosition,
+          activeSignalAreaBounds,
+          gain,
+          ppm,
           format: snapshotFormat,
           grid: snapshotGridPreference,
           aspectRatio: snapshotAspectRatio,
