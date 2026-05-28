@@ -293,21 +293,25 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }, [isActive]);
 
-  const widthPercent = Math.max(0, Math.min(100, windowWidth * 100));
-  const logicalThumbWidth = Math.max(0, windowWidth * trackWidth);
+  const isWholeChannelWindow = windowWidth >= 1;
+  const renderedWindowWidth = isWholeChannelWindow ? 1 : windowWidth;
+  const widthPercent = Math.max(0, Math.min(100, renderedWindowWidth * 100));
+  const logicalThumbWidth = Math.max(0, renderedWindowWidth * trackWidth);
   const minContentThumbWidth = Math.max(0, Math.ceil(windowLabelWidth) + 16);
-  const renderedThumbWidth = Math.max(logicalThumbWidth, minContentThumbWidth);
-  const logicalMaxWindowStart = windowWidth <= 1 ? Math.max(0, 1 - windowWidth) : 0;
+  const renderedThumbWidth = isWholeChannelWindow
+    ? trackWidth
+    : Math.max(logicalThumbWidth, minContentThumbWidth);
+  const logicalMaxWindowStart = renderedWindowWidth <= 1 ? Math.max(0, 1 - renderedWindowWidth) : 0;
   const clampedWindowStart =
-    windowWidth <= 1
+    renderedWindowWidth <= 1
       ? Math.max(0, Math.min(logicalMaxWindowStart, windowStart))
-      : Math.max(-(windowWidth - 1), Math.min(0, windowStart));
+      : Math.max(-(renderedWindowWidth - 1), Math.min(0, windowStart));
 
   const effectiveWindowStart = isScanning
     ? scanWindowStart
     : clampedWindowStart;
   const effectiveMaxWindowStart = isScanning
-    ? 1 - windowWidth
+    ? 1 - renderedWindowWidth
     : logicalMaxWindowStart;
 
   const visualRatio = useMemo(() => {
@@ -345,9 +349,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [thumbLeftPx, renderedThumbWidth, trackWidth]);
 
   const rawCurrentMin = minFreq + windowStart * safeTotalRange;
-  const currentMin = Math.max(minFreq, rawCurrentMin);
+  const currentMin = isWholeChannelWindow ? minFreq : Math.max(minFreq, rawCurrentMin);
   const rawCurrentMax = minFreq + (windowStart + windowWidth) * safeTotalRange;
-  const currentMax = Math.min(maxFreq, rawCurrentMax);
+  const currentMax = isWholeChannelWindow ? maxFreq : Math.min(maxFreq, rawCurrentMax);
 
   const notifyParent = useCallback(() => {
     if (isActive && onRangeChange) {
@@ -578,10 +582,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
-              width:
-                widthPercent >= 100
+                width:
+                isWholeChannelWindow
                   ? "100%"
-                  : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
+                  : widthPercent >= 100
+                    ? "100%"
+                    : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
             }}
             onMouseDown={handleMouseDown}
           >

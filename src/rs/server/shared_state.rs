@@ -87,6 +87,8 @@ pub struct SharedState {
   /// the slow device read. This lets FFT size changes take effect
   /// immediately instead of waiting for the current frame to finish.
   pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
+  /// Last broadcast status payload, used to suppress duplicate snapshots.
+  pub last_broadcast_status: Mutex<Option<String>>,
 }
 
 impl SharedState {
@@ -129,6 +131,7 @@ impl SharedState {
       recovery_attempts: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
+      last_broadcast_status: Mutex::new(None),
     })
   }
 
@@ -153,6 +156,7 @@ impl SharedState {
     // Reset debounce counters on any definitive state change
     self.health_failure_streak.store(0, Ordering::Relaxed);
     self.recovery_attempts.store(0, Ordering::Relaxed);
+    *self.last_broadcast_status.lock().unwrap() = None;
   }
 
   pub fn set_device_backend_error(&self, error: Option<String>) {
@@ -172,6 +176,7 @@ impl SharedState {
       state == "connected" || state == "loading",
       Ordering::Relaxed,
     );
+    *self.last_broadcast_status.lock().unwrap() = None;
   }
 
   /// Record a successful read, resetting the failure streak.

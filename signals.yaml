@@ -86,7 +86,7 @@ signals:
               freq_hz: !frequency 3.2MHz
               label: "RTL-SDR max hardware sample rate"
       mock_apt:
-        sample_rate: !max
+        sample_rate: !floor...!max
         fft_display:
           markers:
             - kind: lower_limit

@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 
 const Section = styled.div`
   display: grid;
@@ -22,6 +22,7 @@ const Section = styled.div`
   box-sizing: border-box;
   width: 100%;
 `;
+
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -266,7 +267,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     ) {
       return "Whole Channel";
     }
-    return `Whole Channel (${formatFrequency(wholeChannelSampleRate)})`;
+    return `Whole Channel (${formatChannelFreq(wholeChannelSampleRate)})`;
   }, [wholeChannelSampleRate]);
 
   return (

@@ -33,6 +33,8 @@ describe("useOverlayRenderer Hook", () => {
       0,
       "dB",
       hardwareSampleRateHz,
+      undefined,
+      true,
     );
 
     // Should have called setLineDash for dashed lines
@@ -59,6 +61,8 @@ describe("useOverlayRenderer Hook", () => {
       0,
       "dB",
       hardwareSampleRateHz,
+      undefined,
+      true,
     );
 
     const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);

@@ -429,6 +429,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
   const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+  const backendSampleRateOptions = useAppSelector(
+    (s) => s.websocket.sampleRateOptions,
+  );
   const backend = useAppSelector((s) => s.websocket.backend);
   const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
 
@@ -454,11 +457,23 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const isHackrfOne =
     liveDeviceProfileToUse?.kind === "hackrf_one" ||
     liveBackend?.toLowerCase() === "hackrf_one";
-  const liveSampleRateOptions = wsConnection.sampleRateOptions;
+  const liveSampleRateOptions =
+    wsConnection.sampleRateOptions.length > 0
+      ? wsConnection.sampleRateOptions
+      : backendSampleRateOptions;
   const isMockLiveSource =
     sourceMode === "live" &&
-    (liveBackend?.toLowerCase().includes("mock") ||
-      liveDeviceNameToUse?.toLowerCase().includes("mock"));
+    !!(
+      liveBackend?.toLowerCase().includes("mock") ||
+      liveDeviceNameToUse?.toLowerCase().includes("mock")
+    );
+  const liveManualSampleRateOptions = isMockLiveSource
+    ? liveSampleRateOptions.length > 0
+      ? liveSampleRateOptions
+      : [3_200_000]
+    : liveSampleRateOptions;
+  const supportsWholeChannelSampleRate =
+    sourceMode === "live" && (isHackrfOne || isMockLiveSource);
   const maxSampleRate =
     sampleRateHzEffective ??
     sampleRateHz ??
@@ -532,7 +547,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxSampleRate,
     minReceiveSampleRate:
       liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
-    sampleRateOptions: liveSampleRateOptions,
+    sampleRateOptions: liveManualSampleRateOptions,
     sdrSettings: liveSdrSettingsToUse,
     deviceType: liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined,
     spectrumStateOverride: {
@@ -600,7 +615,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     handleSampleRateChange,
   } = useLiveSampleRateControl({
     sourceMode,
-    isHackrfOne,
+    supportsWholeChannelSampleRate,
+    manualSampleRateOptions: sampleRateOptions,
     activeChannelSampleRate,
     activeSignalAreaBounds,
     frequencyRange,

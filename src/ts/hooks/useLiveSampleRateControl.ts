@@ -10,7 +10,8 @@ export type SampleRateMode = "whole" | "manual";
 
 type UseLiveSampleRateControlArgs = {
   sourceMode: "live" | "file";
-  isHackrfOne: boolean;
+  supportsWholeChannelSampleRate: boolean;
+  manualSampleRateOptions?: number[];
   activeChannelSampleRate: number | null;
   activeSignalAreaBounds: FrequencyRange | null;
   frequencyRange: FrequencyRange | null;
@@ -84,7 +85,8 @@ const rangeSpanHz = (range: FrequencyRange): number =>
 
 export const useLiveSampleRateControl = ({
   sourceMode,
-  isHackrfOne,
+  supportsWholeChannelSampleRate,
+  manualSampleRateOptions = [],
   activeChannelSampleRate,
   activeSignalAreaBounds,
   frequencyRange,
@@ -96,9 +98,11 @@ export const useLiveSampleRateControl = ({
   const lastAppliedWholeChannelRateRef = useRef<number | null>(null);
   const previousWholeChannelRateRef = useRef<number | null>(null);
 
-  const wholeChannelSampleRate = getWholeChannelSampleRate(
-    activeChannelSampleRate,
-  );
+  const canUseWholeChannel =
+    sourceMode === "live" && supportsWholeChannelSampleRate;
+  const wholeChannelSampleRate = canUseWholeChannel
+    ? getWholeChannelSampleRate(activeChannelSampleRate)
+    : null;
 
   const handleSampleRateChange = useCallback(
     (nextSampleRate: number) => {
@@ -140,22 +144,40 @@ export const useLiveSampleRateControl = ({
   );
 
   useEffect(() => {
-    if (sourceMode !== "live" || !isHackrfOne || !wholeChannelSampleRate) {
+    if (!canUseWholeChannel || !wholeChannelSampleRate) {
       previousWholeChannelRateRef.current = wholeChannelSampleRate;
       return;
     }
     const nextRate = Math.round(wholeChannelSampleRate);
     const previousWholeRate = previousWholeChannelRateRef.current;
     previousWholeChannelRateRef.current = nextRate;
+    const currentRate =
+      typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? Math.round(sampleRateHz)
+        : null;
 
     const currentRateIsPreviousWhole =
-      typeof sampleRateHz === "number" &&
+      typeof currentRate === "number" &&
       typeof previousWholeRate === "number" &&
-      Math.round(sampleRateHz) === Math.round(previousWholeRate);
+      currentRate === Math.round(previousWholeRate);
+    const currentRateIsAllowedManual =
+      typeof currentRate === "number" &&
+      manualSampleRateOptions.length > 0 &&
+      manualSampleRateOptions.some(
+        (rate) =>
+          Number.isFinite(rate) &&
+          Math.round(rate) === currentRate,
+      );
+    const currentRateIsKnownInvalidManual =
+      typeof currentRate === "number" &&
+      manualSampleRateOptions.length > 0 &&
+      !currentRateIsAllowedManual;
 
     if (
-      currentRateIsPreviousWhole &&
-      nextRate !== Math.round(sampleRateHz) &&
+      (currentRateIsPreviousWhole ||
+        (currentRateIsKnownInvalidManual && sampleRateModeRef.current !== "manual")) &&
+      currentRate !== null &&
+      nextRate !== currentRate &&
       sampleRateModeRef.current !== "manual"
     ) {
       sampleRateModeRef.current = "whole";
@@ -209,17 +231,17 @@ export const useLiveSampleRateControl = ({
     activeSignalAreaBounds,
     applyFrequencyRange,
     frequencyRange,
-    isHackrfOne,
+    manualSampleRateOptions,
     sampleRateHz,
     setSampleRate,
     sourceMode,
     wholeChannelSampleRate,
+    canUseWholeChannel,
   ]);
 
   useEffect(() => {
     if (
-      sourceMode !== "live" ||
-      !isHackrfOne ||
+      !canUseWholeChannel ||
       !frequencyRange ||
       !activeSignalAreaBounds ||
       typeof sampleRateHz !== "number" ||
@@ -241,10 +263,9 @@ export const useLiveSampleRateControl = ({
   }, [
     activeSignalAreaBounds,
     applyFrequencyRange,
+    canUseWholeChannel,
     frequencyRange,
-    isHackrfOne,
     sampleRateHz,
-    sourceMode,
   ]);
 
   return {

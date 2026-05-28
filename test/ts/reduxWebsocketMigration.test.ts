@@ -11,6 +11,7 @@ import {
   isFrameStale,
   getFrequencyRequestCenterHz,
   shouldResendRetuneRequest,
+  resetWebSocketMiddlewareState,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -55,6 +56,7 @@ describe("Redux WebSocket Migration", () => {
     // Clear the live data ref
     liveDataRef.current = null;
     resetPausedFrameRequestGate();
+    resetWebSocketMiddlewareState();
   });
 
   describe("Thunk payload shaping", () => {
@@ -116,6 +118,67 @@ describe("Redux WebSocket Migration", () => {
           },
         },
       });
+    });
+
+    it("suppresses duplicate frequency_range sends in quick succession", () => {
+      const send = jest.fn();
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
+        readyState: WebSocket.OPEN,
+        close: jest.fn(),
+        send,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+      }));
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws",
+          aesKey: null,
+          enabled: true,
+        },
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 99_000_000,
+            max_hz: 101_000_000,
+            center_frequency: 100_000_000,
+          },
+        },
+      });
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 99_000_000,
+            max_hz: 101_000_000,
+            center_frequency: 100_000_000,
+          },
+        },
+      });
+
+      expect(send).toHaveBeenCalledTimes(1);
     });
 
     it("sendCenterFrequency derives min/max from sample rate", async () => {

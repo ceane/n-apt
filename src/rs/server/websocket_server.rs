@@ -163,7 +163,13 @@ pub(crate) fn broadcast_device_status(
       "device_backend_error": device_backend_error,
       "device_profile": device_profile,
   });
-  let _ = broadcast_tx.send(msg.to_string());
+  let payload = msg.to_string();
+  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  if last_payload.as_ref() == Some(&payload) {
+    return;
+  }
+  *last_payload = Some(payload.clone());
+  let _ = broadcast_tx.send(payload);
 }
 
 pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
@@ -1450,6 +1456,32 @@ mod tests {
       "expected lower limit marker in websocket payload"
     );
     assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_suppresses_duplicate_snapshots() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(2);
+
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      build_device_profile("mock_apt"),
+    );
+
+    broadcast_device_status(&shared, &broadcast_tx);
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let first = broadcast_rx.try_recv().expect("first status broadcast");
+    assert!(first.contains(r#""type":"status""#));
+    assert!(
+      broadcast_rx.try_recv().is_err(),
+      "expected duplicate snapshot to be suppressed"
+    );
   }
 
   #[test]

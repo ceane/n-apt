@@ -11,7 +11,7 @@ describe("useLiveSampleRateControl", () => {
 
     const initialProps = {
       sourceMode: "live" as const,
-      isHackrfOne: true,
+      supportsWholeChannelSampleRate: true,
       activeChannelSampleRate: 5_200_000,
       activeSignalAreaBounds: { min: 24_720_000, max: 29_920_000 },
       frequencyRange: { min: 24_720_000, max: 29_920_000 },
@@ -71,7 +71,7 @@ describe("useLiveSampleRateControl", () => {
 
     const initialProps = {
       sourceMode: "live" as const,
-      isHackrfOne: true,
+      supportsWholeChannelSampleRate: true,
       activeChannelSampleRate: 4_372_000,
       activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
       frequencyRange: { min: 18_000, max: 20_018_000 },
@@ -131,7 +131,7 @@ describe("useLiveSampleRateControl", () => {
 
     const initialProps = {
       sourceMode: "live" as const,
-      isHackrfOne: true,
+      supportsWholeChannelSampleRate: true,
       activeChannelSampleRate: 4_372_000,
       activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
       frequencyRange: { min: 18_000, max: 4_390_000 },
@@ -160,13 +160,60 @@ describe("useLiveSampleRateControl", () => {
     });
   });
 
+  it("does not expose whole-channel mode when the source does not support it", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    const { result } = renderHook(() =>
+      useLiveSampleRateControl({
+        sourceMode: "live",
+        supportsWholeChannelSampleRate: false,
+        activeChannelSampleRate: 4_372_000,
+        activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+        sampleRateHz: 4_372_000,
+        setSampleRate,
+        applyFrequencyRange,
+      }),
+    );
+
+    expect(result.current.wholeChannelSampleRate).toBeNull();
+    expect(setSampleRate).not.toHaveBeenCalled();
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
+  });
+
+  it("repairs stale startup sample rates that are not valid manual options", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    renderHook(() =>
+      useLiveSampleRateControl({
+        sourceMode: "live",
+        supportsWholeChannelSampleRate: true,
+        manualSampleRateOptions: [3_200_000],
+        activeChannelSampleRate: 4_372_000,
+        activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+        frequencyRange: { min: 18_000, max: 18_318_000 },
+        sampleRateHz: 18_300_000,
+        setSampleRate,
+        applyFrequencyRange,
+      }),
+    );
+
+    expect(setSampleRate).toHaveBeenCalledWith(4_372_000);
+    expect(applyFrequencyRange).toHaveBeenCalledWith({
+      min: 18_000,
+      max: 4_390_000,
+    });
+  });
+
   it("does not auto-reset to whole-channel when only the VFO range changes", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();
 
     const initialProps = {
       sourceMode: "live" as const,
-      isHackrfOne: true,
+      supportsWholeChannelSampleRate: true,
       activeChannelSampleRate: 4_372_000,
       activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
       frequencyRange: { min: 18_000, max: 3_218_000 },
@@ -196,7 +243,7 @@ describe("useLiveSampleRateControl", () => {
     renderHook(() =>
       useLiveSampleRateControl({
         sourceMode: "live",
-        isHackrfOne: true,
+        supportsWholeChannelSampleRate: true,
         activeChannelSampleRate: 4_372_000,
         activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
         frequencyRange: { min: 18_000, max: 20_018_000 },
@@ -220,7 +267,7 @@ describe("useLiveSampleRateControl", () => {
     renderHook(() =>
       useLiveSampleRateControl({
         sourceMode: "live",
-        isHackrfOne: true,
+        supportsWholeChannelSampleRate: true,
         activeChannelSampleRate: 18_250_000,
         activeSignalAreaBounds: { min: 4_750_000, max: 23_000_000 },
         frequencyRange: { min: 8_000_000, max: 13_000_000 },

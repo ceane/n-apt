@@ -510,7 +510,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         tunerGainDb?: number;
         baseCalibrationDb?: number;
         chainLossDb?: number;
-        calibrationMode?: "generic" | "rtl_sdr";
+        calibrationMode?: "generic" | "rtl_sdr" | "hackrf_one";
       },
     ) => {
       if (!device || !buffersRef.current) return;

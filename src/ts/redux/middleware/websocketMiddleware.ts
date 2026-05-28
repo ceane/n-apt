@@ -126,6 +126,7 @@ let pendingStatusUpdates: any = null;
 let allowNextPausedFrame = false;
 let pausedFrameRequestInFlight = false;
 const DISCONNECT_GRACE_MS = 150;
+const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // RATIONALE for Auto FFT:
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
@@ -143,6 +144,8 @@ let lastFrequencyRangeRequest: {
   lastResendAt: number;
   mismatchFrames: number;
 } | null = null;
+let lastFrequencyRangeSendKey: string | null = null;
+let lastFrequencyRangeSendAt = 0;
 
 export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
@@ -158,6 +161,30 @@ export const shouldAcceptPausedFrameRequest = (): boolean => {
 
 export const resetPausedFrameRequestGate = (): void => {
   pausedFrameRequestInFlight = false;
+};
+
+export const resetWebSocketMiddlewareState = (): void => {
+  lastSettingsRequest = null;
+  lastFrameRequestTime = 0;
+  lastFrequencyRangeRequest = null;
+  lastFrequencyRangeSendKey = null;
+  lastFrequencyRangeSendAt = 0;
+  allowNextPausedFrame = false;
+  resetPausedFrameRequestGate();
+  if (wsInstance.ws) {
+    wsInstance.ws.onclose = null;
+    wsInstance.ws.onerror = null;
+    wsInstance.ws.onmessage = null;
+    wsInstance.ws.onopen = null;
+    wsInstance.ws = null;
+  }
+  wsInstance.reconnectTimeout = null;
+  wsInstance.disconnectTimeout = null;
+  wsInstance.reconnectAttempts = 0;
+  wsInstance.url = "";
+  wsInstance.aesKey = null;
+  wsInstance.enabled = false;
+  wsInstance.disposed = false;
 };
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
@@ -293,6 +320,26 @@ const trackFrequencyRangeRequest = (type: string, data: any) => {
   const centerHz = getFrequencyRequestCenterHz(type, data);
   if (centerHz === null) return;
 
+  const requestKey = JSON.stringify({
+    type,
+    centerHz,
+    min_hz: Number(data?.min_hz ?? data?.min_freq ?? null),
+    max_hz: Number(data?.max_hz ?? data?.max_freq ?? null),
+    bandwidth_center_frequency: Number(
+      data?.bandwidth_center_frequency ?? null,
+    ),
+  });
+
+  const now = Date.now();
+  if (
+    lastFrequencyRangeSendKey === requestKey &&
+    now - lastFrequencyRangeSendAt < DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS
+  ) {
+    return;
+  }
+  lastFrequencyRangeSendKey = requestKey;
+  lastFrequencyRangeSendAt = now;
+
   lastFrequencyRangeRequest = {
     data,
     centerHz,
@@ -300,6 +347,37 @@ const trackFrequencyRangeRequest = (type: string, data: any) => {
     lastResendAt: 0,
     mismatchFrames: 0,
   };
+};
+
+const shouldSuppressDuplicateFrequencyRangeSend = (
+  type: string,
+  data: any,
+): boolean => {
+  if (type !== "frequency_range" && type !== "set_frequency_range") {
+    return false;
+  }
+
+  const requestKey = JSON.stringify({
+    type,
+    centerHz: getFrequencyRequestCenterHz(type, data),
+    min_hz: Number(data?.min_hz ?? data?.min_freq ?? null),
+    max_hz: Number(data?.max_hz ?? data?.max_freq ?? null),
+    bandwidth_center_frequency: Number(
+      data?.bandwidth_center_frequency ?? null,
+    ),
+  });
+
+  const now = Date.now();
+  if (
+    lastFrequencyRangeSendKey === requestKey &&
+    now - lastFrequencyRangeSendAt < DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS
+  ) {
+    return true;
+  }
+
+  lastFrequencyRangeSendKey = requestKey;
+  lastFrequencyRangeSendAt = now;
+  return false;
 };
 
 const checkRetuneWatchdog = (frameCenterHz: number) => {
@@ -364,6 +442,24 @@ const sameAesKeyReference = (
   next: CryptoKey | null,
 ): boolean => current === next;
 
+const isMockBackend = (value: unknown): boolean => {
+  return (
+    typeof value === "string" &&
+    (value === "mock_apt" ||
+      value === "mock_apt_metal" ||
+      value.includes("mock"))
+  );
+};
+
+const isMockDeviceStatus = (parsedData: Record<string, unknown>): boolean => {
+  return (
+    isMockBackend(parsedData.backend) ||
+    isMockBackend(parsedData.device) ||
+    isMockBackend(parsedData.device_info) ||
+    isMockBackend(parsedData.device_name)
+  );
+};
+
 const cleanupSocket = () => {
   if (wsInstance.reconnectTimeout) {
     clearTimeout(wsInstance.reconnectTimeout);
@@ -379,6 +475,9 @@ const cleanupSocket = () => {
     wsInstance.ws = null;
   }
 
+  lastFrequencyRangeSendKey = null;
+  lastFrequencyRangeSendAt = 0;
+  lastFrequencyRangeRequest = null;
   wsInstance.disposed = true;
 };
 
@@ -522,6 +621,18 @@ const processMessage = (
           console.warn(
             `[device] ${parsedData.device_name || parsedData.device_info || "Device"} restarting (${attempt}/${attemptMax}) at ${nowLabel}`,
           );
+        }
+      }
+
+      if (
+        updates.deviceState === "disconnected" &&
+        !parsedData.device_connected &&
+        isMockDeviceStatus(parsedData)
+      ) {
+        updates.deviceState = "connected";
+        updates.deviceLoadingReason = null;
+        if (!updates.deviceName) {
+          updates.deviceName = "Mock APT SDR";
         }
       }
 
@@ -960,6 +1071,9 @@ const createWebSocketMiddleware =
 
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
+        if (shouldSuppressDuplicateFrequencyRangeSend(type, data)) {
+          return next(action);
+        }
         trackFrequencyRangeRequest(type, data);
 
         // Track intended FFT size to prevent clobbering from status broadcasts

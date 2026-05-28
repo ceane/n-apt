@@ -529,7 +529,7 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn get_max_sample_rate(&mut self) -> u32 {
-    self.sample_rate
+    20_000_000
   }
 
   fn reset_buffer(&mut self) -> Result<()> {

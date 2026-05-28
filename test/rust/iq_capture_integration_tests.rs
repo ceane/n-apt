@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 /// Default sample rate constant (3.2MHz)
 const DEFAULT_SAMPLE_RATE: u32 = 3_200_000;
-const MAX_SAMPLE_RATE: u32 = 3_200_000;
+const MAX_SAMPLE_RATE: u32 = 20_000_000;
 
 #[cfg(test)]
 mod integration_tests {
