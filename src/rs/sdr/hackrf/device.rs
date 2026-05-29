@@ -4,6 +4,7 @@ use log::{debug, info};
 use std::os::raw::c_int;
 use std::ptr;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use super::ffi;
 use crate::sdr::SdrDevice;
@@ -12,6 +13,7 @@ const HACKRF_MAX_SAMPLE_RATE: u32 = 20_000_000;
 const HACKRF_MIN_SAMPLE_RATE: u32 = 2_000_000;
 const HACKRF_RX_QUEUE_DEPTH: usize = 8;
 const HACKRF_BLOCK_SIZE: usize = 16_384;
+const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
 
 struct RxContext {
   tx: Sender<Vec<u8>>,
@@ -200,10 +202,16 @@ impl SdrDevice for HackRfDevice {
     fft_size: usize,
   ) -> Result<crate::fft::types::RawSamples> {
     self.ensure_streaming()?;
-    let mut frame = self
-      .rx_queue
-      .recv()
-      .map_err(|_| anyhow!("HackRF One RX queue closed"))?;
+    let mut frame = self.rx_queue.recv_timeout(HACKRF_RX_TIMEOUT).map_err(
+      |err| match err {
+        crossbeam_channel::RecvTimeoutError::Timeout => {
+          anyhow!("Timeout waiting for HackRF One RX samples")
+        }
+        crossbeam_channel::RecvTimeoutError::Disconnected => {
+          anyhow!("HackRF One RX queue closed")
+        }
+      },
+    )?;
 
     let target_len = fft_size.saturating_mul(2);
     if frame.len() > target_len {
@@ -246,10 +254,7 @@ impl SdrDevice for HackRfDevice {
     self.center_frequency = freq;
     debug!(
       "HackRF center frequency set to {} Hz (requested {}, ppm {}, applied {})",
-      freq,
-      self.requested_center_frequency,
-      self.ppm,
-      corrected_freq
+      freq, self.requested_center_frequency, self.ppm, corrected_freq
     );
     Ok(())
   }
@@ -288,7 +293,8 @@ impl SdrDevice for HackRfDevice {
     if self.requested_center_frequency > 0 {
       let corrected_freq =
         apply_ppm_correction(self.requested_center_frequency, ppm);
-      let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
+      let ret =
+        unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
       if ret != 0 {
         return Err(anyhow!(
           "Failed to set HackRF One frequency correction to {} ppm",
@@ -297,9 +303,7 @@ impl SdrDevice for HackRfDevice {
       }
       debug!(
         "HackRF PPM correction set to {} ppm (requested {}, applied {})",
-        ppm,
-        self.requested_center_frequency,
-        corrected_freq
+        ppm, self.requested_center_frequency, corrected_freq
       );
     } else {
       debug!("HackRF PPM correction set to {} ppm", ppm);
@@ -369,7 +373,14 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn is_healthy(&self) -> bool {
-    !self.dev.is_null()
+    if self.dev.is_null() {
+      return false;
+    }
+    if !self.streaming_started {
+      return true;
+    }
+
+    unsafe { ffi::hackrf_is_streaming(self.dev) == 1 }
   }
 
   fn get_error(&self) -> Option<String> {
@@ -425,6 +436,11 @@ mod tests {
   fn clamps_sample_rate_to_hackrf_bounds() {
     assert_eq!(HACKRF_MIN_SAMPLE_RATE, 2_000_000);
     assert_eq!(HACKRF_MAX_SAMPLE_RATE, 20_000_000);
+  }
+
+  #[test]
+  fn hackrf_rx_timeout_is_bounded_for_hotplug_recovery() {
+    assert!(HACKRF_RX_TIMEOUT <= Duration::from_millis(500));
   }
 
   #[test]

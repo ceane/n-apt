@@ -111,4 +111,16 @@ describe("ConnectionStatusSection file mode", () => {
     );
     expect(screen.getByText("Decryption error")).toBeInTheDocument();
   });
+
+  it('shows "Connected to server but not device" for mock fallback', () => {
+    render(
+      <TestWrapper>
+        <ConnectionStatusSection {...baseProps} backend="mock_apt" />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByText("Connected to server but not device"),
+    ).toBeInTheDocument();
+  });
 });

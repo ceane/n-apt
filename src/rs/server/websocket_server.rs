@@ -56,8 +56,9 @@ use tokio::sync::Mutex;
 use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
 use super::utils::{
-  device_config_key, reconcile_device_state, status_device_backend_label,
-  status_device_name, resolve_device_sample_rate_options,
+  device_config_key, reconcile_device_state,
+  resolve_device_sample_rate_options, status_device_backend_label,
+  status_device_name,
 };
 use crate::sdr::hotplug::{
   is_recovery_budget_exhausted, scan_usb_for_supported_device,
@@ -77,7 +78,10 @@ pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
     Ok(Some(_)) => true,
     Ok(None) => false,
     Err(e) => {
-      warn!("USB reconciliation probe failed, keeping current status: {}", e);
+      warn!(
+        "USB reconciliation probe failed, keeping current status: {}",
+        e
+      );
       return false;
     }
   };
@@ -92,7 +96,8 @@ pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
     build_device_profile("mock_apt"),
   );
   if device_profile.kind == "hackrf_one" {
-    shared.set_device_backend_error(Some(HACKRF_DISCONNECT_ADVISORY.to_string()));
+    shared
+      .set_device_backend_error(Some(HACKRF_DISCONNECT_ADVISORY.to_string()));
   } else {
     shared.set_device_backend_error(None);
   }
@@ -121,12 +126,13 @@ pub(crate) fn broadcast_device_status(
   let device_profile = shared.device_profile.lock().unwrap().clone();
   let device_backend_error =
     shared.device_backend_error.lock().unwrap().clone();
-  let (max_sample_rate, sample_rate_options) = resolve_device_sample_rate_options(
-    device_connected,
-    &device_info,
-    &device_profile,
-    &sdr_settings,
-  );
+  let (max_sample_rate, sample_rate_options) =
+    resolve_device_sample_rate_options(
+      device_connected,
+      &device_info,
+      &device_profile,
+      &sdr_settings,
+    );
   let device_limits = sdr_settings
     .devices
     .get(device_config_key(&device_profile))
@@ -1071,7 +1077,8 @@ impl WebSocketServer {
                       HACKRF_DISCONNECT_ADVISORY.to_string(),
                     ));
                   } else {
-                    shared_state.set_device_backend_error(processor.get_error());
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
                   }
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
@@ -1204,7 +1211,8 @@ impl WebSocketServer {
                       HACKRF_DISCONNECT_ADVISORY.to_string(),
                     ));
                   } else {
-                    shared_state.set_device_backend_error(processor.get_error());
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
                   }
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
@@ -1539,21 +1547,16 @@ mod tests {
 
     assert!(changed, "expected stale hackrf status to reconcile");
     assert!(!shared.device_connected.load(Ordering::Relaxed));
-    assert_eq!(
-      shared.device_state.lock().unwrap().as_str(),
-      "disconnected"
-    );
+    assert_eq!(shared.device_state.lock().unwrap().as_str(), "disconnected");
     assert_eq!(shared.device_info.lock().unwrap().as_str(), "Mock APT SDR");
     assert_eq!(shared.device_profile.lock().unwrap().kind, "mock_apt");
-    assert!(
-      shared
-        .device_backend_error
-        .lock()
-        .unwrap()
-        .as_ref()
-        .expect("expected disconnect advisory")
-        .contains("HackRF One disconnected")
-    );
+    assert!(shared
+      .device_backend_error
+      .lock()
+      .unwrap()
+      .as_ref()
+      .expect("expected disconnect advisory")
+      .contains("HackRF One disconnected"));
   }
 }
 

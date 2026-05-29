@@ -209,6 +209,7 @@ interface ConnectionStatusSectionProps {
   isConnected: boolean;
   deviceState: DeviceState;
   deviceLoadingReason: DeviceLoadingReason;
+  backend?: string | null;
   isPaused: boolean;
   cryptoCorrupted: boolean;
   onPauseToggle: () => void;
@@ -326,6 +327,7 @@ export const ConnectionStatusSection: React.FC<
   isConnected,
   deviceState,
   deviceLoadingReason,
+  backend,
   isPaused,
   cryptoCorrupted,
   onPauseToggle,
@@ -344,6 +346,13 @@ export const ConnectionStatusSection: React.FC<
   const fileStatus = fileMode
     ? getFileStatus(fileProcessingStatus, hasFileSelected)
     : null;
+  const isMockBackend =
+    typeof backend === "string" &&
+    (backend === "mock_apt" ||
+      backend === "mock_apt_metal" ||
+      backend.includes("mock"));
+  const isServerConnectedButNoDevice =
+    isConnected && deviceState === "connected" && isMockBackend;
 
   return (
     <>
@@ -373,7 +382,9 @@ export const ConnectionStatusSection: React.FC<
                     ? deviceLoadingReason === "restart"
                       ? "Restarting device..."
                       : "Loading device..."
-                    : deviceState === "connected"
+                    : isServerConnectedButNoDevice
+                      ? "Connected to server but not device"
+                      : deviceState === "connected"
                       ? "Connected to server and device"
                       : "Connected to server but device not connected"}
           </StatusText>

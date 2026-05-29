@@ -746,7 +746,10 @@ export const IQCaptureControlsSection: React.FC<
   const captureRangeSpan = captureRange.max - captureRange.min;
   const hardwareSampleRateHz = maxSampleRate;
 
-  // Determine which modes are available
+  const captureCoversChannel =
+    hardwareSampleRateHz > 0 &&
+    captureRangeSpan > 0 &&
+    hardwareSampleRateHz >= captureRangeSpan - 10_000;
   const isOnscreenExactMatch =
     onscreenOnly &&
     hardwareSampleRateHz > 0 &&
@@ -756,8 +759,8 @@ export const IQCaptureControlsSection: React.FC<
   // GUARDS: Determine appropriate capture mode based on capture type
   let effectiveAcquisitionMode = acquisitionMode;
 
-  if (isOnscreenExactMatch) {
-    // Onscreen only + span matches hardware → force whole_sample
+  if (captureCoversChannel) {
+    // Hardware sample rate covers the selected channel span → force whole_sample
     effectiveAcquisitionMode = "whole_sample";
   } else if (isWiderThanHardware) {
     // Wider than hardware → only stepwise or interleaved allowed
@@ -985,12 +988,12 @@ export const IQCaptureControlsSection: React.FC<
               e.target.value as "stepwise" | "interleaved" | "whole_sample",
             )
           }
-          disabled={isOnscreenExactMatch}
+          disabled={captureCoversChannel}
         >
-          {!isWiderThanHardware && (
+          {(!isWiderThanHardware || captureCoversChannel) && (
             <option value="whole_sample">Whole Sample</option>
           )}
-          {!isOnscreenExactMatch && (
+          {!captureCoversChannel && (
             <>
               <option value="stepwise">Stepwise</option>
               <option value="interleaved">Interleaved (TDMS)</option>

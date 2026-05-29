@@ -160,6 +160,37 @@ describe("useLiveSampleRateControl", () => {
     });
   });
 
+  it("treats selecting whole-channel as the active channel span for HackRF One", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    const initialProps = {
+      sourceMode: "live" as const,
+      supportsWholeChannelSampleRate: true,
+      activeChannelSampleRate: 5_200_000,
+      activeSignalAreaBounds: { min: 24_720_000, max: 29_920_000 },
+      frequencyRange: { min: 24_720_000, max: 29_920_000 },
+      sampleRateHz: 3_200_000,
+      setSampleRate,
+      applyFrequencyRange,
+    };
+
+    const { result } = renderHook(
+      (props: typeof initialProps) => useLiveSampleRateControl(props),
+      { initialProps },
+    );
+
+    act(() => {
+      result.current.handleSampleRateChange(5_200_000);
+    });
+
+    expect(setSampleRate).toHaveBeenCalledWith(5_200_000);
+    expect(applyFrequencyRange).toHaveBeenLastCalledWith({
+      min: 24_720_000,
+      max: 29_920_000,
+    });
+  });
+
   it("does not expose whole-channel mode when the source does not support it", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();

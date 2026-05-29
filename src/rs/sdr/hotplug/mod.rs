@@ -1,6 +1,6 @@
-use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
+use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use crate::server::shared_state::{
   SharedState, DEVICE_PROBE_INTERVAL, DISCONNECT_FAILURE_THRESHOLD,
   MAX_RECOVERY_ATTEMPTS,
@@ -216,9 +216,7 @@ fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
 
 fn device_type_from_ids(vendor_id: u16, product_id: u16) -> &'static str {
   match (vendor_id, product_id) {
-    (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => {
-      "rtl-sdr"
-    }
+    (0x0bda, 0x2838) | (0x0bda, 0x2832) | (0x0bda, 0x283a) => "rtl-sdr",
     (0x1d50, _) => "hackrf_one",
     (0x1fc9, 0x000c) => "hackrf_dfu",
     _ => "unknown",
@@ -756,7 +754,8 @@ mod tests {
   }
 
   #[test]
-  fn mock_startup_with_supported_device_should_attach_even_without_count_change() {
+  fn mock_startup_with_supported_device_should_attach_even_without_count_change(
+  ) {
     assert!(should_reconcile_hotplug_state(1, 1, true));
     assert!(!should_reconcile_hotplug_state(1, 1, false));
     assert!(should_reconcile_hotplug_state(1, 0, false));

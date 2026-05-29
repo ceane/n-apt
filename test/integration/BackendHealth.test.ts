@@ -38,12 +38,16 @@ describe("Backend Health Integration", () => {
 
     backendProcess.stdout?.on("data", (data) => {
       appendBackendOutput(data);
-      process.stdout.write(`[Backend STDOUT] ${data}`);
+      if (process.env.BACKEND_HEALTH_VERBOSE === "1") {
+        process.stdout.write(`[Backend STDOUT] ${data}`);
+      }
     });
 
     backendProcess.stderr?.on("data", (data) => {
       appendBackendOutput(data);
-      process.stderr.write(`[Backend STDERR] ${data}`);
+      if (process.env.BACKEND_HEALTH_VERBOSE === "1") {
+        process.stderr.write(`[Backend STDERR] ${data}`);
+      }
     });
 
     const exited = new Promise<never>((_, reject) => {

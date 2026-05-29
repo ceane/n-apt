@@ -223,6 +223,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
       backend === "rtlsdr" ||
       backend === "rtl-tcp" ||
       backend === "rtltcp";
+  const isRtlSdrDevice =
+    deviceProfile?.kind === "rtl_sdr" ||
+    backend === "rtl_sdr" ||
+    backend === "rtl-sdr" ||
+    backend === "rtlsdr";
 
   const manualFftOptions = React.useMemo(
     () =>
@@ -268,6 +273,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     }
     return `Whole Channel (${formatChannelFreq(wholeChannelSampleRate)})`;
   }, [wholeChannelSampleRate]);
+  const showWholeChannelOption =
+    !isRtlSdrDevice &&
+    typeof wholeChannelSampleRate === "number" &&
+    Number.isFinite(wholeChannelSampleRate) &&
+    wholeChannelSampleRate > 0;
 
   return (
     <Section>
@@ -289,9 +299,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                   onSampleRateChange(Number(e.target.value));
                 }}
               >
-                {typeof wholeChannelSampleRate === "number" &&
-                  Number.isFinite(wholeChannelSampleRate) &&
-                  wholeChannelSampleRate > 0 && (
+                {showWholeChannelOption && (
                     <option
                       key="whole-channel"
                       value={Math.round(wholeChannelSampleRate)}
@@ -300,7 +308,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     </option>
                   )}
                 {sampleRateOptionList.map((rate) =>
-                  typeof wholeChannelSampleRate === "number" &&
+                  showWholeChannelOption &&
                   Math.round(wholeChannelSampleRate) === rate ? null : (
                     <option key={rate} value={rate}>
                       {formatFrequency(rate)}

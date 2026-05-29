@@ -75,4 +75,35 @@ describe("SignalDisplaySection sample rate selector", () => {
     expect(select).toHaveValue("20000000");
     expect(select).not.toHaveDisplayValue("Whole Channel (5.2MHz)");
   });
+
+  it("does not show whole-channel for RTL-SDR devices", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          backend="rtl_sdr"
+          deviceProfile={{
+            kind: "rtl_sdr" as const,
+            is_rtl_sdr: true,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+          }}
+          sampleRate={3_200_000}
+          wholeChannelSampleRate={3_200_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const sampleRateRow = screen.getAllByText("Sample Rate")[0].closest("div")
+      ?.parentElement as HTMLElement;
+    const select = within(sampleRateRow).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+
+    expect(
+      screen.queryByRole("option", { name: /Whole Channel/ }),
+    ).not.toBeInTheDocument();
+    expect(select).toHaveValue("3200000");
+  });
 });

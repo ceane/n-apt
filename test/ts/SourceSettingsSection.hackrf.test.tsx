@@ -3,6 +3,23 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { TestWrapper } from "./testUtils";
 
+jest.mock("@n-apt/components/ui/Tooltip", () => ({
+  Tooltip: ({
+    title,
+    content,
+    trigger,
+  }: {
+    title: string;
+    content: string;
+    trigger: React.ReactNode;
+  }) => (
+    <span data-testid={`tooltip-${title}`}>
+      {trigger}
+      <span data-testid={`tooltip-content-${title}`}>{content}</span>
+    </span>
+  ),
+}));
+
 describe("SourceSettingsSection HackRF controls", () => {
   it("shows HackRF-specific gain rows and AMP toggle", () => {
     const onHackrfLnaGainChange = jest.fn();
@@ -69,6 +86,86 @@ describe("SourceSettingsSection HackRF controls", () => {
     expect(onHackrfVgaGainChange).toHaveBeenLastCalledWith(62);
     expect(onHackrfAmpEnabledChange).toHaveBeenLastCalledWith(true);
     expect(onHackrfBasebandBandwidthChange).toHaveBeenLastCalledWith(3_200_000);
+  });
+
+  it("shows gain warnings when HackRF gain exceeds the low-frequency threshold", () => {
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          frequencyRangeMin={5_000_000}
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={16}
+          hackrfVgaGain={24}
+          hackrfAmpEnabled={true}
+          hackrfBasebandBandwidth={0}
+          hackrfCurrentSampleRate={3_200_000}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByTestId("tooltip-Gain Warning")).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("tooltip-content-Gain Warning")[0],
+    ).toHaveTextContent("Excessive gain");
+    expect(screen.getByText("LNA gain")).toBeInTheDocument();
+    expect(screen.getByText("VGA gain")).toBeInTheDocument();
+    expect(screen.getByText("AMP enabled")).toBeInTheDocument();
+  });
+
+  it("clamps negative PPM values to zero in live mode", () => {
+    const onPpmChange = jest.fn();
+
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={16}
+          hackrfVgaGain={24}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={0}
+          hackrfCurrentSampleRate={3_200_000}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={onPpmChange}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const ppmInput = screen.getAllByRole("spinbutton")[0];
+    fireEvent.change(ppmInput, { target: { value: "-12" } });
+
+    expect(onPpmChange).toHaveBeenCalledWith(0);
   });
 
   it("hides AGC controls for HackRF live sources", () => {

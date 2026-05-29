@@ -27,10 +27,7 @@ fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
   for attempt in 1..=HACKRF_OPEN_RETRY_ATTEMPTS {
     match crate::sdr::hackrf::HackRfDevice::open_first() {
       Ok(device) => {
-        log::info!(
-          "Using HackRF One device after {} attempt(s)",
-          attempt
-        );
+        log::info!("Using HackRF One device after {} attempt(s)", attempt);
         return Ok(Box::new(device));
       }
       Err(err) => {
@@ -42,9 +39,10 @@ fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
     }
   }
 
-  Err(last_err.unwrap_or_else(|| {
-    anyhow::anyhow!("Failed to open HackRF One device")
-  }))
+  Err(
+    last_err
+      .unwrap_or_else(|| anyhow::anyhow!("Failed to open HackRF One device")),
+  )
 }
 
 /// Common interface for all SDR device implementations

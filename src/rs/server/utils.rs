@@ -611,12 +611,18 @@ pub fn device_sample_rate_ceiling(
   device_profile: &DeviceProfile,
   sdr_settings: &SdrConfig,
 ) -> u32 {
+  if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
+    return parse_device_info_sample_rate(device_info)
+      .unwrap_or(sdr_settings.sample_rate);
+  }
+
   if matches!(device_profile.kind.as_str(), "hackrf_one") {
     return 20_000_000;
   }
 
   if device_connected {
-    parse_device_info_sample_rate(device_info).unwrap_or(sdr_settings.sample_rate)
+    parse_device_info_sample_rate(device_info)
+      .unwrap_or(sdr_settings.sample_rate)
   } else {
     sdr_settings.sample_rate
   }
@@ -628,11 +634,24 @@ pub fn resolve_device_sample_rate_options(
   device_profile: &DeviceProfile,
   sdr_settings: &SdrConfig,
 ) -> (u32, Vec<u32>) {
-  let ceiling =
-    device_sample_rate_ceiling(device_connected, device_info, device_profile, sdr_settings);
-  let floor = sdr_settings.min_receive_sample_rate.unwrap_or(sdr_settings.sample_rate);
+  let ceiling = device_sample_rate_ceiling(
+    device_connected,
+    device_info,
+    device_profile,
+    sdr_settings,
+  );
+  let floor =
+    if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
+      ceiling
+    } else {
+      sdr_settings
+        .min_receive_sample_rate
+        .unwrap_or(sdr_settings.sample_rate)
+    };
 
-  if let Some(device_cfg) = sdr_settings.devices.get(device_config_key(device_profile)) {
+  if let Some(device_cfg) =
+    sdr_settings.devices.get(device_config_key(device_profile))
+  {
     (
       ceiling,
       device_cfg.sample_rate.resolve_options(floor, ceiling),
@@ -820,6 +839,33 @@ mod tests {
     assert_eq!(max_sample_rate, 20_000_000);
     assert!(options.len() > 1);
     assert_eq!(options.last().copied(), Some(20_000_000));
+  }
+
+  #[test]
+  fn resolves_mock_sample_rate_options_from_mock_device_after_hackrf_settings()
+  {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+    let mut settings = load_sdr_settings();
+    settings.sample_rate = 20_000_000;
+    settings.min_receive_sample_rate = Some(9_125_000);
+
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      false,
+      "Mock APT SDR - Freq: 1600000 Hz, Rate: 3200000 Hz (Sample Rate: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 3_200_000);
+    assert_eq!(options, vec![3_200_000]);
   }
 
   #[test]

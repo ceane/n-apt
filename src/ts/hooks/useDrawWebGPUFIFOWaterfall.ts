@@ -683,6 +683,10 @@ export function useDrawWebGPUFIFOWaterfall() {
   );
 
   const cleanup = useCallback(() => {
+    const state = stateRef.current;
+    state?.dataTex?.destroy();
+    state?.colorTex?.destroy();
+    state?.uniformBuf?.destroy();
     stateRef.current = null;
   }, []);
   return { drawWebGPUFIFOWaterfall, cleanup };

@@ -309,6 +309,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           isConnected={isConnected}
           deviceState={deviceState}
           deviceLoadingReason={deviceLoadingReason}
+          backend={backend}
           isPaused={liveIsPaused}
           cryptoCorrupted={cryptoCorrupted}
           onPauseToggle={toggleVisualizerPause}

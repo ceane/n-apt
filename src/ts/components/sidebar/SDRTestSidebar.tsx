@@ -180,6 +180,7 @@ export const SDRTestSidebar: React.FC = () => {
             isConnected={isConnected}
             deviceState={deviceState}
             deviceLoadingReason={deviceLoadingReason}
+            backend={backend}
             isPaused={state.visualizerPaused}
             cryptoCorrupted={cryptoCorrupted}
             onPauseToggle={toggleVisualizerPause}

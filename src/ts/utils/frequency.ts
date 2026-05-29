@@ -259,7 +259,7 @@ export const formatFrequencyHz = (freqHz: number): string => {
  */
 export const formatFrequencyValue = (val: number): string => {
   if (!Number.isFinite(val)) return "0";
-  return Number(val.toFixed(3)).toString();
+  return val.toFixed(3);
 };
 
 /**

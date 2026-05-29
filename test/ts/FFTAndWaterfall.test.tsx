@@ -113,7 +113,7 @@ describe("FFTAndWaterfall", () => {
     expect(waterfallProps?.awaitingDeviceData).toBe(true);
   });
 
-  it("clears waterfall and slider loading when FFT reports a rendered frame", () => {
+  it("clears waterfall loading as soon as FFT reports a rendered frame", () => {
     render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -140,18 +140,12 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       fftProps.onRenderableFrameChange(true);
-      fftProps.onCanvasLoadingChange(false);
     });
 
-    const nextSliderProps =
-      visualizerSlidersMock.mock.calls[
-        visualizerSlidersMock.mock.calls.length - 1
-      ]?.[0];
     const nextWaterfallProps =
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
-    expect(nextSliderProps?.disabled).toBe(false);
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
   });
 

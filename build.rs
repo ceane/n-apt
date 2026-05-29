@@ -35,10 +35,8 @@ fn link_homebrew_libusb() {
     return;
   }
 
-  for candidate in [
-    "/opt/homebrew/opt/libusb/lib",
-    "/usr/local/opt/libusb/lib",
-  ] {
+  for candidate in ["/opt/homebrew/opt/libusb/lib", "/usr/local/opt/libusb/lib"]
+  {
     let path = PathBuf::from(candidate);
     if path.exists() {
       println!("cargo:rustc-link-search=native={}", path.display());

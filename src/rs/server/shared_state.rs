@@ -145,6 +145,8 @@ impl SharedState {
     info: String,
     device_profile: DeviceProfile,
   ) {
+    let is_mock_fallback =
+      !connected && device_profile.kind.starts_with("mock_apt");
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
     *self.device_profile.lock().unwrap() = device_profile;
@@ -156,6 +158,10 @@ impl SharedState {
     // Reset debounce counters on any definitive state change
     self.health_failure_streak.store(0, Ordering::Relaxed);
     self.recovery_attempts.store(0, Ordering::Relaxed);
+    if is_mock_fallback {
+      self.is_paused.store(false, Ordering::SeqCst);
+      self.allow_next_paused_frame.store(true, Ordering::SeqCst);
+    }
     *self.last_broadcast_status.lock().unwrap() = None;
   }
 

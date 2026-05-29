@@ -601,6 +601,7 @@ const FFTCanvas = memo(
       setSpectrumGpuCanvasNode,
       setSpectrumOverlayCanvasNode: _setSpectrumOverlayCanvasNode,
       waterfallGpuCanvasNode,
+      waterfallOverlayCanvasNode,
       setWaterfallGpuCanvasNode: _setWaterfallGpuCanvasNode,
       setWaterfallOverlayCanvasNode: _setWaterfallOverlayCanvasNode,
       spectrumGpuCanvasRef,
@@ -764,28 +765,6 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.demod.hardwareRange,
     );
 
-    // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
-    // This resets the visualizer to a blank state and notifies the parent.
-    useEffect(() => {
-      if (isWaterfallCleared) {
-        visualizerMachine?.clear(visualizerSessionKey);
-        waterfallBufferRef.current = null;
-        waterfallTextureSnapshotRef.current = null;
-        waterfallTextureMetaRef.current = null;
-        lastWaterfallRowRef.current = null;
-        pausedWaterfallRowRef.current = null;
-        pendingWaterfallRestoreRef.current = null;
-        restoredWaterfallRef.current = false;
-        heterodyningHistoryRef.current = [];
-        heterodyningWriteIndexRef.current = 0;
-        onResetWaterfallCleared?.();
-      }
-    }, [
-      isWaterfallCleared,
-      onResetWaterfallCleared,
-      visualizerMachine,
-      visualizerSessionKey,
-    ]);
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
     const spectrumOutputBufferRef = useRef<Float32Array | null>(null);
     const autoFftResizeTimeoutRef = useRef<number | null>(null);
@@ -1269,13 +1248,51 @@ const FFTCanvas = memo(
 
     // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
     const { drawSpectrum, cleanup: cleanupSpectrum } = useSpectrumRenderer();
-    const { drawWebGPUFIFOWaterfall } = useDrawWebGPUFIFOWaterfall();
+    const {
+      drawWebGPUFIFOWaterfall,
+      cleanup: cleanupWebGPUFIFOWaterfall,
+    } = useDrawWebGPUFIFOWaterfall();
     const {
       computeWaterfallRetuneRow,
       cleanup: cleanupWaterfallRetuneCompute,
     } = useWaterfallRetuneCompute();
 
     // Simplified renderer initialization
+
+    // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
+    // This resets the persisted snapshot, CPU history, and WebGPU circular texture.
+    useEffect(() => {
+      if (isWaterfallCleared) {
+        visualizerMachine?.clear(visualizerSessionKey);
+        cleanupWebGPUFIFOWaterfall();
+        waterfallBufferRef.current = null;
+        waterfallCappedBufferRef.current = null;
+        waterfallTextureSnapshotRef.current = null;
+        waterfallTextureMetaRef.current = null;
+        lastWaterfallRowRef.current = null;
+        pausedWaterfallRowRef.current = null;
+        retuneTransitionRowRef.current = null;
+        pendingWaterfallRestoreRef.current = null;
+        restoredWaterfallRef.current = false;
+        heterodyningHistoryRef.current = [];
+        heterodyningWriteIndexRef.current = 0;
+        heterodyningHistoryCountRef.current = 0;
+        activeHistoryRef.current = [];
+        retuneSmearRef.current = 0;
+        retuneDriftPxRef.current = 0;
+        lastWaterfallVisualRangeRef.current = null;
+        clearOverlayCanvas(waterfallOverlayCanvasNode);
+        onResetWaterfallCleared?.();
+      }
+    }, [
+      cleanupWebGPUFIFOWaterfall,
+      clearOverlayCanvas,
+      isWaterfallCleared,
+      onResetWaterfallCleared,
+      visualizerMachine,
+      visualizerSessionKey,
+      waterfallOverlayCanvasNode,
+    ]);
 
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
@@ -2249,9 +2266,11 @@ const FFTCanvas = memo(
       return () => {
         persistVisualizerSession();
         cleanupSpectrum();
+        cleanupWebGPUFIFOWaterfall();
         cleanupWaterfallRetuneCompute();
       };
     }, [
+      cleanupWebGPUFIFOWaterfall,
       cleanupWaterfallRetuneCompute,
       cleanupSpectrum,
       forceRender,

@@ -771,7 +771,31 @@ pub fn handle_message(
 
 #[cfg(test)]
 mod tests {
-  use super::{live_tune_is_out_of_bounds, resolve_live_center_frequency};
+  use super::{
+    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
+  };
+  use crate::server::shared_state::SharedState;
+  use crate::server::types::{SdrCommand, WebSocketMessage};
+  use serial_test::serial;
+  use std::sync::mpsc;
+  use std::sync::Arc;
+  use tokio::sync::broadcast;
+  use validator::Validate;
+
+  fn test_shared_state() -> Arc<SharedState> {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    SharedState::new("redis://127.0.0.1:6379")
+  }
+
+  fn test_channels() -> (
+    mpsc::Sender<SdrCommand>,
+    mpsc::Receiver<SdrCommand>,
+    broadcast::Sender<String>,
+  ) {
+    let (cmd_tx, cmd_rx) = mpsc::channel();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    (cmd_tx, cmd_rx, broadcast_tx)
+  }
 
   #[test]
   fn resolves_frequency_center_from_range_midpoint() {
@@ -810,21 +834,131 @@ mod tests {
 
   #[test]
   fn validates_websocket_message_ppm() {
-    use crate::server::types::WebSocketMessage;
-    use validator::Validate;
-
     // Valid PPM values
-    let msg: WebSocketMessage = serde_json::from_str(r#"{"type": "ppm", "ppm": 10}"#).unwrap();
+    let msg: WebSocketMessage =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": 10}"#).unwrap();
     assert!(msg.validate().is_ok());
 
-    let msg: WebSocketMessage = serde_json::from_str(r#"{"type": "ppm", "ppm": 0}"#).unwrap();
+    let msg: WebSocketMessage =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": 0}"#).unwrap();
     assert!(msg.validate().is_ok());
 
     // Invalid PPM values (negative)
-    let msg_result: Result<WebSocketMessage, _> = serde_json::from_str(r#"{"type": "ppm", "ppm": -5}"#);
+    let msg_result: Result<WebSocketMessage, _> =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": -5}"#);
     // Since ppm is u32, deserializing a negative number should either fail to deserialize
     // or if we deserialize, it shouldn't validate. Actually, serde_json fails to deserialize
     // a negative number into a u32, which is correct and safe! Let's assert either case.
     assert!(msg_result.is_err() || msg_result.unwrap().validate().is_err());
+  }
+
+  #[test]
+  #[serial]
+  fn sanitizes_invalid_hackrf_gains_and_ppm_before_emitting_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "gain":12.5,
+        "hackrfLnaGain":51.0,
+        "hackrfVgaGain":63.0,
+        "ppm":201,
+        "tunerAGC":true
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.gain, Some(12.5));
+        assert_eq!(settings.hackrf_lna_gain, None);
+        assert_eq!(settings.hackrf_vga_gain, None);
+        assert_eq!(settings.ppm, None);
+        assert_eq!(settings.tuner_agc, Some(true));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn preserves_valid_hackrf_gains_and_ppm_in_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "hackrfLnaGain":40.0,
+        "hackrfVgaGain":62.0,
+        "ppm":200
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.hackrf_lna_gain, Some(40.0));
+        assert_eq!(settings.hackrf_vga_gain, Some(62.0));
+        assert_eq!(settings.ppm, Some(200));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn forwards_sample_rate_and_tuner_bandwidth_in_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "sampleRate":5200000,
+        "tunerBandwidth":5200000
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.sample_rate, Some(5_200_000));
+        assert_eq!(settings.tuner_bandwidth, Some(5_200_000));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn drops_settings_messages_with_only_invalid_backend_fields() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "hackrfLnaGain":-1.0,
+        "hackrfVgaGain":99.0,
+        "ppm":1001
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(cmd_rx.try_recv().is_err());
   }
 }

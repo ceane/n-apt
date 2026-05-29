@@ -398,7 +398,7 @@ impl SdrProcessor {
       capture_is_ephemeral: false,
       available_spectrum,
       current_gain_db: -999.0, // Force first update
-      current_ppm: u32::MAX,    // Force first update
+      current_ppm: u32::MAX,   // Force first update
       current_tuner_agc: false,
       current_rtl_agc: false,
       last_phase_spectrum: None,
@@ -1801,6 +1801,7 @@ mod hackrf_settings_tests {
     }
 
     fn set_tuner_bandwidth(&mut self, _bw: u32) -> Result<()> {
+      self.record(format!("tuner_bandwidth:{_bw}"));
       Ok(())
     }
 
@@ -1873,6 +1874,29 @@ mod hackrf_settings_tests {
         "vga:62.0".to_string(),
         "amp:true".to_string(),
       ],
+    );
+  }
+
+  #[test]
+  fn apply_settings_routes_sample_rate_and_tuner_bandwidth_to_hardware_calls() {
+    let device = RecordingDevice::default();
+    let calls = device.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+
+    calls.lock().unwrap().clear();
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        sample_rate: Some(5_200_000),
+        tuner_bandwidth: Some(5_200_000),
+        ..Default::default()
+      })
+      .expect("apply settings");
+
+    assert_eq!(
+      *calls.lock().unwrap(),
+      vec!["tuner_bandwidth:5200000".to_string(),],
     );
   }
 }

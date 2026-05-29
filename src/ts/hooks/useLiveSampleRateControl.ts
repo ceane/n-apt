@@ -106,29 +106,37 @@ export const useLiveSampleRateControl = ({
 
   const handleSampleRateChange = useCallback(
     (nextSampleRate: number) => {
+      const nextWholeChannelRate =
+        getWholeChannelSampleRate(activeChannelSampleRate);
+      const resolvedSampleRate =
+        nextWholeChannelRate !== null &&
+        Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)
+          ? nextWholeChannelRate
+          : nextSampleRate;
+
       if (
         wholeChannelSampleRate &&
-        Math.round(wholeChannelSampleRate) !== Math.round(nextSampleRate)
+        Math.round(wholeChannelSampleRate) !== Math.round(resolvedSampleRate)
       ) {
         sampleRateModeRef.current = "manual";
       } else {
         sampleRateModeRef.current = "whole";
       }
 
-      setSampleRate(nextSampleRate);
+      setSampleRate(resolvedSampleRate);
 
       if (
         sourceMode !== "live" ||
         !frequencyRange ||
-        !Number.isFinite(nextSampleRate) ||
-        nextSampleRate <= 0
+        !Number.isFinite(resolvedSampleRate) ||
+        resolvedSampleRate <= 0
       ) {
         return;
       }
 
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
-        sampleRateHz: nextSampleRate,
+        sampleRateHz: resolvedSampleRate,
         channelBounds: activeSignalAreaBounds,
       });
       applyFrequencyRange(nextRange);

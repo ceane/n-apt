@@ -29,6 +29,59 @@ const mockRaf = jest.spyOn(window, "requestAnimationFrame");
 // Ensure we use the real FFTCanvas for integration testing, not the manual mock in __mocks__
 jest.unmock("@n-apt/components/FFTCanvas");
 
+jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+  useWebGPUInit: () => ({
+    webgpuEnabled: false,
+    isInitializingWebGPU: false,
+    webgpuDeviceRef: { current: null },
+    webgpuFormatRef: { current: "bgra8unorm" },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    spikesOverlayRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: false, markers: false } },
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useWasmSimdMath: () => ({
+    isAvailable: false,
+    isLoading: false,
+    processFFT: jest.fn(),
+    processIqToDbmSpectrum: jest.fn(
+      (_iq: Uint8Array, _offsetDb: number, fftSize: number) =>
+        new Float32Array(Math.max(1, fftSize)).fill(-80),
+    ),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useAsyncShaderCache", () => ({
+  useAsyncShaderCache: () => ({
+    preloadShaders: jest.fn(),
+    getPipeline: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useUnifiedFFTWaterfall", () => ({
+  useUnifiedFFTWaterfall: () => ({
+    process: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => ({
+  useDrawWebGPUFIFOWaterfall: () => ({
+    draw: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useWaterfallRetuneCompute", () => ({
+  useWaterfallRetuneCompute: () => ({
+    render: jest.fn(),
+    cleanup: jest.fn(),
+  }),
+}));
+
 describe("FFTAndWaterfall Integration", () => {
   const mockDataRef = { current: null as any };
   const defaultProps = {
@@ -55,11 +108,15 @@ describe("FFTAndWaterfall Integration", () => {
   });
 
   test("renders and initializes canvas nodes", async () => {
-    const { container } = render(
-      <TestWrapper>
-        <FFTAndWaterfall {...defaultProps} />
-      </TestWrapper>,
-    );
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <TestWrapper>
+          <FFTAndWaterfall {...defaultProps} />
+        </TestWrapper>,
+      ));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     // Check for canvas elements by ID (defined in FIFOWaterfallCanvas and FFTCanvas)
     expect(
@@ -79,11 +136,14 @@ describe("FFTAndWaterfall Integration", () => {
       iq_data: mockNaptData,
     };
 
-    render(
-      <TestWrapper>
-        <FFTAndWaterfall {...defaultProps} />
-      </TestWrapper>,
-    );
+    await act(async () => {
+      render(
+        <TestWrapper>
+          <FFTAndWaterfall {...defaultProps} />
+        </TestWrapper>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     // Manually trigger the RAF callback if we can find it,
     // or rely on hooks that run on mount.
@@ -125,20 +185,26 @@ describe("FFTAndWaterfall Integration", () => {
     });
     snapshotStore.dispatch(setSourceMode("file"));
 
-    const { unmount, container } = render(
-      <Provider store={snapshotStore}>
-        <ThemeProvider theme={theme}>
-          <FFTAndWaterfall
-            {...defaultProps}
-            isPaused={true}
-            ref={(val: any) => {
-              attachedRef = val;
-            }}
-            visualizerMachine={visualizerMachine as any}
-          />
-        </ThemeProvider>
-      </Provider>,
-    );
+    let container: HTMLElement;
+    const { unmount } = await act(async () => {
+      const rendered = render(
+        <Provider store={snapshotStore}>
+          <ThemeProvider theme={theme}>
+            <FFTAndWaterfall
+              {...defaultProps}
+              isPaused={true}
+              ref={(val: any) => {
+                attachedRef = val;
+              }}
+              visualizerMachine={visualizerMachine as any}
+            />
+          </ThemeProvider>
+        </Provider>,
+      );
+      container = rendered.container;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return rendered;
+    });
 
     if (!attachedRef) {
       console.log("DOM DUMP:", container.innerHTML);
@@ -187,11 +253,13 @@ describe("FFTAndWaterfall Integration", () => {
 
     expect(screen.queryByText(/REC/i)).not.toBeInTheDocument();
 
-    rerender(
-      <TestWrapper>
-        <FFTAndWaterfall {...defaultProps} isIqRecordingActive={true} />
-      </TestWrapper>,
-    );
+    act(() => {
+      rerender(
+        <TestWrapper>
+          <FFTAndWaterfall {...defaultProps} isIqRecordingActive={true} />
+        </TestWrapper>,
+      );
+    });
 
     // Check if some indicator of recording is present (if applicable)
   });

@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useMemo,
-  useCallback,
-} from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { styled } from "styled-components";
 import {
   clampFrequencyHz,
@@ -123,8 +117,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     disabled,
     className,
   }) => {
-    // Use useMemo for initial scale to avoid flicker on first mount
-    const initialScale = useMemo(() => getOptimalFrequencyScale(valueHz), []);
+    // Derive the initial display from the first rendered value.
+    const initialScale = useMemo(() => getOptimalFrequencyScale(valueHz), [valueHz]);
     const [displayValue, setDisplayValue] = useState<string>(
       formatFrequencyValue(initialScale.value),
     );
@@ -138,36 +132,24 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     const hzRef = useRef(valueHz);
     const prevValueHzRef = useRef(valueHz);
 
-    // Synchronize internal state with props when NOT focused
     useEffect(() => {
-      console.log("[FrequencyInput debug] useEffect triggered. valueHz:", valueHz, "minHz:", minHz, "maxHz:", maxHz);
-      // Check if the current value is valid
       const clamped = clampFrequencyHz(valueHz, minHz, maxHz);
       if (Math.abs(clamped - valueHz) > 0.001) {
-        console.log("[FrequencyInput debug] Clamped value differs. clamped:", clamped, "valueHz:", valueHz);
-        // Value is invalid, notify parent to correct it
         onChangeHz(clamped);
         return;
       }
 
-      // Only update internal state if the prop differs from our current known value
       if (Math.abs(valueHz - hzRef.current) < 0.001) {
-        console.log("[FrequencyInput debug] No change in value. valueHz:", valueHz, "hzRef.current:", hzRef.current);
         return;
       }
 
-      console.log("[FrequencyInput debug] Updating internal state to:", valueHz);
       hzRef.current = valueHz;
       prevValueHzRef.current = valueHz;
 
-      // Only update display strings if the user is not actively editing
       if (!isFocusedRef.current) {
         const { value, unit } = getOptimalFrequencyScale(valueHz);
-        console.log("[FrequencyInput debug] Setting display value:", formatFrequencyValue(value), "unit:", unit);
         setDisplayValue(formatFrequencyValue(value));
         setDisplayUnit(unit);
-      } else {
-        console.log("[FrequencyInput debug] Skipped UI update because field is focused");
       }
     }, [valueHz]);
 

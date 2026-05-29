@@ -1010,6 +1010,25 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
+    const deviceWaterfallClearKeyRef = useRef<string | null>(null);
+    useEffect(() => {
+      const nextKey =
+        backend || deviceProfile?.kind || deviceName || deviceInfo || null;
+      if (!nextKey) return;
+
+      const previousKey = deviceWaterfallClearKeyRef.current;
+      deviceWaterfallClearKeyRef.current = nextKey;
+      if (previousKey && previousKey !== nextKey) {
+        reduxDispatch(clearWaterfall());
+      }
+    }, [
+      backend,
+      deviceInfo,
+      deviceName,
+      deviceProfile?.kind,
+      reduxDispatch,
+    ]);
+
     useEffect(() => {
       reduxDispatch(
         connectWebSocket({

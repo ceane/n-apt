@@ -3,9 +3,9 @@ use n_apt_backend::sdr::hotplug::{
   HotplugEventKind, HotplugMonitor, UsbDeviceSnapshot,
 };
 use n_apt_backend::sdr::{SdrDevice, SdrDeviceFactory};
+use serial_test::serial;
 use std::thread;
 use std::time::{Duration, Instant};
-use serial_test::serial;
 
 fn open_supported_device(
   device_type: &str,
@@ -71,7 +71,9 @@ fn hotplug_smoke_scan_reports_supported_device() {
   let open_devices = std::env::var("RUN_HOTPLUG_OPEN").is_ok();
   let verbose_usb = std::env::var("RUN_HOTPLUG_VERBOSE").is_ok();
   if open_devices {
-    eprintln!("Open probe enabled: supported devices will be opened and cleaned up.");
+    eprintln!(
+      "Open probe enabled: supported devices will be opened and cleaned up."
+    );
   } else {
     eprintln!("Open probe disabled: observing USB only. Set RUN_HOTPLUG_OPEN=1 to open devices.");
   }

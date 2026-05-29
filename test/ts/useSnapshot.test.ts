@@ -245,6 +245,46 @@ describe("fast snapshot canvases", () => {
       ),
     ).toBe(true);
   });
+
+  it("renders the demod channel band on fast spectrum snapshots", () => {
+    const spectrumGpu = document.createElement("canvas");
+    spectrumGpu.width = 640;
+    spectrumGpu.height = 360;
+
+    const canvas = buildFastSpectrumCanvas(
+      {
+        frequencyRange: { min: 24_720_000, max: 29_920_000 },
+        waveform: new Float32Array([0, 1, 2, 3]),
+        vizZoom: 1,
+        vizPanOffset: 0,
+        demodFocusOverlay: {
+          centerFrequencyHz: 27_320_000,
+          halfBandwidthHz: 2_600_000,
+          alignment: "centered",
+        },
+      } as any,
+      640,
+      360,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+      { spectrumGpu, spectrumOverlay: null },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) => call.name === "fillRect" && call.args[2] > 0,
+      ),
+    ).toBe(true);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

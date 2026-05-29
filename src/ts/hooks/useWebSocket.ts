@@ -136,6 +136,15 @@ const INITIAL_WS_STATE: WsState = {
   cryptoCorrupted: false,
 };
 
+const isMockBackend = (value: unknown): boolean => {
+  return (
+    typeof value === "string" &&
+    (value === "mock_apt" ||
+      value === "mock_apt_metal" ||
+      value.includes("mock"))
+  );
+};
+
 function wsReducer(state: WsState, action: WsAction): WsState {
   switch (action.type) {
     case "CONNECTED":
@@ -448,6 +457,20 @@ export const useWebSocket = (
               }
               if (typeof parsedData.device_state === "string") {
                 updates.deviceState = parsedData.device_state as DeviceState;
+              }
+              if (
+                updates.deviceState === "disconnected" &&
+                parsedData.device_connected === false &&
+                (isMockBackend(parsedData.backend) ||
+                  isMockBackend(parsedData.device) ||
+                  isMockBackend(parsedData.device_info) ||
+                  isMockBackend(parsedData.device_name))
+              ) {
+                updates.deviceState = "connected";
+                updates.deviceLoadingReason = null;
+                if (!updates.deviceName) {
+                  updates.deviceName = "Mock APT SDR";
+                }
               }
               if (Array.isArray(parsedData.channels)) {
                 updates.spectrumFrames = (parsedData.channels as any[]).reduce<
