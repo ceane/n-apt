@@ -92,7 +92,9 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
           dataRef={dataRef}
           frequencyRange={frequencyRange}
           centerFrequencyHz={centerFrequencyHz}
-          demodulationCenterFreqHz={demodulationCenterFreqHz ?? centerFrequencyHz}
+          demodulationCenterFreqHz={
+            demodulationCenterFreqHz ?? centerFrequencyHz
+          }
           demodulationRangeHz={demodulationRangeHz}
           activeSignalArea={activeSignalArea}
           isPaused={false}
@@ -104,6 +106,7 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
           nodePreview={true}
           awaitingDeviceData={false}
           isIqRecordingActive={true}
+          placeholderSourceLabel={label}
         />
       </CanvasContainer>
     </NodeWrapper>

@@ -1,15 +1,12 @@
 import React, { useEffect, useMemo } from "react";
 import styled from "styled-components";
-import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { useReactFlow } from "@xyflow/react";
 import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import {
-  setAlgorithm,
-  setListening,
-} from "@n-apt/redux/slices/demodSlice";
+import { setAlgorithm, setListening } from "@n-apt/redux/slices/demodSlice";
+import { syncRadioDemodFromSource } from "@n-apt/redux/thunks/demodThunks";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { useDemod } from "@n-apt/contexts/DemodContext";
-
 
 const Header = styled.div`
   display: flex;
@@ -127,12 +124,15 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
   const isListening = useAppSelector((state) => state.demod.isListening);
   const centerFreq = useAppSelector((state) => state.demod.centerFreqHz);
+  const isPaused = useAppSelector(
+    (state) => state.websocket?.isPaused ?? false,
+  );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
   const { audioPlayback } = useDemod();
   const { getNodes, getEdges } = useReactFlow();
 
-  const upstreamSource = useMemo<"fm" | "span" | "manual">(() => {
+  const upstreamSource = useMemo<"fm" | "connected" | "manual">(() => {
     const nodes = getNodes();
     const edges = getEdges();
     const radioNode = nodes.find(
@@ -141,70 +141,117 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
 
     if (!radioNode) return "manual";
 
-    const upstreamNodeIds = edges
-      .filter((e) => e.target === radioNode.id)
-      .map((e) => e.source);
+    const upstreamNodeIds = edges.reduce<string[]>((acc, e) => {
+      if (e.target === radioNode.id) acc.push(e.source);
+      return acc;
+    }, []);
 
-    const upstreamNodes = upstreamNodeIds
-      .map((id) => nodes.find((n) => n.id === id))
-      .filter(Boolean);
+    const upstreamNodes = upstreamNodeIds.reduce<typeof nodes>((acc, id) => {
+      const node = nodes.find((n) => n.id === id);
+      if (node) acc.push(node);
+      return acc;
+    }, []);
 
     if (upstreamNodes.some((node) => node?.data?.fmOptions)) return "fm";
-    if (upstreamNodes.some((node) => node?.data?.spanOptions)) return "span";
+    if (upstreamNodes.length > 0) return "connected";
     return "manual";
   }, [getNodes, getEdges, data]);
   const hasFmNodeUpstream = upstreamSource === "fm";
-  const hasSpanNodeUpstream = upstreamSource === "span";
+  const hasUpstreamConnection = upstreamSource !== "manual";
 
   // Auto-select APT algorithm if an APT node is present in the flow
   useEffect(() => {
     const nodes = getNodes();
     const hasAptNode = nodes.some((n) => n.data && n.data.aptOptions);
 
-    if (hasAptNode && algorithm !== "apt") {
+    if (hasAptNode && algorithm === "fm") {
       dispatch(setAlgorithm("apt"));
     }
   }, [getNodes, algorithm, dispatch]);
+
+  useEffect(() => {
+    if (isPaused && isListening) {
+      audioPlayback.stopAudio();
+    }
+  }, [audioPlayback, isListening, isPaused]);
 
   const handleListenToggle = () => {
     const nextState = !isListening;
     dispatch(setListening(nextState));
 
-    if (!nextState) {
+    if (nextState) {
+      audioPlayback.resumeAudioContext();
+    } else {
       audioPlayback.stopAudio();
     }
   };
 
   const centerHzFromPreview =
-    hasSpanNodeUpstream &&
     previewRange &&
     Number.isFinite(previewRange.min) &&
     Number.isFinite(previewRange.max)
       ? (previewRange.min + previewRange.max) / 2
       : null;
   const bandwidthHzFromPreview =
-    hasSpanNodeUpstream &&
     previewRange &&
     Number.isFinite(previewRange.min) &&
     Number.isFinite(previewRange.max)
       ? previewRange.max - previewRange.min
       : null;
 
-  const sourceBadge = hasFmNodeUpstream
-    ? "From FM"
-    : hasSpanNodeUpstream
-      ? "From Span"
-      : "Manual";
+  const sourceBadge = hasUpstreamConnection ? "From Node" : "Manual";
   const centerDisplayHz = hasFmNodeUpstream
     ? centerFreq
-    : hasSpanNodeUpstream
+    : hasUpstreamConnection
       ? centerHzFromPreview
       : centerFreq;
   const bandwidthDisplayHz = hasFmNodeUpstream
     ? (bandwidthKhz || 200) * 1000
-    : hasSpanNodeUpstream
+    : hasUpstreamConnection
       ? bandwidthHzFromPreview
       : (bandwidthKhz || 200) * 1000;
+  const formatRadioFrequency = (valueHz: number) =>
+    formatFrequency(valueHz, {
+      precisionMHz: 3,
+      precisionKHz: 0,
+      precisionGHz: 6,
+      trimTrailingZeros: true,
+    });
+
+  useEffect(() => {
+    if (hasFmNodeUpstream) {
+      dispatch(
+        syncRadioDemodFromSource({
+          source: "fm",
+          centerFreqHz: centerFreq,
+          bandwidthKhz: bandwidthKhz,
+        }),
+      );
+      return;
+    }
+
+    if (
+      hasUpstreamConnection &&
+      centerHzFromPreview != null &&
+      bandwidthHzFromPreview != null
+    ) {
+      dispatch(
+        syncRadioDemodFromSource({
+          source: "span",
+          centerFreqHz: centerHzFromPreview,
+          bandwidthHz: bandwidthHzFromPreview,
+        }),
+      );
+    }
+  }, [
+    dispatch,
+    hasFmNodeUpstream,
+    hasUpstreamConnection,
+    centerFreq,
+    bandwidthKhz,
+    centerHzFromPreview,
+    bandwidthHzFromPreview,
+  ]);
 
   return (
     <>
@@ -218,7 +265,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
           <Label>Center Frequency</Label>
           <FrequencyDisplay>
             {centerDisplayHz != null
-              ? formatFrequency(centerDisplayHz)
+              ? formatRadioFrequency(centerDisplayHz)
               : sourceBadge}
           </FrequencyDisplay>
           <SourceTag>{sourceBadge}</SourceTag>
@@ -230,7 +277,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             {bandwidthDisplayHz != null &&
             Number.isFinite(bandwidthDisplayHz) &&
             bandwidthDisplayHz >= MIN_BANDWIDTH_HZ
-              ? formatFrequency(bandwidthDisplayHz)
+              ? formatRadioFrequency(bandwidthDisplayHz)
               : sourceBadge}
           </FrequencyDisplay>
           <SourceTag>{sourceBadge}</SourceTag>
@@ -241,12 +288,13 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
           <StyledSelect
             value={hasFmNodeUpstream ? "fm" : algorithm}
             onChange={(e) =>
-              dispatch(setAlgorithm(e.target.value as "fm" | "apt"))
+              dispatch(setAlgorithm(e.target.value as "fm" | "apt" | "napt"))
             }
             disabled={hasFmNodeUpstream}
           >
             <option value="fm">FM (Wideband/Narrow)</option>
             <option value="apt">APT (NOAA Satellite)</option>
+            <option value="napt">N-APT (Audio)</option>
           </StyledSelect>
         </ControlItem>
       </ControlGroup>
@@ -255,7 +303,6 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         {isListening ? <Volume2 size={12} /> : <VolumeX size={12} />}
         {isListening ? "Stop Listening" : "Listen Real-time"}
       </ListenButton>
-
     </>
   );
 };

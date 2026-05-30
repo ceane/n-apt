@@ -9,21 +9,20 @@ export default function FFTPlaybackCanvas(props: any) {
     if (props.selectedFiles && props.selectedFiles.length > 0) {
       setHasData(true);
       setError(null);
-      // Simulate stitching process
-      setTimeout(() => {
+      const id = setTimeout(() => {
         props.onStitchStatus?.("Ready");
       }, 100);
+      return () => clearTimeout(id);
     }
   }, [props.selectedFiles, props.onStitchStatus]);
 
   React.useEffect(() => {
+    let id: ReturnType<typeof setTimeout> | undefined;
     if (props.stitchTrigger !== 0) {
       setIsStitching(true);
       setError(null);
 
-      // Check for FileReader errors
       try {
-        // Simulate file reading - check if FileReader is mocked to throw error
         const FileReaderMock = global.FileReader as any;
         if (
           FileReaderMock &&
@@ -39,7 +38,7 @@ export default function FFTPlaybackCanvas(props: any) {
         }
 
         props.onStitchStatus?.("Processing files...");
-        setTimeout(() => {
+        id = setTimeout(() => {
           setIsStitching(false);
           props.onStitchStatus?.("Successfully stitched 2 files");
         }, 200);
@@ -50,6 +49,7 @@ export default function FFTPlaybackCanvas(props: any) {
         props.onStitchStatus?.(`Error: ${errorMsg}`);
       }
     }
+    return () => clearTimeout(id);
   }, [props.stitchTrigger, props.onStitchStatus]);
 
   React.useEffect(() => {

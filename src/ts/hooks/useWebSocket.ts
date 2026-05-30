@@ -11,7 +11,6 @@ import {
   CaptureStatus,
   SpectrumFrame,
   LiveFrameData,
-  AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage,
@@ -26,7 +25,6 @@ export type {
   CaptureRequest,
   CaptureStatus,
   SpectrumFrame,
-  AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage,
@@ -43,12 +41,18 @@ export type WebSocketData = {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
+  minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
   cryptoCorrupted: boolean;
   sendFrequencyRange: (range: FrequencyRange) => void;
@@ -62,7 +66,6 @@ export type WebSocketData = {
     label: "target" | "noise",
     signalArea: string,
   ) => void;
-  sendGetAutoFftOptions: (screenWidth: number) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
 };
 
@@ -77,12 +80,18 @@ type WsState = {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
+  minReceiveSampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
   cryptoCorrupted: boolean;
 };
@@ -94,7 +103,6 @@ type WsAction =
   | { type: "ERROR"; error: string }
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
-  | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
   | { type: "DATA"; data: LiveFrameData | null }
   | { type: "CRYPTO_CORRUPTED" };
 
@@ -109,14 +117,25 @@ const INITIAL_WS_STATE: WsState = {
   deviceName: null,
   deviceProfile: null,
   maxSampleRateHz: null,
+  sampleRateOptions: [],
   sampleRateHz: null,
+  minReceiveSampleRateHz: null,
   sdrSettings: null,
+  sdrLimitMarkers: [],
   data: null,
   spectrumFrames: [],
   captureStatus: null,
-  autoFftOptions: null,
   error: null,
   cryptoCorrupted: false,
+};
+
+const isMockBackend = (value: unknown): boolean => {
+  return (
+    typeof value === "string" &&
+    (value === "mock_apt" ||
+      value === "mock_apt_metal" ||
+      value.includes("mock"))
+  );
 };
 
 function wsReducer(state: WsState, action: WsAction): WsState {
@@ -129,7 +148,23 @@ function wsReducer(state: WsState, action: WsAction): WsState {
         cryptoCorrupted: false,
       };
     case "DISCONNECTED":
-      return { ...state, isConnected: false };
+      return {
+        ...state,
+        isConnected: false,
+        deviceState: null,
+        deviceLoadingReason: null,
+        backend: null,
+        deviceInfo: null,
+        deviceName: null,
+        deviceProfile: null,
+        maxSampleRateHz: null,
+        sampleRateOptions: [],
+        sampleRateHz: null,
+        minReceiveSampleRateHz: null,
+        sdrSettings: null,
+        sdrLimitMarkers: [],
+        captureStatus: null,
+      };
     case "RESET":
       return INITIAL_WS_STATE;
     case "ERROR":
@@ -138,8 +173,6 @@ function wsReducer(state: WsState, action: WsAction): WsState {
       return { ...state, ...action.updates };
     case "CAPTURE_STATUS":
       return { ...state, captureStatus: action.status };
-    case "AUTO_FFT_OPTIONS":
-      return { ...state, autoFftOptions: action.options };
     case "DATA":
       return { ...state, data: action.data };
     case "CRYPTO_CORRUPTED":
@@ -383,34 +416,78 @@ export const useWebSocket = (
               if (typeof parsedData.max_sample_rate === "number") {
                 updates.maxSampleRateHz = parsedData.max_sample_rate;
               }
+              if (Array.isArray(parsedData.sample_rate_options)) {
+                updates.sampleRateOptions =
+                  parsedData.sample_rate_options.filter(
+                    (rate: unknown) =>
+                      typeof rate === "number" &&
+                      Number.isFinite(rate) &&
+                      rate > 0,
+                  );
+              }
               if (parsedData.sdr_settings) {
                 updates.sdrSettings = parsedData.sdr_settings;
                 if (typeof parsedData.sdr_settings.sample_rate === "number") {
                   updates.sampleRateHz = parsedData.sdr_settings.sample_rate;
                 }
+                if (
+                  typeof parsedData.sdr_settings.min_receive_sample_rate ===
+                  "number"
+                ) {
+                  updates.minReceiveSampleRateHz =
+                    parsedData.sdr_settings.min_receive_sample_rate;
+                }
+              }
+              if (Array.isArray(parsedData.sdr_limit_markers)) {
+                updates.sdrLimitMarkers = parsedData.sdr_limit_markers.filter(
+                  (marker: any) =>
+                    marker &&
+                    typeof marker.kind === "string" &&
+                    typeof marker.freq_hz === "number",
+                );
               }
               if (typeof parsedData.device_state === "string") {
                 updates.deviceState = parsedData.device_state as DeviceState;
               }
+              if (
+                updates.deviceState === "disconnected" &&
+                parsedData.device_connected === false &&
+                (isMockBackend(parsedData.backend) ||
+                  isMockBackend(parsedData.device) ||
+                  isMockBackend(parsedData.device_info) ||
+                  isMockBackend(parsedData.device_name))
+              ) {
+                updates.deviceState = "connected";
+                updates.deviceLoadingReason = null;
+                if (!updates.deviceName) {
+                  updates.deviceName = "Mock APT SDR";
+                }
+              }
               if (Array.isArray(parsedData.channels)) {
-                updates.spectrumFrames = parsedData.channels
-                  .filter((f: any) => f && typeof f.id === "string")
-                  .map((f: any) => ({
-                    id: f.id,
-                    label: typeof f.label === "string" ? f.label : "",
-                    min_hz: Number(f.min_hz),
-                    max_hz: Number(f.max_hz),
-                    description:
-                      typeof f.description === "string" ? f.description : "",
-                  }))
-                  .filter(
-                    (f: SpectrumFrame) =>
-                      typeof f.label === "string" &&
-                      f.label.length > 0 &&
-                      Number.isFinite(f.min_hz) &&
-                      Number.isFinite(f.max_hz) &&
-                      f.max_hz > f.min_hz,
-                  );
+                updates.spectrumFrames = (parsedData.channels as any[]).reduce<
+                  SpectrumFrame[]
+                >((acc, f: any) => {
+                  if (!(f && typeof f.id === "string")) return acc;
+                  const label = typeof f.label === "string" ? f.label : "";
+                  const min_hz = Number(f.min_hz);
+                  const max_hz = Number(f.max_hz);
+                  if (
+                    label.length > 0 &&
+                    Number.isFinite(min_hz) &&
+                    Number.isFinite(max_hz) &&
+                    max_hz > min_hz
+                  ) {
+                    acc.push({
+                      id: f.id,
+                      label,
+                      min_hz,
+                      max_hz,
+                      description:
+                        typeof f.description === "string" ? f.description : "",
+                    });
+                  }
+                  return acc;
+                }, []);
               }
               const reason = parsedData.device_loading_reason;
               if (
@@ -419,6 +496,21 @@ export const useWebSocket = (
                 reason === null
               ) {
                 updates.deviceLoadingReason = reason;
+                if (reason === "restart") {
+                  const attempt = Number(
+                    parsedData.device_loading_attempt || 0,
+                  );
+                  const attemptMax = Number(
+                    parsedData.device_loading_attempt_max || 0,
+                  );
+                  const nowLabel = new Date().toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  });
+                  console.warn(
+                    `[device] ${parsedData.device_name || parsedData.device_info || "Device"} restarting (${attempt}/${attemptMax}) at ${nowLabel}`,
+                  );
+                }
               }
               dispatch({ type: "STATUS", updates });
             } catch {
@@ -470,26 +562,6 @@ export const useWebSocket = (
                   newStatus.error = statusObj.error;
                 }
                 dispatch({ type: "CAPTURE_STATUS", status: newStatus });
-              }
-            } catch {
-              // Silently handle JSON parsing errors
-            }
-          }
-
-          // ── Auto FFT options messages (plaintext) ─────────────────
-          if (raw.includes('"type":"auto_fft_options"')) {
-            try {
-              const parsed = JSON.parse(raw);
-              if (
-                Array.isArray(parsed.autoSizes) &&
-                typeof parsed.recommended === "number"
-              ) {
-                const options: AutoFftOptionsResponse = {
-                  type: "auto_fft_options",
-                  autoSizes: parsed.autoSizes,
-                  recommended: parsed.recommended,
-                };
-                dispatch({ type: "AUTO_FFT_OPTIONS", options });
               }
             } catch {
               // Silently handle JSON parsing errors
@@ -564,6 +636,18 @@ export const useWebSocket = (
     if (isValidNonNegative(settings.gain)) {
       sanitized.gain = settings.gain;
     }
+    if (isValidNonNegative(settings.hackrfLnaGain)) {
+      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
+    }
+    if (isValidNonNegative(settings.hackrfVgaGain)) {
+      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
+    }
+    if (typeof settings.hackrfAmpEnabled === "boolean") {
+      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
+    }
+    if (isValidNonNegative(settings.tunerBandwidth)) {
+      sanitized.tunerBandwidth = settings.tunerBandwidth;
+    }
 
     if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
       sanitized.ppm = Math.round(settings.ppm);
@@ -621,26 +705,6 @@ export const useWebSocket = (
     [],
   );
 
-  // Function to request auto FFT options from the server
-  const sendGetAutoFftOptions = useCallback(
-    (screenWidth: number) => {
-      // Check if we already have auto FFT options cached
-      if (state.autoFftOptions) {
-        return;
-      }
-
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const message = JSON.stringify({
-          type: "get_auto_fft_options",
-          screenWidth: screenWidth,
-        });
-        ws.send(message);
-      }
-    },
-    [state.autoFftOptions],
-  );
-
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((isPaused: boolean) => {
     const ws = wsRef.current;
@@ -661,6 +725,7 @@ export const useWebSocket = (
         type: "frequency_range",
         min_hz: range.min,
         max_hz: range.max,
+        center_frequency: (range.min + range.max) / 2,
       });
       ws.send(message);
     }
@@ -745,6 +810,8 @@ export const useWebSocket = (
 
   return {
     ...state,
+    sampleRateOptions: state.sampleRateOptions,
+    sdrLimitMarkers: state.sdrLimitMarkers,
     dataRef,
     sendFrequencyRange,
     sendPauseCommand,
@@ -753,7 +820,6 @@ export const useWebSocket = (
     sendCaptureCommand,
     sendCaptureStopCommand,
     sendTrainingCommand,
-    sendGetAutoFftOptions,
     sendPowerScaleCommand,
   };
 };

@@ -18,11 +18,14 @@ export function useFFTAnimation({
   const lastFrameTimeRef = useRef(0);
 
   // Dynamically adjust FPS based on paused state to save resources while keeping canvas alive
-  const currentFPS = isPaused ? 15 : targetFPS;
+  const currentFPS = isPaused ? 15 : Math.max(targetFPS, 30);
   const frameRateLimiterRef = useRef(1000 / currentFPS);
 
   useEffect(() => {
     frameRateLimiterRef.current = 1000 / currentFPS;
+    // Re-anchor cadence so a new logical FPS does not inherit the previous
+    // interval's phase and create visible jitter during rate changes.
+    lastFrameTimeRef.current = performance.now();
   }, [currentFPS]);
 
   const isVisibleRef = useRef(true);
@@ -39,9 +42,15 @@ export function useFFTAnimation({
       const now = performance.now();
       const elapsed = now - lastFrameTimeRef.current;
 
-      // Always render if forced, or if enough time has passed
-      if (force || elapsed >= frameRateLimiterRef.current) {
-        lastFrameTimeRef.current = now;
+      // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
+      if (force || elapsed >= frameRateLimiterRef.current - 4) {
+        // Adjust lastFrameTime by the interval to maintain cadence
+        // but don't let it drift too far behind actual time
+        if (force || elapsed > frameRateLimiterRef.current * 2) {
+          lastFrameTimeRef.current = now;
+        } else {
+          lastFrameTimeRef.current += frameRateLimiterRef.current;
+        }
         onRenderFrame(runId);
       }
 

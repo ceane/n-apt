@@ -55,7 +55,7 @@ export const spectrumTools: WebMCPTool[] = [
         type: "string",
         description: "Type of SDR device to connect",
         required: false,
-        enum: ["rtl-sdr", "hackrf", "mock"],
+        enum: ["rtl-sdr", "hackrf_one", "mock"],
         default: "rtl-sdr",
       },
     ],

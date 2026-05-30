@@ -6,7 +6,6 @@ import {
   validateWebSocketMessage,
   validateStatusMessage,
   validateCaptureStatus,
-  validateAutoFftOptions,
   validateAuthInfo,
   validateAuthResult,
   validateSessionValidation,
@@ -46,6 +45,32 @@ describe("WebSocket Validation System", () => {
       invalidMessages.forEach((msg) => {
         expect(validateWebSocketMessage(msg)).toBe(false);
       });
+    });
+
+    test("should validate PPM only if it is a positive whole number", () => {
+      // Valid PPM (positive whole number/integer)
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 10 })).toBe(true);
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 0 })).toBe(true);
+
+      // Invalid PPM (negative, float)
+      expect(validateWebSocketMessage({ type: "ppm", ppm: -5 })).toBe(false);
+      expect(validateWebSocketMessage({ type: "ppm", ppm: 3.5 })).toBe(false);
+
+      // Valid settings with ppm
+      expect(
+        validateWebSocketMessage({
+          type: "settings",
+          ppm: 12,
+        }),
+      ).toBe(true);
+
+      // Invalid settings with ppm (negative)
+      expect(
+        validateWebSocketMessage({
+          type: "settings",
+          ppm: -1,
+        }),
+      ).toBe(false);
     });
 
     test("should handle ArrayBuffer data (binary)", () => {
@@ -108,6 +133,56 @@ describe("WebSocket Validation System", () => {
       expect(validateStatusMessage(validStatus)).toBe(true);
     });
 
+    test("should accept the real backend status snapshot from the loading screen", () => {
+      const realBackendStatus = {
+        type: "status",
+        device_connected: false,
+        device_info:
+          "Mock APT SDR (Metal) - Freq: 1600000 Hz, Rate: 3200000 Hz (Sample Rate: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
+        device_name: "Mock APT SDR (Metal)",
+        device_loading: false,
+        device_loading_reason: null,
+        device_state: "disconnected",
+        paused: false,
+        max_sample_rate: 3200000,
+        sample_rate_options: [3200000],
+        channels: [],
+        sdr_settings: {
+          sample_rate: 3200000,
+          center_frequency: 1600000,
+          gain: {
+            tuner_gain: 49.6,
+            rtl_agc: false,
+            tuner_agc: false,
+          },
+          fft: {
+            default_size: 2048,
+            default_frame_rate: 30,
+            max_size: 65536,
+            max_frame_rate: 60,
+          },
+          display: {
+            min_db: -150,
+            max_db: 0,
+            padding: 10,
+          },
+        },
+        sdr_limit_markers: [],
+        backend: "mock_apt_metal",
+        device: "mock_apt_metal",
+        device_backend_error: null,
+        device_profile: {
+          kind: "mock_apt_metal",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+      };
+
+      expect(validateStatusMessage(realBackendStatus)).toBe(true);
+      expect(validateWebSocketMessage(realBackendStatus)).toBe(true);
+    });
+
     test("should reject invalid status messages", () => {
       const invalidStatus = {
         type: "status",
@@ -126,6 +201,11 @@ describe("WebSocket Validation System", () => {
       };
 
       expect(validateStatusMessage(invalidStatus)).toBe(false);
+    });
+
+    test("should reject a structurally broken status message", () => {
+      expect(validateStatusMessage({ type: "status" })).toBe(false);
+      expect(validateWebSocketMessage({ type: "status" })).toBe(false);
     });
 
     test("should handle partial status messages", () => {
@@ -192,38 +272,6 @@ describe("WebSocket Validation System", () => {
       };
 
       expect(validateCaptureStatus(invalidCaptureStatus)).toBe(false);
-    });
-  });
-
-  describe("Auto FFT Options Validation", () => {
-    test("should validate valid auto FFT options", () => {
-      const validOptions = {
-        type: "auto_fft_options",
-        autoSizes: [512, 1024, 2048, 4096],
-        recommended: 2048,
-      };
-
-      expect(validateAutoFftOptions(validOptions)).toBe(true);
-    });
-
-    test("should reject invalid auto FFT options", () => {
-      const invalidOptions = {
-        type: "auto_fft_options",
-        autoSizes: "not_array", // should be array
-        recommended: "not_number", // should be number
-      };
-
-      expect(validateAutoFftOptions(invalidOptions)).toBe(false);
-    });
-
-    test("should handle empty auto sizes", () => {
-      const emptyOptions = {
-        type: "auto_fft_options",
-        autoSizes: [],
-        recommended: 1024,
-      };
-
-      expect(validateAutoFftOptions(emptyOptions)).toBe(true);
     });
   });
 

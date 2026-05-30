@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useWasmSimdMath, type SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
+import {
+  useWasmSimdMath,
+  type SpectrumSpikeMarker,
+} from "@n-apt/hooks/useWasmSimdMath";
 
 export interface UseSpikeDetectionOverlayParams {
   waveform: Float32Array | Uint8Array | null | undefined;

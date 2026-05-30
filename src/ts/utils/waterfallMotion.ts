@@ -19,6 +19,7 @@ export const getWaterfallMotion = ({
       driftBins: 0,
       shouldPaintMotionRow: false,
       smearRows: 0,
+      transitionRows: 0,
     };
   }
 
@@ -32,13 +33,24 @@ export const getWaterfallMotion = ({
     referenceSpan > 0 ? (centerDelta / referenceSpan) * textureWidth : 0;
   const zoomChanged = Math.abs(currentSpan - previousSpan) > Number.EPSILON;
   const shouldPaintMotionRow = Math.abs(driftBins) >= 0.5 || zoomChanged;
-  const smearRows = shouldPaintMotionRow
-    ? Math.max(1, Math.min(12, Math.round(Math.abs(driftBins))))
+  const zoomMotion =
+    currentSpan > 0 && previousSpan > 0
+      ? Math.abs(Math.log2(currentSpan / previousSpan))
+      : 0;
+  const transitionRows = shouldPaintMotionRow
+    ? Math.max(
+        1,
+        Math.min(
+          6,
+          Math.ceil(Math.max(Math.abs(driftBins) / 96, zoomMotion * 3)),
+        ),
+      )
     : 0;
 
   return {
     driftBins,
     shouldPaintMotionRow,
-    smearRows,
+    smearRows: transitionRows,
+    transitionRows,
   };
 };

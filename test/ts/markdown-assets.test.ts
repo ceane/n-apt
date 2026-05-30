@@ -59,12 +59,13 @@ describe("Markdown Preview Assets", () => {
       const publicDir = path.join(__dirname, "../../public/images");
       const imageFiles = fs
         .readdirSync(publicDir)
-        .filter((file: string) =>
-          file.endsWith(".png") ||
-          file.endsWith(".jpg") ||
-          file.endsWith(".jpeg") ||
-          file.endsWith(".svg") ||
-          file.endsWith(".webp")
+        .filter(
+          (file: string) =>
+            file.endsWith(".png") ||
+            file.endsWith(".jpg") ||
+            file.endsWith(".jpeg") ||
+            file.endsWith(".svg") ||
+            file.endsWith(".webp"),
         );
 
       expect(imageFiles.length).toBeGreaterThan(0);
@@ -136,7 +137,9 @@ describe("Markdown Preview Assets", () => {
       const componentsDir = path.join(__dirname, "../../src/md-preview");
       const tsxFiles = fs
         .readdirSync(componentsDir)
-        .filter((file: string) => file.endsWith(".tsx") || file.endsWith(".ts"));
+        .filter(
+          (file: string) => file.endsWith(".tsx") || file.endsWith(".ts"),
+        );
 
       expect(tsxFiles.length).toBeGreaterThan(0);
 

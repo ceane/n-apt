@@ -5,15 +5,27 @@ import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
 
+const reactFlowState: {
+  nodes: any[];
+  edges: any[];
+} = {
+  nodes: [
+    {
+      id: "radio",
+      type: "custom",
+      data: { label: "Radio", radioOptions: true },
+    },
+    { id: "fm", type: "custom", data: { label: "FM", fmOptions: true } },
+  ],
+  edges: [{ id: "e-fm-radio", source: "fm", target: "radio" }],
+};
+
 jest.mock("@xyflow/react", () => ({
   Handle: () => null,
   Position: { Left: "left", Right: "right" },
   useReactFlow: () => ({
-    getNodes: () => [
-      { id: "radio", type: "custom", data: { label: "Radio", radioOptions: true } },
-      { id: "fm", type: "custom", data: { label: "FM", fmOptions: true } },
-    ],
-    getEdges: () => [{ id: "e-fm-radio", source: "fm", target: "radio" }],
+    getNodes: () => reactFlowState.nodes,
+    getEdges: () => reactFlowState.edges,
   }),
 }));
 
@@ -65,7 +77,18 @@ function createStore() {
 }
 
 describe("RadioNode", () => {
-  it("shows From FM and uses FM bandwidth when connected upstream from FM", () => {
+  it("shows From Node and uses FM bandwidth when connected upstream from FM", () => {
+    reactFlowState.nodes = [
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
+      { id: "fm", type: "custom", data: { label: "FM", fmOptions: true } },
+    ];
+    reactFlowState.edges = [
+      { id: "e-fm-radio", source: "fm", target: "radio" },
+    ];
     const store = createStore();
 
     render(
@@ -76,8 +99,74 @@ describe("RadioNode", () => {
       </Provider>,
     );
 
-    expect(screen.getAllByText("From FM")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
     expect(screen.getByText("92.7MHz")).toBeInTheDocument();
-    expect(screen.getByText("200.0kHz")).toBeInTheDocument();
+    expect(screen.getByText("200kHz")).toBeInTheDocument();
+  });
+
+  it("shows From Node and uses the live span bandwidth when connected upstream from Span", () => {
+    reactFlowState.nodes = [
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
+      {
+        id: "span",
+        type: "custom",
+        data: { label: "Span", spanOptions: true },
+      },
+    ];
+    reactFlowState.edges = [
+      { id: "e-span-radio", source: "span", target: "radio" },
+    ];
+    const store = createStore();
+    store.dispatch({
+      type: "spectrum/setPreviewRange",
+      payload: { min: 92_500_000, max: 93_000_000 },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <RadioNode data={{ label: "Radio" }} />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
+    expect(screen.getByText("92.75MHz")).toBeInTheDocument();
+    expect(screen.getByText("500kHz")).toBeInTheDocument();
+  });
+
+  it("shows From Node and uses the FFT selection bandwidth when connected upstream from FFT", () => {
+    reactFlowState.nodes = [
+      {
+        id: "radio",
+        type: "custom",
+        data: { label: "Radio", radioOptions: true },
+      },
+      { id: "fft", type: "custom", data: { label: "FFT", fftOptions: true } },
+    ];
+    reactFlowState.edges = [
+      { id: "e-fft-radio", source: "fft", target: "radio" },
+    ];
+    const store = createStore();
+    store.dispatch({
+      type: "spectrum/setPreviewRange",
+      payload: { min: 92_500_000, max: 92_858_000 },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <RadioNode data={{ label: "Radio" }} />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getAllByText("From Node")[0]).toBeInTheDocument();
+    expect(screen.getByText("92.679MHz")).toBeInTheDocument();
+    expect(screen.getByText("358kHz")).toBeInTheDocument();
   });
 });

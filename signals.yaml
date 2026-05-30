@@ -11,13 +11,13 @@
 # - Mock APT settings are used for generating test signals when no real SDR is connected
 
 signals:
+  # Available frequency range for the spectrum display (not device-specific)
+  available_spectrum:
+    min_freq: !frequency 0Hz
+    max_freq: !frequency 30GHz
+
   # SDR hardware and processing settings
   sdr:
-    limits:
-      lower_limit_hz: !frequency 500kHz
-      upper_limit_hz: !frequency 28.8MHz
-      lower_limit_label: "RTL-SDR v4 lower limit"
-      upper_limit_label: "Potential hardware spur"
     # Sample rate for SDR processing
     sample_rate: !frequency 3.2MHz  # RTL-SDR compatible sample rate
     
@@ -32,27 +32,17 @@ signals:
       rtl_agc: false
       # Tuner AGC
       tuner_agc: false
+      # HackRF LNA gain in dB
+      hackrf_lna_gain: !dB 0.0dB
+      # HackRF VGA gain in dB
+      hackrf_vga_gain: !dB 0.0dB
+      # HackRF RF amplifier enable
+      hackrf_amp_enable: true
+      # HackRF baseband filter bandwidth
+      tuner_bandwidth: 3200000
     
     # Frequency correction
     ppm: 1.0
-    
-    # FFT processing settings
-    fft:
-      # Number of samples for FFT (power of 2)
-      default_size: 32768
-      # Target frame rate for spectrum display
-      default_frame_rate: 60
-      # Logical mapping of FFT sizes to achievable frame rates
-      size_to_frame_rate:
-        8192: 60        # Tiny FFT = max frame rate
-        16384: 60       # Very small FFT = max frame rate
-        32768: 60       # Small FFT = high frame rate
-        65536: 48       # Smaller FFT = higher frame rate
-        131072: 24      # Medium FFT = medium frame rate
-        262144: 12      # Large FFT = lower frame rate
-      # Logical maximum values for UI limits
-      max_size: 262144  # Largest practical FFT size
-      max_frame_rate: 60  # Maximum achievable frame rate
     
     # Display settings
     display:
@@ -61,6 +51,51 @@ signals:
       max_db: !dB 0dB
       # Visualizer padding
       padding: 20
+
+    # Device-specific SDR settings.
+    # The backend resolves !floor from the lowest concrete sample_rate in this block,
+    # and !max from the device's supported ceiling.
+    devices:
+      rtl_sdr:
+        sample_rate: !max
+        gain_limits:
+          min: 0.0
+          max: 49.6
+          step: 0.1
+        fft_display:
+          markers:
+            - kind: lower_limit
+              freq_hz: !frequency 500kHz
+              label: "RTL-SDR v4 lower limit"
+            - kind: spur
+              freq_hz: !frequency 28.8MHz
+              label: "Potential hardware spur"
+            - kind: max_hardware_frequency
+              freq_hz: !frequency 1.766GHz
+              label: "RTL-SDR v4 upper limit rate"
+      mock_apt:
+        sample_rate: !floor...!max
+        gain_limits:
+          min: 0.0
+          max: 49.6
+          step: 0.1
+      hackrf_one:
+        sample_rate: !floor...!max
+        gain_limits:
+          lna_min: 0.0
+          lna_max: 40.0
+          lna_step: 8.0
+          vga_min: 0.0
+          vga_max: 62.0
+          vga_step: 2.0
+        fft_display:
+          markers:
+            - kind: min_hardware_frequency
+              freq_hz: !frequency 1MHz
+              label: "HackRF One, lower limit"
+            - kind: max_hardware_frequency
+              freq_hz: !frequency 6GHz
+              label: "HackRF One, max upper limit"
 
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated

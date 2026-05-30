@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use log::{error, info, warn};
 use redis::Client as RedisClient;
@@ -19,6 +19,8 @@ use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
+use super::websocket_server::reconcile_stale_device_snapshot;
+use crate::fft::anti_aliasing;
 use crate::sdr::rtlsdr::RtlSdrDevice;
 
 // Haversine distance calculation for tower filtering
@@ -146,10 +148,25 @@ pub struct TowerBoundsResponse {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct StitchDiagnosticRequest {
-  /// Optional center frequency override in Hz (to honour channel selection from sidebar)
-  pub center_hz: Option<u32>,
-  /// Optional signal area label (A, B, etc.) to anchor the diagnostic to the channel start
+  pub center_hz: Option<f64>,
+  pub fft_size: Option<usize>,
+  pub frames_to_average: Option<u32>,
   pub signal_area: Option<String>,
+  pub stitch_options: Option<StitchOptions>,
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StitchOptions {
+  pub phase_correction: bool,
+  pub fm_deviation_correction: bool,
+  pub anti_aliasing: bool,
+  pub noise_floor_matching: bool,
+  pub crossfading: bool,
+  pub chinese_remainder_synthesis: bool,
+  pub js_anti_aliasing: bool,
+  pub js_noise_floor_matching: bool,
+  pub acquisition_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,12 +179,12 @@ pub struct StitchDiagnosticTiming {
 
 #[derive(Debug, Serialize)]
 pub struct StitchDiagnosticResponse {
-  pub hop1_frames: Vec<Vec<f32>>,
-  pub hop2_frames: Vec<Vec<f32>>,
-  pub stitched_frames: Vec<Vec<f32>>,
-  pub hop1_freq_hz: [f32; 2],
-  pub hop2_freq_hz: [f32; 2],
-  pub stitched_freq_hz: [f32; 2],
+  pub hop1_frames: Vec<Vec<u8>>,
+  pub hop2_frames: Vec<Vec<u8>>,
+  pub stitched_frames: Vec<Vec<u8>>,
+  pub hop1_freq_hz: [f64; 2],
+  pub hop2_freq_hz: [f64; 2],
+  pub stitched_freq_hz: [f64; 2],
   pub overlap_start: usize,
   pub overlap_end: usize,
   pub device_info: String,
@@ -179,7 +196,13 @@ pub struct StitchDiagnosticResponse {
   pub correction_angle_deg: f32,
   /// Estimated FM deviation / frequency drift between the two captures (kHz)
   pub fm_deviation_khz: f32,
+  pub reconstructed_freq_hz: Option<f64>,
   pub timing: StitchDiagnosticTiming,
+  pub acquisition_mode: String,
+  /// Frequency of the actual stitch cut (Hz)
+  pub cut_point_hz: f64,
+  /// RMS error between Hop 1 and Hop 2 in the overlap region (dB)
+  pub overlap_rms_error: f32,
 }
 
 fn normalize_tech_key(token: &str) -> String {
@@ -190,6 +213,12 @@ fn normalize_tech_key(token: &str) -> String {
     "2g" => "gsm".to_string(),
     other => other.to_string(),
   }
+}
+
+fn convert_to_u8(v: Vec<f32>) -> Vec<u8> {
+  v.into_iter()
+    .map(|val| ((val + 150.0) * (255.0 / 150.0)).clamp(0.0, 255.0) as u8)
+    .collect()
 }
 
 fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
@@ -259,11 +288,22 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(2).query::<()>(&mut con) {
     error!("Failed to select Redis DB 2: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS")
-      .arg("tower:*")
-      .query::<Vec<String>>(&mut con)
-    {
+    let mut cursor = 0u64;
+    loop {
+      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(cursor)
+        .arg("MATCH")
+        .arg("tower:*")
+        .arg("COUNT")
+        .arg(100)
+        .query(&mut con)
+        .unwrap_or((0, vec![]));
+
       all_tower_keys.extend(keys);
+      cursor = new_cursor;
+      if cursor == 0 {
+        break;
+      }
     }
   }
 
@@ -271,10 +311,17 @@ pub async fn towers_bounds_handler(
   if let Err(e) = redis::cmd("SELECT").arg(4).query::<()>(&mut con) {
     error!("Failed to select Redis DB 4: {}", e);
   } else {
-    if let Ok(keys) = redis::cmd("KEYS")
-      .arg("local:*")
-      .query::<Vec<String>>(&mut con)
-    {
+    let mut cursor = 0u64;
+    loop {
+      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(cursor)
+        .arg("MATCH")
+        .arg("local:*")
+        .arg("COUNT")
+        .arg(100)
+        .query(&mut con)
+        .unwrap_or((0, vec![]));
+
       for local_key in keys {
         if local_key.ends_with(":data") {
           continue;
@@ -287,6 +334,11 @@ pub async fn towers_bounds_handler(
         {
           all_tower_keys.extend(tower_ids);
         }
+      }
+
+      cursor = new_cursor;
+      if cursor == 0 {
+        break;
       }
     }
   }
@@ -510,6 +562,7 @@ pub async fn towers_bounds_handler(
 pub async fn status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  let _ = reconcile_stale_device_snapshot(&state.shared);
   let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
   let device_info = state.shared.device_info.lock().unwrap().clone();
   let client_count = state.shared.client_count.load(Ordering::Relaxed);
@@ -524,48 +577,23 @@ pub async fn status_handler(
   let device_state = state.shared.device_state.lock().unwrap().clone();
   let device_loading_reason =
     state.shared.device_loading_reason.lock().unwrap().clone();
+  let device_backend_error =
+    state.shared.device_backend_error.lock().unwrap().clone();
   let device_loading = *state.shared.device_loading.lock().unwrap();
   let paused = state.shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
   let channels = state.shared.channels.lock().unwrap().clone();
   let device_profile = state.shared.device_profile.lock().unwrap().clone();
-
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
-  } else {
-    "Mock APT SDR".to_string()
-  };
+  let device_name = crate::server::utils::status_device_name(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
+  let device_backend = crate::server::utils::status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   Json(serde_json::json!({
     "type": "status",
@@ -581,8 +609,9 @@ pub async fn status_handler(
     "max_sample_rate": sdr_settings.sample_rate,
     "channels": channels,
     "sdr_settings": sdr_settings,
-    "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
-    "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
+    "device": device_backend,
+    "backend": device_backend,
+    "device_backend_error": device_backend_error,
     "device_profile": device_profile,
     "clients": client_count,
     "authenticated_clients": authenticated_count,
@@ -595,6 +624,17 @@ pub async fn capture_download_handler(
   Query(params): Query<CaptureDownloadParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
+  // SECURITY: Strict job_id validation to prevent Path Traversal
+  if !crate::server::utils::RE_SAFE_ID.is_match(&params.job_id) {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "Invalid job_id",
+        "details": "Job ID contains invalid characters"
+      })),
+    )
+      .into_response();
+  }
   if let Err(e) = params.validate() {
     return (
       StatusCode::BAD_REQUEST,
@@ -689,44 +729,53 @@ pub async fn capture_download_handler(
     }
   }
 
-  // Multiple files: create ZIP archive
-  use std::io::Write;
-  let mut zip_buffer = std::io::Cursor::new(Vec::new());
+  // Multiple files: create ZIP archive on disk (streaming)
+  // SECURITY: Using tempfile() which is automatically deleted after all handles are closed.
+  let mut zip_temp = match tempfile::tempfile() {
+    Ok(t) => t,
+    Err(e) => {
+      error!("Failed to create temp file for ZIP: {}", e);
+      return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+        .into_response();
+    }
+  };
+
   {
-    let mut zip = zip::ZipWriter::new(&mut zip_buffer);
+    let mut zip = zip::ZipWriter::new(&mut zip_temp);
     let options: zip::write::FileOptions<()> =
       zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_method(zip::CompressionMethod::Stored)
         .unix_permissions(0o644);
 
     for artifact in &artifacts {
-      match std::fs::read(&artifact.path) {
-        Ok(data) => {
-          if let Err(e) = zip.start_file(&artifact.filename, options) {
-            error!("Failed to add file to ZIP: {}", e);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              "Failed to create ZIP archive",
-            )
-              .into_response();
-          }
-          if let Err(e) = zip.write_all(&data) {
-            error!("Failed to write file to ZIP: {}", e);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              "Failed to create ZIP archive",
-            )
-              .into_response();
-          }
-        }
+      let mut file = match std::fs::File::open(&artifact.path) {
+        Ok(f) => f,
         Err(e) => {
-          error!("Failed to read capture file for ZIP: {}", e);
+          error!("Failed to open capture file for ZIP: {}", e);
           return (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to read capture file",
           )
             .into_response();
         }
+      };
+
+      if let Err(e) = zip.start_file(&artifact.filename, options) {
+        error!("Failed to add file to ZIP: {}", e);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "Failed to create ZIP archive",
+        )
+          .into_response();
+      }
+
+      if let Err(e) = std::io::copy(&mut file, &mut zip) {
+        error!("Failed to copy file into ZIP: {}", e);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "Failed to write to ZIP archive",
+        )
+          .into_response();
       }
     }
 
@@ -740,21 +789,42 @@ pub async fn capture_download_handler(
     }
   }
 
-  let zip_data = zip_buffer.into_inner();
+  // Seek back to start of temp file for reading
+  use std::io::Seek;
+  if let Err(e) = zip_temp.seek(std::io::SeekFrom::Start(0)) {
+    error!("Failed to seek in ZIP temp file: {}", e);
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      "Failed to read ZIP archive",
+    )
+      .into_response();
+  }
+
+  let zip_size = zip_temp.metadata().map(|m| m.len()).unwrap_or(0);
+  let tokio_file = tokio::fs::File::from_std(zip_temp);
+  let stream = ReaderStream::new(tokio_file);
+  let body = Body::from_stream(stream);
   let zip_filename = format!("capture_{}.zip", params.job_id);
 
-  (
-    StatusCode::OK,
-    [
-      ("Content-Type", "application/zip"),
-      (
-        "Content-Disposition",
-        &format!("attachment; filename=\"{}\"", zip_filename),
-      ),
-    ],
-    zip_data,
-  )
-    .into_response()
+  let mut headers = axum::http::HeaderMap::new();
+  headers.insert(
+    axum::http::header::CONTENT_TYPE,
+    "application/zip".parse().unwrap(),
+  );
+  if zip_size > 0 {
+    headers.insert(
+      axum::http::header::CONTENT_LENGTH,
+      zip_size.to_string().parse().unwrap(),
+    );
+  }
+  headers.insert(
+    axum::http::header::CONTENT_DISPOSITION,
+    format!("attachment; filename=\"{}\"", zip_filename)
+      .parse()
+      .unwrap(),
+  );
+
+  (StatusCode::OK, headers, body).into_response()
 }
 
 /// GET /api/agent/info — Agent system information and capabilities
@@ -815,7 +885,7 @@ pub async fn agent_info_handler(
       "/hotspot-editor"
     ],
     "hardware": {
-      "supported": ["rtl-sdr", "hackrf", "mock_apt"],
+      "supported": ["rtl-sdr", "hackrf_one", "mock_apt"],
       "frequency_range": freq_range,
       "max_sample_rate": sample_rate_label
     },
@@ -835,6 +905,7 @@ pub async fn agent_status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   let shared = &state.shared;
+  let _ = reconcile_stale_device_snapshot(shared);
 
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let client_count = shared.client_count.load(Ordering::Relaxed);
@@ -842,6 +913,7 @@ pub async fn agent_status_handler(
   let is_paused = shared.is_paused.load(Ordering::Relaxed);
   let center_freq_hz = shared.pending_center_freq.load(Ordering::Relaxed);
   let device_info = shared.device_info.lock().unwrap().clone();
+  let device_profile = shared.device_profile.lock().unwrap().clone();
   let device_state = shared.device_state.lock().unwrap().clone();
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
@@ -853,11 +925,16 @@ pub async fn agent_status_handler(
     state.shared.sdr_settings.lock().unwrap().sample_rate,
   ))
   .unwrap_or_else(|| "unknown".to_string());
+  let device_backend = crate::server::utils::status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   let status = serde_json::json!({
     "device": {
       "connected": device_connected,
-      "type": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "type": device_backend,
       "info": device_info,
       "state": device_state,
       "loading": device_loading,
@@ -1086,10 +1163,29 @@ pub async fn stitch_diagnostic_handler(
   let start_time = Instant::now();
   info!("Stitch diagnostic requested (multi-frame)");
 
+  let mut processor = state.sdr_processor.lock().await;
+
+  // Apply FFT size if requested before any processing
+  if let Some(requested_fft_size) = body.as_ref().and_then(|b| b.fft_size) {
+    log::info!(
+      "Stitch diagnostic requested FFT size: {}",
+      requested_fft_size
+    );
+    if let Err(e) =
+      processor.apply_settings(crate::server::types::SdrProcessorSettings {
+        fft_size: Some(requested_fft_size),
+        ..Default::default()
+      })
+    {
+      warn!(
+        "Failed to apply requested FFT size {}: {}",
+        requested_fft_size, e
+      );
+    }
+  }
+
   let center_hz_override = body.as_ref().and_then(|b| b.center_hz);
   let signal_area_override = body.as_ref().and_then(|b| b.signal_area.clone());
-
-  let mut processor = state.sdr_processor.lock().await;
 
   // Determine the primary center frequency for Hop 1.
   // We prioritize anchoring to the start of the active signal area if provided.
@@ -1108,9 +1204,11 @@ pub async fn stitch_diagnostic_handler(
         "Anchoring diagnostic center1 to {} Hz for area {}",
         anchored_hz, label
       );
-      effective_center1 = Some(anchored_hz);
+      effective_center1 = Some(anchored_hz as f64);
     }
   }
+
+  log::info!("Starting multi-frame stitch diagnostic...");
 
   let (center1, hop_bw_hz, sample_rate, device_info, was_paused) = {
     let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
@@ -1119,8 +1217,9 @@ pub async fn stitch_diagnostic_handler(
 
     // Honor channel selection from the sidebar
     if let Some(center_hz) = effective_center1 {
-      if center_hz != processor.get_center_frequency() {
-        if let Err(e) = processor.set_center_frequency(center_hz) {
+      let chz_u32 = center_hz as u32;
+      if chz_u32 != processor.get_center_frequency() {
+        if let Err(e) = processor.set_center_frequency(chz_u32) {
           warn!("Failed to apply center_hz override: {}", e);
         } else {
           processor.flush_read_queue();
@@ -1138,23 +1237,54 @@ pub async fn stitch_diagnostic_handler(
     )
   };
 
-  const NUM_FRAMES: usize = 60;
-  let mut hop1_frames = Vec::with_capacity(NUM_FRAMES);
-  let mut hop2_frames = Vec::with_capacity(NUM_FRAMES);
-  let mut hop1_raw_iq: Vec<u8> = Vec::new();
-  let mut hop2_raw_iq: Vec<u8> = Vec::new();
+  let num_frames_to_average = body
+    .as_ref()
+    .and_then(|b| b.frames_to_average)
+    .map(|f| f as usize)
+    .unwrap_or(10)
+    .max(1);
+  let num_frames = num_frames_to_average;
+  let mut hop1_frames = Vec::with_capacity(num_frames);
+  let mut hop2_frames = Vec::with_capacity(num_frames);
+  let mut hop1_raw_iq = Vec::new();
+  let mut hop2_raw_iq = Vec::new();
 
-  // 1. Capture Hop 1
-  {
-    // Clear any stale pending frequency to avoid accidental retunes
-    processor.frame.pending_freq = None;
-    // Flush to clear any stale data before we start the "real" capture
-    processor.flush_read_queue();
+  let options = body
+    .as_ref()
+    .and_then(|b| b.stitch_options.clone())
+    .unwrap_or(StitchOptions {
+      phase_correction: true,
+      fm_deviation_correction: true,
+      anti_aliasing: true,
+      noise_floor_matching: true,
+      crossfading: true,
+      chinese_remainder_synthesis: false,
+      js_anti_aliasing: false,
+      js_noise_floor_matching: false,
+      acquisition_mode: Some("interleaved".to_string()),
+    });
 
-    for _ in 0..NUM_FRAMES {
+  let acq_mode = options
+    .acquisition_mode
+    .clone()
+    .unwrap_or_else(|| "interleaved".to_string());
+
+  let center2 = center1 + 1_200_000;
+  if acq_mode == "interleaved" {
+    log::info!("Performing INTERLEAVED capture (rapid hopping)...");
+    for i in 0..num_frames {
+      // Frame for Hop 1
+      if let Err(e) = processor.set_center_frequency(center1) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 1: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
       match processor.read_and_process_frame() {
         Ok(f) => {
-          // Collect the raw IQ bytes the device just read (set by read_and_process_frame)
           hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop1_frames.push(f);
         }
@@ -1162,59 +1292,114 @@ pub async fn stitch_diagnostic_handler(
           state.shared.is_paused.store(was_paused, Ordering::Relaxed);
           return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 1: {}", e),
+            format!("Failed to capture hop 1 at index {}: {}", i, e),
           )
             .into_response();
         }
       }
-    }
-  }
 
-  // 2. Tune and Capture Hop 2 (offset by 1.2MHz)
-  let center2 = center1 + 1_200_000;
-  {
-    if let Err(e) = processor.set_center_frequency(center2) {
-      state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-      return (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Failed to tune to hop 2: {}", e),
-      )
-        .into_response();
-    }
-
-    // Flush to clear any data from the old frequency
-    processor.flush_read_queue();
-
-    for _ in 0..NUM_FRAMES {
+      // Frame for Hop 2
+      if let Err(e) = processor.set_center_frequency(center2) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 2: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
       match processor.read_and_process_frame() {
         Ok(f) => {
           hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
           hop2_frames.push(f);
         }
         Err(e) => {
-          let _ = processor.set_center_frequency(center1); // Restore
           state.shared.is_paused.store(was_paused, Ordering::Relaxed);
           return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 2: {}", e),
+            format!("Failed to capture hop 2 at index {}: {}", i, e),
           )
             .into_response();
         }
       }
     }
-    // Restore frequency
-    let _ = processor.set_center_frequency(center1);
+  } else {
+    log::info!("Performing STEPWISE capture (block-wise)...");
+    // 1. Capture Hop 1 Block
+    {
+      if let Err(e) = processor.set_center_frequency(center1) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 1: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      for _ in 0..num_frames {
+        match processor.read_and_process_frame() {
+          Ok(f) => {
+            hop1_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+            hop1_frames.push(f);
+          }
+          Err(e) => {
+            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+            return (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 1: {}", e),
+            )
+              .into_response();
+          }
+        }
+      }
+    }
+
+    // 2. Capture Hop 2 Block
+    {
+      if let Err(e) = processor.set_center_frequency(center2) {
+        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+        return (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to tune to hop 2: {}", e),
+        )
+          .into_response();
+      }
+      processor.flush_read_queue();
+      for _ in 0..num_frames {
+        match processor.read_and_process_frame() {
+          Ok(f) => {
+            hop2_raw_iq.extend_from_slice(&processor.frame.last_frame_raw_iq);
+            hop2_frames.push(f);
+          }
+          Err(e) => {
+            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+            return (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 2: {}", e),
+            )
+              .into_response();
+          }
+        }
+      }
+    }
   }
 
+  // Restore frequency
+
   // Compute phase coherence / alignment offset in the overlap region
+  log::info!("Calculating phase offset and stitching...");
   let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) =
-    calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq);
+    if options.phase_correction || options.fm_deviation_correction {
+      calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq)
+    } else {
+      (0.0, 0.0, 0.0, 0.0)
+    };
 
   // Restore previous pause state
   state.shared.is_paused.store(was_paused, Ordering::Relaxed);
 
   // 4. Seamless Crossfade Stitching
-  let jump_hz = (center2 - center1) as f64 / 1_000_000.0;
+  let jump_hz = (center2 - center1) as f64;
   let fft_size = if !hop1_frames.is_empty() {
     hop1_frames[0].len()
   } else {
@@ -1225,37 +1410,77 @@ pub async fn stitch_diagnostic_handler(
   let offset_bins =
     ((fft_size as f64) * (jump_hz / hop_bw_hz)).round() as usize;
   let overlap_bins = fft_size.saturating_sub(offset_bins);
-  // 4. Midpoint Cut Stitching (No Blending)
-  let mut stitched_frames = Vec::with_capacity(NUM_FRAMES);
+
+  // 4. Stitching with Options
+  let mut stitched_frames = Vec::with_capacity(num_frames);
   let midpoint_bin = overlap_bins / 2;
 
-  for i in 0..NUM_FRAMES {
-    let f1 = &hop1_frames[i];
-    let f2 = &hop2_frames[i];
+  for i in 0..num_frames {
+    let mut f1 = hop1_frames[i].clone();
+    let mut f2 = hop2_frames[i].clone();
 
-    let mut stitched = Vec::with_capacity(fft_size + offset_bins);
+    if options.anti_aliasing {
+      // Apply spectral masking to edges to suppress aliasing/roll-off artifacts
+      let mask_bins = (fft_size / 20).max(1); // 5% edge masking
+      for j in 0..mask_bins {
+        let weight = (j as f32 / mask_bins as f32).powf(0.5);
+        let atten_db = 20.0 * (weight + 1e-9).log10();
 
-    if f1.len() < fft_size || f2.len() < fft_size {
-      stitched.extend_from_slice(f1);
-      stitched_frames.push(stitched);
-      continue;
+        f1[j] += atten_db;
+        f1[fft_size - 1 - j] += atten_db;
+        f2[j] += atten_db;
+        f2[fft_size - 1 - j] += atten_db;
+      }
     }
 
-    // 1. Hop 1 up to the midpoint of the overlap
-    stitched.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
+    if options.noise_floor_matching {
+      anti_aliasing::match_noise_floor_db(&f1, &mut f2, overlap_bins);
+    }
 
-    // 2. Hop 2 from the midpoint of the overlap onwards
-    // The overlap in f2 starts at index 0. So midpoint in overlap is index midpoint_bin.
-    stitched.extend_from_slice(&f2[midpoint_bin..]);
+    let stitched = if options.crossfading && overlap_bins > 1 {
+      anti_aliasing::crossfade_f32(&f1, &f2, overlap_bins)
+    } else {
+      let mut s = Vec::with_capacity(f1.len() + f2.len() - overlap_bins);
+      s.extend_from_slice(&f1[..offset_bins + midpoint_bin]);
+      s.extend_from_slice(&f2[midpoint_bin..]);
+      s
+    };
 
     stitched_frames.push(stitched);
   }
 
-  // Frequency ranges
-  let hop1_start = (center1 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop1_end = (center1 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop2_start = (center2 as f32 - (sample_rate as f32 / 2.0)) / 1_000_000.0;
-  let hop2_end = (center2 as f32 + (sample_rate as f32 / 2.0)) / 1_000_000.0;
+  // Frequency ranges (Hz)
+  let hop1_start = center1 as f64 - (sample_rate / 2.0);
+  let hop1_end = center1 as f64 + (sample_rate / 2.0);
+  let hop2_start = center2 as f64 - (sample_rate / 2.0);
+  let hop2_end = center2 as f64 + (sample_rate / 2.0);
+
+  let overlap_rms_error = if !hop1_frames.is_empty() && !hop2_frames.is_empty()
+  {
+    let f1_overlap = &hop1_frames[0][offset_bins..];
+    let f2_overlap = &hop2_frames[0][..overlap_bins];
+    anti_aliasing::calculate_rms_error_db(f1_overlap, f2_overlap)
+  } else {
+    0.0
+  };
+
+  let bin_size_hz = sample_rate / fft_size as f64;
+  let cut_point_hz =
+    hop1_start + (offset_bins + midpoint_bin) as f64 * bin_size_hz;
+
+  let reconstructed_freq_hz = if options.chinese_remainder_synthesis {
+    let m1 =
+      anti_aliasing::Measurement::new(&hop1_frames[0], fft_size, sample_rate);
+    let m2 =
+      anti_aliasing::Measurement::new(&hop2_frames[0], fft_size, sample_rate);
+    if let (Some(m1), Some(m2)) = (m1, m2) {
+      anti_aliasing::reconstruct_frequency_crt(&[m1, m2], 1.5e9, 500.0)
+    } else {
+      None
+    }
+  } else {
+    None
+  };
 
   let total_latency_ms = start_time.elapsed().as_secs_f32() * 1000.0;
   let slice_duration_ms = (fft_size as f32 / sample_rate as f32) * 1000.0;
@@ -1266,32 +1491,84 @@ pub async fn stitch_diagnostic_handler(
     10.0
   };
 
-  Json(StitchDiagnosticResponse {
-    hop1_frames,
-    hop2_frames,
-    stitched_frames,
-    hop1_freq_hz: [hop1_start, hop1_end],
-    hop2_freq_hz: [hop2_start, hop2_end],
-    stitched_freq_hz: [hop1_start, hop2_end],
-    overlap_start: offset_bins,
-    overlap_end: overlap_bins,
+  // Convert frames to u8
+  let hop1_u8 = hop1_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
+  let hop2_u8 = hop2_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
+  let stitched_u8 = stitched_frames
+    .into_iter()
+    .map(convert_to_u8)
+    .collect::<Vec<_>>();
 
-    device_info,
-    hop1_phase_deg,
-    hop2_phase_deg,
-    correction_angle_deg,
-    fm_deviation_khz,
-    timing: StitchDiagnosticTiming {
-      total_latency_ms,
-      settle_time_ms,
-      slice_duration_ms,
-      capture_timestamp_ms: std::time::SystemTime::now()
+  let final_len = if !hop1_u8.is_empty() {
+    hop1_u8[0].len()
+  } else {
+    0
+  };
+
+  // Pack response into a binary format:
+  // [Magic:4][HeaderLen:4][JSON_Metadata][Binary_Data]
+  let metadata = serde_json::json!({
+    "fft_size": final_len,
+    "num_frames": num_frames,
+    "hop1_freq_hz": [hop1_start, hop1_end],
+    "hop2_freq_hz": [hop2_start, hop2_end],
+    "stitched_freq_hz": [hop1_start, hop2_end],
+    "overlap_start": offset_bins,
+    "overlap_end": overlap_bins,
+    "device_info": device_info,
+    "hop1_phase_deg": hop1_phase_deg,
+    "hop2_phase_deg": hop2_phase_deg,
+    "correction_angle_deg": correction_angle_deg,
+    "fm_deviation_khz": fm_deviation_khz,
+    "reconstructed_freq_hz": reconstructed_freq_hz,
+    "acquisition_mode": acq_mode,
+    "cut_point_hz": cut_point_hz,
+    "overlap_rms_error": overlap_rms_error,
+    "timing": {
+      "total_latency_ms": total_latency_ms,
+      "settle_time_ms": settle_time_ms,
+      "slice_duration_ms": slice_duration_ms,
+      "capture_timestamp_ms": std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64,
-    },
-  })
-  .into_response()
+    }
+  });
+
+  let json_header = serde_json::to_string(&metadata).unwrap();
+  let json_bytes = json_header.as_bytes();
+
+  // Header: Magic(4) + JSONLen(4) + JSONData + BinaryData
+  let mut response_bytes =
+    Vec::with_capacity(8 + json_bytes.len() + (num_frames * final_len * 3));
+  response_bytes.extend_from_slice(b"NAPT");
+  response_bytes.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+  response_bytes.extend_from_slice(json_bytes);
+
+  // Flatten and pack binary frames (u8)
+  for frames in [&hop1_u8, &hop2_u8, &stitched_u8] {
+    for frame in frames {
+      response_bytes.extend_from_slice(frame);
+    }
+  }
+
+  log::info!(
+    "Stitch diagnostic complete. Returning {} MB binary payload (u8, {} pts/frame).",
+    response_bytes.len() / 1_000_000,
+    final_len
+  );
+
+  Response::builder()
+    .header("Content-Type", "application/octet-stream")
+    .body(axum::body::Body::from(response_bytes))
+    .unwrap()
+    .into_response()
 }
 
 // WebMCP tool handlers
@@ -1360,7 +1637,7 @@ async fn handle_set_ppm(
   if let Some(ppm) = params.get("ppm").and_then(|p| p.as_i64()) {
     if let Err(e) = state
       .cmd_tx
-      .send(super::types::SdrCommand::SetPpm(ppm as i32))
+      .send(super::types::SdrCommand::SetPpm(ppm.max(0) as u32))
     {
       WebMCPToolResponse {
         success: false,
@@ -1543,6 +1820,10 @@ async fn handle_start_capture(
     .get("fftWindow")
     .and_then(|w| w.as_str())
     .unwrap_or("hann");
+  let bandwidth = params.get("bandwidth").and_then(|b| b.as_u64());
+  let bandwidth_center_frequency = params
+    .get("bandwidthCenterFrequency")
+    .and_then(|b| b.as_u64());
 
   // Parse optional channel selections from request payload
   let channels_opt: Option<Vec<ChannelSpec>> = params
@@ -1563,6 +1844,8 @@ async fn handle_start_capture(
     ref_based_demod_baseline: None,
     is_ephemeral: false,
     channels: channels_opt,
+    bandwidth,
+    bandwidth_center_frequency,
   };
 
   if let Err(e) = state.cmd_tx.send(capture_cmd) {
@@ -1582,6 +1865,8 @@ async fn handle_start_capture(
         "format": file_type,
         "acquisitionMode": acquisition_mode,
         "encrypted": encrypted,
+        "bandwidth": bandwidth,
+        "bandwidthCenterFrequency": bandwidth_center_frequency,
         "message": "Capture started successfully"
       })),
       error: None,

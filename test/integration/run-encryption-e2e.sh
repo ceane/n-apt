@@ -16,11 +16,12 @@ echo -e "${BLUE}🔐 Starting Encryption E2E Test Suite${NC}"
 echo "======================================"
 
 # Set environment variable for backend authentication consistency
-export UNSAFE_LOCAL_USER_PASSWORD="test-password-123"
+export UNSAFE_LOCAL_USER_PASSWORD="napt-e2e-auth-password"
+export VITE_UNSAFE_LOCAL_USER_PASSWORD="napt-e2e-auth-password"
 
 # Create a temporary .env.local for the backend to ensure it picks up the password
 # even if started via 'bash -lc' which might lose inherited env vars.
-printf "UNSAFE_LOCAL_USER_PASSWORD=test-password-123" > .env.local
+printf "UNSAFE_LOCAL_USER_PASSWORD=napt-e2e-auth-password\nVITE_UNSAFE_LOCAL_USER_PASSWORD=napt-e2e-auth-password\n" > .env.local
 trap 'rm -f .env.local' EXIT
 
 # 1. Check Dependencies

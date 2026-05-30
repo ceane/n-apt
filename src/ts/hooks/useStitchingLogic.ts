@@ -239,7 +239,6 @@ export const useStitchingLogic = ({
       setChannelCount(channels.length);
       setActiveChannel(0);
 
-
       const firstChannel = channels.length > 0 ? channels[0] : null;
       const firstChannelRange =
         Array.isArray(firstChannel?.frequency_range) &&
@@ -322,6 +321,9 @@ export const useStitchingLogic = ({
   useEffect(() => {
     if (lastTriggerRef.current === null) {
       lastTriggerRef.current = stitchTrigger;
+      if (selectedFilesRef.current.length > 0) {
+        void stitchFiles();
+      }
       return;
     }
     if (stitchTrigger !== null && stitchTrigger !== lastTriggerRef.current) {

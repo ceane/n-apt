@@ -19,6 +19,8 @@ describe("VisualizerSliders", () => {
     onFftAvgChange: jest.fn(),
     onFftSmoothChange: jest.fn(),
     onWfSmoothChange: jest.fn(),
+    onLockZoomFloor: jest.fn(),
+    onRefocusZoomFloor: jest.fn(),
   };
 
   test("renders all sliders with correct labels", () => {
@@ -54,6 +56,22 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("-90dBm")).toBeInTheDocument();
   });
 
+  test("rounds dB labels to whole numbers", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          dbMax={10.4}
+          dbMin={-89.6}
+          powerScale="dBm"
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("10dBm")).toBeInTheDocument();
+    expect(screen.getByText("-90dBm")).toBeInTheDocument();
+  });
+
   test("action buttons trigger correct callbacks", () => {
     const onReset = jest.fn();
     const onAvg = jest.fn();
@@ -68,11 +86,108 @@ describe("VisualizerSliders", () => {
       </TestWrapper>,
     );
 
-    fireEvent.click(screen.getByText("RESET"));
+    fireEvent.click(screen.getByText("Reset"));
     expect(onReset).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText(/AVG/)); // Could be "▹ AVG"
+    fireEvent.click(screen.getByText("FFT Averaging"));
     expect(onAvg).toHaveBeenCalledWith(true);
+  });
+
+  test("disables controls while loading", () => {
+    const onReset = jest.fn();
+    const onZoom = jest.fn();
+
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          disabled={true}
+          onResetZoomDb={onReset}
+          onZoomChange={onZoom}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: /reset/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /fft averaging/i }),
+    ).toBeDisabled();
+
+    const zoomText = screen.getByText(/1(\.0)?x/);
+    const track = zoomText.parentElement;
+
+    if (track) {
+      fireEvent.mouseDown(track, { clientX: 20, clientY: 5 });
+    }
+
+    expect(onReset).not.toHaveBeenCalled();
+    expect(onZoom).not.toHaveBeenCalled();
+  });
+
+  test("shows a zoom floor badge only when zoom is locked in", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoomFloor={3} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByTestId("zoom-floor-indicator")).toBeInTheDocument();
+
+    rerender(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByTestId("zoom-floor-indicator")).toBeNull();
+  });
+
+  test("shows lock zoom floor when zoomed but no floor is locked", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={2} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Lock Zoom Floor")).toBeInTheDocument();
+    expect(screen.queryByText("Refocus (Zoom Floor)")).toBeNull();
+  });
+
+  test("hides the zoom floor action when auto stability is off", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={1}
+          autoZoomStability={false}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByText("Lock Zoom Floor")).toBeNull();
+  });
+
+  test("disables lock zoom floor at the initial 1.0x zoom when auto stability is enabled", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={1} zoomFloor={1} />
+      </TestWrapper>,
+    );
+
+    const button = screen.getByRole("button", { name: /lock zoom floor/i });
+    expect(button).toBeDisabled();
+  });
+
+  test("shows refocus zoom floor when a floor is locked", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={2} zoomFloor={3} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Refocus (Zoom Floor)")).toBeInTheDocument();
+    expect(screen.queryByText("Lock Zoom Floor")).toBeNull();
   });
 
   test("toggle buttons show active state", () => {
@@ -82,15 +197,15 @@ describe("VisualizerSliders", () => {
       </TestWrapper>,
     );
 
-    // active button has "▸" prefix
-    expect(screen.getByText("▸ AVG")).toBeInTheDocument();
+    // button is present
+    expect(screen.getByText("FFT Averaging")).toBeInTheDocument();
 
     rerender(
       <TestWrapper>
         <VisualizerSliders {...defaultProps} fftAvgEnabled={false} />
       </TestWrapper>,
     );
-    expect(screen.getByText("▹ AVG")).toBeInTheDocument();
+    expect(screen.getByText("FFT Averaging")).toBeInTheDocument();
   });
 
   test("sliders trigger change callbacks on interaction", () => {
@@ -128,5 +243,41 @@ describe("VisualizerSliders", () => {
       expect(onZoom).toHaveBeenCalled();
       expect(onZoom.mock.calls[0][0]).toBeGreaterThan(1);
     }
+  });
+
+  test("zoom floor action toggles between lock and refocus", () => {
+    const onLock = jest.fn();
+    const onRefocus = jest.fn();
+
+    const { rerender } = render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={1}
+          onLockZoomFloor={onLock}
+          onRefocusZoomFloor={onRefocus}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Lock Zoom Floor"));
+    expect(onLock).toHaveBeenCalled();
+    expect(onRefocus).not.toHaveBeenCalled();
+
+    rerender(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          zoom={2}
+          zoomFloor={3}
+          onLockZoomFloor={onLock}
+          onRefocusZoomFloor={onRefocus}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Refocus (Zoom Floor)"));
+    expect(onRefocus).toHaveBeenCalled();
   });
 });

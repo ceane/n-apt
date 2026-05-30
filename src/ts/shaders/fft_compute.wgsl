@@ -29,6 +29,7 @@ const WINDOW_BLACKMAN = 3u;
 const WINDOW_NUTTALL = 4u;
 const CALIBRATION_MODE_GENERIC = 0u;
 const CALIBRATION_MODE_RTL_SDR = 1u;
+const CALIBRATION_MODE_HACKRF_ONE = 2u;
 
 // Complex number operations
 struct Complex {
@@ -387,9 +388,23 @@ fn rtl_sdr_true_dbm(sample: Complex, freq_hz: f32) -> f32 {
     + frequency_correction_db;
 }
 
+fn hackrf_true_dbm(sample: Complex) -> f32 {
+  let power = max(rtl_sdr_complex_power(sample), 1e-20);
+  let normalized_power = power / max(params.normalization, 1e-20);
+  let dbfs = 10.0 * log10(max(normalized_power, 1e-20));
+
+  return dbfs
+    + params.base_calibration_db
+    + params.chain_loss_db
+    - params.tuner_gain_db;
+}
+
 fn calibrated_dbm(sample: Complex, idx: u32) -> f32 {
   if (params.calibration_mode == CALIBRATION_MODE_RTL_SDR) {
     return rtl_sdr_true_dbm(sample, fft_bin_frequency_hz(idx));
+  }
+  if (params.calibration_mode == CALIBRATION_MODE_HACKRF_ONE) {
+    return hackrf_true_dbm(sample);
   }
 
   return generic_true_dbm(sample);

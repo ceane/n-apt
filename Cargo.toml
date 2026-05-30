@@ -61,6 +61,30 @@ path = "test/rust/frequency_validation_tests.rs"
 name = "iq_capture_integration_tests"
 path = "test/rust/iq_capture_integration_tests.rs"
 
+[[test]]
+name = "hardware_failure_recovery_tests"
+path = "test/rust/hardware_failure_recovery_tests.rs"
+
+[[test]]
+name = "hotplug_manual_tests"
+path = "test/rust/hotplug_manual_tests.rs"
+
+[[test]]
+name = "endpoint_auth_tests"
+path = "test/rust/endpoint_auth_tests.rs"
+
+[[test]]
+name = "bandwidth_tests"
+path = "test/rust/bandwidth_tests.rs"
+
+[[test]]
+name = "hackrf_integration_tests"
+path = "test/rust/hackrf_integration_tests.rs"
+
+[[test]]
+name = "reload_tests"
+path = "test/rust/reload_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
@@ -71,6 +95,10 @@ path = "src/rs/bin/dump_config.rs"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
+
+[features]
+default = []
+mock_apt_metal = ["dep:metal"]
 
 [dependencies]
 paste = "1.0"
@@ -91,12 +119,16 @@ clap = { version = "4.6", features = ["derive"] }
 byteorder = "1.5"
 env_logger = "0.11"
 dotenvy = "0.15"
+wasm-bindgen = "0.2.121"
+serde-wasm-bindgen = "0.6"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.121"
 js-sys = "0.3.98"
 web-sys = { version = "0.3.98", features = ["console"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.31", optional = true }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -113,15 +145,15 @@ hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.22"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false }
 # HTTP client for CoreML service communication
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "set-header", "compression-gzip"] }
 # WebAuthn passkey authentication
-webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+webauthn-rs = { version = "0.5", default-features = false }
 webauthn-rs-proto = "0.5"
 # Session management
 uuid = { version = "1", features = ["v4"] }
@@ -134,6 +166,9 @@ validator = { version = "0.20", features = ["derive"] }
 indexmap = { version = "2.14", features = ["serde"] }
 crossbeam-channel = "0.5"
 yawc = { version = "0.3.3", features = ["axum", "zlib"] }
+tempfile = "3"
+serde_urlencoded = "0.7"
+rusb = "0.9"
 
 [dev-dependencies]
 doc-comment = "0.3"
@@ -143,7 +178,7 @@ criterion = { version = "0.8", features = ["html_reports"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
-axum-test = "20"
+axum-test = { version = "20", features = ["ws"] }
 tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
@@ -173,10 +208,18 @@ incremental = true
 debug = true
 codegen-units = 16
 
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 3
+debug = 1
+debug-assertions = false
+overflow-checks = false
+codegen-units = 8
+
 [profile.release]
 opt-level = 3
 lto = "thin"
-codegen-units = 8
+codegen-units = 1
 panic = "unwind"
 strip = true
 overflow-checks = false

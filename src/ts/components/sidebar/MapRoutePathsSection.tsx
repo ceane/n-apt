@@ -179,35 +179,38 @@ export const MapRoutePathsSection: React.FC = () => {
     setEndLng(String(activeLocation.lng));
   };
 
-  const searchPlaces = React.useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setSearchResults([]);
-      return;
-    }
-
-    setSearching(true);
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(trimmed)}&limit=5&addressdetails=1&bounded=1${mapBounds ? `&viewbox=${mapBounds.west},${mapBounds.north},${mapBounds.east},${mapBounds.south}` : ""}`,
-        {
-          headers: {
-            "User-Agent": "n-apt/1.0",
-          },
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`Search failed (${response.status})`);
+  const searchPlaces = React.useCallback(
+    async (query: string) => {
+      const trimmed = query.trim();
+      if (!trimmed) {
+        setSearchResults([]);
+        return;
       }
-      const results = await response.json();
-      setSearchResults(Array.isArray(results) ? results : []);
-    } catch (error) {
-      console.error("Route path search failed:", error);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }, [mapBounds]);
+
+      setSearching(true);
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(trimmed)}&limit=5&addressdetails=1&bounded=1${mapBounds ? `&viewbox=${mapBounds.west},${mapBounds.north},${mapBounds.east},${mapBounds.south}` : ""}`,
+          {
+            headers: {
+              "User-Agent": "n-apt/1.0",
+            },
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Search failed (${response.status})`);
+        }
+        const results = await response.json();
+        setSearchResults(Array.isArray(results) ? results : []);
+      } catch (error) {
+        console.error("Route path search failed:", error);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [mapBounds],
+  );
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -254,11 +257,13 @@ export const MapRoutePathsSection: React.FC = () => {
           {searchQuery.trim() && (
             <Suggestions>
               {searching ? (
-                <SuggestionButton disabled>Searching...</SuggestionButton>
+                <SuggestionButton disabled>Searching…</SuggestionButton>
               ) : searchResults.length > 0 ? (
                 searchResults.map((result) => (
                   <div key={result.place_id} style={{ display: "grid" }}>
-                    <SuggestionButton onClick={() => applyResultToStart(result)}>
+                    <SuggestionButton
+                      onClick={() => applyResultToStart(result)}
+                    >
                       Use as Start: {result.display_name}
                     </SuggestionButton>
                     <SuggestionButton onClick={() => applyResultToEnd(result)}>
@@ -272,75 +277,83 @@ export const MapRoutePathsSection: React.FC = () => {
             </Suggestions>
           )}
         </SearchGrid>
-      <InputGrid>
-        <div>
-          <Label>Start Lat</Label>
-          <Input value={startLat} onChange={(e) => setStartLat(e.target.value)} />
-        </div>
-        <div>
-          <Label>Start Lng</Label>
-          <Input value={startLng} onChange={(e) => setStartLng(e.target.value)} />
-        </div>
-        <div>
-          <Label>End Lat</Label>
-          <Input value={endLat} onChange={(e) => setEndLat(e.target.value)} />
-        </div>
-        <div>
-          <Label>End Lng</Label>
-          <Input value={endLng} onChange={(e) => setEndLng(e.target.value)} />
-        </div>
-      </InputGrid>
-      <ButtonRow>
-        <Button onClick={useActiveLocationAsStart} disabled={!activeLocation}>
-          Use Start
-        </Button>
-        <Button onClick={useActiveLocationAsEnd} disabled={!activeLocation}>
-          Use End
-        </Button>
-      </ButtonRow>
-      <ButtonRow>
-        <Button onClick={addFromInputs}>Add Segment</Button>
-        <Button onClick={clearSegments}>Clear</Button>
-      </ButtonRow>
+        <InputGrid>
+          <div>
+            <Label>Start Lat</Label>
+            <Input
+              value={startLat}
+              onChange={(e) => setStartLat(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>Start Lng</Label>
+            <Input
+              value={startLng}
+              onChange={(e) => setStartLng(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>End Lat</Label>
+            <Input value={endLat} onChange={(e) => setEndLat(e.target.value)} />
+          </div>
+          <div>
+            <Label>End Lng</Label>
+            <Input value={endLng} onChange={(e) => setEndLng(e.target.value)} />
+          </div>
+        </InputGrid>
+        <ButtonRow>
+          <Button onClick={useActiveLocationAsStart} disabled={!activeLocation}>
+            Use Start
+          </Button>
+          <Button onClick={useActiveLocationAsEnd} disabled={!activeLocation}>
+            Use End
+          </Button>
+        </ButtonRow>
+        <ButtonRow>
+          <Button onClick={addFromInputs}>Add Segment</Button>
+          <Button onClick={clearSegments}>Clear</Button>
+        </ButtonRow>
 
-      <SegmentList>
-        {segments.length === 0 ? (
-          <SegmentItem>No route segments added yet.</SegmentItem>
-        ) : (
-          segments.map((segment, index) => (
-            <SegmentItem key={segment.id}>
-              <Row label={`Segment ${index + 1}`}>
-                <span>{formatPoint(segment.start)} to {formatPoint(segment.end)}</span>
-              </Row>
-              <ButtonRow>
-                <Button onClick={() => removeSegment(segment.id)}>Remove</Button>
-              </ButtonRow>
-            </SegmentItem>
-          ))
-        )}
-      </SegmentList>
+        <SegmentList>
+          {segments.length === 0 ? (
+            <SegmentItem>No route segments added yet.</SegmentItem>
+          ) : (
+            segments.map((segment, index) => (
+              <SegmentItem key={segment.id}>
+                <Row label={`Segment ${index + 1}`}>
+                  <span>
+                    {formatPoint(segment.start)} to {formatPoint(segment.end)}
+                  </span>
+                </Row>
+                <ButtonRow>
+                  <Button onClick={() => removeSegment(segment.id)}>
+                    Remove
+                  </Button>
+                </ButtonRow>
+              </SegmentItem>
+            ))
+          )}
+        </SegmentList>
 
-      <ResultList>
-        {nearestEndpoints.length > 0 ? (
-          nearestEndpoints.map((match) => (
-            <ResultItem key={`${match.segmentId}-${match.tower.id}`}>
-              <div>
-                {match.tower.radio} {match.tower.mcc}-{match.tower.mnc}
-              </div>
-              <div>
-                {match.distanceKm < 1
-                  ? `${(match.distanceKm * 1000).toFixed(0)}m`
-                  : `${match.distanceKm.toFixed(2)}km`}
-              </div>
-              <div>
-                Along: {formatPoint(match.closestPoint)}
-              </div>
-            </ResultItem>
-          ))
-        ) : (
-          <ResultItem>No endpoints matched these paths yet.</ResultItem>
-        )}
-      </ResultList>
+        <ResultList>
+          {nearestEndpoints.length > 0 ? (
+            nearestEndpoints.map((match) => (
+              <ResultItem key={`${match.segmentId}-${match.tower.id}`}>
+                <div>
+                  {match.tower.radio} {match.tower.mcc}-{match.tower.mnc}
+                </div>
+                <div>
+                  {match.distanceKm < 1
+                    ? `${(match.distanceKm * 1000).toFixed(0)}m`
+                    : `${match.distanceKm.toFixed(2)}km`}
+                </div>
+                <div>Along: {formatPoint(match.closestPoint)}</div>
+              </ResultItem>
+            ))
+          ) : (
+            <ResultItem>No endpoints matched these paths yet.</ResultItem>
+          )}
+        </ResultList>
       </div>
     </Collapsible>
   );

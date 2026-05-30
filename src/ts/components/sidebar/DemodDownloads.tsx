@@ -28,7 +28,7 @@ const Section = styled.div`
 `;
 
 const SectionTitle = styled.div`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -72,25 +72,21 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({
 
   // Handle flashing when analysis completes
   React.useEffect(() => {
+    let id: ReturnType<typeof setTimeout> | undefined;
     if (analysisSession.state === "result" && wasPreviouslyAnalyzing.current) {
-      // Reset the flag
       wasPreviouslyAnalyzing.current = false;
-
-      // Trigger flash animation
       setShouldFlash(true);
-
-      // Remove flash after animation completes
-      setTimeout(() => {
+      id = setTimeout(() => {
         setShouldFlash(false);
-      }, 2000); // Match animation duration
+      }, 2000);
     } else if (
       analysisSession.state === "capturing" ||
       analysisSession.state === "analyzing"
     ) {
-      // Set flag when analysis starts
       wasPreviouslyAnalyzing.current = true;
       setShouldFlash(false);
     }
+    return () => clearTimeout(id);
   }, [analysisSession.state]);
 
   if (

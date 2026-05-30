@@ -1,23 +1,30 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState } from "@n-apt/redux/store";
-import {
-  SDRSettings,
-  CaptureRequest,
-} from "@n-apt/consts/schemas/websocket";
+import { SDRSettings, CaptureRequest } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
+import {
+  getFrequencyRangeCenterHz,
+  normalizeFrequencyRangeToHz,
+} from "@n-apt/utils/frequency";
 
 const getSampleRateHz = (state: RootState): number | null => {
-  const sampleRateHz = state.demod?.sampleRateHz ?? state.spectrum?.sampleRateHz;
-  return Number.isFinite(sampleRateHz) && sampleRateHz > 0 ? sampleRateHz : null;
+  const sampleRateHz =
+    state.demod?.sampleRateHz ?? state.spectrum?.sampleRateHz;
+  return Number.isFinite(sampleRateHz) && sampleRateHz > 0
+    ? sampleRateHz
+    : null;
 };
 
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
-): { min_hz: number; max_hz: number } => {
+): { min_hz: number; max_hz: number; center_frequency: number } => {
+  const normalizedRange = normalizeFrequencyRangeToHz(range);
+  const center_frequency = getFrequencyRangeCenterHz(normalizedRange);
   return {
-    min_hz: range.min,
-    max_hz: range.max,
+    min_hz: normalizedRange.min,
+    max_hz: normalizedRange.max,
+    center_frequency,
   };
 };
 
@@ -56,7 +63,11 @@ export const sendFrequencyRange = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
-          data: tunedRange,
+          data: {
+            ...tunedRange,
+            bandwidth_center_frequency: (state as any).demod
+              ?.bandwidthCenterFreqHz,
+          },
         },
       });
     }
@@ -103,12 +114,14 @@ export const sendCenterFrequency = createAsyncThunk(
     const sampleRateHz = getSampleRateHz(state);
     const data = sampleRateHz
       ? {
-          min_hz: centerHz - sampleRateHz / 2,
-          max_hz: centerHz + sampleRateHz / 2,
+          min_hz: Math.round(centerHz - sampleRateHz / 2),
+          max_hz: Math.round(centerHz + sampleRateHz / 2),
+          center_frequency: Math.round(centerHz),
         }
       : {
-          min_hz: centerHz,
-          max_hz: centerHz,
+          min_hz: Math.round(centerHz),
+          max_hz: Math.round(centerHz),
+          center_frequency: Math.round(centerHz),
         };
     if (state.websocket.isConnected) {
       dispatch({
@@ -170,8 +183,28 @@ export const sendSettings = createAsyncThunk(
       sanitized.frameRate = Math.floor(settings.frameRate!);
     }
 
+    if (isValidPositiveInt(settings.sampleRate)) {
+      sanitized.sampleRate = Math.floor(settings.sampleRate!);
+    }
+
     if (isValidNonNegative(settings.gain)) {
       sanitized.gain = settings.gain;
+    }
+    if (isValidNonNegative(settings.hackrfLnaGain)) {
+      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
+    }
+    if (isValidNonNegative(settings.hackrfVgaGain)) {
+      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
+    }
+    if (typeof settings.hackrfAmpEnabled === "boolean") {
+      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
+    }
+    if (
+      typeof settings.tunerBandwidth === "number" &&
+      Number.isFinite(settings.tunerBandwidth) &&
+      settings.tunerBandwidth >= 0
+    ) {
+      sanitized.tunerBandwidth = Math.round(settings.tunerBandwidth);
     }
 
     if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
@@ -254,31 +287,6 @@ export const sendTrainingCommand = createAsyncThunk(
   },
 );
 
-// Request auto FFT options
-export const sendGetAutoFftOptions = createAsyncThunk(
-  "websocket/sendGetAutoFftOptions",
-  async (screenWidth: number, { dispatch, getState }) => {
-    const state = getState() as RootState;
-
-    // Check if we already have cached auto FFT options
-    if (state.websocket.autoFftOptions) {
-      console.log("Using cached auto FFT options, skipping request");
-      return screenWidth;
-    }
-
-    if (state.websocket.isConnected) {
-      dispatch({
-        type: "websocket/sendMessage",
-        payload: {
-          type: "get_auto_fft_options",
-          data: { screenWidth },
-        },
-      });
-    }
-    return screenWidth;
-  },
-);
-
 // Send power scale command
 export const sendPowerScaleCommand = createAsyncThunk(
   "websocket/sendPowerScaleCommand",
@@ -314,6 +322,16 @@ export const sendCaptureCommand = createAsyncThunk(
           data: {
             jobId: req.jobId,
             fragments: req.fragments,
+            bandwidth:
+              typeof req.bandwidth === "number" &&
+              Number.isFinite(req.bandwidth)
+                ? Math.round(req.bandwidth)
+                : undefined,
+            bandwidthCenterFrequency:
+              typeof req.bandwidthCenterFrequency === "number" &&
+              Number.isFinite(req.bandwidthCenterFrequency)
+                ? Math.round(req.bandwidthCenterFrequency)
+                : undefined,
             durationMode: req.durationMode,
             durationS: req.durationS,
             fileType: req.fileType,

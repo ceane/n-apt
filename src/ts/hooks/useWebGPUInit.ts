@@ -188,12 +188,11 @@ async function getWebGPUDevice(): Promise<GPUDevice | null> {
         }
 
         // Request higher texture dimension limits to support larger canvases
+        const maxTextureDimension2D =
+          adapter.limits?.maxTextureDimension2D ?? 16384;
         const device = await adapter.requestDevice({
           requiredLimits: {
-            maxTextureDimension2D: Math.min(
-              adapter.limits.maxTextureDimension2D,
-              16384,
-            ),
+            maxTextureDimension2D: Math.min(maxTextureDimension2D, 16384),
           },
         });
         return device;
@@ -278,7 +277,6 @@ export function useWebGPUInit({
               workgroupSize: [256, 1, 1],
             },
           ]);
-
         } catch (error) {
           console.warn("Failed to preload shaders:", error);
         }
@@ -367,6 +365,7 @@ export function useWebGPUInit({
     if (!isWebGPUSupported()) return;
 
     let cancelled = false;
+    let retryTimerId: ReturnType<typeof setTimeout> | undefined;
     const doInit = async (retryCount = 0) => {
       try {
         const device = await getWebGPUDevice();
@@ -386,7 +385,7 @@ export function useWebGPUInit({
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
-            setTimeout(() => {
+            retryTimerId = setTimeout(() => {
               if (!cancelled) {
                 doInit(webgpuRetryCountRef.current);
               }
@@ -401,7 +400,7 @@ export function useWebGPUInit({
 
           if (webgpuRetryCountRef.current < maxWebgpuRetries) {
             webgpuRetryCountRef.current++;
-            setTimeout(() => {
+            retryTimerId = setTimeout(() => {
               if (!cancelled) {
                 doInit(webgpuRetryCountRef.current);
               }
@@ -421,7 +420,7 @@ export function useWebGPUInit({
         }
 
         if (retryCount < maxWebgpuRetries) {
-          setTimeout(
+          retryTimerId = setTimeout(
             () => {
               if (!cancelled) {
                 doInit(retryCount + 1);
@@ -437,6 +436,7 @@ export function useWebGPUInit({
 
     return () => {
       cancelled = true;
+      clearTimeout(retryTimerId);
     };
   }, []);
 

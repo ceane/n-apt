@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Collapsible } from "@n-apt/components/ui";
-import { Zap, Activity, BarChart3, Waves, Music, Workflow } from "lucide-react";
+import { Workflow } from "lucide-react";
 
 const FlowPaletteContainer = styled.div`
   display: flex;

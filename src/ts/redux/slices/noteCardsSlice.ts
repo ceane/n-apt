@@ -10,6 +10,8 @@ import type {
   PowerScale,
 } from "@n-apt/redux/slices/spectrumSlice";
 import type { SourceMode } from "@n-apt/redux/slices/waterfallSlice";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
 
 type SpectrumSliceState = RootState["spectrum"];
 type WaterfallSliceState = RootState["waterfall"];
@@ -74,6 +76,83 @@ interface NoteCardsState {
 const DEFAULT_POSITION: NoteCardPosition = { x: 120, y: 80 };
 const DEFAULT_SIZE: NoteCardSize = { width: 320, height: 400 };
 
+const formatFrequencyText = (hz: number | null): string => {
+  if (!Number.isFinite(hz ?? Number.NaN)) {
+    return "Unavailable";
+  }
+  return formatFrequency(hz ?? 0, { precisionMHz: 3 });
+};
+
+const normalizePowerScale = (value: unknown): PowerScale =>
+  value === "dBm" ? "dBm" : "dB";
+
+const normalizeNoteCardStats = (
+  stats: Partial<NoteCardStatsSnapshot>,
+): NoteCardStatsSnapshot => ({
+  centerFrequencyHz: Number.isFinite(stats.centerFrequencyHz ?? Number.NaN)
+    ? (stats.centerFrequencyHz as number)
+    : calculateCenterFrequency(stats.frequencyRange ?? null),
+  frequencyRange: stats.frequencyRange ?? null,
+  vizZoom: Number.isFinite(stats.vizZoom ?? Number.NaN)
+    ? (stats.vizZoom as number)
+    : 1,
+  vizPanOffset: Number.isFinite(stats.vizPanOffset ?? Number.NaN)
+    ? (stats.vizPanOffset as number)
+    : 0,
+  fftSize: Number.isFinite(stats.fftSize ?? Number.NaN)
+    ? (stats.fftSize as number)
+    : 0,
+  fftWindow: typeof stats.fftWindow === "string" ? stats.fftWindow : "",
+  fftFrameRate: Number.isFinite(stats.fftFrameRate ?? Number.NaN)
+    ? (stats.fftFrameRate as number)
+    : 0,
+  temporalResolution: stats.temporalResolution ?? "low",
+  powerScale: normalizePowerScale(stats.powerScale),
+  fftDbMin: Number.isFinite(stats.fftDbMin ?? Number.NaN)
+    ? (stats.fftDbMin as number)
+    : -120,
+  fftDbMax: Number.isFinite(stats.fftDbMax ?? Number.NaN)
+    ? (stats.fftDbMax as number)
+    : 0,
+  sourceMode: stats.sourceMode ?? "live",
+  gain: Number.isFinite(stats.gain ?? Number.NaN) ? (stats.gain as number) : 0,
+  ppm: Number.isFinite(stats.ppm ?? Number.NaN) ? (stats.ppm as number) : 0,
+  tunerAGC: Boolean(stats.tunerAGC),
+  rtlAGC: Boolean(stats.rtlAGC),
+  sampleRateHz: Number.isFinite(stats.sampleRateHz ?? Number.NaN)
+    ? (stats.sampleRateHz as number)
+    : 0,
+  heterodyningStatusText:
+    typeof stats.heterodyningStatusText === "string"
+      ? stats.heterodyningStatusText
+      : "Unknown",
+  heterodyningDetected: Boolean(stats.heterodyningDetected),
+  createdAt: Number.isFinite(stats.createdAt ?? Number.NaN)
+    ? (stats.createdAt as number)
+    : Date.now(),
+});
+
+const normalizeNoteCardTitle = (card: NoteCardModel): string => {
+  const title = card.title?.trim() ?? "";
+  if (!title || title.includes("undefined")) {
+    return "";
+  }
+  return title;
+};
+
+export const buildNoteCardTitle = (stats: NoteCardStatsSnapshot): string => {
+  const centerText = formatFrequencyText(stats.centerFrequencyHz);
+  const zoomText = Number.isFinite(stats.vizZoom)
+    ? `${stats.vizZoom.toFixed(1)}x`
+    : "Unknown zoom";
+  const dbText =
+    Number.isFinite(stats.fftDbMin) && Number.isFinite(stats.fftDbMax)
+      ? `${stats.fftDbMin} to ${stats.fftDbMax} ${stats.powerScale}`
+      : `Spectrum ${stats.powerScale}`;
+
+  return `${centerText} · ${zoomText} · ${dbText}`;
+};
+
 const initialState: NoteCardsState = {
   cards: [],
   activeCardId: null,
@@ -86,12 +165,7 @@ export const buildStatsSnapshot = (
   waterfall: WaterfallSliceState,
 ): NoteCardStatsSnapshot => {
   const range = spectrum.frequencyRange;
-  const minHz = range && Number.isFinite(range.min) ? range.min : null;
-  const maxHz = range && Number.isFinite(range.max) ? range.max : null;
-  let centerFrequencyHz: number | null = null;
-  if (minHz !== null && maxHz !== null && maxHz >= minHz) {
-    centerFrequencyHz = (minHz + maxHz) / 2;
-  }
+  const centerFrequencyHz = calculateCenterFrequency(range);
 
   return {
     centerFrequencyHz,
@@ -121,6 +195,7 @@ export const buildStatsSnapshot = (
 interface CreateNoteCardArgs {
   title?: string;
   snapshot?: NoteCardSnapshotMedia | null;
+  stats?: Partial<NoteCardStatsSnapshot>;
 }
 
 export const createNoteCardFromSpectrum = createAsyncThunk<
@@ -129,7 +204,10 @@ export const createNoteCardFromSpectrum = createAsyncThunk<
   { state: RootState }
 >("noteCards/createFromSpectrum", async (args, { getState }) => {
   const { spectrum, waterfall } = getState();
-  const stats = buildStatsSnapshot(spectrum, waterfall);
+  const stats = normalizeNoteCardStats({
+    ...buildStatsSnapshot(spectrum, waterfall),
+    ...args?.stats,
+  });
   const card: NoteCardModel = {
     id: nanoid(),
     title: args?.title ?? "",
@@ -149,14 +227,16 @@ const noteCardsSlice = createSlice({
   reducers: {
     hydrateNoteCards: (state, action: PayloadAction<NoteCardModel[]>) => {
       const incoming = action.payload ?? [];
-      const sharedPosition =
-        incoming[incoming.length - 1]?.position ?? DEFAULT_POSITION;
-      const sharedSize = incoming[incoming.length - 1]?.size ?? DEFAULT_SIZE;
-      state.cards = incoming.map((card) => ({
-        ...card,
-        position: sharedPosition,
-        size: card.size ?? sharedSize,
-      }));
+      state.cards = incoming.map((card) => {
+        const stats = normalizeNoteCardStats(card.stats);
+        return {
+          ...card,
+          title: normalizeNoteCardTitle(card),
+          stats,
+          position: card.position ?? DEFAULT_POSITION,
+          size: card.size ?? DEFAULT_SIZE,
+        };
+      });
       if (state.cards.length === 0) {
         state.activeCardId = null;
         state.nextZIndex = 1;
@@ -187,17 +267,19 @@ const noteCardsSlice = createSlice({
       state,
       action: PayloadAction<{ id: string; position: NoteCardPosition }>,
     ) => {
-      state.cards.forEach((card) => {
+      const card = state.cards.find((c) => c.id === action.payload.id);
+      if (card) {
         card.position = action.payload.position;
-      });
+      }
     },
     updateNoteCardSize: (
       state,
       action: PayloadAction<{ id: string; size: NoteCardSize }>,
     ) => {
-      state.cards.forEach((card) => {
+      const card = state.cards.find((c) => c.id === action.payload.id);
+      if (card) {
         card.size = action.payload.size;
-      });
+      }
     },
     attachNoteCardSnapshot: (
       state,

@@ -22,6 +22,10 @@ if (typeof window !== "undefined" && !window.OffscreenCanvas) {
     }
   };
 }
+jest.mock("@xyflow/react", () => ({
+  useNodes: () => [],
+  useNodeConnections: () => [],
+}));
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
@@ -31,6 +35,7 @@ import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {
   const defaultProps = {
+    id: "fft-node",
     data: {
       fftOptions: true,
       label: "FFT Transform",
@@ -79,6 +84,7 @@ describe("FFTNode", () => {
 
   it("renders with custom label", () => {
     const customProps = {
+      id: "custom-fft",
       data: {
         fftOptions: true,
         label: "Custom FFT",
@@ -104,10 +110,10 @@ describe("FFTNode", () => {
     const canvas = screen.getByTestId("fft-canvas");
     const container = canvas.closest(".nodrag.nopan") as HTMLElement;
     expect(container).toBeInTheDocument();
-    
+
     const style = window.getComputedStyle(container);
     expect(style.pointerEvents).toBe("auto");
-    expect(style.cursor).toBe("crosshair");
+    expect(style.cursor).toBe("grab");
   });
 });
 

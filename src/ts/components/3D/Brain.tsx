@@ -15,7 +15,12 @@ function Brain({
 }) {
   const { scene } = useGLTF(BRAIN_GLB_URL);
   return (
-    <primitive object={scene} position={position} scale={scale} rotation={rotation}>
+    <primitive
+      object={scene}
+      position={position}
+      scale={scale}
+      rotation={rotation}
+    >
       {children}
     </primitive>
   );

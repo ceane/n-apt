@@ -7,7 +7,8 @@ npm run capture
 ```
 
 1. Ensure an RTL-SDR device is connected and the necessary drivers are installed.
-   - `brew install librtlsdr`
+   - **macOS**: `brew install librtlsdr`
+   - **Ubuntu/Debian**: `sudo apt install librtlsdr-dev`
 2. Install Python dependencies: `pip install pyrtlsdr numpy`
 
 This runs `rtl_sdr_capture.py` by capturing IQ samples from an RTL-SDR device across multiple frequency slices. For each slice, it performs a Fast Fourier Transform (FFT) and stitches the resulting spectra together into a single wideband spectrum. The stitched spectrum is saved as NumPy arrays for further analysis.

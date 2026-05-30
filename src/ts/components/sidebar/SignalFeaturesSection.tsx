@@ -18,13 +18,13 @@ const HeterodyningContainer = styled.div`
   justify-content: start;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;
 
 const VerifyButton = styled.button`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   padding: 6px 12px;
   min-width: 80px;
   background-color: ${(props) => props.theme.surface};
@@ -46,7 +46,7 @@ interface SignalFeaturesSectionProps {
 }
 
 const ClassifyButton = styled.button<{ $disabled?: boolean }>`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   padding: 6px 12px;
   min-width: 80px;
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
@@ -68,7 +68,7 @@ const StatusActionRow = styled.div`
 `;
 
 const StatusText = styled.div`
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
 `;

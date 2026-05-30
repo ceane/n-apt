@@ -5,7 +5,7 @@ import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { usePrompt } from "@n-apt/components/ui";
 
 const SectionTitle = styled.div`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -56,7 +56,7 @@ const SearchResults = styled.div`
 const SearchResultItem = styled.div`
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   font-family: ${(props) => props.theme.typography.mono};
   color: ${(props) => props.theme.textPrimary};
   border-bottom: 1px solid ${(props) => props.theme.border};
@@ -80,7 +80,7 @@ const PreviewContainer = styled.div`
 `;
 
 const PreviewTitle = styled.div`
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.textSecondary};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -88,7 +88,7 @@ const PreviewTitle = styled.div`
 `;
 
 const PreviewName = styled.div`
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
   margin-bottom: 8px;
@@ -100,7 +100,7 @@ const AddButton = styled.button`
   color: white;
   border: none;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-family: ${(props) => props.theme.typography.mono};
   cursor: pointer;
 
@@ -123,13 +123,13 @@ const PillWrapper = styled.div`
 `;
 
 const Pill = styled.button<{ $color: string; $active: boolean }>`
-  padding: .5rem .75rem;
+  padding: 0.5rem 0.75rem;
   background: ${(props) =>
     props.$active ? props.$color : props.theme.surface};
   color: ${(props) => (props.$active ? "white" : props.theme.textPrimary)};
   border: 1px solid ${(props) => props.$color};
   border-radius: 18px;
-  font-size: .7rem;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-family: ${(props) => props.theme.typography.mono};
   cursor: pointer;
 
@@ -144,7 +144,7 @@ const RemoveButton = styled.button`
   border: none;
   color: ${(props) => props.theme.textSecondary};
   cursor: pointer;
-  font-size: 24px;
+  font-size: ${({ theme }) => theme.typography.headingSize};
 
   &:hover {
     color: ${(props) => props.theme.danger};
@@ -188,36 +188,37 @@ export const MapLocationsSection: React.FC = () => {
         const results = await response.json();
 
         // Process results to be less granular - focus on city, state, and major landmarks
-        const processedResults = results
-          .map((result: any) => {
-            const address = result.address || {};
-            let displayName = "";
+        const processedResults = results.reduce((acc: any[], result: any) => {
+          const address = result.address || {};
+          let displayName = "";
 
-            // Priority order for US locations
-            if (address.city || address.town || address.village) {
-              const city = address.city || address.town || address.village;
-              const state = address.state || "";
-              displayName = state ? `${city}, ${state}` : city;
-            } else if (address.county && address.state) {
-              displayName = `${address.county.replace(" County", "")}, ${address.state}`;
-            } else if (address.state) {
-              displayName = address.state;
-            } else if (result.display_name) {
-              // Fallback but clean up the display name
-              displayName = result.display_name
-                .split(",")
-                .slice(0, 2) // Keep only first 2 parts
-                .join(",")
-                .replace(/, United States$/, "");
-            }
+          // Priority order for US locations
+          if (address.city || address.town || address.village) {
+            const city = address.city || address.town || address.village;
+            const state = address.state || "";
+            displayName = state ? `${city}, ${state}` : city;
+          } else if (address.county && address.state) {
+            displayName = `${address.county.replace(" County", "")}, ${address.state}`;
+          } else if (address.state) {
+            displayName = address.state;
+          } else if (result.display_name) {
+            // Fallback but clean up the display name
+            displayName = result.display_name
+              .split(",")
+              .slice(0, 2) // Keep only first 2 parts
+              .join(",")
+              .replace(/, United States$/, "");
+          }
 
-            return {
+          if (displayName) {
+            acc.push({
               ...result,
               display_name: displayName || result.display_name,
               simplified_name: displayName,
-            };
-          })
-          .filter((result: any) => result.simplified_name);
+            });
+          }
+          return acc;
+        }, []);
 
         setSearchResults(processedResults);
       }

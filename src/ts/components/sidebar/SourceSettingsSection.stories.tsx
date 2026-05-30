@@ -31,6 +31,7 @@ export const LiveSource = () => {
       <SidebarContainer>
         <SourceSettingsSection
           sourceMode="live"
+          deviceType="rtl-sdr"
           gain={gain}
           ppm={ppm}
           tunerAGC={tunerAGC}
@@ -96,6 +97,45 @@ export const Disconnected = () => (
     </SidebarContainer>
   </ThemeProvider>
 );
+
+export const HackRFSource = () => {
+  const [lnaGain, setLnaGain] = useState(32.0);
+  const [vgaGain, setVgaGain] = useState(18);
+  const [ampEnabled, setAmpEnabled] = useState(true);
+  const [basebandBandwidth, setBasebandBandwidth] = useState(3_200_000);
+
+  return (
+    <ThemeProvider theme={theme as any}>
+      <SidebarContainer>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          gain={0}
+          hackrfLnaGain={lnaGain}
+          hackrfVgaGain={vgaGain}
+          hackrfAmpEnabled={ampEnabled}
+          hackrfBasebandBandwidth={basebandBandwidth}
+          hackrfCurrentSampleRate={3_200_000}
+          ppm={0}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onGainChange={() => {}}
+          onHackrfLnaGainChange={setLnaGain}
+          onHackrfVgaGainChange={setVgaGain}
+          onHackrfAmpEnabledChange={setAmpEnabled}
+          onHackrfBasebandBandwidthChange={setBasebandBandwidth}
+          onPpmChange={() => {}}
+          onTunerAGCChange={() => {}}
+          onRtlAGCChange={() => {}}
+          onStitchSourceSettingsChange={() => {}}
+          onAgcModeChange={() => {}}
+        />
+      </SidebarContainer>
+    </ThemeProvider>
+  );
+};
 
 export default {
   title: "Sidebar/Source Settings",

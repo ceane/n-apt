@@ -33,6 +33,8 @@ const getApiBase = (): string => {
 
 const API_BASE = getApiBase();
 const SESSION_KEY = ENV_SESSION_KEY ?? "n-apt-session-token";
+const AUTH_SERVER_DISCONNECTED_MESSAGE =
+  "The app isn't running, run `npm run dev` to start the server and login.";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -50,6 +52,11 @@ export interface SessionValidation {
   token?: string;
   error?: string;
 }
+
+// -- Request Deduplication --
+let authInfoPromise: Promise<AuthInfo> | null = null;
+const sessionValidationPromises = new Map<string, Promise<SessionValidation>>();
+const vaultKeyPromises = new Map<string, Promise<string | null>>();
 
 // ── Session persistence ────────────────────────────────────────────────
 
@@ -79,17 +86,47 @@ export function clearSession(): void {
 
 // ── REST API calls ─────────────────────────────────────────────────────
 
-/** GET /auth/info — check if passkeys are registered. */
-export async function fetchAuthInfo(): Promise<AuthInfo> {
-  const res = await fetch(`${API_BASE}/auth/info`);
-  if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
+function isFetchNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
 
-  const data = await res.json();
-  if (!validateAuthInfo(data)) {
-    throw new Error("Invalid auth info response from server");
+  return (
+    error.message === "Failed to fetch" ||
+    error.message === "fetch failed" ||
+    error.message.includes("NetworkError") ||
+    error.message.includes("Load failed")
+  );
+}
+
+function authServerDisconnectedError(error: unknown): Error {
+  if (isFetchNetworkError(error)) {
+    return new Error(AUTH_SERVER_DISCONNECTED_MESSAGE);
   }
 
-  return data;
+  return error instanceof Error ? error : new Error("Authentication failed");
+}
+
+/** GET /auth/info — check if passkeys are registered. */
+export async function fetchAuthInfo(): Promise<AuthInfo> {
+  if (authInfoPromise) return authInfoPromise;
+
+  authInfoPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/info`);
+      if (!res.ok) throw new Error(`auth/info failed: ${res.status}`);
+
+      const data = await res.json();
+      if (!validateAuthInfo(data)) {
+        throw new Error("Invalid auth info response from server");
+      }
+
+      return data;
+    } catch (e) {
+      authInfoPromise = null; // Allow retry on failure
+      throw e;
+    }
+  })();
+
+  return authInfoPromise;
 }
 
 /** GET /status — public server status (no auth required). */
@@ -126,57 +163,87 @@ export async function validateSession(
     };
   }
 
-  const res = await fetch(`${API_BASE}/auth/session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
+  const existing = sessionValidationPromises.get(token);
+  if (existing) return existing;
 
-  const responseText = await res.text();
-  const parsed = responseText
-    ? (() => {
-        try {
-          return JSON.parse(responseText) as SessionValidation;
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ token }),
+      });
 
-  if (!res.ok) {
-    return {
-      valid: false,
-      error: parsed?.error || `Session validation failed: ${res.status}`,
-    };
-  }
+      const responseText = await res.text();
+      const parsed = responseText
+        ? (() => {
+            try {
+              return JSON.parse(responseText) as SessionValidation;
+            } catch {
+              return null;
+            }
+          })()
+        : null;
 
-  if (parsed && validateSessionValidation(parsed)) {
-    return parsed;
-  }
+      if (!res.ok) {
+        return {
+          valid: false,
+          error: parsed?.error || `Session validation failed: ${res.status}`,
+        };
+      }
 
-  return {
-    valid: false,
-    error: "Invalid session validation response",
-  };
+      if (parsed && validateSessionValidation(parsed)) {
+        return parsed;
+      }
+
+      return {
+        valid: false,
+        error: "Invalid session validation response",
+      };
+    } finally {
+      // We don't necessarily want to clear this immediately if we want to avoid
+      // Strict Mode double-fire, but we don't want to keep it forever either
+      // if the token might expire. For now, keeping it simple.
+      setTimeout(() => sessionValidationPromises.delete(token), 5000);
+    }
+  })();
+
+  sessionValidationPromises.set(token, promise);
+  return promise;
 }
 
 /**
  * Fetch the derived encryption key (Vault Key) for an authenticated session.
  */
 export async function fetchVaultKey(token: string): Promise<string | null> {
-  const response = await fetch(
-    `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
-    {
-      method: "GET",
-    },
-  );
+  const existing = vaultKeyPromises.get(token);
+  if (existing) return existing;
 
-  if (!response.ok) {
-    return null;
-  }
+  const promise = (async () => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
+        {
+          method: "GET",
+        },
+      );
 
-  const data = await response.json();
-  return data.vault_key;
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return data.vault_key;
+    } finally {
+      setTimeout(() => vaultKeyPromises.delete(token), 5000);
+    }
+  })();
+
+  vaultKeyPromises.set(token, promise);
+  return promise;
 }
 
 // ── Password authentication ────────────────────────────────────────────
@@ -186,11 +253,16 @@ export async function authenticateWithPassword(
   password: string,
 ): Promise<AuthResult> {
   // Step 1: Get challenge from server
-  const challengeRes = await fetch(`${API_BASE}/auth/challenge`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let challengeRes: Response;
+  try {
+    challengeRes = await fetch(`${API_BASE}/auth/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!challengeRes.ok)
     throw new Error("Authentication failed — Server disconnected 500");
   const { challenge_id, nonce } = await challengeRes.json();
@@ -199,11 +271,16 @@ export async function authenticateWithPassword(
   const hmacB64 = await computeHmac(password, nonce);
 
   // Step 3: Send HMAC to server for verification
-  const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ challenge_id, hmac: hmacB64 }),
-  });
+  let verifyRes: Response;
+  try {
+    verifyRes = await fetch(`${API_BASE}/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id, hmac: hmacB64 }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!verifyRes.ok) {
     const err = await verifyRes
@@ -232,11 +309,16 @@ export async function registerPasskey(): Promise<void> {
   console.log("Starting passkey registration...");
 
   // Step 1: Get registration options from server
-  const startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let startRes: Response;
+  try {
+    startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!startRes.ok) {
     const text = await startRes.text();
     console.error("Failed to start passkey registration:", text);
@@ -257,16 +339,21 @@ export async function registerPasskey(): Promise<void> {
   console.log("Created credential:", credential);
 
   // Step 3: Send credential to server
-  const finishRes = await fetch(`${API_BASE}/auth/passkey/register/finish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      challenge_id,
-      credential: serializeRegistrationCredential(
-        credential as PublicKeyCredential,
-      ),
-    }),
-  });
+  let finishRes: Response;
+  try {
+    finishRes = await fetch(`${API_BASE}/auth/passkey/register/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge_id,
+        credential: serializeRegistrationCredential(
+          credential as PublicKeyCredential,
+        ),
+      }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!finishRes.ok) {
     const text = await finishRes.text();
@@ -279,11 +366,16 @@ export async function registerPasskey(): Promise<void> {
 /** Authenticate with an existing passkey. */
 export async function authenticateWithPasskey(): Promise<AuthResult> {
   // Step 1: Get authentication options from server
-  const startRes = await fetch(`${API_BASE}/auth/passkey/auth/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+  let startRes: Response;
+  try {
+    startRes = await fetch(`${API_BASE}/auth/passkey/auth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
   if (!startRes.ok) throw new Error("Failed to start passkey authentication");
   const { challenge_id, options } = await startRes.json();
 
@@ -294,16 +386,21 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
   if (!credential) throw new Error("Passkey authentication cancelled");
 
   // Step 3: Send assertion to server
-  const finishRes = await fetch(`${API_BASE}/auth/passkey/auth/finish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      challenge_id,
-      credential: serializeAuthenticationCredential(
-        credential as PublicKeyCredential,
-      ),
-    }),
-  });
+  let finishRes: Response;
+  try {
+    finishRes = await fetch(`${API_BASE}/auth/passkey/auth/finish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challenge_id,
+        credential: serializeAuthenticationCredential(
+          credential as PublicKeyCredential,
+        ),
+      }),
+    });
+  } catch (error) {
+    throw authServerDisconnectedError(error);
+  }
 
   if (!finishRes.ok) {
     const err = await finishRes

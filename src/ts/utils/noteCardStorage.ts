@@ -1,8 +1,9 @@
+import Dexie, { type Table } from "dexie";
 import type { NoteCardModel } from "@n-apt/redux/slices/noteCardsSlice";
 
 const DB_NAME = "napt-note-cards";
 const DB_VERSION = 1;
-const STORE_NAME = "note-cards";
+const STORE_NAME = "persistedNoteCards";
 const RECORD_KEY = "cards";
 
 export interface PersistedNoteCardsPayload {
@@ -15,107 +16,74 @@ const DEFAULT_PERSISTED_STATE: PersistedNoteCardsPayload = {
   isCollapsed: false,
 };
 
-const isIndexedDbAvailable = () =>
-  typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
+interface NoteCardsPersistenceRecord {
+  id: string;
+  payload: PersistedNoteCardsPayload;
+  updatedAt: number;
+}
 
-const openDb = async (): Promise<IDBDatabase | null> => {
-  if (!isIndexedDbAvailable()) {
-    return null;
-  }
+class NoteCardsDatabase extends Dexie {
+  persistedNoteCards!: Table<NoteCardsPersistenceRecord, string>;
 
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      }
-    };
-  });
-};
-
-const withStore = async <T>(
-  mode: IDBTransactionMode,
-  callback: (store: IDBObjectStore) => Promise<T> | T,
-): Promise<T | null> => {
-  const db = await openDb();
-  if (!db) {
-    return null;
-  }
-
-  try {
-    const transaction = db.transaction(STORE_NAME, mode);
-    const store = transaction.objectStore(STORE_NAME);
-    const result = await callback(store);
-    await new Promise<void>((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
+  constructor() {
+    super(DB_NAME);
+    this.version(DB_VERSION).stores({
+      [STORE_NAME]: "id, updatedAt",
     });
-    return result;
-  } finally {
-    db.close();
+    this.persistedNoteCards = this.table(STORE_NAME);
   }
-};
+}
+
+const db = typeof window !== "undefined" ? new NoteCardsDatabase() : null;
+
+const normalizePayload = (
+  payload: Partial<PersistedNoteCardsPayload> | null | undefined,
+): PersistedNoteCardsPayload => ({
+  cards: Array.isArray(payload?.cards) ? payload.cards : [],
+  isCollapsed: payload?.isCollapsed ?? false,
+});
 
 export const loadPersistedNoteCards =
   async (): Promise<PersistedNoteCardsPayload> => {
-    const result = await withStore(
-      "readonly",
-      (store) =>
-        new Promise<PersistedNoteCardsPayload>((resolve, reject) => {
-          const request = store.get(RECORD_KEY);
-          request.onsuccess = () => {
-            const rawValue = request.result?.value;
-            if (Array.isArray(rawValue)) {
-              resolve({ cards: rawValue, isCollapsed: false });
-              return;
-            }
-            if (rawValue && Array.isArray(rawValue.cards)) {
-              resolve({
-                cards: rawValue.cards,
-                isCollapsed: rawValue.isCollapsed ?? false,
-              });
-              return;
-            }
-            resolve(DEFAULT_PERSISTED_STATE);
-          };
-          request.onerror = () => reject(request.error);
-        }),
-    );
+    if (!db) {
+      return DEFAULT_PERSISTED_STATE;
+    }
 
-    return result ?? DEFAULT_PERSISTED_STATE;
+    try {
+      const record = await db.persistedNoteCards.get(RECORD_KEY);
+      return normalizePayload(record?.payload ?? null);
+    } catch (error) {
+      console.warn("Failed to load persisted note cards:", error);
+      return DEFAULT_PERSISTED_STATE;
+    }
   };
 
 export const persistNoteCards = async (
   payload: PersistedNoteCardsPayload,
 ): Promise<void> => {
-  await withStore(
-    "readwrite",
-    (store) =>
-      new Promise<void>((resolve, reject) => {
-        const request = store.put({
-          id: RECORD_KEY,
-          value: payload,
-          updatedAt: Date.now(),
-        });
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }),
-  );
+  if (!db) {
+    return;
+  }
+
+  try {
+    await db.persistedNoteCards.put({
+      id: RECORD_KEY,
+      payload: normalizePayload(payload),
+      updatedAt: Date.now(),
+    });
+  } catch (error) {
+    console.warn("Failed to persist note cards:", error);
+  }
 };
 
 export const clearPersistedNoteCards = async (): Promise<void> => {
-  await withStore(
-    "readwrite",
-    (store) =>
-      new Promise<void>((resolve, reject) => {
-        const request = store.delete(RECORD_KEY);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }),
-  );
+  if (!db) {
+    return;
+  }
+
+  try {
+    await db.persistedNoteCards.delete(RECORD_KEY);
+  } catch (error) {
+    console.warn("Failed to clear persisted note cards:", error);
+  }
 };

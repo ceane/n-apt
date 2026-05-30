@@ -39,7 +39,7 @@ const RangeButton = styled.button<{ $active: boolean; $variant: RangeVariant }>`
   }};
   color: ${(props) => props.theme.textPrimary};
   border-radius: 8px;
-  padding: 10px 10px 8px;
+  padding: 8px 10px 6px;
   width: 100%;
   min-width: 0;
   display: flex;
@@ -98,11 +98,10 @@ const RangeTotal = styled.span<{ $active: boolean; $variant: RangeVariant }>`
   }};
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.2px;
-  min-height: ${({ $active }) => ($active ? "20px" : "6px")};
-  padding: ${({ $active }) => ($active ? "2px 8px" : "0")};
+  letter-spacing: 0.1px;
+  min-height: ${({ $active }) => ($active ? "16px" : "4px")};
+  padding: ${({ $active }) => ($active ? "1px 6px" : "0")};
   transition:
-    color 0.2s ease,
     min-height 0.2s ease,
     background-color 0.2s ease;
 `;
@@ -114,6 +113,8 @@ export interface RangeProps {
   selected: boolean;
   onToggle: () => void;
   variant?: RangeVariant;
+  children?: React.ReactNode;
+  fullWidth?: boolean;
 }
 
 export const Range: React.FC<RangeProps> = ({
@@ -123,12 +124,11 @@ export const Range: React.FC<RangeProps> = ({
   selected,
   onToggle,
   variant = "primary",
+  children,
+  fullWidth = false,
 }) => {
-  const totalSpan = Math.max(0, max - min);
-  const descriptiveRange = `${formatFrequency(min)} to ${formatFrequency(max)}`;
-
   return (
-    <RangeWrapper>
+    <RangeWrapper style={fullWidth ? { gridColumn: "1 / -1" } : undefined}>
       <RangeTitle>{label}</RangeTitle>
       <RangeButton
         type="button"
@@ -136,7 +136,6 @@ export const Range: React.FC<RangeProps> = ({
         $active={selected}
         aria-pressed={selected}
         aria-label={label}
-        title={`${label}: ${descriptiveRange}`}
         $variant={variant}
       >
         <RangeStart>{formatFrequency(min)}</RangeStart>
@@ -144,11 +143,10 @@ export const Range: React.FC<RangeProps> = ({
           $active={selected}
           aria-hidden={!selected}
           $variant={variant}
-        >
-          {selected ? `${formatFrequency(totalSpan)} total` : null}
-        </RangeTotal>
+        />
         <RangeEnd>{formatFrequency(max)}</RangeEnd>
       </RangeButton>
+      {children}
     </RangeWrapper>
   );
 };

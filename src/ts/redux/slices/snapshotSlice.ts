@@ -13,6 +13,7 @@ export type SnapshotProgressState = {
   message: string | null;
   current: number | null;
   total: number | null;
+  pulseToken: number;
 };
 
 const initialState: SnapshotProgressState = {
@@ -20,6 +21,7 @@ const initialState: SnapshotProgressState = {
   message: null,
   current: null,
   total: null,
+  pulseToken: 0,
 };
 
 const snapshotSlice = createSlice({
@@ -27,14 +29,24 @@ const snapshotSlice = createSlice({
   initialState,
   reducers: {
     setSnapshotProgress: (
-      _state,
-      action: PayloadAction<SnapshotProgressState>,
-    ) => action.payload,
+      state,
+      action: PayloadAction<Partial<SnapshotProgressState>>,
+    ) => ({
+      ...state,
+      ...action.payload,
+    }),
     clearSnapshotProgress: () => initialState,
+    bumpSnapshotSectionPulse: (state) => ({
+      ...state,
+      pulseToken: state.pulseToken + 1,
+    }),
   },
 });
 
-export const { setSnapshotProgress, clearSnapshotProgress } =
-  snapshotSlice.actions;
+export const {
+  setSnapshotProgress,
+  clearSnapshotProgress,
+  bumpSnapshotSectionPulse,
+} = snapshotSlice.actions;
 
 export default snapshotSlice.reducer;

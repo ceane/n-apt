@@ -61,22 +61,6 @@ export const PretextDBScale: React.FC<PretextDBScaleProps> = ({
     return labels;
   }, [fftMin, fftMax]);
 
-  // Create fixed number of hooks for consistent order
-  const dbTextHooks = Array.from({ length: MAX_DB_LABELS }, (_, index) => {
-    const value = dbLabels[index];
-    const labelText = value
-      ? `${Math.round(value)}${value === dbLabels[0] ? (powerScale === "dBm" ? " dBm" : " dB") : ""}`
-      : "";
-
-    return usePretextText({
-      text: labelText,
-      font: `${fontSize}px ${fontFamily}`,
-      fontSize,
-      color: textColor,
-    });
-  });
-
-  // Create hook for scale title at top level
   const { metrics: titleMetrics } = usePretextText({
     text: powerScale,
     font: `bold ${fontSize}px ${fontFamily}`,
@@ -131,21 +115,13 @@ export const PretextDBScale: React.FC<PretextDBScaleProps> = ({
         scaledCtx.stroke();
       }
 
-      // Draw label using pre-calculated hook
-      const { metrics } = dbTextHooks[index];
-      if (metrics) {
-        // Right-align the labels at the left edge of the plot area
-        const labelX = padding - 5; // Position in the padding area
-        const labelY = yPos + 3; // Small offset for better alignment
-
-        scaledCtx.textAlign = "right";
-        scaledCtx.textBaseline = "top";
-        scaledCtx.fillText(
-          `${Math.round(value)}${value === dbLabels[0] ? (powerScale === "dBm" ? " dBm" : " dB") : ""}`,
-          labelX * dpr,
-          labelY * dpr,
-        );
-      }
+      scaledCtx.textAlign = "right";
+      scaledCtx.textBaseline = "top";
+      scaledCtx.fillText(
+        `${Math.round(value)}${value === dbLabels[0] ? (powerScale === "dBm" ? " dBm" : " dB") : ""}`,
+        (padding - 5) * dpr,
+        (yPos + 3) * dpr,
+      );
     });
 
     // Draw scale title using pre-calculated hook
@@ -173,7 +149,6 @@ export const PretextDBScale: React.FC<PretextDBScaleProps> = ({
     fontFamily,
     padding,
     dbLabels,
-    dbTextHooks,
     titleMetrics,
   ]);
 

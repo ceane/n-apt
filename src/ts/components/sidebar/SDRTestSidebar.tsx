@@ -1,7 +1,7 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
-import { Unplug, ChevronsLeftRightEllipsis } from "lucide-react";
+import { Unplug, RotateCcw } from "lucide-react";
 
 import {
   useSpectrumStore,
@@ -9,6 +9,7 @@ import {
 } from "@n-apt/hooks/useSpectrumStore";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import SignalComposition from "@n-apt/components/SignalComposition";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import {
   ConnectionStatusSection,
@@ -61,16 +62,6 @@ const MultiFrameButton = styled(PauseButton)`
   }
 `;
 
-const DiagnosticStatusDisplay = styled.div`
-  grid-column: 1 / -1;
-  font-size: 11px;
-  font-family: ${(props) => props.theme.typography.mono};
-  color: ${(props) => props.theme.textSecondary};
-  padding: 4px 12px;
-  margin-top: -8px;
-  border-left: 2px solid ${(props) => props.theme.borderHover};
-`;
-
 export const SDRTestSidebar: React.FC = () => {
   const {
     state,
@@ -87,9 +78,9 @@ export const SDRTestSidebar: React.FC = () => {
       backend,
       deviceLoadingReason,
       maxSampleRateHz,
+      sampleRateOptions,
       sendSettings,
       sendRestartDevice,
-      autoFftOptions,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
   } = useSpectrumStore();
@@ -97,6 +88,12 @@ export const SDRTestSidebar: React.FC = () => {
   const { showPrompt } = usePrompt();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
+  const deviceTypeNormalized =
+    deviceProfile?.kind === "rtl-sdr" ? "rtl_sdr" : deviceProfile?.kind;
+  const activeDeviceConfig = deviceTypeNormalized
+    ? effectiveSdrSettings?.devices?.[deviceTypeNormalized]
+    : undefined;
+  const gainLimits = activeDeviceConfig?.gain_limits;
 
   const {
     fftSize,
@@ -104,12 +101,14 @@ export const SDRTestSidebar: React.FC = () => {
     fftFrameRate,
     maxFrameRate,
     gain,
+    hackrfBasebandBandwidth,
     ppm,
     tunerAGC,
     rtlAGC,
     setFftSize,
     setFftFrameRate,
     setGain,
+    setHackrfBasebandBandwidth,
     setPpm,
     setTunerAGC,
     setRtlAGC,
@@ -117,14 +116,16 @@ export const SDRTestSidebar: React.FC = () => {
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate,
+    sampleRateOptions,
     sdrSettings: effectiveSdrSettings ?? null,
+    deviceType: deviceProfile?.kind,
     onSettingsChange: (settings) => {
       sendSettings(settings);
     },
   });
 
   const resetLiveControls = useCallback(() => {
-    const recommendedFftSize = autoFftOptions?.recommended ?? state.fftSize;
+    const recommendedFftSize = 2048;
     const recommendedFrameRate = Math.max(
       1,
       Math.min(maxFrameRate, state.fftFrameRate),
@@ -141,18 +142,12 @@ export const SDRTestSidebar: React.FC = () => {
       fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
       frameRate: recommendedFrameRate,
       gain: LIVE_CONTROL_DEFAULTS.gain,
+      tunerBandwidth: 0,
       ppm: LIVE_CONTROL_DEFAULTS.ppm,
       tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
       rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
     });
-  }, [
-    autoFftOptions?.recommended,
-    dispatch,
-    maxFrameRate,
-    sendSettings,
-    state.fftFrameRate,
-    state.fftSize,
-  ]);
+  }, [dispatch, maxFrameRate, sendSettings, state.fftFrameRate, state.fftSize]);
 
   return (
     <SidebarContent>
@@ -177,6 +172,7 @@ export const SDRTestSidebar: React.FC = () => {
             isConnected={isConnected}
             deviceState={deviceState}
             deviceLoadingReason={deviceLoadingReason}
+            backend={backend}
             isPaused={state.visualizerPaused}
             cryptoCorrupted={cryptoCorrupted}
             onPauseToggle={toggleVisualizerPause}
@@ -187,17 +183,26 @@ export const SDRTestSidebar: React.FC = () => {
                 $paused={false}
                 onClick={() => dispatch({ type: "TRIGGER_DIAGNOSTIC" })}
                 disabled={state.isDiagnosticRunning}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                }}
               >
-                {state.isDiagnosticRunning
-                  ? "Capturing..."
-                  : "Run Multi-Frame Capture"}
+                {state.isDiagnosticRunning ? (
+                  state.diagnosticStatus || "Capturing..."
+                ) : state.diagnosticStatus === "Capture complete" ? (
+                  <>
+                    <RotateCcw size={14} />
+                    Run Again
+                  </>
+                ) : (
+                  "Run Multi-Frame Capture"
+                )}
               </MultiFrameButton>
             }
           />
-
-          <DiagnosticStatusDisplay>
-            {state.diagnosticStatus}
-          </DiagnosticStatusDisplay>
 
           <PauseButton
             $paused={false}
@@ -216,17 +221,20 @@ export const SDRTestSidebar: React.FC = () => {
             Reset Options to Defaults
           </PauseButton>
 
+          <SignalComposition sidebar />
+
           <Section>
-            <SidebarSectionTitle
-              icon={<ChevronsLeftRightEllipsis size={14} />}
-              title="Channel"
-            />
             <Channels />
           </Section>
 
           <SignalDisplaySection
+            variant="diagnostic"
             sourceMode={state.sourceMode}
             maxSampleRate={maxSampleRate}
+            sampleRate={state.sampleRateHz}
+            sampleRateOptions={[3_200_000, maxSampleRate].filter(
+              (v, i, a) => a.indexOf(v) === i,
+            )}
             fileCapturedRange={null}
             fftSize={fftSize}
             fftFrameRate={fftFrameRate}
@@ -234,12 +242,12 @@ export const SDRTestSidebar: React.FC = () => {
             fftSizeOptions={[8192, 16384, 32768, 65536, 131072, 262144]}
             fftWindow={fftWindow}
             temporalResolution={state.displayTemporalResolution}
-            autoFftOptions={autoFftOptions || null}
             backend={backend}
             deviceProfile={deviceProfile}
             powerScale={state.powerScale}
             onFftSizeChange={setFftSize}
             onFftFrameRateChange={setFftFrameRate}
+            onSampleRateChange={() => {}}
             onFftWindowChange={setFftWindow}
             onTemporalResolutionChange={(resolution) =>
               dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution })
@@ -252,13 +260,20 @@ export const SDRTestSidebar: React.FC = () => {
 
           <SourceSettingsSection
             sourceMode={state.sourceMode}
+            deviceType={deviceProfile?.kind}
             gain={gain}
+            gainLimits={gainLimits}
+            hackrfBasebandBandwidth={hackrfBasebandBandwidth}
+            hackrfCurrentSampleRate={
+              sampleRateHzEffective ?? state.sampleRateHz
+            }
             ppm={ppm}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             isConnected={isConnected}
             stitchSourceSettings={state.stitchSourceSettings}
             onGainChange={setGain}
+            onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
             onPpmChange={setPpm}
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}

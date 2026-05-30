@@ -20,6 +20,11 @@ import {
   sendPowerScaleCommand,
 } from "@n-apt/redux";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import { useDemodQualityGuard } from "@n-apt/hooks/useDemodQualityGuard";
+import {
+  beforeDemodEnforceQuality,
+  getDemodQualityLockedFftSizes,
+} from "@n-apt/utils/demodQuality";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { formatFrequencyHz } from "@n-apt/utils/frequency";
@@ -139,6 +144,7 @@ interface SignalConfigNodeProps {
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const spectrum = useAppSelector((state) => state.spectrum);
+  const qualityGuard = useDemodQualityGuard();
   const {
     wsConnection,
     sampleRateHzEffective,
@@ -150,18 +156,23 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     sdrSettings: liveSdrSettingsConfig,
     backend: liveBackend,
     deviceProfile: liveDeviceProfileToUse,
-    autoFftOptions: liveAutoFftOptions,
+    sampleRateOptions: liveSampleRateOptions,
   } = wsConnection;
 
   const {
     fftSizeOptions,
+    sampleRateOptions,
     setFftSize,
     setFftWindow: handleFftWindow,
+    setSampleRate,
     setGain,
     setPpm,
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate: sampleRateHzEffective || 3_200_000,
+    minReceiveSampleRate:
+      liveSdrSettingsConfig?.min_receive_sample_rate ?? undefined,
+    sampleRateOptions: liveSampleRateOptions,
     sdrSettings: liveSdrSettingsConfig,
     onSettingsChange: (settings) => dispatch(sendSettings(settings)),
   });
@@ -189,17 +200,69 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     [spectrum.fftSize, fftSizeOptions],
   );
 
-  const autoFftSizeOptions = React.useMemo(
+  const lockedFftSizeOptions = React.useMemo(
     () =>
-      Array.from(
-        new Set(
-          (liveAutoFftOptions?.autoSizes ?? []).filter(
-            (size) => Number.isFinite(size) && size > 0,
-          ),
-        ),
-      ).sort((a: any, b: any) => a - b),
-    [liveAutoFftOptions],
+      qualityGuard.isLocked
+        ? getDemodQualityLockedFftSizes(
+            manualFftOptions,
+            qualityGuard.minimumFftSize,
+            spectrum.fftSize,
+          )
+        : [],
+    [
+      manualFftOptions,
+      qualityGuard.isLocked,
+      qualityGuard.minimumFftSize,
+      spectrum.fftSize,
+    ],
   );
+
+  const effectiveQuality = React.useMemo(
+    () =>
+      beforeDemodEnforceQuality(
+        {
+          fftSize: spectrum.fftSize,
+          temporalResolution: spectrum.displayTemporalResolution,
+        },
+        qualityGuard.isLocked,
+        qualityGuard.minimumFftSize,
+      ),
+    [
+      qualityGuard.isLocked,
+      qualityGuard.minimumFftSize,
+      spectrum.displayTemporalResolution,
+      spectrum.fftSize,
+    ],
+  );
+
+  useEffect(() => {
+    if (!qualityGuard.isLocked) return;
+
+    if (spectrum.fftSize !== effectiveQuality.fftSize) {
+      setFftSize(effectiveQuality.fftSize);
+      scheduleCoupledAdjustment(
+        "fftSize",
+        effectiveQuality.fftSize,
+        spectrum.fftFrameRate,
+      );
+    }
+
+    if (
+      spectrum.displayTemporalResolution !== effectiveQuality.temporalResolution
+    ) {
+      dispatch(setTemporalResolution(effectiveQuality.temporalResolution));
+    }
+  }, [
+    dispatch,
+    effectiveQuality.fftSize,
+    effectiveQuality.temporalResolution,
+    qualityGuard.isLocked,
+    scheduleCoupledAdjustment,
+    setFftSize,
+    spectrum.displayTemporalResolution,
+    spectrum.fftFrameRate,
+    spectrum.fftSize,
+  ]);
 
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
@@ -374,16 +437,18 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
           <SettingRow>
             <SettingLabel>
               <GalleryHorizontal size={12} />
-              Sample Size
+              Sample Rate
             </SettingLabel>
-            <InputGroup>
-              <SettingInput
-                type="text"
-                readOnly
-                value={formatFrequencyHz(spectrum.sampleRateHz)}
-              />
-              <UnitLabel>Hz</UnitLabel>
-            </InputGroup>
+            <SettingSelect
+              value={spectrum.sampleRateHz}
+              onChange={(e) => setSampleRate(Number(e.target.value))}
+            >
+              {sampleRateOptions.map((rate) => (
+                <option key={rate} value={rate}>
+                  {formatFrequencyHz(rate)}
+                </option>
+              ))}
+            </SettingSelect>
           </SettingRow>
 
           <SettingRow>
@@ -392,34 +457,31 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
               FFT Size
             </SettingLabel>
             <SettingSelect
-              value={spectrum.fftSize}
+              value={effectiveQuality.fftSize}
               onChange={(e) => {
                 const val = Number(e.target.value);
-                setFftSize(val);
+                const nextFftSize = qualityGuard.isLocked
+                  ? Math.max(val, qualityGuard.minimumFftSize)
+                  : val;
+                setFftSize(nextFftSize);
                 scheduleCoupledAdjustment(
                   "fftSize",
-                  val,
+                  nextFftSize,
                   spectrum.fftFrameRate,
                 );
               }}
             >
-              {autoFftSizeOptions.length > 0 ? (
+              {qualityGuard.isLocked ? (
                 <>
-                  {autoFftSizeOptions.map((size: any) => (
-                    <option key={`auto-${size}`} value={size}>
-                      {size} (Auto)
-                    </option>
-                  ))}
-                  {manualFftOptions.length > 0 && <option disabled>---</option>}
-                  {manualFftOptions.map((size: any) => (
-                    <option key={`manual-${size}`} value={size}>
+                  {lockedFftSizeOptions.map((size: number) => (
+                    <option key={`locked-${size}`} value={size}>
                       {size}
                     </option>
                   ))}
                 </>
               ) : (
                 <>
-                  {manualFftOptions.map((size: any) => (
+                  {manualFftOptions.map((size: number) => (
                     <option key={`manual-${size}`} value={size}>
                       {size}
                     </option>
@@ -454,17 +516,20 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
               Temporal Resolution
             </SettingLabel>
             <SettingSelect
-              value={spectrum.displayTemporalResolution}
+              value={effectiveQuality.temporalResolution}
+              disabled={qualityGuard.isLocked}
               onChange={(e) => {
                 dispatch(
                   setTemporalResolution(
-                    e.target.value as "low" | "medium" | "high",
+                    (qualityGuard.isLocked
+                      ? qualityGuard.requiredTemporalResolution
+                      : e.target.value) as "low" | "medium" | "high",
                   ),
                 );
               }}
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
+              {!qualityGuard.isLocked && <option value="low">Low</option>}
+              {!qualityGuard.isLocked && <option value="medium">Medium</option>}
               <option value="high">High</option>
             </SettingSelect>
           </SettingRow>

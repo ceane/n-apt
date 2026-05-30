@@ -1,35 +1,33 @@
-import * as React from "react";
-import { render, screen, waitFor, act } from "@testing-library/react";
-import { Provider } from "react-redux";
-import { configureStore } from "@reduxjs/toolkit";
-jest.setTimeout(15000);
-import "@testing-library/jest-dom";
-import { DemodProvider, useDemod } from "../../src/ts/contexts/DemodContext";
+const React = require("react");
+const { render, screen, waitFor, act } = require("@testing-library/react");
+const { Provider } = require("react-redux");
+const { configureStore } = require("@reduxjs/toolkit");
+require("@testing-library/jest-dom");
 
-// Create a mock Redux store
-const mockStore = configureStore({
-  reducer: {
-    websocket: (_state = { captureStatus: null }, _action) => ({
-      captureStatus: null,
-    }),
-  },
-});
+const jestGlobal = typeof jest !== "undefined" ? jest : undefined;
+declare const vi: any;
+const viGlobal = typeof vi !== "undefined" ? vi : undefined;
+const mockApi = jestGlobal?.mock ?? viGlobal?.mock;
+if (!mockApi) {
+  throw new Error("Test mock API is not available");
+}
 
-jest.mock("../../src/ts/hooks/useAuthentication", () => ({
+mockApi("../../src/ts/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ isAuthenticated: true }),
   AuthProvider: ({ children }: any) => <>{children}</>,
 }));
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+mockApi("@n-apt/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ isAuthenticated: true }),
   AuthProvider: ({ children }: any) => <>{children}</>,
 }));
+
 const mockWsConnection = {
-  sendCaptureCommand: jest.fn(),
-  sendScanCommand: jest.fn(),
-  sendDemodulateCommand: jest.fn(),
+  sendCaptureCommand: jestGlobal?.fn?.() ?? viGlobal?.fn?.() ?? (() => {}),
+  sendScanCommand: jestGlobal?.fn?.() ?? viGlobal?.fn?.() ?? (() => {}),
+  sendDemodulateCommand: jestGlobal?.fn?.() ?? viGlobal?.fn?.() ?? (() => {}),
 };
 
-jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+mockApi("@n-apt/hooks/useSpectrumStore", () => ({
   useSpectrumStore: () => ({
     state: { activeSignalArea: "A" },
     wsConnection: mockWsConnection,
@@ -37,12 +35,64 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
   SpectrumProvider: ({ children }: any) => <>{children}</>,
 }));
 
-// Test component to use the DemodContext
-const TestComponent: React.FC = () => {
+const {
+  DemodProvider,
+  useDemod,
+} = require("../../src/ts/contexts/DemodContext");
+
+const mockStore = configureStore({
+  reducer: {
+    websocket: (
+      _state = { captureStatus: null, isPaused: false },
+      _action: any,
+    ) => ({
+      captureStatus: null,
+      isPaused: false,
+    }),
+    demod: (
+      _state = {
+        isListening: false,
+        algorithm: "fm",
+        centerFreqHz: 0,
+        bandwidthKhz: 0,
+      },
+      _action: any,
+    ) => ({
+      isListening: false,
+      algorithm: "fm",
+      centerFreqHz: 0,
+      bandwidthKhz: 0,
+    }),
+    waterfall: (
+      _state = { activePlaybackMetadata: null, sourceMode: "live" },
+      _action: any,
+    ) => ({
+      activePlaybackMetadata: null,
+      sourceMode: "live",
+    }),
+    spectrum: (
+      _state = {
+        frequencyRange: null,
+        lastKnownRanges: {},
+        sampleRateHz: 48000,
+        vizZoom: 1,
+        vizPanOffset: 0,
+      },
+      _action: any,
+    ) => ({
+      frequencyRange: null,
+      lastKnownRanges: {},
+      sampleRateHz: 48000,
+      vizZoom: 1,
+      vizPanOffset: 0,
+    }),
+  },
+});
+
+const TestComponent = () => {
   const { analysisSession, startAnalysis, clearAnalysis } = useDemod();
 
   React.useEffect(() => {
-    // Start APT analysis after component mounts
     startAnalysis("apt", false, 5.0, "test script", "test media", [1, 2, 3]);
     return () => clearAnalysis();
   }, [startAnalysis, clearAnalysis]);
@@ -67,6 +117,22 @@ const TestComponent: React.FC = () => {
 };
 
 describe("APT Analysis", () => {
+  beforeEach(() => {
+    if (jestGlobal) jestGlobal.useFakeTimers();
+    else if (viGlobal) viGlobal.useFakeTimers();
+  });
+
+  afterEach(() => {
+    if (jestGlobal) jestGlobal.useRealTimers();
+    else if (viGlobal) viGlobal.useRealTimers();
+  });
+
+  const flushMicrotasks = async () => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
   it("should initialize APT analysis with correct parameters", async () => {
     render(
       <Provider store={mockStore}>
@@ -76,7 +142,8 @@ describe("APT Analysis", () => {
       </Provider>,
     );
 
-    // Check initial capturing state
+    await flushMicrotasks();
+
     expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
     expect(screen.getByTestId("analysis-type")).toHaveTextContent("apt");
     expect(screen.getByTestId("script-content")).toHaveTextContent(
@@ -94,34 +161,36 @@ describe("APT Analysis", () => {
       </Provider>,
     );
 
-    // Wait for progress updates
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("apt-progress")).toHaveTextContent("0.2");
-      },
-      { timeout: 5000 },
+    await flushMicrotasks();
+
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
+
+    // Advance 3 seconds for countdown
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(3000);
+      else if (viGlobal) viGlobal.advanceTimersByTime(3000);
+    });
+
+    // Advance 500ms for first tick of progress
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(500);
+      else if (viGlobal) viGlobal.advanceTimersByTime(500);
+    });
+
+    expect(screen.getByTestId("apt-progress")).toHaveTextContent("0.2");
+    expect(screen.getByTestId("apt-stage")).toHaveTextContent(
+      "subcarrier_isolation",
     );
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("apt-stage")).toHaveTextContent(
-          "subcarrier_isolation",
-        );
-      },
-      { timeout: 5000 },
-    );
+    // Advance 2000ms for remaining ticks to complete
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(2000);
+      else if (viGlobal) viGlobal.advanceTimersByTime(2000);
+    });
 
-    // Eventually should reach completed state
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("analysis-state")).toHaveTextContent(
-          "result",
-        );
-        expect(screen.getByTestId("apt-progress")).toHaveTextContent("1");
-        expect(screen.getByTestId("apt-stage")).toHaveTextContent("completed");
-      },
-      { timeout: 10000 },
-    );
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
+    expect(screen.getByTestId("apt-progress")).toHaveTextContent("1");
+    expect(screen.getByTestId("apt-stage")).toHaveTextContent("completed");
   });
 
   it("should clear analysis when requested", async () => {
@@ -133,24 +202,20 @@ describe("APT Analysis", () => {
       </Provider>,
     );
 
-    // Wait for analysis to complete
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("analysis-state")).toHaveTextContent(
-          "result",
-        );
-      },
-      { timeout: 10000 },
-    );
+    await flushMicrotasks();
 
-    // Clear the analysis
-    await act(async () => {
+    // Advance to completed state
+    act(() => {
+      if (jestGlobal) jestGlobal.advanceTimersByTime(5500);
+      else if (viGlobal) viGlobal.advanceTimersByTime(5500);
+    });
+
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
+
+    act(() => {
       screen.getByTestId("clear-btn").click();
     });
 
-    // Should return to idle state
-    await waitFor(() => {
-      expect(screen.getByTestId("analysis-state")).toHaveTextContent("idle");
-    });
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("idle");
   });
 });

@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import styled from "styled-components";
 import {
   useAppSelector,
   useAppDispatch,
+  setFileMetadata,
+  setSelectedFiles,
+  setSourceMode,
   setStitchPaused,
   triggerStitch,
 } from "@n-apt/redux";
@@ -17,6 +20,8 @@ import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
 import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
+import type { NaptMetadata } from "@n-apt/consts/types";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -72,9 +77,7 @@ interface DemodulateSidebarProps {
 
 import { useDemod } from "@n-apt/contexts/DemodContext";
 
-import {
-  type FlowTemplate,
-} from "@n-apt/components/react-flow/flows";
+import { type FlowTemplate } from "@n-apt/components/react-flow/flows";
 
 export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   isScanning = false,
@@ -101,6 +104,12 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
 
   const { sourceMode, selectedFiles } = liveState;
+  const selectedPrimaryFile = useMemo(() => {
+    if (sourceMode !== "file" || selectedFiles.length !== 1) return null;
+    const file = selectedFiles[0];
+    const lower = file.name.toLowerCase();
+    return lower.endsWith(".napt") || lower.endsWith(".wav") ? file : null;
+  }, [selectedFiles, sourceMode]);
   const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
   const isStitchPaused = useAppSelector(
     (state) => state.waterfall.isStitchPaused,
@@ -125,8 +134,116 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
 
   const handleSourceModeChange = (mode: SourceMode) => {
+    dispatch(setSourceMode(mode));
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const parseMetadata = async () => {
+      if (!selectedPrimaryFile) {
+        dispatch(setFileMetadata(null));
+        return;
+      }
+
+      const fileObj = fileRegistry.get(selectedPrimaryFile.id);
+      if (!fileObj) {
+        dispatch(setFileMetadata(null));
+        return;
+      }
+
+      const lower = selectedPrimaryFile.name.toLowerCase();
+      const isNapt = lower.endsWith(".napt");
+      const isWav = lower.endsWith(".wav");
+
+      try {
+        const buffer = await fileObj.arrayBuffer();
+        let metadata: NaptMetadata | null = null;
+
+        if (isNapt) {
+          const maxHeaderRead = Math.min(8192, buffer.byteLength);
+          const headerBytes = new Uint8Array(buffer, 0, maxHeaderRead);
+          const newlineIdx = headerBytes.indexOf(10);
+          let jsonText: string;
+          if (newlineIdx > 0) {
+            jsonText = new TextDecoder().decode(
+              headerBytes.slice(0, newlineIdx),
+            );
+          } else {
+            const headerText = new TextDecoder().decode(headerBytes);
+            let depth = 0;
+            let inString = false;
+            let escape = false;
+            let end = -1;
+            for (let i = 0; i < headerText.length; i++) {
+              const char = headerText[i];
+              if (escape) {
+                escape = false;
+                continue;
+              }
+              if (char === "\\") {
+                escape = true;
+                continue;
+              }
+              if (char === '"') {
+                inString = !inString;
+                continue;
+              }
+              if (inString) continue;
+              if (char === "{") depth += 1;
+              if (char === "}") {
+                depth -= 1;
+                if (depth === 0) {
+                  end = i + 1;
+                  break;
+                }
+              }
+            }
+            if (end <= 0) throw new Error("Invalid NAPT header");
+            jsonText = headerText.slice(0, end);
+          }
+          const parsed = JSON.parse(jsonText);
+          metadata = parsed.metadata || parsed;
+        } else if (isWav) {
+          const view = new DataView(buffer);
+          const readText = (offset: number, length: number) =>
+            String.fromCharCode(...new Uint8Array(buffer, offset, length));
+
+          if (readText(0, 4) === "RIFF" && readText(8, 4) === "WAVE") {
+            let offset = 12;
+            while (offset + 8 <= buffer.byteLength) {
+              const chunkId = readText(offset, 4);
+              const chunkSize = view.getUint32(offset + 4, true);
+              if (chunkId === "nAPT") {
+                const metaBytes = new Uint8Array(buffer, offset + 8, chunkSize);
+                const nullIdx = metaBytes.indexOf(0);
+                const json = new TextDecoder().decode(
+                  nullIdx >= 0 ? metaBytes.slice(0, nullIdx) : metaBytes,
+                );
+                metadata = JSON.parse(json);
+                break;
+              }
+              offset += 8 + chunkSize + (chunkSize % 2);
+            }
+          }
+        }
+
+        if (!cancelled) {
+          dispatch(setFileMetadata(metadata));
+        }
+      } catch {
+        if (!cancelled) {
+          dispatch(setFileMetadata(null));
+        }
+      }
+    };
+
+    void parseMetadata();
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, selectedPrimaryFile]);
 
   useEffect(() => {
     const previousSourceMode = previousSourceModeRef.current;
@@ -171,23 +288,16 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         <FileSelectionSidebar
           selectedFiles={selectedFiles}
           onSelectedFilesChange={(files: any) => {
+            dispatch(setSelectedFiles(files));
             storeDispatch({ type: "SET_SELECTED_FILES", files });
           }}
           stitchStatus={stitchStatus}
           isStitchPaused={isStitchPaused}
-          onStitch={() => {
-            dispatch(triggerStitch());
-            storeDispatch({ type: "TRIGGER_STITCH" });
+          onClear={() => {
+            dispatch(setSelectedFiles([]));
+            storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
           }}
-          onClear={() =>
-            storeDispatch({ type: "SET_SELECTED_FILES", files: [] })
-          }
-          onStitchPauseToggle={() => {
-            const nextPaused = !isStitchPaused;
-            dispatch(setStitchPaused(nextPaused));
-            storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
-          }}
-          selectedPrimaryFile={null}
+          selectedPrimaryFile={selectedPrimaryFile}
           naptMetadata={null}
           naptMetadataError={null}
           showMetadata={false}
@@ -199,6 +309,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           isConnected={isConnected}
           deviceState={deviceState}
           deviceLoadingReason={deviceLoadingReason}
+          backend={backend}
           isPaused={liveIsPaused}
           cryptoCorrupted={cryptoCorrupted}
           onPauseToggle={toggleVisualizerPause}

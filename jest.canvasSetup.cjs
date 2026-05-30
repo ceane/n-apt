@@ -741,6 +741,9 @@ global.navigator.gpu = {
   requestAdapter: jest.fn((...args) => {
     logCall(global.__WEBGPU_CALLS__, 'requestAdapter', args);
     return Promise.resolve({
+      limits: {
+        maxTextureDimension2D: 16384,
+      },
       /**
        * Mock WebGPU requestDevice method.
        * 
@@ -749,6 +752,13 @@ global.navigator.gpu = {
       requestDevice: jest.fn((...args) => {
         logCall(global.__WEBGPU_CALLS__, 'requestDevice', args);
         return Promise.resolve({
+      limits: {
+        minUniformBufferOffsetAlignment: 256,
+        maxTextureDimension2D: 16384,
+        maxBufferSize: 1 << 30,
+        maxComputeWorkgroupSizeX: 256,
+        maxComputeInvocationsPerWorkgroup: 256,
+      },
       /**
        * Mock WebGPU createBuffer method.
        * 

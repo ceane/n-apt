@@ -1,17 +1,49 @@
 //! # Software Defined Radio (SDR) Abstraction Layer
 //!
 //! This module provides a pluggable interface for different SDR hardware and mock implementations.
-//! It allows seamless switching between real hardware (RTL-SDR) and simulated signals for testing.
+//! It allows seamless switching between real hardware (RTL-SDR or HackRF One) and simulated signals for testing.
 //!
 //! ## Architecture
 //!
 //! - `SdrDevice` trait defines the common interface for all SDR implementations
 //! - `mock_apt` module provides simulated signals with configurable shapes and noise
 //! - `rtlsdr` module provides real hardware interface for RTL-SDR devices
+//! - `hackrf` module provides real hardware interface for HackRF One devices
 //! - `processor` contains the main signal processing pipeline
 
 use crate::fft::types::RawSamples;
 use anyhow::Result;
+use std::thread;
+use std::time::Duration;
+
+#[cfg(has_hackrf)]
+const HACKRF_OPEN_RETRY_ATTEMPTS: usize = 5;
+#[cfg(has_hackrf)]
+const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(250);
+
+#[cfg(has_hackrf)]
+fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
+  let mut last_err = None;
+  for attempt in 1..=HACKRF_OPEN_RETRY_ATTEMPTS {
+    match crate::sdr::hackrf::HackRfDevice::open_first() {
+      Ok(device) => {
+        log::info!("Using HackRF One device after {} attempt(s)", attempt);
+        return Ok(Box::new(device));
+      }
+      Err(err) => {
+        last_err = Some(err);
+        if attempt < HACKRF_OPEN_RETRY_ATTEMPTS {
+          thread::sleep(HACKRF_OPEN_RETRY_DELAY);
+        }
+      }
+    }
+  }
+
+  Err(
+    last_err
+      .unwrap_or_else(|| anyhow::anyhow!("Failed to open HackRF One device")),
+  )
+}
 
 /// Common interface for all SDR device implementations
 pub trait SdrDevice: Send {
@@ -30,6 +62,9 @@ pub trait SdrDevice: Send {
   /// Read IQ samples from the device
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
 
+  /// Return an owned IQ sample buffer to devices that can reuse it.
+  fn recycle_read_buffer(&mut self, _buffer: Vec<u8>) {}
+
   /// Set sample rate in Hz
   fn set_sample_rate(&mut self, rate: u32) -> Result<()>;
 
@@ -39,8 +74,26 @@ pub trait SdrDevice: Send {
   /// Set tuner gain in dB
   fn set_gain(&mut self, gain: f64) -> Result<()>;
 
+  /// Set HackRF LNA gain in dB.
+  /// Defaults to a no-op for devices that do not expose split gain controls.
+  fn set_lna_gain(&mut self, _gain: f64) -> Result<()> {
+    Ok(())
+  }
+
+  /// Set HackRF VGA gain in dB.
+  /// Defaults to a no-op for devices that do not expose split gain controls.
+  fn set_vga_gain(&mut self, _gain: f64) -> Result<()> {
+    Ok(())
+  }
+
+  /// Enable/disable the HackRF RF amplifier.
+  /// Defaults to a no-op for devices that do not expose an RF amp control.
+  fn set_amp_enable(&mut self, _enabled: bool) -> Result<()> {
+    Ok(())
+  }
+
   /// Set frequency correction in PPM
-  fn set_ppm(&mut self, ppm: i32) -> Result<()>;
+  fn set_ppm(&mut self, ppm: u32) -> Result<()>;
 
   /// Enable/disable tuner AGC
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()>;
@@ -62,6 +115,12 @@ pub trait SdrDevice: Send {
 
   /// Get current sample rate
   fn get_sample_rate(&self) -> u32;
+
+  /// Get the maximum supported sample rate.
+  /// Defaults to the current sample rate for devices that do not expose a ceiling.
+  fn get_max_sample_rate(&mut self) -> u32 {
+    self.get_sample_rate()
+  }
 
   /// Flush software-side sample buffers (overflow + async queue) without
   /// touching the hardware. Called after frequency hops to discard stale
@@ -94,22 +153,36 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
-    // Try RTL-SDR first, fall back to mock
+    // Prefer HackRF One when both devices are present, then fall back to RTL-SDR,
+    // then finally to the mock device.
+    #[cfg(has_hackrf)]
+    {
+      if let Ok(device) = open_hackrf_with_retry() {
+        return Ok(device);
+      }
+    }
+
     match crate::sdr::rtlsdr::RtlSdrDevice::open_first() {
       Ok(device) => {
         log::info!("Using RTL-SDR device");
         Ok(Box::new(device))
       }
-      Err(_) => {
-        log::info!("No RTL-SDR device found, using mock APT implementation");
-        Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
-      }
+      Err(_) => Self::create_mock_fallback_device(),
     }
   }
 
   /// Force creation of a mock APT device
   pub fn create_mock_device() -> Box<dyn SdrDevice> {
     log::info!("Creating mock APT SDR device");
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
+        return Box::new(
+          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
+        );
+      }
+    }
+
     Box::new(crate::sdr::mock_apt::MockAptDevice::new())
   }
 
@@ -119,8 +192,40 @@ impl SdrDeviceFactory {
     log::info!("Using RTL-SDR device");
     Ok(Box::new(device))
   }
+
+  /// Force creation of a HackRF One device (will error if none available)
+  #[cfg(has_hackrf)]
+  pub fn create_hackrf_device() -> Result<Box<dyn SdrDevice>> {
+    open_hackrf_with_retry()
+  }
+
+  #[cfg(not(has_hackrf))]
+  pub fn create_hackrf_device() -> Result<Box<dyn SdrDevice>> {
+    Err(anyhow::anyhow!(
+      "HackRF One support not enabled at build time"
+    ))
+  }
+
+  fn create_mock_fallback_device() -> Result<Box<dyn SdrDevice>> {
+    log::info!(
+      "No RTL-SDR or HackRF One device found, using mock APT implementation"
+    );
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
+        return Ok(Box::new(
+          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
+        ));
+      }
+    }
+
+    Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
+  }
 }
 
+#[cfg(has_hackrf)]
+pub mod hackrf;
+pub mod hotplug;
 pub mod mock_apt;
 pub mod processor;
 pub mod rtlsdr;

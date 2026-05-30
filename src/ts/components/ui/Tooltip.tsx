@@ -217,9 +217,15 @@ const PopoverText = styled.div`
 export interface TooltipProps {
   title?: string;
   content: string;
+  /** Optional custom trigger element. Defaults to the InfoIcon ("i") button. */
+  trigger?: React.ReactNode;
 }
 
-export const Tooltip = ({ title = "Information", content }: TooltipProps) => {
+export const Tooltip = ({
+  title = "Information",
+  content,
+  trigger,
+}: TooltipProps) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isClicked, setIsClicked] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -338,7 +344,16 @@ export const Tooltip = ({ title = "Information", content }: TooltipProps) => {
       onMouseLeave={() => !isClicked && setIsVisible(false)}
       onClick={handleClick}
     >
-      <InfoIcon ref={iconRef}>i</InfoIcon>
+      {trigger != null ? (
+        <span
+          ref={iconRef as unknown as React.RefObject<HTMLSpanElement>}
+          style={{ display: "inline-flex", alignItems: "center" }}
+        >
+          {trigger}
+        </span>
+      ) : (
+        <InfoIcon ref={iconRef}>i</InfoIcon>
+      )}
       {createPortal(
         <PopoverContent
           ref={popoverRef}

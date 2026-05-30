@@ -4,16 +4,10 @@ import {
   DeviceLoadingReason,
   SdrSettingsConfig,
   SpectrumFrame,
-  AutoFftOptionsResponse,
   DeviceProfile,
   CaptureStatus,
 } from "@n-apt/consts/schemas/websocket";
-import {
-  validateCaptureStatus,
-  validateAutoFftOptions,
-  isValidSpectrumFrame,
-} from "@n-apt/validation";
-import { loadPersistedAutoFftOptions } from "@n-apt/redux/middleware/localStorageMiddleware";
+import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -65,15 +59,6 @@ const validateCaptureStatusEnhanced = (
   return validateCaptureStatus(status) ? (status as CaptureStatus) : null;
 };
 
-// Enhanced validation for auto FFT options
-const validateAutoFftOptionsEnhanced = (
-  options: unknown,
-): AutoFftOptionsResponse | null => {
-  return validateAutoFftOptions(options)
-    ? (options as AutoFftOptionsResponse)
-    : null;
-};
-
 const equalValue = (current: unknown, next: unknown): boolean => {
   if (current === next) return true;
   if (Array.isArray(current) && Array.isArray(next)) {
@@ -120,8 +105,14 @@ export interface WebSocketState {
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
 
   // Data
   spectrumFrames: SpectrumFrame[];
@@ -129,7 +120,6 @@ export interface WebSocketState {
 
   // Capture and processing
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
 
   // Error handling
   error: string | null;
@@ -159,14 +149,15 @@ const initialState: WebSocketState = {
   deviceName: null,
   deviceProfile: null,
   maxSampleRateHz: null,
+  sampleRateOptions: [],
   sampleRateHz: null,
   sdrSettings: null,
+  sdrLimitMarkers: [],
 
   spectrumFrames: [],
   dataFrameCounter: 0,
 
   captureStatus: null,
-  autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
 
   error: null,
   cryptoCorrupted: false,
@@ -195,6 +186,18 @@ const websocketSlice = createSlice({
     setDisconnected: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      state.deviceState = null;
+      state.deviceLoadingReason = null;
+      state.backend = null;
+      state.deviceInfo = null;
+      state.deviceName = null;
+      state.deviceProfile = null;
+      state.maxSampleRateHz = null;
+      state.sampleRateOptions = [];
+      state.sampleRateHz = null;
+      state.sdrSettings = null;
+      state.sdrLimitMarkers = [];
+      state.captureStatus = null;
     },
 
     setReconnecting: (state, action: PayloadAction<number>) => {
@@ -260,20 +263,6 @@ const websocketSlice = createSlice({
       }
     },
 
-    // Auto FFT options
-    setAutoFftOptions: (
-      state,
-      action: PayloadAction<AutoFftOptionsResponse>,
-    ) => {
-      // Validate auto FFT options before storing
-      const validatedOptions = validateAutoFftOptionsEnhanced(action.payload);
-      if (validatedOptions) {
-        state.autoFftOptions = validatedOptions;
-      } else {
-        console.error("Invalid auto FFT options rejected:", action.payload);
-      }
-    },
-
     // Crypto corruption
     setCryptoCorrupted: (state) => {
       state.cryptoCorrupted = true;
@@ -317,7 +306,6 @@ export const {
   setServerPaused,
   setSpectrumFrames,
   setCaptureStatus,
-  setAutoFftOptions,
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,

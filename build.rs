@@ -1,12 +1,16 @@
 use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
   println!("cargo:rerun-if-changed=build.rs");
 
   let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
   if target_arch != "wasm32" {
+    link_homebrew_libusb();
     link_rtlsdr();
+    link_hackrf();
   }
+  println!("cargo:rustc-check-cfg=cfg(has_hackrf)");
 
   // Check for decrypted modules (Surgical Encryption)
   let decrypted_marker =
@@ -21,48 +25,38 @@ fn link_rtlsdr() {
     return;
   }
 
-  println!("cargo:rustc-link-lib=dylib=rtlsdr");
+  panic!(
+    "librtlsdr/rtlsdr not found. Install the native library and pkg-config, then rerun cargo."
+  );
+}
 
-  #[cfg(target_os = "macos")]
-  {
-    if Path::new("/opt/homebrew/opt/librtlsdr/lib").exists() {
-      println!(
-        "cargo:rustc-link-search=native=/opt/homebrew/opt/librtlsdr/lib"
-      );
-      println!("cargo:include=/opt/homebrew/opt/librtlsdr/include");
-      return;
-    }
-
-    if Path::new("/usr/local/lib/librtlsdr.dylib").exists() {
-      println!("cargo:rustc-link-search=native=/usr/local/lib");
-      println!("cargo:include=/usr/local/include");
-      return;
-    }
+fn link_homebrew_libusb() {
+  if !cfg!(target_os = "macos") {
+    return;
   }
 
-  #[cfg(target_os = "linux")]
+  for candidate in ["/opt/homebrew/opt/libusb/lib", "/usr/local/opt/libusb/lib"]
   {
-    for candidate in [
-      "/usr/lib/x86_64-linux-gnu",
-      "/usr/lib/aarch64-linux-gnu",
-      "/usr/lib/arm-linux-gnueabihf",
-      "/usr/local/lib",
-      "/usr/lib",
-      "/lib/x86_64-linux-gnu",
-      "/lib/aarch64-linux-gnu",
-    ] {
-      if Path::new(candidate).exists() {
-        println!("cargo:rustc-link-search=native={candidate}");
-      }
-    }
-    if Path::new("/usr/include").exists() {
-      println!("cargo:include=/usr/include");
+    let path = PathBuf::from(candidate);
+    if path.exists() {
+      println!("cargo:rustc-link-search=native={}", path.display());
+      return;
     }
   }
 }
 
+fn link_hackrf() {
+  if try_pkg_config_for(&["libhackrf", "hackrf"]) {
+    println!("cargo:rustc-cfg=has_hackrf");
+  }
+}
+
 fn try_pkg_config() -> bool {
-  for package in ["librtlsdr", "rtlsdr"] {
+  try_pkg_config_for(&["librtlsdr", "rtlsdr"])
+}
+
+fn try_pkg_config_for(packages: &[&str]) -> bool {
+  for package in packages {
     if pkg_config::Config::new()
       .cargo_metadata(true)
       .probe(package)
@@ -71,6 +65,5 @@ fn try_pkg_config() -> bool {
       return true;
     }
   }
-
   false
 }

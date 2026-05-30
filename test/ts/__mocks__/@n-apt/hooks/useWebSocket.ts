@@ -38,6 +38,9 @@ export type SdrSettingsConfig = {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
+    hackrf_lna_gain?: number;
+    hackrf_vga_gain?: number;
+    hackrf_amp_enable?: boolean;
   };
   ppm?: number;
   fft?: {
@@ -64,8 +67,14 @@ export type WebSocketData = {
   deviceInfo: string | null;
   deviceName: string | null;
   maxSampleRateHz: number | null;
+  sampleRateOptions: number[];
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  sdrLimitMarkers: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   dataRef: React.MutableRefObject<any>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: any;
@@ -170,8 +179,10 @@ export function useWebSocket(
     deviceInfo,
     deviceName: "Mock Device",
     maxSampleRateHz: 3_200_000,
+    sampleRateOptions: [3_200_000],
     sampleRateHz: 3_200_000,
     sdrSettings,
+    sdrLimitMarkers: [],
     dataRef,
     spectrumFrames,
     captureStatus: null,

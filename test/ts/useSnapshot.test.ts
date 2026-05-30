@@ -3,6 +3,9 @@ import {
   getZoomedSlice,
   dbToColor,
   getWholeChannelRenderRange,
+  buildSnapshotStatsLines,
+  buildFastSpectrumCanvas,
+  buildFastWaterfallCanvas,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
@@ -26,7 +29,7 @@ describe("fmtFreq", () => {
 
   it("formats values < 1 MHz as kHz", () => {
     expect(fmtFreq(0.5e6)).toBe("500kHz");
-    expect(fmtFreq(0.12345e6)).toBe("123.5kHz");
+    expect(fmtFreq(0.12345e6)).toBe("123kHz");
   });
 
   it("trims trailing zeros", () => {
@@ -157,6 +160,163 @@ describe("getWholeChannelRenderRange", () => {
   });
 });
 
+describe("fast snapshot canvases", () => {
+  beforeEach(() => {
+    global.clearCanvasCalls?.();
+  });
+
+  it("builds fast FFT snapshots from the live canvas without the VFO overlay", () => {
+    const spectrumGpu = document.createElement("canvas");
+    spectrumGpu.width = 320;
+    spectrumGpu.height = 180;
+    const spectrumOverlay = document.createElement("canvas");
+    spectrumOverlay.width = 320;
+    spectrumOverlay.height = 180;
+
+    const canvas = buildFastSpectrumCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        waveform: new Float32Array([0, 1, 2]),
+        vizZoom: 1,
+        vizPanOffset: 0,
+      } as any,
+      320,
+      180,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+      { spectrumGpu, spectrumOverlay },
+    );
+
+    expect(canvas).toBeTruthy();
+    const drawImageCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "drawImage",
+    );
+    expect(drawImageCalls.length).toBe(0);
+  });
+
+  it("trims the live waterfall render inset before adding the fast VFO axis", () => {
+    const waterfallGpu = document.createElement("canvas");
+    waterfallGpu.width = 320;
+    waterfallGpu.height = 180;
+
+    const canvas = buildFastWaterfallCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        vizZoom: 1,
+        vizPanOffset: 0,
+      } as any,
+      320,
+      180,
+      { min: 18_000, max: 3_218_000 },
+      { waterfallGpu, waterfallOverlay: null },
+      {
+        background: "#000000",
+        grid: "#333333",
+        tick: "#777777",
+        label: "#777777",
+        center: "#fefefe",
+      },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          call.args.length >= 9 &&
+          call.args[2] === 8,
+      ),
+    ).toBe(true);
+  });
+
+  it("prefers the persisted waterfall buffer for fast waterfall snapshots", () => {
+    global.clearCanvasCalls?.();
+
+    const canvas = buildFastWaterfallCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        vizZoom: 1,
+        vizPanOffset: 0,
+        dbMin: -120,
+        dbMax: 0,
+        waterfallBuffer: new Uint8ClampedArray([
+          10, 20, 30, 255, 40, 50, 60, 255,
+        ]),
+        waterfallDims: { width: 1, height: 2 },
+      } as any,
+      320,
+      180,
+      { min: 18_000, max: 3_218_000 },
+      null,
+      {
+        background: "#000000",
+        grid: "#333333",
+        tick: "#777777",
+        label: "#777777",
+        center: "#fefefe",
+      },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          call.args.length >= 3 &&
+          call.args[0] !== undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it("renders the demod channel band on fast spectrum snapshots", () => {
+    const spectrumGpu = document.createElement("canvas");
+    spectrumGpu.width = 640;
+    spectrumGpu.height = 360;
+
+    const canvas = buildFastSpectrumCanvas(
+      {
+        frequencyRange: { min: 24_720_000, max: 29_920_000 },
+        waveform: new Float32Array([0, 1, 2, 3]),
+        vizZoom: 1,
+        vizPanOffset: 0,
+        demodFocusOverlay: {
+          centerFrequencyHz: 27_320_000,
+          halfBandwidthHz: 2_600_000,
+          alignment: "centered",
+        },
+      } as any,
+      640,
+      360,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+      null,
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) => call.name === "fillRect" && call.args[2] > 0,
+      ),
+    ).toBe(true);
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // useSnapshot Hook
 // ────────────────────────────────────────────────────────────────────────────
@@ -191,6 +351,7 @@ describe("useSnapshot", () => {
   });
 
   it("should handle snapshot when no data is available", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useSnapshot(null, false), {
       wrapper: TestWrapper,
     });
@@ -210,5 +371,230 @@ describe("useSnapshot", () => {
     });
 
     // Should not crash even if data is null
+  });
+
+  it("should export a provided canvas without building snapshot stats", async () => {
+    const click = jest.fn();
+    const toDataURL = jest.fn(() => "data:image/png;base64,mock");
+    const mockCanvas = {
+      width: 12,
+      height: 8,
+      toDataURL,
+    } as any;
+    const mockAnchor = {
+      click,
+      download: "",
+      href: "",
+    } as any;
+    const originalCreateElementNS = document.createElementNS.bind(document);
+    jest.spyOn(document, "createElement").mockImplementation((tagName) => {
+      if (tagName === "a") return mockAnchor;
+      return originalCreateElementNS("http://www.w3.org/1999/xhtml", tagName);
+    });
+
+    const { result } = renderHook(() => useSnapshot(null, false), {
+      wrapper: TestWrapper,
+    });
+
+    await act(async () => {
+      await result.current.handleSnapshot({
+        whole: false,
+        showWaterfall: false,
+        showStats: false,
+        showGeolocation: false,
+        showGrid: false,
+        format: "png",
+        getSnapshotData: () => null,
+        canvasOnly: {
+          getCanvas: () => mockCanvas,
+          filenamePrefix: "fast-fft-snapshot",
+        },
+      });
+    });
+
+    expect(toDataURL).toHaveBeenCalledWith("image/png");
+    expect(click).toHaveBeenCalled();
+    expect(mockAnchor.download).toContain("fast-fft-snapshot");
+  });
+
+  it("uses the live spectrum canvas for regular onscreen PNG snapshots", async () => {
+    global.clearCanvasCalls?.();
+    const liveSpectrum = document.createElement("canvas");
+    const liveOverlay = document.createElement("canvas");
+    const { result } = renderHook(() => useSnapshot(null, true), {
+      wrapper: TestWrapper,
+    });
+
+    await act(async () => {
+      await result.current.handleSnapshot({
+        whole: false,
+        showWaterfall: false,
+        showStats: false,
+        showGeolocation: false,
+        showGrid: true,
+        format: "png",
+        getSnapshotData: () =>
+          ({
+            frequencyRange: { min: 24_720_000, max: 29_880_000 },
+            waveform: new Float32Array([-80, -75, -82, -70]),
+            fullChannelWaveform: null,
+            vizZoom: 1,
+            vizPanOffset: 0,
+            dbMin: -120,
+            dbMax: 0,
+            hardwareSampleRateHz: 5_120_000,
+          }) as any,
+        getVideoSourceCanvases: () => ({
+          spectrum: liveSpectrum,
+          spectrumOverlay: liveOverlay,
+          waterfall: null,
+        }),
+      });
+    });
+
+    const canvasCalls = (global as any).__CANVAS_CALLS__ ?? [];
+    expect(
+      canvasCalls.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          (call.args[0] === liveOverlay || call.args[0] === liveSpectrum),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("buildSnapshotStatsLines", () => {
+  it("orders stats lines and truncates frequencies", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines).toEqual([
+      "4.380.001MHz – 4.389.999MHz",
+      "2026-05-18 09:05:26 America/Los_Angeles",
+      "Device Name: Mock APT SDR",
+      "Onscreen / partial Channel A",
+      "FFT size (# of points): 2048",
+      "Gain: 49.6dB | PPM: 1",
+    ]);
+  });
+
+  it("uses dot-grouped formatting for MHz snapshot ranges", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 2_201_269, max: 2_206_731 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[0]).toBe("2.201.269MHz – 2.206.731MHz");
+  });
+
+  it("uses whole-channel label when whole is true", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "X",
+      whole: true,
+      modeLabel: "Whole Channel",
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Whole Channel X");
+  });
+
+  it("uses whole-channel label when modeLabel says Whole Channel", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "X",
+      whole: false,
+      modeLabel: "Whole Channel",
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Whole Channel X");
+  });
+
+  it("uses whole-channel label when the rendered span covers the active channel", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 24_720_000, max: 29_880_000 },
+      timestampLabel: "2026-05-28 16:16:06 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "B",
+      activeSignalAreaBounds: { min: 25_000_000, max: 29_800_000 },
+      hardwareSampleRateHz: 5_120_000,
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Whole Channel B");
+  });
+
+  it("falls back to Onscreen when no channel name is present", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Onscreen");
+  });
+
+  it("shows non-rectangular FFT windows", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Hann",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[4]).toBe("FFT size (# of points): 2048 | Window: Hann");
+  });
+
+  it("falls back to the legacy gain label when numbers are unavailable", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 4_380_001, max: 4_389_999 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: Auto | PPM: 0",
+    });
+
+    expect(lines[5]).toBe("Gain: Auto | PPM: 0");
   });
 });

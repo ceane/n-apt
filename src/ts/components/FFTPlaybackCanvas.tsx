@@ -4,20 +4,24 @@ import React, {
   useMemo,
   forwardRef,
   useCallback,
+  useState,
+  type ReactNode,
 } from "react";
 import styled from "styled-components";
 import { FFTAndWaterfall } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
+import { Button } from "@n-apt/components/ui/Button";
+import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
+  bumpSnapshotSectionPulse,
   setActivePlaybackMetadata,
   setPlaybackChannels,
   clearActivePlaybackMetadata,
-  incrementPlaybackFrameCounter,
   setActiveSignalArea,
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
@@ -30,11 +34,15 @@ interface FFTPlaybackCanvasProps {
   stitchSourceSettings: { gain: number; ppm: number };
   isPaused: boolean;
   onStitchStatus?: (status: string) => void;
+  onStitchProgress?: (progress: any) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   snapshotGridPreference?: boolean;
   fftSize: number;
   vizZoom?: number;
+  vizZoomFloor?: number;
   vizPanOffset?: number;
   onVizZoomChange?: (zoom: number) => void;
+  onVizZoomFloorChange?: (zoomFloor: number) => void;
   onVizPanChange?: (pan: number) => void;
   fftMin?: number;
   fftMax?: number;
@@ -79,6 +87,26 @@ const FileCountText = styled.div`
 const HelpText = styled.div`
   font-size: 12px;
   color: ${(props) => props.theme.colors?.textTertiary ?? "#666"};
+`;
+
+const FastSnapshotButton = styled(Button)`
+  height: 24px;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  box-shadow: none;
+
+  &:disabled {
+    opacity: 0.55;
+    color: ${(props) => props.theme.textMuted};
+    background-color: ${(props) => props.theme.surface};
+    border-color: ${(props) => props.theme.border};
+    box-shadow: none;
+    transform: none;
+  }
 `;
 
 // Extracted memoized ChannelSelector component
@@ -158,8 +186,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       snapshotGridPreference,
       fftSize,
       vizZoom,
+      vizZoomFloor,
       vizPanOffset,
       onVizZoomChange,
+      onVizZoomFloorChange,
       onVizPanChange,
       fftMin,
       fftMax,
@@ -174,9 +204,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const stitchStatus = useAppSelector(
       (state) => state.waterfall.stitchStatus,
     );
-    const { state: spectrumState, toggleVisualizerPause } =
-      useSpectrumStore();
+    const { state: spectrumState, toggleVisualizerPause } = useSpectrumStore();
     const { activeSignalArea } = spectrumState;
+    const [snapshotButtonsLoading, setSnapshotButtonsLoading] = useState(false);
     // ── Custom hooks for separated concerns ──
     const {
       hasStitchedData,
@@ -211,6 +241,11 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       },
     });
 
+    const { handleSnapshot: takeSnapshot } = useSnapshot(
+      frequencyRange ?? null,
+      true,
+    );
+
     // Refs for data that changes rapidly (no re-render cascades)
     const fileDataCache = useRef<Map<string, number[]>>(new Map());
     const freqMapRef = useRef<Map<string, number>>(new Map());
@@ -230,8 +265,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
     // ── Memoized callbacks for hook stability ──
     const handleFrameEmitted = useCallback(() => {
-      dispatch(incrementPlaybackFrameCounter());
-    }, [dispatch]);
+      // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
+      // Tables now poll liveDataRef at a lower frequency (4fps).
+    }, []);
 
     const handleChannelMetadataChange = useCallback(
       (meta: any) => {
@@ -278,7 +314,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
           : undefined;
 
       const channelLabel = ch.label || `Channel ${activeChannel + 1}`;
-
 
       dispatch(
         setActivePlaybackMetadata({
@@ -348,6 +383,90 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         .join("|");
       return `playback:${displayMode}:${stitchTrigger ?? 0}:${fileIdentity}`;
     }, [displayMode, selectedFiles, stitchTrigger]);
+
+    const pulseSnapshotSection = useCallback(() => {
+      dispatch(bumpSnapshotSectionPulse());
+    }, [dispatch]);
+
+    const fastSpectrumSnapshotAction = useMemo<ReactNode>(() => {
+      return (
+        <FastSnapshotButton
+          type="button"
+          $variant="accentSoft"
+          disabled={snapshotButtonsLoading}
+          onClick={() => {
+            pulseSnapshotSection();
+            void takeSnapshot({
+              whole: false,
+              showWaterfall: false,
+              showStats: false,
+              showGeolocation: false,
+              showGrid: false,
+              format: "png",
+              useThemeColors: false,
+              getSnapshotData: () =>
+                forwardedRef && "current" in forwardedRef
+                  ? (forwardedRef.current?.getSnapshotData() ?? null)
+                  : null,
+              canvasOnly: {
+                getCanvas: () =>
+                  forwardedRef && "current" in forwardedRef
+                    ? (forwardedRef.current?.getSpectrumCanvas() ?? null)
+                    : null,
+                filenamePrefix: "fast-fft-snapshot",
+              },
+            });
+          }}
+        >
+          Fast Snapshot
+        </FastSnapshotButton>
+      );
+    }, [
+      forwardedRef,
+      pulseSnapshotSection,
+      snapshotButtonsLoading,
+      takeSnapshot,
+    ]);
+
+    const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
+      return (
+        <FastSnapshotButton
+          type="button"
+          $variant="accentSoft"
+          disabled={snapshotButtonsLoading}
+          onClick={() => {
+            pulseSnapshotSection();
+            void takeSnapshot({
+              whole: false,
+              showWaterfall: false,
+              showStats: false,
+              showGeolocation: false,
+              showGrid: false,
+              format: "png",
+              useThemeColors: false,
+              getSnapshotData: () =>
+                forwardedRef && "current" in forwardedRef
+                  ? (forwardedRef.current?.getSnapshotData() ?? null)
+                  : null,
+              canvasOnly: {
+                getCanvas: () =>
+                  forwardedRef && "current" in forwardedRef
+                    ? (forwardedRef.current?.getWaterfallCanvas() ?? null)
+                    : null,
+                filenamePrefix: "fast-waterfall-snapshot",
+              },
+            });
+          }}
+        >
+          Fast Snapshot
+        </FastSnapshotButton>
+      );
+    }, [
+      forwardedRef,
+      pulseSnapshotSection,
+      snapshotButtonsLoading,
+      takeSnapshot,
+    ]);
 
     const initialFileNamesKey = useMemo(
       () => Array.from(fileNamesSet).sort().join("|"),
@@ -453,8 +572,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               isPaused={isPaused}
               snapshotGridPreference={snapshotGridPreference ?? true}
               vizZoom={vizZoom}
+              vizZoomFloor={vizZoomFloor}
               vizPanOffset={vizPanOffset}
               onVizZoomChange={onVizZoomChange}
+              onVizZoomFloorChange={onVizZoomFloorChange}
               onVizPanChange={onVizPanChange}
               fftMin={fftMin}
               fftMax={fftMax}
@@ -465,6 +586,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               powerScale={powerScale}
               visualizerMachine={visualizerMachine}
               visualizerSessionKey={visualizerSessionKey}
+              onLoadingStateChange={setSnapshotButtonsLoading}
+              headerActionContent={fastSpectrumSnapshotAction}
+              waterfallHeaderActionContent={fastWaterfallSnapshotAction}
             />
             <ChannelSelector
               channelCount={channelCount}

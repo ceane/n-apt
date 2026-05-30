@@ -42,6 +42,34 @@ export type AnalysisSessionState =
   | "result";
 
 export type Alignment = "centered" | "start" | "end";
+export interface NaptMetadata {
+  sample_rate?: number;
+  sample_rate_hz?: number;
+  capture_sample_rate_hz?: number;
+  hardware_sample_rate_hz?: number;
+  channels?: Array<{
+    center_freq_hz?: number;
+    sample_rate_hz?: number;
+    requested_min_freq_hz?: number;
+    requested_max_freq_hz?: number;
+    frequency_range?: [number, number];
+  }>;
+  center_frequency?: number;
+  center_frequency_hz?: number;
+  frequency_range?: [number, number];
+  fft?: { size?: number; window?: string };
+  format?: string;
+  data_format?: string;
+  timestamp_utc?: string;
+  hardware?: string;
+  gain?: number;
+  acquisition_mode?: string;
+  source_device?: string;
+  fft_window?: string;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
+  geolocation?: any; // Import GeolocationData if needed, but any for now
+}
 
 export interface FrequencyRange {
   min: number;

@@ -25,9 +25,9 @@ export default function FFTCanvas({
   const [webgpuEnabled, setWebgpuEnabled] = React.useState(false);
 
   React.useEffect(() => {
-    // Simulate WebGPU initialization
+    let id: ReturnType<typeof setTimeout> | undefined;
     if (typeof navigator !== "undefined" && "gpu" in navigator) {
-      setTimeout(() => {
+      id = setTimeout(() => {
         setWebgpuEnabled(true);
         console.log(
           "✅ WebGPU initialized successfully - using GPU acceleration",
@@ -37,6 +37,7 @@ export default function FFTCanvas({
       console.log("📱 WebGPU not supported - using 2D canvas rendering");
       setWebgpuEnabled(false);
     }
+    return () => clearTimeout(id);
   }, []);
 
   React.useEffect(() => {

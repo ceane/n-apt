@@ -26,7 +26,12 @@ export type SDRSettings = {
   fftSize?: number;
   fftWindow?: string;
   frameRate?: number;
+  sampleRate?: number;
   gain?: number;
+  hackrfLnaGain?: number;
+  hackrfVgaGain?: number;
+  hackrfAmpEnabled?: boolean;
+  tunerBandwidth?: number;
   ppm?: number;
   tunerAGC?: boolean;
   rtlAGC?: boolean;
@@ -34,11 +39,16 @@ export type SDRSettings = {
 
 export type SdrSettingsConfig = {
   sample_rate: number;
+  min_receive_sample_rate?: number;
   center_frequency: number;
   gain?: {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
+    hackrf_lna_gain?: number;
+    hackrf_vga_gain?: number;
+    hackrf_amp_enable?: boolean;
+    tuner_bandwidth?: number;
   };
   ppm?: number;
   fft?: {
@@ -53,12 +63,30 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
-  limits?: {
-    lower_limit_hz?: number;
-    upper_limit_hz?: number;
-    lower_limit_label?: string;
-    upper_limit_label?: string;
-  };
+  devices?: Record<
+    string,
+    {
+      sample_rate: number | string | Array<string>;
+      fft_display?: {
+        markers?: Array<{
+          kind: string;
+          freq_hz: number;
+          label?: string;
+        }>;
+      };
+      gain_limits?: {
+        min?: number;
+        max?: number;
+        step?: number;
+        lna_min?: number;
+        lna_max?: number;
+        lna_step?: number;
+        vga_min?: number;
+        vga_max?: number;
+        vga_step?: number;
+      };
+    }
+  >;
 };
 
 export type AptContentType =
@@ -118,6 +146,8 @@ export type CaptureDurationMode = "timed" | "manual";
 export type CaptureRequest = {
   jobId: string;
   fragments: { minFreq: number; maxFreq: number }[];
+  bandwidth?: number;
+  bandwidthCenterFrequency?: number;
   durationMode: CaptureDurationMode;
   durationS?: number;
   fileType: CaptureFileType;
@@ -150,12 +180,6 @@ export type CaptureStatus = {
   duration?: number;
 } | null;
 
-export type AutoFftOptionsResponse = {
-  type: "auto_fft_options";
-  autoSizes: number[];
-  recommended: number;
-};
-
 export interface DeviceProfile {
   kind: string;
   is_rtl_sdr: boolean;
@@ -170,12 +194,21 @@ export interface StatusMessage {
   device_name: string;
   device_loading: boolean;
   device_loading_reason: DeviceLoadingReason;
+  device_loading_attempt?: number;
+  device_loading_attempt_max?: number;
   device_state: DeviceState;
   paused: boolean;
   max_sample_rate: number;
+  sample_rate_options?: number[];
+  sdr_limit_markers?: Array<{
+    kind: string;
+    freq_hz: number;
+    label?: string;
+  }>;
   channels: SpectrumFrame[];
   sdr_settings: SdrSettingsConfig;
-  device: "rtl-sdr" | "mock_apt";
+  device: "rtl-sdr" | "mock_apt" | "mock_apt_metal" | "hackrf_one";
+  device_backend_error?: string | null;
   device_profile: DeviceProfile;
 }
 
@@ -184,6 +217,7 @@ export type WebSocketMessage =
       type: "frequency_range" | "set_frequency_range";
       min_hz: number;
       max_hz: number;
+      center_frequency?: number;
     }
   | { type: "pause"; paused: boolean }
   | { type: "gain"; gain: number }
@@ -198,5 +232,4 @@ export type WebSocketMessage =
       signalArea: string;
     }
   | ({ type: "capture" } & CaptureRequest)
-  | { type: "capture_stop"; jobId?: string }
-  | { type: "get_auto_fft_options"; screenWidth: number };
+  | { type: "capture_stop"; jobId?: string };

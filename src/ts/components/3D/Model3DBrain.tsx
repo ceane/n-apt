@@ -69,11 +69,30 @@ export const Model3DBrain: React.FC = () => {
         >
           <Suspense fallback={null}>
             <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
-            <directionalLight position={MODEL_KEY_LIGHT_POSITION} intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9} />
-            <pointLight position={MODEL_FILL_LIGHT_POSITION} intensity={MODEL_FILL_LIGHT_INTENSITY} color="#ffffff" />
-            <pointLight position={MODEL_BACK_LIGHT_POSITION} intensity={MODEL_BACK_LIGHT_INTENSITY} color="#8ddcff" />
-            <pointLight position={[0, 1.5, 4]} intensity={1.7} color="#ff7ef5" />
-            <pointLight position={[1.4, 0.8, 3.2]} intensity={1.2} color="#00d4ff" />
+            <directionalLight
+              position={MODEL_KEY_LIGHT_POSITION}
+              intensity={MODEL_KEY_LIGHT_INTENSITY * 0.9}
+            />
+            <pointLight
+              position={MODEL_FILL_LIGHT_POSITION}
+              intensity={MODEL_FILL_LIGHT_INTENSITY}
+              color="#ffffff"
+            />
+            <pointLight
+              position={MODEL_BACK_LIGHT_POSITION}
+              intensity={MODEL_BACK_LIGHT_INTENSITY}
+              color="#8ddcff"
+            />
+            <pointLight
+              position={[0, 1.5, 4]}
+              intensity={1.7}
+              color="#ff7ef5"
+            />
+            <pointLight
+              position={[1.4, 0.8, 3.2]}
+              intensity={1.2}
+              color="#00d4ff"
+            />
             <Brain
               position={[0.1, -0.6, 0]}
               rotation={[0, 0, 0]}

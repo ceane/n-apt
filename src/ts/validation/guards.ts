@@ -25,7 +25,6 @@ export {
   isValidSpectrumFrame,
   isValidCaptureRequest,
   isValidCaptureStatus,
-  isValidAutoFftOptions,
 } from "@n-apt/validation/schemas";
 
 // Import base functions for enhanced validation
@@ -702,7 +701,9 @@ export const isValidCaptureRequestEnhanced = (
 export const isValidStatusMessageEnhanced = (
   data: unknown,
 ): data is StatusMessage => {
-  if (!baseIsValidStatusMessage(data)) return false;
+  if (!baseIsValidStatusMessage(data)) {
+    return isLooseStatusMessage(data);
+  }
 
   // Additional validation - be more lenient with optional fields
   const status = data as StatusMessage;
@@ -720,6 +721,31 @@ export const isValidStatusMessageEnhanced = (
     (!status.channels || isValidArray(status.channels)) &&
     // Don't require enhanced validation for channels to avoid circular validation issues
     true
+  );
+};
+
+const isLooseStatusMessage = (data: unknown): boolean => {
+  if (!isObject(data)) return false;
+
+  const status = data as Record<string, unknown>;
+  return (
+    status.type === "status" &&
+    typeof status.device_connected === "boolean" &&
+    typeof status.device_info === "string" &&
+    typeof status.device_name === "string" &&
+    typeof status.device_loading === "boolean" &&
+    (typeof status.device_loading_reason === "string" ||
+      status.device_loading_reason === null ||
+      status.device_loading_reason === undefined) &&
+    (typeof status.device_state === "string" ||
+      status.device_state === null ||
+      status.device_state === undefined) &&
+    typeof status.paused === "boolean" &&
+    typeof status.max_sample_rate === "number" &&
+    Array.isArray(status.channels) &&
+    isObject(status.sdr_settings) &&
+    typeof status.device === "string" &&
+    isObject(status.device_profile)
   );
 };
 

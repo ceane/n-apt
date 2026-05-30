@@ -7,14 +7,16 @@ import {
   getOptimalFrequencyScale,
   formatFrequency,
   formatFrequencyHighRes,
+  formatChannelFreq,
+  roundDbValue,
   type FormatFrequencyOptions,
 } from "@n-apt/utils/frequency";
 
 describe("Frequency Utilities", () => {
   describe("formatFrequency", () => {
     test("should format frequencies in kHz", () => {
-      expect(formatFrequency(500000)).toBe("500.0kHz");
-      expect(formatFrequency(1000)).toBe("1.0kHz");
+      expect(formatFrequency(500000)).toBe("500kHz");
+      expect(formatFrequency(1000)).toBe("1kHz");
     });
 
     test("should format sub-MHz metadata frequencies without awkward decimal MHz values", () => {
@@ -24,6 +26,11 @@ describe("Frequency Utilities", () => {
     test("should format frequencies in MHz", () => {
       expect(formatFrequency(1500000)).toBe("1.5MHz");
       expect(formatFrequency(100000000)).toBe("100.0MHz");
+    });
+
+    test("should support dot-grouped high-resolution formatting", () => {
+      expect(formatFrequencyHighRes(2_201_269)).toBe("2.201.269MHz");
+      expect(formatFrequencyHighRes(2_204_000)).toBe("2.204.000MHz");
     });
 
     test("should format frequencies in GHz", () => {
@@ -124,6 +131,13 @@ describe("Frequency Utilities", () => {
   });
 
   describe("frequency math helpers", () => {
+    test("should round dB values to whole numbers for display", () => {
+      expect(roundDbValue(10.4)).toBe(10);
+      expect(roundDbValue(-89.6)).toBe(-90);
+      expect(Object.is(roundDbValue(-0.2), -0)).toBe(false);
+      expect(roundDbValue(-0.2)).toBe(0);
+    });
+
     test("should clamp frequencies within the provided bounds", () => {
       expect(clampFrequencyHz(5_000, 0, 10_000)).toBe(5_000);
       expect(clampFrequencyHz(-1, 0, 10_000)).toBe(0);
@@ -151,9 +165,40 @@ describe("Frequency Utilities", () => {
 
     test("should choose the most appropriate display scale", () => {
       expect(getOptimalFrequencyScale(999)).toEqual({ value: 999, unit: "Hz" });
-      expect(getOptimalFrequencyScale(1_500)).toEqual({ value: 1.5, unit: "kHz" });
-      expect(getOptimalFrequencyScale(1_500_000)).toEqual({ value: 1.5, unit: "MHz" });
-      expect(getOptimalFrequencyScale(1_500_000_000)).toEqual({ value: 1.5, unit: "GHz" });
+      expect(getOptimalFrequencyScale(1_500)).toEqual({
+        value: 1.5,
+        unit: "kHz",
+      });
+      expect(getOptimalFrequencyScale(1_500_000)).toEqual({
+        value: 1.5,
+        unit: "MHz",
+      });
+      expect(getOptimalFrequencyScale(1_500_000_000)).toEqual({
+        value: 1.5,
+        unit: "GHz",
+      });
+    });
+  });
+
+  describe("formatChannelFreq", () => {
+    test("should truncate to 3 decimal places without rounding", () => {
+      // MHz case
+      expect(formatChannelFreq(137500999)).toBe("137.500MHz");
+      expect(formatChannelFreq(137500000)).toBe("137.5MHz");
+      expect(formatChannelFreq(4399999)).toBe("4.399MHz");
+      expect(formatChannelFreq(2204000)).toBe("2.204MHz");
+
+      // kHz case
+      expect(formatChannelFreq(18999.9)).toBe("18.999kHz");
+      expect(formatChannelFreq(18000)).toBe("18kHz");
+    });
+
+    test("should handle negative frequencies with truncation", () => {
+      expect(formatChannelFreq(-137500999)).toBe("-137.500MHz");
+    });
+
+    test("should handle Hz case", () => {
+      expect(formatChannelFreq(123.4567)).toBe("123.456Hz");
     });
   });
 });

@@ -48,7 +48,7 @@ const ModalTitle = styled.div`
 
 const DiagnosticLabel = styled.div`
   color: ${({ theme }) => theme.colors.primary};
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -57,7 +57,7 @@ const DiagnosticLabel = styled.div`
 const MainTitle = styled.h2`
   margin: 0;
   color: ${({ theme }) => theme.colors.textPrimary};
-  font-size: 24px;
+  font-size: ${({ theme }) => theme.typography.headingSize};
   font-weight: 400;
   letter-spacing: -0.01em;
 `;

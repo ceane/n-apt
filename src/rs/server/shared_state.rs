@@ -6,7 +6,7 @@ use std::time::Instant;
 use super::types::{
   CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
 };
-use super::utils::{load_channels, load_sdr_settings};
+use super::utils::{load_available_spectrum, load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
 pub const DEVICE_PROBE_INTERVAL: std::time::Duration =
@@ -46,6 +46,8 @@ pub struct SharedState {
   pub shutdown: AtomicBool,
   /// Device info string (set once at init)
   pub device_info: Mutex<String>,
+  /// Backend/device error string surfaced to the frontend when available.
+  pub device_backend_error: Mutex<Option<String>>,
   /// Current device profile/capabilities for frontend feature gating
   pub device_profile: Mutex<DeviceProfile>,
   /// Device loading state (when device is being initialized)
@@ -61,6 +63,11 @@ pub struct SharedState {
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
+  /// Available spectrum bounds loaded from signals.yaml
+  pub available_spectrum: Option<(f64, f64)>,
+  /// Forces the live stream to emit noise when the frontend/backend
+  /// asks for an out-of-bounds tune request.
+  pub force_noise: AtomicBool,
   /// Redis client for persistent metadata and sessions
   pub redis_client: redis::Client,
 
@@ -80,6 +87,8 @@ pub struct SharedState {
   /// the slow device read. This lets FFT size changes take effect
   /// immediately instead of waiting for the current frame to finish.
   pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
+  /// Last broadcast status payload, used to suppress duplicate snapshots.
+  pub last_broadcast_status: Mutex<Option<String>>,
 }
 
 impl SharedState {
@@ -101,6 +110,7 @@ impl SharedState {
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
+      device_backend_error: Mutex::new(None),
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
@@ -113,11 +123,15 @@ impl SharedState {
       encryption_key,
       channels: Mutex::new(load_channels()),
       sdr_settings: Mutex::new(sdr_settings.clone()),
+      available_spectrum: load_available_spectrum()
+        .map(|range| (range.min_freq, range.max_freq)),
+      force_noise: AtomicBool::new(false),
       redis_client,
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
+      last_broadcast_status: Mutex::new(None),
     })
   }
 
@@ -131,9 +145,20 @@ impl SharedState {
     info: String,
     device_profile: DeviceProfile,
   ) {
+    let is_mock_fallback =
+      !connected && device_profile.kind.starts_with("mock_apt");
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
+    let kind = device_profile.kind.clone();
     *self.device_profile.lock().unwrap() = device_profile;
+    {
+      let mut settings = self.sdr_settings.lock().unwrap();
+      settings.fft = super::utils::resolve_fft_config(
+        &kind,
+        settings.sample_rate,
+        Some(settings.fft.default_size),
+      );
+    }
     *self.device_state.lock().unwrap() = if connected {
       "connected".to_string()
     } else {
@@ -142,6 +167,15 @@ impl SharedState {
     // Reset debounce counters on any definitive state change
     self.health_failure_streak.store(0, Ordering::Relaxed);
     self.recovery_attempts.store(0, Ordering::Relaxed);
+    if is_mock_fallback {
+      self.is_paused.store(false, Ordering::SeqCst);
+      self.allow_next_paused_frame.store(true, Ordering::SeqCst);
+    }
+    *self.last_broadcast_status.lock().unwrap() = None;
+  }
+
+  pub fn set_device_backend_error(&self, error: Option<String>) {
+    *self.device_backend_error.lock().unwrap() = error;
   }
 
   /// Transition device_state and immediately update the loading fields.
@@ -157,6 +191,7 @@ impl SharedState {
       state == "connected" || state == "loading",
       Ordering::Relaxed,
     );
+    *self.last_broadcast_status.lock().unwrap() = None;
   }
 
   /// Record a successful read, resetting the failure streak.

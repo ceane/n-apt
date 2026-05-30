@@ -1,10 +1,13 @@
 import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
+import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
+import { Tooltip } from "@n-apt/components/ui/Tooltip";
 import {
   ArrowBigUp,
   Pipette,
   SlidersVertical,
+  TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 
@@ -121,6 +124,10 @@ const NarrowSettingInput = styled(SettingInput)`
   width: 60px;
 `;
 
+const CompactFrequencyInput = styled(FrequencyInput)`
+  width: 95px;
+`;
+
 const InputGroup = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -147,6 +154,55 @@ const LabelWithIcon = styled.span`
   }
 `;
 
+const GainWarningIcon = styled(TriangleAlert)`
+  width: 13px !important;
+  height: 13px !important;
+  color: #f59e0b !important;
+  opacity: 1 !important;
+  flex-shrink: 0;
+`;
+
+const GAIN_WARNING_CONTENT =
+  "Warning: Excessive gain will amplify out-of-band noise, cause ADC clipping, " +
+  "and generate false signals (aliasing)." +
+  "<br/><br/>" +
+  "It is recommended to keep the gain beneath 30\u202fdB for signals under 10\u202fMHz." +
+  "<br/><br/>" +
+  "<strong>LNA</strong> \u2014 Max gain 40\u202fdB<br/>" +
+  "<strong>VGA</strong> \u2014 Max gain 62\u202fdB<br/>" +
+  "<strong>AMP</strong> \u2014 Gain 11\u202fdB";
+
+const GainWarning: React.FC = () => (
+  <Tooltip
+    title="Gain Warning"
+    content={GAIN_WARNING_CONTENT}
+    trigger={<GainWarningIcon />}
+  />
+);
+
+const BasebandWarningIcon = styled(TriangleAlert)`
+  width: 13px !important;
+  height: 13px !important;
+  color: #f59e0b !important;
+  opacity: 1 !important;
+  flex-shrink: 0;
+`;
+
+const BASEBAND_WARNING_CONTENT =
+  "When the Baseband Filter is narrower than the sample rate, the usable " +
+  "spectrum appears 'scrunched' into a center mound.<br/><br/>" +
+  "This happens because the hardware filter physically turns down the power " +
+  "(amplitude) of frequencies at the edges of the display, leaving only the " +
+  "center at full strength";
+
+const BasebandWarning: React.FC = () => (
+  <Tooltip
+    title="Baseband Filter Warning"
+    content={BASEBAND_WARNING_CONTENT}
+    trigger={<BasebandWarningIcon />}
+  />
+);
+
 const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
   icon: IconComponent,
   text,
@@ -157,18 +213,43 @@ const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
   </LabelWithIcon>
 );
 
+export interface GainLimits {
+  min?: number;
+  max?: number;
+  step?: number;
+  lna_min?: number;
+  lna_max?: number;
+  lna_step?: number;
+  vga_min?: number;
+  vga_max?: number;
+  vga_step?: number;
+}
+
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
+  deviceType?: string;
   ppm: number;
   gain: number;
+  hackrfLnaGain?: number;
+  hackrfVgaGain?: number;
+  hackrfAmpEnabled?: boolean;
+  hackrfBasebandBandwidth?: number | null;
+  hackrfCurrentSampleRate?: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
   stitchSourceSettings: { gain: number; ppm: number };
   isConnected: boolean;
   disableAgcControls?: boolean;
   maxGain?: number;
+  gainLimits?: GainLimits;
+  /** Minimum frequency of the current spectrum view in Hz, used for gain warnings */
+  frequencyRangeMin?: number;
   onPpmChange: (value: number) => void;
   onGainChange: (value: number) => void;
+  onHackrfLnaGainChange?: (value: number) => void;
+  onHackrfVgaGainChange?: (value: number) => void;
+  onHackrfAmpEnabledChange?: (value: boolean) => void;
+  onHackrfBasebandBandwidthChange?: (value: number) => void;
   onTunerAGCChange: (value: boolean) => void;
   onRtlAGCChange: (value: boolean) => void;
   onStitchSourceSettingsChange: (settings: {
@@ -180,28 +261,84 @@ interface SourceSettingsSectionProps {
 
 export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   sourceMode,
+  deviceType,
   ppm,
   gain,
+  hackrfLnaGain = 40.0,
+  hackrfVgaGain = 62,
+  hackrfAmpEnabled = false,
+  hackrfBasebandBandwidth,
+  hackrfCurrentSampleRate = 0,
   tunerAGC,
   rtlAGC,
   stitchSourceSettings,
   isConnected,
   disableAgcControls = false,
   maxGain = 49.6,
+  gainLimits,
+  frequencyRangeMin,
   onPpmChange,
   onGainChange,
+  onHackrfLnaGainChange,
+  onHackrfVgaGainChange,
+  onHackrfAmpEnabledChange,
+  onHackrfBasebandBandwidthChange,
   onTunerAGCChange,
   onRtlAGCChange,
   onStitchSourceSettingsChange,
   onAgcModeChange,
 }) => {
+  const isHackrfLive = sourceMode === "live" && deviceType === "hackrf_one";
+  /** True when the spectrum view includes sub-10 MHz frequencies */
+  const isLowFrequency =
+    typeof frequencyRangeMin === "number" && frequencyRangeMin < 10_000_000;
+
+  // Combined gain: each non-zero source contributes; AMP = 11 dB fixed
+  const lnaContrib = hackrfLnaGain > 0 ? hackrfLnaGain : 0;
+  const vgaContrib = hackrfVgaGain > 0 ? hackrfVgaGain : 0;
+  const ampContrib = hackrfAmpEnabled ? 11 : 0;
+  const totalGainDb = lnaContrib + vgaContrib + ampContrib;
+  const gainOverLimit = isHackrfLive && isLowFrequency && totalGainDb > 30;
+  /** Show warning on LNA row if LNA is a non-zero contributor to the over-limit total */
+  const showLnaWarning = gainOverLimit && lnaContrib > 0;
+  /** Show warning on VGA row if VGA is a non-zero contributor */
+  const showVgaWarning = gainOverLimit && vgaContrib > 0;
+  /** Show warning on AMP row if AMP is enabled and contributing */
+  const showAmpWarning = gainOverLimit && hackrfAmpEnabled;
+  const isRtlSdrLive =
+    sourceMode === "live" &&
+    (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
+  const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
+  const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
+  const showBasebandWarning =
+    isHackrfLive &&
+    isHackrfBasebandEnabled &&
+    hackrfCurrentSampleRate > 0 &&
+    basebandBandwidthVal < hackrfCurrentSampleRate;
+
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(maxGain, val));
+    const minVal = gainLimits?.min ?? 0;
+    const maxVal = gainLimits?.max ?? maxGain;
+    return Math.max(minVal, Math.min(maxVal, val));
+  };
+
+  const clampHackrfLnaGain = (val: number) => {
+    if (Number.isNaN(val)) return 0;
+    const minVal = gainLimits?.lna_min ?? 0.0;
+    const maxVal = gainLimits?.lna_max ?? 40.0;
+    return Math.max(minVal, Math.min(maxVal, val));
+  };
+
+  const clampHackrfVgaGain = (val: number) => {
+    if (Number.isNaN(val)) return 0;
+    const minVal = gainLimits?.vga_min ?? 0.0;
+    const maxVal = gainLimits?.vga_max ?? 62.0;
+    return Math.max(minVal, Math.min(maxVal, val));
   };
 
   const handlePpmChange = (raw: string) => {
-    const val = raw === "" ? 0 : parseInt(raw, 10) || 0;
+    const val = raw === "" ? 0 : Math.max(0, parseInt(raw, 10) || 0);
     if (sourceMode === "file") {
       onStitchSourceSettingsChange({ ...stitchSourceSettings, ppm: val });
     } else {
@@ -217,10 +354,10 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     if (sourceMode === "file") {
       onStitchSourceSettingsChange({
         ...stitchSourceSettings,
-        ppm: (stitchSourceSettings.ppm || 0) + delta,
+        ppm: Math.max(0, (stitchSourceSettings.ppm || 0) + delta),
       });
     } else {
-      const next = (ppm || 0) + delta;
+      const next = Math.max(0, (ppm || 0) + delta);
       onPpmChange(next);
     }
   };
@@ -238,16 +375,80 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
-    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const stepVal = gainLimits?.step ?? 1.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
     if (sourceMode === "file") {
+      const next = (stitchSourceSettings.gain || 0) + delta;
+      const rounded =
+        stepVal === 0.1
+          ? Math.round(next * 10) / 10
+          : Math.round(next / stepVal) * stepVal;
       onStitchSourceSettingsChange({
         ...stitchSourceSettings,
-        gain: (stitchSourceSettings.gain || 0) + delta,
+        gain: rounded,
       });
     } else {
-      const next = clampGain((gain || 0) + delta);
-      onGainChange(next);
+      const next = (gain || 0) + delta;
+      const rounded =
+        stepVal === 0.1
+          ? Math.round(next * 10) / 10
+          : Math.round(next / stepVal) * stepVal;
+      onGainChange(clampGain(rounded));
     }
+  };
+
+  const handleHackrfLnaChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    const stepVal = gainLimits?.lna_step ?? 8.0;
+    const rounded = Math.round(val / stepVal) * stepVal;
+    onHackrfLnaGainChange?.(clampHackrfLnaGain(rounded));
+  };
+
+  const handleHackrfLnaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const stepVal = gainLimits?.lna_step ?? 8.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
+    const next = (hackrfLnaGain || 0) + delta;
+    const rounded = Math.round(next / stepVal) * stepVal;
+    onHackrfLnaGainChange?.(clampHackrfLnaGain(rounded));
+  };
+
+  const handleHackrfVgaChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    const stepVal = gainLimits?.vga_step ?? 2.0;
+    const rounded = Math.round(val / stepVal) * stepVal;
+    onHackrfVgaGainChange?.(clampHackrfVgaGain(rounded));
+  };
+
+  const handleHackrfVgaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const stepVal = gainLimits?.vga_step ?? 2.0;
+    const delta = e.key === "ArrowUp" ? stepVal : -stepVal;
+    const next = (hackrfVgaGain || 0) + delta;
+    const rounded = Math.round(next / stepVal) * stepVal;
+    onHackrfVgaGainChange?.(clampHackrfVgaGain(rounded));
+  };
+
+  const handleHackrfAmpChange = (enabled: boolean) => {
+    onHackrfAmpEnabledChange?.(enabled);
+  };
+
+  const handleHackrfBasebandBandwidthChange = (raw: string) => {
+    const val = raw === "" ? 0 : Number(raw);
+    onHackrfBasebandBandwidthChange?.(
+      Math.max(0, Number.isFinite(val) ? Math.round(val) : 0),
+    );
+  };
+
+  const handleHackrfBasebandToggle = (enabled: boolean) => {
+    if (!onHackrfBasebandBandwidthChange) return;
+    onHackrfBasebandBandwidthChange(
+      enabled ? Math.max(0, Math.round(hackrfCurrentSampleRate || 0)) : 0,
+    );
   };
 
   const handleTunerAGCChange = (enabled: boolean) => {
@@ -289,29 +490,177 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           onChange={(e) => handlePpmChange(e.target.value)}
           onKeyDown={handlePpmKeyDown}
           step="1"
+          min="0"
         />
       </Row>
-      <Row
-        label={<IconLabel icon={ArrowBigUp} text="Gain" />}
-        tooltipTitle="Gain Setting"
-        tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
-      >
-        <InputGroup>
-          <NarrowSettingInput
-            type="number"
-            step="1"
-            value={sourceMode === "file" ? stitchSourceSettings.gain : gain}
-            onChange={(e) =>
-              handleGainChange(Math.round(Number(e.target.value)))
+      {!isHackrfLive && (
+        <Row
+          label={<IconLabel icon={ArrowBigUp} text="Gain" />}
+          tooltipTitle="Gain Setting"
+          tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
+        >
+          <InputGroup>
+            <NarrowSettingInput
+              type="number"
+              step={(gainLimits?.step ?? 1.0).toString()}
+              value={
+                sourceMode === "file"
+                  ? stitchSourceSettings.gain
+                  : gainLimits?.step === 0.1
+                    ? Number(gain.toFixed(1))
+                    : gain
+              }
+              onChange={(e) => {
+                const stepVal = gainLimits?.step ?? 1.0;
+                const val = Number(e.target.value);
+                const rounded = Math.round(val / stepVal) * stepVal;
+                const finalVal =
+                  stepVal === 0.1 ? Math.round(rounded * 10) / 10 : rounded;
+                handleGainChange(finalVal);
+              }}
+              onKeyDown={handleGainKeyDown}
+              min={(gainLimits?.min ?? 0.0).toString()}
+              max={
+                sourceMode === "file"
+                  ? undefined
+                  : (gainLimits?.max ?? maxGain).toString()
+              }
+            />
+            <UnitLabel>dB</UnitLabel>
+          </InputGroup>
+        </Row>
+      )}
+      {isHackrfLive && (
+        <>
+          <Row
+            label={
+              <>
+                <IconLabel icon={ArrowBigUp} text="LNA gain" />
+                {showLnaWarning && <GainWarning />}
+              </>
             }
-            onKeyDown={handleGainKeyDown}
-            min="0"
-            max={sourceMode === "file" ? undefined : maxGain.toString()}
-          />
-          <UnitLabel>dB</UnitLabel>
-        </InputGroup>
-      </Row>
-      {sourceMode === "live" && (
+            tooltipTitle="HackRF LNA Gain"
+            tooltip={
+              "Low-Noise Amplifier (LNA) gain stage.<br/><br/>" +
+              "This is the intermediate-frequency (IF) amplifier located in the MAX2837 transceiver chip, after the mixer.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Primary stage for boosting weak signals without adding significant noise.<br/>" +
+              "• Controls mixer input level to prevent early clipping/intermodulation.<br/>" +
+              `• Adjustable in <strong>${gainLimits?.lna_step ?? 8} dB steps</strong> (0 to ${gainLimits?.lna_max ?? 40} dB).`
+            }
+          >
+            <InputGroup>
+              <NarrowSettingInput
+                type="number"
+                step={(gainLimits?.lna_step ?? 8.0).toString()}
+                value={hackrfLnaGain}
+                onChange={(e) => handleHackrfLnaChange(e.target.value)}
+                onKeyDown={handleHackrfLnaKeyDown}
+                min={(gainLimits?.lna_min ?? 0.0).toString()}
+                max={(gainLimits?.lna_max ?? 40.0).toString()}
+              />
+              <UnitLabel>dB</UnitLabel>
+            </InputGroup>
+          </Row>
+          <Row
+            label={
+              <>
+                <IconLabel icon={ArrowBigUp} text="VGA gain" />
+                {showVgaWarning && <GainWarning />}
+              </>
+            }
+            tooltipTitle="HackRF VGA Gain"
+            tooltip={
+              "Variable-Gain Amplifier (VGA) gain stage.<br/><br/>" +
+              "This is the baseband amplifier located after the low-pass filter and directly before the Analog-to-Digital Converter (ADC).<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Scales the analog baseband signal to fully utilize the ADC's dynamic range.<br/>" +
+              "• Too low: signal is weak and buried in ADC quantization noise.<br/>" +
+              "• Too high: causes ADC clipping/saturation, resulting in ghost signals (aliasing).<br/>" +
+              `• Adjustable in <strong>${gainLimits?.vga_step ?? 2} dB steps</strong> (0 to ${gainLimits?.vga_max ?? 62} dB).`
+            }
+          >
+            <InputGroup>
+              <NarrowSettingInput
+                type="number"
+                step={(gainLimits?.vga_step ?? 2.0).toString()}
+                value={hackrfVgaGain}
+                onChange={(e) => handleHackrfVgaChange(e.target.value)}
+                onKeyDown={handleHackrfVgaKeyDown}
+                min={(gainLimits?.vga_min ?? 0.0).toString()}
+                max={(gainLimits?.vga_max ?? 62.0).toString()}
+              />
+              <UnitLabel>dB</UnitLabel>
+            </InputGroup>
+          </Row>
+          <Row
+            label={
+              <>
+                AMP enabled
+                {showAmpWarning && <GainWarning />}
+              </>
+            }
+            tooltipTitle="HackRF RF Amplifier"
+            tooltip={
+              "RF Frontend Amplifier (AMP) toggle.<br/><br/>" +
+              "This controls the bypassable MGA-86563 amplifier at the very front of the RX signal path, directly after the antenna input.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Adds a <strong>fixed 11 dB gain</strong> (up to 14 dB depending on RF frequency) to the input signal.<br/>" +
+              "• Helps capture extremely weak, distant transmissions.<br/>" +
+              "• <strong>Caution:</strong> Easily overloaded by strong nearby signals, which will saturate the mixer and introduce unwanted intermodulation distortion/ghost signals."
+            }
+          >
+            <ToggleSwitch $disabled={!isConnected}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={hackrfAmpEnabled}
+                onChange={(e) => handleHackrfAmpChange(e.target.checked)}
+                disabled={!isConnected}
+              />
+              <ToggleSwitchSlider $disabled={!isConnected} />
+            </ToggleSwitch>
+          </Row>
+          <Row
+            label={
+              <>
+                Baseband filter
+                {showBasebandWarning && <BasebandWarning />}
+              </>
+            }
+            tooltipTitle="HackRF Baseband Filter"
+            tooltip={
+              "Analog Low-Pass Baseband Filter.<br/><br/>" +
+              "Controls the internal hardware low-pass filter (LPF) of the MAX2837 transceiver before the signal is digitized.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Limits the frequency spectrum width reaching the ADC, filtering out out-of-band signals.<br/>" +
+              "• Prevents strong out-of-band noise or signals from aliasing into your view or saturating the receiver.<br/>" +
+              "• <strong>Note:</strong> When enabled, it automatically scales with the active sample rate. If set narrower than the sample rate, frequencies near the edges will be attenuated, causing a 'scrunched' center mound."
+            }
+          >
+            <InputGroup>
+              <ToggleSwitch $disabled={!isConnected}>
+                <ToggleSwitchInput
+                  type="checkbox"
+                  checked={isHackrfBasebandEnabled}
+                  onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
+                  disabled={!isConnected}
+                />
+                <ToggleSwitchSlider $disabled={!isConnected} />
+              </ToggleSwitch>
+              {isHackrfBasebandEnabled && (
+                <CompactFrequencyInput
+                  valueHz={basebandBandwidthVal}
+                  onChangeHz={(val) => onHackrfBasebandBandwidthChange?.(val)}
+                  disabled={!isConnected}
+                  minHz={0}
+                  maxHz={20000000}
+                />
+              )}
+            </InputGroup>
+          </Row>
+        </>
+      )}
+      {isRtlSdrLive && (
         <>
           <Row
             label="Tuner AGC"

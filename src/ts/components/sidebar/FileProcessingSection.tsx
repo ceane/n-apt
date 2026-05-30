@@ -1,7 +1,5 @@
-import React, { useRef } from "react";
+import React from "react";
 import styled from "styled-components";
-import { Button } from "@n-apt/components/ui";
-import { CheckCircle2, Play, Pause, Loader2 } from "lucide-react";
 import FileMetadata from "./FileMetadata";
 import FileSelection from "./FileSelection";
 import SelectedFiles from "./SelectedFiles";
@@ -11,7 +9,6 @@ import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
 
 // Import NaptMetadata type from FileMetadata component
 import type { NaptMetadata } from "./FileMetadata";
-import { DecryptionFallback } from "../ui/DecryptionFallback";
 
 const Section = styled.div<{ $marginTop?: string }>`
   display: grid;
@@ -19,14 +16,6 @@ const Section = styled.div<{ $marginTop?: string }>`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: ${(props) => props.$marginTop || "0"};
-`;
-
-const ActionsContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  grid-column: 1 / -1;
-  margin-top: 8px;
 `;
 
 const DropZone = styled.div<{ $isDragging: boolean }>`
@@ -43,6 +32,7 @@ const DropZone = styled.div<{ $isDragging: boolean }>`
   transition: all 0.2s ease;
   min-height: 40px;
   z-index: 5;
+  box-sizing: border-box;
 `;
 
 const DropOverlay = styled.div`
@@ -67,32 +57,6 @@ const DropOverlay = styled.div`
   backdrop-filter: blur(2px);
 `;
 
-const StitchStatusMessage = styled.div<{ $isError: boolean }>`
-  grid-column: 1 / -1;
-  margin-bottom: 8px;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: ${(props) =>
-    props.$isError ? props.theme.danger : props.theme.success};
-  background-color: ${(props) =>
-    props.$isError ? `${props.theme.danger}0d` : `${props.theme.success}0d`};
-  border: 1px solid
-    ${(props) =>
-      props.$isError ? `${props.theme.danger}33` : `${props.theme.success}33`};
-  text-align: center;
-`;
-
-const SpaceHint = styled.span`
-  font-size: 9px;
-  color: ${(props) => props.theme.textSecondary};
-  opacity: 0.6;
-  line-height: 1;
-  margin-top: 3px;
-  display: block;
-`;
-
 interface FileProcessingSectionProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   stitchStatus: string;
@@ -103,11 +67,10 @@ interface FileProcessingSectionProps {
   onSelectedFilesChange: (
     files: { id: string; name: string; downloadUrl?: string }[],
   ) => void;
-  onStitch: () => void;
   onClear: () => void;
-  onStitchPauseToggle: () => void;
   sessionToken?: string | null;
   showMetadata?: boolean;
+  fileModeActions?: React.ReactNode;
 }
 
 export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
@@ -118,14 +81,11 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   naptMetadata,
   naptMetadataError,
   onSelectedFilesChange,
-  onStitch,
   onClear,
-  onStitchPauseToggle,
   sessionToken,
   showMetadata = true,
+  fileModeActions,
 }) => {
-  const stitchButtonRef = useRef<HTMLButtonElement | null>(null);
-
   const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
@@ -136,17 +96,6 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     }));
 
     onSelectedFilesChange(registeredFiles);
-
-    setTimeout(() => {
-      const btn = stitchButtonRef.current;
-      if (btn) {
-        btn.focus();
-        if (window.focus) window.focus();
-        btn.style.transform = "translateZ(0)";
-        void btn.offsetWidth;
-        btn.style.transform = "";
-      }
-    }, 50);
   };
 
   const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } =
@@ -169,15 +118,6 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     onSelectedFilesChange(selectedFiles.filter((_, i) => i !== index));
   };
 
-  const stitchingActive =
-    (stitchStatus?.toLowerCase().includes("loading") ||
-    stitchStatus?.toLowerCase().includes("processing") ||
-    stitchStatus?.toLowerCase().includes("computing") ||
-    stitchStatus?.toLowerCase().includes("loaded")) &&
-    !stitchStatus?.toLowerCase().includes("successfully");
-  const hasProcessedData = stitchStatus?.toLowerCase().includes("successfully");
-  const isError = stitchStatus && !stitchingActive && !hasProcessedData && stitchStatus.toLowerCase() !== "no files selected for stitching";
-
   return (
     <DropZone
       data-testid="file-drop-zone"
@@ -194,6 +134,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
 
       {selectedFiles.length > 0 && (
         <>
+          {fileModeActions ? <Section>{fileModeActions}</Section> : null}
           <Section>
             <SelectedFiles
               selectedFiles={selectedFiles}
@@ -202,71 +143,6 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               sessionToken={sessionToken}
             />
           </Section>
-
-          <ActionsContainer>
-            {isError && (
-                <div className="mt-2">
-                  {stitchStatus.toLowerCase().includes("decryption") ? (
-                    <DecryptionFallback
-                      moduleName="File Stitcher"
-                      errorType="vault"
-                    />
-                  ) : (
-                    <StitchStatusMessage $isError={true}>
-                      {stitchStatus}
-                    </StitchStatusMessage>
-                  )}
-                </div>
-              )}
-
-            <Button
-              $variant={
-                stitchingActive
-                  ? "secondary"
-                  : isError
-                    ? "danger"
-                    : "primary"
-              }
-              ref={stitchButtonRef}
-              onClick={() => {
-                if (stitchingActive) return;
-                if (hasProcessedData) {
-                  onStitchPauseToggle();
-                } else {
-                  onStitch();
-                }
-              }}
-              disabled={stitchingActive}
-              style={{ width: "100%", padding: "12px" }}
-            >
-              {stitchingActive ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" /> Processing...
-                </>
-              ) : isError ? (
-                "Error"
-              ) : hasProcessedData ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
-                    {isStitchPaused ? (
-                      <>
-                        <Play size={14} fill="currentColor" /> Play
-                      </>
-                    ) : (
-                      <>
-                        <Pause size={14} fill="currentColor" /> Pause
-                      </>
-                    )}
-                  </div>
-                  <SpaceHint>[Space]</SpaceHint>
-                </div>
-              ) : (
-                <>
-                  <CheckCircle2 size={16} /> Process then play
-                </>
-              )}
-            </Button>
-          </ActionsContainer>
         </>
       )}
 

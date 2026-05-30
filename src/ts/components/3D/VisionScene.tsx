@@ -52,7 +52,7 @@ export const VisionScene: React.FC<{ session: any }> = ({ session }) => {
       {session.countdown && session.countdown > 0 ? (
         <>
           <Timer>{session.countdown}</Timer>
-          <Label>Preparing Vision Baseline...</Label>
+          <Label>Preparing Vision Baseline…</Label>
         </>
       ) : (
         <>

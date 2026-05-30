@@ -1,4 +1,8 @@
 import { useCallback, useRef, useState, useEffect } from "react";
+import {
+  applyComplexLowPass,
+  shiftIqToBaseband,
+} from "@n-apt/utils/demodulation";
 
 export interface AudioDemodAPTOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
@@ -6,7 +10,11 @@ export interface AudioDemodAPTOptions {
 }
 
 export interface AudioDemodAPTHandle {
-  processIQData: (iqData: Uint8Array, sampleRate: number) => void;
+  processIQData: (
+    iqData: Uint8Array,
+    sampleRate: number,
+    frameCenterFrequencyHz?: number | null,
+  ) => void;
   playAudio: () => void;
   stopAudio: () => void;
   setVolume: (volume: number) => void;
@@ -45,16 +53,20 @@ export function useAudioDemodAPT(
 
   // Standard FM demodulation (APT is FM modulated)
   const demodulateAPTBaseband = useCallback(
-    (iqData: Uint8Array): Float32Array => {
+    (
+      iqData: Uint8Array,
+      sampleRate: number,
+      _frameCenterFrequencyHz?: number | null,
+    ): Float32Array => {
       const samples = iqData.length / 2;
       const audioBuffer = new Float32Array(samples);
-
+      const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
+      const filteredIq = applyComplexLowPass(shiftedIq, sampleRate, 200_000);
       const i = new Float32Array(samples);
       const q = new Float32Array(samples);
-
       for (let j = 0; j < samples; j++) {
-        i[j] = (iqData[j * 2] - 128) / 128;
-        q[j] = (iqData[j * 2 + 1] - 128) / 128;
+        i[j] = filteredIq[j * 2];
+        q[j] = filteredIq[j * 2 + 1];
       }
 
       for (let j = 1; j < samples; j++) {
@@ -146,11 +158,19 @@ export function useAudioDemodAPT(
   );
 
   const processIQData = useCallback(
-    (iqData: Uint8Array, inputSampleRate: number) => {
+    (
+      iqData: Uint8Array,
+      inputSampleRate: number,
+      frameCenterFrequencyHz?: number | null,
+    ) => {
       if (!iqData || iqData.length === 0) return;
 
       // 1. FM demodulation to get baseband (which contains 2.4kHz AM subcarrier)
-      const baseband = demodulateAPTBaseband(iqData);
+      const baseband = demodulateAPTBaseband(
+        iqData,
+        inputSampleRate,
+        frameCenterFrequencyHz,
+      );
 
       // 2. Apply Envelope Detection to recover image pixels (magnitude of 2.4kHz subcarrier)
       // Note: It's theoretically better to apply this at the original inputSampleRate

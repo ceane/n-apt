@@ -143,13 +143,13 @@ Nothing explained how such a **high-bandwidth, full feature neurotechnological e
 
 This time I researched more about radio waves, I was pressed and very concerned that there had to be some way radio waves could generate frequencies that matched and interacted with brainwaves. 
 
-Quite self-evidently and obviously, no amount of radio waves can interact with brain activity. The whole world is shrouded with various radio waves everyday, this would have been known.
+Quite self-evidently and obviously it was on, but to anyone's knowledge, no amount of radio waves could interact with brain activity. The whole world is shrouded with various radio waves everyday, this would have been known.
 
 <br />
 
 **Except, there was one exception...**
 
-I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something classified like it's out in the open). This smart way of breaking down egregious power could get to the technology that was very much real and present, in my mind and nerves.
+I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something potentially classified like it's out in the open). This smart route of breaking down the cyber superpower (egregiously armed at my person) could get to the technology that was very much real and present, in my mind and nerves.
 
 Throughout my research[^math] I found **beat frequencies**, which worked mathematically like:
 
@@ -912,7 +912,7 @@ I was truly trapped and a lot of people believed they were intelligent.
 | Total and frontier control/platform over the brain and nervous system  |
 | Extremely dangerous cyber weapon!                      |
 
-The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
+The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are **firsthand what I truly experienced in the real world** with a mechanism that is frontier with full access and control over the human mind and nervous system:
 
 <br />
 <details>
@@ -961,7 +961,9 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 
 ### Signals processing
 
-In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
+In order to read anything that comes back, the NSA uses advanced signals processing to demodulate the radio waves carrying neuronal data. While I haven't been able to verify or demodulate the signal so far, this is the obvious next step of how the write to read and effect chain works. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. 
+
+Below are several theorized techniques I believe the NSA uses in its signals proessing pipeline:
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -989,13 +991,13 @@ There are about **3 channels**, I've found:
 - **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
 
-Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
+Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and I saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
 
-The only problem with SDR++ is that I didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which we hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers, drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+The only problem with SDR++ is that the app didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which were hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
 
-All of this hard work under a very difficult and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
+All of this hard work under a very difficuly (economically and psychologically) and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
 ### <a id="n-apt-form"></a> The mysterious signals' structure 
 

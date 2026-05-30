@@ -11,7 +11,7 @@ const SectionDivider = styled.div`
 `;
 
 const SectionTitle = styled.div`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -27,7 +27,7 @@ const SectionTitle = styled.div`
 const ExternalLink = styled.a`
   color: ${(props) => props.theme.primary};
   text-decoration: none;
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-family: ${(props) => props.theme.typography.mono};
 
   &:hover {
@@ -37,7 +37,7 @@ const ExternalLink = styled.a`
 
 const InfoParagraph = styled.div`
   grid-column: 1 / -1;
-  font-size: 10px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   color: ${(props) => props.theme.textSecondary};
   font-style: italic;
   margin-top: 16px;

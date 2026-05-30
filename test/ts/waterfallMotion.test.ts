@@ -12,6 +12,7 @@ describe("getWaterfallMotion", () => {
       driftBins: 0,
       shouldPaintMotionRow: false,
       smearRows: 0,
+      transitionRows: 0,
     });
   });
 
@@ -25,6 +26,7 @@ describe("getWaterfallMotion", () => {
     expect(result.shouldPaintMotionRow).toBe(true);
     expect(result.driftBins).toBeCloseTo(409.6, 4);
     expect(result.smearRows).toBeGreaterThan(0);
+    expect(result.transitionRows).toBeGreaterThan(1);
   });
 
   test("requests a motion row when the zoom span changes", () => {
@@ -36,6 +38,7 @@ describe("getWaterfallMotion", () => {
 
     expect(result.shouldPaintMotionRow).toBe(true);
     expect(result.smearRows).toBeGreaterThan(0);
+    expect(result.transitionRows).toBeGreaterThan(0);
   });
 
   test("ignores tiny sub-bin motion", () => {
@@ -48,5 +51,6 @@ describe("getWaterfallMotion", () => {
     expect(result.driftBins).toBeCloseTo(0.00128, 6);
     expect(result.shouldPaintMotionRow).toBe(false);
     expect(result.smearRows).toBe(0);
+    expect(result.transitionRows).toBe(0);
   });
 });

@@ -8,7 +8,6 @@ import {
   isValidWebSocketMessageWithIntegrity,
   isValidStatusMessageEnhanced,
   isValidCaptureStatus,
-  isValidAutoFftOptions,
   quickValidate,
   validateAndExtract,
   isValidObject,
@@ -86,6 +85,17 @@ export function validateWebSocketMessage(data: unknown): boolean {
       return VALIDATION_CONFIG.skipBinaryValidation;
     }
 
+    // Status snapshots are the most important control-plane messages, so we
+    // validate them via the dedicated status path first and tolerate minor
+    // schema drift instead of dropping the entire update stream.
+    if (isValidObject(data) && (data as { type?: unknown }).type === "status") {
+      const isStatusValid = validateStatusMessage(data);
+      if (!isStatusValid) {
+        logValidationFailure("WebSocket message", data);
+      }
+      return isStatusValid;
+    }
+
     // Quick validation for common message types
     if (isValidObject(data) && "type" in data) {
       const messageData = data as { type: unknown };
@@ -136,19 +146,6 @@ export function validateCaptureStatus(data: unknown): boolean {
 
     return isValid;
   }, "Capture status validation");
-}
-
-// Auto FFT options validation
-export function validateAutoFftOptions(data: unknown): boolean {
-  return measureValidationTime(() => {
-    const isValid = isValidAutoFftOptions(data);
-
-    if (!isValid) {
-      logValidationFailure("Auto FFT options", data);
-    }
-
-    return isValid;
-  }, "Auto FFT options validation");
 }
 
 // Authentication validation
@@ -250,9 +247,6 @@ export function processWebSocketMessageWithValidation(
         // Temporarily allow all capture status messages to fix I/Q capture
         // TODO: Fix schema validation and re-enable proper validation
         return true;
-
-      case "auto_fft_options":
-        return validateAutoFftOptions(data);
 
       default:
         // For other message types, we've already done basic validation

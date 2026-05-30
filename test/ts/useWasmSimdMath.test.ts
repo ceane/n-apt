@@ -1,4 +1,6 @@
+import { renderHook, waitFor } from "@testing-library/react";
 import { computeIqToDbSpectrumScalar } from "../../src/ts/hooks/useWasmSimdMath";
+import { useWasmSimdMath } from "../../src/ts/hooks/useWasmSimdMath";
 
 function buildToneIqSamples(sampleCount: number, cycles: number): Uint8Array {
   const out = new Uint8Array(sampleCount * 2);
@@ -44,5 +46,38 @@ describe("computeIqToDbSpectrumScalar", () => {
     });
 
     expect(spectrum).toHaveLength(128);
+  });
+});
+
+describe("useWasmSimdMath", () => {
+  it("does not let SIMD bypass the requested non-rectangular window", async () => {
+    const iq = buildToneIqSamples(64, 5);
+
+    const { result } = renderHook(() =>
+      useWasmSimdMath({
+        fftSize: 64,
+        enableSimd: true,
+        fallbackToScalar: true,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isWasmLoaded).toBe(true);
+    });
+
+    const rectangular = result.current.processIqToDbmSpectrum(
+      iq,
+      0,
+      64,
+      "rectangular",
+    );
+    const nuttall = result.current.processIqToDbmSpectrum(
+      iq,
+      0,
+      64,
+      "Nuttall",
+    );
+
+    expect(Array.from(rectangular)).not.toEqual(Array.from(nuttall));
   });
 });

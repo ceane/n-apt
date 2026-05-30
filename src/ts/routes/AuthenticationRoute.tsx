@@ -676,7 +676,7 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
       <InitializingContainer>
         <InitializingTitle>Initializing N-APT</InitializingTitle>
         <InitializingText>
-          Establishing secure connection and verifying session...
+          Establishing secure connection and verifying session…
         </InitializingText>
       </InitializingContainer>
     );

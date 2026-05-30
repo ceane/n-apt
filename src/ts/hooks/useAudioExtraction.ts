@@ -9,6 +9,7 @@ export interface AudioExtractionOptions {
 export interface AudioPlaybackHandle {
   playAudio: (audioBuffer: Float32Array, sampleRate: number) => Promise<void>;
   stopAudio: () => void;
+  resumeAudioContext: () => void;
   isPlaying: boolean;
   exportToWAV: (
     audioBuffer: Float32Array,
@@ -140,6 +141,13 @@ export function useAudioExtraction(
     setIsPlaying(false);
   }, []);
 
+  const resumeAudioContext = useCallback(() => {
+    const audioContext = getAudioContext();
+    if (audioContext.state === "suspended") {
+      audioContext.resume();
+    }
+  }, [getAudioContext]);
+
   // Export audio to WAV file
   const exportToWAV = useCallback(
     (audioBuffer: Float32Array, sampleRate: number, filename: string) => {
@@ -233,6 +241,7 @@ export function useAudioExtraction(
   return {
     playAudio,
     stopAudio,
+    resumeAudioContext,
     isPlaying,
     exportToWAV,
     mixAudioRegions,

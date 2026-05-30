@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from "react";
 import { usePretextText } from "@n-apt/hooks/usePretextText";
 import { isHighDPI } from "@n-apt/utils/canvasDPIScaling";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 export const SimplePretextDemo: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -8,7 +9,7 @@ export const SimplePretextDemo: React.FC = () => {
 
   // Use the pretext hook for text measurement
   const { metrics, isReady, getDPIScaledMetrics } = usePretextText({
-    text: `Frequency: ${(frequency / 1e6).toFixed(2)} MHz`,
+    text: `Frequency: ${formatFrequency(frequency, { precisionMHz: 2 })}`,
     font: '"JetBrains Mono", monospace',
     fontSize: 16,
     color: "#ffff00",
@@ -46,7 +47,7 @@ export const SimplePretextDemo: React.FC = () => {
     ctx.fillStyle = "#ffff00";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(`Frequency: ${(frequency / 1e6).toFixed(2)} MHz`, 50, 50);
+    ctx.fillText(`Frequency: ${formatFrequency(frequency, { precisionMHz: 2 })}`, 50, 50);
 
     // Draw stats box
     ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
@@ -64,7 +65,7 @@ export const SimplePretextDemo: React.FC = () => {
     ctx.fillStyle = "#cccccc";
     ctx.fillText("Frequency:", 410, 85);
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(`${(frequency / 1e6).toFixed(2)} MHz`, 590, 85, {
+    ctx.fillText(formatFrequency(frequency, { precisionMHz: 2 }), 590, 85, {
       align: "right",
     } as any);
 
@@ -119,7 +120,7 @@ export const SimplePretextDemo: React.FC = () => {
 
       <div style={{ marginTop: "20px", fontSize: "14px" }}>
         <p>Frequency updates automatically every 2 seconds</p>
-        <p>Current: {(frequency / 1e6).toFixed(2)} MHz</p>
+        <p>Current: {formatFrequency(frequency, { precisionMHz: 2 })}</p>
         <p>Pretext hook status: {isReady ? "Ready" : "Loading..."}</p>
         <p>
           Device DPI: {window.devicePixelRatio || 1}x (

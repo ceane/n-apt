@@ -23,6 +23,11 @@ const SOURCE_FILES = [
     output: "test/ts/shaders/generated/fft_compute.wgsl",
     exportName: "FFT_COMPUTE_SHADER",
   },
+  {
+    input: "src/ts/consts/shaders/waterfall_retune.ts",
+    output: "test/ts/shaders/generated/waterfall_retune.wgsl",
+    exportName: "WATERFALL_RETUNE_WGSL",
+  },
 ];
 
 for (const spec of SOURCE_FILES) {

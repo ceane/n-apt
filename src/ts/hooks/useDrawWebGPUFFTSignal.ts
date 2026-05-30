@@ -36,19 +36,71 @@
 import { useCallback, useRef } from "react";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
-import { SPECTRUM_SHADER, RESAMPLE_WGSL, SPIKE_COMPUTE_WGSL, SPIKE_RENDER_WGSL } from "@n-apt/shaders";
+import {
+  SPECTRUM_SHADER,
+  RESAMPLE_WGSL,
+  SPIKE_COMPUTE_WGSL,
+  SPIKE_RENDER_WGSL,
+} from "@n-apt/shaders";
 import {
   configureWebGPUCanvas,
   parseCssColorToRgba,
 } from "@n-apt/utils/webgpu";
 
+// Cached CSS color reads — avoids getComputedStyle per render frame.
+// Invalidated on theme changes via MutationObserver.
+const cssColorCache = new Map<string, string>();
+let cssObserverInstalled = false;
+
+const installCssObserver = () => {
+  if (
+    cssObserverInstalled ||
+    typeof MutationObserver === "undefined" ||
+    typeof document === "undefined"
+  )
+    return;
+  cssObserverInstalled = true;
+  const observer = new MutationObserver(() => {
+    cssColorCache.clear();
+  });
+  const observeTarget = (target: HTMLElement | null) => {
+    if (!target) return;
+    observer.observe(target, {
+      attributes: true,
+      attributeFilter: ["style", "class", "data-theme"],
+      childList: true,
+      subtree: true,
+    });
+  };
+
+  observeTarget(document.documentElement);
+  observeTarget(document.head);
+};
+
 const readCssColor = (name: string, fallback: string) => {
   if (typeof window === "undefined" || typeof document === "undefined")
     return fallback;
+  const cached = cssColorCache.get(name);
+  if (cached !== undefined) return cached;
+  installCssObserver();
   const value = getComputedStyle(document.documentElement)
     .getPropertyValue(name)
     .trim();
-  return value || fallback;
+  const result = value || fallback;
+  cssColorCache.set(name, result);
+  return result;
+};
+
+// Cached parseCssColorToRgba results — avoids repeated CSS string parsing
+const parsedColorCache = new Map<string, [number, number, number, number]>();
+const cachedParseCssColor = (
+  color: string,
+): [number, number, number, number] => {
+  const cached = parsedColorCache.get(color);
+  if (cached) return cached;
+  const result = parseCssColorToRgba(color);
+  parsedColorCache.set(color, result);
+  return result;
 };
 
 // Shaders imported from @n-apt/shaders/
@@ -105,6 +157,17 @@ type FFTWebGPUState = {
   spikeComputeBindGroup: GPUBindGroup | null;
   spikeRenderBindGroup: GPUBindGroup | null;
   spikeWaveformLength: number;
+  floorAvgResultBuffer: GPUBuffer;
+  floorAvgScratch: Uint32Array;
+  // Persistent scratch buffers — allocated once, reused every frame
+  scratchSpikeParamsAB: ArrayBuffer;
+  scratchSpikeParamsU32: Uint32Array;
+  scratchSpikeParamsF32: Float32Array;
+  scratchResampleParams: Uint32Array;
+  scratchZeroCount: Uint32Array;
+  lastFrameCanvas?: HTMLCanvasElement;
+  cacheCanvas?: HTMLCanvasElement;
+  cacheCtx?: CanvasRenderingContext2D | null;
 };
 
 export interface WebGPUFFTSignalOptions {
@@ -130,10 +193,27 @@ export interface WebGPUFFTSignalOptions {
 
 export function useDrawWebGPUFFTSignal() {
   const rendererRef = useRef<FFTWebGPUState | null>(null);
+  const onSpikeCountRef = useRef<((count: number) => void) | undefined>(
+    undefined,
+  );
+  const retiredBuffersRef = useRef<GPUBuffer[]>([]);
   const lastDataRef = useRef<{
     waveform: Float32Array;
     frequencyRange: any;
   } | null>(null);
+
+  const flushRetiredBuffers = useCallback(() => {
+    const buffers = retiredBuffersRef.current;
+    retiredBuffersRef.current = [];
+    for (const buffer of buffers) {
+      buffer.destroy();
+    }
+  }, []);
+
+  const retireBuffer = useCallback((buffer: GPUBuffer | null | undefined) => {
+    if (!buffer) return;
+    retiredBuffersRef.current.push(buffer);
+  }, []);
 
   const createFFTWebGPUState = useCallback(
     (
@@ -277,62 +357,126 @@ export function useDrawWebGPUFFTSignal() {
       device.pushErrorScope("validation");
       const spikeComputeBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
         ],
       });
-      const spikeComputeModule = device.createShaderModule({ code: SPIKE_COMPUTE_WGSL });
+      const spikeComputeModule = device.createShaderModule({
+        code: SPIKE_COMPUTE_WGSL,
+      });
       const spikeComputePipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeComputeBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spikeComputeBindGroupLayout],
+        }),
         compute: { module: spikeComputeModule, entryPoint: "main" },
       });
       device.popErrorScope().then((error) => {
-        if (error) console.error("Spike Compute Pipeline Error:", error.message);
+        if (error)
+          console.error("Spike Compute Pipeline Error:", error.message);
       });
 
       // --- Render spikes pipeline ---
       device.pushErrorScope("validation");
       const spikeRenderBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-          { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.VERTEX,
+            buffer: { type: "uniform" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.VERTEX,
+            buffer: { type: "read-only-storage" },
+          },
         ],
       });
-      const spikeRenderModule = device.createShaderModule({ code: SPIKE_RENDER_WGSL });
-      
+      const spikeRenderModule = device.createShaderModule({
+        code: SPIKE_RENDER_WGSL,
+      });
+
       const spikeRenderLinePipeline = device.createRenderPipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeRenderBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spikeRenderBindGroupLayout],
+        }),
         vertex: { module: spikeRenderModule, entryPoint: "vs_line" },
         fragment: {
           module: spikeRenderModule,
           entryPoint: "fs_line",
-          targets: [{
-            format,
-            blend: {
-              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          targets: [
+            {
+              format,
+              blend: {
+                color: {
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+                alpha: {
+                  srcFactor: "one",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+              },
             },
-          }],
+          ],
         },
         primitive: { topology: "line-list" },
       });
 
       const spikeRenderCirclePipeline = device.createRenderPipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [spikeRenderBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [spikeRenderBindGroupLayout],
+        }),
         vertex: { module: spikeRenderModule, entryPoint: "vs_circle" },
         fragment: {
           module: spikeRenderModule,
           entryPoint: "fs_circle",
-          targets: [{
-            format,
-            blend: {
-              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          targets: [
+            {
+              format,
+              blend: {
+                color: {
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+                alpha: {
+                  srcFactor: "one",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+              },
             },
-          }],
+          ],
         },
         primitive: { topology: "triangle-list" },
       });
@@ -344,6 +488,19 @@ export function useDrawWebGPUFFTSignal() {
         size: 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
+
+      const floorAvgResultBuffer = device.createBuffer({
+        size: 12,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      const floorAvgScratch = new Uint32Array(3);
+
+      // Persistent scratch buffers — allocated once, reused every frame to avoid GC
+      const scratchSpikeParamsAB = new ArrayBuffer(16);
+      const scratchSpikeParamsU32 = new Uint32Array(scratchSpikeParamsAB);
+      const scratchSpikeParamsF32 = new Float32Array(scratchSpikeParamsAB);
+      const scratchResampleParams = new Uint32Array(4);
+      const scratchZeroCount = new Uint32Array([0]);
 
       return {
         canvas,
@@ -379,6 +536,13 @@ export function useDrawWebGPUFFTSignal() {
         spikeComputeBindGroup: null,
         spikeRenderBindGroup: null,
         spikeWaveformLength: 0,
+        floorAvgResultBuffer,
+        floorAvgScratch,
+        scratchSpikeParamsAB,
+        scratchSpikeParamsU32,
+        scratchSpikeParamsF32,
+        scratchResampleParams,
+        scratchZeroCount,
       };
     },
     [],
@@ -404,6 +568,8 @@ export function useDrawWebGPUFFTSignal() {
         showSpikeOverlay = false,
         onSpikeCount,
       } = options;
+
+      onSpikeCountRef.current = onSpikeCount;
 
       // Background color from CSS variable - not configurable per-call to ensure
       // snapshot consistency (snapshots capture waveform data, not background)
@@ -433,12 +599,10 @@ export function useDrawWebGPUFFTSignal() {
       try {
         // Calculate target display width using offsetWidth (unaffected by CSS
         // transforms like React Flow's viewport zoom).
-        const parentWidth = canvas.parentElement?.offsetWidth ?? canvas.offsetWidth ?? 1;
+        const parentWidth =
+          canvas.parentElement?.offsetWidth ?? canvas.offsetWidth ?? 1;
         const marginPx = nodePreview ? 0 : 40;
-        const displayWidth = Math.max(
-          1,
-          Math.floor(parentWidth - marginPx),
-        );
+        const displayWidth = Math.max(1, Math.floor(parentWidth - marginPx));
 
         const srcLen = waveformData.length;
         let buffersChanged = false;
@@ -448,7 +612,7 @@ export function useDrawWebGPUFFTSignal() {
           !state.resampleInputBuffer ||
           srcLen !== state.resampleInputLength
         ) {
-          state.resampleInputBuffer?.destroy();
+          retireBuffer(state.resampleInputBuffer);
           state.resampleInputBuffer = state.device.createBuffer({
             size: srcLen * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -463,7 +627,7 @@ export function useDrawWebGPUFFTSignal() {
           !state.resampleOutputBuffer ||
           displayWidth !== state.resampleOutputLength
         ) {
-          state.resampleOutputBuffer?.destroy();
+          retireBuffer(state.resampleOutputBuffer);
           state.resampleOutputBuffer = state.device.createBuffer({
             size: displayWidth * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -497,13 +661,13 @@ export function useDrawWebGPUFFTSignal() {
 
         // --- Spikes buffers rebuild ---
         if (!state.spikeBuffer || srcLen !== state.spikeWaveformLength) {
-          state.spikeBuffer?.destroy();
+          retireBuffer(state.spikeBuffer);
           state.spikeBuffer = state.device.createBuffer({
-            // 100 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
-            size: 100 * 16,
+            // 128 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
+            size: 128 * 16,
             usage: GPUBufferUsage.STORAGE,
           });
-          state.spikeCountBuffer?.destroy();
+          retireBuffer(state.spikeCountBuffer);
           state.spikeCountBuffer = state.device.createBuffer({
             size: 4,
             usage:
@@ -511,7 +675,7 @@ export function useDrawWebGPUFFTSignal() {
               GPUBufferUsage.COPY_DST |
               GPUBufferUsage.COPY_SRC,
           });
-          state.spikeCountReadbackBuffer?.destroy();
+          retireBuffer(state.spikeCountReadbackBuffer);
           state.spikeCountReadbackBuffer = state.device.createBuffer({
             size: 4,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
@@ -525,6 +689,7 @@ export function useDrawWebGPUFFTSignal() {
               { binding: 1, resource: { buffer: state.spikeParamsBuffer } },
               { binding: 2, resource: { buffer: state.spikeBuffer } },
               { binding: 3, resource: { buffer: state.spikeCountBuffer } },
+              { binding: 4, resource: { buffer: state.floorAvgResultBuffer } },
             ],
           });
 
@@ -538,46 +703,87 @@ export function useDrawWebGPUFFTSignal() {
           });
         }
 
-        // --- Spikes parameters ---
-        const spanMHz = frequencyRange ? Math.abs(frequencyRange.max - frequencyRange.min) : 3.2;
-        const binsPerMHz = srcLen / Math.max(spanMHz, 0.001);
-        const bins45kHz = Math.ceil(binsPerMHz * 0.045);
-        const windowSize = Math.max(2, Math.min(Math.floor(srcLen / 10), bins45kHz, 512));
+        // --- Spikes parameters (using persistent scratch buffers) ---
+        const spanHz = frequencyRange
+          ? Math.abs(frequencyRange.max - frequencyRange.min)
+          : 3_200_000;
+        const binsPerHz = srcLen / Math.max(spanHz, 1);
+        const bins45kHz = Math.ceil(binsPerHz * 45_000);
+        const windowSize = Math.max(
+          8,
+          Math.min(Math.floor(srcLen / 64), bins45kHz, 18),
+        );
 
-        const spikeParamsData = new ArrayBuffer(16);
-        const u32Params = new Uint32Array(spikeParamsData);
-        const f32Params = new Float32Array(spikeParamsData);
-        u32Params[0] = srcLen;
-        u32Params[1] = windowSize;
-        f32Params[2] = 3.0; // min_z_score (more sensitive)
-        f32Params[3] = 0.0; // padding
+        // Reuse persistent scratch buffers instead of allocating new ones each frame
+        state.scratchSpikeParamsU32[0] = srcLen;
+        state.scratchSpikeParamsU32[1] = windowSize;
+        state.scratchSpikeParamsF32[2] = 3.0; // min_z_score
+        let floorSum = 0.0;
+        for (let i = 0; i < srcLen; i++) {
+          floorSum += waveformData[i];
+        }
+        const globalFloor = floorSum / Math.max(1, srcLen);
+        state.scratchSpikeParamsF32[3] = globalFloor;
+        state.floorAvgScratch[0] = new Uint32Array(
+          new Float32Array([globalFloor]).buffer,
+        )[0];
+        state.floorAvgScratch[1] = srcLen;
+        state.floorAvgScratch[2] = Math.round(globalFloor * 1024);
 
         // --- All Uploads FIRST ---
-        state.device.queue.writeBuffer(state.resampleInputBuffer, 0, waveformData.buffer, waveformData.byteOffset, waveformData.byteLength);
-        state.device.queue.writeBuffer(state.resampleParamsBuffer, 0, new Uint32Array([srcLen, displayWidth, 0, 0]));
+        state.device.queue.writeBuffer(
+          state.resampleInputBuffer,
+          0,
+          waveformData.buffer,
+          waveformData.byteOffset,
+          waveformData.byteLength,
+        );
+        state.scratchResampleParams[0] = srcLen;
+        state.scratchResampleParams[1] = displayWidth;
+        state.scratchResampleParams[2] = 0;
+        state.scratchResampleParams[3] = 0;
+        state.device.queue.writeBuffer(
+          state.resampleParamsBuffer,
+          0,
+          state.scratchResampleParams,
+        );
         if (state.spikeParamsBuffer) {
-          state.device.queue.writeBuffer(state.spikeParamsBuffer, 0, spikeParamsData);
+          state.device.queue.writeBuffer(
+            state.spikeParamsBuffer,
+            0,
+            state.scratchSpikeParamsAB,
+          );
         }
         if (state.spikeCountBuffer) {
-          state.device.queue.writeBuffer(state.spikeCountBuffer, 0, new Uint32Array([0]));
+          state.device.queue.writeBuffer(
+            state.spikeCountBuffer,
+            0,
+            state.scratchZeroCount,
+          );
         }
+        state.device.queue.writeBuffer(
+          state.floorAvgResultBuffer,
+          0,
+          state.floorAvgScratch,
+        );
 
-        // --- Build command encoder: compute (resample) then render ---
+        // --- Build command encoder: compute (resample → spikes) then render ---
         const encoder = state.device.createCommandEncoder();
 
-        // Compute pass: GPU downsamples waveform from srcLen to displayWidth
-        // Workgroup size 64 means we need ceil(displayWidth/64) dispatches
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(state.resamplePipeline);
         computePass.setBindGroup(0, state.resampleBindGroup);
         computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
 
-        if (showSpikeOverlay && state.spikeComputeBindGroup && state.spikeCountBuffer) {
+        if (
+          showSpikeOverlay &&
+          state.spikeComputeBindGroup &&
+          state.spikeCountBuffer
+        ) {
           computePass.setPipeline(state.spikeComputePipeline);
           computePass.setBindGroup(0, state.spikeComputeBindGroup);
           computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));
         }
-
         computePass.end();
 
         const nowMs =
@@ -599,7 +805,11 @@ export function useDrawWebGPUFFTSignal() {
           );
           state.spikeCountReadbackInFlight = true;
           state.lastSpikeCountReadbackMs = nowMs;
-        } else if (!showSpikeOverlay && onSpikeCount && state.lastReportedSpikeCount !== 0) {
+        } else if (
+          !showSpikeOverlay &&
+          onSpikeCount &&
+          state.lastReportedSpikeCount !== 0
+        ) {
           state.lastReportedSpikeCount = 0;
           onSpikeCount(0);
         }
@@ -622,8 +832,8 @@ export function useDrawWebGPUFFTSignal() {
         const plotMaxY = yToNdc(nodePreview ? 0 : FFT_AREA_MIN.y);
         const plotMinY = yToNdc(fftAreaMax.y);
 
-        const [lineR, lineG, lineB, lineA] = parseCssColorToRgba(lineColor);
-        const [fillR, fillG, fillB, fillA] = parseCssColorToRgba(fillColor);
+        const [lineR, lineG, lineB, lineA] = cachedParseCssColor(lineColor);
+        const [fillR, fillG, fillB, fillA] = cachedParseCssColor(fillColor);
 
         // Pack uniforms into Float32Array (layout must match shader)
         // [0-3]: plot bounds (minX, minY, maxX, maxY)
@@ -659,7 +869,7 @@ export function useDrawWebGPUFFTSignal() {
 
         // --- Render pass: clear → grid → fill → line → markers → spikes ---
         const view = state.ctx.getCurrentTexture().createView();
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(backgroundColor);
+        const [bgR, bgG, bgB, bgA] = cachedParseCssColor(backgroundColor);
         const pass = encoder.beginRenderPass({
           colorAttachments: [
             {
@@ -687,33 +897,54 @@ export function useDrawWebGPUFFTSignal() {
         if (showSpikeOverlay && state.spikeRenderBindGroup) {
           pass.setBindGroup(0, state.spikeRenderBindGroup);
           pass.setPipeline(state.spikeRenderLinePipeline);
-          pass.draw(2, 100); // Max 100 instances
+          pass.draw(2, 128); // Max 128 instances
           pass.setPipeline(state.spikeRenderCirclePipeline);
-          pass.draw(6, 100);
+          pass.draw(6, 128);
         }
 
         // Overlays on top (frequency markers)
         if (markersOverlayRenderer) {
           markersOverlayRenderer.renderInPass(pass);
         }
-        
+
         if (!showSpikeOverlay && spikesOverlayRenderer) {
           spikesOverlayRenderer.renderInPass(pass);
         }
         pass.end();
         state.device.queue.submit([encoder.finish()]);
+
+        if (canvas instanceof HTMLCanvasElement) {
+          if (!state.cacheCanvas) {
+            state.cacheCanvas = document.createElement("canvas");
+            state.cacheCtx = state.cacheCanvas.getContext("2d");
+          }
+          if (
+            state.cacheCanvas.width !== canvas.width ||
+            state.cacheCanvas.height !== canvas.height
+          ) {
+            state.cacheCanvas.width = canvas.width;
+            state.cacheCanvas.height = canvas.height;
+          }
+          if (state.cacheCtx) {
+            state.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
+            state.cacheCtx.drawImage(canvas, 0, 0);
+          }
+          state.lastFrameCanvas = state.cacheCanvas;
+          (canvas as any)._lastFrameCanvas = state.cacheCanvas;
+        }
+
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
           const readbackBuffer = state.spikeCountReadbackBuffer;
           void readbackBuffer
             .mapAsync(GPUMapMode.READ)
             .then(() => {
               const mapped = readbackBuffer.getMappedRange();
-              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 100);
+              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 128);
               readbackBuffer.unmap();
               state.spikeCountReadbackInFlight = false;
               if (count !== state.lastReportedSpikeCount) {
                 state.lastReportedSpikeCount = count;
-                onSpikeCount?.(count);
+                onSpikeCountRef.current?.(count);
               }
             })
             .catch(() => {
@@ -730,9 +961,10 @@ export function useDrawWebGPUFFTSignal() {
   );
 
   const cleanup = useCallback(() => {
+    flushRetiredBuffers();
     rendererRef.current = null;
     lastDataRef.current = null;
-  }, []);
+  }, [flushRetiredBuffers]);
 
   return {
     drawWebGPUFFTSignal,

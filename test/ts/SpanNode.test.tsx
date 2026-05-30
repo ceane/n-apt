@@ -1,5 +1,11 @@
 import React from "react";
-import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  act,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
@@ -11,11 +17,19 @@ import {
   clampBandwidthStartHz,
   SPAN_PRESETS_STORAGE_KEY,
 } from "../../src/ts/components/react-flow/nodes/SpanNode";
+
+jest.mock("../../src/ts/contexts/DemodContext", () => ({
+  useDemod: () => ({ fileCapturedRange: null }),
+}));
+
 import * as websocketThunks from "../../src/ts/redux/thunks/websocketThunks";
-import demodReducer, { setHardwareInfo } from "../../src/ts/redux/slices/demodSlice";
+import demodReducer, {
+  setHardwareInfo,
+} from "../../src/ts/redux/slices/demodSlice";
 import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
 import themeReducer from "../../src/ts/redux/slices/themeSlice";
 import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
+import { DemodContext } from "../../src/ts/contexts/DemodContext";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { formatFrequency } from "../../src/ts/utils/frequency";
 
@@ -33,8 +47,12 @@ const defaultDemodState = {
   hardwareRange: { min: 0, max: 2_000_000_000 },
   sampleRateHz: 3_200_000,
   algorithm: "fm",
+  alignment: "centered",
   bandwidthKhz: 200,
+  bandwidthHz: 200_000,
   centerFreqHz: 26_000_000,
+  hardwareSpanHz: 3_200_000,
+  bandwidthStartHz: 25_900_000,
   isListening: false,
 };
 
@@ -42,28 +60,42 @@ function createMockStore(
   initialDemodState = {},
   websocketState: Partial<any> = {},
   spectrumRange?: { min: number; max: number },
+  options: {
+    sourceMode?: "live" | "file";
+    previewRange?: { min: number; max: number } | null;
+  } = {},
 ) {
   const center = (initialDemodState as any).centerFreqHz || 26_000_000;
   const rate = (initialDemodState as any).sampleRateHz || 3_200_000;
-  const range =
-    spectrumRange ?? {
-      min: center - rate / 2,
-      max: center + rate / 2,
-    };
+  const hardwareSpan = (initialDemodState as any).hardwareSpanHz ?? rate;
+  const bw = (initialDemodState as any).bandwidthHz ?? 200_000;
+  const bwStart =
+    (initialDemodState as any).bandwidthStartHz ?? center - bw / 2;
+  const range = spectrumRange ?? {
+    min: center - rate / 2,
+    max: center + rate / 2,
+  };
   return configureStore({
     reducer: {
       demod: demodReducer,
       spectrum: spectrumReducer,
       websocket: websocketReducer,
       theme: themeReducer,
+      waterfall: (
+        state = { sourceMode: options.sourceMode ?? "live" },
+        action: any,
+      ) => state,
     } as any,
     preloadedState: {
       demod: {
         ...defaultDemodState,
+        hardwareSpanHz: hardwareSpan,
+        bandwidthStartHz: bwStart,
         ...initialDemodState,
       },
       spectrum: {
         frequencyRange: range,
+        previewRange: options.previewRange ?? null,
       },
       websocket: {
         isConnected: false,
@@ -113,8 +145,11 @@ describe("SpanNode Integration", () => {
   });
 
   it("calculates the correct frequency floor based on sample rate", () => {
-    const store = createMockStore({ sampleRateHz: 3_200_000, centerFreqHz: 16_000_000 });
-    
+    const store = createMockStore({
+      sampleRateHz: 3_200_000,
+      centerFreqHz: 16_000_000,
+    });
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -122,19 +157,19 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
     const startInput = screen.getByLabelText("Bandwidth Start");
-    expect(startInput).toHaveValue("25.750");
+    expect(startInput).toHaveValue("15.900");
   });
 
   it("enforces the floor and displays correct labels", async () => {
-    const store = createMockStore({ 
-      sampleRateHz: 1_000_000, 
-      centerFreqHz: 500_000 
+    const store = createMockStore({
+      sampleRateHz: 1_000_000,
+      centerFreqHz: 500_000,
     });
-    
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -142,17 +177,20 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
-    expect(screen.getByLabelText("Center Frequency")).toHaveValue("26.000");
-    expect(screen.getByLabelText("Sample Rate")).toHaveValue("3.200");
-    expect(screen.getByLabelText("Bandwidth")).toHaveValue("500.000");
+    expect(screen.getByLabelText("Center Frequency")).toHaveValue("500.000");
+    expect(screen.getByLabelText("Sample Rate")).toHaveValue("1.000");
+    expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("400.000");
   });
 
   it("updates hardware range on center/span change", async () => {
-    const store = createMockStore({ sampleRateHz: 3_200_000, centerFreqHz: 26_000_000 });
-    
+    const store = createMockStore({
+      sampleRateHz: 3_200_000,
+      centerFreqHz: 26_000_000,
+    });
+
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
@@ -160,7 +198,7 @@ describe("SpanNode Integration", () => {
             <SpanNode data={{ label: "Span Control" }} />
           </ReactFlow>
         </ThemeProvider>
-      </Provider>
+      </Provider>,
     );
 
     const centerInput = screen.getByLabelText("Center Frequency");
@@ -196,9 +234,9 @@ describe("SpanNode Integration", () => {
     // Set Sample Rate to 1MHz
     const spanInput = screen.getByLabelText("Sample Rate");
     fireEvent.change(spanInput, { target: { value: "1.000" } });
-    
+
     // Current window is [25.5, 26.5]
-    
+
     // Set Bandwidth Start to 26.6MHz (crosses right edge)
     const startInput = screen.getByLabelText("Bandwidth Start");
     fireEvent.change(startInput, { target: { value: "27.500" } });
@@ -249,72 +287,6 @@ describe("SpanNode Integration", () => {
     expect(screen.getByLabelText("Load preset NOAA-19")).toBeInTheDocument();
   });
 
-  it("requests a paused frame when bandwidth start crosses the capture edge", async () => {
-    const store = createMockStore({
-      sampleRateHz: 3_200_000,
-      centerFreqHz: 26_000_000,
-    }, {
-      isConnected: true,
-      connectionStatus: "connected",
-      isPaused: true,
-    });
-
-    const pausedFrameSpy = jest
-      .spyOn(websocketThunks, "requestNextPausedFrame")
-      .mockImplementation((() => () => Promise.resolve()) as any);
-
-    render(
-      <Provider store={store}>
-        <ThemeProvider theme={theme}>
-          <ReactFlow>
-            <SpanNode data={{ label: "Span Control" }} />
-          </ReactFlow>
-        </ThemeProvider>
-      </Provider>,
-    );
-
-    const startInput = screen.getByLabelText("Bandwidth Start");
-    fireEvent.change(startInput, { target: { value: "27.500" } });
-
-    await waitFor(() => {
-      expect(pausedFrameSpy).toHaveBeenCalled();
-    });
-  });
-
-  it("does not request a paused frame for in-window decreases", async () => {
-    const store = createMockStore(
-      {
-        sampleRateHz: 3_200_000,
-        centerFreqHz: 26_000_000,
-      },
-      {
-        isConnected: true,
-        connectionStatus: "connected",
-        isPaused: true,
-      },
-    );
-
-    const pausedFrameSpy = jest
-      .spyOn(websocketThunks, "requestNextPausedFrame")
-      .mockImplementation((() => () => Promise.resolve()) as any);
-
-    render(
-      <Provider store={store}>
-        <ThemeProvider theme={theme}>
-          <ReactFlow>
-            <SpanNode data={{ label: "Span Control" }} />
-          </ReactFlow>
-        </ThemeProvider>
-      </Provider>,
-    );
-
-    const startInput = screen.getByLabelText("Bandwidth Start");
-    fireEvent.change(startInput, { target: { value: "25.900" } });
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(pausedFrameSpy).not.toHaveBeenCalled();
-  });
-
   it("preserves bandwidth start when toggling alignment modes", async () => {
     const store = createMockStore({
       sampleRateHz: 3_200_000,
@@ -343,23 +315,22 @@ describe("SpanNode Integration", () => {
     expect(startInput).toHaveValue("26.250");
   });
 
-  it("does not request a paused frame at the 0/min boundary", async () => {
+  it("updates bandwidth and start from file-mode FFT selection preview", async () => {
     const store = createMockStore(
       {
-        sampleRateHz: 3_200_000,
-        centerFreqHz: 1_600_000,
+        centerFreqHz: 27_302_000,
+        hardwareSpanHz: 3_200_000,
+        bandwidthHz: 200_000,
+        bandwidthKhz: 200,
+        bandwidthStartHz: 27_202_000,
       },
+      {},
+      { min: 25_702_000, max: 28_902_000 },
       {
-        isConnected: true,
-        connectionStatus: "connected",
-        isPaused: true,
+        sourceMode: "file",
+        previewRange: { min: 26_000_000, max: 27_000_000 },
       },
-      { min: 0, max: 3_200_000 },
     );
-
-    const pausedFrameSpy = jest
-      .spyOn(websocketThunks, "requestNextPausedFrame")
-      .mockImplementation((() => () => Promise.resolve()) as any);
 
     render(
       <Provider store={store}>
@@ -370,32 +341,33 @@ describe("SpanNode Integration", () => {
         </ThemeProvider>
       </Provider>,
     );
-    pausedFrameSpy.mockClear();
 
-    const startInput = screen.getByLabelText("Bandwidth Start");
-    fireEvent.change(startInput, { target: { value: "0.000" } });
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(pausedFrameSpy).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("26.000");
+      expect(screen.getByLabelText("Bandwidth")).toHaveValue("1.000");
+    });
   });
 
-  it("does not request a paused frame at the max boundary", async () => {
+  it("allows bandwidth selection to be dragged freely below the minimum hardware bounds", async () => {
+    // Hardware is locked to a 3.2M sample rate, which means the center freq
+    // cannot drop below 1.6MHz (0Hz to 3.2MHz window).
+    // However, the user should be able to select a bandwidth anywhere > 0Hz.
     const store = createMockStore(
       {
-        sampleRateHz: 3_200_000,
         centerFreqHz: 1_600_000,
+        hardwareSpanHz: 3_200_000,
+        bandwidthHz: 200_000,
+        bandwidthKhz: 200,
+        bandwidthStartHz: 1_500_000,
       },
-      {
-        isConnected: true,
-        connectionStatus: "connected",
-        isPaused: true,
-      },
+      {},
       { min: 0, max: 3_200_000 },
+      {
+        sourceMode: "live",
+        // Simulate the user dragging the selection box all the way down to 0.5MHz
+        previewRange: { min: 500_000, max: 700_000 },
+      },
     );
-
-    const pausedFrameSpy = jest
-      .spyOn(websocketThunks, "requestNextPausedFrame")
-      .mockImplementation((() => () => Promise.resolve()) as any);
 
     render(
       <Provider store={store}>
@@ -406,12 +378,12 @@ describe("SpanNode Integration", () => {
         </ThemeProvider>
       </Provider>,
     );
-    pausedFrameSpy.mockClear();
 
-    const startInput = screen.getByLabelText("Bandwidth Start");
-    fireEvent.change(startInput, { target: { value: "2.700" } });
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(pausedFrameSpy).not.toHaveBeenCalled();
+    await waitFor(() => {
+      // The bandwidth start should update to 0.5MHz (from the preview sync)
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("500.000");
+      // The hardware center should remain safely at 1.6MHz, not forced out of bounds
+      expect(screen.getByLabelText("Center Frequency")).toHaveValue("1.600");
+    });
   });
 });

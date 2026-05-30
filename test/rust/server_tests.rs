@@ -5,6 +5,7 @@ use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use serial_test::serial;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use url::Url;
@@ -49,6 +50,8 @@ async fn test_server_status_endpoint() {
   let state = Arc::new(AppState {
     shared,
     credential_store,
+    pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+    pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
     session_store,
     webauthn,
     broadcast_tx,
@@ -97,6 +100,8 @@ async fn test_auth_challenge_flow() {
   let state = Arc::new(AppState {
     shared,
     credential_store,
+    pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+    pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
     session_store,
     webauthn,
     broadcast_tx,
@@ -149,6 +154,8 @@ async fn test_auth_info_endpoint() {
   let state = Arc::new(AppState {
     shared,
     credential_store: CredentialStore::new().unwrap(),
+    pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+    pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
     session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
     webauthn: WebauthnBuilder::new(
       "localhost",
@@ -191,6 +198,8 @@ async fn test_auth_logout_endpoint() {
   let state = Arc::new(AppState {
     shared,
     credential_store: CredentialStore::new().unwrap(),
+    pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+    pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
     session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
     webauthn: WebauthnBuilder::new(
       "localhost",
@@ -255,6 +264,8 @@ async fn test_logout_alias_redirects_to_login() {
   let state = Arc::new(AppState {
     shared,
     credential_store: CredentialStore::new().unwrap(),
+    pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+    pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
     session_store: SessionStore::new("redis://127.0.0.1:6379").unwrap(),
     webauthn: WebauthnBuilder::new(
       "localhost",

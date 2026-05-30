@@ -100,9 +100,9 @@ describe("FileWorkerManager", () => {
     // Simulate frame building error
     (manager as any).simulateError("buildFrame", "Frame building failed");
 
-    await expect((manager as any).buildFrame(0, fileDataCache, freqMap)).rejects.toThrow(
-      "Frame building failed",
-    );
+    await expect(
+      (manager as any).buildFrame(0, fileDataCache, freqMap),
+    ).rejects.toThrow("Frame building failed");
 
     // Reset for next test
     (manager as any).resetErrorSimulation();
@@ -168,7 +168,10 @@ describe("FileWorkerManager", () => {
     });
     const onProgress = jest.fn();
 
-    const result = await (manager as any).loadFile(mockFile as any, onProgress as any);
+    const result = await (manager as any).loadFile(
+      mockFile as any,
+      onProgress as any,
+    );
 
     expect(onProgress).toHaveBeenCalled();
     expect(result.name).toBe("test.napt");

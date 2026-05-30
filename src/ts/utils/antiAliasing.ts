@@ -18,6 +18,89 @@ const DEFAULT_SEAM_BINS = 96;
 const DEFAULT_SMOOTHING_RADIUS = 1;
 const DEFAULT_MAX_POSITIVE_FLOOR_SHIFT_DB = 0;
 
+/**
+ * Maps UI-level stitch options to DSP-level stitching parameters.
+ * Encapsulates the logic for anti-aliasing smoothing and noise floor matching.
+ */
+export function getAntiAliasingParams(options?: {
+  jsAntiAliasing: boolean;
+  jsNoiseFloorMatching: boolean;
+}): WholeChannelStitchOptions {
+  return {
+    smoothingRadius: options?.jsAntiAliasing ? 1 : 0,
+    seamBins: options?.jsNoiseFloorMatching ? 96 : 0,
+  };
+}
+
+// ── WASM Integration ─────────────────────────────────────────────────────────
+
+let wasmModule: any = null;
+
+(async () => {
+  try {
+    // @ts-ignore
+    const module = (await import("n_apt_canvas")) as any;
+    if (typeof module.default === "function") {
+      await module.default();
+    }
+    wasmModule = module;
+  } catch (e) {
+    console.warn("Anti-aliasing WASM module failed to load at top-level:", e);
+  }
+})();
+
+/**
+ * Helper to get the initialized WASM module.
+ */
+function getWasm() {
+  return wasmModule;
+}
+
+/**
+ * Stitches multiple waveform segments into a single full-range waveform.
+ * Now primarily uses the Rust/WASM implementation for performance and consistency.
+ */
+export async function stitchWholeChannelWaveform(
+  segments: WholeChannelWaveformSegment[],
+  fullRange: Range,
+  options: WholeChannelStitchOptions = {},
+): Promise<Float32Array> {
+  const wasm = getWasm();
+  if (wasm && typeof wasm.stitch_whole_channel_waveform_wasm === "function") {
+    try {
+      return wasm.stitch_whole_channel_waveform_wasm(
+        segments,
+        fullRange,
+        options,
+      );
+    } catch (e) {
+      console.error("WASM stitching failed, falling back to JS:", e);
+    }
+  }
+  return stitchWholeChannelWaveformJS(segments, fullRange, options);
+}
+
+/**
+ * Applies triangular smoothing to a waveform.
+ * Uses the Rust/WASM implementation if available.
+ */
+export async function smoothWaveform(
+  input: Float32Array,
+  radius: number,
+): Promise<Float32Array> {
+  const wasm = getWasm();
+  if (wasm && typeof wasm.smooth_waveform_wasm === "function") {
+    try {
+      return wasm.smooth_waveform_wasm(input, radius);
+    } catch (e) {
+      console.error("WASM smoothing failed, falling back to JS:", e);
+    }
+  }
+  return smoothWaveformJS(input, radius);
+}
+
+// ── Legacy JS Implementations (Fallback) ────────────────────────────────────
+
 function lerp(a: number, b: number, t: number): number {
   return a * (1 - t) + b * t;
 }
@@ -90,7 +173,7 @@ export function matchNoiseFloorDb(
   }
 }
 
-function smoothWaveform(input: Float32Array, radius: number): Float32Array {
+function smoothWaveformJS(input: Float32Array, radius: number): Float32Array {
   if (radius <= 0 || input.length < 3) return input;
 
   const output = new Float32Array(input.length);
@@ -112,7 +195,7 @@ function smoothWaveform(input: Float32Array, radius: number): Float32Array {
   return output;
 }
 
-export function stitchWholeChannelWaveform(
+function stitchWholeChannelWaveformJS(
   segments: WholeChannelWaveformSegment[],
   fullRange: Range,
   options: WholeChannelStitchOptions = {},
@@ -217,7 +300,7 @@ export function stitchWholeChannelWaveform(
     lastEnd = Math.max(lastEnd, destEnd);
   }
 
-  return smoothWaveform(
+  return smoothWaveformJS(
     stitched,
     Math.max(0, options.smoothingRadius ?? DEFAULT_SMOOTHING_RADIUS),
   );

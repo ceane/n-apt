@@ -1,5 +1,14 @@
-import { FC, Suspense } from "react";
+import { FC, Suspense, type ReactNode } from "react";
 import styled from "styled-components";
+import CanvasPlaceholder, {
+  type CanvasPlaceholderState,
+} from "@n-apt/components/ui/CanvasPlaceholder";
+import { SECTION_TITLE_COLOR, SECTION_TITLE_AFTER_COLOR } from "@n-apt/consts";
+
+const EMPTY_HETERODYNING_HIGHLIGHTED_BINS: Array<{
+  start: number;
+  end: number;
+}> = [];
 
 const WaterfallSection = styled.div`
   flex: 1;
@@ -7,21 +16,46 @@ const WaterfallSection = styled.div`
   flex-direction: column;
   position: relative;
   min-height: 0;
+  padding: 2px 2px 12px;
+  box-sizing: border-box;
 `;
 
 const SectionTitle = styled.div`
   font-size: 11px;
-  color: #8a8f98;
+  color: ${SECTION_TITLE_COLOR};
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  line-height: 1;
   display: flex;
   align-items: center;
   gap: 8px;
 
   &::after {
     content: "/";
-    color: #5a6069;
+    color: ${SECTION_TITLE_AFTER_COLOR};
+  }
+`;
+
+const SectionTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 0 0 10px;
+  margin-bottom: 0;
+`;
+
+const SectionTitleActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+
+  &[data-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
   }
 `;
 
@@ -65,20 +99,64 @@ interface FIFOWaterfallCanvasProps {
   isPaused: boolean;
   setWaterfallGpuCanvasNode: (node: HTMLCanvasElement | null) => void;
   setWaterfallOverlayCanvasNode: (node: HTMLCanvasElement | null) => void;
+  headerActionContent?: ReactNode;
   heterodyningHighlightedBins?: Array<{ start: number; end: number }>;
+  awaitingDeviceData?: boolean | string;
+  placeholderSourceLabel?: string;
+  placeholderPaneLabel?: string;
+  placeholderErrorReason?: string | null;
 }
 
 const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   isPaused,
   setWaterfallGpuCanvasNode,
   setWaterfallOverlayCanvasNode,
-  heterodyningHighlightedBins = [],
+  headerActionContent,
+  heterodyningHighlightedBins = EMPTY_HETERODYNING_HIGHLIGHTED_BINS,
+  awaitingDeviceData = false,
+  placeholderSourceLabel,
+  placeholderPaneLabel = "Waterfall",
+  placeholderErrorReason = null,
 }) => {
+  const placeholderState = (() => {
+    if (placeholderErrorReason) {
+      return {
+        kind: "error" as const,
+        sourceLabel: placeholderSourceLabel,
+        reason: placeholderErrorReason,
+      } satisfies CanvasPlaceholderState;
+    }
+
+    if (awaitingDeviceData) {
+      return {
+        kind: "loading" as const,
+        sourceLabel: placeholderSourceLabel,
+        paneLabel: placeholderPaneLabel,
+        message:
+          typeof awaitingDeviceData === "string"
+            ? awaitingDeviceData
+            : undefined,
+      } satisfies CanvasPlaceholderState;
+    }
+
+    return null;
+  })();
+
   return (
-    <Suspense fallback={<div>Loading waterfall...</div>}>
+    <Suspense fallback={<div>Loading waterfall…</div>}>
       <WaterfallSection>
-        <SectionTitle>Waterfall Display {isPaused && "(Paused)"}</SectionTitle>
+        <SectionTitleRow>
+          <SectionTitle>
+            Waterfall Display {isPaused && "(Paused)"}
+          </SectionTitle>
+          {headerActionContent && (
+            <SectionTitleActions data-disabled={!!placeholderState}>
+              {headerActionContent}
+            </SectionTitleActions>
+          )}
+        </SectionTitleRow>
         <CanvasWrapper>
+          {placeholderState && <CanvasPlaceholder state={placeholderState} />}
           <CanvasLayer
             ref={setWaterfallGpuCanvasNode}
             id="fft-waterfall-canvas-webgpu"
@@ -89,9 +167,9 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
           />
           {heterodyningHighlightedBins.length > 0 && (
             <HighlightOverlay data-testid="fifo-waterfall-highlight-overlay">
-              {heterodyningHighlightedBins.map((bin, index) => (
+              {heterodyningHighlightedBins.map((bin) => (
                 <HighlightBand
-                  key={`waterfall-highlight-${index}`}
+                  key={`waterfall-highlight-${bin.start}-${bin.end}`}
                   data-testid="fifo-waterfall-highlight-band"
                   $left={Math.max(0, Math.min(100, bin.start * 100))}
                   $width={Math.max(

@@ -14,30 +14,29 @@ interface ReduxThemeProviderProps {
 const ReduxThemeProvider: React.FC<ReduxThemeProviderProps> = ({
   children,
 }) => {
-  const themeState = useAppSelector((state) => state.theme);
-  const resolvedMode = useResolvedThemeMode(themeState.appMode);
+  const appMode = useAppSelector((state) => state.theme.appMode);
+  const accentColor = useAppSelector((state) => state.theme.accentColor);
+  const fftColor = useAppSelector((state) => state.theme.fftColor);
+  const waterfallTheme = useAppSelector(
+    (state) => state.theme.waterfallTheme,
+  );
+  const resolvedMode = useResolvedThemeMode(appMode);
 
   const styledTheme = React.useMemo(
     () =>
       buildAppTheme({
-        accentColor: themeState.accentColor,
-        fftColor: themeState.fftColor,
-        appMode: themeState.appMode,
+        accentColor,
+        fftColor,
+        appMode,
         resolvedMode,
-        waterfallTheme: themeState.waterfallTheme,
+        waterfallTheme,
       }),
-    [
-      themeState.accentColor,
-      themeState.appMode,
-      themeState.fftColor,
-      themeState.waterfallTheme,
-      resolvedMode,
-    ],
+    [accentColor, appMode, fftColor, waterfallTheme, resolvedMode],
   );
 
   return (
     <ThemeProvider theme={styledTheme}>
-      <GlobalThemeStyle />
+      <GlobalThemeStyle theme={styledTheme} />
       {children}
     </ThemeProvider>
   );

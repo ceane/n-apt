@@ -1,9 +1,11 @@
-import React, { lazy, Suspense, useEffect } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
+import { useCallback, useRef } from "react";
 import styled from "styled-components";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
+import type { FFTCanvasHandle } from "@n-apt/components";
 
 import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
@@ -35,9 +37,9 @@ const MapEndpointsRoute = lazy(() =>
     default: m.MapEndpointsRoute,
   })),
 );
-const StitchTestRoute = lazy(() =>
-  import("@n-apt/routes/StitchTestRoute").then((m) => ({
-    default: m.StitchTestRoute,
+const AntiAliasingDiagnostics = lazy(() =>
+  import("@n-apt/routes/AntiAliasingDiagnostics").then((m) => ({
+    default: m.AntiAliasingDiagnostics,
   })),
 );
 const PretextDemoRoute = lazy(() =>
@@ -64,6 +66,57 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
 import { MapRoutePathsProvider } from "@n-apt/hooks/useMapRoutePaths";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import {
+  createNoteCardFromSpectrum,
+  setNoteCardsCollapsed,
+  useAppDispatch,
+} from "@n-apt/redux";
+
+const SpectrumRouteWithSidebar: React.FC<{
+  activeTab: "visualizer" | "analysis" | "draw";
+}> = ({ activeTab }) => {
+  const dispatch = useAppDispatch();
+  const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
+  const [visualizerLoading, setVisualizerLoading] = useState(false);
+
+  const handleCreateNoteCard = useCallback(() => {
+    const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
+    const snapshot = fftCanvasRef.current?.getCompositeSnapshot() ?? null;
+    dispatch(setNoteCardsCollapsed(false));
+    void dispatch(
+      createNoteCardFromSpectrum({
+        snapshot,
+        stats: snapshotData
+          ? {
+              centerFrequencyHz: snapshotData.centerFrequencyHz,
+              frequencyRange: snapshotData.frequencyRange,
+            }
+          : undefined,
+      }),
+    );
+  }, [dispatch]);
+
+  return (
+    <MainLayout
+      sidebar={
+        <SpectrumSidebar
+          onCreateNoteCard={handleCreateNoteCard}
+          visualizerLoading={visualizerLoading}
+        />
+      }
+    >
+      <Suspense
+        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+      >
+        <SpectrumRoute
+          activeTab={activeTab}
+          fftCanvasRef={fftCanvasRef}
+          onLoadingStateChange={setVisualizerLoading}
+        />
+      </Suspense>
+    </MainLayout>
+  );
+};
 
 // Create a wrapper component to manage scanner state
 const DemodRouteWithSidebar: React.FC = () => {
@@ -102,7 +155,7 @@ const DemodRouteWithSidebar: React.FC = () => {
       }
     >
       <Suspense
-        fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
       >
         <DemodRoute />
       </Suspense>
@@ -121,10 +174,7 @@ const RouteLoadingFallback = styled.div`
 `;
 
 const GlobalSpacePauseHandler: React.FC = () => {
-  const {
-    toggleVisualizerPause,
-    state: liveState,
-  } = useSpectrumStore();
+  const { toggleVisualizerPause, state: liveState } = useSpectrumStore();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -136,7 +186,9 @@ const GlobalSpacePauseHandler: React.FC = () => {
       if (isInputFocused) return;
 
       if (
-        (event.code === "Space" || event.key === " " || event.key === "Spacebar") &&
+        (event.code === "Space" ||
+          event.key === " " ||
+          event.key === "Spacebar") &&
         liveState.sourceMode === "live"
       ) {
         event.preventDefault();
@@ -147,7 +199,7 @@ const GlobalSpacePauseHandler: React.FC = () => {
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [location.pathname, liveState.sourceMode, toggleVisualizerPause]);
+  }, [liveState.sourceMode, toggleVisualizerPause]);
 
   return null;
 };
@@ -159,27 +211,11 @@ const AppRoutesInner: React.FC = () => {
       <Routes>
         <Route
           path="/"
-          element={
-            <MainLayout sidebar={<SpectrumSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
-              >
-                <SpectrumRoute activeTab="visualizer" />
-              </Suspense>
-            </MainLayout>
-          }
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route
           path="/visualizer"
-          element={
-            <MainLayout sidebar={<SpectrumSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
-              >
-                <SpectrumRoute activeTab="visualizer" />
-              </Suspense>
-            </MainLayout>
-          }
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route path="/demodulate" element={<DemodRouteWithSidebar />} />
         <Route
@@ -189,7 +225,7 @@ const AppRoutesInner: React.FC = () => {
               <MainLayout sidebar={<DrawSignalSidebar />}>
                 <Suspense
                   fallback={
-                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
                   }
                 >
                   <DrawSignalRoute />
@@ -211,7 +247,7 @@ const AppRoutesInner: React.FC = () => {
               }
             >
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <Model3DRoute />
               </Suspense>
@@ -225,7 +261,7 @@ const AppRoutesInner: React.FC = () => {
               <MainLayout sidebar={<MapEndpointsSidebar />}>
                 <Suspense
                   fallback={
-                    <RouteLoadingFallback>Loading...</RouteLoadingFallback>
+                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
                   }
                 >
                   <MapEndpointsRoute />
@@ -235,13 +271,13 @@ const AppRoutesInner: React.FC = () => {
           }
         />
         <Route
-          path="/stitch-test"
+          path="/diagnostics/anti-aliasing"
           element={
             <MainLayout sidebar={<SDRTestSidebar />}>
               <Suspense
-                fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
-                <StitchTestRoute />
+                <AntiAliasingDiagnostics />
               </Suspense>
             </MainLayout>
           }
@@ -250,7 +286,7 @@ const AppRoutesInner: React.FC = () => {
           path="/pretext-demo"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <PretextDemoRoute />
             </Suspense>
@@ -260,7 +296,7 @@ const AppRoutesInner: React.FC = () => {
           path="/vfo-grid-demo"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <VFOGridDemoRoute />
             </Suspense>
@@ -270,7 +306,7 @@ const AppRoutesInner: React.FC = () => {
           path="/transformers"
           element={
             <Suspense
-              fallback={<RouteLoadingFallback>Loading...</RouteLoadingFallback>}
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <TransformersRoute />
             </Suspense>

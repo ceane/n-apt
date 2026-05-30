@@ -17,7 +17,13 @@ function idxToX(idx: number, minX: number, maxX: number, length: number) {
   return minX + (maxX - minX) * t;
 }
 
-function valueToY(value: number, minY: number, maxY: number, minValue: number, maxValue: number) {
+function valueToY(
+  value: number,
+  minY: number,
+  maxY: number,
+  minValue: number,
+  maxValue: number,
+) {
   const normalized = Math.min(
     1,
     Math.max(0, (value - minValue) / (maxValue - minValue)),
@@ -70,11 +76,23 @@ describe("shader math fidelity", () => {
     approxEqual(idxToX(2, uniforms[0][0], uniforms[0][2], 5), 105);
     approxEqual(idxToX(4, uniforms[0][0], uniforms[0][2], 5), 110);
     approxEqual(
-      valueToY(-80, uniforms[0][1], uniforms[0][3], uniforms[1][1], uniforms[1][3]),
+      valueToY(
+        -80,
+        uniforms[0][1],
+        uniforms[0][3],
+        uniforms[1][1],
+        uniforms[1][3],
+      ),
       -1,
     );
     approxEqual(
-      valueToY(0, uniforms[0][1], uniforms[0][3], uniforms[1][1], uniforms[1][3]),
+      valueToY(
+        0,
+        uniforms[0][1],
+        uniforms[0][3],
+        uniforms[1][1],
+        uniforms[1][3],
+      ),
       1,
     );
   });
@@ -131,17 +149,29 @@ describe("shader math fidelity", () => {
   it("produces a 3D waterfall perspective that moves farther rows back", () => {
     const resolution = { x: 1920, y: 1080 };
     const frequencyRange = { min: 100, max: 110 };
-    const fftParams = { minDb: -100, maxDb: 0, frameCount: 10, frameSpacing: 0.02 };
+    const fftParams = {
+      minDb: -100,
+      maxDb: 0,
+      frameCount: 10,
+      frameSpacing: 0.02,
+    };
 
     const nearDepth = (0 / fftParams.frameCount) * 2 - 1;
     const farDepth = (9 / fftParams.frameCount) * 2 - 1;
 
-    const screenX = ((105 - frequencyRange.min) / (frequencyRange.max - frequencyRange.min) * 2 - 1) *
+    const screenX =
+      (((105 - frequencyRange.min) /
+        (frequencyRange.max - frequencyRange.min)) *
+        2 -
+        1) *
       (resolution.x / resolution.y);
-    const screenY = ((-40 - fftParams.minDb) / (fftParams.maxDb - fftParams.minDb)) * 2 - 1;
+    const screenY =
+      ((-40 - fftParams.minDb) / (fftParams.maxDb - fftParams.minDb)) * 2 - 1;
 
-    const nearPerspectiveY = screenY * (1 + nearDepth * 0.3) + 0 * fftParams.frameSpacing;
-    const farPerspectiveY = screenY * (1 + farDepth * 0.3) + 9 * fftParams.frameSpacing;
+    const nearPerspectiveY =
+      screenY * (1 + nearDepth * 0.3) + 0 * fftParams.frameSpacing;
+    const farPerspectiveY =
+      screenY * (1 + farDepth * 0.3) + 9 * fftParams.frameSpacing;
 
     expect(screenX).toBe(0);
     expect(farPerspectiveY).toBeGreaterThan(nearPerspectiveY);
@@ -150,7 +180,9 @@ describe("shader math fidelity", () => {
 
 describe("shader source coverage", () => {
   it("exports the spectrum entry points and uniforms used for drawing fidelity", () => {
-    expect(SPECTRUM_SHADER).toContain("@binding(0) var<storage, read> waveform");
+    expect(SPECTRUM_SHADER).toContain(
+      "@binding(0) var<storage, read> waveform",
+    );
     expect(SPECTRUM_SHADER).toContain("fn idx_to_x");
     expect(SPECTRUM_SHADER).toContain("fn value_to_y");
     expect(SPECTRUM_SHADER).toContain("fn vs_line");

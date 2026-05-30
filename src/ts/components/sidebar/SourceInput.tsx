@@ -3,6 +3,13 @@ import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
+const SourceInputWrapper = styled.div`
+  display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+`;
+
 const SettingSelect = styled.select`
   background-color: transparent;
   border: 1px solid transparent;
@@ -51,9 +58,17 @@ const getLiveInputLabel = (
   backend: string | null,
   deviceName?: string | null,
 ) => {
+  const normalizedDeviceName = deviceName?.trim();
+  if (backend === "mock_apt_metal" || backend?.includes("metal")) {
+    if (normalizedDeviceName && normalizedDeviceName.includes("(Metal)")) {
+      return normalizedDeviceName;
+    }
+    return "Mock APT SDR (Metal)";
+  }
+
   // Use device_name directly if available
-  if (deviceName && deviceName.trim().length > 0) {
-    return deviceName.trim();
+  if (normalizedDeviceName && normalizedDeviceName.length > 0) {
+    return normalizedDeviceName;
   }
 
   // Fallback to backend-specific names
@@ -79,21 +94,23 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   onSourceModeChange,
 }) => {
   return (
-    <Row label="Input" tooltip="Select the signal source.">
-      <SettingSelect
-        value={sourceMode}
-        onChange={(e) => onSourceModeChange(e.target.value as SourceMode)}
-        style={{ minWidth: "130px" }}
-      >
-        <option value="live">{getLiveInputLabel(backend, deviceName)}</option>
-        <option
-          value="file"
-          style={fileModeColor ? { color: fileModeColor } : undefined}
+    <SourceInputWrapper>
+      <Row label="Input" tooltip="Select the signal source.">
+        <SettingSelect
+          value={sourceMode}
+          onChange={(e) => onSourceModeChange(e.target.value as SourceMode)}
+          style={{ minWidth: "130px", width: "100%" }}
         >
-          File Selection
-        </option>
-      </SettingSelect>
-    </Row>
+          <option value="live">{getLiveInputLabel(backend, deviceName)}</option>
+          <option
+            value="file"
+            style={fileModeColor ? { color: fileModeColor } : undefined}
+          >
+            File Selection
+          </option>
+        </SettingSelect>
+      </Row>
+    </SourceInputWrapper>
   );
 };
 

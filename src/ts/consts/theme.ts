@@ -4,11 +4,11 @@ type ColorMap = Record<string, string>;
 
 const typography = {
   mono: "'JetBrains Mono', monospace",
-  sans: "'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif",
-  body: "'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif",
-  bodySize: "13px",
-  headingSize: "18px",
-  codeSize: "11px",
+  sans: "'Inter', system-ui, -apple-system, sans-serif",
+  body: "'Inter', system-ui, -apple-system, sans-serif",
+  bodySize: "var(--font-size-body)",
+  headingSize: "var(--font-size-heading)",
+  codeSize: "var(--font-size-code)",
 } as const;
 
 const spacing = {
@@ -36,6 +36,17 @@ const layout = {
   fftFontSize: "16px",
   waterfallFontSize: "16px",
   rangeLabelsFontSize: "9px",
+} as const;
+
+const fontSizes = {
+  body: "clamp(0.875rem, 0.84rem + 0.2vw, 0.95rem)",
+  heading: "clamp(1.05rem, 0.98rem + 0.35vw, 1.2rem)",
+  code: "clamp(0.72rem, 0.7rem + 0.08vw, 0.78rem)",
+  label: "clamp(0.7rem, 0.68rem + 0.08vw, 0.75rem)",
+  small: "clamp(0.65rem, 0.63rem + 0.05vw, 0.7rem)",
+  canvasTitle: "16px",
+  canvasBody: "11px",
+  canvasLabel: "9px",
 } as const;
 
 const darkColors: ColorMap = {
@@ -170,6 +181,7 @@ const lightColors: ColorMap = {
 
 export const THEME_TOKENS = {
   typography,
+  fontSizes,
   spacing,
   layout,
   colors: {

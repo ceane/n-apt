@@ -29,8 +29,12 @@ const DemodContainer = styled.div`
 export const DemodRoute: React.FC = () => {
   const { analysisSession } = useDemod();
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
-  const selectedFiles = useAppSelector((state) => state.waterfall.selectedFiles);
-  const stitchTrigger = useAppSelector((state) => state.waterfall.stitchTrigger);
+  const selectedFiles = useAppSelector(
+    (state) => state.waterfall.selectedFiles,
+  );
+  const stitchTrigger = useAppSelector(
+    (state) => state.waterfall.stitchTrigger,
+  );
   const stitchSourceSettings = useAppSelector(
     (state) => state.waterfall.stitchSourceSettings,
   );

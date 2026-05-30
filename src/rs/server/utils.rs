@@ -6,7 +6,8 @@ use sha2::Digest;
 use std::io::Write;
 use std::sync::RwLock;
 
-use super::types::{CaptureArtifact, ChannelSpec};
+use super::types::{AvailableSpectrumConfig, CaptureArtifact, ChannelSpec};
+use super::types::{DeviceProfile, NaptConfig, SdrConfig};
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
@@ -77,6 +78,26 @@ pub fn preprocess_frequency_tags(content: &str) -> String {
     .to_string()
 }
 
+pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
+  let re_floor_max = Regex::new(r"sample_rate:\s*!floor\.\.\.!max\b").unwrap();
+  let content = re_floor_max
+    .replace_all(
+      content,
+      "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_MAX__\"]",
+    )
+    .to_string();
+
+  let re_max = Regex::new(r"sample_rate:\s*!max\b").unwrap();
+  let content = re_max
+    .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_MAX__\"")
+    .to_string();
+
+  let re_floor = Regex::new(r"sample_rate:\s*!floor\b").unwrap();
+  re_floor
+    .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"")
+    .to_string()
+}
+
 /// Downsample spectrum data to a target length using averaging
 #[allow(dead_code)]
 fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
@@ -107,17 +128,34 @@ pub fn read_config_file(
 
 #[cfg(test)]
 pub(crate) fn cwd_lock() -> &'static std::sync::Mutex<()> {
-  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+  static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
   LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) fn clear_signals_config_cache() {
+  let mut guard = SIGNALS_CONFIG.write().unwrap();
+  *guard = None;
 }
 
 struct CachedSignalsConfig {
   config: super::types::SignalsConfig,
   modified: std::time::SystemTime,
+  checksum: String,
   filename: String,
 }
 
 static SIGNALS_CONFIG: RwLock<Option<CachedSignalsConfig>> = RwLock::new(None);
+
+fn sha256_hex(input: &[u8]) -> String {
+  use sha2::Digest;
+  let digest = sha2::Sha256::digest(input);
+  digest
+    .iter()
+    .map(|b| format!("{:02x}", b))
+    .collect::<String>()
+}
 
 fn reload_signals_config() -> CachedSignalsConfig {
   let filename = if std::path::Path::new("signals.yaml").exists() {
@@ -133,6 +171,8 @@ fn reload_signals_config() -> CachedSignalsConfig {
     .expect("signals.yaml must be present alongside the binary or in CARGO_MANIFEST_DIR");
 
   let processed = preprocess_frequency_tags(&content);
+  let processed = preprocess_sdr_sample_rate_tags(&processed);
+  let checksum = sha256_hex(processed.as_bytes());
 
   let config = serde_yaml::from_str(&processed).unwrap_or_else(|e| {
     eprintln!("\n❌ INVALID signals.yaml CONFIGURATION");
@@ -168,6 +208,7 @@ fn reload_signals_config() -> CachedSignalsConfig {
   CachedSignalsConfig {
     config,
     modified,
+    checksum,
     filename,
   }
 }
@@ -181,7 +222,28 @@ pub fn signals_config() -> super::types::SignalsConfig {
     match guard.as_ref() {
       Some(cached) => {
         if let Some((_, modified)) = read_config_file(&cached.filename) {
-          modified > cached.modified
+          if modified <= cached.modified {
+            false
+          } else {
+            let path = std::path::Path::new(&cached.filename);
+            let content = if path.exists() {
+              std::fs::read_to_string(path).ok()
+            } else {
+              std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join(&cached.filename),
+              )
+              .ok()
+            };
+            if let Some(content) = content {
+              let processed = preprocess_frequency_tags(&content);
+              let processed = preprocess_sdr_sample_rate_tags(&processed);
+              let checksum = sha256_hex(processed.as_bytes());
+              checksum != cached.checksum
+            } else {
+              false
+            }
+          }
         } else {
           false
         }
@@ -196,7 +258,28 @@ pub fn signals_config() -> super::types::SignalsConfig {
     let should_reload = match guard.as_ref() {
       Some(cached) => {
         if let Some((_, modified)) = read_config_file(&cached.filename) {
-          modified > cached.modified
+          if modified <= cached.modified {
+            false
+          } else {
+            let path = std::path::Path::new(&cached.filename);
+            let content = if path.exists() {
+              std::fs::read_to_string(path).ok()
+            } else {
+              std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join(&cached.filename),
+              )
+              .ok()
+            };
+            if let Some(content) = content {
+              let processed = preprocess_frequency_tags(&content);
+              let processed = preprocess_sdr_sample_rate_tags(&processed);
+              let checksum = sha256_hex(processed.as_bytes());
+              checksum != cached.checksum
+            } else {
+              false
+            }
+          }
         } else {
           false
         }
@@ -219,6 +302,14 @@ pub fn signals_config() -> super::types::SignalsConfig {
     .unwrap()
     .config
     .clone()
+}
+
+pub fn signals_config_checksum() -> Option<String> {
+  SIGNALS_CONFIG
+    .read()
+    .unwrap()
+    .as_ref()
+    .map(|cached| cached.checksum.clone())
 }
 
 /// Extract line and column numbers from serde_yaml error message
@@ -260,6 +351,49 @@ pub fn trim_channels_for_header(
   out
 }
 
+pub fn compute_min_receive_sample_rate(
+  napt: &NaptConfig,
+  sdr_sample_rate: u32,
+) -> u32 {
+  const RTL_SDR_FLOOR_HZ: u32 = 3_200_000;
+
+  let widest_channel_bandwidth = napt
+    .channels
+    .values()
+    .filter_map(|channel| {
+      let range = &channel.freq_range_hz;
+      if range.len() < 2 {
+        return None;
+      }
+      let min = range[0];
+      let max = range[1];
+      if !min.is_finite() || !max.is_finite() || max <= min {
+        return None;
+      }
+      Some((max - min) as u32)
+    })
+    .max()
+    .unwrap_or(0);
+
+  let derived_floor = widest_channel_bandwidth / 2;
+  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
+  min_receive_sample_rate.min(sdr_sample_rate)
+}
+
+pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
+  let min_receive_sample_rate =
+    compute_min_receive_sample_rate(napt, sdr.sample_rate);
+  sdr.min_receive_sample_rate = Some(min_receive_sample_rate);
+  if sdr.sample_rate < min_receive_sample_rate {
+    log::warn!(
+      "signals.yaml sample_rate {} Hz is below computed receive floor {} Hz; clamping",
+      sdr.sample_rate,
+      min_receive_sample_rate
+    );
+    sdr.sample_rate = min_receive_sample_rate;
+  }
+}
+
 pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   let parsed = signals_config();
   let mut out = Vec::new();
@@ -283,9 +417,81 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   out
 }
 
+pub fn resolve_fft_config(
+  device_kind: &str,
+  sample_rate: u32,
+  preferred_size: Option<usize>,
+) -> super::types::SdrFftConfig {
+  let max_size: usize = if device_kind == "hackrf_one" {
+    4_194_304 // 2^22
+  } else {
+    262_144 // 2^18
+  };
+
+  let min_size: usize = 2048;
+  let mut sizes: Vec<usize> = Vec::new();
+  let mut current: usize = min_size;
+  let sr_usize = sample_rate as usize;
+  while current <= max_size {
+    if current <= sr_usize || sizes.is_empty() {
+      sizes.push(current);
+    }
+    current *= 2;
+  }
+
+  let mut size_to_frame_rate = std::collections::HashMap::new();
+  for &sz in &sizes {
+    let rate = if sz > 0 {
+      ((sample_rate as f64) / (sz as f64)).floor() as u32
+    } else {
+      super::types::MAX_LOGICAL_FRAME_RATE
+    };
+    let rate = rate.min(super::types::MAX_LOGICAL_FRAME_RATE).max(1);
+    size_to_frame_rate.insert(sz, rate);
+  }
+
+  let default_size = preferred_size
+    .filter(|sz| sizes.contains(sz))
+    .unwrap_or_else(|| {
+      if sizes.contains(&2048) {
+        2048
+      } else {
+        sizes[0]
+      }
+    });
+
+  let default_frame_rate =
+    *size_to_frame_rate.get(&default_size).unwrap_or(&60);
+
+  let max_frame_rate = *size_to_frame_rate.values().max().unwrap_or(&60);
+
+  super::types::SdrFftConfig {
+    default_size,
+    default_frame_rate,
+    max_size: *sizes.last().unwrap_or(&max_size),
+    max_frame_rate,
+    size_to_frame_rate,
+  }
+}
+
 /// Load SDR settings (panic if missing/malformed)
 pub fn load_sdr_settings() -> super::types::SdrConfig {
-  signals_config().signals.sdr.clone()
+  let config = signals_config();
+  let mut sdr = config.signals.sdr.clone();
+  apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
+  sdr.fft =
+    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size));
+  sdr
+}
+
+pub fn load_available_spectrum() -> Option<AvailableSpectrumConfig> {
+  let config = signals_config();
+  config.signals.available_spectrum.clone().or_else(|| {
+    Some(AvailableSpectrumConfig {
+      min_freq: 0.0,
+      max_freq: 30_000_000_000.0,
+    })
+  })
 }
 
 /// Load mock APT signal settings (panic if missing/malformed)
@@ -391,6 +597,166 @@ pub fn reconcile_device_state(
   }
 }
 
+pub fn mock_apt_device_name(device_info: &str) -> String {
+  device_info
+    .split(" - ")
+    .next()
+    .unwrap_or("Mock APT SDR")
+    .trim()
+    .to_string()
+}
+
+pub fn mock_apt_backend_label(device_info: &str) -> &'static str {
+  if cfg!(all(feature = "mock_apt_metal", target_os = "macos"))
+    && device_info.contains("(Metal)")
+  {
+    "mock_apt_metal"
+  } else {
+    "mock_apt"
+  }
+}
+
+pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
+  let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
+  let lower = short_name.to_ascii_lowercase();
+
+  if let Some(version) = short_name.split_whitespace().find_map(|token| {
+    let cleaned = token
+      .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+      .to_ascii_lowercase();
+    let version = cleaned.strip_prefix('v')?;
+    if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+      Some(version.to_string())
+    } else {
+      None
+    }
+  }) {
+    return format!("RTL-SDR v{}", version);
+  }
+
+  if lower.contains("rtl-sdr blog")
+    || lower.contains("rtl2832")
+    || lower.contains("rtl-sdr")
+    || lower.contains("generic")
+    || lower.contains("rtl2832u")
+  {
+    return "RTL-SDR v4".to_string();
+  }
+
+  short_name.to_string()
+}
+
+pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => "rtl_sdr",
+    "hackrf_one" => "hackrf_one",
+    "mock_apt_metal" => "mock_apt",
+    "mock_apt" => "mock_apt",
+    kind => kind,
+  }
+}
+
+pub fn parse_device_info_sample_rate(device_info: &str) -> Option<u32> {
+  device_info
+    .split("Rate: ")
+    .nth(1)
+    .and_then(|s| s.split(" Hz").next())
+    .and_then(|s| s.parse::<u32>().ok())
+}
+
+pub fn device_sample_rate_ceiling(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &DeviceProfile,
+  sdr_settings: &SdrConfig,
+) -> u32 {
+  if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
+    return parse_device_info_sample_rate(device_info)
+      .unwrap_or(sdr_settings.sample_rate);
+  }
+
+  if matches!(device_profile.kind.as_str(), "hackrf_one") {
+    return 20_000_000;
+  }
+
+  if device_connected {
+    parse_device_info_sample_rate(device_info)
+      .unwrap_or(sdr_settings.sample_rate)
+  } else {
+    sdr_settings.sample_rate
+  }
+}
+
+pub fn resolve_device_sample_rate_options(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &DeviceProfile,
+  sdr_settings: &SdrConfig,
+) -> (u32, Vec<u32>) {
+  let ceiling = device_sample_rate_ceiling(
+    device_connected,
+    device_info,
+    device_profile,
+    sdr_settings,
+  );
+  let floor =
+    if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
+      ceiling
+    } else {
+      sdr_settings
+        .min_receive_sample_rate
+        .unwrap_or(sdr_settings.sample_rate)
+    };
+
+  if let Some(device_cfg) =
+    sdr_settings.devices.get(device_config_key(device_profile))
+  {
+    (
+      ceiling,
+      device_cfg.sample_rate.resolve_options(floor, ceiling),
+    )
+  } else {
+    (ceiling, vec![ceiling])
+  }
+}
+
+pub fn status_device_backend_label(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &super::types::DeviceProfile,
+) -> String {
+  if !device_connected {
+    return mock_apt_backend_label(device_info).to_string();
+  }
+
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => "rtl-sdr".to_string(),
+    "hackrf_one" => "hackrf_one".to_string(),
+    kind => kind.to_string(),
+  }
+}
+
+pub fn status_device_name(
+  device_connected: bool,
+  device_info: &str,
+  device_profile: &super::types::DeviceProfile,
+) -> String {
+  if !device_connected {
+    return mock_apt_device_name(device_info);
+  }
+
+  match device_profile.kind.as_str() {
+    "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
+    "hackrf_one" => "HackRF One".to_string(),
+    _ => device_info
+      .split(" - ")
+      .next()
+      .unwrap_or(device_info)
+      .trim()
+      .to_string(),
+  }
+}
+
 pub fn next_missing_device_probe_streak(prev: u32, device_count: u32) -> u32 {
   if device_count == 0 {
     prev.saturating_add(1)
@@ -406,6 +772,8 @@ pub fn should_declare_disconnected(missing_streak: u32) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::server::types::{DeviceProfile, NaptConfig, SpectrumFrameConfig};
+  use indexmap::IndexMap;
   use std::time::{SystemTime, UNIX_EPOCH};
 
   #[test]
@@ -428,6 +796,7 @@ mod tests {
     );
     let content = content.expect("signals.yaml content");
     let processed = preprocess_frequency_tags(&content.0);
+    let processed = preprocess_sdr_sample_rate_tags(&processed);
     let value: serde_yaml::Value =
       serde_yaml::from_str(&processed).expect("parse signals.yaml into value");
     let sdr_value = value.get("signals").and_then(|v| v.get("sdr")).cloned();
@@ -441,6 +810,167 @@ mod tests {
     std::env::set_current_dir(&original_dir).expect("restore dir");
     let _ = std::fs::remove_dir_all(&temp_dir);
     assert_eq!(settings.sample_rate, parsed.unwrap().sample_rate);
+  }
+
+  #[test]
+  fn normalizes_hackrf_one_status_fields_from_profile() {
+    let profile = DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    assert_eq!(
+      status_device_name(
+        true,
+        "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 200 Hz",
+        &profile,
+      ),
+      "HackRF One"
+    );
+    assert_eq!(
+      status_device_backend_label(true, "anything", &profile),
+      "hackrf_one"
+    );
+    assert_eq!(device_config_key(&profile), "hackrf_one");
+  }
+
+  #[test]
+  fn normalizes_generic_rtl2832u_oem_to_rtl_sdr_v4() {
+    let profile = DeviceProfile {
+      kind: "rtl_sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    assert_eq!(
+      status_device_name(true, "Generic RTL2832U OEM", &profile),
+      "RTL-SDR v4"
+    );
+  }
+
+  #[test]
+  fn computes_hackrf_receive_floor_from_widest_channel() {
+    let mut channels = IndexMap::new();
+    channels.insert(
+      "a".to_string(),
+      SpectrumFrameConfig {
+        label: "A".to_string(),
+        freq_range_hz: vec![18_000.0, 4_390_000.0],
+        description: "A".to_string(),
+      },
+    );
+    channels.insert(
+      "c".to_string(),
+      SpectrumFrameConfig {
+        label: "C".to_string(),
+        freq_range_hz: vec![4_750_000.0, 23_000_000.0],
+        description: "C".to_string(),
+      },
+    );
+    let napt = NaptConfig { channels };
+    let floor = compute_min_receive_sample_rate(&napt, 20_000_000);
+    assert_eq!(floor, 9_125_000);
+  }
+
+  #[test]
+  fn resolves_hackrf_sample_rate_options_from_device_ceiling() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    let settings = load_sdr_settings();
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      true,
+      "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 20_000_000);
+    assert!(options.len() > 1);
+    assert_eq!(options.last().copied(), Some(20_000_000));
+  }
+
+  #[test]
+  fn resolves_mock_sample_rate_options_from_mock_device_after_hackrf_settings()
+  {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+    let mut settings = load_sdr_settings();
+    settings.sample_rate = 20_000_000;
+    settings.min_receive_sample_rate = Some(9_125_000);
+
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      false,
+      "Mock APT SDR - Freq: 1600000 Hz, Rate: 3200000 Hz (Sample Rate: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 3_200_000);
+    assert_eq!(options, vec![3_200_000]);
+  }
+
+  #[test]
+  fn preprocesses_sdr_sample_rate_tags_for_device_blocks() {
+    let yaml = r#"
+signals:
+  sdr:
+    devices:
+      rtl_sdr:
+        sample_rate: !max
+      hackrf_one:
+        sample_rate: !floor...!max
+"#;
+    let processed = preprocess_sdr_sample_rate_tags(yaml);
+    assert!(
+      processed.contains("__NAPT_SAMPLE_RATE_MAX__"),
+      "expected !max placeholder in processed YAML"
+    );
+    assert!(
+      processed.contains("__NAPT_SAMPLE_RATE_FLOOR__"),
+      "expected !floor placeholder in processed YAML"
+    );
+    let parsed: serde_yaml::Value =
+      serde_yaml::from_str(&processed).expect("processed YAML should parse");
+    let devices = parsed
+      .get("signals")
+      .and_then(|v| v.get("sdr"))
+      .and_then(|v| v.get("devices"))
+      .cloned()
+      .expect("expected signals.sdr.devices");
+    let rtl = devices
+      .get("rtl_sdr")
+      .and_then(|v| v.get("sample_rate"))
+      .cloned()
+      .expect("expected rtl_sdr sample_rate");
+    let hack = devices
+      .get("hackrf_one")
+      .and_then(|v| v.get("sample_rate"))
+      .cloned()
+      .expect("expected hackrf_one sample_rate");
+    let rtl_rate: Result<crate::server::types::SdrSampleRateSpec, _> =
+      serde_yaml::from_value(rtl);
+    let hack_rate: Result<crate::server::types::SdrSampleRateSpec, _> =
+      serde_yaml::from_value(hack);
+    assert!(rtl_rate.is_ok());
+    assert!(hack_rate.is_ok());
   }
 
   #[test]
@@ -635,6 +1165,8 @@ signals:
       is_mock_apt: false,
       is_ephemeral: false,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     // We can't call save_capture_file_multi easily because it writes to disk,
@@ -878,6 +1410,17 @@ pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
+  // SECURITY: Strict validation of job_id to prevent Path Traversal.
+  // Only alphanumeric characters, underscores, and hyphens are allowed.
+  if !RE_SAFE_ID.is_match(&result.job_id) {
+    return Err(format!("Invalid job_id: '{}'", result.job_id));
+  }
+
+  // SECURITY: Strict validation of file_type.
+  if result.file_type != ".napt" && result.file_type != ".wav" {
+    return Err(format!("Unsupported file_type: '{}'", result.file_type));
+  }
+
   // Create temp directory if it doesn't exist
   let temp_dir = std::env::temp_dir().join("n-apt-captures");
   std::fs::create_dir_all(&temp_dir)
@@ -921,6 +1464,14 @@ pub fn save_capture_file_multi(
 
   if let Some((min_hz, max_hz)) = result.frequency_range {
     meta_obj["frequency_range"] = serde_json::json!([min_hz, max_hz]);
+  }
+
+  if let Some(bw) = result.bandwidth {
+    meta_obj["bandwidth"] = serde_json::json!(bw);
+  }
+
+  if let Some(bw_cf) = result.bandwidth_center_frequency {
+    meta_obj["bandwidth_center_frequency"] = serde_json::json!(bw_cf);
   }
 
   // Add geolocation data if available
@@ -1208,6 +1759,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1284,6 +1837,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1357,6 +1912,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result2 = CaptureResult {
@@ -1393,6 +1950,8 @@ mod save_tests {
       is_mock_apt: false,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let artifact1 = save_capture_file_multi(&result1, &test_encryption_key())
@@ -1447,6 +2006,8 @@ mod save_tests {
       is_mock_apt: true,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_napt = save_capture_file_multi(&result, &test_encryption_key())
@@ -1540,6 +2101,8 @@ mod save_tests {
       is_mock_apt: true,
       ref_based_demod_baseline: None,
       dek: None,
+      bandwidth: None,
+      bandwidth_center_frequency: None,
     };
 
     let result_wav =
@@ -1578,5 +2141,32 @@ mod save_tests {
     assert_eq!(parse_frequency_hz("3.2MHz"), 3_200_000.0);
     assert_eq!(parse_frequency_hz("1.2GHz"), 1_200_000_000.0);
     assert_eq!(parse_frequency_hz("100"), 100.0); // Default HZ
+  }
+
+  #[test]
+  fn test_resolve_fft_config_scales_with_sample_rate() {
+    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768));
+    assert_eq!(mock_low.default_size, 32768);
+    assert_eq!(mock_low.max_size, 262_144);
+    assert_eq!(mock_low.default_frame_rate, 30);
+    assert_eq!(mock_low.max_frame_rate, 60);
+    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
+    assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
+
+    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024));
+    assert_eq!(mock_fallback.default_size, 2048);
+
+    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768));
+    assert_eq!(mock_high.default_size, 32768);
+    assert_eq!(mock_high.max_size, 262_144);
+    assert_eq!(mock_high.default_frame_rate, 60);
+    assert_eq!(mock_high.max_frame_rate, 60);
+    assert_eq!(mock_high.size_to_frame_rate.get(&65536), Some(&48));
+    assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
+    assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
+
+    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768));
+    assert_eq!(hackrf.max_size, 2_097_152);
+    assert_eq!(hackrf.default_size, 32768);
   }
 }

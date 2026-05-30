@@ -3,12 +3,12 @@ import {
   Range,
 } from "@n-apt/utils/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
-import {
-  formatFrequency,
-  formatFrequencyHighRes,
-} from "@n-apt/utils/frequency";
-import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
+import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
 import { escapeAttr, sanitizePath } from "../sanitization";
+import {
+  drawVfoAxis,
+  type VfoAxisContext,
+} from "@n-apt/utils/rendering/vfoAxis";
 
 export interface DrawingContext {
   setStroke(color: string, width: number, dash?: number[]): void;
@@ -98,7 +98,11 @@ export class CanvasDrawingContext implements DrawingContext {
 
   roundRect(x: number, y: number, w: number, h: number, r: number): void {
     this.ctx.beginPath();
-    this.ctx.roundRect(x, y, w, h, r);
+    if (typeof this.ctx.roundRect === "function") {
+      this.ctx.roundRect(x, y, w, h, r);
+    } else {
+      this.ctx.rect(x, y, w, h);
+    }
     this.ctx.fill();
   }
 
@@ -278,11 +282,75 @@ export interface SnapshotTheme {
   cfText: string;
 }
 
+export type StatsBoxPlacement = {
+  pos: { x: number; y: number };
+  boxW: number;
+  boxH: number;
+  lines: { line: string; fontSize: number; width: number }[];
+  padX: number;
+  padY: number;
+  lh: number;
+  columns?: {
+    splitIndex: number;
+    columnGap: number;
+    leftWidth: number;
+    rightWidth: number;
+  };
+};
+
 export class SnapshotRenderer {
   constructor(
     private mapper: CoordinateMapper,
     private theme: SnapshotTheme,
   ) {}
+
+  measureChannelLabelBox(
+    channelBounds: Range | null | undefined,
+    viewRange: Range,
+    channelLabel?: string,
+  ): { x: number; y: number; w: number; h: number } | null {
+    if (!channelBounds) return null;
+    const channelSpan = channelBounds.max - channelBounds.min;
+    const viewSpan = viewRange.max - viewRange.min;
+    if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
+    if (!Number.isFinite(viewSpan) || viewSpan <= 0) return null;
+
+    const area = this.mapper.getPlotArea();
+    const visibleMin = Math.max(channelBounds.min, viewRange.min);
+    const visibleMax = Math.min(channelBounds.max, viewRange.max);
+    if (!(visibleMax > visibleMin)) return null;
+
+    const rawStartX = this.mapper.freqToX(visibleMin);
+    const rawEndX = this.mapper.freqToX(visibleMax);
+    const plotRight = area.x + area.width;
+    const startX = Math.max(area.x, Math.min(plotRight, rawStartX));
+    const endX = Math.max(area.x, Math.min(plotRight, rawEndX));
+    const bandWidth = Math.max(1, endX - startX);
+    const centerX = startX + bandWidth / 2;
+    const labelText = channelLabel ? `Channel ${channelLabel}` : "Channel";
+    const labelWidth = labelText.length * 6;
+    const boxW = labelWidth + 20;
+    const boxH = 20;
+    const preferredBoxX = Math.min(
+      Math.max(area.x + 4, centerX - boxW / 2),
+      area.x + area.width - boxW - 4,
+    );
+    const candidateYs = [
+      area.y + 6,
+      area.y + area.height - boxH - 6,
+      area.y + area.height * 0.25 - boxH / 2,
+      area.y + area.height * 0.75 - boxH / 2,
+    ].map((y) =>
+      Math.max(area.y + 4, Math.min(area.y + area.height - boxH - 4, y)),
+    );
+
+    return {
+      x: preferredBoxX,
+      y: candidateYs[0] ?? area.y + 6,
+      w: boxW,
+      h: boxH,
+    };
+  }
 
   drawBackground(dc: DrawingContext): void {
     dc.setFill(this.theme.bg);
@@ -335,6 +403,9 @@ export class SnapshotRenderer {
       dc.moveTo(x, area.y);
       dc.lineTo(x, area.y + area.height);
     }
+    const maxEdgeX = this.mapper.freqToX(freqRange.max);
+    dc.moveTo(maxEdgeX, area.y);
+    dc.lineTo(maxEdgeX, area.y + area.height);
     dc.stroke();
   }
 
@@ -357,7 +428,7 @@ export class SnapshotRenderer {
       if (db < dbRange.min || db > dbRange.max) continue;
       const y = this.mapper.dbToY(db);
 
-      let label = `${db.toFixed(1)}`;
+      let label = `${roundDbValue(db)}`;
       if (i === 0) {
         label += unit;
       }
@@ -373,98 +444,71 @@ export class SnapshotRenderer {
   ): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
-    const bandwidth = freqRange.max - freqRange.min;
-    const range = findBestFrequencyRange(bandwidth, 10);
-    const lowerFreq = Math.ceil(freqRange.min / range) * range;
     const FREQ_LABEL_Y = area.y + area.height + 25;
     const useHighRes = zoom >= 100;
 
-    dc.setFill(this.theme.text);
-    dc.setScaledFont(12, fontScale);
-
-    const startLabel = useHighRes
-      ? formatFrequencyHighRes(freqRange.min)
-      : formatFrequency(freqRange.min, {
-          precisionMHz: 4,
-          precisionKHz: 4,
-          trimTrailingZeros: true,
-        });
-    const endLabel = useHighRes
-      ? formatFrequencyHighRes(freqRange.max)
-      : formatFrequency(freqRange.max, {
-          precisionMHz: 4,
-          precisionKHz: 4,
-          trimTrailingZeros: true,
-        });
-    const { precisionMHz: tickPrecMHz, precisionKHz: tickPrecKHz } =
-      tickPrecisionForStep(range);
-    const centerPrecMHz = Math.max(4, tickPrecMHz);
-    const centerPrecKHz = Math.max(4, tickPrecKHz);
-    const centerLabelText =
-      Number.isNaN(centerFrequencyHz) || !Number.isFinite(centerFrequencyHz)
-        ? "--MHz"
-        : useHighRes
-          ? formatFrequencyHighRes(centerFrequencyHz)
-          : formatFrequency(centerFrequencyHz, {
-              precisionMHz: centerPrecMHz,
-              precisionKHz: centerPrecKHz,
-            });
-
-    // Collision detection
-    const startW = dc.measureTextWidth(startLabel);
-    const endW = dc.measureTextWidth(endLabel);
-    const centerW = dc.measureTextWidth(`○  ${centerLabelText}`);
-    const plotWidth = area.width;
-
-    const occupied: { x1: number; x2: number }[] = [
-      { x1: area.x - 5, x2: area.x + startW + 15 },
-      { x1: area.x + area.width - endW - 15, x2: area.x + area.width + 5 },
-      {
-        x1: area.x + plotWidth / 2 - centerW / 2 - 15,
-        x2: area.x + plotWidth / 2 + centerW / 2 + 15,
+    drawVfoAxis({
+      ctx: this.createVfoAxisContext(dc),
+      frequencyRange: freqRange,
+      centerFrequencyHz,
+      bounds: {
+        left: area.x,
+        right: area.x + area.width,
+        top: area.y,
+        bottom: area.y + area.height,
       },
-    ];
+      y: area.y + area.height,
+      labelY: FREQ_LABEL_Y,
+      orientation: "bottom",
+      tickDirection: "down",
+      targetTicks: 10,
+      showAxisLine: false,
+      icon: "circle",
+      theme: {
+        tick: this.theme.text,
+        label: this.theme.text,
+        center: this.theme.cfText,
+        centerLine: this.theme.cfText,
+      },
+      fontPx: 12 * fontScale,
+      centerFontPx: 12 * fontScale,
+      tickLength: 7,
+      centerTickLength: 9,
+      useHighResLabels: useHighRes,
+      precision: {
+        edgeMHz: 4,
+        edgeKHz: 0,
+        centerMinMHz: 4,
+        centerMinKHz: 0,
+      },
+      lineWidth: 1 / this.mapper.getDPR(),
+    });
+  }
 
-    const isColliding = (x: number, text: string) => {
-      const tw = dc.measureTextWidth(text);
-      const x1 = x - tw / 2 - 10;
-      const x2 = x + tw / 2 + 10;
-      return occupied.some((r) => x1 < r.x2 && x2 > r.x1);
+  private createVfoAxisContext(dc: DrawingContext): VfoAxisContext {
+    return {
+      save: () => dc.save(),
+      restore: () => dc.restore(),
+      beginPath: () => dc.beginPath(),
+      moveTo: (x, y) => dc.moveTo(x, y),
+      lineTo: (x, y) => dc.lineTo(x, y),
+      stroke: () => dc.stroke(),
+      fillText: (text, x, y) => dc.fillText(text, x, y),
+      measureTextWidth: (text) => dc.measureTextWidth(text),
+      setStroke: (color, width) => dc.setStroke(color, width ?? 1),
+      setFill: (color) => dc.setFill(color),
+      setFont: (font) => dc.setFont(font),
+      setTextAlign: (align) => dc.setTextAlign(align),
+      setTextBaseline: (baseline) =>
+        dc.setTextBaseline(
+          baseline === "top" ||
+            baseline === "bottom" ||
+            baseline === "middle" ||
+            baseline === "alphabetic"
+            ? baseline
+            : "alphabetic",
+        ),
     };
-
-    // Draw Ticks and Labels
-    for (let freq = lowerFreq; freq < freqRange.max - 0.0001; freq += range) {
-      const x = this.mapper.freqToX(freq);
-
-      // Tick mark
-      dc.setStroke(this.theme.text, 1 / this.mapper.getDPR());
-      dc.beginPath();
-      dc.moveTo(x, area.y + area.height);
-      dc.lineTo(x, area.y + area.height + 7);
-      dc.stroke();
-
-      // Label
-      const labelText = useHighRes
-        ? formatFrequencyHighRes(freq)
-        : fmtFreqTick(freq, range);
-      if (!isColliding(x, labelText)) {
-        dc.setTextAlign("center");
-        dc.fillText(labelText, x, FREQ_LABEL_Y);
-      }
-    }
-
-    // Edge labels
-    dc.setTextAlign("start");
-    dc.fillText(startLabel, area.x, FREQ_LABEL_Y);
-    dc.setTextAlign("end");
-    dc.fillText(endLabel, area.x + area.width, FREQ_LABEL_Y);
-
-    // Center label - Always white
-    const centerLabel = `○  ${centerLabelText}`;
-    dc.setScaledFont(12, fontScale);
-    dc.setFill(this.theme.cfText);
-    dc.setTextAlign("center");
-    dc.fillText(centerLabel, area.x + area.width / 2, FREQ_LABEL_Y);
   }
 
   private decimateWaveform(
@@ -491,28 +535,32 @@ export class SnapshotRenderer {
     dc: DrawingContext,
     waveform: number[] | Float32Array,
     visualRange?: Range,
+    options?: { crispTrace?: boolean; forceSteps?: boolean },
   ): void {
     const area = this.mapper.getPlotArea();
-    dc.setLineJoin("round");
+    const crispTrace = options?.crispTrace ?? false;
+    dc.setLineJoin(crispTrace ? "miter" : "round");
     const dataWidth = waveform.length;
     if (dataWidth < 2) return;
 
     const freqRange = this.mapper.getFreqRange();
     const dataRange = visualRange || freqRange;
 
-    const isSteps = area.width / dataWidth >= 3;
-    const decimated = this.decimateWaveform(waveform, Math.ceil(area.width));
+    const physicalWidth = Math.ceil(area.width * this.mapper.getDPR());
+    const isSteps = options?.forceSteps || physicalWidth / dataWidth >= 3;
+    const decimated = this.decimateWaveform(waveform, physicalWidth);
 
     if (isSteps) {
-      this.drawTraceSteps(dc, decimated);
+      this.drawTraceSteps(dc, decimated, crispTrace);
     } else {
-      this.drawTraceSmooth(dc, decimated, dataRange);
+      this.drawTraceSmooth(dc, decimated, dataRange, crispTrace);
     }
   }
 
   private drawTraceSteps(
     dc: DrawingContext,
     waveform: number[] | Float32Array,
+    crispTrace: boolean = false,
   ): void {
     const area = this.mapper.getPlotArea();
     const dataWidth = waveform.length;
@@ -522,31 +570,48 @@ export class SnapshotRenderer {
     dc.clipRect(area.x, area.y, area.width, area.height);
 
     dc.setFill(this.theme.shadow);
+    dc.beginPath();
+    dc.moveTo(area.x, area.y + area.height);
     for (let i = 0; i < dataWidth; i++) {
       const x = area.x + i * binW;
       const nextX =
-        i === dataWidth - 1
-          ? area.x + area.width
-          : area.x + (i + 1) * binW;
-      const w = Math.max(1, nextX - x);
-      const y = Math.round(this.mapper.clampY(waveform[i]));
-      const h = area.y + area.height - y;
-      dc.fillRect(x, y, w, h);
+        i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
+      const y = this.mapper.clampY(waveform[i]);
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(x) : x,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(nextX) : nextX,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
     }
+    dc.lineTo(area.x + area.width, area.y + area.height);
+    dc.closePath();
+    dc.fill();
 
     dc.setStroke(this.theme.line, 1 / this.mapper.getDPR());
     dc.beginPath();
-    dc.moveTo(area.x, Math.round(this.mapper.clampY(waveform[0])));
+    dc.moveTo(
+      crispTrace ? this.mapper.snapStrokeCenter(area.x) : area.x,
+      crispTrace
+        ? this.mapper.snapStrokeCenter(this.mapper.clampY(waveform[0]))
+        : this.mapper.clampY(waveform[0]),
+    );
     for (let i = 0; i < dataWidth; i++) {
-      const y = Math.round(this.mapper.clampY(waveform[i]));
-      const x = Math.round(area.x + i * binW);
+      const y = this.mapper.clampY(waveform[i]);
+      const x = area.x + i * binW;
       const nextX =
-        i === dataWidth - 1
-          ? area.x + area.width
-          : Math.round(area.x + (i + 1) * binW);
+        i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
 
-      dc.lineTo(x, y);
-      dc.lineTo(nextX, y);
+      dc.lineTo(
+        crispTrace ? this.mapper.snapStrokeCenter(x) : x,
+        crispTrace ? this.mapper.snapStrokeCenter(y) : y,
+      );
+      dc.lineTo(
+        crispTrace ? this.mapper.snapStrokeCenter(nextX) : nextX,
+        crispTrace ? this.mapper.snapStrokeCenter(y) : y,
+      );
     }
     dc.stroke();
     dc.restore();
@@ -556,6 +621,7 @@ export class SnapshotRenderer {
     dc: DrawingContext,
     waveform: number[] | Float32Array,
     visualRange?: Range,
+    crispTrace: boolean = false,
   ): void {
     const area = this.mapper.getPlotArea();
     const freqRange = this.mapper.getFreqRange();
@@ -568,13 +634,28 @@ export class SnapshotRenderer {
     // Fill
     dc.setFill(this.theme.shadow);
     dc.beginPath();
-    dc.moveTo(this.mapper.freqToX(dataRange.min), area.y + area.height);
+    dc.moveTo(
+      crispTrace
+        ? this.mapper.snap(this.mapper.freqToX(dataRange.min))
+        : this.mapper.freqToX(dataRange.min),
+      area.y + area.height,
+    );
     for (let i = 0; i < dataWidth; i++) {
       const freq =
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
-      dc.lineTo(this.mapper.freqToX(freq), this.mapper.clampY(waveform[i]));
+      const x = this.mapper.freqToX(freq);
+      const y = this.mapper.clampY(waveform[i]);
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(x) : x,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
     }
-    dc.lineTo(this.mapper.freqToX(dataRange.max), area.y + area.height);
+    dc.lineTo(
+      crispTrace
+        ? this.mapper.snap(this.mapper.freqToX(dataRange.max))
+        : this.mapper.freqToX(dataRange.max),
+      area.y + area.height,
+    );
     dc.closePath();
     dc.fill();
 
@@ -586,8 +667,10 @@ export class SnapshotRenderer {
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
       const x = this.mapper.freqToX(freq);
       const y = this.mapper.clampY(waveform[i]);
-      if (i === 0) dc.moveTo(x, y);
-      else dc.lineTo(x, y);
+      const rx = crispTrace ? this.mapper.snapStrokeCenter(x) : x;
+      const ry = crispTrace ? this.mapper.snapStrokeCenter(y) : y;
+      if (i === 0) dc.moveTo(rx, ry);
+      else dc.lineTo(rx, ry);
     }
     dc.stroke();
     dc.restore();
@@ -653,17 +736,200 @@ export class SnapshotRenderer {
     dc.restore();
   }
 
+  drawChannelBounds(
+    dc: DrawingContext,
+    channelBounds: Range | null | undefined,
+    viewRange: Range,
+    channelLabel?: string,
+    avoidPlacement?: Pick<StatsBoxPlacement, "pos" | "boxW" | "boxH"> | null,
+  ): void {
+    if (!channelBounds) return;
+    const channelSpan = channelBounds.max - channelBounds.min;
+    const viewSpan = viewRange.max - viewRange.min;
+    if (!Number.isFinite(channelSpan) || channelSpan <= 0) return;
+    if (!Number.isFinite(viewSpan) || viewSpan <= 0) return;
+
+    const area = this.mapper.getPlotArea();
+    const visibleMin = Math.max(channelBounds.min, viewRange.min);
+    const visibleMax = Math.min(channelBounds.max, viewRange.max);
+    if (!(visibleMax > visibleMin)) return;
+
+    const rawStartX = this.mapper.freqToX(visibleMin);
+    const rawEndX = this.mapper.freqToX(visibleMax);
+    const plotRight = area.x + area.width;
+    const startX = Math.max(area.x, Math.min(plotRight, rawStartX));
+    const endX = Math.max(area.x, Math.min(plotRight, rawEndX));
+    const bandWidth = Math.max(1, endX - startX);
+    const centerX = startX + bandWidth / 2;
+    const label = channelLabel ? `Channel ${channelLabel}` : "Channel";
+    const markerColor = "#ffb000";
+    const pillFill = "rgba(7, 10, 18, 0.94)";
+    const pillText = "#f8fafc";
+
+    dc.save();
+    dc.clipRect(area.x, area.y, area.width, area.height);
+    dc.setStroke(markerColor, 2 / this.mapper.getDPR(), [4, 4]);
+    dc.setFill(pillText);
+    dc.setFont("10px JetBrains Mono");
+    dc.setTextAlign("center");
+    dc.setTextBaseline("bottom");
+
+    const labelText = `${label}`;
+    const labelWidth = dc.measureTextWidth(labelText);
+    const boxW = labelWidth + 20;
+    const boxH = 20;
+    const preferredBoxX = Math.min(
+      Math.max(area.x + 4, centerX - boxW / 2),
+      area.x + area.width - boxW - 4,
+    );
+    const candidateYs = [
+      area.y + 6,
+      area.y + area.height - boxH - 6,
+      area.y + area.height * 0.25 - boxH / 2,
+      area.y + area.height * 0.75 - boxH / 2,
+    ].map((y) =>
+      Math.max(area.y + 4, Math.min(area.y + area.height - boxH - 4, y)),
+    );
+    const avoidBox = avoidPlacement
+      ? {
+          x: avoidPlacement.pos.x - 8,
+          y: avoidPlacement.pos.y - 8,
+          w: avoidPlacement.boxW + 16,
+          h: avoidPlacement.boxH + 16,
+        }
+      : null;
+    const overlapsAvoidBox = (x: number, y: number) =>
+      avoidBox != null &&
+      x < avoidBox.x + avoidBox.w &&
+      x + boxW > avoidBox.x &&
+      y < avoidBox.y + avoidBox.h &&
+      y + boxH > avoidBox.y;
+    const distanceFromAvoidBox = (x: number, y: number) => {
+      if (!avoidBox) return Number.POSITIVE_INFINITY;
+      const cx = x + boxW / 2;
+      const cy = y + boxH / 2;
+      const acx = avoidBox.x + avoidBox.w / 2;
+      const acy = avoidBox.y + avoidBox.h / 2;
+      return Math.hypot(cx - acx, cy - acy);
+    };
+    const boxY =
+      candidateYs.find((y) => !overlapsAvoidBox(preferredBoxX, y)) ??
+      candidateYs
+        .map((y) => ({ y, distance: distanceFromAvoidBox(preferredBoxX, y) }))
+        .sort((a, b) => b.distance - a.distance)[0]?.y ??
+      area.y + 6;
+    const boxX = preferredBoxX;
+    const labelY = boxY + boxH / 2;
+    const lineTop = area.y;
+    const lineBottom = area.y + area.height;
+    const lineGap = 2;
+    const obstacles = [
+      avoidBox
+        ? {
+            x: avoidBox.x,
+            y: avoidBox.y,
+            w: avoidBox.w,
+            h: avoidBox.h,
+          }
+        : null,
+      {
+        x: boxX,
+        y: boxY,
+        w: boxW,
+        h: boxH,
+      },
+    ].filter(Boolean) as { x: number; y: number; w: number; h: number }[];
+    function drawBoundary(x: number): void {
+      const blockedRanges = obstacles
+        .filter((obstacle) => x >= obstacle.x && x <= obstacle.x + obstacle.w)
+        .map((obstacle) => ({
+          top: obstacle.y - lineGap,
+          bottom: obstacle.y + obstacle.h + lineGap,
+        }))
+        .sort((a, b) => a.top - b.top);
+
+      if (blockedRanges.length === 0) {
+        dc.moveTo(x, lineTop);
+        dc.lineTo(x, lineBottom);
+        return;
+      }
+
+      let cursor = lineTop;
+      for (const range of blockedRanges) {
+        const start = Math.max(lineTop, Math.min(lineBottom, range.top));
+        const end = Math.max(lineTop, Math.min(lineBottom, range.bottom));
+        if (start > cursor) {
+          dc.moveTo(x, cursor);
+          dc.lineTo(x, start);
+        }
+        cursor = Math.max(cursor, end);
+      }
+      if (cursor < lineBottom) {
+        dc.moveTo(x, cursor);
+        dc.lineTo(x, lineBottom);
+      }
+    }
+
+    const eraseSolidGridLine = (x: number) => {
+      // The solid grid line is 1px wide, centered on x, but drawing a 3px background line
+      // will cleanly replace it without affecting the dotted line we're about to draw.
+      dc.save();
+      dc.setStroke(this.theme.bg, 3 / this.mapper.getDPR());
+      dc.beginPath();
+      drawBoundary(x);
+      dc.stroke();
+      dc.restore();
+    };
+
+    if (Math.abs(startX - area.x) < 2) {
+      eraseSolidGridLine(startX);
+    }
+    if (Math.abs(endX - (area.x + area.width)) < 2) {
+      eraseSolidGridLine(endX);
+    }
+
+    dc.beginPath();
+    drawBoundary(startX);
+    drawBoundary(endX);
+    dc.stroke();
+
+    dc.setFill(pillFill);
+    dc.roundRect(boxX, boxY, boxW, boxH, 4);
+    dc.setFill(pillText);
+    dc.setTextBaseline("middle");
+    dc.fillText(labelText, boxX + boxW / 2, labelY);
+    dc.restore();
+  }
+
   drawStatsBox(
     dc: DrawingContext,
     statsLines: string[],
     waveform: number[] | Float32Array,
     fontScale: number = 1,
-  ): void {
+    fixedPlacement?: StatsBoxPlacement,
+    avoidBoxes?: { x: number; y: number; w: number; h: number }[] | null,
+  ): StatsBoxPlacement | null {
+    if (fixedPlacement) {
+      const { pos, boxW, boxH, lines, padX, padY, lh, columns } =
+        fixedPlacement;
+
+      dc.setFill("rgba(0, 0, 0, 0.75)");
+      dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
+
+      dc.setFill("#eee");
+      dc.setTextAlign("left");
+      dc.setTextBaseline("alphabetic");
+
+      this.renderStatsBoxLines(dc, pos, padX, padY, lh, lines, columns);
+
+      return fixedPlacement;
+    }
+
     const area = this.mapper.getPlotArea();
 
     // Try the primary font scale and a compact fallback to find the best fit
     const scales = [fontScale, fontScale * 0.82];
-    let best: {
+    type StatsBoxCandidate = {
       pos: { x: number; y: number };
       boxW: number;
       boxH: number;
@@ -671,8 +937,23 @@ export class SnapshotRenderer {
       padX: number;
       padY: number;
       lh: number;
+      columns?: {
+        splitIndex: number;
+        columnGap: number;
+        leftWidth: number;
+        rightWidth: number;
+      };
       score: number;
-    } | null = null;
+    };
+    let bestSafeSingle: StatsBoxCandidate | null = null;
+    let bestSafeDouble: StatsBoxCandidate | null = null;
+    let bestFallbackSingle:
+      | (StatsBoxCandidate & { overlapRatio: number })
+      | null = null;
+    let bestFallbackDouble:
+      | (StatsBoxCandidate & { overlapRatio: number })
+      | null = null;
+    const obstacles = avoidBoxes ?? [];
 
     for (const scale of scales) {
       const maxAllowedW = area.width * 0.7;
@@ -683,6 +964,7 @@ export class SnapshotRenderer {
 
       const lines = statsLines.map((line) => {
         dc.setFont(`${baseFontSize}px monospace`);
+        let pointWidth = dc.measureTextWidth("-");
         const width = dc.measureTextWidth(line);
         let fontSize = baseFontSize;
         let finalWidth = width;
@@ -693,32 +975,92 @@ export class SnapshotRenderer {
             Math.floor(baseFontSize * (maxTextW / width) * 0.98),
           );
           dc.setFont(`${fontSize}px monospace`);
+          pointWidth = dc.measureTextWidth("-");
           finalWidth = dc.measureTextWidth(line);
         }
-        return { line, fontSize, width: finalWidth };
+        return { line, fontSize, width: finalWidth + pointWidth + 4 };
       });
 
-      const boxW = Math.max(...lines.map((l) => l.width)) + padX * 2;
-      const boxH = statsLines.length * lh + padY * 2;
-      const candidates = this.generateCandidatePositions(boxW, boxH);
-
-      for (const pos of candidates) {
-        const score = this.scoreBoxPlacement(
-          pos.x,
-          pos.y,
-          boxW,
-          boxH,
+      const layouts = this.buildStatsLayouts(lines, padX, padY, lh, area.width);
+      for (const layout of layouts) {
+        const candidates = this.generateCandidatePositions(
+          layout.boxW,
+          layout.boxH,
           waveform,
         );
-        if (!best || score > best.score) {
-          best = { pos, boxW, boxH, lines, padX, padY, lh, score };
+
+        for (const pos of candidates) {
+          const metrics = this.measureBoxPlacement(
+            pos.x,
+            pos.y,
+            layout.boxW,
+            layout.boxH,
+            waveform,
+            obstacles,
+          );
+          const candidate = {
+            pos,
+            boxW: layout.boxW,
+            boxH: layout.boxH,
+            lines,
+            padX,
+            padY,
+            lh,
+            columns: layout.columns,
+            score: metrics.score,
+          };
+
+          if (metrics.safe) {
+            if (layout.columns) {
+              if (!bestSafeDouble || candidate.score > bestSafeDouble.score) {
+                bestSafeDouble = candidate;
+              }
+            } else if (
+              !bestSafeSingle ||
+              candidate.score > bestSafeSingle.score
+            ) {
+              bestSafeSingle = candidate;
+            }
+            continue;
+          }
+
+          const fallbackCandidate = {
+            ...candidate,
+            overlapRatio: metrics.overlapRatio,
+          };
+
+          if (layout.columns) {
+            if (
+              !bestFallbackDouble ||
+              metrics.overlapRatio < bestFallbackDouble.overlapRatio - 1e-6 ||
+              (Math.abs(
+                metrics.overlapRatio - bestFallbackDouble.overlapRatio,
+              ) <= 1e-6 &&
+                candidate.score > bestFallbackDouble.score)
+            ) {
+              bestFallbackDouble = fallbackCandidate;
+            }
+          } else if (
+            !bestFallbackSingle ||
+            metrics.overlapRatio < bestFallbackSingle.overlapRatio - 1e-6 ||
+            (Math.abs(metrics.overlapRatio - bestFallbackSingle.overlapRatio) <=
+              1e-6 &&
+              candidate.score > bestFallbackSingle.score)
+          ) {
+            bestFallbackSingle = fallbackCandidate;
+          }
         }
       }
     }
 
-    if (!best) return;
+    const best =
+      bestSafeSingle ??
+      bestSafeDouble ??
+      bestFallbackSingle ??
+      bestFallbackDouble;
+    if (!best) return null;
 
-    const { pos, boxW, boxH, lines, padX, padY, lh } = best;
+    const { pos, boxW, boxH, lines, padX, padY, lh, columns } = best;
 
     dc.setFill("rgba(0, 0, 0, 0.75)");
     dc.roundRect(pos.x, pos.y, boxW, boxH, 4);
@@ -727,10 +1069,133 @@ export class SnapshotRenderer {
     dc.setTextAlign("left");
     dc.setTextBaseline("alphabetic");
 
-    lines.forEach((item, i) => {
-      dc.setFont(`${item.fontSize}px monospace`);
-      dc.fillText(item.line, pos.x + padX, pos.y + padY + (i + 0.8) * lh);
-    });
+    this.renderStatsBoxLines(dc, pos, padX, padY, lh, lines, columns);
+
+    return best;
+  }
+
+  private renderStatsBoxLines(
+    dc: DrawingContext,
+    pos: { x: number; y: number },
+    padX: number,
+    padY: number,
+    lh: number,
+    lines: { line: string; fontSize: number; width: number }[],
+    columns?: {
+      splitIndex: number;
+      columnGap: number;
+      leftWidth: number;
+      rightWidth: number;
+    },
+  ): void {
+    const pointColor = "rgba(238, 238, 238, 0.45)";
+    const pointGap = 4;
+
+    if (!columns) {
+      lines.forEach((item, i) => {
+        dc.setFont(`${item.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", pos.x + padX, y);
+        dc.setFill("#eee");
+        dc.fillText(item.line, pos.x + padX + pointWidth + pointGap, y);
+      });
+      return;
+    }
+
+    const leftLines = lines.slice(0, columns.splitIndex);
+    const rightLines = lines.slice(columns.splitIndex);
+    const leftX = pos.x + padX;
+    const rightX = pos.x + padX + columns.leftWidth + columns.columnGap;
+    const rowCount = Math.max(leftLines.length, rightLines.length);
+
+    for (let i = 0; i < rowCount; i++) {
+      const left = leftLines[i];
+      if (left) {
+        dc.setFont(`${left.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", leftX, y);
+        dc.setFill("#eee");
+        dc.fillText(left.line, leftX + pointWidth + pointGap, y);
+      }
+
+      const right = rightLines[i];
+      if (right) {
+        dc.setFont(`${right.fontSize}px monospace`);
+        const y = pos.y + padY + (i + 0.8) * lh;
+        const pointWidth = dc.measureTextWidth("-");
+        dc.setFill(pointColor);
+        dc.fillText("-", rightX, y);
+        dc.setFill("#eee");
+        dc.fillText(right.line, rightX + pointWidth + pointGap, y);
+      }
+    }
+  }
+
+  private buildStatsLayouts(
+    lines: { line: string; fontSize: number; width: number }[],
+    padX: number,
+    padY: number,
+    lh: number,
+    _areaWidth: number,
+  ): {
+    kind: "single" | "double";
+    boxW: number;
+    boxH: number;
+    columns?: {
+      splitIndex: number;
+      columnGap: number;
+      leftWidth: number;
+      rightWidth: number;
+    };
+  }[] {
+    const singleColumn = {
+      kind: "single" as const,
+      boxW: Math.max(...lines.map((l) => l.width)) + padX * 2,
+      boxH: lines.length * lh + padY * 2,
+    };
+
+    const layouts: {
+      kind: "single" | "double";
+      boxW: number;
+      boxH: number;
+      columns?: {
+        splitIndex: number;
+        columnGap: number;
+        leftWidth: number;
+        rightWidth: number;
+      };
+    }[] = [singleColumn];
+    if (lines.length >= 5) {
+      const splitIndex = Math.ceil(lines.length / 2);
+      const leftLines = lines.slice(0, splitIndex);
+      const rightLines = lines.slice(splitIndex);
+      const columnGap = Math.round(18 * Math.max(1, padX / 12));
+      const leftWidth = Math.max(...leftLines.map((l) => l.width));
+      const rightWidth = Math.max(...rightLines.map((l) => l.width));
+      const boxW = leftWidth + rightWidth + columnGap + padX * 2;
+      const boxH =
+        Math.max(leftLines.length, rightLines.length) * lh + padY * 2;
+
+      if (boxH < singleColumn.boxH) {
+        layouts.unshift({
+          kind: "double",
+          boxW,
+          boxH,
+          columns: {
+            splitIndex,
+            columnGap,
+            leftWidth,
+            rightWidth,
+          },
+        });
+      }
+    }
+
+    return layouts;
   }
 
   /**
@@ -739,38 +1204,101 @@ export class SnapshotRenderer {
   private generateCandidatePositions(
     boxW: number,
     boxH: number,
+    waveform: number[] | Float32Array,
   ): { x: number; y: number }[] {
     const area = this.mapper.getPlotArea();
     const pad = 8;
     const candidates: { x: number; y: number }[] = [];
+    const seen = new Set<string>();
+    const clampX = (x: number) =>
+      Math.max(area.x + pad, Math.min(area.x + area.width - boxW - pad, x));
+    const clampY = (y: number) =>
+      Math.max(area.y + pad, Math.min(area.y + area.height - boxH - pad, y));
+    const add = (x: number, y: number) => {
+      const pos = { x: clampX(x), y: clampY(y) };
+      const key = `${Math.round(pos.x)}:${Math.round(pos.y)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push(pos);
+    };
 
     const xSlots = [
       area.x + pad,
-      area.x + (area.width - boxW) / 2,
+      area.x + (area.width - boxW) * 0.18,
+      area.x + (area.width - boxW) * 0.5,
+      area.x + (area.width - boxW) * 0.82,
       area.x + area.width - boxW - pad,
     ];
-    const ySlots = [
+
+    for (const x of xSlots) {
+      const envelope = this.getWaveformEnvelope(x, boxW, waveform);
+      add(x, area.y + pad);
+      add(x, area.y + area.height - boxH - pad);
+      add(x, envelope.top - boxH - pad);
+      add(x, envelope.bottom + pad);
+    }
+
+    // Grid fallback for odd shapes or very sparse traces.
+    const gridYSlots = [
       area.y + pad,
       area.y + (area.height - boxH) * 0.25,
       area.y + (area.height - boxH) * 0.5,
       area.y + (area.height - boxH) * 0.75,
       area.y + area.height - boxH - pad,
     ];
-
     for (const x of xSlots) {
-      for (const y of ySlots) {
-        const cx = Math.max(
-          area.x + pad,
-          Math.min(area.x + area.width - boxW - pad, x),
+      for (const y of gridYSlots) add(x, y);
+    }
+
+    return candidates;
+  }
+
+  private getWaveformEnvelope(
+    boxX: number,
+    boxW: number,
+    waveform: number[] | Float32Array,
+  ): { top: number; bottom: number } {
+    const area = this.mapper.getPlotArea();
+    const dataLen = waveform?.length ?? 0;
+    if (dataLen < 2 || area.width <= 0) {
+      return { top: area.y, bottom: area.y + area.height };
+    }
+
+    let top = Number.POSITIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+
+    const boxRight = boxX + boxW;
+    for (let idx = 0; idx < dataLen; idx++) {
+      const frac = dataLen > 1 ? idx / (dataLen - 1) : 0;
+      const px = area.x + frac * area.width;
+      if (px < boxX || px > boxRight) continue;
+
+      const waveY = this.mapper.clampY(waveform[idx]);
+      if (waveY < top) top = waveY;
+      if (waveY > bottom) bottom = waveY;
+    }
+
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+      const sampleCount = Math.min(96, Math.max(24, Math.ceil(boxW / 2)));
+      for (let i = 0; i < sampleCount; i++) {
+        const px =
+          boxX + (i / Math.max(1, sampleCount - 1)) * Math.max(1, boxW);
+        const frac = Math.max(0, Math.min(1, (px - area.x) / area.width));
+        const idx = Math.min(
+          dataLen - 1,
+          Math.max(0, Math.round(frac * (dataLen - 1))),
         );
-        const cy = Math.max(
-          area.y + pad,
-          Math.min(area.y + area.height - boxH - pad, y),
-        );
-        candidates.push({ x: cx, y: cy });
+        const waveY = this.mapper.clampY(waveform[idx]);
+        if (waveY < top) top = waveY;
+        if (waveY > bottom) bottom = waveY;
       }
     }
-    return candidates;
+
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
+      return { top: area.y, bottom: area.y + area.height };
+    }
+
+    return { top, bottom };
   }
 
   /**
@@ -779,13 +1307,14 @@ export class SnapshotRenderer {
    *
    * Higher score = better placement.
    */
-  private scoreBoxPlacement(
+  private measureBoxPlacement(
     bx: number,
     by: number,
     bw: number,
     bh: number,
     waveform: number[] | Float32Array,
-  ): number {
+    avoidBoxes: { x: number; y: number; w: number; h: number }[] = [],
+  ): { score: number; overlapRatio: number; safe: boolean } {
     const area = this.mapper.getPlotArea();
     const dataLen = waveform?.length ?? 0;
     const pad = 8;
@@ -794,17 +1323,29 @@ export class SnapshotRenderer {
     if (dataLen < 2) {
       const distToTopRight =
         Math.abs(bx + bw - (area.x + area.width)) + Math.abs(by - area.y);
-      return -distToTopRight;
+      return { score: -distToTopRight, overlapRatio: 0, safe: true };
     }
 
     const boxLeft = Math.max(bx, area.x);
     const boxRight = Math.min(bx + bw, area.x + area.width);
-    if (boxRight <= boxLeft) return -100_000;
+    if (boxRight <= boxLeft) {
+      return { score: -100_000, overlapRatio: 1, safe: false };
+    }
 
     const boxTop = by;
     const boxBottom = by + bh;
     const boxCenterY = (boxTop + boxBottom) / 2;
+    const envelope = this.getWaveformEnvelope(bx, bw, waveform);
+    const boxAbove = boxBottom <= envelope.top - pad;
+    const boxBelow = boxTop >= envelope.bottom + pad;
     const numSamples = Math.min(60, Math.max(8, Math.ceil(boxRight - boxLeft)));
+    const obstacleOverlap = avoidBoxes.some(
+      (obstacle) =>
+        bx < obstacle.x + obstacle.w &&
+        bx + bw > obstacle.x &&
+        by < obstacle.y + obstacle.h &&
+        by + bh > obstacle.y,
+    );
 
     let traceOverlapCount = 0;
     let totalDistance = 0;
@@ -830,10 +1371,21 @@ export class SnapshotRenderer {
       totalDistance += Math.abs(waveY - boxCenterY);
     }
 
-    if (validSamples === 0) return 0;
+    if (validSamples === 0) {
+      return { score: 0, overlapRatio: 1, safe: false };
+    }
 
-    const overlapRatio = traceOverlapCount / validSamples;
+    const overlapRatio =
+      traceOverlapCount / validSamples + (obstacleOverlap ? 0.5 : 0);
     const avgDistance = totalDistance / validSamples;
+    const clearance = boxAbove
+      ? envelope.top - boxBottom
+      : boxBelow
+        ? boxTop - envelope.bottom
+        : -Math.min(
+            Math.max(0, boxBottom - envelope.top),
+            Math.max(0, envelope.bottom - boxTop),
+          );
 
     // Corner preference: bonus for being near any corner of the plot area
     const cornerDistX = Math.min(
@@ -845,7 +1397,29 @@ export class SnapshotRenderer {
       Math.abs(by + bh - (area.y + area.height - pad)),
     );
     const cornerBonus = -(cornerDistX + cornerDistY) * 0.3;
+    const noOverlapBonus = boxAbove || boxBelow ? 2500 : 0;
+    const clearanceScore = Math.max(0, clearance) * 10;
+    const score =
+      avgDistance +
+      cornerBonus +
+      noOverlapBonus +
+      clearanceScore -
+      overlapRatio * 1000;
 
-    return avgDistance + cornerBonus - overlapRatio * 1000;
+    return {
+      score,
+      overlapRatio,
+      safe: boxAbove || boxBelow,
+    };
+  }
+
+  private scoreBoxPlacement(
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    waveform: number[] | Float32Array,
+  ): number {
+    return this.measureBoxPlacement(bx, by, bw, bh, waveform).score;
   }
 }

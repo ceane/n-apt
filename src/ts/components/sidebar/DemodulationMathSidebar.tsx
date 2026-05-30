@@ -9,6 +9,7 @@ const Section = styled.div`
   gap: inherit;
   margin-bottom: 0;
   box-sizing: border-box;
+  width: 100%;
 `;
 
 const MathFallback = styled.div`
@@ -47,7 +48,7 @@ const DemodMath = React.lazy(async () => {
 export const DemodulationMathSidebar: React.FC = () => {
   return (
     <Section>
-      <React.Suspense fallback={<MathFallback>Loading Math...</MathFallback>}>
+      <React.Suspense fallback={<MathFallback>Loading Math…</MathFallback>}>
         <DemodMath />
       </React.Suspense>
     </Section>

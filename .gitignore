@@ -30,8 +30,17 @@ scratch/
 # Generated diagnostics and test artifacts
 rust_outdated.txt
 typecheck_output.txt
+test_output
+test_output/
+**/test_output
+**/test_output/
+test_output*
+**/test_output*
 test-results/
 test/ts/shaders/generated/
+
+# Local OpenCellID cache state
+scripts/.cache/opencellid/last_run.json
 
 # Include scripts/build (don't exclude it)
 !scripts/build/

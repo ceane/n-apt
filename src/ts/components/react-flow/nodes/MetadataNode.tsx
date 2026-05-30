@@ -7,7 +7,6 @@ import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { useAppSelector } from "@n-apt/redux";
 
-
 const NodeTitle = styled.div`
   font-size: ${({ theme }) => theme.typography.bodySize};
   font-weight: bold;

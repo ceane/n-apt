@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import { usePretextText } from "@n-apt/hooks/usePretextText";
 import {
   FFT_GRID_COLOR,
   FFT_TEXT_COLOR,
@@ -120,21 +119,11 @@ export function usePretextOverlayRenderer() {
           labelText += powerScale === "dBm" ? " dBm" : " dB";
         }
 
-        // Use pretext for precise text measurement and positioning
-        const { metrics: labelMetrics } = usePretextText({
-          text: labelText,
-          font: "12px JetBrains Mono",
-          fontSize: 12,
-          color: canvasTheme.textColor,
-        });
+        const scaledX = (FFT_AREA_MIN.x - 10) / dpr;
+        const scaledY = Math.round(yPos + 3) / dpr;
 
-        if (labelMetrics) {
-          const scaledX = (FFT_AREA_MIN.x - 10) / dpr;
-          const scaledY = Math.round(yPos + 3) / dpr;
-
-          ctx.font = `${12 * dpr}px JetBrains Mono`;
-          ctx.fillText(labelText, scaledX, scaledY);
-        }
+        ctx.font = `${12 * dpr}px JetBrains Mono`;
+        ctx.fillText(labelText, scaledX, scaledY);
       }
 
       // Horizontal frequency labels
@@ -157,28 +146,6 @@ export function usePretextOverlayRenderer() {
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "-- MHz"
           : formatFreq(visualCenterFreq);
-
-      // Draw start/end frequency labels with pretext
-      const { metrics: _startMetrics } = usePretextText({
-        text: startLabel,
-        font: "12px JetBrains Mono",
-        fontSize: 12,
-        color: canvasTheme.textColor,
-      });
-
-      const { metrics: _endMetrics } = usePretextText({
-        text: endLabel,
-        font: "12px JetBrains Mono",
-        fontSize: 12,
-        color: canvasTheme.textColor,
-      });
-
-      const { metrics: centerMetrics } = usePretextText({
-        text: `✋  ${centerLabelText}`,
-        font: "12px JetBrains Mono",
-        fontSize: 12,
-        color: canvasTheme.textColor,
-      });
 
       // Draw frequency lines
       const freqToX2 = (freq: number) =>
@@ -205,13 +172,11 @@ export function usePretextOverlayRenderer() {
       ctx.fillText(endLabel, fftAreaMax.x / dpr, (fftAreaMax.y + 25) / dpr);
 
       ctx.textAlign = "center";
-      if (centerMetrics) {
-        ctx.fillText(
-          `✋  ${centerLabelText}`,
-          width / (2 * dpr),
-          (fftAreaMax.y + 25) / dpr,
-        );
-      }
+      ctx.fillText(
+        `✋  ${centerLabelText}`,
+        width / (2 * dpr),
+        (fftAreaMax.y + 25) / dpr,
+      );
 
       // Draw tick marks and labels
       for (let freq = lowerFreq2; freq < upperFreq2 - 0.0001; freq += step) {
@@ -232,18 +197,8 @@ export function usePretextOverlayRenderer() {
         ctx.lineTo(ix, fftAreaMax.y + 7);
         ctx.stroke();
 
-        // Tick label with pretext measurement
         const label = formatTickLabel(freq);
-        const { metrics: tickMetrics } = usePretextText({
-          text: label,
-          font: "12px JetBrains Mono",
-          fontSize: 12,
-          color: canvasTheme.textColor,
-        });
-
-        if (tickMetrics) {
-          ctx.fillText(label, xPos / dpr, (fftAreaMax.y + 25) / dpr);
-        }
+        ctx.fillText(label, xPos / dpr, (fftAreaMax.y + 25) / dpr);
       }
     },
     [],
@@ -268,24 +223,14 @@ export function usePretextOverlayRenderer() {
       ctx.clearRect(0, 0, width, height);
       ctx.scale(dpr, dpr);
 
-      // VFO frequency display using pretext
-      const { metrics: _vfoMetrics } = usePretextText({
-        text: formatFrequency(centerFrequencyHz / 1e6),
-        font: "bold 14px JetBrains Mono",
-        fontSize: 14,
-        color: "#ffff00",
-      });
-
-      if (_vfoMetrics) {
-        ctx.font = `${14 * dpr}px JetBrains Mono`;
-        ctx.fillStyle = "#ffff00";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          formatFrequency(centerFrequencyHz / 1e6),
-          width / (2 * dpr),
-          30 / dpr,
-        );
-      }
+      ctx.font = `${14 * dpr}px JetBrains Mono`;
+      ctx.fillStyle = "#ffff00";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        formatFrequency(centerFrequencyHz / 1e6),
+        width / (2 * dpr),
+        30 / dpr,
+      );
     },
     [],
   );
@@ -305,25 +250,14 @@ export function usePretextOverlayRenderer() {
       ctx.clearRect(0, 0, width, height);
       ctx.scale(dpr, dpr);
 
-      // Draw spike markers using pretext for labels
       _spikeMarkers.forEach((marker: SpectrumSpikeMarker) => {
-        const { metrics: _spikeMetrics } = usePretextText({
-          text: `${(marker.frequency ?? 0).toFixed(2)} MHz`,
-          font: "10px JetBrains Mono",
-          fontSize: 10,
-          color: "#ff6b6b",
-        });
-
-        if (_spikeMetrics) {
-          // Draw marker and label
-          ctx.font = `${10 * dpr}px JetBrains Mono`;
-          ctx.fillStyle = "#ff6b6b";
-          ctx.fillText(
-            `${(marker.frequency ?? 0).toFixed(2)} MHz`,
-            (marker.x ?? 0) / dpr,
-            (marker.y ?? 0) / dpr,
-          );
-        }
+        ctx.font = `${10 * dpr}px JetBrains Mono`;
+        ctx.fillStyle = "#ff6b6b";
+        ctx.fillText(
+          `${(marker.frequency ?? 0).toFixed(2)} MHz`,
+          (marker.x ?? 0) / dpr,
+          (marker.y ?? 0) / dpr,
+        );
       });
     },
     [],

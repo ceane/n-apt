@@ -65,15 +65,20 @@ export const FreqRangeSchema = z.object({
 
 export const SdrSettingsConfigSchema = z.object({
   sample_rate: z.number(),
+  min_receive_sample_rate: z.number().optional(),
   center_frequency: z.number(),
   gain: z
     .object({
       tuner_gain: z.number(),
       rtl_agc: z.boolean(),
       tuner_agc: z.boolean(),
+      hackrf_lna_gain: z.number().min(0).max(49.6).optional(),
+      hackrf_vga_gain: z.number().min(0).max(62).optional(),
+      hackrf_amp_enable: z.boolean().optional(),
+      tuner_bandwidth: z.number().min(0).max(20_000_000).optional(),
     })
     .optional(),
-  ppm: z.number().optional(),
+  ppm: z.number().int().nonnegative().optional(),
   fft: z
     .object({
       default_size: z.number(),
@@ -90,13 +95,27 @@ export const SdrSettingsConfigSchema = z.object({
       padding: z.number(),
     })
     .optional(),
-  limits: z
-    .object({
-      lower_limit_hz: z.number().optional(),
-      upper_limit_hz: z.number().optional(),
-      lower_limit_label: z.string().optional(),
-      upper_limit_label: z.string().optional(),
-    })
+  devices: z
+    .record(
+      z.string(),
+      z.object({
+        sample_rate: z.any(),
+        fft_display: z.any().optional(),
+        gain_limits: z
+          .object({
+            min: z.number().optional(),
+            max: z.number().optional(),
+            step: z.number().optional(),
+            lna_min: z.number().optional(),
+            lna_max: z.number().optional(),
+            lna_step: z.number().optional(),
+            vga_min: z.number().optional(),
+            vga_max: z.number().optional(),
+            vga_step: z.number().optional(),
+          })
+          .optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -123,6 +142,8 @@ export const CaptureRequestSchema = z.object({
       maxFreq: z.number(),
     }),
   ),
+  bandwidth: z.number().int().nonnegative().optional(),
+  bandwidthCenterFrequency: z.number().int().nonnegative().optional(),
   durationMode: z.enum(["timed", "manual"]),
   durationS: z.number().optional(),
   fileType: z.enum([".napt", ".wav"]),
@@ -152,12 +173,6 @@ export const CaptureStatusSchema = z.object({
   duration: z.number().optional(),
 });
 
-export const AutoFftOptionsResponseSchema = z.object({
-  type: z.literal("auto_fft_options"),
-  autoSizes: z.array(z.number()),
-  recommended: z.number(),
-});
-
 export const StatusMessageSchema = z.object({
   type: z.literal("status"),
   device_connected: z.boolean(),
@@ -165,14 +180,18 @@ export const StatusMessageSchema = z.object({
   device_name: z.string(),
   device_loading: z.boolean(),
   device_loading_reason: z.enum(["connect", "restart", "null"]).nullable(),
+  device_loading_attempt: z.number().int().nonnegative().optional(),
+  device_loading_attempt_max: z.number().int().nonnegative().optional(),
   device_state: z
     .enum(["connected", "loading", "disconnected", "stale", "null"])
     .nullable(),
   paused: z.boolean(),
   max_sample_rate: z.number(),
+  sample_rate_options: z.array(z.number()).optional(),
   channels: z.array(SpectrumFrameSchema),
   sdr_settings: SdrSettingsConfigSchema,
-  device: z.enum(["rtl-sdr", "mock_apt"]),
+  device: z.enum(["rtl-sdr", "mock_apt", "mock_apt_metal", "hackrf_one"]),
+  device_backend_error: z.string().nullable().optional(),
   device_profile: DeviceProfileSchema,
 });
 
@@ -196,13 +215,15 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("frequency_range"),
-    min_hz: z.number(),
-    max_hz: z.number(),
+    min_hz: z.number().int(),
+    max_hz: z.number().int(),
+    center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
-    min_hz: z.number(),
-    max_hz: z.number(),
+    min_hz: z.number().int(),
+    max_hz: z.number().int(),
+    center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("pause"),
@@ -214,7 +235,7 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("ppm"),
-    ppm: z.number(),
+    ppm: z.number().int().nonnegative(),
   }),
   z.object({
     type: z.literal("frame_rate"),
@@ -226,7 +247,11 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     fftWindow: z.string().optional(),
     frameRate: z.number().optional(),
     gain: z.number().optional(),
-    ppm: z.number().optional(),
+    hackrfLnaGain: z.number().min(0).max(49.6).optional(),
+    hackrfVgaGain: z.number().min(0).max(62).optional(),
+    hackrfAmpEnabled: z.boolean().optional(),
+    tunerBandwidth: z.number().min(0).max(20_000_000).optional(),
+    ppm: z.number().int().nonnegative().optional(),
     tunerAGC: z.boolean().optional(),
     rtlAGC: z.boolean().optional(),
   }),
@@ -248,13 +273,8 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("capture_stop"),
     jobId: z.string().optional(),
   }),
-  z.object({
-    type: z.literal("get_auto_fft_options"),
-    screenWidth: z.number(),
-  }),
   // Server-to-client messages
   StatusMessageSchema,
-  AutoFftOptionsResponseSchema,
 ]);
 
 // Type guards derived from schemas
@@ -304,10 +324,4 @@ export const isValidCaptureStatus = (
   data: unknown,
 ): data is z.infer<typeof CaptureStatusSchema> => {
   return CaptureStatusSchema.safeParse(data).success;
-};
-
-export const isValidAutoFftOptions = (
-  data: unknown,
-): data is z.infer<typeof AutoFftOptionsResponseSchema> => {
-  return AutoFftOptionsResponseSchema.safeParse(data).success;
 };

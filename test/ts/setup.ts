@@ -174,7 +174,9 @@ declare global {
   function expectWebGPUCall(callName: string, args?: any[] | null): void;
   function countCanvasCalls(callName: string): number;
   function countWebGPUCalls(callName: string): number;
-  function getWebGPUCalls(callName: string): Array<{ name: string; args: any[] }>;
+  function getWebGPUCalls(
+    callName: string,
+  ): Array<{ name: string; args: any[] }>;
 }
 
 // Mock IntersectionObserver for testing (e.g. CanvasHarness lazy loading)
@@ -184,13 +186,29 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly thresholds: ReadonlyArray<number> = [0];
   readonly scrollMargin: string = "0px";
 
-  constructor(callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
+  constructor(
+    callback: IntersectionObserverCallback,
+    _options?: IntersectionObserverInit,
+  ) {
     this.callback = callback;
   }
   callback: IntersectionObserverCallback;
   observe(target: Element) {
     // Synchronously trigger intersection to mount components immediately in tests
-    this.callback([{ target, isIntersecting: true, boundingClientRect: {} as DOMRectReadOnly, intersectionRatio: 1, intersectionRect: {} as DOMRectReadOnly, time: Date.now(), rootBounds: null } as IntersectionObserverEntry], this);
+    this.callback(
+      [
+        {
+          target,
+          isIntersecting: true,
+          boundingClientRect: {} as DOMRectReadOnly,
+          intersectionRatio: 1,
+          intersectionRect: {} as DOMRectReadOnly,
+          time: Date.now(),
+          rootBounds: null,
+        } as IntersectionObserverEntry,
+      ],
+      this,
+    );
   }
   unobserve() {
     // Mock implementation

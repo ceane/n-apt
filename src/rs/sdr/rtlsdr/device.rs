@@ -61,6 +61,66 @@ extern "C" fn c_read_async_cb(
 unsafe impl Send for RtlSdrDevice {}
 
 impl RtlSdrDevice {
+  fn stop_async_reader(&mut self) {
+    if let Some(handle) = self.async_thread.take() {
+      let _ = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
+      let _ = handle.join();
+    }
+
+    self.rx_queue = None;
+  }
+
+  fn start_async_reader(&mut self) -> Result<()> {
+    self.reset_buffer()?;
+
+    let (tx, rx) = bounded::<Vec<u8>>(1024);
+    let rx_for_device = rx.clone();
+    self.rx_queue = Some(rx_for_device);
+    self.iq_overflow.clear();
+
+    let dev_ptr_val = self.dev as usize;
+    let device_index = self.device_index;
+
+    let context = Box::new(AsyncContext { tx, rx });
+    let ctx_ptr_val = Box::into_raw(context) as usize;
+
+    let handle = thread::spawn(move || {
+      let dev_ptr = dev_ptr_val as *mut ffi::RtlSdrDev;
+      let ctx_ptr = ctx_ptr_val as *mut std::os::raw::c_void;
+
+      info!(
+        "Starting RTL-SDR async read thread for device #{}",
+        device_index
+      );
+
+      // macOS often fails with LIBUSB_ERROR_IO (-5) if bulk transfers are too large.
+      // Using more frequent, smaller buffers (64 * 8KB) is often more stable
+      // for high-power devices like the Blog V4 on macOS USB hubs.
+      let buf_num = 32;
+      let buf_len = 16384;
+
+      let ret = unsafe {
+        ffi::rtlsdr_read_async(
+          dev_ptr,
+          Some(c_read_async_cb),
+          ctx_ptr,
+          buf_num,
+          buf_len,
+        )
+      };
+
+      info!(
+        "RTL-SDR async read thread for device #{} exited with code {}",
+        device_index, ret
+      );
+      let _ = unsafe { Box::from_raw(ctx_ptr as *mut AsyncContext) };
+    });
+
+    self.async_thread = Some(handle);
+    self.last_error = None;
+    Ok(())
+  }
+
   /// Get the number of RTL-SDR devices connected to the system
   pub fn get_device_count() -> u32 {
     unsafe { ffi::rtlsdr_get_device_count() }
@@ -591,12 +651,7 @@ impl Drop for RtlSdrDevice {
     if !self.dev.is_null() {
       info!("Closing RTL-SDR device #{}...", self.device_index);
 
-      if self.async_thread.is_some() {
-        let _ = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
-        if let Some(handle) = self.async_thread.take() {
-          let _ = handle.join();
-        }
-      }
+      self.stop_async_reader();
 
       let ret = unsafe { ffi::rtlsdr_close(self.dev) };
       if ret != 0 {
@@ -622,66 +677,21 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn initialize(&mut self) -> Result<()> {
-    // Allow re-initialization if the thread has exited or the queue is gone
-    if let Some(handle) = &self.async_thread {
-      if !handle.is_finished() {
-        return Ok(());
-      }
-      // Thread finished (likely crashed), cleanup before restart
-      let _ = self.async_thread.take().unwrap().join();
-    }
-
-    self.reset_buffer()?;
-
-    let (tx, rx) = bounded::<Vec<u8>>(1024);
-    let rx_for_device = rx.clone();
-    self.rx_queue = Some(rx_for_device);
-    self.iq_overflow.clear();
-
-    let dev_ptr_val = self.dev as usize;
-    let device_index = self.device_index;
-
-    let context = Box::new(AsyncContext { tx, rx });
-    let ctx_ptr_val = Box::into_raw(context) as usize;
-
-    let handle = thread::spawn(move || {
-      let dev_ptr = dev_ptr_val as *mut ffi::RtlSdrDev;
-      let ctx_ptr = ctx_ptr_val as *mut std::os::raw::c_void;
-
-      info!(
-        "Starting RTL-SDR async read thread for device #{}",
-        device_index
-      );
-
-      // macOS often fails with LIBUSB_ERROR_IO (-5) if bulk transfers are too large.
-      // Using more frequent, smaller buffers (64 * 8KB) is often more stable
-      // for high-power devices like the Blog V4 on macOS USB hubs.
-      let buf_num = 32;
-      let buf_len = 16384;
-
-      let ret = unsafe {
-        ffi::rtlsdr_read_async(
-          dev_ptr,
-          Some(c_read_async_cb),
-          ctx_ptr,
-          buf_num,
-          buf_len,
-        )
-      };
-
-      info!(
-        "RTL-SDR async read thread for device #{} exited with code {}",
-        device_index, ret
-      );
-      let _ = unsafe { Box::from_raw(ctx_ptr as *mut AsyncContext) };
-    });
-
-    self.async_thread = Some(handle);
-    Ok(())
+    // Re-initialization must be authoritative. If the async reader is stalled
+    // or dead but the join handle has not yet observed it, cancel the old
+    // stream and start a fresh one instead of treating the device as already
+    // initialized.
+    self.stop_async_reader();
+    self.start_async_reader()
   }
 
   fn is_ready(&self) -> bool {
-    !self.dev.is_null() && self.async_thread.is_some()
+    !self.dev.is_null()
+      && self
+        .async_thread
+        .as_ref()
+        .map(|handle| !handle.is_finished())
+        .unwrap_or(false)
   }
 
   fn read_samples(
@@ -772,8 +782,8 @@ impl SdrDevice for RtlSdrDevice {
     self.set_tuner_gain((gain * 10.0) as i32)
   }
 
-  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
-    self.set_freq_correction(ppm)
+  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
+    self.set_freq_correction(ppm as i32)
   }
 
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
@@ -830,6 +840,10 @@ impl SdrDevice for RtlSdrDevice {
     unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
   }
 
+  fn get_max_sample_rate(&mut self) -> u32 {
+    RtlSdrDevice::get_max_sample_rate(self)
+  }
+
   fn cleanup(&mut self) -> Result<()> {
     // Device is automatically cleaned up by Drop trait
     Ok(())
@@ -870,5 +884,33 @@ impl SdrDevice for RtlSdrDevice {
 
   fn get_error(&self) -> Option<String> {
     self.last_error.clone()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::mem::ManuallyDrop;
+  use std::thread;
+  use std::time::Duration;
+
+  #[test]
+  fn ready_requires_a_running_async_thread() {
+    let handle = thread::spawn(|| {});
+    while !handle.is_finished() {
+      thread::sleep(Duration::from_millis(1));
+    }
+
+    let device = ManuallyDrop::new(RtlSdrDevice {
+      dev: std::ptr::NonNull::<ffi::RtlSdrDev>::dangling().as_ptr(),
+      device_index: 0,
+      rx_queue: None,
+      async_thread: Some(handle),
+      iq_overflow: Vec::new(),
+      max_sample_rate_cache: None,
+      last_error: None,
+    });
+
+    assert!(!SdrDevice::is_ready(&*device));
   }
 }

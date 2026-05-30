@@ -8,7 +8,7 @@ const spin = `
 `;
 
 export const Button = styled.button<{
-  $variant?: "primary" | "secondary" | "danger";
+  $variant?: "primary" | "secondary" | "danger" | "accentSoft";
 }>`
   ${spin}
   font-family: ${(props) => props.theme?.typography?.mono ?? "monospace"};
@@ -38,6 +38,11 @@ export const Button = styled.button<{
     const border = theme?.border || "#2a2a2a";
     const textPrimary = theme?.textPrimary || "#ffffff";
 
+    const softBg = `color-mix(in srgb, ${primary} 18%, ${surface})`;
+    const softBgHover = `color-mix(in srgb, ${primary} 26%, ${surface})`;
+    const softBgActive = `color-mix(in srgb, ${primary} 32%, ${surface})`;
+    const softBorder = `color-mix(in srgb, ${primary} 34%, ${border})`;
+
     switch ($variant) {
       case "primary":
         return `
@@ -60,6 +65,23 @@ export const Button = styled.button<{
             background-color: ${danger}1a;
             color: ${textPrimary};
             box-shadow: 0 0 15px ${danger}22;
+          }
+        `;
+      case "accentSoft":
+        return `
+          background-color: ${surface};
+          border: 1px solid ${border};
+          color: ${textPrimary};
+
+          &:hover {
+            background-color: ${softBgHover};
+            border-color: ${softBorder};
+            color: ${textPrimary};
+            box-shadow: none;
+          }
+
+          &:active {
+            background-color: ${softBgActive};
           }
         `;
       case "secondary":

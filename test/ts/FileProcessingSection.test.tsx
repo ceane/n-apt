@@ -21,9 +21,7 @@ describe("FileProcessingSection", () => {
           naptMetadata={null}
           naptMetadataError={null}
           onSelectedFilesChange={onSelectedFilesChange}
-          onStitch={jest.fn()}
           onClear={jest.fn()}
-          onStitchPauseToggle={jest.fn()}
         />
       </TestWrapper>,
     );

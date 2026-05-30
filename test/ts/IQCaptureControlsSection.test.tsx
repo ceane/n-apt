@@ -76,6 +76,36 @@ describe("IQCaptureControlsSection", () => {
     ]);
   });
 
+  it("should hide stepwise and interleaved modes when the hardware sample rate covers the selected channel span", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          availableCaptureAreas={[{ label: "Area A", min: 10, max: 20 }]}
+          captureRange={{
+            min: 10,
+            max: 20,
+            segments: [{ label: "Area A", min: 10, max: 20 }],
+          }}
+          activeCaptureAreas={["Area A"]}
+          maxSampleRate={20_000}
+          acquisitionMode="stepwise"
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    const acquisitionSelect = screen.getByDisplayValue("Whole Sample");
+    expect(acquisitionSelect).toBeDisabled();
+    expect(
+      screen.queryByRole("option", { name: "Stepwise" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Interleaved (TDMS)" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("should handle duration change", () => {
     render(
       <TestWrapper>

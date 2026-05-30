@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "../../src/ts/components/FFTCanvas";
 import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
+import { getLatestLiveFrame } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
 import { TestWrapper } from "./testUtils";
@@ -10,6 +11,11 @@ import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
 import { createRef } from "react";
+
+const processIqToDbmSpectrumMock = jest.fn(
+  () => new Float32Array([1, 2, 3]),
+);
+const cleanupSpectrumMock = jest.fn();
 
 // Mock useAuthentication to avoid auth errors during state init
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -26,7 +32,7 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     isSimdAvailable: false,
     resampleSpectrum: jest.fn(),
     processIqToSpectrum: jest.fn(),
-    processIqToDbmSpectrum: jest.fn(),
+    processIqToDbmSpectrum: processIqToDbmSpectrumMock,
     shiftWaterfallBuffer: jest.fn(),
     applyColorMapping: jest.fn(),
     getZoomedData: jest.fn((params) => ({
@@ -39,6 +45,13 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     detectProminentSpikes: jest.fn(() => []),
     resampleSpectrumEnhanced: jest.fn(),
     matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
+  useSpectrumRenderer: () => ({
+    drawSpectrum: jest.fn(() => true),
+    cleanup: cleanupSpectrumMock,
   }),
 }));
 
@@ -103,6 +116,58 @@ describe("FFTCanvas Component", () => {
 
     // Verify FFT display renders (WebGPU may fail in test environment but UI should still appear)
     expect(screen.getByText(/FFT Signal Display/i)).toBeInTheDocument();
+  });
+
+  it("shows a loading placeholder with the source label while awaiting data", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              dataRef={{ current: { waveform: null } }}
+              awaitingDeviceData
+              placeholderSourceLabel="Mock SDR"
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getAllByText((_, node) => node?.textContent === "Loading FFT..."),
+    ).toHaveLength(2);
+    expect(screen.getByText("from Mock SDR")).toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting for the first frame to arrive."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an error placeholder with a specific playback reason", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              dataRef={{ current: { waveform: null } }}
+              isDeviceConnected={false}
+              placeholderSourceLabel="Playback file"
+              placeholderErrorReason="file stream ended unexpectedly"
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      await screen.findByText("Error / file stream ended unexpectedly"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Can't playback from Playback file. Reason: file stream ended unexpectedly",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("preserves a restored waterfall snapshot across mount, unmount, and remount", async () => {
@@ -265,5 +330,73 @@ describe("FFTCanvas Component", () => {
       expect(machine.restore("live")).toBeNull();
       expect(onResetWaterfallCleared).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("uses the latest frame when live data is queued as an array", () => {
+    const firstFrame = { iq_data: new Uint8Array([1, 2]) };
+    const latestFrame = { iq_data: new Uint8Array([3, 4, 5]) };
+
+    expect(getLatestLiveFrame([firstFrame, latestFrame])).toBe(latestFrame);
+    expect(getLatestLiveFrame(firstFrame)).toBe(firstFrame);
+    expect(getLatestLiveFrame([])).toBeNull();
+  });
+
+  it("reprocesses the live frame when fftWindow changes without temporal resolution changes", async () => {
+    processIqToDbmSpectrumMock.mockClear();
+    const liveFrame = {
+      iq_data: new Uint8Array(2048).fill(128),
+      sample_rate: 2_000_000,
+      center_frequency_hz: 100_000_000,
+    };
+
+    const { rerender } = render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                fftWindow="Rectangular"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock).toHaveBeenCalled();
+    });
+
+    const callCountAfterRect = processIqToDbmSpectrumMock.mock.calls.length;
+
+    rerender(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                fftWindow="Nuttall"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock.mock.calls.length).toBeGreaterThan(
+        callCountAfterRect,
+      );
+    });
+
+    const lastCall =
+      processIqToDbmSpectrumMock.mock.calls[
+        processIqToDbmSpectrumMock.mock.calls.length - 1
+      ] as any[] | undefined;
+    expect(lastCall?.[3]).toBe("Nuttall");
   });
 });

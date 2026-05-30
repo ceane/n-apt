@@ -18,10 +18,32 @@ export const CollapsibleTitleContainer = styled.button`
 const fallbackMono =
   'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace';
 
-export const CollapsibleTitleContent = styled.div`
+export const CollapsibleTitleContent = styled.div<{ $pulseToken?: number }>`
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  ${({ $pulseToken, theme }) =>
+    $pulseToken
+      ? `
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin: -2px -8px;
+    animation: collapsible-title-pulse-${$pulseToken} 900ms ease-out 1;
+
+    @keyframes collapsible-title-pulse-${$pulseToken} {
+      0% {
+        box-shadow: 0 0 0 0 ${theme.primary || "#00d4ff"}00;
+      }
+      30% {
+        box-shadow: 0 0 0 4px ${theme.primary || "#00d4ff"}44, 0 0 0 8px ${theme.primary || "#00d4ff"}1f;
+      }
+      100% {
+        box-shadow: 0 0 0 0 ${theme.primary || "#00d4ff"}00;
+      }
+    }
+  `
+      : ""}
 `;
 
 export const CollapsibleTitleIcon = styled.span`
@@ -96,10 +118,10 @@ export const CollapsibleTitleToggle = styled.span`
 
 export const CollapsibleBody = styled.div`
   display: grid;
-  grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: 8px;
+  width: 100%;
   min-width: 0;
 `;
 
@@ -110,6 +132,7 @@ export interface CollapsibleProps {
   children: React.ReactNode;
   defaultOpen?: boolean;
   onOpenChange?: (isOpen: boolean) => void;
+  titlePulseToken?: number;
 }
 
 export const Collapsible: React.FC<CollapsibleProps> = ({
@@ -119,6 +142,7 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   children,
   defaultOpen = false,
   onOpenChange,
+  titlePulseToken,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
 
@@ -134,12 +158,18 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
     <>
       <CollapsibleTitleContainer type="button" onClick={handleToggle}>
         {title ? (
-          <CollapsibleTitleContent>
+          <CollapsibleTitleContent
+            $pulseToken={titlePulseToken}
+            data-pulse-token={titlePulseToken}
+          >
             {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
             <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
           </CollapsibleTitleContent>
         ) : (
-          <CollapsibleTitleContent>
+          <CollapsibleTitleContent
+            $pulseToken={titlePulseToken}
+            data-pulse-token={titlePulseToken}
+          >
             {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
             <CollapsibleTitleLabel>{label}</CollapsibleTitleLabel>
           </CollapsibleTitleContent>

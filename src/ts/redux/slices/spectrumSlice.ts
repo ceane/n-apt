@@ -15,6 +15,9 @@ export interface SpectrumState {
   displayTemporalResolution: DisplayTemporalResolution;
   powerScale: PowerScale;
   vizZoom: number;
+  vizZoomFloor: number;
+  vizZoomFloorPan: number;
+  autoZoomStability: boolean;
   vizPanOffset: number;
   displayMode: "fft" | "iq";
 
@@ -25,17 +28,21 @@ export interface SpectrumState {
   fftSizeOptions: number[];
   fftWindow: string;
   fftFrameRate: number;
-  isAutoFftApplied: boolean;
   fftAvgEnabled: boolean;
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
 
   // SDR settings
   gain: number;
+  hackrfLnaGain: number;
+  hackrfVgaGain: number;
+  hackrfAmpEnabled: boolean;
+  hackrfBasebandBandwidth: number | null;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
+  minReceiveSampleRateHz: number;
 
   // Visualization state
   visualizerPaused: boolean;
@@ -57,6 +64,9 @@ const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "medium" as const,
   powerScale: "dB" as const,
   vizZoom: 1,
+  vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   fftMinDb: -120,
   fftMaxDb: 0,
@@ -67,6 +77,10 @@ const LIVE_CONTROL_DEFAULTS = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   gain: 49.6,
+  hackrfLnaGain: 0.0,
+  hackrfVgaGain: 0.0,
+  hackrfAmpEnabled: true,
+  hackrfBasebandBandwidth: null,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -80,6 +94,9 @@ const initialState: SpectrumState = {
   displayTemporalResolution: "medium",
   powerScale: "dB",
   vizZoom: 1,
+  vizZoomFloor: 1,
+  vizZoomFloorPan: 0,
+  autoZoomStability: true,
   vizPanOffset: 0,
   displayMode: "fft",
 
@@ -89,16 +106,20 @@ const initialState: SpectrumState = {
   fftSizeOptions: [],
   fftWindow: "Rectangular",
   fftFrameRate: 60,
-  isAutoFftApplied: false,
   fftAvgEnabled: false,
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
 
   gain: 30,
+  hackrfLnaGain: 0.0,
+  hackrfVgaGain: 0.0,
+  hackrfAmpEnabled: true,
+  hackrfBasebandBandwidth: null,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
+  minReceiveSampleRateHz: 3_200_000,
 
   visualizerPaused: false,
   isWaterfallCleared: false,
@@ -182,6 +203,18 @@ const spectrumSlice = createSlice({
       state.vizZoom = action.payload;
     },
 
+    setVizZoomFloor: (state, action: PayloadAction<number>) => {
+      state.vizZoomFloor = action.payload;
+    },
+
+    setVizZoomFloorPan: (state, action: PayloadAction<number>) => {
+      state.vizZoomFloorPan = action.payload;
+    },
+
+    setAutoZoomStability: (state, action: PayloadAction<boolean>) => {
+      state.autoZoomStability = action.payload;
+    },
+
     setVizPan: (state, action: PayloadAction<number>) => {
       state.vizPanOffset = action.payload;
     },
@@ -215,10 +248,6 @@ const spectrumSlice = createSlice({
       state.fftFrameRate = action.payload;
     },
 
-    setAutoFftApplied: (state, action: PayloadAction<boolean>) => {
-      state.isAutoFftApplied = action.payload;
-    },
-
     setFftAvgEnabled: (state, action: PayloadAction<boolean>) => {
       state.fftAvgEnabled = action.payload;
     },
@@ -236,6 +265,18 @@ const spectrumSlice = createSlice({
       state.gain = action.payload;
     },
 
+    setHackrfLnaGain: (state, action: PayloadAction<number>) => {
+      state.hackrfLnaGain = action.payload;
+    },
+
+    setHackrfVgaGain: (state, action: PayloadAction<number>) => {
+      state.hackrfVgaGain = action.payload;
+    },
+
+    setHackrfAmpEnabled: (state, action: PayloadAction<boolean>) => {
+      state.hackrfAmpEnabled = action.payload;
+    },
+
     setPpm: (state, action: PayloadAction<number>) => {
       state.ppm = action.payload;
     },
@@ -250,6 +291,10 @@ const spectrumSlice = createSlice({
 
     setSampleRate: (state, action: PayloadAction<number>) => {
       state.sampleRateHz = action.payload;
+    },
+
+    setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {
+      state.minReceiveSampleRateHz = action.payload;
     },
 
     // Bundle updates for efficiency
@@ -304,7 +349,7 @@ const spectrumSlice = createSlice({
     setPreviewRange: (state, action: PayloadAction<FrequencyRange | null>) => {
       state.previewRange = action.payload;
     },
-    
+
     setPreviewAlignment: (state, action: PayloadAction<Alignment>) => {
       state.previewAlignment = action.payload;
     },
@@ -313,6 +358,9 @@ const spectrumSlice = createSlice({
     resetZoomAndDb: (state) => {
       const isDbm = state.powerScale === "dBm";
       state.vizZoom = 1;
+      state.vizZoomFloor = 1;
+      state.vizZoomFloorPan = 0;
+      state.autoZoomStability = true;
       state.vizPanOffset = 0;
       // dBm reset: 30dBm to -100dBm
       // dB reset: 0dB to -120dB
@@ -330,11 +378,18 @@ const spectrumSlice = createSlice({
         displayTemporalResolution:
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
+        vizZoomFloor: LIVE_CONTROL_DEFAULTS.vizZoomFloor,
+        vizZoomFloorPan: 0,
+        autoZoomStability: true,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
+        hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
+        hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
+        hackrfAmpEnabled: LIVE_CONTROL_DEFAULTS.hackrfAmpEnabled,
+        hackrfBasebandBandwidth: LIVE_CONTROL_DEFAULTS.hackrfBasebandBandwidth,
         ppm: LIVE_CONTROL_DEFAULTS.ppm,
         tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
         rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
@@ -355,6 +410,9 @@ export const {
   setTemporalResolution,
   setPowerScale,
   setVizZoom,
+  setVizZoomFloor,
+  setVizZoomFloorPan,
+  setAutoZoomStability,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,
@@ -362,11 +420,13 @@ export const {
   setFftSizeOptions,
   setFftWindow,
   setFftFrameRate,
-  setAutoFftApplied,
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
   setGain,
+  setHackrfLnaGain,
+  setHackrfVgaGain,
+  setHackrfAmpEnabled,
   setPpm,
   setTunerAGC,
   setRtlAGC,

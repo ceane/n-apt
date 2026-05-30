@@ -13,14 +13,14 @@ interface ResolvePendingWaterfallRestoreOptions {
 
 export function resolvePendingWaterfallRestore({
   pendingRestore,
-  shouldUpdateWaterfallRow,
+  shouldUpdateWaterfallRow: _shouldUpdateWaterfallRow,
   hasRenderedRestore,
 }: ResolvePendingWaterfallRestoreOptions): PendingWaterfallRestore | undefined {
   if (!pendingRestore) {
     return undefined;
   }
 
-  if (shouldUpdateWaterfallRow || hasRenderedRestore) {
+  if (hasRenderedRestore) {
     return undefined;
   }
 

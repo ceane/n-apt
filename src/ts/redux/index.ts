@@ -55,6 +55,12 @@ export {
 } from "./slices/noteCardsSlice";
 
 export {
+  loadPersistedNoteCards,
+  persistNoteCards,
+  clearPersistedNoteCards,
+} from "@n-apt/utils/noteCardStorage";
+
+export {
   selectNoteCards,
   selectActiveNoteCard,
   selectNoteCardsCollapsed,
@@ -66,6 +72,9 @@ import {
   setActiveSignalArea,
   setSignalAreaAndRange,
   setVizZoom,
+  setVizZoomFloor,
+  setVizZoomFloorPan,
+  setAutoZoomStability,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,
@@ -73,7 +82,6 @@ import {
   setFftSizeOptions,
   setFftWindow,
   setFftFrameRate,
-  setAutoFftApplied,
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
@@ -101,6 +109,9 @@ export {
   setActiveSignalArea,
   setSignalAreaAndRange,
   setVizZoom,
+  setVizZoomFloor,
+  setVizZoomFloorPan,
+  setAutoZoomStability,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,
@@ -108,7 +119,6 @@ export {
   setFftSizeOptions,
   setFftWindow,
   setFftFrameRate,
-  setAutoFftApplied,
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
@@ -136,6 +146,9 @@ export const spectrumActions = {
   setActiveSignalArea,
   setSignalAreaAndRange,
   setVizZoom,
+  setVizZoomFloor,
+  setVizZoomFloorPan,
+  setAutoZoomStability,
   setVizPan,
   setDisplayMode,
   setFftDbLimits,
@@ -143,7 +156,6 @@ export const spectrumActions = {
   setFftSizeOptions,
   setFftWindow,
   setFftFrameRate,
-  setAutoFftApplied,
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
@@ -168,6 +180,7 @@ export const spectrumActions = {
 export {
   setSourceMode,
   setSelectedFiles,
+  setFileMetadata,
   setDrawSignal3D,
   setStitchPaused,
   setStitchStatus,
@@ -196,6 +209,7 @@ export {
 export {
   setSnapshotProgress,
   clearSnapshotProgress,
+  bumpSnapshotSectionPulse,
 } from "./slices/snapshotSlice";
 
 // Import theme actions for collective export
@@ -233,7 +247,6 @@ import {
   setError,
   updateDeviceState,
   setCaptureStatus,
-  setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
   setCryptoCorrupted,
@@ -247,7 +260,6 @@ export {
   setError,
   updateDeviceState,
   setCaptureStatus,
-  setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
   setCryptoCorrupted,
@@ -262,7 +274,6 @@ export const websocketActions = {
   setError,
   updateDeviceState,
   setCaptureStatus,
-  setAutoFftOptions,
   setSpectrumFrames,
   setPaused,
   setCryptoCorrupted,
@@ -278,7 +289,6 @@ export {
   sendSettings,
   sendRestartDevice,
   sendTrainingCommand,
-  sendGetAutoFftOptions,
   sendPowerScaleCommand,
   sendCaptureCommand,
   sendCaptureStopCommand,

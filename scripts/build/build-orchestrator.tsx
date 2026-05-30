@@ -10,6 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  getDeviceAwareRuntimeSummaryState,
   getRuntimeSummaryState,
   isRuntimeRecoverySignal,
   markPendingProcessesAfterFailure,
@@ -39,17 +40,10 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   return failing;
 };
 
-const isDeviceDisconnectedError = (details: string[]): boolean => {
-  return details.some(d =>
-    d.includes('SDR read error') ||
-    d.includes('Timeout waiting for async SDR') ||
-    d.includes('Device DISCONNECTED') ||
-    d.includes('disconnected but running')
-  );
-};
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const rustBackendFeatureArgs =
+  process.platform === 'darwin' ? '--features mock_apt_metal' : '';
 
 // Types
 interface ProcessStatus {
@@ -254,6 +248,8 @@ const BuildOrchestrator = () => {
     warningDetails: [],
     activeBuildOutputStep: undefined,
   });
+  const [liveDeviceState, setLiveDeviceState] = useState<string | null>(null);
+  const metalBackendStatusRef = useRef<string | null>(null);
 
   const addLog = useCallback((_message: string) => {
     // Placeholder for future log streaming
@@ -544,6 +540,18 @@ const BuildOrchestrator = () => {
           detached: true,
           cwd: './' // Run from project root
         });
+        let resolved = false;
+        let crashReported = false;
+        const reportCrash = (reason: string) => {
+          if (crashReported || shutdownRequestedRef.current) return;
+          crashReported = true;
+          addLog(chalk.red(`${description} stopped unexpectedly${reason ? ` (${reason})` : ''}`));
+          appendErrorDetail(`${description} stopped unexpectedly${reason ? ` (${reason})` : ''}`);
+          setBuildState(prev => ({
+            ...prev,
+            [pidKey]: undefined,
+          }));
+        };
 
         child.stdout?.on('data', (data: any) => {
           const output = data.toString().trim();
@@ -573,7 +581,35 @@ const BuildOrchestrator = () => {
         child.on('error', (error: any) => {
           addLog(chalk.red(`Failed to start ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
+          resolved = true;
           resolve(false);
+        });
+
+        child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+          const statusText =
+            signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
+          if (!resolved) {
+            addLog(chalk.red(`${description} failed to start or died immediately (${statusText})`));
+            appendErrorDetail(`${description} failed to start or died immediately (${statusText})`);
+            resolved = true;
+            resolve(false);
+            return;
+          }
+
+          if (code === 0 && !signal) {
+            return;
+          }
+
+          reportCrash(statusText);
+        });
+
+        child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+          if (code === 0 && !signal) {
+            return;
+          }
+          const statusText =
+            signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
+          reportCrash(statusText);
         });
 
         // Give it a moment to start and check if it stayed alive
@@ -587,11 +623,13 @@ const BuildOrchestrator = () => {
               activeChildrenRef.current.push(child);
             }
             child.unref(); // Allow parent to exit
+            resolved = true;
             resolve(true);
           } else {
             const exitMsg = child.exitCode !== null ? ` (exited with code ${child.exitCode})` : '';
             addLog(chalk.red(`${description} failed to start or died immediately${exitMsg}`));
             appendErrorDetail(`${description} failed to start or died immediately${exitMsg}`);
+            resolved = true;
             resolve(false);
           }
         }, 2000);
@@ -599,10 +637,61 @@ const BuildOrchestrator = () => {
       } catch (error: any) {
         addLog(chalk.red(`Error starting ${description}: ${error.message}`));
         appendErrorDetail(`${description}: ${error.message}`);
+        resolved = true;
         resolve(false);
       }
     });
   }, [addLog, appendErrorDetail, appendWarningDetail, clearErrorDetails]);
+
+  const logMetalBackendAvailability = useCallback(async (): Promise<string> => {
+    if (process.platform !== 'darwin') {
+      return '';
+    }
+
+    try {
+      const response = await fetch('http://localhost:8765/status');
+      if (!response.ok) {
+        const message = `Metal preflight: unable to query backend status (${response.status})`;
+        metalBackendStatusRef.current = message;
+        addLog(chalk.yellow(message));
+        return message;
+      }
+
+      const data = await response.json() as {
+        device?: string;
+        device_name?: string;
+        device_backend_error?: string | null;
+      };
+      const backend = typeof data.device === 'string' ? data.device : '';
+      const deviceName = typeof data.device_name === 'string' ? data.device_name : '';
+      const deviceBackendError =
+        typeof data.device_backend_error === 'string'
+          ? data.device_backend_error.trim()
+          : '';
+      const metalActive =
+        backend === 'mock_apt_metal' ||
+        deviceName.toLowerCase().includes('(metal)');
+
+      const message = metalActive
+        ? `Metal preflight: available (${deviceName || 'Mock APT SDR (Metal)'})`
+        : deviceBackendError
+          ? `Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'}) — ${deviceBackendError}`
+          : `Metal preflight: unavailable, using CPU fallback (${deviceName || backend || 'Mock APT SDR'})`;
+      metalBackendStatusRef.current = message;
+
+      if (metalActive) {
+        addLog(chalk.green(message));
+      } else {
+        addLog(chalk.yellow(message));
+      }
+      return message;
+    } catch (error: any) {
+      const message = `Metal preflight: unavailable (${error.message})`;
+      metalBackendStatusRef.current = message;
+      addLog(chalk.yellow(message));
+      return message;
+    }
+  }, [addLog]);
 
     const executeCompositeRustStep = useCallback(async (stepIndex: number): Promise<boolean> => {
       setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
@@ -614,7 +703,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          'cargo build --bin n-apt-backend',
+          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend',
           stepIndex
         );
@@ -625,8 +714,8 @@ const BuildOrchestrator = () => {
 
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand = isNativeWindows
-          ? 'target\\debug\\n-apt-backend.exe'
-          : './target/debug/n-apt-backend';
+          ? 'target\\dev-fast\\n-apt-backend.exe'
+          : './target/dev-fast/n-apt-backend';
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',
@@ -668,7 +757,9 @@ exit 1
         if (!waitResult.success) {
           return false;
         }
-  
+
+        await logMetalBackendAvailability();
+
         addLog(chalk.green('Rust backend fully initialized and ready'));
         return true;
   
@@ -679,7 +770,7 @@ exit 1
       } finally {
         setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
       }
-    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail]);
+    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail, logMetalBackendAvailability]);
 
   const runBuild = useCallback(async () => {
     setBuildState(prev => ({ ...prev, isBuilding: true }));
@@ -778,7 +869,7 @@ if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
   exit 1
 fi
 echo "Checking Rust syntax..."
-cargo check --bin n-apt-backend 2>&1
+cargo check --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
 `,
         description: 'Validating Rust backend code',
         isBackground: false,
@@ -791,10 +882,10 @@ cargo check --bin n-apt-backend 2>&1
           : `
 set -euo pipefail
 echo "Validating signals.yaml..."
-if [ -f "./target/debug/n-apt-backend" ]; then
+if [ -f "./target/debug/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
   ./target/debug/n-apt-backend --validate-config 2>&1
 else
-  cargo run --bin n-apt-backend -- --validate-config 2>&1
+  cargo run --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
 fi
 `,
         description: 'Validating signals.yaml',
@@ -934,7 +1025,12 @@ exit 1
           const { message, label } = getTowerCountLabel(stepLabel);
           updateProcessStatus(step.index, 'success', message, label);
         } else if (step.index === 7) {
-          updateProcessStatus(step.index, 'success', undefined, 'Rust backend running...');
+          updateProcessStatus(
+            step.index,
+            'success',
+            metalBackendStatusRef.current ?? undefined,
+            'Rust backend running...',
+          );
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
@@ -1015,7 +1111,6 @@ exit 1
 
   const hasErrors = buildState.processes.some(p => p.status === 'error');
   const hasCompilationErrors = buildState.errorDetails.length > 0;
-  const hasDeviceDisconnected = isDeviceDisconnectedError(buildState.errorDetails);
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
   const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
   const runtimeSummary = getRuntimeSummaryState({
@@ -1026,29 +1121,83 @@ exit 1
     redisPid: buildState.redisPid,
     failingServices: hasErrors || hasCompilationErrors ? getFailingServices(buildState.errorDetails) : []
   });
-  const statusLabel = hasDeviceDisconnected ? '▲ Device DISCONNECTED but RUNNING' : runtimeSummary.label;
-  const statusColor = hasDeviceDisconnected ? 'yellow' : runtimeSummary.color;
+  const deviceAwareRuntimeSummary = getDeviceAwareRuntimeSummaryState({
+    runtimeSummary,
+    deviceState: liveDeviceState,
+  });
+  const statusLabel = deviceAwareRuntimeSummary.label;
+  const statusColor = deviceAwareRuntimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
 
   // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
   // the system notification won't fire. Open http://localhost:5173 manually in that case.
-  const checkDeviceStatus = useCallback(async (): Promise<string> => {
+  const checkDeviceStatus = useCallback(async (): Promise<{
+    deviceState: string | null;
+    message: string;
+  }> => {
     try {
       const response = await fetch('http://localhost:8765/status');
       const data = await response.json();
-      return data.device_connected ? 'RTL-SDR Connected' : 'RTL-SDR Disconnected, Mock APT Running';
+      return {
+        deviceState: typeof data.device_state === 'string' ? data.device_state : null,
+        message:
+          data.device_state === 'loading'
+            ? 'RTL-SDR Connecting'
+            : data.device_connected
+              ? 'RTL-SDR Connected'
+              : 'RTL-SDR Disconnected, Mock APT Running',
+      };
     } catch {
-      return 'Backend not responding';
+      return {
+        deviceState: null,
+        message: 'Backend not responding',
+      };
     }
   }, []);
+
+  useEffect(() => {
+    const canPollDeviceState =
+      allComplete && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+
+    if (!canPollDeviceState) {
+      setLiveDeviceState(null);
+      return;
+    }
+
+    let cancelled = false;
+    const pollDeviceStatus = async () => {
+      const result = await checkDeviceStatus();
+      if (cancelled) return;
+      setLiveDeviceState(result.deviceState);
+    };
+
+    void pollDeviceStatus();
+    const interval = setInterval(() => {
+      void pollDeviceStatus();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, checkDeviceStatus]);
+
+  useEffect(() => {
+    if (liveDeviceState !== 'connected') {
+      return;
+    }
+
+    clearErrorDetails('device disconnected');
+    clearErrorDetails('disconnected but running');
+  }, [liveDeviceState, clearErrorDetails]);
 
   useEffect(() => {
     const canNotify = buildState.vitePid && buildState.rustPid && buildState.redisPid;
     
     if (allComplete && canNotify) {
-      checkDeviceStatus().then(deviceStatus => {
+      checkDeviceStatus().then(({ message: deviceStatus }) => {
         const msg = !hadServicesRef.current 
           ? `✓ Finished building and running at http://localhost:5173`
           : `✓ ${deviceStatus}`;

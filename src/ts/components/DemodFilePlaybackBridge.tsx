@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useAppDispatch } from "@n-apt/redux";
 import {
   clearActivePlaybackMetadata,
-  incrementPlaybackFrameCounter,
   setStitchStatus,
   setActivePlaybackMetadata,
 } from "@n-apt/redux";
@@ -32,7 +31,7 @@ export const DemodFilePlaybackBridge: React.FC<
 }) => {
   const dispatch = useAppDispatch();
   const playbackDataRef =
-    liveDataRef as React.MutableRefObject<LiveFrameData | null>;
+    liveDataRef as unknown as React.MutableRefObject<LiveFrameData | null>;
 
   const {
     hasStitchedData,
@@ -67,7 +66,8 @@ export const DemodFilePlaybackBridge: React.FC<
     fftCanvasDataRef: playbackDataRef,
     displayMode: "iq",
     onFrameEmitted: () => {
-      dispatch(incrementPlaybackFrameCounter());
+      // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
+      // Tables now poll liveDataRef at a lower frequency (4fps).
     },
   });
 

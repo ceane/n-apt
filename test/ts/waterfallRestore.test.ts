@@ -21,14 +21,14 @@ describe("resolvePendingWaterfallRestore", () => {
     ).toEqual(pendingRestore);
   });
 
-  it("does not restore once a new row is ready to be written", () => {
+  it("restores before writing the first new row after remount", () => {
     expect(
       resolvePendingWaterfallRestore({
         pendingRestore,
         shouldUpdateWaterfallRow: true,
         hasRenderedRestore: false,
       }),
-    ).toBeUndefined();
+    ).toEqual(pendingRestore);
   });
 
   it("does not re-apply the same restore after the first repaint", () => {

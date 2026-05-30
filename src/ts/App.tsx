@@ -1,14 +1,11 @@
 import React from "react";
 import { BrowserRouter as Router } from "react-router-dom";
-import ReactDOM from "react-dom/client";
-import { HelmetProvider } from "react-helmet-async";
 import { Helmet } from "react-helmet-async";
 import { AppRoutes } from "@n-apt/routes/Routes";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthenticationRoute as AuthRoute } from "@n-apt/routes/AuthenticationRoute";
 import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
-import ReduxProvider from "@n-apt/components/ReduxProvider";
 import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";
 import "katex/dist/katex.min.css";
 
@@ -68,18 +65,3 @@ export const App: React.FC = () => {
     </>
   );
 };
-
-// Render the app
-const root = ReactDOM.createRoot(
-  document.getElementById("root") as HTMLElement,
-);
-
-root.render(
-  <React.StrictMode>
-    <HelmetProvider>
-      <ReduxProvider>
-        <App />
-      </ReduxProvider>
-    </HelmetProvider>
-  </React.StrictMode>,
-);

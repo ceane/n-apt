@@ -272,6 +272,34 @@ They are specifially segmented this way because A and B are similar in shape (an
   - **Ubuntu/Debian**: `sudo apt install redis-server`
   - **Windows**: Download from [redis.io](https://redis.io/)
 
+- **RTL-SDR native library**:
+  - **macOS**: `brew install librtlsdr`
+  - **Ubuntu/Debian**: `sudo apt install librtlsdr-dev`
+  - **Windows**: use **WSL2** for the main dev workflow, then install the Linux package inside WSL
+  - **Verification**: `pkg-config --modversion librtlsdr` or `pkg-config --modversion rtlsdr`
+  - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
+
+- **HackRF One native library**:
+  - **macOS**: `brew install hackrf`
+  - **Ubuntu/Debian**: `sudo apt install libhackrf-dev`
+  - **Windows**: use **WSL2** for the main dev workflow, then install the Linux package inside WSL
+  - **Verification**: `pkg-config --modversion libhackrf` or `pkg-config --modversion hackrf`
+  - **If Cargo still cannot find it**: install `pkg-config` and make sure the library is installed in the normal system location
+
+- **USB hotplug backend**:
+  - **macOS**: `brew install libusb pkgconf`
+  - **Ubuntu/Debian**: `sudo apt install libusb-1.0-0-dev pkg-config`
+  - **Windows**: use **WSL2** for the main dev workflow; native Windows shells are not the intended environment for the USB hotplug backend
+  - **Verification**: `pkg-config --modversion libusb-1.0`
+  - **If Cargo still cannot find it**: verify `pkg-config` and the system libusb development package are installed
+
+- If you are only using file playback or Mock APT playback, you do not need `librtlsdr` or `libhackrf`.
+- `npm run setup` does not install native SDR libraries. It only creates `.env.local` and fetches Rust dependencies, so install the device libraries first if you want live hardware.
+- On Linux, if either device library is missing, also install `pkg-config` and your usual native build tools (`build-essential` on Debian/Ubuntu) so Cargo can discover the library.
+- For the new hotplug backend, you also need libusb development headers on the host platform. On macOS that is `libusb`; on Linux that is `libusb-1.0-0-dev`.
+
+- npm installs are delayed by 7 days for newly published package versions via `.npmrc`'s `min-release-age`.
+
 ### Downloading Cell Tower Dataset
 
 To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
@@ -295,6 +323,15 @@ npm run towers:process:opencellid
 - **WSL2** behaves like Linux for this repository and is the recommended Windows environment.
 - **Native Windows shells** (`cmd.exe` / PowerShell) are **not** the intended environment for the main dev workflow because parts of the build still rely on Unix-style tools and shell behavior.
 - **Best compatibility**: run Node, Rust, Redis, and the build scripts all inside the same WSL distribution.
+
+### Disk Space
+
+Rust builds for this repo are fairly heavy. On my machine, a warmed-up workspace currently uses about:
+
+- `target/`: `2.8 GiB`
+- Cargo registry cache/index: about `1.6 GiB` combined
+
+Plan for at least `5 GiB` of free space for a comfortable build/run cycle, and more if this is a first-time setup or you are also installing native SDR libraries and other dev tooling. If the build starts failing with `No space left on device`, clearing `target/` is usually the first thing to try.
 </details>
 
 
@@ -303,10 +340,16 @@ npm run towers:process:opencellid
 ```bash
 git clone https://github.com/ceane/n-apt.git
 cd n-apt
-npm run setup  # sets up .env.local
-npm i          # installs dependencies, postinstall script will install rust dependencies
+npm run setup  # sets up .env.local and fetches Rust dependencies
+npm install     # installs dependencies
 npm run dev    # starts app
 ```
+
+Recommended order:
+
+1. `npm run setup`
+2. `npm install`
+3. `npm run dev`
 
 > [!NOTE]
 > **Windows:** if you are on Windows, run the steps above inside **WSL2** instead of native PowerShell/CMD.

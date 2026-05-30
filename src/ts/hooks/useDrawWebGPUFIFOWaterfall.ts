@@ -85,7 +85,16 @@ fn sampleDb(col: i32, displayRow: i32, renderRow: i32, texH: i32) -> f32 {
 
 // Helper: normalise dB → [0,1] then map through colour LUT
 fn dbToColor(rawDb: f32, dbMin: f32, dbMax: f32, colorCount: f32) -> vec4<f32> {
-  let normalized = clamp((rawDb - dbMin) / max(dbMax - dbMin, 0.001), 0.0, 1.0);
+  let range = max(dbMax - dbMin, 0.001);
+  let onscreen = clamp((rawDb - dbMin) / range, 0.0, 1.0);
+  let onscreenColorMax = 0.58;
+  let overrangeHeadroom = min(24.0, max(6.0, range * 0.25));
+  let overrange = clamp((rawDb - dbMax) / overrangeHeadroom, 0.0, 1.0);
+  let normalized = select(
+    onscreen * onscreenColorMax,
+    onscreenColorMax + (1.0 - onscreenColorMax) * overrange,
+    rawDb > dbMax,
+  );
   var ci = i32(round(normalized * (colorCount - 1.0)));
   ci = clamp(ci, 0, i32(colorCount) - 1);
   return textureLoad(colorTex, vec2<i32>(ci, 0), 0);
@@ -176,8 +185,13 @@ type WaterfallState = {
   texH: number;
   paddedRowBytes: number;
   rowBuf: ArrayBuffer;
+  rowBytes: Uint8Array;
+  rowFloats: Float32Array;
   writeRow: number;
   currentColorMapName?: string;
+  lastFrameCanvas?: HTMLCanvasElement;
+  cacheCanvas?: HTMLCanvasElement;
+  cacheCtx?: CanvasRenderingContext2D | null;
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -185,6 +199,7 @@ export interface WebGPUFIFOWaterfallOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   fftData: Float32Array;
+  fftDataBuffer?: GPUBuffer;
   fftMin?: number;
   fftMax?: number;
   driftAmount?: number;
@@ -279,6 +294,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         texH: 0,
         paddedRowBytes: 0,
         rowBuf: new ArrayBuffer(0),
+        rowBytes: new Uint8Array(0),
+        rowFloats: new Float32Array(0),
         writeRow: 0,
       };
     },
@@ -289,12 +306,13 @@ export function useDrawWebGPUFIFOWaterfall() {
   // Main draw — mirrors demo's updateWaterfall() + drawWaterfall()
   // -------------------------------------------------------------------
   const drawWebGPUFIFOWaterfall = useCallback(
-    async (options: WebGPUFIFOWaterfallOptions) => {
+    (options: WebGPUFIFOWaterfallOptions) => {
       const {
         canvas,
         device,
         format,
         fftData,
+        fftDataBuffer,
         fftMin = -80,
         fftMax = 20,
         driftAmount = 0,
@@ -344,6 +362,8 @@ export function useDrawWebGPUFIFOWaterfall() {
           s.texH = needH;
           s.paddedRowBytes = alignTo(s.texW * 4, 256);
           s.rowBuf = new ArrayBuffer(s.paddedRowBytes);
+          s.rowBytes = new Uint8Array(s.rowBuf);
+          s.rowFloats = new Float32Array(s.rowBuf);
 
           s.dataTex = device.createTexture({
             size: { width: s.texW, height: s.texH },
@@ -379,9 +399,7 @@ export function useDrawWebGPUFIFOWaterfall() {
                 Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
               );
               const srcY =
-                prevH > 0
-                  ? (prevRenderRow - srcAge + prevH) % prevH
-                  : 0;
+                prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
               const dstY = (nextRenderRow - age + needH) % needH;
               enc.copyTextureToTexture(
                 { texture: prevTex, origin: { x: 0, y: srcY } },
@@ -416,6 +434,8 @@ export function useDrawWebGPUFIFOWaterfall() {
               s.texH = height;
               s.paddedRowBytes = alignTo(s.texW * 4, 256);
               s.rowBuf = new ArrayBuffer(s.paddedRowBytes);
+              s.rowBytes = new Uint8Array(s.rowBuf);
+              s.rowFloats = new Float32Array(s.rowBuf);
               s.dataTex = device.createTexture({
                 size: { width: s.texW, height: s.texH },
                 format: "r32float",
@@ -435,7 +455,7 @@ export function useDrawWebGPUFIFOWaterfall() {
             }
             const rowBytes = width * 4;
             for (let y = 0; y < height; y++) {
-              const upload = new Uint8Array(s.rowBuf);
+              const upload = s.rowBytes;
               upload.fill(0);
               upload.set(
                 data.subarray(y * rowBytes, y * rowBytes + rowBytes),
@@ -455,9 +475,14 @@ export function useDrawWebGPUFIFOWaterfall() {
         // =========================================================
         // updateWaterfall() — push one row of raw dB into buffer
         // =========================================================
-        if (!freeze && s.dataTex && fftData.length > 0) {
+        const enc = device.createCommandEncoder();
+
+        const hasCpuFftRow = fftData.length > 0;
+        const useGpuFftRow = !hasCpuFftRow && !!fftDataBuffer;
+
+        if (!freeze && s.dataTex && (hasCpuFftRow || useGpuFftRow)) {
           // Validate FFT data on first frame or when paused
-          if (isFirstFrame || isPaused) {
+          if (fftData && fftData.length > 0 && (isFirstFrame || isPaused)) {
             const validationResult = validateSpectrumDataComprehensive(
               fftData,
               {
@@ -496,20 +521,40 @@ export function useDrawWebGPUFIFOWaterfall() {
             Math.min(Math.floor(driftAmount || 0), s.texH - 1),
           );
 
-          for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
-            const f32 = new Float32Array(s.rowBuf);
+          if (useGpuFftRow) {
+            for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
+              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              enc.copyBufferToTexture(
+                {
+                  buffer: fftDataBuffer,
+                  offset: 0,
+                  bytesPerRow: s.paddedRowBytes,
+                  rowsPerImage: 1,
+                },
+                {
+                  texture: s.dataTex,
+                  origin: { x: 0, y: row },
+                },
+                { width: s.texW, height: 1 },
+              );
+            }
+            s.writeRow = (s.writeRow + 1) % s.texH;
+          } else {
+            const f32 = s.rowFloats;
             for (let i = 0; i < s.texW; i++) {
               f32[i] = fftData[i] ?? -200;
             }
-            const row = (s.writeRow - smearIdx + s.texH) % s.texH;
-            device.queue.writeTexture(
-              { texture: s.dataTex, origin: { x: 0, y: row } },
-              new Uint8Array(s.rowBuf),
-              { bytesPerRow: s.paddedRowBytes },
-              { width: s.texW, height: 1 },
-            );
+            for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
+              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              device.queue.writeTexture(
+                { texture: s.dataTex, origin: { x: 0, y: row } },
+                s.rowBytes,
+                { bytesPerRow: s.paddedRowBytes },
+                { width: s.texW, height: 1 },
+              );
+            }
+            s.writeRow = (s.writeRow + 1) % s.texH;
           }
-          s.writeRow = (s.writeRow + 1) % s.texH;
         }
 
         // =========================================================
@@ -587,13 +632,11 @@ export function useDrawWebGPUFIFOWaterfall() {
         device.queue.writeBuffer(
           s.uniformBuf,
           0,
-          s.uniforms.buffer.slice(
-            s.uniforms.byteOffset,
-            s.uniforms.byteOffset + s.uniforms.byteLength,
-          ) as ArrayBuffer,
+          s.uniforms.buffer as ArrayBuffer,
+          s.uniforms.byteOffset,
+          s.uniforms.byteLength,
         );
 
-        const enc = device.createCommandEncoder();
         const pass = enc.beginRenderPass({
           colorAttachments: [
             {
@@ -610,6 +653,26 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.end();
         device.queue.submit([enc.finish()]);
 
+        if (canvas instanceof HTMLCanvasElement) {
+          if (!s.cacheCanvas) {
+            s.cacheCanvas = document.createElement("canvas");
+            s.cacheCtx = s.cacheCanvas.getContext("2d");
+          }
+          if (
+            s.cacheCanvas.width !== canvas.width ||
+            s.cacheCanvas.height !== canvas.height
+          ) {
+            s.cacheCanvas.width = canvas.width;
+            s.cacheCanvas.height = canvas.height;
+          }
+          if (s.cacheCtx) {
+            s.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
+            s.cacheCtx.drawImage(canvas, 0, 0);
+          }
+          s.lastFrameCanvas = s.cacheCanvas;
+          (canvas as any)._lastFrameCanvas = s.cacheCanvas;
+        }
+
         return true;
       } catch (error) {
         console.error("WebGPU waterfall rendering failed:", error);
@@ -620,6 +683,10 @@ export function useDrawWebGPUFIFOWaterfall() {
   );
 
   const cleanup = useCallback(() => {
+    const state = stateRef.current;
+    state?.dataTex?.destroy();
+    state?.colorTex?.destroy();
+    state?.uniformBuf?.destroy();
     stateRef.current = null;
   }, []);
   return { drawWebGPUFIFOWaterfall, cleanup };

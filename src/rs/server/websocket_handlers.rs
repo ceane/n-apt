@@ -15,18 +15,44 @@ use crate::crypto;
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::utils::reconcile_device_state;
+use super::utils::{
+  resolve_device_sample_rate_options, status_device_backend_label,
+  status_device_name,
+};
+use super::websocket_server::reconcile_stale_device_snapshot;
 
-/// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
-/// Returns (available_sizes, recommended_size).
-///
-/// RATIONALE:
-/// 1. Screen sizes are usually smaller than the FFT size; we keep them balanced since FFT is width-based.
-/// 2. Performance: Smaller FFTs are cheaper. Higher resolution is typically only needed when zooming.
-fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
-  let sizes = vec![2048, 4096];
-  // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
-  let recommended = if screen_width >= 3000 { 4096 } else { 2048 };
-  (sizes, recommended)
+fn resolve_live_center_frequency(
+  min_freq: f64,
+  max_freq: f64,
+  center_frequency: Option<f64>,
+) -> u32 {
+  if let Some(center_freq) = center_frequency {
+    return center_freq.round() as u32;
+  }
+
+  ((min_freq + max_freq) / 2.0).round() as u32
+}
+
+fn live_tune_is_out_of_bounds(
+  min_freq: f64,
+  max_freq: f64,
+  available_spectrum: Option<(f64, f64)>,
+) -> bool {
+  if !min_freq.is_finite() || !max_freq.is_finite() {
+    return true;
+  }
+  if min_freq < 0.0 || max_freq < 0.0 {
+    return true;
+  }
+  if max_freq < min_freq {
+    return true;
+  }
+
+  if let Some((available_min, available_max)) = available_spectrum {
+    min_freq < available_min || max_freq > available_max
+  } else {
+    false
+  }
 }
 
 /// GET /ws?token=<session_token> — upgrade to WebSocket after validating session.
@@ -36,8 +62,8 @@ pub async fn ws_upgrade_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   // Validate session token
-  let _session = match state.session_store.validate(&params.token) {
-    Some(s) => s,
+  match state.session_store.validate(&params.token) {
+    Some(_) => {}
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
         .into_response();
@@ -47,10 +73,10 @@ pub async fn ws_upgrade_handler(
   info!("WebSocket upgrade: valid session, starting encrypted stream");
 
   let shared = state.shared.clone();
+  let enc_key = shared.encryption_key;
   let broadcast_tx = state.broadcast_tx.clone();
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
-  let enc_key = state.shared.encryption_key;
   let session_token = params.token.clone();
 
   ws.on_upgrade(move |socket| {
@@ -96,6 +122,7 @@ pub async fn handle_ws_connection(
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
+  let _ = reconcile_stale_device_snapshot(&shared);
 
   // Send initial status
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
@@ -119,54 +146,25 @@ pub async fn handle_ws_connection(
     guard.clone()
   };
   let sdr_settings = { shared.sdr_settings.lock().unwrap().clone() };
+  let device_profile = shared.device_profile.lock().unwrap().clone();
 
-  let max_sample_rate = if device_connected {
-    device_info
-      .split("Rate: ")
-      .nth(1)
-      .and_then(|s| s.split(" Hz").next())
-      .and_then(|s| s.parse::<u32>().ok())
-      .unwrap_or(64_000_000)
-  } else {
-    64_000_000
-  };
+  let (max_sample_rate, sample_rate_options) =
+    resolve_device_sample_rate_options(
+      device_connected,
+      &device_info,
+      &device_profile,
+      &sdr_settings,
+    );
 
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
-  } else {
-    "Mock APT SDR".to_string()
-  };
+  let device_name =
+    status_device_name(device_connected, &device_info, &device_profile);
+  let device_backend = status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
+  let device_backend_error =
+    shared.device_backend_error.lock().unwrap().clone();
 
   let initial_status = super::types::StatusMessage {
     message_type: "status".to_string(),
@@ -178,6 +176,7 @@ pub async fn handle_ws_connection(
     device_state,
     paused,
     max_sample_rate,
+    sample_rate_options,
     channels: channels
       .into_iter()
       .map(|c| super::types::SpectrumFrameMessage {
@@ -189,13 +188,9 @@ pub async fn handle_ws_connection(
       })
       .collect(),
     sdr_settings,
-    device: (if device_connected {
-      "rtl-sdr"
-    } else {
-      "mock_apt"
-    })
-    .to_string(),
-    device_profile: shared.device_profile.lock().unwrap().clone(),
+    device: device_backend,
+    device_backend_error,
+    device_profile,
   };
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
@@ -291,35 +286,20 @@ pub async fn handle_ws_connection(
                 warn!("Invalid WebSocket message received: {}", e);
                 continue;
               }
-              // Handle auto FFT options directly in the connection loop
-              if message.message_type == "get_auto_fft_options" {
-                if let Some(screen_width) = message.screen_width {
-                  info!("Client requested auto FFT options for screen width: {}", screen_width);
-                  let (auto_sizes, recommended) = calculate_auto_fft_sizes(screen_width);
-
-                  let response = super::types::AutoFftOptionsResponse {
-                    message_type: "auto_fft_options".to_string(),
-                    auto_sizes,
-                    recommended,
-                  };
-
-                  if let Ok(response_json) = serde_json::to_string(&response) {
-                    if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
-                      break;
-                    }
-                  }
-                }
-              } else if message.message_type == "get_hardware_info" {
+              if message.message_type == "get_hardware_info" {
                 info!("Client requested hardware info");
                 let _device_connected = shared.device_connected.load(Ordering::Relaxed);
                 let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+                let available_spectrum = shared
+                  .available_spectrum
+                  .unwrap_or((0.0, 30_000_000_000.0));
 
                 // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
                 let response = super::types::HardwareInfoResponse {
                   message_type: "hardware_info".to_string(),
                   hardware_freq_range: super::types::HardwareFreqRange {
-                    min: 0.0,
-                    max: 1_700_000_000.0,
+                    min: available_spectrum.0,
+                    max: available_spectrum.1,
                   },
                   sample_rate,
                 };
@@ -360,12 +340,25 @@ pub fn handle_message(
       if let (Some(min_freq), Some(_max_freq)) =
         (message.min_freq, message.max_freq)
       {
-        // Calculate center frequency based on the start of the range plus half the sample rate
-        // This ensures the SDR tunes to exactly the right center frequency to capture the requested range
-        let sdr_settings_guard = shared.sdr_settings.lock().unwrap();
-        let sample_rate = sdr_settings_guard.sample_rate as f64;
+        let available_spectrum = shared.available_spectrum;
+        if live_tune_is_out_of_bounds(min_freq, _max_freq, available_spectrum) {
+          warn!(
+            "Ignoring out-of-bounds live tune request: {}..{} Hz",
+            min_freq, _max_freq
+          );
+          shared.force_noise.store(true, Ordering::Relaxed);
+          return;
+        }
 
-        let center_freq = (min_freq + (sample_rate / 2.0)) as u32;
+        shared.force_noise.store(false, Ordering::Relaxed);
+        // The frontend treats this as a live-tune request. The backend already
+        // knows the sample rate, so center directly on the requested frequency
+        // when provided, otherwise fall back to the midpoint of the range.
+        let center_freq = resolve_live_center_frequency(
+          min_freq,
+          _max_freq,
+          message.center_frequency,
+        );
 
         shared
           .pending_center_freq
@@ -397,46 +390,23 @@ pub fn handle_message(
         );
         let channels = shared.channels.lock().unwrap().clone();
         let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-        let normalize_rtl_device_name = |raw_name: &str| {
-          let short_name =
-            raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-          let lower = short_name.to_ascii_lowercase();
-
-          if let Some(version) =
-            short_name.split_whitespace().find_map(|token| {
-              let cleaned = token
-                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-                .to_ascii_lowercase();
-              let version = cleaned.strip_prefix('v')?;
-              if !version.is_empty()
-                && version.chars().all(|c| c.is_ascii_digit())
-              {
-                Some(version.to_string())
-              } else {
-                None
-              }
-            })
-          {
-            return format!("RTL-SDR {}", format!("v{}", version));
-          }
-
-          if lower.contains("rtl-sdr blog")
-            || lower.contains("rtl2832")
-            || lower.contains("rtl-sdr")
-            || lower.contains("generic")
-            || lower.contains("rtl2382u")
-          {
-            return "RTL-SDR v4".to_string();
-          }
-
-          short_name.to_string()
-        };
-
-        let device_name = if device_connected {
-          normalize_rtl_device_name(&device_info)
-        } else {
-          "Mock APT SDR".to_string()
-        };
+        let device_profile = shared.device_profile.lock().unwrap().clone();
+        let device_name =
+          status_device_name(device_connected, &device_info, &device_profile);
+        let device_backend = status_device_backend_label(
+          device_connected,
+          &device_info,
+          &device_profile,
+        );
+        let device_backend_error =
+          shared.device_backend_error.lock().unwrap().clone();
+        let (max_sample_rate, sample_rate_options) =
+          resolve_device_sample_rate_options(
+            device_connected,
+            &device_info,
+            &device_profile,
+            &sdr_settings,
+          );
 
         let status = super::types::StatusMessage {
           message_type: "status".to_string(),
@@ -447,15 +417,13 @@ pub fn handle_message(
           device_loading_reason,
           device_state,
           paused,
-          max_sample_rate: sdr_settings.sample_rate,
+          max_sample_rate,
+          sample_rate_options,
           channels,
           sdr_settings,
-          device: if device_connected {
-            "rtl-sdr".to_string()
-          } else {
-            "mock_apt".to_string()
-          },
-          device_profile: shared.device_profile.lock().unwrap().clone(),
+          device: device_backend,
+          device_backend_error,
+          device_profile,
         };
 
         if let Ok(status_json) = serde_json::to_string(&status) {
@@ -491,6 +459,14 @@ pub fn handle_message(
           None
         }
       });
+      let sample_rate = message.sample_rate.and_then(|rate| {
+        if (1_000_000..=20_000_000).contains(&rate) {
+          Some(rate)
+        } else {
+          warn!("Ignoring invalid sample_rate from client: {}", rate);
+          None
+        }
+      });
 
       let gain = message.gain.and_then(|g| {
         if g.is_finite() && g >= 0.0 {
@@ -500,11 +476,27 @@ pub fn handle_message(
           None
         }
       });
+      let hackrf_lna_gain = message.hackrf_lna_gain.and_then(|g| {
+        if g.is_finite() && (0.0..=49.6).contains(&g) {
+          Some(g)
+        } else {
+          warn!("Ignoring invalid HackRF LNA gain from client: {}", g);
+          None
+        }
+      });
+      let hackrf_vga_gain = message.hackrf_vga_gain.and_then(|g| {
+        if g.is_finite() && (0.0..=62.0).contains(&g) {
+          Some(g)
+        } else {
+          warn!("Ignoring invalid HackRF VGA gain from client: {}", g);
+          None
+        }
+      });
+      let hackrf_amp_enable = message.hackrf_amp_enable;
 
       let ppm = message.ppm.and_then(|p| {
-        // i32 cannot be NaN, but we still guard against extreme values
-        const MAX_ABS_PPM: i32 = 200;
-        if (-MAX_ABS_PPM..=MAX_ABS_PPM).contains(&p) {
+        const MAX_PPM: u32 = 200;
+        if (0..=MAX_PPM).contains(&p) {
           Some(p)
         } else {
           warn!("Ignoring implausible ppm from client: {}", p);
@@ -516,7 +508,12 @@ pub fn handle_message(
         && message.fft_window.is_none()
         && frame_rate.is_none()
         && gain.is_none()
+        && hackrf_lna_gain.is_none()
+        && hackrf_vga_gain.is_none()
+        && hackrf_amp_enable.is_none()
+        && message.tuner_bandwidth.is_none()
         && ppm.is_none()
+        && sample_rate.is_none()
         && message.tuner_agc.is_none()
         && message.rtl_agc.is_none()
       {
@@ -529,8 +526,11 @@ pub fn handle_message(
           fft_size,
           fft_window: message.fft_window,
           frame_rate,
-          sample_rate: None,
+          sample_rate,
           gain,
+          hackrf_lna_gain,
+          hackrf_vga_gain,
+          hackrf_amp_enable,
           ppm,
           tuner_agc: message.tuner_agc,
           rtl_agc: message.rtl_agc,
@@ -549,8 +549,23 @@ pub fn handle_message(
       if let Some(fr) = frame_rate {
         sdr_settings.fft.default_frame_rate = fr;
       }
+      if let Some(sr) = sample_rate {
+        sdr_settings.sample_rate = sr;
+      }
       if let Some(g) = gain {
         sdr_settings.gain.tuner_gain = g;
+      }
+      if let Some(lna) = hackrf_lna_gain {
+        sdr_settings.gain.hackrf_lna_gain = Some(lna);
+      }
+      if let Some(vga) = hackrf_vga_gain {
+        sdr_settings.gain.hackrf_vga_gain = Some(vga);
+      }
+      if let Some(amp) = hackrf_amp_enable {
+        sdr_settings.gain.hackrf_amp_enable = Some(amp);
+      }
+      if let Some(bandwidth) = message.tuner_bandwidth {
+        sdr_settings.gain.tuner_bandwidth = Some(bandwidth);
       }
       if let Some(p) = ppm {
         sdr_settings.ppm = p as f64;
@@ -561,6 +576,14 @@ pub fn handle_message(
       if let Some(ragc) = message.rtl_agc {
         sdr_settings.gain.rtl_agc = ragc;
       }
+      let kind = shared.device_profile.lock().unwrap().kind.clone();
+      sdr_settings.fft = crate::server::utils::resolve_fft_config(
+        &kind,
+        sdr_settings.sample_rate,
+        Some(sdr_settings.fft.default_size),
+      );
+      drop(sdr_settings);
+      super::websocket_server::broadcast_device_status(shared, broadcast_tx);
     }
     "restart_device" => {
       info!("Client requested device restart");
@@ -599,6 +622,8 @@ pub fn handle_message(
         .unwrap_or_else(|| "timed".to_string());
 
       let current_settings = shared.sdr_settings.lock().unwrap().clone();
+      let bandwidth = message.bandwidth;
+      let bandwidth_center_frequency = message.bandwidth_center_frequency;
 
       let capture_cmd = super::types::SdrCommand::StartCapture {
         job_id: message
@@ -636,6 +661,8 @@ pub fn handle_message(
         ref_based_demod_baseline: message.ref_based_demod_baseline,
         is_ephemeral: message.live_mode.unwrap_or(false),
         channels: message.channels.clone(),
+        bandwidth,
+        bandwidth_center_frequency,
       };
       log::info!("Client requested capture: {:?}", capture_cmd);
       let _ = cmd_tx.send(capture_cmd);
@@ -716,5 +743,199 @@ pub fn handle_message(
     _ => {
       debug!("Unknown message type: {}", message.message_type);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{
+    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
+  };
+  use crate::server::shared_state::SharedState;
+  use crate::server::types::{SdrCommand, WebSocketMessage};
+  use serial_test::serial;
+  use std::sync::mpsc;
+  use std::sync::Arc;
+  use tokio::sync::broadcast;
+  use validator::Validate;
+
+  fn test_shared_state() -> Arc<SharedState> {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    SharedState::new("redis://127.0.0.1:6379")
+  }
+
+  fn test_channels() -> (
+    mpsc::Sender<SdrCommand>,
+    mpsc::Receiver<SdrCommand>,
+    broadcast::Sender<String>,
+  ) {
+    let (cmd_tx, cmd_rx) = mpsc::channel();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    (cmd_tx, cmd_rx, broadcast_tx)
+  }
+
+  #[test]
+  fn resolves_frequency_center_from_range_midpoint() {
+    let center = resolve_live_center_frequency(1_190_000.0, 4_390_000.0, None);
+    assert_eq!(center, 2_790_000);
+  }
+
+  #[test]
+  fn prefers_bandwidth_center_frequency_when_present() {
+    let center = resolve_live_center_frequency(
+      1_190_000.0,
+      4_390_000.0,
+      Some(2_812_345.0),
+    );
+    assert_eq!(center, 2_812_345);
+  }
+
+  #[test]
+  fn rejects_negative_or_out_of_bounds_live_tunes() {
+    assert!(live_tune_is_out_of_bounds(
+      -10.0,
+      4_390_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
+    assert!(live_tune_is_out_of_bounds(
+      1_000.0,
+      31_000_000_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
+    assert!(!live_tune_is_out_of_bounds(
+      1_190_000.0,
+      4_390_000.0,
+      Some((0.0, 30_000_000_000.0))
+    ));
+  }
+
+  #[test]
+  fn validates_websocket_message_ppm() {
+    // Valid PPM values
+    let msg: WebSocketMessage =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": 10}"#).unwrap();
+    assert!(msg.validate().is_ok());
+
+    let msg: WebSocketMessage =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": 0}"#).unwrap();
+    assert!(msg.validate().is_ok());
+
+    // Invalid PPM values (negative)
+    let msg_result: Result<WebSocketMessage, _> =
+      serde_json::from_str(r#"{"type": "ppm", "ppm": -5}"#);
+    // Since ppm is u32, deserializing a negative number should either fail to deserialize
+    // or if we deserialize, it shouldn't validate. Actually, serde_json fails to deserialize
+    // a negative number into a u32, which is correct and safe! Let's assert either case.
+    assert!(msg_result.is_err() || msg_result.unwrap().validate().is_err());
+  }
+
+  #[test]
+  #[serial]
+  fn sanitizes_invalid_hackrf_gains_and_ppm_before_emitting_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "gain":12.5,
+        "hackrfLnaGain":51.0,
+        "hackrfVgaGain":63.0,
+        "ppm":201,
+        "tunerAGC":true
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.gain, Some(12.5));
+        assert_eq!(settings.hackrf_lna_gain, None);
+        assert_eq!(settings.hackrf_vga_gain, None);
+        assert_eq!(settings.ppm, None);
+        assert_eq!(settings.tuner_agc, Some(true));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn preserves_valid_hackrf_gains_and_ppm_in_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "hackrfLnaGain":40.0,
+        "hackrfVgaGain":62.0,
+        "ppm":200
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.hackrf_lna_gain, Some(40.0));
+        assert_eq!(settings.hackrf_vga_gain, Some(62.0));
+        assert_eq!(settings.ppm, Some(200));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn forwards_sample_rate_and_tuner_bandwidth_in_settings() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "sampleRate":5200000,
+        "tunerBandwidth":5200000
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected ApplySettings command");
+    match cmd {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.sample_rate, Some(5_200_000));
+        assert_eq!(settings.tuner_bandwidth, Some(5_200_000));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn drops_settings_messages_with_only_invalid_backend_fields() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "hackrfLnaGain":-1.0,
+        "hackrfVgaGain":99.0,
+        "ppm":1001
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(cmd_rx.try_recv().is_err());
   }
 }

@@ -16,6 +16,7 @@ const routeToTab = (route: string) => {
   if (route.includes("demod")) return "analysis";
   if (route.includes("3d-model")) return "3d-model";
   if (route.includes("map")) return "map-endpoints";
+  if (route.includes("anti-aliasing")) return "diagnostics";
   return "visualizer";
 };
 
@@ -24,7 +25,8 @@ const tabToStory = (tab: string) => {
   if (tab.includes("demod")) return "routes-routes--demodulate-route";
   if (tab.includes("3d-model")) return "routes-routes--model3-droute";
   if (tab.includes("map")) return "routes-routes--map-endpoints-route";
-  if (tab.includes("stitch")) return "routes-routes--stitch-test-route";
+  if (tab.includes("anti-aliasing"))
+    return "routes-routes--anti-aliasing-diagnostics";
   return "routes-routes--visualizer-route";
 };
 
@@ -34,22 +36,22 @@ const isKnownStoryId = (storyId: string) => {
     "routes-routes--demodulate-route",
     "routes-routes--model3-droute",
     "routes-routes--map-endpoints-route",
-    "routes-routes--stitch-test-route",
+    "routes-routes--anti-aliasing-diagnostics",
     "routes-routes--visualizer-route",
   ].includes(storyId);
 };
 
 const LocationSync: React.FC = () => {
-  const location = useLocation();
+  const { pathname } = useLocation();
   const linkTo = useLink();
   const { globalState } = useLadleContext();
 
   React.useEffect(() => {
-    const targetStory = tabToStory(location.pathname);
+    const targetStory = tabToStory(pathname);
     if (isKnownStoryId(targetStory) && globalState.story !== targetStory) {
       linkTo(targetStory);
     }
-  }, [location.pathname, linkTo, globalState.story]);
+  }, [pathname, linkTo, globalState.story]);
 
   return null;
 };
@@ -151,7 +153,9 @@ export const LadleAppShell = ({
           ? "/3d-model"
           : storyId.includes("map")
             ? "/map-endpoints"
-            : "/visualizer");
+            : storyId.includes("anti-aliasing")
+              ? "/diagnostics/anti-aliasing"
+              : "/visualizer");
 
   return (
     <MainLayout

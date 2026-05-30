@@ -6,6 +6,7 @@ const MIN_THUMB_RATIO = 0.2;
 
 export const SliderContainer = styled.div<{
   $orientation: "vertical" | "horizontal";
+  $disabled?: boolean;
 }>`
   display: flex;
   flex-direction: column;
@@ -14,19 +15,17 @@ export const SliderContainer = styled.div<{
   gap: 10px;
   flex: 1;
   width: 100%;
+  opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
 `;
 
 export const SliderLabel = styled.span<{
   $orientation: "vertical" | "horizontal";
 }>`
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: ${(props) =>
-    props.theme.mode === "light"
-      ? COLORS.rangeLabels
-      : props.theme.textPrimary};
-  letter-spacing: 0.6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: ${(props) => props.theme.textMuted};
+  letter-spacing: 0.4px;
   text-transform: uppercase;
   text-align: ${({ $orientation }) =>
     $orientation === "vertical" ? "center" : "left"};
@@ -41,18 +40,18 @@ export interface SnapRange {
 
 export const SliderTrack = styled.div<{
   $orientation: "vertical" | "horizontal";
+  $disabled?: boolean;
 }>`
   position: relative;
   border-radius: 16px;
   background: ${(props) =>
     props.theme.mode === "light" ? props.theme.surface : "#212121"};
   display: flex;
-  cursor: pointer;
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
   transition: scale 0.2s ease-in-out;
   position: relative;
-  border: 1px solid
-    ${(props) =>
-      props.theme.mode === "light" ? props.theme.border : "transparent"};
+  border: 1px solid ${(props) => props.theme.border};
+  pointer-events: ${({ $disabled }) => ($disabled ? "none" : "auto")};
 
   ${({ $orientation }) =>
     $orientation === "vertical"
@@ -104,12 +103,12 @@ const RangeLabel = styled.div<{ $pos: number }>`
   left: ${({ $pos }) => $pos}%;
   transform: translateX(-50%);
   font-size: 7px;
-  color: ${(props) =>
-    props.theme.mode === "light" ? COLORS.rangeLabels : "#444"};
+  color: ${(props) => props.theme.textMuted};
   text-transform: uppercase;
   font-weight: 800;
   pointer-events: none;
   white-space: nowrap;
+  z-index: 10;
 `;
 
 const RangeTick = styled.div<{ $pos: number }>`
@@ -123,7 +122,7 @@ const RangeTick = styled.div<{ $pos: number }>`
       ? COLORS.borderHover
       : "rgba(255, 255, 255, 0.2)"};
   pointer-events: none;
-  z-index: 1;
+  z-index: 10;
 `;
 
 const TrackClipper = styled.div`
@@ -141,6 +140,7 @@ export const SliderThumb = styled.div<{
   $percent: number;
   $orientation: "vertical" | "horizontal";
   $isDragging: boolean;
+  $disabled?: boolean;
 }>`
   display: flex;
   align-items: center;
@@ -149,7 +149,7 @@ export const SliderThumb = styled.div<{
   background-color: ${(props) =>
     props.theme.mode === "light" ? props.theme.primary : "#3b3b3b"};
   border-radius: 16px;
-  cursor: grab;
+  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "grab")};
   /* Only animate when NOT dragging, for a 'snappy' feel when clicking/snapping */
   transition: ${({ $isDragging }) =>
     $isDragging
@@ -157,9 +157,8 @@ export const SliderThumb = styled.div<{
       : "width 0.15s cubic-bezier(0.2, 0, 0, 1), height 0.15s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s ease, scale 0.1s ease"};
 
   /* Performance hint */
-  will-change: ${({ $orientation }) =>
-    $orientation === "vertical" ? "height" : "width"};
-  z-index: 2;
+  will-change: width, height;
+  z-index: 5;
 
   &:hover {
     background-color: ${(props) =>
@@ -193,7 +192,7 @@ export const SliderThumb = styled.div<{
     width: 100%;
     flex-flow: column;
     height: ${$percent}%;
-    min-height: ${MIN_THUMB_RATIO * 100}%;
+    min-height: 10px;
   `
       : `
     top: 0;
@@ -201,7 +200,7 @@ export const SliderThumb = styled.div<{
     height: 100%;
     flex-flow: row;
     width: ${$percent}%;
-    min-width: ${MIN_THUMB_RATIO * 100}%;
+    min-width: 10px;
   `}
 `;
 
@@ -212,13 +211,11 @@ export const SliderValue = styled.span<{
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
   color: ${(props) =>
-    props.theme.mode === "light" ? COLORS.stitcherButtonText : "#fff"};
+    props.theme.mode === "light" ? props.theme.textSecondary : "#fff"};
   text-shadow: ${(props) =>
-    props.theme.mode === "light"
-      ? "none"
-      : "0 0 4px rgba(0, 0, 0, 1), 0 0 8px rgba(0, 0, 0, 0.5)"};
-  font-weight: 600;
-  letter-spacing: 0.5px;
+    props.theme.mode === "light" ? "none" : "0 0 4px rgba(0, 0, 0, 0.8)"};
+  font-weight: 500;
+  letter-spacing: 0.3px;
   pointer-events: none;
   z-index: 20; /* Ensure it stays above thumb and markers */
   text-align: center;
@@ -234,6 +231,8 @@ export interface SliderProps {
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  hideThumbValue?: boolean;
+  minThumbRatio?: number;
   formatValue?: (value: number) => string;
   invertFill?: boolean;
   logarithmic?: boolean;
@@ -242,6 +241,7 @@ export interface SliderProps {
   hideLabelInComponent?: boolean;
   labelPlacement?: "top" | "bottom" | "left" | "right";
   snapRanges?: SnapRange[];
+  disabled?: boolean;
 }
 
 export const Slider: React.FC<SliderProps> = React.memo(
@@ -253,6 +253,8 @@ export const Slider: React.FC<SliderProps> = React.memo(
     step = 1,
     onChange,
     formatValue,
+    hideThumbValue = false,
+    minThumbRatio = 0.2,
     invertFill = false,
     logarithmic = false,
     orientation = "horizontal",
@@ -260,6 +262,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
     hideLabelInComponent = false,
     labelPlacement,
     snapRanges = [],
+    disabled = false,
   }) => {
     const [isDragging, setIsDragging] = React.useState(false);
 
@@ -278,7 +281,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
 
     const rangeNorm = getNormFromVal(value);
     const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
-    const percent = (MIN_THUMB_RATIO + fillRatio * (1 - MIN_THUMB_RATIO)) * 100;
+    const percent = (minThumbRatio + fillRatio * (1 - minThumbRatio)) * 100;
 
     const currentRange = snapRanges.find(
       (r) => value >= r.min && value <= r.max,
@@ -352,6 +355,9 @@ export const Slider: React.FC<SliderProps> = React.memo(
 
     const handleMouseDown = useCallback(
       (e: React.MouseEvent<HTMLDivElement>) => {
+        if (disabled) {
+          return;
+        }
         e.preventDefault();
         const track = e.currentTarget;
         const rect = track.getBoundingClientRect();
@@ -369,14 +375,16 @@ export const Slider: React.FC<SliderProps> = React.memo(
         document.addEventListener("mousemove", onMouseMove);
         document.addEventListener("mouseup", onMouseUp);
       },
-      [handleTrackInteraction],
+      [disabled, handleTrackInteraction],
     );
 
     const TrackComponent = (
       <SliderTrack
         $orientation={orientation}
-        onMouseDown={handleMouseDown}
+        $disabled={disabled}
+        onMouseDown={disabled ? undefined : handleMouseDown}
         className={className}
+        aria-disabled={disabled}
       >
         <TrackClipper>
           {snapRanges.map((r, i) => {
@@ -397,11 +405,14 @@ export const Slider: React.FC<SliderProps> = React.memo(
           $percent={percent}
           $orientation={orientation}
           $isDragging={isDragging}
+          $disabled={disabled}
         />
-        <SliderValue $orientation={orientation}>
-          {currentRange ? `${currentRange.label} ` : ""}
-          {formatValue ? formatValue(value) : value}
-        </SliderValue>
+        {!hideThumbValue && (
+          <SliderValue $orientation={orientation}>
+            {currentRange ? `${currentRange.label} ` : ""}
+            {formatValue ? formatValue(value) : value}
+          </SliderValue>
+        )}
       </SliderTrack>
     );
 
@@ -412,7 +423,11 @@ export const Slider: React.FC<SliderProps> = React.memo(
     const isAfter = labelPlacement === "bottom" || labelPlacement === "right";
 
     return (
-      <SliderContainer $orientation={orientation} className={className}>
+      <SliderContainer
+        $orientation={orientation}
+        $disabled={disabled}
+        className={className}
+      >
         {!isAfter && (
           <SliderLabel $orientation={orientation}>{label}</SliderLabel>
         )}

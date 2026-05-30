@@ -1,5 +1,4 @@
 import React from "react";
-import { createGlobalStyle } from "styled-components";
 import {
   THEME_TOKENS,
   type ThemeMode,
@@ -19,6 +18,7 @@ interface BuildAppThemeOptions {
 type ThemeColorMap = Record<ThemeColorToken, string>;
 
 export const APP_THEME_COLORS = THEME_TOKENS.colors;
+const THEME_ROOT_SELECTOR = ":root";
 
 const toAlphaHex = (value: number) =>
   Math.round(value * 255)
@@ -134,6 +134,10 @@ export const buildAppTheme = ({
     cssVariables[toCssVarName("font", key)] = value;
   });
 
+  Object.entries(THEME_TOKENS.fontSizes).forEach(([key, value]) => {
+    cssVariables[toCssVarName("font-size", key)] = value;
+  });
+
   Object.entries(THEME_TOKENS.spacing).forEach(([key, value]) => {
     cssVariables[toCssVarName("space", key)] = value;
   });
@@ -162,58 +166,49 @@ export const buildAppTheme = ({
   };
 };
 
-export const GlobalThemeStyle = createGlobalStyle`
-  :root {
-    ${({ theme }) =>
-      Object.entries(theme.cssVariables)
-        .map(([name, value]) => `${name}: ${value};`)
-        .join("\n")}
-  }
+const setCssVariables = (
+  target: HTMLElement,
+  variables: Record<string, string | number>,
+) => {
+  Object.entries(variables).forEach(([name, value]) => {
+    target.style.setProperty(name, String(value));
+  });
+};
 
-  html,
-  body,
-  #root {
-    background: ${({ theme }) => theme.colors.background};
-    color: ${({ theme }) => theme.colors.textPrimary};
-    font-family: ${({ theme }) => theme.typography.body};
-    overscroll-behavior-x: none;
-  }
+const applyThemeToDocument = (theme: AppStyledTheme) => {
+  if (typeof document === "undefined") return;
 
-  body {
-    transition: background-color 0.2s ease, color 0.2s ease;
-  }
+  const root = document.documentElement;
+  const body = document.body;
+  const rootVars = theme.cssVariables;
 
-  /* KaTeX theming */
-  .katex {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
-  
-  .katex .katex-mathml {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
-  
-  .katex .katex-html {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
-  
-  .katex .base {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
-  
-  .katex .strut {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
-  
-  .katex .mopen, .katex .mclose, .katex .mrel, .katex .mbin, .katex .mpunct, .katex .mord, .katex .msupsub, .katex .mfrac, .katex .mrule, .katex .mtable, .katex .mtr, .katex .mtd {
-    color: ${({ theme }) => theme.colors.textPrimary} !important;
-  }
+  setCssVariables(root, rootVars);
 
-  /* Map tiles background fix */
-  .leaflet-container {
-    background: ${({ theme }) => theme.colors.surface} !important;
+  root.style.background = theme.colors.background;
+  root.style.color = theme.colors.textPrimary;
+  root.style.fontFamily = theme.typography.mono;
+  root.style.overscrollBehaviorX = "none";
+
+  body.style.background = theme.colors.background;
+  body.style.color = theme.colors.textPrimary;
+  body.style.fontFamily = theme.typography.mono;
+  body.style.transition = "background-color 0.2s ease, color 0.2s ease";
+
+  const rootEl = document.querySelector(THEME_ROOT_SELECTOR) as
+    | HTMLElement
+    | null;
+  if (rootEl) {
+    rootEl.style.background = theme.colors.background;
+    rootEl.style.color = theme.colors.textPrimary;
   }
-  
-  .leaflet-tile-pane {
-    background: ${({ theme }) => theme.colors.surface} !important;
-  }
-`;
+};
+
+export const GlobalThemeStyle: React.FC<{ theme: AppStyledTheme }> = ({
+  theme,
+}) => {
+  React.useLayoutEffect(() => {
+    applyThemeToDocument(theme);
+  }, [theme]);
+
+  return null;
+};

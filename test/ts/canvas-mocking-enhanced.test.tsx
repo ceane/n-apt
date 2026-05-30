@@ -480,6 +480,7 @@ describe("Enhanced Canvas Mocking Tests", () => {
 const countCanvasCalls = (callName: string) => {
   // @ts-ignore - globalThis access for canvas mocking
   return (
-    (global as any).__CANVAS_CALLS__?.filter((c: any) => c.name === callName).length || 0
+    (global as any).__CANVAS_CALLS__?.filter((c: any) => c.name === callName)
+      .length || 0
   );
 };

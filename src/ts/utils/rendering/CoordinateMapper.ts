@@ -74,6 +74,13 @@ export class CoordinateMapper {
   }
 
   /**
+   * Snap a stroked 1-device-pixel line to the center of a physical pixel.
+   */
+  snapStrokeCenter(val: number): number {
+    return (Math.floor(val * this.dpr) + 0.5) / this.dpr;
+  }
+
+  /**
    * Get the logical pixels per unit (MHz)
    */
   getPixelsPerMHz(): number {

@@ -3,6 +3,7 @@ use anyhow::Result;
 use rand::RngExt;
 use rand::SeedableRng;
 use rustfft::{num_complex::Complex, FftPlanner};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::types::*;
@@ -75,8 +76,11 @@ pub struct FFTProcessor {
   rng: rand::rngs::StdRng,
   /// Peak hold data (optional)
   fft_hold: Option<Vec<f32>>,
+  fft_hold_enabled: bool,
   /// Native SIMD processor for signal processing
   simd_processor: Option<crate::simd::NativeProcessor>,
+  /// Warm native SIMD processors by FFT size to avoid first-frame switch stalls.
+  simd_processor_cache: HashMap<usize, crate::simd::NativeProcessor>,
 }
 
 impl Default for FFTProcessor {
@@ -93,6 +97,7 @@ impl FFTProcessor {
   ) {
     simd_proc.set_gain(config.gain);
     simd_proc.set_ppm(config.ppm);
+    simd_proc.set_sample_rate(config.sample_rate);
     simd_proc.set_window_type(config.window_type);
   }
 
@@ -122,13 +127,60 @@ impl FFTProcessor {
     }
   }
 
+  fn prepare_fft_plans_for_size(&mut self, fft_size: usize) {
+    if self.fft_plan_cache.contains_key(&fft_size)
+      && self.ifft_plan_cache.contains_key(&fft_size)
+    {
+      return;
+    }
+
+    let mut planner = FftPlanner::<f32>::new();
+
+    if !self.fft_plan_cache.contains_key(&fft_size) {
+      let fft_plan = planner.plan_fft_forward(fft_size);
+      self.fft_plan_cache.insert(fft_size, fft_plan);
+    }
+
+    if !self.ifft_plan_cache.contains_key(&fft_size) {
+      let ifft_plan = planner.plan_fft_inverse(fft_size);
+      self.ifft_plan_cache.insert(fft_size, ifft_plan);
+    }
+
+    if self.config.fft_size == fft_size {
+      self.fft = self.fft_plan_cache.get(&fft_size).cloned();
+      self.ifft = self.ifft_plan_cache.get(&fft_size).cloned();
+    }
+  }
+
   fn ensure_simd_processor(&mut self) -> &mut crate::simd::NativeProcessor {
     let config = self.config.clone();
     self.simd_processor.get_or_insert_with(|| {
-      let mut simd_proc = crate::simd::NativeProcessor::new(config.fft_size);
+      let mut simd_proc = self
+        .simd_processor_cache
+        .remove(&config.fft_size)
+        .unwrap_or_else(|| crate::simd::NativeProcessor::new(config.fft_size));
       Self::configure_simd_processor(&mut simd_proc, &config);
       simd_proc
     })
+  }
+
+  pub fn warm_simd_processor_for_size(&mut self, fft_size: usize) {
+    if self.config.fft_size == fft_size {
+      let _ = self.ensure_simd_processor();
+      return;
+    }
+
+    let mut config = self.config.clone();
+    config.fft_size = fft_size;
+    config.zoom_width = fft_size;
+    self
+      .simd_processor_cache
+      .entry(fft_size)
+      .or_insert_with(|| {
+        let mut simd_proc = crate::simd::NativeProcessor::new(fft_size);
+        Self::configure_simd_processor(&mut simd_proc, &config);
+        simd_proc
+      });
   }
 
   /// Create a new FFT processor with default configuration
@@ -153,7 +205,28 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
+      fft_hold_enabled: false,
       simd_processor: None,
+      simd_processor_cache: HashMap::new(),
+    }
+  }
+
+  /// Create a new FFT processor with a deterministic RNG seed.
+  pub fn new_with_seed(seed: u64) -> Self {
+    let config = EnhancedFFTConfig::default();
+
+    Self {
+      fft: None,
+      ifft: None,
+      fft_plan_cache: std::collections::HashMap::new(),
+      ifft_plan_cache: std::collections::HashMap::new(),
+      config,
+      time: 0.0,
+      rng: rand::rngs::StdRng::seed_from_u64(seed),
+      fft_hold: None,
+      fft_hold_enabled: false,
+      simd_processor: None,
+      simd_processor_cache: HashMap::new(),
     }
   }
 
@@ -201,7 +274,9 @@ impl FFTProcessor {
       time: 0.0,
       rng: rand::rngs::StdRng::from_rng(&mut ::rand::rng()),
       fft_hold: None,
+      fft_hold_enabled: false,
       simd_processor: None,
+      simd_processor_cache: HashMap::new(),
     }
   }
 
@@ -211,14 +286,20 @@ impl FFTProcessor {
   ///
   /// * `config` - New FFT configuration
   pub fn update_config(&mut self, config: EnhancedFFTConfig) {
-    let size_changed = config.fft_size != self.config.fft_size;
+    let old_fft_size = self.config.fft_size;
+    let size_changed = config.fft_size != old_fft_size;
     self.config = config.clone();
 
     if size_changed {
+      if let Some(simd_processor) = self.simd_processor.take() {
+        self
+          .simd_processor_cache
+          .insert(old_fft_size, simd_processor);
+      }
+
       // Invalidate plans — they will be recreated lazily on next use
       self.fft = None;
       self.ifft = None;
-      self.simd_processor = None;
       self.fft_hold = None;
     }
 
@@ -230,6 +311,7 @@ impl FFTProcessor {
 
   /// Enable/disable FFT hold (peak hold functionality)
   pub fn set_fft_hold(&mut self, enabled: bool) {
+    self.fft_hold_enabled = enabled;
     if !enabled {
       self.fft_hold = None;
     }
@@ -239,6 +321,19 @@ impl FFTProcessor {
     &mut self,
   ) -> Option<&mut crate::simd::NativeProcessor> {
     self.simd_processor.as_mut()
+  }
+
+  pub fn set_center_frequency(&mut self, freq: u32) {
+    if let Some(ref mut simd) = self.simd_processor {
+      simd.set_center_frequency(freq);
+    }
+    for simd in self.simd_processor_cache.values_mut() {
+      simd.set_center_frequency(freq);
+    }
+  }
+
+  pub fn warm_fft_plans_for_size(&mut self, fft_size: usize) {
+    self.prepare_fft_plans_for_size(fft_size);
   }
 
   /// Process raw samples into FFT result with SDR++ style enhancements
@@ -274,6 +369,48 @@ impl FFTProcessor {
     }
   }
 
+  pub fn process_samples_power(
+    &mut self,
+    samples: &RawSamples,
+    power: &mut Vec<f32>,
+  ) -> Result<()> {
+    let fft_size = self.config.fft_size;
+    if power.len() != fft_size {
+      power.resize(fft_size, 0.0);
+    }
+
+    {
+      let simd_proc = self.ensure_simd_processor();
+      simd_proc
+        .process_samples(samples, power)
+        .map_err(|e| anyhow::anyhow!("SIMD processing failed: {}", e))?;
+    }
+
+    if self.config.zoom_width < self.config.fft_size {
+      let zoomed_power = crate::fft::zoom_fft(
+        power,
+        self.config.zoom_offset,
+        self.config.zoom_width,
+        self.config.zoom_width,
+      );
+      *power = zoomed_power;
+    }
+
+    if self.fft_hold_enabled {
+      if let Some(ref mut hold_data) = self.fft_hold {
+        for (i, &value) in power.iter().enumerate() {
+          if i < hold_data.len() {
+            hold_data[i] = hold_data[i].max(value);
+          }
+        }
+      } else {
+        self.fft_hold = Some(power.clone());
+      }
+    }
+
+    Ok(())
+  }
+
   /// Common post-processing: zoom, hold, and result construction
   fn finalize_spectrum(
     &mut self,
@@ -293,14 +430,16 @@ impl FFTProcessor {
     };
 
     // Update FFT hold (peak hold)
-    if let Some(ref mut hold_data) = self.fft_hold {
-      for (i, &value) in zoomed_power.iter().enumerate() {
-        if i < hold_data.len() {
-          hold_data[i] = hold_data[i].max(value);
+    if self.fft_hold_enabled {
+      if let Some(ref mut hold_data) = self.fft_hold {
+        for (i, &value) in zoomed_power.iter().enumerate() {
+          if i < hold_data.len() {
+            hold_data[i] = hold_data[i].max(value);
+          }
         }
+      } else {
+        self.fft_hold = Some(zoomed_power.clone());
       }
-    } else {
-      self.fft_hold = Some(zoomed_power.clone());
     }
 
     Ok(FFTResult {
@@ -1299,26 +1438,7 @@ impl FFTProcessor {
     let config = signal_config.unwrap_or_default();
     let mut buf: Vec<Complex<f32>> = Vec::with_capacity(self.config.fft_size);
 
-    for i in 0..self.config.fft_size {
-      let t = self.time + i as f32 / self.config.sample_rate as f32;
-
-      // Generate composite signal with multiple frequency components
-      let mut signal = 0.0;
-
-      for (freq, amp) in config.frequencies.iter().zip(config.amplitudes.iter())
-      {
-        signal += (2.0 * std::f32::consts::PI * freq * t).sin() * amp;
-      }
-
-      // Add noise
-      signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;
-
-      // Add some phase variation for realism
-      let phase_variation = (2.0 * std::f32::consts::PI * 0.1 * t).sin() * 0.05;
-      signal += phase_variation;
-
-      buf.push(Complex::new(signal, signal * 0.5));
-    }
+    self.generate_mock_signal_scalar(&config, &mut buf);
 
     self.time += self.config.fft_size as f32 / self.config.sample_rate as f32;
 
@@ -1380,6 +1500,37 @@ impl FFTProcessor {
       timestamp: now_millis(),
       phase_spectrum: None,
     })
+  }
+
+  fn generate_mock_signal_scalar(
+    &mut self,
+    config: &MockSignalConfig,
+    buf: &mut Vec<Complex<f32>>,
+  ) {
+    for i in 0..self.config.fft_size {
+      let t = self.time + i as f32 / self.config.sample_rate as f32;
+      let pulse_phase = 2.0 * std::f32::consts::PI * 7.0 * t;
+      let mut signal = 0.0;
+
+      for (tone_idx, (freq, amp)) in config
+        .frequencies
+        .iter()
+        .zip(config.amplitudes.iter())
+        .enumerate()
+      {
+        let tone_phase =
+          pulse_phase + (*freq as f32) * 0.000_003 + (tone_idx as f32) * 0.17;
+        let pulse_db = 1.0 + 1.0 * tone_phase.sin();
+        let pulse_gain = 10.0f32.powf(pulse_db / 20.0);
+        signal +=
+          (2.0 * std::f32::consts::PI * freq * t).sin() * amp * pulse_gain;
+      }
+
+      signal += (self.rng.random::<f32>() - 0.5) * config.noise_level * 2.0;
+      let phase_variation = (2.0 * std::f32::consts::PI * 0.1 * t).sin() * 0.05;
+      signal += phase_variation;
+      buf.push(Complex::new(signal, signal * 0.5));
+    }
   }
 
   /// Get current configuration

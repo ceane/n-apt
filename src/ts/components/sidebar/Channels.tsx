@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { ChevronsLeftRightEllipsis } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setSignalAreaAndRange } from "@n-apt/redux";
-import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
 import { Collapsible, Tooltip } from "@n-apt/components/ui";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import {
+  clampFrequencyRangeToBounds,
+  normalizeFrequencyRangeToHz,
+} from "@n-apt/utils/frequency";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
 const ChannelsSection = styled.div`
@@ -267,9 +270,18 @@ interface ChannelsProps {
   scanRange?: FrequencyRange;
   onScanStart?: () => void;
   onScanStop?: () => void;
+  /** Disables the range sliders while the live stream is not ready. */
+  rangeSlidersDisabled?: boolean;
   /** When true, hides the Channels section header. Useful for embedding in constrained areas. */
   hideTitle?: boolean;
 }
+
+const IQExplainerTooltip = () => (
+  <Tooltip
+    title=""
+    content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />"
+  />
+);
 
 export const Channels: React.FC<ChannelsProps> = ({
   variant = "demod",
@@ -281,12 +293,13 @@ export const Channels: React.FC<ChannelsProps> = ({
   scanRange,
   onScanStart: _onScanStart,
   onScanStop: _onScanStop,
+  rangeSlidersDisabled = false,
   hideTitle = false,
 }) => {
   const reduxDispatch = useAppDispatch();
-  const isPaused = useAppSelector((s) => s.websocket.isPaused);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
   const activeSignalArea = useAppSelector((s) => s.spectrum.activeSignalArea);
+  const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
     state,
     dispatch: storeDispatch,
@@ -302,37 +315,32 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const [manualFrequency, setManualFrequency] = useState<string>("137_100_000"); // Default to APT frequency in Hz
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
-  const lastRequestedSignalAreaRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isPaused) {
-      lastRequestedSignalAreaRef.current = null;
-      return;
-    }
-
-    if (!activeSignalArea) {
-      return;
-    }
-
-    if (lastRequestedSignalAreaRef.current === activeSignalArea) {
-      return;
-    }
-
-    lastRequestedSignalAreaRef.current = activeSignalArea;
-    reduxDispatch(requestNextLiveFrame());
-  }, [activeSignalArea, isPaused, reduxDispatch]);
 
   const channels = useMemo(() => {
     if (!Array.isArray(effectiveFrames)) return [];
-    return effectiveFrames.filter((f) => ["A", "B"].includes(f.label));
+    return effectiveFrames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames]);
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
   const activeFrame = Array.isArray(effectiveFrames)
-    ? effectiveFrames.find((f: any) => f.label === activeSignalArea) ||
-      channels.find((f: any) => f.label === activeSignalArea)
+    ? effectiveFrames.find(
+        (f: any) =>
+          String(f.label).toLowerCase() ===
+          String(activeSignalArea).toLowerCase(),
+      ) ||
+      channels.find(
+        (f: any) =>
+          String(f.label).toLowerCase() ===
+          String(activeSignalArea).toLowerCase(),
+      )
     : undefined;
+  const isWholeChannelMode =
+    typeof sampleRateHz === "number" &&
+    Number.isFinite(sampleRateHz) &&
+    !!activeFrame &&
+    Math.round(sampleRateHz) ===
+      Math.round(Math.max(0, activeFrame.max_hz - activeFrame.min_hz));
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
   const widthHz = activeFrame
@@ -379,13 +387,6 @@ export const Channels: React.FC<ChannelsProps> = ({
   const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
 
-  const IQExplainerTooltip = () => (
-    <Tooltip
-      title=""
-      content="I/Q data makes up the signal (what comes out of the antenna and is in the air) <br /><br /> I and Q are pairs of bytes, both from 0-255 that represent one point that make up points of a signal.<br ><br />Example: I = 2, Q = 100 at 4kHz <br /><br /> I = In-phase component (the “main” wave direction) <br /> Q = Quadrature component (the part shifted by 90° — like a “sideways” version of the wave)<br />"
-    />
-  );
-
   if (variant === "spectrum") {
     return (
       <ChannelsSection>
@@ -409,28 +410,56 @@ export const Channels: React.FC<ChannelsProps> = ({
                   label={label}
                   minFreq={minFreq}
                   maxFreq={maxFreq}
+                  disabled={rangeSlidersDisabled}
                   sampleRateHz={sampleRateHz}
+                  isWholeChannelMode={isWholeChannelMode}
+                  allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
-                    const rememberedRange =
-                      state.lastKnownRanges[label] ??
-                      state.lastKnownRanges[label.toLowerCase()];
+                    const channelSpan = maxFreq - minFreq;
+                    const sampleRateCoversChannel =
+                      typeof sampleRateHz === "number" &&
+                      Number.isFinite(sampleRateHz) &&
+                      sampleRateHz >= channelSpan;
+                    const rememberedRange = sampleRateCoversChannel
+                      ? null
+                      : (state.lastKnownRanges[label] ??
+                        state.lastKnownRanges[label.toLowerCase()]);
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
                       max:
                         minFreq +
                         (typeof sampleRateHz === "number"
-                          ? Math.min(sampleRateHz, span)
+                          ? sampleRateCoversChannel
+                            ? sampleRateHz
+                            : Math.min(sampleRateHz, span)
                           : span),
                     };
+                    const clampedRange =
+                      typeof sampleRateHz === "number" &&
+                      sampleRateHz > channelSpan
+                        ? normalizeFrequencyRangeToHz(nextRange)
+                        : normalizeFrequencyRangeToHz(
+                            clampFrequencyRangeToBounds(
+                              clampFrequencyRangeToBounds(nextRange, {
+                                min: minFreq,
+                                max: maxFreq,
+                              }),
+                              hardwareSpectrumBounds,
+                            ),
+                          );
                     reduxDispatch(
-                      setSignalAreaAndRange({ area: label, range: nextRange }),
+                      setSignalAreaAndRange({
+                        area: label,
+                        range: clampedRange,
+                      }),
                     );
                     storeDispatch({
                       type: "SET_SIGNAL_AREA_AND_RANGE",
                       area: label,
-                      range: nextRange,
+                      range: clampedRange,
                     });
+                    wsConnection.sendFrequencyRange(clampedRange);
                   }}
                 />
               );
@@ -530,10 +559,12 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   return (
     <ChannelsSection>
-      <ChannelsSectionTitle>
-        <ChevronsLeftRightEllipsis size={14} />
-        <SectionText>Channels</SectionText>
-      </ChannelsSectionTitle>
+      {!hideTitle && (
+        <ChannelsSectionTitle>
+          <ChevronsLeftRightEllipsis size={14} />
+          <SectionText>Channels</SectionText>
+        </ChannelsSectionTitle>
+      )}
       <ChannelsDemodBody>
         {/* Channel/Manual Toggle */}
         <ModeToggle>
@@ -588,7 +619,8 @@ export const Channels: React.FC<ChannelsProps> = ({
                 >
                   <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
                   <ChannelFreq $isActive={isActive}>
-                    {formatFrequency(ch.min_hz)} - {formatFrequency(ch.max_hz)}
+                    {formatChannelFreq(ch.min_hz)} -{" "}
+                    {formatChannelFreq(ch.max_hz)}
                   </ChannelFreq>
                 </ChannelBlock>
 
@@ -599,7 +631,10 @@ export const Channels: React.FC<ChannelsProps> = ({
                     signalAreaKey={ch.label}
                     minFreq={ch.min_hz}
                     maxFreq={ch.max_hz}
+                    disabled={rangeSlidersDisabled}
                     sampleRateHz={sampleRateHz}
+                    isWholeChannelMode={isWholeChannelMode}
+                    allowWideSampleRateOverscan
                     onActivate={() => handleTune(ch)}
                     readOnly={isChannelScanning}
                     scanProgress={isChannelScanning ? scanProgress : 0}

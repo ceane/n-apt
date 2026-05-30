@@ -11,6 +11,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 - Batch related edits into single operations. Don't make 5 edits when 1 handles it.
 - Skip confirmations like "I'll continue..." Just do it.
 - If a task needs 1 tool call, don't use 3. Plan before acting.
+- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE, UNLESS IT DIRECTLY ADDRESSES WHAT I ASKED FOR IN THE PROMPT. IF IT DOES NOT, DO NOT ADD IT.
 - Do not summarize what you just did unless the result is ambiguous or you need additional input.
 
 ## Documentation Guidelines
@@ -71,7 +72,8 @@ npm run server:dev   # Dev with auto-reload
 npm run server:build # Build only
 
 # Rust checks
-cargo check --bin n-apt-backend  # Check for compilation errors
+cargo check           # Always run cargo check after Rust changes, NEVER SKIP AFTER RUST CHANGES, ENSURE IT COMPILES CORRECTLY
+cargo check --bin n-apt-backend  # Check the backend crate
 
 # Rust tests
 cargo test           # Run tests
@@ -91,15 +93,16 @@ cargo clippy         # Lint
 ```bash
 npm run lint         # oxlint
 npm run lint:fix     # Fix issues
+npm run lint:shader  # .wsgl shader linting
 npm run format       # oxfmt
 npm run format:check # Check formatting
-npm run typecheck    # TypeScript, NEVER SKIPS TYPE CHECKING, MUST RUN TO PASS CI/CD
+npm run typecheck    # TypeScript, NEVER SKIP TYPE CHECKING, MUST RUN TO PASS CI/CD
 
 # Rust formatting (optimized)
-npm run format:rust      # Parallel formatting for all files
-npm run format:rust:fast # Incremental formatting for changed files only
-npm run format:rust:check # Check formatting without changes
-rustfmt                  # Standard rustfmt
+npm run format.            # Parallel formatting for all files
+npm run format:rust:fast   # Incremental formatting for changed files only
+npm run format:rust:check  # Check formatting without changes
+rustfmt                    # Standard rustfmt
 ```
 
 ## Rustfmt Performance Optimization

@@ -1,6 +1,7 @@
 /**
  * Frequency formatting utilities for precise and consistent display
  */
+import type { FrequencyRange } from "@n-apt/consts/types";
 
 /**
  * Standard frequency formatting: 100.000 MHz or 500 kHz
@@ -58,14 +59,126 @@ export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
   return { value: hz, unit: "Hz" };
 };
 
-export const getCenteredFrequencyHz = (centerHz: number, bandwidthHz: number): number =>
-  centerHz - bandwidthHz / 2;
+export const getCenteredFrequencyHz = (
+  centerHz: number,
+  bandwidthHz: number,
+): number => centerHz - bandwidthHz / 2;
 
-export const getBandwidthEndHz = (startHz: number, bandwidthHz: number): number =>
-  startHz + bandwidthHz;
+export const getBandwidthEndHz = (
+  startHz: number,
+  bandwidthHz: number,
+): number => startHz + bandwidthHz;
 
-export const getBandwidthStartHz = (endHz: number, bandwidthHz: number): number =>
-  endHz - bandwidthHz;
+export const getBandwidthStartHz = (
+  endHz: number,
+  bandwidthHz: number,
+): number => endHz - bandwidthHz;
+
+export const MIN_CAPTURE_BANDWIDTH_HZ = 3_200_000;
+
+export const AVAILABLE_SPECTRUM_FALLBACK: FrequencyRange = {
+  min: 0,
+  max: 30_000_000_000,
+};
+
+export const normalizeFrequencyRangeToHz = (
+  range: FrequencyRange,
+): FrequencyRange => {
+  const min = Math.round(range.min);
+  const max = Math.round(range.max);
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 0 };
+  }
+
+  return min <= max ? { min, max } : { min: max, max: min };
+};
+
+export const getFrequencyRangeCenterHz = (range: FrequencyRange): number =>
+  Math.round((range.min + range.max) / 2);
+
+export const getAvailableSpectrumBounds = (
+  bounds?: FrequencyRange | null,
+): FrequencyRange => {
+  if (
+    bounds &&
+    Number.isFinite(bounds.min) &&
+    Number.isFinite(bounds.max) &&
+    bounds.max > bounds.min
+  ) {
+    return bounds;
+  }
+  return AVAILABLE_SPECTRUM_FALLBACK;
+};
+
+export const clampFrequencyRangeToBounds = (
+  range: FrequencyRange,
+  bounds?: FrequencyRange | null,
+): FrequencyRange => {
+  const safeBounds = getAvailableSpectrumBounds(bounds);
+  const span = range.max - range.min;
+  const boundsSpan = safeBounds.max - safeBounds.min;
+  if (!Number.isFinite(span) || span <= 0) {
+    return {
+      min: safeBounds.min,
+      max: safeBounds.min,
+    };
+  }
+
+  if (span >= boundsSpan) {
+    return {
+      min: safeBounds.min,
+      max: safeBounds.max,
+    };
+  }
+
+  let min = range.min;
+  let max = range.max;
+
+  if (min < safeBounds.min) {
+    min = safeBounds.min;
+    max = min + span;
+  }
+  if (max > safeBounds.max) {
+    max = safeBounds.max;
+    min = max - span;
+  }
+
+  return { min, max };
+};
+
+export const clampBandwidthWithMinSpan = (
+  startHz: number,
+  endHz: number,
+  minSpanHz: number = MIN_CAPTURE_BANDWIDTH_HZ,
+  movingBoundary: "start" | "end" = "end",
+): { startHz: number; endHz: number } => {
+  const minSpan =
+    Number.isFinite(minSpanHz) && minSpanHz > 0
+      ? minSpanHz
+      : MIN_CAPTURE_BANDWIDTH_HZ;
+  let start = Number.isFinite(startHz) ? Math.max(0, startHz) : 0;
+  let end = Number.isFinite(endHz) ? Math.max(0, endHz) : start + minSpan;
+
+  if (end - start < minSpan) {
+    if (movingBoundary === "start") {
+      end = start + minSpan;
+    } else {
+      start = end - minSpan;
+      if (start < 0) {
+        start = 0;
+        end = minSpan;
+      }
+    }
+  }
+
+  return { startHz: Math.round(start), endHz: Math.round(end) };
+};
+
+export const roundDbValue = (value: number) => {
+  const rounded = Math.round(value);
+  return Object.is(rounded, -0) ? 0 : rounded;
+};
 
 const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
@@ -84,7 +197,7 @@ export const formatFrequency = (
   const showUnits = options.showUnits ?? true;
   const precisionMHz = options.precisionMHz ?? 1;
   const precisionGHz = options.precisionGHz ?? 1;
-  const precisionKHz = options.precisionKHz ?? 1;
+  const precisionKHz = options.precisionKHz ?? 0;
   const trimTrailingZeros = options.trimTrailingZeros ?? false;
 
   if (
@@ -137,6 +250,16 @@ export const formatFrequency = (
 export const formatFrequencyHz = (freqHz: number): string => {
   if (!Number.isFinite(freqHz)) return "0";
   return formatIntegerWithSeparators(freqHz);
+};
+
+/**
+ * Format a raw frequency value to at most 3 decimal places and drop trailing zeros.
+ * @param val Numeric value to format
+ * @returns Formatted string
+ */
+export const formatFrequencyValue = (val: number): string => {
+  if (!Number.isFinite(val)) return "0";
+  return val.toFixed(3);
 };
 
 /**
@@ -262,4 +385,32 @@ export const parseFrequency = (
     default:
       return NaN;
   }
+};
+
+/**
+ * Formats frequency with up to 3 decimal places, strictly truncating (no rounding).
+ */
+export const formatChannelFreq = (hz: number): string => {
+  const abs = Math.abs(hz);
+  let val: number;
+  let unit: string;
+
+  if (abs >= 1_000_000) {
+    val = hz / 1_000_000;
+    unit = "MHz";
+  } else if (abs >= 1_000) {
+    val = hz / 1_000;
+    unit = "kHz";
+  } else {
+    val = hz;
+    unit = "Hz";
+  }
+
+  // Truncate to 3 decimal places without rounding
+  const s = val.toString();
+  const dotIndex = s.indexOf(".");
+  if (dotIndex !== -1) {
+    return s.slice(0, dotIndex + 4) + unit;
+  }
+  return s + unit;
 };

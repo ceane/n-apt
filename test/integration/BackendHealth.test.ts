@@ -38,12 +38,16 @@ describe("Backend Health Integration", () => {
 
     backendProcess.stdout?.on("data", (data) => {
       appendBackendOutput(data);
-      process.stdout.write(`[Backend STDOUT] ${data}`);
+      if (process.env.BACKEND_HEALTH_VERBOSE === "1") {
+        process.stdout.write(`[Backend STDOUT] ${data}`);
+      }
     });
 
     backendProcess.stderr?.on("data", (data) => {
       appendBackendOutput(data);
-      process.stderr.write(`[Backend STDERR] ${data}`);
+      if (process.env.BACKEND_HEALTH_VERBOSE === "1") {
+        process.stderr.write(`[Backend STDERR] ${data}`);
+      }
     });
 
     const exited = new Promise<never>((_, reject) => {
@@ -70,7 +74,9 @@ describe("Backend Health Integration", () => {
           try {
             const response = await fetch(`${BASE_URL}/status`);
             if (response.ok) {
-              console.log(`✅ Backend responded with 200 OK after ${attempts}s`);
+              console.log(
+                `✅ Backend responded with 200 OK after ${attempts}s`,
+              );
               return true;
             }
             console.log(

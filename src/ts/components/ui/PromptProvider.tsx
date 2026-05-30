@@ -39,13 +39,13 @@ const Form = styled.form`
 `;
 
 const Title = styled.div`
-  font-size: 16px;
+  font-size: ${({ theme }) => theme.typography.headingSize};
   font-weight: 700;
   margin-bottom: 4px;
 `;
 
 const Message = styled.div`
-  font-size: 13px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${({ theme }) => theme.textSecondary};
   line-height: 1.5;
 `;
@@ -57,7 +57,7 @@ const Input = styled.input`
   padding: 10px 12px;
   color: #fff;
   font-family: inherit;
-  font-size: 14px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   outline: none;
 
   &:focus {
@@ -84,7 +84,7 @@ const Button = styled.button<{ $primary?: boolean }>`
     $primary ? "none" : `1px solid ${theme.border}`};
   border-radius: 6px;
   padding: 8px 16px;
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;

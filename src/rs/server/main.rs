@@ -13,9 +13,13 @@ use anyhow::Result;
 use axum::routing::{get, post};
 use axum::Router;
 use log::info;
+use std::collections::HashMap;
 use std::env;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -50,6 +54,10 @@ use super::websocket_server;
 pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
+  pub pending_passkey_registrations:
+    std::sync::Mutex<HashMap<String, PasskeyRegistration>>,
+  pub pending_passkey_authentications:
+    std::sync::Mutex<HashMap<String, PasskeyAuthentication>>,
   pub session_store: SessionStore,
   pub webauthn: Webauthn,
   pub broadcast_tx: broadcast::Sender<String>,
@@ -57,6 +65,64 @@ pub struct AppState {
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
   pub sdr_processor:
     Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
+}
+
+struct TeeWriter {
+  file: Option<Mutex<std::fs::File>>,
+}
+
+impl TeeWriter {
+  fn new() -> Self {
+    let log_path = std::env::var("RUST_LOG_FILE")
+      .unwrap_or_else(|_| "/tmp/rust_log.txt".to_string());
+    let file = OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(&log_path)
+      .ok()
+      .map(Mutex::new);
+    if file.is_some() {
+      eprintln!("Rust backend logs will also be written to {}", log_path);
+    } else {
+      eprintln!("Rust backend file logging unavailable; using stderr only");
+    }
+    Self { file }
+  }
+}
+
+impl Write for TeeWriter {
+  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    io::stderr().write_all(buf)?;
+    if let Some(file) = &self.file {
+      if let Ok(mut guard) = file.lock() {
+        let _ = guard.write_all(buf);
+        let _ = guard.flush();
+      }
+    }
+    Ok(buf.len())
+  }
+
+  fn flush(&mut self) -> io::Result<()> {
+    io::stderr().flush()?;
+    if let Some(file) = &self.file {
+      if let Ok(mut guard) = file.lock() {
+        let _ = guard.flush();
+      }
+    }
+    Ok(())
+  }
+}
+
+fn init_logging() {
+  static INIT: OnceLock<()> = OnceLock::new();
+  INIT.get_or_init(|| {
+    let mut builder = env_logger::Builder::from_env(
+      env_logger::Env::default().default_filter_or("info"),
+    );
+    builder.format_timestamp_secs();
+    builder.target(env_logger::Target::Pipe(Box::new(TeeWriter::new())));
+    builder.init();
+  });
 }
 
 impl websocket_server::WebSocketServer {
@@ -121,7 +187,7 @@ impl websocket_server::WebSocketServer {
       ])
       .allow_credentials(true);
 
-    // Security headers
+    // Security headers (Defense-in-depth)
     let security_headers = ServiceBuilder::new()
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("cross-origin-opener-policy"),
@@ -130,6 +196,57 @@ impl websocket_server::WebSocketServer {
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("cross-origin-embedder-policy"),
         HeaderValue::from_static("require-corp"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-xss-protection"),
+        HeaderValue::from_static("1; mode=block"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("strict-transport-security"),
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"),
+      ));
+
+    // Protected control and diagnostic endpoints
+    let protected_routes = Router::new()
+      .route(
+        "/api/webmcp/execute",
+        post(http_endpoints::execute_webmcp_tool_handler),
+      )
+      .route(
+        "/api/debug/stitch-diagnostic",
+        post(http_endpoints::stitch_diagnostic_handler),
+      )
+      .route(
+        "/api/capture/download",
+        get(http_endpoints::capture_download_handler),
+      )
+      .route(
+        "/api/towers/bounds",
+        get(http_endpoints::towers_bounds_handler),
+      )
+      .route(
+        "/api/towers/load-local-radius",
+        post(super::tower_local::load_local_radius_towers),
+      )
+      .route(
+        "/api/towers/local-stats",
+        get(super::tower_local::get_local_cache_stats),
+      )
+      .route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::authentication::require_session,
       ));
 
     // Standard routes that benefit from compression (JSON, text, etc.)
@@ -190,39 +307,13 @@ impl websocket_server::WebSocketServer {
         "/api/agent/status",
         get(http_endpoints::agent_status_handler),
       )
-      .route(
-        "/api/towers/bounds",
-        get(http_endpoints::towers_bounds_handler),
-      )
-      .route(
-        "/api/towers/load-local-radius",
-        post(super::tower_local::load_local_radius_towers),
-      )
-      .route(
-        "/api/towers/local-stats",
-        get(super::tower_local::get_local_cache_stats),
-      )
-      .route(
-        "/api/webmcp/execute",
-        post(http_endpoints::execute_webmcp_tool_handler),
-      )
-      // Debug / Diagnostic endpoints
-      .route(
-        "/api/debug/stitch-diagnostic",
-        post(http_endpoints::stitch_diagnostic_handler),
-      )
+      .merge(protected_routes)
       // WebSocket endpoint
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 
     Router::new()
       .merge(compressible_routes)
-      // Exclude capture downloads from compression to avoid Content-Length mismatches
-      // and unnecessary CPU overhead on large binary files.
-      .route(
-        "/api/capture/download",
-        get(http_endpoints::capture_download_handler),
-      )
       .layer(cors)
       .layer(security_headers)
       .with_state(state)
@@ -269,6 +360,8 @@ impl websocket_server::WebSocketServer {
     let state = Arc::new(AppState {
       shared,
       credential_store,
+      pending_passkey_registrations: std::sync::Mutex::new(HashMap::new()),
+      pending_passkey_authentications: std::sync::Mutex::new(HashMap::new()),
       session_store,
       webauthn: webauthn_result,
       broadcast_tx,
@@ -296,11 +389,7 @@ impl websocket_server::WebSocketServer {
 
 /// Main entry point for the N-APT Rust backend server
 pub async fn run_server() -> Result<()> {
-  env_logger::Builder::from_env(
-    env_logger::Env::default().default_filter_or("info"),
-  )
-  .format_timestamp_secs()
-  .init();
+  init_logging();
 
   info!("Starting N-APT Rust Backend Server");
 

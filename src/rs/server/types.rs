@@ -79,7 +79,7 @@ pub struct AptAnalysisConfig {
 pub enum SdrCommand {
   SetFrequency(u32),
   SetGain(f64),
-  SetPpm(i32),
+  SetPpm(u32),
   SetTunerAGC(bool),
   SetRtlAGC(bool),
   SetOffsetTuning(bool),
@@ -97,6 +97,8 @@ pub enum SdrCommand {
   StartCapture {
     job_id: String,
     fragments: Vec<(f64, f64)>,
+    bandwidth: Option<u64>,
+    bandwidth_center_frequency: Option<u64>,
     duration_mode: String,
     duration_s: f64,
     file_type: String,
@@ -138,7 +140,10 @@ pub struct SdrProcessorSettings {
   pub frame_rate: Option<u32>,
   pub sample_rate: Option<u32>,
   pub gain: Option<f64>,
-  pub ppm: Option<i32>,
+  pub hackrf_lna_gain: Option<f64>,
+  pub hackrf_vga_gain: Option<f64>,
+  pub hackrf_amp_enable: Option<bool>,
+  pub ppm: Option<u32>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
   pub offset_tuning: Option<bool>,
@@ -209,6 +214,13 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub bandwidth: Option<u64>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "bandwidthCenterFrequency"
+  )]
+  pub bandwidth_center_frequency: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
   pub acquisition_mode: Option<String>,
   #[serde(
@@ -225,14 +237,29 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub max_freq: Option<f64>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "centerFrequency",
+    alias = "center_frequency_hz"
+  )]
+  #[validate(range(min = 0.0, max = 30000000000.0))]
+  pub center_frequency: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0.0, max = 100.0))]
   pub gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfLnaGain")]
+  #[validate(range(min = 0.0, max = 49.6))]
+  pub hackrf_lna_gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfVgaGain")]
+  #[validate(range(min = 0.0, max = 62.0))]
+  pub hackrf_vga_gain: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
+  pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
-  #[validate(range(min = -1000, max = 1000))]
-  pub ppm: Option<i32>,
+  #[validate(range(min = 0, max = 1000))]
+  pub ppm: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
   pub tuner_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
@@ -251,6 +278,9 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "sampleRate")]
+  #[validate(range(min = 1, max = 100000000))]
+  pub sample_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -311,16 +341,6 @@ pub struct HardwareInfoResponse {
   pub hardware_freq_range: HardwareFreqRange,
   #[serde(rename = "sampleRate")]
   pub sample_rate: u32,
-}
-
-/// Auto FFT size options response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutoFftOptionsResponse {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "autoSizes")]
-  pub auto_sizes: Vec<usize>,
-  pub recommended: usize,
 }
 
 /// Frequency region detected during scan
@@ -524,9 +544,11 @@ pub struct StatusMessage {
   pub device_state: String,
   pub paused: bool,
   pub max_sample_rate: u32,
+  pub sample_rate_options: Vec<u32>,
   pub channels: Vec<SpectrumFrameMessage>,
   pub sdr_settings: SdrConfig,
   pub device: String,
+  pub device_backend_error: Option<String>,
   pub device_profile: DeviceProfile,
 }
 
@@ -562,10 +584,20 @@ pub struct SignalsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalsData {
+  #[serde(default)]
+  pub available_spectrum: Option<AvailableSpectrumConfig>,
   #[serde(alias = "mock")]
   pub mock_apt: MockAptSignalsConfig,
   pub n_apt: NaptConfig,
   pub sdr: SdrConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableSpectrumConfig {
+  #[serde(rename = "min_freq")]
+  pub min_freq: f64,
+  #[serde(rename = "max_freq")]
+  pub max_freq: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -592,13 +624,115 @@ pub struct NaptConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrConfig {
   pub sample_rate: u32,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub min_receive_sample_rate: Option<u32>,
   pub center_frequency: u32,
   pub gain: SdrGainConfig,
   pub ppm: f64,
+  #[serde(default)]
   pub fft: SdrFftConfig,
   pub display: SdrDisplayConfig,
   #[serde(default)]
-  pub limits: Option<SdrLimitsConfig>,
+  pub devices: IndexMap<String, SdrDeviceConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceGainLimits {
+  #[serde(default)]
+  pub min: Option<f64>,
+  #[serde(default)]
+  pub max: Option<f64>,
+  #[serde(default)]
+  pub step: Option<f64>,
+  #[serde(default)]
+  pub lna_min: Option<f64>,
+  #[serde(default)]
+  pub lna_max: Option<f64>,
+  #[serde(default)]
+  pub lna_step: Option<f64>,
+  #[serde(default)]
+  pub vga_min: Option<f64>,
+  #[serde(default)]
+  pub vga_max: Option<f64>,
+  #[serde(default)]
+  pub vga_step: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrDeviceConfig {
+  pub sample_rate: SdrSampleRateSpec,
+  #[serde(default)]
+  pub fft_display: Option<SdrFftDisplayConfig>,
+  #[serde(default)]
+  pub gain_limits: Option<DeviceGainLimits>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SdrSampleRateSpec {
+  Fixed(u32),
+  Symbolic(String),
+  FloorMaxRange(Vec<String>),
+}
+
+impl SdrSampleRateSpec {
+  pub fn resolve_options(
+    &self,
+    floor_sample_rate: u32,
+    max_sample_rate: u32,
+  ) -> Vec<u32> {
+    const CURATED_RATES: &[u32] = &[
+      1_000_000, 2_000_000, 3_200_000, 4_000_000, 5_000_000, 6_400_000,
+      8_000_000, 10_000_000, 12_800_000, 16_000_000, 20_000_000,
+    ];
+
+    match self {
+      Self::Fixed(rate) => vec![*rate],
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_MAX__" => {
+        vec![max_sample_rate]
+      }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
+        vec![floor_sample_rate]
+      }
+      Self::Symbolic(_) => vec![floor_sample_rate],
+      Self::FloorMaxRange(_) => {
+        let mut out = CURATED_RATES
+          .iter()
+          .copied()
+          .filter(|rate| *rate >= floor_sample_rate && *rate <= max_sample_rate)
+          .collect::<Vec<_>>();
+        if out.first().copied() != Some(floor_sample_rate) {
+          out.insert(0, floor_sample_rate);
+        }
+        if out.last().copied() != Some(max_sample_rate) {
+          out.push(max_sample_rate);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+      }
+    }
+  }
+
+  pub fn resolve(&self, floor_sample_rate: u32, max_sample_rate: u32) -> u32 {
+    match self {
+      Self::Fixed(rate) => *rate,
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_MAX__" => {
+        max_sample_rate
+      }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
+        floor_sample_rate
+      }
+      Self::Symbolic(_) => floor_sample_rate,
+      Self::FloorMaxRange(_) => max_sample_rate.max(floor_sample_rate),
+    }
+  }
+}
+
+impl SdrFftDisplayConfig {
+  pub fn resolve_markers(&self) -> Vec<SdrLimitMarkerConfig> {
+    self.markers.clone()
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -606,7 +740,17 @@ pub struct SdrGainConfig {
   pub tuner_gain: f64,
   pub rtl_agc: bool,
   pub tuner_agc: bool,
+  #[serde(default)]
+  pub hackrf_lna_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_vga_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_amp_enable: Option<bool>,
+  #[serde(default)]
+  pub tuner_bandwidth: Option<u32>,
 }
+
+pub const MAX_LOGICAL_FRAME_RATE: u32 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrFftConfig {
@@ -617,6 +761,18 @@ pub struct SdrFftConfig {
   pub size_to_frame_rate: std::collections::HashMap<usize, u32>,
 }
 
+impl Default for SdrFftConfig {
+  fn default() -> Self {
+    Self {
+      default_size: 2048,
+      default_frame_rate: 60,
+      max_size: 262144,
+      max_frame_rate: 60,
+      size_to_frame_rate: std::collections::HashMap::new(),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDisplayConfig {
   pub min_db: i32,
@@ -625,13 +781,16 @@ pub struct SdrDisplayConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SdrLimitsConfig {
-  #[serde(rename = "lower_limit_hz", alias = "lower_limit_mhz")]
-  pub lower_limit_hz: Option<f64>,
-  #[serde(rename = "upper_limit_hz", alias = "upper_limit_mhz")]
-  pub upper_limit_hz: Option<f64>,
-  pub lower_limit_label: Option<String>,
-  pub upper_limit_label: Option<String>,
+pub struct SdrFftDisplayConfig {
+  #[serde(default)]
+  pub markers: Vec<SdrLimitMarkerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SdrLimitMarkerConfig {
+  pub kind: String,
+  pub freq_hz: f64,
+  pub label: Option<String>,
 }
 
 // MockApt signal types
@@ -811,4 +970,6 @@ pub struct CaptureRequest {
   pub fft_size: usize,
   pub fft_window: String,
   pub geolocation: Option<GeolocationData>,
+  pub bandwidth: Option<u64>,
+  pub bandwidth_center_frequency: Option<u64>,
 }

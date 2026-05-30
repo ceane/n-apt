@@ -3,6 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import styled from "styled-components";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 interface PolarRadioWaveWebGPUProps {
   aperture?: number;
@@ -305,7 +306,9 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
         <MetricsOverlay>
           <MetricItem>
             <MathText>ƒ</MathText> (Frequency):{" "}
-            <MetricValue>{frequency.toFixed(3)} MHz</MetricValue>
+            <MetricValue>
+              {formatFrequency(frequency * 1_000_000, { precisionMHz: 3 })}
+            </MetricValue>
           </MetricItem>
           <MetricItem>
             <MathText>λ</MathText> (Wavelength):{" "}

@@ -1,7 +1,7 @@
 //! WebSocket server with SDR processor integration
 //! Handles real-time spectrum data streaming to frontend clients
 //!
-//! # RTL-SDR Hotplug Behaviour Contract
+//! # Supported Device Hotplug Behaviour Contract
 //!
 //! The server MUST satisfy every scenario below without panicking, silently
 //! swallowing errors, or leaving the frontend in an unknown state.
@@ -55,12 +55,58 @@ use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
-use super::utils::reconcile_device_state;
+use super::utils::{
+  device_config_key, reconcile_device_state,
+  resolve_device_sample_rate_options, status_device_backend_label,
+  status_device_name,
+};
+use crate::sdr::hotplug::{
+  is_recovery_budget_exhausted, scan_usb_for_supported_device,
+};
 use crate::sdr::processor::SdrProcessor;
+
+const HACKRF_DISCONNECT_ADVISORY: &str =
+  "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
+
+pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
+  let device_profile = shared.device_profile.lock().unwrap().clone();
+  if device_profile.kind.starts_with("mock_apt") {
+    return false;
+  }
+
+  let supported_device_present = match scan_usb_for_supported_device() {
+    Ok(Some(_)) => true,
+    Ok(None) => false,
+    Err(e) => {
+      warn!(
+        "USB reconciliation probe failed, keeping current status: {}",
+        e
+      );
+      return false;
+    }
+  };
+
+  if supported_device_present {
+    return false;
+  }
+
+  shared.update_device_status(
+    false,
+    "Mock APT SDR".to_string(),
+    build_device_profile("mock_apt"),
+  );
+  if device_profile.kind == "hackrf_one" {
+    shared
+      .set_device_backend_error(Some(HACKRF_DISCONNECT_ADVISORY.to_string()));
+  } else {
+    shared.set_device_backend_error(None);
+  }
+  true
+}
 
 /// Build and broadcast a device status message so all connected WebSocket
 /// clients immediately learn about hotplug / unplug events.
-fn broadcast_device_status(
+pub(crate) fn broadcast_device_status(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
@@ -73,47 +119,34 @@ fn broadcast_device_status(
   let device_loading = *shared.device_loading.lock().unwrap();
   let device_loading_reason =
     shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
+  let device_backend_error =
+    shared.device_backend_error.lock().unwrap().clone();
+  let (max_sample_rate, sample_rate_options) =
+    resolve_device_sample_rate_options(
+      device_connected,
+      &device_info,
+      &device_profile,
+      &sdr_settings,
+    );
+  let device_limits = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.fft_display.as_ref())
+    .map(|display| display.resolve_markers())
+    .unwrap_or_default();
 
-  let normalize_rtl_device_name = |raw_name: &str| {
-    let short_name = raw_name.split(" - ").next().unwrap_or("RTL-SDR").trim();
-    let lower = short_name.to_ascii_lowercase();
-
-    if let Some(version) = short_name.split_whitespace().find_map(|token| {
-      let cleaned = token
-        .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .to_ascii_lowercase();
-      let version = cleaned.strip_prefix('v')?;
-      if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
-        Some(version.to_string())
-      } else {
-        None
-      }
-    }) {
-      return format!("RTL-SDR {}", format!("v{}", version));
-    }
-
-    if lower.contains("rtl-sdr blog")
-      || lower.contains("rtl2832")
-      || lower.contains("rtl-sdr")
-      || lower.contains("generic")
-      || lower.contains("rtl2382u")
-    {
-      return "RTL-SDR v4".to_string();
-    }
-
-    short_name.to_string()
-  };
-
-  // Extract short device name from device_info
-  let device_name = if device_connected {
-    normalize_rtl_device_name(&device_info)
-  } else {
-    "Mock APT SDR".to_string()
-  };
+  let device_name =
+    status_device_name(device_connected, &device_info, &device_profile);
+  let backend = status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
 
   let msg = serde_json::json!({
       "type": "status",
@@ -122,33 +155,49 @@ fn broadcast_device_status(
       "device_name": device_name,
       "device_loading": device_loading,
       "device_loading_reason": device_loading_reason,
+      "device_loading_attempt": device_loading_attempt,
+      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
       "device_state": device_state,
       "paused": paused,
-      "max_sample_rate": sdr_settings.sample_rate,
+      "max_sample_rate": max_sample_rate,
+      "sample_rate_options": sample_rate_options,
       "sdr_settings": sdr_settings,
+      "sdr_limit_markers": device_limits,
       "channels": channels,
-      "backend": if device_connected { "rtl-sdr" } else { "mock_apt" },
-      "device": if device_connected { "rtl-sdr" } else { "mock_apt" },
+      "backend": backend,
+      "device": backend,
+      "device_backend_error": device_backend_error,
       "device_profile": device_profile,
   });
-  let _ = broadcast_tx.send(msg.to_string());
+  let payload = msg.to_string();
+  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  if last_payload.as_ref() == Some(&payload) {
+    return;
+  }
+  *last_payload = Some(payload.clone());
+  let _ = broadcast_tx.send(payload);
 }
 
-fn build_device_profile(is_mock: bool) -> DeviceProfile {
-  if is_mock {
-    DeviceProfile {
-      kind: "mock_apt".to_string(),
-      is_rtl_sdr: false,
-      supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
-    }
-  } else {
-    DeviceProfile {
+pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
+  match device_type {
+    "rtl-sdr" => DeviceProfile {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
       supports_raw_iq_stream: true,
-    }
+    },
+    "hackrf_one" => DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    },
+    _ => DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    },
   }
 }
 
@@ -171,6 +220,8 @@ impl Default for WebSocketServer {
 impl WebSocketServer {
   pub fn new(redis_url: &str) -> Self {
     info!("Creating WebSocket server with SDR processor");
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    crate::sdr::mock_apt::MockAptDevice::log_metal_backend_status_once();
 
     // Create SDR processor (will auto-select mock_apt or real device)
     let mut sdr_processor =
@@ -204,8 +255,9 @@ impl WebSocketServer {
     shared.update_device_status(
       !sdr_processor.is_mock(),
       sdr_processor.get_device_info(),
-      build_device_profile(sdr_processor.is_mock()),
+      build_device_profile(sdr_processor.device_type()),
     );
+    shared.set_device_backend_error(sdr_processor.get_error());
 
     Self {
       sdr_processor: Arc::new(Mutex::new(sdr_processor)),
@@ -226,13 +278,11 @@ impl WebSocketServer {
     let _broadcast_tx = self.broadcast_tx.clone();
     let spectrum_tx = self.spectrum_tx.clone();
 
-    let mut frame_count = 0u64;
-    let mut last_stats = Instant::now();
-    let mut last_poll = Instant::now();
-    let mut last_hardware_swap: Option<Instant> = None;
-    let mut last_failure_at: Option<Instant> = None;
+    let hotplug_monitor = crate::sdr::hotplug::HotplugMonitor::new()
+      .expect("Failed to create hotplug monitor");
+    let _ = hotplug_monitor.start();
+    let mut hotplug_state = crate::sdr::hotplug::HotplugState::new();
     let mut target_fps: u32 = 30; // sensible default until first frame
-    let retry_cooldown = Duration::from_secs(30);
     let mut allow_next_paused_frame = false;
 
     // ── Channel hot-reload state ──────────────────────────────────────
@@ -242,6 +292,34 @@ impl WebSocketServer {
     let mut last_channels_check = Instant::now();
     let mut last_signals_modified =
       crate::server::utils::signals_config_modified_at();
+
+    // Give hotplug a chance to attach immediately at startup instead of
+    // waiting for the first health tick. This catches devices that are
+    // already connected when the app launches.
+    {
+      let mut processor = sdr_processor.lock().await;
+      // HackRF and libusb can take a moment to settle after process launch.
+      // Give startup a short attach window so we don't miss a device that is
+      // physically present but not immediately enumerable.
+      for attempt in 0..5 {
+        crate::sdr::hotplug::maybe_attach_hotplugged_device(
+          &hotplug_monitor,
+          &mut hotplug_state,
+          &mut processor,
+          &shared_state,
+          &_broadcast_tx,
+          true,
+        )
+        .await;
+        if !processor.is_mock() {
+          break;
+        }
+        if attempt < 4 {
+          tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+      }
+    }
+
     loop {
       let start_time = Instant::now();
       // 1. Process pending commands
@@ -320,17 +398,19 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 } else {
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
+                  shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
               }
               Err(e) => {
@@ -339,14 +419,15 @@ impl WebSocketServer {
                 if let Err(e) = processor.initialize() {
                   error!("Failed to restart existing device: {}", e);
                 } else {
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
                 // Revert state regardless
                 shared_state.update_device_status(
                   !processor.is_mock(),
                   processor.get_device_info(),
-                  build_device_profile(processor.is_mock()),
+                  build_device_profile(processor.device_type()),
                 );
+                shared_state.set_device_backend_error(processor.get_error());
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
             }
@@ -354,6 +435,8 @@ impl WebSocketServer {
           crate::server::types::SdrCommand::StartCapture {
             job_id,
             fragments,
+            bandwidth,
+            bandwidth_center_frequency,
             duration_mode,
             duration_s,
             file_type,
@@ -374,6 +457,9 @@ impl WebSocketServer {
             // Save current center frequency so we can restore it after capture
             processor.capture_pre_center_freq =
               Some(processor.get_center_frequency());
+            processor.capture_bandwidth = bandwidth;
+            processor.capture_bandwidth_center_frequency =
+              bandwidth_center_frequency;
             processor.capture_job_id = Some(job_id.clone());
             processor.capture_is_manual_mode = duration_mode == "manual";
             processor.capture_manual_stop = false;
@@ -584,90 +670,12 @@ impl WebSocketServer {
             }
 
             if let Some(result) = processor.stop_capture() {
-              let enc_key = shared_state.encryption_key;
-              let shared_clone = shared_state.clone();
-              let bcast = _broadcast_tx.clone();
-
-              let processing_msg = serde_json::json!({
-                "type": "capture_status",
-                "status": {
-                  "jobId": result.job_id,
-                  "status": "progress",
-                  "message": "Processing stopped capture..."
-                }
-              });
-              let _ = bcast.send(processing_msg.to_string());
-
-              tokio::task::spawn_blocking(move || {
-                if result.is_ephemeral {
-                  let msg = serde_json::json!({
-                      "type": "capture_status",
-                      "status": {
-                          "jobId": result.job_id,
-                          "status": "done",
-                          "message": "Capture stopped",
-                          "ephemeral": true,
-                          "duration": result.duration_s
-                      }
-                  });
-                  let _ = bcast.send(msg.to_string());
-                  return;
-                }
-
-                match crate::server::utils::save_capture_file_multi(
-                  &result, &enc_key,
-                ) {
-                  Ok(artifact) => {
-                    let mut artifacts = shared_clone
-                      .get_capture_artifacts(&result.job_id)
-                      .unwrap_or_default();
-                    artifacts.push(artifact.clone());
-
-                    if let Err(e) = shared_clone
-                      .store_capture_artifacts(&result.job_id, &artifacts)
-                    {
-                      error!(
-                        "Failed to store capture artifacts in Redis: {}",
-                        e
-                      );
-                    }
-
-                    let timestamp = std::time::SystemTime::now()
-                      .duration_since(std::time::UNIX_EPOCH)
-                      .unwrap()
-                      .as_millis() as u64;
-
-                    let msg = serde_json::json!({
-                        "type": "capture_status",
-                        "status": {
-                            "jobId": result.job_id,
-                            "status": "done",
-                            "message": "Capture stopped",
-                            "filename": artifact.filename,
-                            "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
-                            "timestamp": timestamp,
-                            "fileSize": artifact.file_size,
-                            "duration": result.duration_s,
-                            "checksum": artifact.checksum
-                        }
-                    });
-                    let _ = bcast.send(msg.to_string());
-                  }
-                  Err(e) => {
-                    error!("Failed to save stopped capture file: {}", e);
-                    let msg = serde_json::json!({
-                        "type": "capture_status",
-                        "status": {
-                            "jobId": result.job_id,
-                            "status": "failed",
-                            "message": "Capture failed",
-                            "error": e.to_string()
-                        }
-                    });
-                    let _ = bcast.send(msg.to_string());
-                  }
-                }
-              });
+              handle_stopped_capture(
+                result,
+                &shared_state,
+                &_broadcast_tx,
+                None,
+              );
             }
           }
           crate::server::types::SdrCommand::SetPowerScale { scale } => {
@@ -799,230 +807,40 @@ impl WebSocketServer {
       //   • Real unhealthy: debounce ≥ DISCONNECT_FAILURE_THRESHOLD strikes,
       //     attempt recovery, only then fall back to mock.
       //   • Every state change is broadcast immediately.
-      if last_poll.elapsed() >= super::shared_state::HEALTH_CHECK_INTERVAL {
-        last_poll = Instant::now();
+      if hotplug_state.last_poll.elapsed()
+        >= super::shared_state::HEALTH_CHECK_INTERVAL
+      {
         let mut processor = sdr_processor.lock().await;
-
-        if processor.is_mock() {
-          // ── Mock mode: scan for real hardware to hot-plug ──
-          if !processor.capture_active {
-            let count =
-              crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-
-            // Only attempt re-scan if we haven't failed recently.
-            // Prevents rhythmic loop if device is electrically unstable.
-            let scan_cooldown = last_failure_at
-              .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
-              .unwrap_or(false);
-
-            if count > 0 && !scan_cooldown {
-              info!(
-                "Auto-detected {} RTL-SDR device(s). Attempting hot-swap...",
-                count
-              );
-
-              // Immediately tell the frontend we are loading
-              shared_state.set_device_state("loading", Some("connect"));
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-
-              match crate::sdr::SdrDeviceFactory::create_device() {
-                Ok(new_device) => {
-                  if !new_device.device_type().contains("Mock") {
-                    if let Err(e) = processor.swap_device(new_device) {
-                      error!("Failed to auto-swap to detected RTL-SDR: {}", e);
-                      // Revert to disconnected so frontend doesn't hang on "loading"
-                      shared_state.set_device_state("disconnected", None);
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                    } else {
-                      shared_state.update_device_status(
-                        true,
-                        processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                      last_hardware_swap = Some(Instant::now());
-                      info!("Successfully hot-swapped to RTL-SDR");
-                    }
-                  } else {
-                    // Factory returned mock despite count > 0 — revert
-                    shared_state.set_device_state("disconnected", None);
-                    broadcast_device_status(&shared_state, &_broadcast_tx);
-                  }
-                }
-                Err(e) => {
-                  debug!("Auto-detection found device count > 0 but failed to open: {}", e);
-                  shared_state.set_device_state("disconnected", None);
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                }
+        crate::sdr::hotplug::maybe_attach_hotplugged_device(
+          &hotplug_monitor,
+          &mut hotplug_state,
+          &mut processor,
+          &shared_state,
+          &_broadcast_tx,
+          false,
+        )
+        .await;
+        crate::sdr::hotplug::handle_real_hardware_health(
+          &mut hotplug_state,
+          &mut processor,
+          &shared_state,
+          &_broadcast_tx,
+          |processor| {
+            if processor.capture_active {
+              warn!("Stopping active capture due to device transition.");
+              if let Some(result) = processor.stop_capture() {
+                handle_stopped_capture(
+                  result,
+                  &shared_state,
+                  &_broadcast_tx,
+                  Some("Capture stopped due to hardware transition"),
+                );
               }
             }
-          }
-        } else {
-          // ── Real hardware mode: debounced health monitoring ──
-
-          // Be patient during the first 2 seconds of a new connection.
-          // Power-hungry devices like the Blog V4 may take time to settle their
-          // internal regulators and I2C bridge after the initial 'open'.
-          let is_warming_up = last_hardware_swap
-            .map(|t| t.elapsed() < std::time::Duration::from_secs(5))
-            .unwrap_or(false);
-
-          if !processor.is_healthy() && !is_warming_up {
-            let streak = shared_state.record_health_failure();
-            let recovery_count =
-              shared_state.recovery_attempts.load(Ordering::Relaxed);
-
-            warn!(
-                "RTL-SDR health check failed (streak {}/{}, recovery attempts {}/{})",
-                streak,
-                super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
-                recovery_count,
-                super::shared_state::MAX_RECOVERY_ATTEMPTS,
-              );
-
-            if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-              if usb_count == 0 {
-                warn!("RTL-SDR disappeared during recovery window. Falling back to mock immediately.");
-                shared_state.set_device_state("disconnected", None);
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                let mock_device =
-                  crate::sdr::SdrDeviceFactory::create_mock_device();
-                if let Err(e) = processor.swap_device(mock_device) {
-                  error!(
-                    "Failed to fall back to mock device after early unplug: {}",
-                    e
-                  );
-                } else {
-                  shared_state.update_device_status(
-                    false,
-                    processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
-                  );
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                }
-              } else {
-                // ── Recovery attempt: re-init the existing device ──
-                if recovery_count < super::shared_state::MAX_RECOVERY_ATTEMPTS {
-                  shared_state
-                    .recovery_attempts
-                    .fetch_add(1, Ordering::Relaxed);
-                  shared_state.set_device_state("loading", Some("restart"));
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                  info!(
-                    "Attempting device recovery (attempt {})...",
-                    recovery_count + 1
-                  );
-                  if let Err(reset_err) = processor.reset_buffer() {
-                    warn!("Buffer reset during recovery failed: {}", reset_err);
-                  }
-                  if let Err(reinit_err) = processor.initialize() {
-                    warn!("Re-init during recovery failed: {}", reinit_err);
-                  } else {
-                    // Re-init returned Ok, but we do NOT declare "connected" yet.
-                    // The next health-check pass (if is_healthy()==true) will
-                    // confirm recovery and broadcast "connected".
-                    info!("Device re-init succeeded, awaiting health confirmation...");
-                  }
-                }
-                // else: let the streak keep climbing until threshold
-              }
-            } else {
-              // ── Threshold reached: confirm via USB device count ──
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-
-              if usb_count == 0 {
-                warn!("RTL-SDR confirmed unplugged (device_count=0). Falling back to mock.");
-                shared_state.set_device_state("disconnected", None);
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                let mock_device =
-                  crate::sdr::SdrDeviceFactory::create_mock_device();
-                if let Err(e) = processor.swap_device(mock_device) {
-                  error!("Failed to fall back to mock device: {}", e);
-                } else {
-                  shared_state.update_device_status(
-                    false,
-                    processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
-                  );
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                  last_failure_at = Some(Instant::now());
-                  info!("Fell back to mock mode after confirmed unplug");
-                }
-              } else {
-                // Device still on USB but stuck — try a full restart
-                warn!("RTL-SDR still on USB (count={}) but unhealthy. Attempting full restart...", usb_count);
-                shared_state.set_device_state("loading", Some("restart"));
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                match crate::sdr::SdrDeviceFactory::create_device() {
-                  Ok(new_device)
-                    if !new_device.device_type().contains("Mock") =>
-                  {
-                    if let Err(e) = processor.swap_device(new_device) {
-                      error!("Full restart swap failed: {}", e);
-                      // Fall back to mock as last resort
-                      let mock_device =
-                        crate::sdr::SdrDeviceFactory::create_mock_device();
-                      if let Err(me) = processor.swap_device(mock_device) {
-                        error!("Emergency mock fallback also failed: {}", me);
-                      }
-                      shared_state.update_device_status(
-                        false,
-                        processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                    } else {
-                      shared_state.update_device_status(
-                        true,
-                        processor.get_device_info(),
-                        build_device_profile(processor.is_mock()),
-                      );
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                      last_hardware_swap = Some(Instant::now());
-                      info!("Full device restart succeeded");
-                    }
-                  }
-                  _ => {
-                    // Couldn't re-open — fall back to mock
-                    let mock_device =
-                      crate::sdr::SdrDeviceFactory::create_mock_device();
-                    if let Err(me) = processor.swap_device(mock_device) {
-                      error!("Mock fallback after restart failure: {}", me);
-                    }
-                    shared_state.update_device_status(
-                      false,
-                      processor.get_device_info(),
-                      build_device_profile(processor.is_mock()),
-                    );
-                    broadcast_device_status(&shared_state, &_broadcast_tx);
-                    last_hardware_swap = Some(Instant::now());
-                  }
-                }
-              }
-            }
-          } else {
-            // Healthy — reset the streak
-            let prev =
-              shared_state.health_failure_streak.load(Ordering::Relaxed);
-            if prev > 0 {
-              info!("RTL-SDR health restored after {} failure(s)", prev);
-              shared_state
-                .health_failure_streak
-                .store(0, Ordering::Relaxed);
-              shared_state.recovery_attempts.store(0, Ordering::Relaxed);
-              // Ensure frontend knows we're solidly connected
-              shared_state.set_device_state("connected", None);
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-            }
-          }
-        }
+            Ok(())
+          },
+        )
+        .await;
       }
 
       // 1c. Hot-reload n_apt.channels when signals.yaml changes on disk.
@@ -1098,13 +916,23 @@ impl WebSocketServer {
                 processor.frame.avg_spectrum = None;
               }
 
-              let waveform = processor.read_and_process_frame()?;
+              let force_noise =
+                cloned_shared.force_noise.load(std::sync::atomic::Ordering::Relaxed);
+              let waveform =
+                processor.read_and_process_frame_with_noise(force_noise)?;
               let timestamp = chrono::Utc::now().timestamp_millis();
               let center_frequency = processor.get_center_frequency();
               let is_mock_apt = processor.device_type().contains("Mock");
               let device_type = processor.device_type().to_string();
               let power_scale = processor.get_power_scale();
-              let sample_rate = processor.get_sample_rate();
+              let sample_rate = {
+                let processor_sample_rate = processor.get_sample_rate();
+                if processor_sample_rate == 0 {
+                  cloned_shared.sdr_settings.lock().unwrap().sample_rate.max(1)
+                } else {
+                  processor_sample_rate
+                }
+              };
               let raw_iq = processor.frame.last_frame_raw_iq.clone();
               let fps = processor.display_frame_rate;
               Ok((
@@ -1147,8 +975,13 @@ impl WebSocketServer {
               shared_state.update_device_status(
                 true,
                 device_type_str.clone(),
-                build_device_profile(false),
+                build_device_profile(device_type_str.as_str()),
               );
+              let device_backend_error = {
+                let processor = sdr_processor.lock().await;
+                processor.get_error()
+              };
+              shared_state.set_device_backend_error(device_backend_error);
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
           }
@@ -1173,17 +1006,6 @@ impl WebSocketServer {
           // Broadcast to all connected WebSocket clients
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
-          }
-
-          frame_count += 1;
-
-          // Log stats every 10 seconds
-          if last_stats.elapsed() >= Duration::from_secs(10) {
-            info!(
-              "SDR streaming: {} frames sent, device: {}",
-              frame_count, device_type_str
-            );
-            last_stats = Instant::now();
           }
         }
         Ok(Err(e)) => {
@@ -1211,10 +1033,10 @@ impl WebSocketServer {
               e,
             );
 
-            if let Some(last_failed) = last_failure_at {
-              if last_failed.elapsed() < retry_cooldown {
+            if let Some(last_failed) = hotplug_state.last_failure_at {
+              if last_failed.elapsed() < hotplug_state.retry_cooldown {
                 debug!(
-                    "Skipping recovery while cooling down after repeated RTL-SDR failure"
+                    "Skipping recovery while cooling down after repeated device failure"
                   );
                 tokio::time::sleep(Duration::from_millis(250)).await;
                 continue;
@@ -1222,11 +1044,19 @@ impl WebSocketServer {
             }
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
-              if usb_count == 0 {
-                warn!("RTL-SDR unplugged after read error. Falling back to mock immediately.");
+              let supported_device_present =
+                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
+              if !supported_device_present {
+                warn!(
+                  "Supported USB device unplugged after read error. Falling back to mock immediately."
+                );
+                let was_hackrf = processor.device_type() == "hackrf_one";
                 shared_state.set_device_state("disconnected", None);
+                if was_hackrf {
+                  shared_state.set_device_backend_error(Some(
+                    HACKRF_DISCONNECT_ADVISORY.to_string(),
+                  ));
+                }
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
                 let mock_device =
@@ -1240,13 +1070,22 @@ impl WebSocketServer {
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),
-                    build_device_profile(processor.is_mock()),
+                    build_device_profile(processor.device_type()),
                   );
+                  if was_hackrf {
+                    shared_state.set_device_backend_error(Some(
+                      HACKRF_DISCONNECT_ADVISORY.to_string(),
+                    ));
+                  } else {
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
+                  }
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
-              } else if recovery_count
-                < super::shared_state::MAX_RECOVERY_ATTEMPTS
-              {
+              } else if !is_recovery_budget_exhausted(
+                recovery_count,
+                super::shared_state::MAX_RECOVERY_ATTEMPTS,
+              ) {
                 shared_state
                   .recovery_attempts
                   .fetch_add(1, Ordering::Relaxed);
@@ -1254,8 +1093,9 @@ impl WebSocketServer {
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
                 warn!(
-                  "Attempting recovery after read error (attempt {})...",
-                  recovery_count + 1
+                  "Attempting recovery after read error (attempt {} of {})...",
+                  recovery_count + 1,
+                  super::shared_state::MAX_RECOVERY_ATTEMPTS
                 );
                 if let Err(reset_err) = processor.reset_buffer() {
                   warn!(
@@ -1272,45 +1112,113 @@ impl WebSocketServer {
                   // Don't declare "connected" yet — the next health-check
                   // or successful frame read will confirm recovery.
                   info!("Read-error re-init succeeded, awaiting health confirmation...");
-                  last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
               } else {
                 warn!(
-                    "Recovery attempts exhausted ({}). Cooling down before retrying.",
-                    super::shared_state::MAX_RECOVERY_ATTEMPTS
+                    "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
+                    super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                    hotplug_state.exhausted_recovery_cooldown
                   );
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                last_failure_at = Some(Instant::now());
+                hotplug_state.last_failure_at = Some(Instant::now());
+                tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown)
+                  .await;
               }
 
               // Brief settle regardless
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
               // Threshold reached — immediate fallback
-              let usb_count =
-                crate::sdr::rtlsdr::device::RtlSdrDevice::get_device_count();
+              let supported_device_present =
+                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
               warn!(
-                  "Read-error threshold reached (streak={}). USB device_count={}. Falling back to mock.",
-                  streak, usb_count,
+                  "Read-error threshold reached (streak={}). Supported USB device present={}.",
+                  streak, supported_device_present,
                 );
-              shared_state.set_device_state("disconnected", None);
-              broadcast_device_status(&shared_state, &_broadcast_tx);
-
-              let mock_device =
-                crate::sdr::SdrDeviceFactory::create_mock_device();
-              if let Err(swap_e) = processor.swap_device(mock_device) {
-                error!("Failed to swap to mock on read error: {}", swap_e);
-              } else {
-                shared_state.update_device_status(
-                  false,
-                  processor.get_device_info(),
-                  build_device_profile(processor.is_mock()),
-                );
+              if supported_device_present {
+                shared_state.set_device_state("loading", Some("restart"));
                 broadcast_device_status(&shared_state, &_broadcast_tx);
-                last_hardware_swap = Some(Instant::now());
+
+                match crate::sdr::SdrDeviceFactory::create_device() {
+                  Ok(new_device)
+                    if !new_device
+                      .device_type()
+                      .to_ascii_lowercase()
+                      .contains("mock") =>
+                  {
+                    if let Err(swap_e) = processor.swap_device(new_device) {
+                      error!(
+                        "Failed to swap to preferred device on read error: {}",
+                        swap_e
+                      );
+                    } else {
+                      shared_state.update_device_status(
+                        true,
+                        processor.get_device_info(),
+                        build_device_profile(processor.device_type()),
+                      );
+                      shared_state
+                        .set_device_backend_error(processor.get_error());
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      hotplug_state.last_hardware_swap = Some(Instant::now());
+                    }
+                  }
+                  _ => {
+                    let mock_device =
+                      crate::sdr::SdrDeviceFactory::create_mock_device();
+                    if let Err(swap_e) = processor.swap_device(mock_device) {
+                      error!(
+                        "Failed to swap to mock on read error: {}",
+                        swap_e
+                      );
+                    } else {
+                      shared_state.update_device_status(
+                        false,
+                        processor.get_device_info(),
+                        build_device_profile(processor.device_type()),
+                      );
+                      shared_state
+                        .set_device_backend_error(processor.get_error());
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      hotplug_state.last_hardware_swap = Some(Instant::now());
+                    }
+                  }
+                }
+              } else {
+                let was_hackrf = processor.device_type() == "hackrf_one";
+                shared_state.set_device_state("disconnected", None);
+                if was_hackrf {
+                  shared_state.set_device_backend_error(Some(
+                    HACKRF_DISCONNECT_ADVISORY.to_string(),
+                  ));
+                }
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                let mock_device =
+                  crate::sdr::SdrDeviceFactory::create_mock_device();
+                if let Err(swap_e) = processor.swap_device(mock_device) {
+                  error!("Failed to swap to mock on read error: {}", swap_e);
+                } else {
+                  shared_state.update_device_status(
+                    false,
+                    processor.get_device_info(),
+                    build_device_profile(processor.device_type()),
+                  );
+                  if was_hackrf {
+                    shared_state.set_device_backend_error(Some(
+                      HACKRF_DISCONNECT_ADVISORY.to_string(),
+                    ));
+                  } else {
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
+                  }
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                }
               }
-              last_failure_at = Some(Instant::now());
+              hotplug_state.last_failure_at = Some(Instant::now());
             }
           }
         }
@@ -1445,4 +1353,298 @@ impl WebSocketServer {
   pub fn get_spectrum_tx(&self) -> broadcast::Sender<Arc<SpectrumData>> {
     self.spectrum_tx.clone()
   }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::sdr::hotplug::{
+    is_recovery_budget_exhausted, should_enter_hardware_recovery,
+    should_probe_for_hotplug,
+  };
+  use serial_test::serial;
+
+  #[test]
+  fn mock_apt_never_enters_hardware_recovery() {
+    assert!(!should_enter_hardware_recovery("Mock APT SDR"));
+    assert!(!should_enter_hardware_recovery("mock_apt"));
+    assert!(should_enter_hardware_recovery("rtl-sdr"));
+    assert!(should_enter_hardware_recovery("hackrf_one"));
+  }
+
+  #[test]
+  fn recovery_budget_is_exhausted_at_max_attempts() {
+    assert!(!is_recovery_budget_exhausted(0, 2));
+    assert!(!is_recovery_budget_exhausted(1, 2));
+    assert!(is_recovery_budget_exhausted(2, 2));
+    assert!(is_recovery_budget_exhausted(3, 2));
+  }
+
+  #[test]
+  fn hotplug_probe_only_runs_for_mock_devices() {
+    assert!(should_probe_for_hotplug("Mock APT SDR"));
+    assert!(should_probe_for_hotplug("mock_apt"));
+    assert!(!should_probe_for_hotplug("rtl-sdr"));
+    assert!(!should_probe_for_hotplug("hackrf_one"));
+  }
+
+  #[test]
+  #[serial]
+  fn restart_status_payload_reports_attempt_budget() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.recovery_attempts.store(1, Ordering::Relaxed);
+    shared.set_device_state("loading", Some("restart"));
+
+    let device_loading_attempt =
+      shared.recovery_attempts.load(Ordering::Relaxed);
+    let payload = serde_json::json!({
+      "device_loading_reason": "restart",
+      "device_loading_attempt": device_loading_attempt,
+      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    });
+
+    assert_eq!(payload["device_loading_reason"], "restart");
+    assert_eq!(payload["device_loading_attempt"], 1);
+    assert_eq!(
+      payload["device_loading_attempt_max"],
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_includes_websocket_payload_fields() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+
+    shared.update_device_status(
+      true,
+      "Generic RTL2832U".to_string(),
+      DeviceProfile {
+        kind: "rtl_sdr".to_string(),
+        is_rtl_sdr: true,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+    shared.recovery_attempts.store(1, Ordering::Relaxed);
+
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("status broadcast"),
+    )
+    .expect("status payload should be valid JSON");
+
+    assert_eq!(payload["type"], "status");
+    assert_eq!(payload["backend"], "rtl-sdr");
+    assert_eq!(payload["device"], "rtl-sdr");
+    assert_eq!(payload["device_name"], "RTL-SDR v4");
+    assert_eq!(
+      payload["device_loading_attempt_max"],
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
+    );
+    assert_eq!(
+      payload["sample_rate_options"],
+      serde_json::json!([3_200_000])
+    );
+    let markers = payload["sdr_limit_markers"]
+      .as_array()
+      .expect("sdr_limit_markers should be an array");
+    assert!(
+      markers.len() >= 2,
+      "expected at least the base lower/upper SDR limit markers"
+    );
+    assert!(
+      markers.iter().any(|marker| marker["kind"] == "lower_limit"),
+      "expected lower limit marker in websocket payload"
+    );
+    assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_suppresses_duplicate_snapshots() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(2);
+
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      build_device_profile("mock_apt"),
+    );
+
+    broadcast_device_status(&shared, &broadcast_tx);
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let first = broadcast_rx.try_recv().expect("first status broadcast");
+    assert!(first.contains(r#""type":"status""#));
+    assert!(
+      broadcast_rx.try_recv().is_err(),
+      "expected duplicate snapshot to be suppressed"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+
+    shared.update_device_status(
+      true,
+      "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
+      DeviceProfile {
+        kind: "hackrf_one".to_string(),
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+
+    broadcast_device_status(&shared, &broadcast_tx);
+
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("status broadcast"),
+    )
+    .expect("status payload should be valid JSON");
+
+    assert_eq!(payload["backend"], "hackrf_one");
+    assert_eq!(payload["device"], "hackrf_one");
+    assert_eq!(payload["device_name"], "HackRF One");
+    assert_eq!(payload["device_profile"]["kind"], "hackrf_one");
+    assert_eq!(payload["device_profile"]["supports_approx_dbm"], true);
+  }
+
+  #[test]
+  #[serial]
+  fn stale_hackrf_snapshot_reconciles_to_mock_when_usb_is_gone() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    shared.update_device_status(
+      true,
+      "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
+      DeviceProfile {
+        kind: "hackrf_one".to_string(),
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+
+    let changed = reconcile_stale_device_snapshot(&shared);
+
+    assert!(changed, "expected stale hackrf status to reconcile");
+    assert!(!shared.device_connected.load(Ordering::Relaxed));
+    assert_eq!(shared.device_state.lock().unwrap().as_str(), "disconnected");
+    assert_eq!(shared.device_info.lock().unwrap().as_str(), "Mock APT SDR");
+    assert_eq!(shared.device_profile.lock().unwrap().kind, "mock_apt");
+    assert!(shared
+      .device_backend_error
+      .lock()
+      .unwrap()
+      .as_ref()
+      .expect("expected disconnect advisory")
+      .contains("HackRF One disconnected"));
+  }
+}
+
+fn handle_stopped_capture(
+  result: crate::sdr::processor::CaptureResult,
+  shared_state: &Arc<SharedState>,
+  broadcast_tx: &broadcast::Sender<String>,
+  reason: Option<&str>,
+) {
+  let enc_key = shared_state.encryption_key;
+  let shared_clone = shared_state.clone();
+  let bcast = broadcast_tx.clone();
+  let status_msg = reason.unwrap_or("Capture stopped").to_string();
+  let status_msg_done = status_msg.clone();
+
+  let processing_msg = serde_json::json!({
+    "type": "capture_status",
+    "status": {
+      "jobId": result.job_id,
+      "status": "progress",
+      "message": "Processing stopped capture..."
+    }
+  });
+  let _ = bcast.send(processing_msg.to_string());
+
+  tokio::task::spawn_blocking(move || {
+    if result.is_ephemeral {
+      let msg = serde_json::json!({
+          "type": "capture_status",
+          "status": {
+              "jobId": result.job_id,
+              "status": "done",
+              "message": status_msg_done,
+              "ephemeral": true,
+              "duration": result.duration_s
+          }
+      });
+      let _ = bcast.send(msg.to_string());
+      return;
+    }
+
+    match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
+      Ok(artifact) => {
+        let mut artifacts = shared_clone
+          .get_capture_artifacts(&result.job_id)
+          .unwrap_or_default();
+        artifacts.push(artifact.clone());
+
+        if let Err(e) =
+          shared_clone.store_capture_artifacts(&result.job_id, &artifacts)
+        {
+          error!("Failed to store capture artifacts in Redis: {}", e);
+        }
+
+        let timestamp = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_millis() as u64;
+
+        let msg = serde_json::json!({
+            "type": "capture_status",
+            "status": {
+                "jobId": result.job_id,
+                "status": "done",
+                "message": status_msg_done,
+                "filename": artifact.filename,
+                "downloadUrl": format!("/api/capture/download?jobId={}", result.job_id),
+                "timestamp": timestamp,
+                "fileSize": artifact.file_size,
+                "duration": result.duration_s,
+                "checksum": artifact.checksum
+            }
+        });
+        let _ = bcast.send(msg.to_string());
+      }
+      Err(e) => {
+        error!("Failed to save stopped capture file: {}", e);
+        let msg = serde_json::json!({
+            "type": "capture_status",
+            "status": {
+                "jobId": result.job_id,
+                "status": "failed",
+                "message": "Capture failed",
+                "error": e.to_string()
+            }
+        });
+        let _ = bcast.send(msg.to_string());
+      }
+    }
+  });
 }

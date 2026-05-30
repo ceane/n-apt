@@ -13,11 +13,11 @@ const Section = styled.div<{ $marginTop?: string }>`
 `;
 
 const SettingRow = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  grid-column: 1 / -1;
+  padding: 6px 6px 6px 12px;
   background-color: ${(props) => props.theme.surface};
   border-radius: 6px;
   border: 1px solid ${(props) => props.theme.border};
@@ -51,6 +51,7 @@ const FileInputActions = styled.div`
   align-items: center;
   gap: 8px;
   justify-content: end;
+  min-width: 0;
 `;
 
 const HiddenFileInput = styled.input`
@@ -86,7 +87,7 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
 
       <SettingRow>
         <SettingLabelContainer>
-          <SettingLabel>Choose or drag files...</SettingLabel>
+          <SettingLabel>Choose or drag files…</SettingLabel>
         </SettingLabelContainer>
         <FileInputActions>
           <HiddenFileInput
@@ -99,8 +100,13 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
           <Button
             $variant="secondary"
             onClick={() => document.getElementById("fileInput")?.click()}
+            style={{
+              minWidth: "124px",
+              paddingInline: "18px",
+              whiteSpace: "nowrap",
+            }}
           >
-            Browse
+            Browse…
           </Button>
         </FileInputActions>
       </SettingRow>

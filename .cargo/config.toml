@@ -1,3 +1,7 @@
 # WASM SIMD configuration
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
+
+# Native builds intentionally stay portable here so CI build scripts and regular
+# test runs do not inherit host-specific CPU features. Performance-only jobs use
+# a separate Cargo config file to opt into host-specific tuning.

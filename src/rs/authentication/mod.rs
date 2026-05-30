@@ -13,9 +13,6 @@ use webauthn_rs::prelude::*;
 pub struct CredentialFile {
   /// Map of user ID → list of registered passkey credentials
   pub passkeys: HashMap<String, Vec<Passkey>>,
-  /// Pending registration states (keyed by challenge ID)
-  #[serde(default)]
-  pub pending_registrations: HashMap<String, String>,
 }
 
 /// Manages passkey credential persistence.
@@ -120,29 +117,6 @@ impl CredentialStore {
       .push(passkey);
     self.save(&creds)
   }
-
-  /// Store a pending registration state (serialized).
-  pub fn store_pending_registration(
-    &self,
-    id: &str,
-    state: &str,
-  ) -> Result<(), String> {
-    let mut creds = self.load();
-    creds
-      .pending_registrations
-      .insert(id.to_string(), state.to_string());
-    self.save(&creds)
-  }
-
-  /// Retrieve and remove a pending registration state.
-  pub fn take_pending_registration(&self, id: &str) -> Option<String> {
-    let mut creds = self.load();
-    let state = creds.pending_registrations.remove(id);
-    if state.is_some() {
-      let _ = self.save(&creds);
-    }
-    state
-  }
 }
 
 /// Get the n-apt config directory path (~/.n-apt).
@@ -198,6 +172,78 @@ fn dirs_path() -> Result<PathBuf, String> {
   }
 
   Ok(final_dir)
+}
+
+use crate::server::main::AppState;
+use axum::{
+  body::Body,
+  http::{Request, StatusCode},
+  middleware::Next,
+  response::Response,
+};
+use std::sync::Arc;
+
+/// Middleware to enforce session authentication.
+///
+/// Extracts the session token from the `Authorization: Bearer <token>` header
+/// OR from the `token` query parameter (common for direct downloads).
+/// Validates the token against the Redis session store. Rejects unauthenticated
+/// requests with 401 Unauthorized.
+pub async fn require_session(
+  state: axum::extract::State<Arc<AppState>>,
+  req: Request<Body>,
+  next: Next,
+) -> Result<Response, StatusCode> {
+  let mut token = None;
+
+  // 1. Check Authorization header
+  if let Some(auth_header) = req
+    .headers()
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|h| h.to_str().ok())
+  {
+    if auth_header.starts_with("Bearer ") {
+      token = Some(auth_header[7..].to_string());
+    }
+  }
+
+  // 2. Fallback to query parameter (common for direct downloads via <a> tags)
+  if token.is_none() {
+    if let Some(query) = req.uri().query() {
+      if let Ok(params) = serde_urlencoded::from_str::<
+        std::collections::HashMap<String, String>,
+      >(query)
+      {
+        if let Some(t) = params.get("token") {
+          token = Some(t.clone());
+        }
+      }
+    }
+  }
+
+  if let Some(token) = token {
+    if state.session_store.validate(&token).is_some() {
+      return Ok(next.run(req).await);
+    } else {
+      let masked = if token.len() > 8 {
+        format!("{}…{}", &token[..4], &token[token.len() - 4..])
+      } else {
+        "***".to_string()
+      };
+      log::warn!(
+        "Unauthorized access to {}: Invalid or expired token ({}...)",
+        req.uri().path(),
+        masked
+      );
+    }
+  } else {
+    log::warn!(
+      "Unauthorized access to {}: No token found in header or query",
+      req.uri().path()
+    );
+  }
+
+  Err(StatusCode::UNAUTHORIZED)
 }
 
 pub mod auth_handlers;

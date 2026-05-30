@@ -107,11 +107,15 @@ impl SIMDProcessor for NativeProcessor {
     if self.window_type != WindowType::None
       && self.window_type != WindowType::Rectangular
     {
-      let window_coeffs = self.get_window_coeffs();
+      if self.window_cache.is_none() {
+        self.window_cache =
+          Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
+      }
+      let window_coeffs = self.window_cache.as_deref().unwrap();
       crate::simd::arm_optimized_common::ARMOptimizedSIMD::apply_window_arm_optimized(
         &mut self.re_buf,
         &mut self.im_buf,
-        &window_coeffs,
+        window_coeffs,
       );
     }
 
@@ -122,9 +126,20 @@ impl SIMDProcessor for NativeProcessor {
 
     self.fft.process(&mut self.complex_buf);
 
-    for i in 0..self.fft_size {
-      self.re_buf[i] = self.complex_buf[i].re;
-      self.im_buf[i] = self.complex_buf[i].im;
+    // Deinterleave Complex → split re/im + FFT-shift in one pass.
+    // Standard FFT output has DC at index 0; we need DC in the center.
+    // Instead of copying to re/im then calling rotate_right(half) (which is
+    // 3× reverse = 3 full scans), we split-copy directly into the correct
+    // positions: second half of FFT output → first half of output, first
+    // half → second half.
+    let half = self.fft_size / 2;
+    for i in 0..half {
+      self.re_buf[i] = self.complex_buf[i + half].re;
+      self.im_buf[i] = self.complex_buf[i + half].im;
+    }
+    for i in 0..half {
+      self.re_buf[i + half] = self.complex_buf[i].re;
+      self.im_buf[i + half] = self.complex_buf[i].im;
     }
 
     let window_sum =
@@ -134,9 +149,6 @@ impl SIMDProcessor for NativeProcessor {
     crate::simd::arm_optimized_common::ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
       &self.re_buf, &self.im_buf, output, inv_norm,
     );
-
-    let half = self.fft_size / 2;
-    output.rotate_right(half);
 
     Ok(())
   }
@@ -182,15 +194,6 @@ impl NativeProcessor {
     output: &mut [f32],
   ) -> Result<()> {
     <Self as SIMDProcessor>::process_samples(self, samples, output)
-  }
-
-  /// Get or compute window coefficients using common function
-  fn get_window_coeffs(&mut self) -> Vec<f32> {
-    if self.window_cache.is_none() {
-      self.window_cache =
-        Some(WindowFunctions::get_coeffs(self.window_type, self.fft_size));
-    }
-    self.window_cache.as_ref().unwrap().clone()
   }
 }
 

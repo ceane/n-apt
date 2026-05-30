@@ -46,63 +46,75 @@ export const usePlaybackAnimation = ({
 
   const animateFrame = useCallback(
     (timestamp: number, forceFrame = false) => {
-      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
+      const channelData = allChannelsRef.current[activeChannel];
+      if (!channelData) return;
+
+      const frameRate = channelData.frame_rate || 30;
+      const frameInterval = 1000 / frameRate;
+
+      // Reset timer if we just started or resumed from pause
+      if (!lastFrameTimeRef.current || forceFrame) {
+        lastFrameTimeRef.current = timestamp;
+      }
+
       const elapsed = timestamp - lastFrameTimeRef.current;
 
-      const channelData = allChannelsRef.current[activeChannel];
-      if (channelData) {
-        const frameRate = channelData.frame_rate || 30;
-        const frameInterval = 1000 / frameRate;
-
-        if (elapsed >= frameInterval || forceFrame) {
-          // Rebuild cached values only when the channel object changes
-          if (cachedChannelIdRef.current !== channelData) {
-            cachedChannelIdRef.current = channelData;
-            const iqData = channelData.iq_data || channelData.iq;
-            if (iqData && iqData.length > 0) {
-              // Zero-copy when already Uint8Array (our worker now always provides this)
-              cachedIqRef.current =
-                iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-              const fftSize = channelData.bins_per_frame || 2048;
-              cachedChunkSizeRef.current = fftSize * 2;
-              cachedTotalFramesRef.current = Math.max(
-                1,
-                Math.floor(
-                  cachedIqRef.current.length / cachedChunkSizeRef.current,
-                ),
-              );
-
-              // Auto-reset frame index when channel changes or at start
-              iqFrameIdxRef.current = 0;
-            } else {
-              cachedIqRef.current = null;
-            }
-          }
-
-          const fullIq = cachedIqRef.current;
-          if (fullIq) {
-            const chunkSize = cachedChunkSizeRef.current;
-            const totalFrames = cachedTotalFramesRef.current;
-            const frameIdx = iqFrameIdxRef.current % totalFrames;
-            const offset = frameIdx * chunkSize;
-            const chunk = fullIq.subarray(
-              offset,
-              Math.min(fullIq.length, offset + chunkSize),
+      // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
+      if (elapsed >= frameInterval - 4 || forceFrame) {
+        // Rebuild cached values only when the channel object changes
+        if (cachedChannelIdRef.current !== channelData) {
+          cachedChannelIdRef.current = channelData;
+          const iqData = channelData.iq_data || channelData.iq;
+          if (iqData && iqData.length > 0) {
+            // Zero-copy when already Uint8Array (our worker now always provides this)
+            cachedIqRef.current =
+              iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+            const fftSize = channelData.bins_per_frame || 2048;
+            cachedChunkSizeRef.current = fftSize * 2;
+            cachedTotalFramesRef.current = Math.max(
+              1,
+              Math.floor(
+                cachedIqRef.current.length / cachedChunkSizeRef.current,
+              ),
             );
-            iqFrameIdxRef.current = frameIdx + 1;
 
-            if (chunk.length >= 2) {
-              fftCanvasDataRef.current = {
-                type: "spectrum",
-                center_frequency_hz: channelData.center_freq_hz,
-                sample_rate: channelData.sample_rate_hz,
-                data_type: "iq_raw",
-                iq_data: chunk,
-              };
-              onFrameEmitted?.();
-            }
+            // Auto-reset frame index when channel changes or at start
+            iqFrameIdxRef.current = 0;
+          } else {
+            cachedIqRef.current = null;
           }
+        }
+
+        const fullIq = cachedIqRef.current;
+        if (fullIq) {
+          const chunkSize = cachedChunkSizeRef.current;
+          const totalFrames = cachedTotalFramesRef.current;
+          const frameIdx = iqFrameIdxRef.current % totalFrames;
+          const offset = frameIdx * chunkSize;
+          const chunk = fullIq.subarray(
+            offset,
+            Math.min(fullIq.length, offset + chunkSize),
+          );
+          iqFrameIdxRef.current = frameIdx + 1;
+
+          if (chunk.length >= 2) {
+            fftCanvasDataRef.current = {
+              type: "spectrum",
+              center_frequency_hz: channelData.center_freq_hz,
+              sample_rate: channelData.sample_rate_hz,
+              data_type: "iq_raw",
+              iq_data: chunk,
+            };
+            onFrameEmitted?.();
+          }
+        }
+
+        // Adjust lastFrameTime by the interval to maintain cadence
+        // but don't let it drift too far behind actual time (e.g. more than 2 frames)
+        if (elapsed > frameInterval * 2) {
           lastFrameTimeRef.current = timestamp;
+        } else {
+          lastFrameTimeRef.current += frameInterval;
         }
       }
     },

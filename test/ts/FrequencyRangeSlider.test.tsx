@@ -115,4 +115,79 @@ describe("FrequencyRangeSlider", () => {
     // Should not call onRangeChange because drag is disabled in readOnly
     expect(onRangeChange).not.toHaveBeenCalled();
   });
+
+  test("respects disabled mode without allowing drag interaction", () => {
+    const onRangeChange = jest.fn();
+    const onActivate = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          disabled={true}
+          onActivate={onActivate}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const sliderWrapper = screen.getByText("A").parentElement?.parentElement;
+    if (sliderWrapper) {
+      expect(sliderWrapper).toHaveStyle({ opacity: "0.5" });
+    }
+
+    const slider = screen.getByText("A").closest("div")?.nextElementSibling;
+    if (slider) {
+      fireEvent.click(slider);
+    }
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    if (thumb) {
+      fireEvent.mouseDown(thumb, { clientX: 100 });
+      fireEvent.mouseMove(window, { clientX: 150 });
+      fireEvent.mouseUp(window);
+    }
+
+    expect(onActivate).toHaveBeenCalled();
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
+
+  test("caps wide sample-rate windows to the channel track and channel labels", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={20_018_000}
+          sampleRateHz={300_000}
+          allowWideSampleRateOverscan={true}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/18kHz.*-.*318kHz/).parentElement;
+    expect(thumb).toBeInTheDocument();
+    expect(screen.queryByText(/20\.018MHz/)).not.toBeInTheDocument();
+  });
+
+  test("fills the channel when sample rate is larger than the channel span", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={20_018_000}
+          sampleRateHz={20_000_000}
+          allowWideSampleRateOverscan={true}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/18kHz.*-.*4\.39MHz/).parentElement;
+    expect(thumb).toBeInTheDocument();
+    expect(thumb).toHaveStyle({ width: "100%" });
+  });
 });

@@ -410,16 +410,16 @@ export const DrawSignalRoute: React.FC = () => {
           >
             <ChevronLeft size={16} />
           </PageArrow>
-            <PageArrow
-              type="button"
-              aria-label="Next section"
-              onClick={() =>
-                setPageIndex((current) => Math.min(pageCount - 1, current + 1))
-              }
-              disabled={pageIndex === pageCount - 1}
-            >
-              <ChevronRight size={16} />
-            </PageArrow>
+          <PageArrow
+            type="button"
+            aria-label="Next section"
+            onClick={() =>
+              setPageIndex((current) => Math.min(pageCount - 1, current + 1))
+            }
+            disabled={pageIndex === pageCount - 1}
+          >
+            <ChevronRight size={16} />
+          </PageArrow>
         </PageControls>
       </Header>
 
@@ -430,7 +430,10 @@ export const DrawSignalRoute: React.FC = () => {
               <CanvasElement ref={canvasRef} />
             ) : (
               <MathOverlay>
-                <DecryptionFallback moduleName="Spike-EQ Math" errorType="latex" />
+                <DecryptionFallback
+                  moduleName="Spike-EQ Math"
+                  errorType="latex"
+                />
               </MathOverlay>
             )}
 
@@ -451,9 +454,9 @@ export const DrawSignalRoute: React.FC = () => {
                 <InfoItem>
                   Spike Width:{" "}
                   <InfoValue>
-                    {(drawParams[state.activeClumpIndex]?.spikeWidth ?? 0).toFixed(
-                      2,
-                    )}
+                    {(
+                      drawParams[state.activeClumpIndex]?.spikeWidth ?? 0
+                    ).toFixed(2)}
                   </InfoValue>
                 </InfoItem>
                 <InfoItem>
@@ -497,7 +500,8 @@ export const DrawSignalRoute: React.FC = () => {
                         <pointLight position={[20, 20, 20]} />
                         <RadiationLobe3D
                           frequency={
-                            drawParams[state.activeClumpIndex]?.centerOffset || 1.5
+                            drawParams[state.activeClumpIndex]?.centerOffset ||
+                            1.5
                           }
                           aperture={0.04}
                           height={5}
@@ -512,12 +516,13 @@ export const DrawSignalRoute: React.FC = () => {
                       <PolarRadioWaveWebGPU
                         aperture={40}
                         beamWidth={
-                          (drawParams[state.activeClumpIndex]?.spikeWidth ?? 0.1) *
-                          200
+                          (drawParams[state.activeClumpIndex]?.spikeWidth ??
+                            0.1) * 200
                         }
                         rotation={0}
                         frequency={
-                          drawParams[state.activeClumpIndex]?.centerOffset ?? 1.5
+                          drawParams[state.activeClumpIndex]?.centerOffset ??
+                          1.5
                         }
                       />
                     </PolarPane>

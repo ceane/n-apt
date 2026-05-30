@@ -9,6 +9,7 @@ import themeSlice from "../../src/ts/redux/slices/themeSlice";
 import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
 import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
+import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { THEME_TOKENS } from "../../src/ts/consts";
 
@@ -30,6 +31,7 @@ export function createTestStore() {
       settings: settingsSlice,
       websocket: websocketSlice,
       snapshot: snapshotSlice,
+      demod: demodSlice,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({

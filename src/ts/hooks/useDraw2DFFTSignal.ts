@@ -1,5 +1,9 @@
 import { useCallback, useRef } from "react";
 import {
+  createCanvasVfoAxisContext,
+  drawVfoAxis,
+} from "@n-apt/utils/rendering/vfoAxis";
+import {
   LINE_COLOR,
   SHADOW_COLOR,
   VERTICAL_RANGE,
@@ -19,6 +23,41 @@ const readCssColor = (name: string, fallback: string) => {
     .getPropertyValue(name)
     .trim();
   return value || fallback;
+};
+
+const getDarkerColor = (colorStr: string) => {
+  if (!colorStr) return "rgba(170, 30, 30, 0.8)";
+  if (colorStr.startsWith("rgba")) {
+    const match = colorStr.match(
+      /rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
+    );
+    if (match) {
+      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
+      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
+      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
+      return `rgba(${r}, ${g}, ${b}, 0.8)`;
+    }
+  }
+  if (colorStr.startsWith("rgb")) {
+    const match = colorStr.match(
+      /rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/,
+    );
+    if (match) {
+      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
+      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
+      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  }
+  if (colorStr.startsWith("#")) {
+    const hex = colorStr.substring(1);
+    const num = parseInt(hex, 16);
+    const r = Math.max(0, Math.round(((num >> 16) & 0xff) * 0.75));
+    const g = Math.max(0, Math.round(((num >> 8) & 0xff) * 0.75));
+    const b = Math.max(0, Math.round((num & 0xff) * 0.75));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  return "rgba(170, 30, 30, 0.8)";
 };
 
 const getCanvasThemeColors = () => ({
@@ -236,34 +275,9 @@ export function useDraw2DFFTSignal() {
       ctx.lineTo(leftPad, fftAreaMax.y - 1);
       ctx.stroke();
 
-      if (limitMarkers.length > 0) {
-        ctx.save();
-        ctx.strokeStyle = canvasTheme.boundaryLine;
-        ctx.fillStyle = canvasTheme.boundaryText;
-        ctx.lineWidth = 1 / dpr;
-        ctx.font = "10px JetBrains Mono";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
+      void limitMarkers;
 
-        for (const marker of limitMarkers) {
-          if (!Number.isFinite(marker.freq)) continue;
-          if (marker.freq < minFreq || marker.freq > maxFreq) continue;
-
-          const x = Math.round(freqToX(marker.freq)) + 0.5;
-          ctx.beginPath();
-          ctx.moveTo(x, topPad);
-          ctx.lineTo(x, fftAreaMax.y);
-          ctx.stroke();
-
-          const textX = Math.max(
-            leftPad + 45,
-            Math.min(fftAreaMax.x - 45, x),
-          );
-          ctx.fillText(marker.label, textX, topPad + 45);
-        }
-
-        ctx.restore();
-      }
+      void fullCaptureRange;
 
       // Draw mathematical hardware block boundaries if applicable
       const anchorRange = fullCaptureRange || frequencyRange;
@@ -274,7 +288,6 @@ export function useDraw2DFFTSignal() {
       if (shouldShowHWGrid) {
         ctx.save();
         ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
-        ctx.setLineDash([4, 4]); // Dashed line
         ctx.lineWidth = 1 / dpr;
         ctx.fillStyle = textColor ?? canvasTheme.textColor;
         ctx.font = "10px JetBrains Mono";
@@ -391,22 +404,22 @@ export function useDraw2DFFTSignal() {
 
       ctx.fillStyle = SHADOW_COLOR;
       ctx.beginPath();
-      ctx.moveTo(Math.round(idxToX(0)), fftAreaMax.y);
+      ctx.moveTo(idxToX(0), fftAreaMax.y);
       for (let i = 0; i < dataWidth; i++) {
-        ctx.lineTo(Math.round(idxToX(i)), Math.round(clampY(waveformArray[i])));
+        ctx.lineTo(idxToX(i), clampY(waveformArray[i]));
       }
-      ctx.lineTo(Math.round(idxToX(dataWidth - 1)), fftAreaMax.y);
+      ctx.lineTo(idxToX(dataWidth - 1), fftAreaMax.y);
       ctx.closePath();
       ctx.fill();
 
       ctx.strokeStyle = LINE_COLOR;
-      ctx.lineWidth = (width < 700 ? 0.5 : 1) / dpr;
+      ctx.lineWidth = Math.max(1, (width < 700 ? 0.75 : 1.5) / dpr);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
       for (let i = 0; i < dataWidth; i++) {
-        const x = Math.round(idxToX(i));
-        const y = Math.round(clampY(waveformArray[i]));
+        const x = idxToX(i);
+        const y = clampY(waveformArray[i]);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -483,35 +496,44 @@ export function useDraw2DFFTSignal() {
         }
       }
 
-      if (Number.isFinite(centerFrequencyHz)) {
-        // Always draw center line at the exact middle of the plot area
-        // Using freqToX(centerFrequencyHz) causes drift when zoomed
-        const cx = Math.round((leftPad + fftAreaMax.x) / 2) + 0.5;
-        ctx.save();
-        ctx.strokeStyle = "rgba(220, 255, 0, 0.7)";
-        ctx.lineWidth = 1 / dpr;
-        ctx.beginPath();
-        ctx.moveTo(cx, topPad);
-        ctx.lineTo(cx, fftAreaMax.y);
-        ctx.stroke();
-        ctx.restore();
-      }
-
       const visualCenterFreq = (minFreq + maxFreq) / 2;
-      const centerLabel =
-        Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
-          ? "✋  -- MHz"
-          : `✋  ${formatFreq(visualCenterFreq)}`;
-
-      ctx.save();
-      ctx.font = "12px JetBrains Mono";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "alphabetic";
-      const labelX = width / 2;
-      const labelY = fftAreaMax.y + 25;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(centerLabel, labelX, labelY);
-      ctx.restore();
+      drawVfoAxis({
+        ctx: createCanvasVfoAxisContext(ctx),
+        frequencyRange: { min: minFreq, max: maxFreq },
+        centerFrequencyHz: Number.isFinite(visualCenterFreq)
+          ? visualCenterFreq
+          : centerFrequencyHz,
+        bounds: {
+          left: leftPad,
+          right: fftAreaMax.x,
+          top: topPad,
+          bottom: fftAreaMax.y,
+        },
+        y: fftAreaMax.y,
+        labelY: fftAreaMax.y + 25,
+        orientation: "bottom",
+        tickDirection: "down",
+        targetTicks: 10,
+        showAxisLine: false,
+        showEdgeLabels: false,
+        showTickMarks: false,
+        showTickLabels: false,
+        showCenterLine: Number.isFinite(centerFrequencyHz),
+        centerLineTop: topPad,
+        centerLineBottom: fftAreaMax.y,
+        icon: "hand",
+        theme: {
+          tick: canvasTheme.textColor,
+          label: canvasTheme.textColor,
+          center: "#ffffff",
+          centerLine: "rgba(220, 255, 0, 0.7)",
+        },
+        fontPx: 12,
+        centerFontPx: 12,
+        textBaseline: "alphabetic",
+        useHighResLabels: useHighRes,
+        lineWidth: 1 / dpr,
+      });
     },
     [],
   );
@@ -562,21 +584,21 @@ export function useDraw2DFFTSignal() {
       try {
         if (highPerformanceMode) {
           // High performance mode: minimal drawing
-        if (showGrid) {
-          drawSpectrumGrid(
-            ctx,
-            cssWidth,
-            cssHeight,
-            frequencyRange,
-            fftMin,
-            fftMax,
-            powerScale,
-            true,
-            nodePreview,
-            hardwareSampleRateHz,
-            fullCaptureRange,
-            limitMarkers,
-          );
+          if (showGrid) {
+            drawSpectrumGrid(
+              ctx,
+              cssWidth,
+              cssHeight,
+              frequencyRange,
+              fftMin,
+              fftMax,
+              powerScale,
+              true,
+              nodePreview,
+              hardwareSampleRateHz,
+              fullCaptureRange,
+              limitMarkers,
+            );
           } else {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -598,17 +620,17 @@ export function useDraw2DFFTSignal() {
           if (showGrid && displayMode === "fft") {
             drawSpectrumGrid(
               ctx,
-            cssWidth,
-            cssHeight,
-            frequencyRange,
-            fftMin,
-            fftMax,
-            powerScale,
-            true,
-            nodePreview,
-            hardwareSampleRateHz,
-            fullCaptureRange,
-          );
+              cssWidth,
+              cssHeight,
+              frequencyRange,
+              fftMin,
+              fftMax,
+              powerScale,
+              true,
+              nodePreview,
+              hardwareSampleRateHz,
+              fullCaptureRange,
+            );
           } else {
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, cssWidth, cssHeight);

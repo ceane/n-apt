@@ -15,6 +15,7 @@ import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
+import noteCardsMiddleware from "@n-apt/redux/middleware/noteCardsMiddleware";
 import localStorageMiddleware, {
   loadPersistedSdrSettings,
   loadPersistedTheme,
@@ -58,7 +59,7 @@ export const store = configureStore({
         ignoredPaths: ["persistedState"],
         ignoredActionPaths: ["payload.aesKey", "meta.arg.aesKey"],
       },
-    }).concat(websocketMiddleware, localStorageMiddleware),
+    }).concat(websocketMiddleware, localStorageMiddleware, noteCardsMiddleware),
   devTools: process.env.NODE_ENV !== "production",
 });
 

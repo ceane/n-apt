@@ -40,14 +40,14 @@ const Dialog = styled.dialog`
 `;
 
 const Title = styled.div`
-  font-size: 16px;
+  font-size: ${({ theme }) => theme.typography.headingSize};
   font-weight: 700;
   color: ${({ theme }) => theme.textPrimary};
   margin-bottom: 12px;
 `;
 
 const Message = styled.div`
-  font-size: 13px;
+  font-size: ${({ theme }) => theme.typography.bodySize};
   color: ${({ theme }) => theme.textSecondary};
   line-height: 1.5;
   margin-bottom: 20px;
@@ -83,7 +83,7 @@ const Button = styled.button<{ $variant?: "primary" | "danger" }>`
   border: none;
   border-radius: 6px;
   padding: 10px 16px;
-  font-size: 12px;
+  font-size: ${({ theme }) => theme.typography.codeSize};
   font-weight: 600;
   font-family: ${({ theme }) => theme.typography?.mono || "JetBrains Mono"};
   cursor: pointer;
