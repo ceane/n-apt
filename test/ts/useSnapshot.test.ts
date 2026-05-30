@@ -237,6 +237,45 @@ describe("fast snapshot canvases", () => {
     ).toBe(true);
   });
 
+  it("prefers the persisted waterfall buffer for fast waterfall snapshots", () => {
+    global.clearCanvasCalls?.();
+
+    const canvas = buildFastWaterfallCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        vizZoom: 1,
+        vizPanOffset: 0,
+        dbMin: -120,
+        dbMax: 0,
+        waterfallBuffer: new Uint8ClampedArray([
+          10, 20, 30, 255, 40, 50, 60, 255,
+        ]),
+        waterfallDims: { width: 1, height: 2 },
+      } as any,
+      320,
+      180,
+      { min: 18_000, max: 3_218_000 },
+      null,
+      {
+        background: "#000000",
+        grid: "#333333",
+        tick: "#777777",
+        label: "#777777",
+        center: "#fefefe",
+      },
+    );
+
+    expect(canvas).toBeTruthy();
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          call.args.length >= 3 &&
+          call.args[0] !== undefined,
+      ),
+    ).toBe(true);
+  });
+
   it("renders the demod channel band on fast spectrum snapshots", () => {
     const spectrumGpu = document.createElement("canvas");
     spectrumGpu.width = 640;
@@ -439,13 +478,29 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines).toEqual([
-      "4.38MHz – 4.39MHz",
+      "4.380.001MHz – 4.389.999MHz",
       "2026-05-18 09:05:26 America/Los_Angeles",
       "Device Name: Mock APT SDR",
       "Onscreen / partial Channel A",
       "FFT size (# of points): 2048",
       "Gain: 49.6dB | PPM: 1",
     ]);
+  });
+
+  it("uses dot-grouped formatting for MHz snapshot ranges", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 2_201_269, max: 2_206_731 },
+      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      deviceName: "Mock APT SDR",
+      channelName: "A",
+      whole: false,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[0]).toBe("2.201.269MHz – 2.206.731MHz");
   });
 
   it("uses whole-channel label when whole is true", () => {

@@ -20,7 +20,9 @@ export type VfoAxisContentBounds = {
 export type VfoAxisTheme = {
   grid?: string;
   tick: string;
+  edgeTick?: string;
   label: string;
+  edgeLabel?: string;
   center: string;
   centerLine?: string;
 };
@@ -118,13 +120,13 @@ export function formatVfoAxisEdgeLabel(
   freq: number,
   useHighRes: boolean,
   stepHz: number,
-  precision?: VfoAxisPrecision,
 ): string {
   if (useHighRes) return formatFrequencyHighRes(freq);
+  if (Math.abs(freq) >= 1_000_000) return formatFrequencyHighRes(freq);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
-    precisionMHz: precision?.edgeMHz ?? 6,
-    precisionKHz: precision?.edgeKHz ?? 3,
+    precisionMHz: 4,
+    precisionKHz: 0,
   });
 }
 
@@ -233,13 +235,11 @@ export function drawVfoAxis({
     frequencyRange.min,
     useHighRes,
     stepHz,
-    precision,
   );
   const endLabel = formatVfoAxisEdgeLabel(
     frequencyRange.max,
     useHighRes,
     stepHz,
-    precision,
   );
   const centerText =
     typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
@@ -260,6 +260,8 @@ export function drawVfoAxis({
           Math.max(bounds.left, freqToX(centerFrequencyHz)),
         )
       : bounds.left + plotWidth / 2;
+  const edgeTickColor = theme.edgeTick ?? theme.tick;
+  const edgeLabelColor = theme.edgeLabel ?? theme.label;
 
   ctx.save();
   ctx.setStroke(theme.tick, lineWidth);
@@ -276,7 +278,7 @@ export function drawVfoAxis({
   }
 
   if (showEdgeLabels) {
-    ctx.setFill(theme.label);
+    ctx.setFill(edgeLabelColor);
     ctx.setTextAlign("left");
     ctx.fillText(startLabel, bounds.left, labelY);
     ctx.setTextAlign("right");
@@ -305,6 +307,9 @@ export function drawVfoAxis({
 
   const shouldDrawCenterTick =
     showCenterTick ?? (!!centerLabel && !showCenterLine && showTickMarks);
+  const drawMinorTicks = showTickMarks && stepHz >= 1_000;
+  const minorOffsets =
+    stepHz >= 50_000 ? [0.25, 0.5, 0.75] : stepHz >= 10_000 ? [0.5] : [0.5];
 
   for (
     let freq = lowerFreq;
@@ -326,9 +331,7 @@ export function drawVfoAxis({
       ctx.stroke();
     }
 
-    if (showTickMarks && stepHz >= 1_000) {
-      const minorOffsets =
-        stepHz >= 50_000 ? [0.25, 0.5, 0.75] : stepHz >= 10_000 ? [0.5] : [0.5];
+    if (drawMinorTicks) {
       for (const offset of minorOffsets) {
         const minorFreq = freq + stepHz * offset;
         if (minorFreq >= frequencyRange.max) continue;
@@ -353,6 +356,39 @@ export function drawVfoAxis({
       ctx.setTextAlign("center");
       ctx.fillText(label, x, labelY);
       occupy(x, label);
+    }
+  }
+
+  if (drawMinorTicks && lowerFreq > frequencyRange.min) {
+    for (const offset of minorOffsets) {
+      const minorFreq = frequencyRange.min + stepHz * offset;
+      if (minorFreq >= lowerFreq || minorFreq >= frequencyRange.max) continue;
+      const mx = freqToX(minorFreq);
+      ctx.beginPath();
+      if (tickDirection === "down") {
+        ctx.moveTo(Math.round(mx), y + 2);
+        ctx.lineTo(Math.round(mx), y + 2 + minorTickLength);
+      } else {
+        ctx.moveTo(Math.round(mx), y - 2 - minorTickLength);
+        ctx.lineTo(Math.round(mx), y - 2);
+      }
+      ctx.stroke();
+    }
+  }
+
+  if (showTickMarks) {
+    for (const edgeFreq of [frequencyRange.min, frequencyRange.max]) {
+      const edgeX = Math.round(freqToX(edgeFreq));
+      ctx.setStroke(edgeTickColor, lineWidth);
+      ctx.beginPath();
+      if (tickDirection === "down") {
+        ctx.moveTo(edgeX, y);
+        ctx.lineTo(edgeX, y + tickLength);
+      } else {
+        ctx.moveTo(edgeX, y - tickLength);
+        ctx.lineTo(edgeX, y);
+      }
+      ctx.stroke();
     }
   }
 

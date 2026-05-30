@@ -14,7 +14,7 @@ import {
 } from "@n-apt/redux/slices/notificationsSlice";
 import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs } from "@n-apt/utils/formatters";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatChannelFreq, formatFrequency } from "@n-apt/utils/frequency";
 import {
   AlertTriangle,
   Clock,
@@ -803,7 +803,7 @@ export const IQCaptureControlsSection: React.FC<
     if (!hz || Number.isNaN(hz)) {
       return "0 Hz";
     }
-    return formatFrequency(hz);
+    return formatChannelFreq(hz);
   };
 
   const handleGeolocationToggle = async (enabled: boolean) => {

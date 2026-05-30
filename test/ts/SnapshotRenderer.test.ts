@@ -331,6 +331,64 @@ describe("SnapshotRenderer", () => {
     );
   });
 
+  it("draws a terminal vertical grid line at the visible frequency range max", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper(
+        { x: 10, y: 20, width: 300, height: 180 },
+        { min: 100, max: 140 },
+        { min: -120, max: 0 },
+        1,
+      ),
+      {
+        bg: "#000",
+        grid: "#111",
+        line: "#222",
+        shadow: "#333",
+        text: "#fff",
+        hwLine: "#444",
+        hwText: "#555",
+        cfText: "#666",
+      },
+    );
+
+    const strokes: Array<Array<[number, number]>> = [];
+    const mockContext = {
+      setStroke: jest.fn(),
+      setFill: jest.fn(),
+      setFont: jest.fn(),
+      setScaledFont: jest.fn(),
+      setTextAlign: jest.fn(),
+      setTextBaseline: jest.fn(),
+      setLineJoin: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(() => {
+        strokes.push([
+          ...((mockContext.moveTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
+          ...((mockContext.lineTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
+        ]);
+      }),
+      fill: jest.fn(),
+      closePath: jest.fn(),
+      fillRect: jest.fn(),
+      roundRect: jest.fn(),
+      fillText: jest.fn(),
+      measureTextWidth: jest.fn((text: string) => text.length * 6),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clipRect: jest.fn(),
+    } as any;
+
+    renderer.drawGridLines(mockContext, [-120, -90, -60, -30, 0]);
+
+    const edgeLineCalls = (mockContext.moveTo as jest.Mock).mock.calls.filter(
+      ([x, y]) => x === 310 && y === 20,
+    );
+    expect(edgeLineCalls.length).toBeGreaterThan(0);
+    expect(mockContext.lineTo).toHaveBeenCalledWith(310, 200);
+  });
+
   it("moves the channel label away from the stats box", () => {
     const renderer = new SnapshotRenderer(
       new CoordinateMapper(

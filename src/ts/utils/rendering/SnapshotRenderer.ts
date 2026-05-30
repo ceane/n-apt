@@ -403,6 +403,9 @@ export class SnapshotRenderer {
       dc.moveTo(x, area.y);
       dc.lineTo(x, area.y + area.height);
     }
+    const maxEdgeX = this.mapper.freqToX(freqRange.max);
+    dc.moveTo(maxEdgeX, area.y);
+    dc.lineTo(maxEdgeX, area.y + area.height);
     dc.stroke();
   }
 

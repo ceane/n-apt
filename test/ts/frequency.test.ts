@@ -28,6 +28,11 @@ describe("Frequency Utilities", () => {
       expect(formatFrequency(100000000)).toBe("100.0MHz");
     });
 
+    test("should support dot-grouped high-resolution formatting", () => {
+      expect(formatFrequencyHighRes(2_201_269)).toBe("2.201.269MHz");
+      expect(formatFrequencyHighRes(2_204_000)).toBe("2.204.000MHz");
+    });
+
     test("should format frequencies in GHz", () => {
       expect(formatFrequency(1500000000)).toBe("1.5GHz");
       expect(formatFrequency(1000000000)).toBe("1.0GHz");
@@ -181,6 +186,7 @@ describe("Frequency Utilities", () => {
       expect(formatChannelFreq(137500999)).toBe("137.500MHz");
       expect(formatChannelFreq(137500000)).toBe("137.5MHz");
       expect(formatChannelFreq(4399999)).toBe("4.399MHz");
+      expect(formatChannelFreq(2204000)).toBe("2.204MHz");
 
       // kHz case
       expect(formatChannelFreq(18999.9)).toBe("18.999kHz");

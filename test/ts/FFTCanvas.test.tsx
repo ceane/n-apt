@@ -12,6 +12,11 @@ import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
 import { createRef } from "react";
 
+const processIqToDbmSpectrumMock = jest.fn(
+  () => new Float32Array([1, 2, 3]),
+);
+const cleanupSpectrumMock = jest.fn();
+
 // Mock useAuthentication to avoid auth errors during state init
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
@@ -27,7 +32,7 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     isSimdAvailable: false,
     resampleSpectrum: jest.fn(),
     processIqToSpectrum: jest.fn(),
-    processIqToDbmSpectrum: jest.fn(),
+    processIqToDbmSpectrum: processIqToDbmSpectrumMock,
     shiftWaterfallBuffer: jest.fn(),
     applyColorMapping: jest.fn(),
     getZoomedData: jest.fn((params) => ({
@@ -40,6 +45,13 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     detectProminentSpikes: jest.fn(() => []),
     resampleSpectrumEnhanced: jest.fn(),
     matchNoiseFloorDb: jest.fn((ref, target) => target),
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
+  useSpectrumRenderer: () => ({
+    drawSpectrum: jest.fn(() => true),
+    cleanup: cleanupSpectrumMock,
   }),
 }));
 
@@ -327,5 +339,64 @@ describe("FFTCanvas Component", () => {
     expect(getLatestLiveFrame([firstFrame, latestFrame])).toBe(latestFrame);
     expect(getLatestLiveFrame(firstFrame)).toBe(firstFrame);
     expect(getLatestLiveFrame([])).toBeNull();
+  });
+
+  it("reprocesses the live frame when fftWindow changes without temporal resolution changes", async () => {
+    processIqToDbmSpectrumMock.mockClear();
+    const liveFrame = {
+      iq_data: new Uint8Array(2048).fill(128),
+      sample_rate: 2_000_000,
+      center_frequency_hz: 100_000_000,
+    };
+
+    const { rerender } = render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                fftWindow="Rectangular"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock).toHaveBeenCalled();
+    });
+
+    const callCountAfterRect = processIqToDbmSpectrumMock.mock.calls.length;
+
+    rerender(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                fftWindow="Nuttall"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock.mock.calls.length).toBeGreaterThan(
+        callCountAfterRect,
+      );
+    });
+
+    const lastCall =
+      processIqToDbmSpectrumMock.mock.calls[
+        processIqToDbmSpectrumMock.mock.calls.length - 1
+      ] as any[] | undefined;
+    expect(lastCall?.[3]).toBe("Nuttall");
   });
 });

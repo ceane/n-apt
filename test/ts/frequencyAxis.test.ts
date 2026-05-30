@@ -96,7 +96,7 @@ describe("frequency axis rendering", () => {
 
   it("keeps edge frequency labels visible and drops colliding interior ticks", () => {
     const fillTextCalls = mockCanvasContext((text) => {
-      if (text === "3.5MHz" || text === "3.7MHz") return 80;
+      if (text === "3.500.000MHz" || text === "3.700.000MHz") return 80;
       return text.length * 8;
     });
 
@@ -120,8 +120,12 @@ describe("frequency axis rendering", () => {
     });
 
     expect(fillTextCalls.some((call) => call.text === "496kHz")).toBe(true);
-    expect(fillTextCalls.some((call) => call.text === "3.7MHz")).toBe(true);
-    expect(fillTextCalls.some((call) => call.text === "3.5MHz")).toBe(false);
+    expect(fillTextCalls.some((call) => call.text === "3.700.000MHz")).toBe(
+      true,
+    );
+    expect(fillTextCalls.some((call) => call.text === "3.500.000MHz")).toBe(
+      false,
+    );
   });
 
   it("can align waterfall snapshot labels to a full-width plot", () => {
@@ -147,7 +151,9 @@ describe("frequency axis rendering", () => {
       devicePixelRatio: 2,
     });
 
-    const startLabelCall = fillTextCalls.find((call) => call.text === "2.2MHz");
+    const startLabelCall = fillTextCalls.find(
+      (call) => call.text === "2.200.000MHz",
+    );
 
     expect(startLabelCall).toBeDefined();
     expect(startLabelCall?.align).toBe("left");
@@ -177,9 +183,11 @@ describe("frequency axis rendering", () => {
       devicePixelRatio: 2,
     });
 
-    const startLabelCall = fillTextCalls.find((call) => call.text === "2.2MHz");
+    const startLabelCall = fillTextCalls.find(
+      (call) => call.text === "2.200.000MHz",
+    );
     const centerLabelCall = fillTextCalls.find(
-      (call) => call.text.startsWith("○") && call.text.includes("2.392MHz"),
+      (call) => call.text.startsWith("○") && call.text.includes("2.392"),
     );
     const expectedCenterX =
       80 + ((2_392_000 - 2_200_000) / 400_000) * (baseCanvas.width - 160);
@@ -235,6 +243,35 @@ describe("frequency axis rendering", () => {
     expect(fillTextCalls.some((call) => call.text.includes("33.7"))).toBe(true);
     expect(fillTextCalls.some((call) => call.text.includes("24.7"))).toBe(
       false,
+    );
+  });
+
+  it("renders dot-grouped edge labels for dense MHz snapshots", () => {
+    const fillTextCalls = mockCanvasContext();
+    const baseCanvas = document.createElement("canvas");
+    baseCanvas.width = 2048;
+    baseCanvas.height = 734;
+
+    composeCanvasWithFrequencyAxis({
+      baseCanvas,
+      frequencyRange: { min: 2_201_269, max: 2_206_731 },
+      centerFrequencyHz: 2_204_000,
+      detail: "dense",
+      theme: {
+        background: "#000",
+        grid: "#111",
+        tick: "#333",
+        label: "#777",
+        center: "#fff",
+      },
+      devicePixelRatio: 2,
+    });
+
+    expect(fillTextCalls.some((call) => call.text === "2.201.269MHz")).toBe(
+      true,
+    );
+    expect(fillTextCalls.some((call) => call.text === "2.206.731MHz")).toBe(
+      true,
     );
   });
 

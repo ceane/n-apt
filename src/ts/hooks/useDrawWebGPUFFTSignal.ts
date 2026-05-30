@@ -63,10 +63,18 @@ const installCssObserver = () => {
   const observer = new MutationObserver(() => {
     cssColorCache.clear();
   });
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["style", "class", "data-theme"],
-  });
+  const observeTarget = (target: HTMLElement | null) => {
+    if (!target) return;
+    observer.observe(target, {
+      attributes: true,
+      attributeFilter: ["style", "class", "data-theme"],
+      childList: true,
+      subtree: true,
+    });
+  };
+
+  observeTarget(document.documentElement);
+  observeTarget(document.head);
 };
 
 const readCssColor = (name: string, fallback: string) => {

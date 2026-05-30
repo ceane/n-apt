@@ -67,6 +67,7 @@ import {
   useOverlayRenderer,
   type DemodFocusOverlay,
 } from "@n-apt/hooks/useOverlayRenderer";
+import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -571,6 +572,10 @@ const FFTCanvas = memo(
       drawZoomMarkersOnContext,
     } = useOverlayRenderer();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
+    const themeAppMode = useAppSelector(
+      (reduxState) => reduxState.theme.appMode,
+    );
+    const resolvedThemeMode = useResolvedThemeMode(themeAppMode);
 
     const autoZoomStabilityRef = useRef(autoZoomStability);
     useEffect(() => {
@@ -794,6 +799,8 @@ const FFTCanvas = memo(
     const vizPanOffsetRef = useRef(vizPanOffset);
     const previousPowerScaleRef = useRef(effectivePowerScale);
     const previousFftSizeRef = useRef(effectiveFftSize);
+    const previousFftWindowRef = useRef(fftWindow);
+    const previousTemporalResolutionRef = useRef(displayTemporalResolution);
     const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(
       null,
     );
@@ -1017,6 +1024,22 @@ const FFTCanvas = memo(
     const temporalActiveCountRef = useRef(0);
     const activeTemporalFramesRef = useRef<Float32Array[]>([]);
 
+    const resetTemporalAveragingState = useCallback(() => {
+      temporalFramePoolRef.current.length = 0;
+      temporalWriteIndexRef.current = 0;
+      temporalActiveCountRef.current = 0;
+      activeTemporalFramesRef.current.length = 0;
+    }, []);
+
+    const invalidateSpectrumProcessingCaches = useCallback(() => {
+      lastProcessedDataRef.current = null;
+      lastRenderedPowerScaleRef.current = null;
+      pendingFftSizeChangeRef.current = true;
+      fftProcessedBufferRef.current = null;
+      spectrumOutputBufferRef.current = null;
+      resetTemporalAveragingState();
+    }, [resetTemporalAveragingState]);
+
     // Refs for volatile rendering parameters to stabilize callbacks
     const fftColorRef = useRef(fftColor);
     const fillColorRef = useRef(fillColor);
@@ -1070,6 +1093,12 @@ const FFTCanvas = memo(
       selectionOverlay,
       nodePreview,
     ]);
+
+    useEffect(() => {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [resolvedThemeMode, fftColor, waterfallTheme]);
 
     const forceRenderRef = useRef<(() => void) | null>(null);
 
@@ -1203,8 +1232,6 @@ const FFTCanvas = memo(
       cleanup: cleanupWaterfallRetuneCompute,
     } = useWaterfallRetuneCompute();
 
-    // Simplified renderer initialization
-
     // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
     // This resets the persisted snapshot, CPU history, and WebGPU circular texture.
     useEffect(() => {
@@ -1321,6 +1348,8 @@ const FFTCanvas = memo(
         const isDbmMode = powerScale === "dBm";
         const powerScaleChanged =
           lastRenderedPowerScaleRef.current !== powerScale;
+        const fftWindowChanged =
+          previousFftWindowRef.current !== (fftWindow ?? "Rectangular");
         const hasNewData =
           !isPaused &&
           currentFrame &&
@@ -1329,7 +1358,7 @@ const FFTCanvas = memo(
         const shouldReprocessCurrentFrame = !!(
           currentFrame &&
           (currentFrame === lastProcessedDataRef.current || isPaused) &&
-          powerScaleChanged &&
+          (powerScaleChanged || fftWindowChanged) &&
           !!currentFrame.iq_data
         );
 
@@ -1399,6 +1428,7 @@ const FFTCanvas = memo(
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentFrame;
             lastRenderedPowerScaleRef.current = effectivePowerScale;
+            previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
             // Accumulate frequency-hop data into full-channel composite buffer.
             // This builds a 4096-bin representation of the entire channel span
@@ -1544,6 +1574,7 @@ const FFTCanvas = memo(
           waveformFloatRef.current = processedWaveform;
           lastProcessedDataRef.current = currentFrame;
           lastRenderedPowerScaleRef.current = powerScale;
+          previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
           const prev = renderWaveformRef.current;
           if (!prev || prev.length !== processedWaveform.length) {
@@ -2071,6 +2102,7 @@ const FFTCanvas = memo(
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
+        fftWindow,
         drawMarkersOnContext,
         drawDemodFocusOnContext,
         drawSelectionOverlayOnContext,
@@ -2103,11 +2135,18 @@ const FFTCanvas = memo(
       return () => {};
     }, []);
 
-    // Effect: When temporal resolution (smoothing) changes, reset processing state.
-    // Preserves paused waterfall restore if one is pending.
+    // Effect: Temporal resolution changes alter accumulation cadence and need the
+    // temporal/waterfall restore path. FFT window changes are handled separately
+    // below so they only invalidate spectrum processing, not waterfall state.
     useEffect(() => {
+      if (displayTemporalResolution === previousTemporalResolutionRef.current) {
+        return;
+      }
+
+      previousTemporalResolutionRef.current = displayTemporalResolution;
+
       const hasPendingWaterfallRestore = !!pendingWaterfallRestoreRef.current;
-      lastProcessedDataRef.current = null;
+      invalidateSpectrumProcessingCaches();
       if (!isPaused || !hasPendingWaterfallRestore) {
         pausedWaterfallRowRef.current = null;
         restoredWaterfallRef.current = false;
@@ -2121,8 +2160,31 @@ const FFTCanvas = memo(
         lastProcessedDataRef.current = null;
       }
 
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
       forceRender();
-    }, [displayTemporalResolution, forceRender]);
+    }, [
+      displayTemporalResolution,
+      forceRender,
+      invalidateSpectrumProcessingCaches,
+      isPaused,
+      dataRef,
+    ]);
+
+    // Effect: FFT window changes must reprocess the current frame immediately.
+    // Do not clear waterfall rows/textures here; a new processed row will flow
+    // through the normal render path without visually resetting the history.
+    useEffect(() => {
+      const currentFftWindow = fftWindow ?? "Rectangular";
+      if (previousFftWindowRef.current === currentFftWindow) {
+        return;
+      }
+
+      invalidateSpectrumProcessingCaches();
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRender();
+    }, [fftWindow, forceRender, invalidateSpectrumProcessingCaches]);
 
     // Effect: Trigger render when awaitingDeviceData changes (shows/hides loading placeholder)
     useEffect(() => {

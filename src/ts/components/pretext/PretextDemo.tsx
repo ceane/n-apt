@@ -8,6 +8,7 @@ import {
   PretextStatsBox,
   type PretextStatsBoxRef,
 } from "@n-apt/components/pretext/PretextStatsBox";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 export const PretextDemo: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -85,7 +86,7 @@ export const PretextDemo: React.FC = () => {
       />
 
       <PretextVFOText
-        text={`${(frequency / 1e6).toFixed(2)} MHz`}
+        text={formatFrequency(frequency, { precisionMHz: 2 })}
         font='"JetBrains Mono", monospace'
         frequency={frequency}
         fontSize={20}
@@ -102,7 +103,7 @@ export const PretextDemo: React.FC = () => {
         height={120}
         title="Signal Stats"
         stats={[
-          { label: "Frequency", value: `${(frequency / 1e6).toFixed(2)} MHz` },
+          { label: "Frequency", value: formatFrequency(frequency, { precisionMHz: 2 }) },
           { label: "Signal", value: "-45.2 dBm", color: "#00ff00" },
           { label: "SNR", value: "23.4 dB", color: "#ffff00" },
           { label: "Sample Rate", value: "2.4 MS/s" },
@@ -111,7 +112,7 @@ export const PretextDemo: React.FC = () => {
 
       <div style={{ marginTop: "20px", fontSize: "14px" }}>
         <p>Frequency updates automatically every 2 seconds</p>
-        <p>Current: {(frequency / 1e6).toFixed(2)} MHz</p>
+        <p>Current: {formatFrequency(frequency, { precisionMHz: 2 })}</p>
       </div>
     </div>
   );

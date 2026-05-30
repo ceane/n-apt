@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import { PretextVFODisplay } from "@n-apt/components/pretext/PretextVFODisplay";
 import { PretextGridOverlay } from "@n-apt/components/pretext/PretextGridOverlay";
 import { PretextDBScale } from "@n-apt/components/pretext/PretextDBScale";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 export const VFOGridDemo: React.FC = () => {
   const [frequency, setFrequency] = useState(101.5); // MHz
@@ -151,7 +152,7 @@ export const VFOGridDemo: React.FC = () => {
             style={{ width: "200px" }}
           />
           <span style={{ marginLeft: "10px", fontFamily: "monospace" }}>
-            {frequency.toFixed(2)} MHz
+            {formatFrequency(frequency * 1_000_000, { precisionMHz: 2 })}
           </span>
         </div>
 
@@ -175,7 +176,10 @@ export const VFOGridDemo: React.FC = () => {
             style={{ width: "200px" }}
           />
           <span style={{ marginLeft: "10px", fontFamily: "monospace" }}>
-            {(frequencyRange.max - frequencyRange.min).toFixed(1)} MHz
+            {formatFrequency(
+              (frequencyRange.max - frequencyRange.min) * 1_000_000,
+              { precisionMHz: 1 },
+            )}
           </span>
         </div>
 

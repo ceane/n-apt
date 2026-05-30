@@ -439,14 +439,17 @@ export function useWasmSimdMath(
       output?: Float32Array,
     ) => {
       const requestedFftSize = overrideFftSize ?? fftSize;
+      const normalizedWindowType = normalizeWindowType(windowType);
 
       // The current WASM SIMD processor is compiled around a fixed FFT width.
-      // When the UI asks for a different size, fall back to the scalar path so
-      // the rendered spectrum actually matches the requested FFT size.
+      // It also only represents the rect-window fast path correctly here.
+      // When the UI asks for a different size or window, fall back to the
+      // scalar path so the rendered spectrum actually matches the request.
       if (
         renderingProcessorRef.current &&
         isSimdAvailable &&
-        requestedFftSize === fftSize
+        requestedFftSize === fftSize &&
+        normalizedWindowType === "rectangular"
       ) {
         try {
           const processor = renderingProcessorRef.current as {

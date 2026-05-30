@@ -320,7 +320,7 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
 }
 
 fn rtl_sdr_windowed_complex_iq(idx: u32, sample: Complex) -> Complex {
-  let window_val = window_function(idx, params.input_size, WINDOW_HANNING);
+  let window_val = window_function(idx, params.input_size, params.window_type);
   return Complex(sample.real * window_val, sample.imag * window_val);
 }
 

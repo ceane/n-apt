@@ -119,7 +119,9 @@ export function composeCanvasWithFrequencyAxis({
     theme: {
       grid: theme.grid,
       tick: theme.tick,
+      edgeTick: theme.center,
       label: theme.label,
+      edgeLabel: theme.center,
       center: theme.center,
       centerLine: theme.center,
     },

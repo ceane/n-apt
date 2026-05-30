@@ -4,6 +4,7 @@ import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/components/ui/CanvasPlaceholder";
+import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 
 interface FrequencyRange {
   min: number;
@@ -60,6 +61,21 @@ const WaterfallCanvas = styled.canvas`
   background-color: ${({ theme }) =>
     theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
 `;
+
+const isWebGPUSupported = () =>
+  typeof navigator !== "undefined" && "gpu" in navigator;
+
+async function getWebGPUDevice(): Promise<GPUDevice | null> {
+  if (!isWebGPUSupported()) return null;
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return null;
+    return await adapter.requestDevice();
+  } catch (error) {
+    console.error("Failed to request WebGPU device for waterfall:", error);
+    return null;
+  }
+}
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -223,10 +239,29 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     );
     const lastWaveformRef = useRef<Float32Array | null>(null);
     const resizeFrameRef = useRef<number | null>(null);
+    const [gpuDevice, setGpuDevice] = useState<GPUDevice | null>(null);
+    const [gpuFormat, setGpuFormat] = useState<GPUTextureFormat | null>(null);
+    const { drawWebGPUFIFOWaterfall, cleanup: cleanupWebGPUFIFOWaterfall } =
+      useDrawWebGPUFIFOWaterfall();
     const [viewportSize, setViewportSize] = useState({
       width: width,
       height: height,
     });
+
+    useEffect(() => {
+      let cancelled = false;
+      const init = async () => {
+        if (!isWebGPUSupported()) return;
+        const device = await getWebGPUDevice();
+        if (cancelled || !device) return;
+        setGpuDevice(device);
+        setGpuFormat(navigator.gpu.getPreferredCanvasFormat());
+      };
+      void init();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
 
     const placeholderState = useMemo<CanvasPlaceholderState | null>(() => {
       const hasWaveform = !!(waveform && waveform.length > 0);
@@ -326,8 +361,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       if (!isVisible || !canvasRef.current) return;
 
       const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      const hasWebGPU = !!(gpuDevice && gpuFormat && canvas);
 
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
@@ -345,9 +379,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         !!placeholderErrorReason || !waveform || waveform.length === 0;
 
       if (showPlaceholder) {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
-        ctx.fillRect(0, 0, cssWidth, cssHeight);
+        if (!hasWebGPU) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
+            ctx.fillRect(0, 0, cssWidth, cssHeight);
+          }
+        }
         return;
       }
 
@@ -359,6 +398,23 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       if (!buffer) return;
 
       const renderWaveform = waveform ?? lastWaveformRef.current;
+      if (hasWebGPU && gpuDevice && gpuFormat && renderWaveform) {
+        const gpuSpectrum = Float32Array.from(renderWaveform as ArrayLike<number>);
+        void drawWebGPUFIFOWaterfall({
+          canvas,
+          device: gpuDevice,
+          format: gpuFormat,
+          fftData: gpuSpectrum,
+          fftMin,
+          fftMax,
+          driftAmount: retuneSmear * dpr,
+          freeze: isPaused,
+          wfSmooth: true,
+          backgroundColor: canvas.style.backgroundColor || WATERFALL_CANVAS_BG,
+        });
+        return;
+      }
+
       if (!isPaused && renderWaveform) {
         // Add new frame when not paused
         const resampled = performScalarResampling(
@@ -380,13 +436,16 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         onWaterfallBufferChange?.(buffer);
       }
 
-      // Draw the waterfall
-      drawWaterfall({
-        ctx,
-        width: renderWidth,
-        height: renderHeight,
-        waterfallBuffer: buffer,
-      });
+      // Draw the waterfall via Canvas2D fallback
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        drawWaterfall({
+          ctx,
+          width: renderWidth,
+          height: renderHeight,
+          waterfallBuffer: buffer,
+        });
+      }
     }, [
       viewportSize.width,
       viewportSize.height,
@@ -400,7 +459,12 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       fftMax,
       onWaterfallBufferChange,
       awaitingDeviceData,
+      gpuDevice,
+      gpuFormat,
+      drawWebGPUFIFOWaterfall,
     ]);
+
+    useEffect(() => () => cleanupWebGPUFIFOWaterfall(), [cleanupWebGPUFIFOWaterfall]);
 
     return (
       <WaterfallViewport ref={viewportRef}>
