@@ -365,6 +365,7 @@ export function useOverlayRenderer() {
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
+        ctx.setLineDash([4, 4]);
 
         const formatOffset = (hz: number) => {
           return formatFrequency(hz, { trimTrailingZeros: true });
@@ -422,6 +423,7 @@ export function useOverlayRenderer() {
           }
           currentFreq = blockEnd;
         }
+        ctx.setLineDash([]);
         ctx.restore();
       }
     },
