@@ -98,7 +98,11 @@ export class CanvasDrawingContext implements DrawingContext {
 
   roundRect(x: number, y: number, w: number, h: number, r: number): void {
     this.ctx.beginPath();
-    this.ctx.roundRect(x, y, w, h, r);
+    if (typeof this.ctx.roundRect === "function") {
+      this.ctx.roundRect(x, y, w, h, r);
+    } else {
+      this.ctx.rect(x, y, w, h);
+    }
     this.ctx.fill();
   }
 
@@ -528,7 +532,7 @@ export class SnapshotRenderer {
     dc: DrawingContext,
     waveform: number[] | Float32Array,
     visualRange?: Range,
-    options?: { crispTrace?: boolean },
+    options?: { crispTrace?: boolean; forceSteps?: boolean },
   ): void {
     const area = this.mapper.getPlotArea();
     const crispTrace = options?.crispTrace ?? false;
@@ -539,8 +543,9 @@ export class SnapshotRenderer {
     const freqRange = this.mapper.getFreqRange();
     const dataRange = visualRange || freqRange;
 
-    const isSteps = area.width / dataWidth >= 3;
-    const decimated = this.decimateWaveform(waveform, Math.ceil(area.width));
+    const physicalWidth = Math.ceil(area.width * this.mapper.getDPR());
+    const isSteps = options?.forceSteps || physicalWidth / dataWidth >= 3;
+    const decimated = this.decimateWaveform(waveform, physicalWidth);
 
     if (isSteps) {
       this.drawTraceSteps(dc, decimated, crispTrace);
@@ -568,9 +573,15 @@ export class SnapshotRenderer {
       const x = area.x + i * binW;
       const nextX =
         i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
-      const y = Math.round(this.mapper.clampY(waveform[i]));
-      dc.lineTo(crispTrace ? Math.round(x) : x, y);
-      dc.lineTo(crispTrace ? Math.round(nextX) : nextX, y);
+      const y = this.mapper.clampY(waveform[i]);
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(x) : x,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(nextX) : nextX,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
     }
     dc.lineTo(area.x + area.width, area.y + area.height);
     dc.closePath();
@@ -578,17 +589,26 @@ export class SnapshotRenderer {
 
     dc.setStroke(this.theme.line, 1 / this.mapper.getDPR());
     dc.beginPath();
-    dc.moveTo(area.x, Math.round(this.mapper.clampY(waveform[0])));
+    dc.moveTo(
+      crispTrace ? this.mapper.snapStrokeCenter(area.x) : area.x,
+      crispTrace
+        ? this.mapper.snapStrokeCenter(this.mapper.clampY(waveform[0]))
+        : this.mapper.clampY(waveform[0]),
+    );
     for (let i = 0; i < dataWidth; i++) {
-      const y = Math.round(this.mapper.clampY(waveform[i]));
-      const x = Math.round(area.x + i * binW);
+      const y = this.mapper.clampY(waveform[i]);
+      const x = area.x + i * binW;
       const nextX =
-        i === dataWidth - 1
-          ? area.x + area.width
-          : Math.round(area.x + (i + 1) * binW);
+        i === dataWidth - 1 ? area.x + area.width : area.x + (i + 1) * binW;
 
-      dc.lineTo(x, y);
-      dc.lineTo(nextX, y);
+      dc.lineTo(
+        crispTrace ? this.mapper.snapStrokeCenter(x) : x,
+        crispTrace ? this.mapper.snapStrokeCenter(y) : y,
+      );
+      dc.lineTo(
+        crispTrace ? this.mapper.snapStrokeCenter(nextX) : nextX,
+        crispTrace ? this.mapper.snapStrokeCenter(y) : y,
+      );
     }
     dc.stroke();
     dc.restore();
@@ -613,7 +633,7 @@ export class SnapshotRenderer {
     dc.beginPath();
     dc.moveTo(
       crispTrace
-        ? Math.round(this.mapper.freqToX(dataRange.min))
+        ? this.mapper.snap(this.mapper.freqToX(dataRange.min))
         : this.mapper.freqToX(dataRange.min),
       area.y + area.height,
     );
@@ -622,11 +642,14 @@ export class SnapshotRenderer {
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
       const x = this.mapper.freqToX(freq);
       const y = this.mapper.clampY(waveform[i]);
-      dc.lineTo(crispTrace ? Math.round(x) : x, crispTrace ? Math.round(y) : y);
+      dc.lineTo(
+        crispTrace ? this.mapper.snap(x) : x,
+        crispTrace ? this.mapper.snap(y) : y,
+      );
     }
     dc.lineTo(
       crispTrace
-        ? Math.round(this.mapper.freqToX(dataRange.max))
+        ? this.mapper.snap(this.mapper.freqToX(dataRange.max))
         : this.mapper.freqToX(dataRange.max),
       area.y + area.height,
     );
@@ -641,8 +664,8 @@ export class SnapshotRenderer {
         dataRange.min + (i / (dataWidth - 1)) * (dataRange.max - dataRange.min);
       const x = this.mapper.freqToX(freq);
       const y = this.mapper.clampY(waveform[i]);
-      const rx = crispTrace ? Math.round(x) : x;
-      const ry = crispTrace ? Math.round(y) : y;
+      const rx = crispTrace ? this.mapper.snapStrokeCenter(x) : x;
+      const ry = crispTrace ? this.mapper.snapStrokeCenter(y) : y;
       if (i === 0) dc.moveTo(rx, ry);
       else dc.lineTo(rx, ry);
     }
@@ -842,6 +865,24 @@ export class SnapshotRenderer {
         dc.moveTo(x, cursor);
         dc.lineTo(x, lineBottom);
       }
+    }
+
+    const eraseSolidGridLine = (x: number) => {
+      // The solid grid line is 1px wide, centered on x, but drawing a 3px background line
+      // will cleanly replace it without affecting the dotted line we're about to draw.
+      dc.save();
+      dc.setStroke(this.theme.bg, 3 / this.mapper.getDPR());
+      dc.beginPath();
+      drawBoundary(x);
+      dc.stroke();
+      dc.restore();
+    };
+
+    if (Math.abs(startX - area.x) < 2) {
+      eraseSolidGridLine(startX);
+    }
+    if (Math.abs(endX - (area.x + area.width)) < 2) {
+      eraseSolidGridLine(endX);
     }
 
     dc.beginPath();

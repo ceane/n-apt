@@ -54,6 +54,7 @@ import { useLiveSampleRateControl } from "@n-apt/hooks/useLiveSampleRateControl"
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
 import type {
   CaptureRequest,
   CaptureFileType,
@@ -443,7 +444,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
   const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
   const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
-  const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
   const backendSampleRateOptions = useAppSelector(
     (s) => s.websocket.sampleRateOptions,
@@ -462,7 +462,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveIsPaused =
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const liveCaptureStatus = wsConnection.captureStatus ?? captureStatus;
-  const liveAutoFftOptions = wsConnection.autoFftOptions ?? autoFftOptions;
   const liveFramesToUse =
     effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames;
   const liveSdrSettingsToUse = effectiveSdrSettings ?? sdrSettings;
@@ -661,7 +660,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sourceMode !== "live" ||
       typeof hackrfBasebandCurrentSampleRate !== "number" ||
       !Number.isFinite(hackrfBasebandCurrentSampleRate) ||
-      hackrfBasebandCurrentSampleRate <= 0
+      hackrfBasebandCurrentSampleRate <= 0 ||
+      liveState.hackrfBasebandBandwidth === 0
     ) {
       return;
     }
@@ -676,6 +676,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     isHackrfOne,
     setHackrfBasebandBandwidth,
     sourceMode,
+    liveState.hackrfBasebandBandwidth,
   ]);
 
   useEffect(() => {
@@ -683,18 +684,23 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const derived = deriveStateFromConfig(maxSampleRate, liveSdrSettingsToUse);
     const nextSettings = {
       ...(typeof derived.gain === "number" ? { gain: derived.gain } : {}),
-      ...(typeof derived.ppm === "number" ? { ppm: derived.ppm } : {}),
+      ...(typeof derived.ppm === "number" &&
+      (typeof liveState.ppm !== "number" ||
+        liveState.ppm === 0 ||
+        liveState.ppm === LIVE_CONTROL_DEFAULTS.ppm)
+        ? { ppm: derived.ppm }
+        : {}),
       ...(typeof derived.tunerAGC === "boolean"
         ? { tunerAGC: derived.tunerAGC }
         : {}),
       ...(typeof derived.rtlAGC === "boolean"
         ? { rtlAGC: derived.rtlAGC }
         : {}),
-      // Only apply bandwidth from config on initial load (when it's 0/unset);
+      // Only apply bandwidth from config on initial load (when it's null/unset);
       // once the user or sample-rate sync has set a value, don't overwrite it.
       ...(typeof derived.hackrfBasebandBandwidth === "number" &&
       (typeof liveState.hackrfBasebandBandwidth !== "number" ||
-        liveState.hackrfBasebandBandwidth <= 0)
+        liveState.hackrfBasebandBandwidth === null)
         ? { hackrfBasebandBandwidth: derived.hackrfBasebandBandwidth }
         : {}),
       ...(typeof liveState.fftSize !== "number" || liveState.fftSize <= 0
@@ -725,32 +731,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveState.fftFrameRate,
     liveState.fftWindow,
     liveState.hackrfBasebandBandwidth,
-  ]);
-
-  useEffect(() => {
-    if (liveState.isAutoFftApplied) return;
-    if (hasPersistedFftSize()) return;
-    if (
-      !liveAutoFftOptions ||
-      typeof liveAutoFftOptions.recommended !== "number"
-    ) {
-      return;
-    }
-
-    setFftSize(liveAutoFftOptions.recommended);
-    scheduleCoupledAdjustment(
-      "fftSize",
-      liveAutoFftOptions.recommended,
-      fftFrameRate,
-    );
-    storeDispatch({ type: "SET_AUTO_FFT_APPLIED", applied: true });
-  }, [
-    liveAutoFftOptions,
-    setFftSize,
-    scheduleCoupledAdjustment,
-    fftFrameRate,
-    liveState.isAutoFftApplied,
-    storeDispatch,
   ]);
 
   // Capture UI state
@@ -1509,7 +1489,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fftSizeOptions={[1024]}
             fftWindow={fftWindow || "Rectangular"}
             temporalResolution={displayTemporalResolution}
-            autoFftOptions={null}
             backend={null}
             deviceProfile={null}
             powerScale={powerScale}
@@ -1717,7 +1696,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fftSizeOptions={fftSizeOptions}
             fftWindow={fftWindow || "Rectangular"}
             temporalResolution={displayTemporalResolution}
-            autoFftOptions={liveAutoFftOptions}
             backend={liveBackend}
             deviceProfile={liveDeviceProfileToUse}
             powerScale={powerScale}

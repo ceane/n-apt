@@ -156,7 +156,6 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     sdrSettings: liveSdrSettingsConfig,
     backend: liveBackend,
     deviceProfile: liveDeviceProfileToUse,
-    autoFftOptions: liveAutoFftOptions,
     sampleRateOptions: liveSampleRateOptions,
   } = wsConnection;
 
@@ -201,35 +200,16 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     [spectrum.fftSize, fftSizeOptions],
   );
 
-  const autoFftSizeOptions = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          (liveAutoFftOptions?.autoSizes ?? []).filter(
-            (size) => Number.isFinite(size) && size > 0,
-          ),
-        ),
-      ).sort((a: any, b: any) => a - b),
-    [liveAutoFftOptions],
-  );
-
   const lockedFftSizeOptions = React.useMemo(
     () =>
       qualityGuard.isLocked
         ? getDemodQualityLockedFftSizes(
-            Array.from(
-              new Set(
-                autoFftSizeOptions.length > 0
-                  ? [...autoFftSizeOptions, ...manualFftOptions]
-                  : manualFftOptions,
-              ),
-            ),
+            manualFftOptions,
             qualityGuard.minimumFftSize,
             spectrum.fftSize,
           )
         : [],
     [
-      autoFftSizeOptions,
       manualFftOptions,
       qualityGuard.isLocked,
       qualityGuard.minimumFftSize,
@@ -493,29 +473,15 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
             >
               {qualityGuard.isLocked ? (
                 <>
-                  {lockedFftSizeOptions.map((size: any) => (
+                  {lockedFftSizeOptions.map((size: number) => (
                     <option key={`locked-${size}`} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </>
-              ) : autoFftSizeOptions.length > 0 ? (
-                <>
-                  {autoFftSizeOptions.map((size: any) => (
-                    <option key={`auto-${size}`} value={size}>
-                      {size} (Auto)
-                    </option>
-                  ))}
-                  {manualFftOptions.length > 0 && <option disabled>---</option>}
-                  {manualFftOptions.map((size: any) => (
-                    <option key={`manual-${size}`} value={size}>
                       {size}
                     </option>
                   ))}
                 </>
               ) : (
                 <>
-                  {manualFftOptions.map((size: any) => (
+                  {manualFftOptions.map((size: number) => (
                     <option key={`manual-${size}`} value={size}>
                       {size}
                     </option>

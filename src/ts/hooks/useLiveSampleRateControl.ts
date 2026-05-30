@@ -106,8 +106,9 @@ export const useLiveSampleRateControl = ({
 
   const handleSampleRateChange = useCallback(
     (nextSampleRate: number) => {
-      const nextWholeChannelRate =
-        getWholeChannelSampleRate(activeChannelSampleRate);
+      const nextWholeChannelRate = getWholeChannelSampleRate(
+        activeChannelSampleRate,
+      );
       const resolvedSampleRate =
         nextWholeChannelRate !== null &&
         Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)

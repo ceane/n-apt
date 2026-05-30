@@ -8,7 +8,6 @@ const STORAGE_KEYS = {
   VISUALIZER_PAUSE: "napt-visualizer-manual-paused",
   SPECTRUM_FRAMES: "napt-spectrum-frames",
   SDR_SETTINGS_CACHE: "napt-sdr-settings",
-  AUTO_FFT_OPTIONS: "napt-auto-fft-options",
 } as const;
 
 // Safe localStorage operations
@@ -129,17 +128,6 @@ const createLocalStorageMiddleware =
           JSON.stringify(websocketState.sdrSettings),
         );
       }
-
-      // Cache auto FFT options
-      if (
-        action.type === "websocket/setAutoFftOptions" &&
-        websocketState.autoFftOptions
-      ) {
-        safeSetItem(
-          STORAGE_KEYS.AUTO_FFT_OPTIONS,
-          JSON.stringify(websocketState.autoFftOptions),
-        );
-      }
     }
 
     return result;
@@ -221,31 +209,6 @@ export const loadPersistedSdrSettingsCache = () => {
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings cache:", error);
     safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
-    return null;
-  }
-};
-
-export const loadPersistedAutoFftOptions = () => {
-  const stored = safeGetItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
-  if (!stored) return null;
-
-  try {
-    const parsed = JSON.parse(stored);
-    // Validate the structure
-    if (
-      parsed &&
-      parsed.type === "auto_fft_options" &&
-      Array.isArray(parsed.autoSizes) &&
-      typeof parsed.recommended === "number"
-    ) {
-      return parsed;
-    }
-    // If invalid, remove it
-    safeRemoveItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
-    return null;
-  } catch (error) {
-    console.warn("Failed to parse persisted auto FFT options:", error);
-    safeRemoveItem(STORAGE_KEYS.AUTO_FFT_OPTIONS);
     return null;
   }
 };

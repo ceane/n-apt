@@ -4,16 +4,10 @@ import {
   DeviceLoadingReason,
   SdrSettingsConfig,
   SpectrumFrame,
-  AutoFftOptionsResponse,
   DeviceProfile,
   CaptureStatus,
 } from "@n-apt/consts/schemas/websocket";
-import {
-  validateCaptureStatus,
-  validateAutoFftOptions,
-  isValidSpectrumFrame,
-} from "@n-apt/validation";
-import { loadPersistedAutoFftOptions } from "@n-apt/redux/middleware/localStorageMiddleware";
+import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -63,15 +57,6 @@ const validateCaptureStatusEnhanced = (
   status: unknown,
 ): CaptureStatus | null => {
   return validateCaptureStatus(status) ? (status as CaptureStatus) : null;
-};
-
-// Enhanced validation for auto FFT options
-const validateAutoFftOptionsEnhanced = (
-  options: unknown,
-): AutoFftOptionsResponse | null => {
-  return validateAutoFftOptions(options)
-    ? (options as AutoFftOptionsResponse)
-    : null;
 };
 
 const equalValue = (current: unknown, next: unknown): boolean => {
@@ -135,7 +120,6 @@ export interface WebSocketState {
 
   // Capture and processing
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
 
   // Error handling
   error: string | null;
@@ -174,7 +158,6 @@ const initialState: WebSocketState = {
   dataFrameCounter: 0,
 
   captureStatus: null,
-  autoFftOptions: loadPersistedAutoFftOptions(), // Load cached options on startup
 
   error: null,
   cryptoCorrupted: false,
@@ -280,20 +263,6 @@ const websocketSlice = createSlice({
       }
     },
 
-    // Auto FFT options
-    setAutoFftOptions: (
-      state,
-      action: PayloadAction<AutoFftOptionsResponse>,
-    ) => {
-      // Validate auto FFT options before storing
-      const validatedOptions = validateAutoFftOptionsEnhanced(action.payload);
-      if (validatedOptions) {
-        state.autoFftOptions = validatedOptions;
-      } else {
-        console.error("Invalid auto FFT options rejected:", action.payload);
-      }
-    },
-
     // Crypto corruption
     setCryptoCorrupted: (state) => {
       state.cryptoCorrupted = true;
@@ -337,7 +306,6 @@ export const {
   setServerPaused,
   setSpectrumFrames,
   setCaptureStatus,
-  setAutoFftOptions,
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,

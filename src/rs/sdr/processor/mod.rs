@@ -113,10 +113,10 @@ mod patch_b_tests {
 }
 
 impl SdrFrameState {
-  fn new(fft_size: usize) -> Self {
-    let reserve = fft_size.max(1).saturating_mul(2);
+  fn new(fft_size: usize, sample_rate: u32, max_fft_size: usize) -> Self {
+    let reserve = max_fft_size.max(1).saturating_mul(2);
     let raw_iq_history_capacity =
-      Self::default_raw_iq_history_capacity(fft_size);
+      Self::default_raw_iq_history_capacity(fft_size, sample_rate);
     Self {
       frame_counter: 0,
       avg_spectrum: None,
@@ -133,15 +133,19 @@ impl SdrFrameState {
       last_frame_raw_iq: Vec::with_capacity(reserve),
       raw_iq_history: VecDeque::with_capacity(raw_iq_history_capacity),
       raw_iq_history_capacity,
-      spectrum_buffer: Vec::with_capacity(fft_size),
+      spectrum_buffer: Vec::with_capacity(max_fft_size),
     }
   }
 
-  fn default_raw_iq_history_capacity(fft_size: usize) -> usize {
+  fn default_raw_iq_history_capacity(
+    fft_size: usize,
+    sample_rate: u32,
+  ) -> usize {
     let bytes_per_frame = fft_size.max(1).saturating_mul(2);
     let target_seconds = 20usize;
     let max_frame_rate =
-      SdrProcessor::calculate_valid_frame_rate(fft_size).max(1) as usize;
+      SdrProcessor::calculate_valid_frame_rate(fft_size, sample_rate).max(1)
+        as usize;
     target_seconds
       .saturating_mul(max_frame_rate)
       .max(1)
@@ -150,8 +154,9 @@ impl SdrFrameState {
       .min(usize::MAX / bytes_per_frame.max(1))
   }
 
-  fn resize_raw_iq_history(&mut self, fft_size: usize) {
-    let desired_capacity = Self::default_raw_iq_history_capacity(fft_size);
+  fn resize_raw_iq_history(&mut self, fft_size: usize, sample_rate: u32) {
+    let desired_capacity =
+      Self::default_raw_iq_history_capacity(fft_size, sample_rate);
     self.raw_iq_history_capacity = desired_capacity;
 
     while self.raw_iq_history.len() > desired_capacity {
@@ -334,8 +339,21 @@ impl SdrProcessor {
     let sample_rate = device.get_sample_rate();
     let _center_freq = device.get_center_frequency();
 
-    // Load settings from signals.yaml
-    let sdr_settings = crate::server::utils::load_sdr_settings();
+    // Load settings from config, resolving with the correct hardware kind
+    let kind = if device.device_type().to_ascii_lowercase().contains("hackrf") {
+      "hackrf_one"
+    } else {
+      "mock_apt"
+    };
+    let sdr_settings = {
+      let mut s = crate::server::utils::load_sdr_settings();
+      s.fft = crate::server::utils::resolve_fft_config(
+        kind,
+        sample_rate,
+        Some(s.fft.default_size),
+      );
+      s
+    };
     let available_spectrum = crate::server::utils::load_available_spectrum()
       .map(|range| (range.min_freq, range.max_freq));
 
@@ -360,7 +378,11 @@ impl SdrProcessor {
     let processor = Self {
       device,
       fft_processor,
-      frame: SdrFrameState::new(fft_size),
+      frame: SdrFrameState::new(
+        fft_size,
+        sample_rate,
+        sdr_settings.fft.max_size,
+      ),
       display_min_db: min_db,
       display_max_db: max_db,
       display_frame_rate: default_frame_rate,
@@ -429,12 +451,12 @@ impl SdrProcessor {
     })?;
 
     processor.set_center_frequency(sdr_settings.center_frequency)?;
-    processor
-      .fft_processor
-      .warm_simd_processor_for_size(sdr_settings.fft.max_size);
-    processor
-      .fft_processor
-      .warm_fft_plans_for_size(sdr_settings.fft.max_size);
+
+    // Pre-warm SIMD processors and FFT plans for all dynamic size options
+    for &size in sdr_settings.fft.size_to_frame_rate.keys() {
+      processor.fft_processor.warm_simd_processor_for_size(size);
+      processor.fft_processor.warm_fft_plans_for_size(size);
+    }
 
     info!(
       "SDR processor created and synchronized with device: {}",
@@ -740,7 +762,7 @@ impl SdrProcessor {
     let is_hackrf = self.device.device_type() == "hackrf_one";
 
     // Always ensure the FFT processor sample rate matches the device
-    let device_sample_rate = self.device.get_sample_rate();
+    let mut device_sample_rate = self.device.get_sample_rate();
     if config.sample_rate != device_sample_rate {
       config.sample_rate = device_sample_rate;
       if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
@@ -767,6 +789,10 @@ impl SdrProcessor {
       if self.device.get_sample_rate() != clamped_rate {
         self.device.set_sample_rate(clamped_rate)?;
         config.sample_rate = clamped_rate;
+        device_sample_rate = clamped_rate;
+        if let Some(ref mut simd) = self.fft_processor.simd_processor_mut() {
+          let _: () = simd.set_sample_rate(clamped_rate);
+        }
         config_changed = true;
         info!("Sample rate set to {} Hz", clamped_rate);
       }
@@ -779,8 +805,9 @@ impl SdrProcessor {
           info!("Updating FFT size to {}", size);
           config.fft_size = size;
           config.zoom_width = size;
-          self.display_frame_rate = Self::calculate_valid_frame_rate(size);
-          self.frame.resize_raw_iq_history(size);
+          self.display_frame_rate =
+            Self::calculate_valid_frame_rate(size, device_sample_rate);
+          self.frame.resize_raw_iq_history(size, device_sample_rate);
 
           // Pre-reserve large contiguous blocks for raw IQ processing.
           // This is critical on macOS to prevent aggressive memory compression/optimization
@@ -820,7 +847,8 @@ impl SdrProcessor {
 
     // Frame rate
     if let Some(requested_rate) = frame_rate {
-      let max_rate = Self::calculate_valid_frame_rate(config.fft_size);
+      let max_rate =
+        Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate);
       let clamped_rate = requested_rate.clamp(1, max_rate);
       if clamped_rate != requested_rate {
         warn!(
@@ -939,6 +967,7 @@ impl SdrProcessor {
     if config_changed {
       self.fft_processor.update_config(config);
       if let Some(size) = fft_size {
+        self.fft_processor.warm_simd_processor_for_size(size);
         self.fft_processor.warm_fft_plans_for_size(size);
       }
     }
@@ -946,17 +975,14 @@ impl SdrProcessor {
     Ok(())
   }
 
-  /// Calculate maximum frame rate for given FFT size
-  pub fn calculate_valid_frame_rate(fft_size: usize) -> u32 {
-    match fft_size {
-      0..=8192 => 60,
-      8193..=16384 => 60,
-      16385..=32768 => 60,
-      32769..=65536 => 48,
-      65537..=131072 => 24,
-      131073..=262144 => 12,
-      _ => 12,
+  /// Calculate maximum frame rate for given FFT size and sample rate
+  pub fn calculate_valid_frame_rate(fft_size: usize, sample_rate: u32) -> u32 {
+    if fft_size == 0 {
+      return crate::server::types::MAX_LOGICAL_FRAME_RATE;
     }
+    (((sample_rate as f64) / (fft_size as f64)).floor() as u32)
+      .min(crate::server::types::MAX_LOGICAL_FRAME_RATE)
+      .max(1)
   }
 
   fn post_retune_discard_frame_count(&self) -> usize {
@@ -1897,6 +1923,28 @@ mod hackrf_settings_tests {
     assert_eq!(
       *calls.lock().unwrap(),
       vec!["tuner_bandwidth:5200000".to_string(),],
+    );
+  }
+
+  #[test]
+  fn apply_settings_routes_disabled_tuner_bandwidth_to_hardware_calls() {
+    let device = RecordingDevice::default();
+    let calls = device.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+
+    calls.lock().unwrap().clear();
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        tuner_bandwidth: Some(0),
+        ..Default::default()
+      })
+      .expect("apply settings");
+
+    assert_eq!(
+      *calls.lock().unwrap(),
+      vec!["tuner_bandwidth:0".to_string(),],
     );
   }
 }

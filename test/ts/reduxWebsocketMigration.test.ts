@@ -2,7 +2,6 @@ import { configureStore } from "@reduxjs/toolkit";
 import websocketSlice, {
   updateDeviceState,
   setCaptureStatus,
-  setAutoFftOptions,
 } from "@n-apt/redux/slices/websocketSlice";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -433,23 +432,6 @@ describe("Redux WebSocket Migration", () => {
       // Values should match
       expect(state2.websocket.backend).toBe("RTL-SDR");
       expect(state2.websocket.deviceName).toBe("Generic RTL2832U");
-    });
-
-    it("autoFftOptions deduplication works correctly", () => {
-      const options = {
-        type: "auto_fft_options" as const,
-        autoSizes: [512, 1024, 2048, 4096],
-        recommended: 2048,
-      };
-
-      store.dispatch(setAutoFftOptions(options));
-      const state1 = store.getState() as any;
-      expect(state1.websocket.autoFftOptions).toEqual(options);
-
-      // Dispatch again with identical data
-      store.dispatch(setAutoFftOptions(options));
-      const state2 = store.getState() as any;
-      expect(state2.websocket.autoFftOptions).toEqual(options);
     });
   });
 

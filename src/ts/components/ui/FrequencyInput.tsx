@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { styled } from "styled-components";
 import {
   clampFrequencyHz,
@@ -118,7 +124,10 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     className,
   }) => {
     // Derive the initial display from the first rendered value.
-    const initialScale = useMemo(() => getOptimalFrequencyScale(valueHz), [valueHz]);
+    const initialScale = useMemo(
+      () => getOptimalFrequencyScale(valueHz),
+      [valueHz],
+    );
     const [displayValue, setDisplayValue] = useState<string>(
       formatFrequencyValue(initialScale.value),
     );

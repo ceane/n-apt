@@ -123,10 +123,8 @@ export function formatVfoAxisEdgeLabel(
   if (useHighRes) return formatFrequencyHighRes(freq);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
-    precisionMHz:
-      precision?.edgeMHz ??
-      (stepHz >= 100_000 ? 1 : stepHz >= 10_000 ? 2 : stepHz >= 1_000 ? 3 : 4),
-    precisionKHz: precision?.edgeKHz ?? 0,
+    precisionMHz: precision?.edgeMHz ?? 6,
+    precisionKHz: precision?.edgeKHz ?? 3,
   });
 }
 
@@ -140,8 +138,8 @@ export function formatVfoAxisCenterLabel(
   const { precisionMHz, precisionKHz } = tickPrecisionForStep(stepHz);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
-    precisionMHz: Math.max(precision?.centerMinMHz ?? 3, precisionMHz),
-    precisionKHz: precision?.centerMinKHz ?? 0,
+    precisionMHz: Math.max(precision?.centerMinMHz ?? 6, precisionMHz),
+    precisionKHz: Math.max(precision?.centerMinKHz ?? 3, precisionKHz),
   });
 }
 

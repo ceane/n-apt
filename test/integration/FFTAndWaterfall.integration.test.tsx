@@ -108,7 +108,7 @@ describe("FFTAndWaterfall Integration", () => {
   });
 
   test("renders and initializes canvas nodes", async () => {
-    let container: HTMLElement;
+    let container: HTMLElement = document.createElement("div");
     await act(async () => {
       ({ container } = render(
         <TestWrapper>
@@ -185,7 +185,7 @@ describe("FFTAndWaterfall Integration", () => {
     });
     snapshotStore.dispatch(setSourceMode("file"));
 
-    let container: HTMLElement;
+    let container: HTMLElement = document.createElement("div");
     const { unmount } = await act(async () => {
       const rendered = render(
         <Provider store={snapshotStore}>

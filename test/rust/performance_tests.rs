@@ -160,18 +160,22 @@ fn test_fft_size_switch_to_max_first_frame_latency() {
 #[serial]
 fn test_loop_interval_consistency_across_sizes() {
   let test_cases = [
-    (2048, 60),   // 16.6ms
-    (65536, 48),  // 20.8ms
-    (131072, 24), // 41.6ms
-    (262144, 12), // 83.3ms
+    (2048, 1_000_000, 60),   // capped
+    (2048, 3_200_000, 60),    // capped
+    (65536, 3_200_000, 48),   // 20.8ms
+    (131072, 3_200_000, 24),  // 41.6ms
+    (262144, 3_200_000, 12),  // 83.3ms
+    (262144, 1_000_000, 3),   // low sample rate case
   ];
 
-  for (fft_size, expected_fps) in test_cases {
-    let target_fps = SdrProcessor::calculate_valid_frame_rate(fft_size);
+  for (fft_size, sample_rate, expected_fps) in test_cases {
+    let target_fps =
+      SdrProcessor::calculate_valid_frame_rate(fft_size, sample_rate);
     assert_eq!(
       target_fps, expected_fps,
-      "Frame rate calculation mismatch for size {}",
-      fft_size
+      "Frame rate calculation mismatch for size {} at sample rate {}",
+      fft_size,
+      sample_rate
     );
 
     let target_duration = Duration::from_millis(1000 / (target_fps as u64));

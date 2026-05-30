@@ -343,16 +343,6 @@ pub struct HardwareInfoResponse {
   pub sample_rate: u32,
 }
 
-/// Auto FFT size options response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutoFftOptionsResponse {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "autoSizes")]
-  pub auto_sizes: Vec<usize>,
-  pub recommended: usize,
-}
-
 /// Frequency region detected during scan
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrequencyRegion {
@@ -639,6 +629,7 @@ pub struct SdrConfig {
   pub center_frequency: u32,
   pub gain: SdrGainConfig,
   pub ppm: f64,
+  #[serde(default)]
   pub fft: SdrFftConfig,
   pub display: SdrDisplayConfig,
   #[serde(default)]
@@ -759,6 +750,8 @@ pub struct SdrGainConfig {
   pub tuner_bandwidth: Option<u32>,
 }
 
+pub const MAX_LOGICAL_FRAME_RATE: u32 = 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrFftConfig {
   pub default_size: usize,
@@ -766,6 +759,18 @@ pub struct SdrFftConfig {
   pub max_size: usize,
   pub max_frame_rate: u32,
   pub size_to_frame_rate: std::collections::HashMap<usize, u32>,
+}
+
+impl Default for SdrFftConfig {
+  fn default() -> Self {
+    Self {
+      default_size: 2048,
+      default_frame_rate: 60,
+      max_size: 262144,
+      max_frame_rate: 60,
+      size_to_frame_rate: std::collections::HashMap::new(),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

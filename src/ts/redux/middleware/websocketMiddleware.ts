@@ -7,7 +7,6 @@ import {
   setError,
   updateDeviceState,
   setCaptureStatus,
-  setAutoFftOptions,
   setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,
@@ -16,7 +15,6 @@ import {
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import {
-  AutoFftOptionsResponse,
   type IqRawFrame,
   type SpectrumFrame,
 } from "@n-apt/consts/schemas/websocket";
@@ -24,7 +22,6 @@ import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
   validateStatusMessage,
-  validateAutoFftOptions,
 } from "@n-apt/validation";
 
 // Module-level ref for high-frequency live frame data.
@@ -716,35 +713,6 @@ const processMessage = (
     return;
   }
 
-  // Auto FFT options messages
-  if (parsedData?.type === "auto_fft_options") {
-    // Validate auto FFT options
-    if (!validateAutoFftOptions(parsedData)) {
-      console.error("Auto FFT options validation failed:", parsedData);
-      return;
-    }
-
-    try {
-      if (
-        Array.isArray(parsedData.autoSizes) &&
-        typeof parsedData.recommended === "number"
-      ) {
-        const options: AutoFftOptionsResponse = {
-          type: "auto_fft_options" as const,
-          autoSizes: parsedData.autoSizes,
-          recommended: parsedData.recommended,
-        };
-        const currentOptions = getState().websocket.autoFftOptions;
-        if (!equalValue(currentOptions, options)) {
-          dispatch(setAutoFftOptions(options));
-        }
-      }
-    } catch (e) {
-      console.error("Failed to parse auto FFT options:", e);
-    }
-    return;
-  }
-
   // Scan and Demodulation result messages
   if (
     parsedData?.type === "scan_result" ||
@@ -966,7 +934,6 @@ const createWebSocketMiddleware =
 
               // Priority: Handle critical control messages immediately before any other processing
               if (
-                parsed?.type === "auto_fft_options" ||
                 parsed?.type === "status" ||
                 parsed?.type === "capture_status"
               ) {

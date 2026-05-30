@@ -5,7 +5,6 @@
 import {
   validateWebSocketMessage,
   validateStatusMessage,
-  validateAutoFftOptions,
 } from "@n-apt/validation";
 
 describe("Debug WebSocket Validation", () => {
@@ -54,22 +53,6 @@ describe("Debug WebSocket Validation", () => {
     console.log(
       "WebSocket message validation result:",
       validateWebSocketMessage(statusMessage),
-    );
-
-    // Test the auto_fft_options message
-    const autoFftOptions = {
-      type: "auto_fft_options",
-      autoSizes: [1024, 2048, 4096],
-      recommended: 2048,
-    };
-
-    console.log(
-      "Auto FFT options validation result:",
-      validateAutoFftOptions(autoFftOptions),
-    );
-    console.log(
-      "Auto FFT WebSocket validation result:",
-      validateWebSocketMessage(autoFftOptions),
     );
   });
 });

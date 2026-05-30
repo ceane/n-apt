@@ -242,8 +242,7 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    let corrected_freq = apply_ppm_correction(freq, self.ppm);
-    let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
+    let ret = unsafe { ffi::hackrf_set_freq(self.dev, freq as u64) };
     if ret != 0 {
       return Err(anyhow!(
         "Failed to set HackRF One center frequency to {}",
@@ -252,9 +251,17 @@ impl SdrDevice for HackRfDevice {
     }
     self.requested_center_frequency = freq;
     self.center_frequency = freq;
+    let corrected_freq = apply_ppm_correction(freq, self.ppm);
+    let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
+    if ret != 0 {
+      return Err(anyhow!(
+        "Failed to set HackRF One center frequency to {}",
+        corrected_freq
+      ));
+    }
     debug!(
-      "HackRF center frequency set to {} Hz (requested {}, ppm {}, applied {})",
-      freq, self.requested_center_frequency, self.ppm, corrected_freq
+      "HackRF center frequency set to {} Hz (requested {}, ppm {})",
+      corrected_freq, self.requested_center_frequency, self.ppm
     );
     Ok(())
   }
@@ -290,25 +297,8 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_ppm(&mut self, ppm: u32) -> Result<()> {
-    if self.requested_center_frequency > 0 {
-      let corrected_freq =
-        apply_ppm_correction(self.requested_center_frequency, ppm);
-      let ret =
-        unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
-      if ret != 0 {
-        return Err(anyhow!(
-          "Failed to set HackRF One frequency correction to {} ppm",
-          ppm
-        ));
-      }
-      debug!(
-        "HackRF PPM correction set to {} ppm (requested {}, applied {})",
-        ppm, self.requested_center_frequency, corrected_freq
-      );
-    } else {
-      debug!("HackRF PPM correction set to {} ppm", ppm);
-    }
     self.ppm = ppm;
+    debug!("HackRF PPM correction set to {} ppm", ppm);
     Ok(())
   }
 

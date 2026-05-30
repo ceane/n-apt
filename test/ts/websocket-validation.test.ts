@@ -6,7 +6,6 @@ import {
   validateWebSocketMessage,
   validateStatusMessage,
   validateCaptureStatus,
-  validateAutoFftOptions,
   validateAuthInfo,
   validateAuthResult,
   validateSessionValidation,
@@ -273,38 +272,6 @@ describe("WebSocket Validation System", () => {
       };
 
       expect(validateCaptureStatus(invalidCaptureStatus)).toBe(false);
-    });
-  });
-
-  describe("Auto FFT Options Validation", () => {
-    test("should validate valid auto FFT options", () => {
-      const validOptions = {
-        type: "auto_fft_options",
-        autoSizes: [512, 1024, 2048, 4096],
-        recommended: 2048,
-      };
-
-      expect(validateAutoFftOptions(validOptions)).toBe(true);
-    });
-
-    test("should reject invalid auto FFT options", () => {
-      const invalidOptions = {
-        type: "auto_fft_options",
-        autoSizes: "not_array", // should be array
-        recommended: "not_number", // should be number
-      };
-
-      expect(validateAutoFftOptions(invalidOptions)).toBe(false);
-    });
-
-    test("should handle empty auto sizes", () => {
-      const emptyOptions = {
-        type: "auto_fft_options",
-        autoSizes: [],
-        recommended: 1024,
-      };
-
-      expect(validateAutoFftOptions(emptyOptions)).toBe(true);
     });
   });
 

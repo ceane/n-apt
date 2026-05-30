@@ -540,6 +540,18 @@ const BuildOrchestrator = () => {
           detached: true,
           cwd: './' // Run from project root
         });
+        let resolved = false;
+        let crashReported = false;
+        const reportCrash = (reason: string) => {
+          if (crashReported || shutdownRequestedRef.current) return;
+          crashReported = true;
+          addLog(chalk.red(`${description} stopped unexpectedly${reason ? ` (${reason})` : ''}`));
+          appendErrorDetail(`${description} stopped unexpectedly${reason ? ` (${reason})` : ''}`);
+          setBuildState(prev => ({
+            ...prev,
+            [pidKey]: undefined,
+          }));
+        };
 
         child.stdout?.on('data', (data: any) => {
           const output = data.toString().trim();
@@ -569,7 +581,35 @@ const BuildOrchestrator = () => {
         child.on('error', (error: any) => {
           addLog(chalk.red(`Failed to start ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
+          resolved = true;
           resolve(false);
+        });
+
+        child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+          const statusText =
+            signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
+          if (!resolved) {
+            addLog(chalk.red(`${description} failed to start or died immediately (${statusText})`));
+            appendErrorDetail(`${description} failed to start or died immediately (${statusText})`);
+            resolved = true;
+            resolve(false);
+            return;
+          }
+
+          if (code === 0 && !signal) {
+            return;
+          }
+
+          reportCrash(statusText);
+        });
+
+        child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+          if (code === 0 && !signal) {
+            return;
+          }
+          const statusText =
+            signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
+          reportCrash(statusText);
         });
 
         // Give it a moment to start and check if it stayed alive
@@ -583,11 +623,13 @@ const BuildOrchestrator = () => {
               activeChildrenRef.current.push(child);
             }
             child.unref(); // Allow parent to exit
+            resolved = true;
             resolve(true);
           } else {
             const exitMsg = child.exitCode !== null ? ` (exited with code ${child.exitCode})` : '';
             addLog(chalk.red(`${description} failed to start or died immediately${exitMsg}`));
             appendErrorDetail(`${description} failed to start or died immediately${exitMsg}`);
+            resolved = true;
             resolve(false);
           }
         }, 2000);
@@ -595,6 +637,7 @@ const BuildOrchestrator = () => {
       } catch (error: any) {
         addLog(chalk.red(`Error starting ${description}: ${error.message}`));
         appendErrorDetail(`${description}: ${error.message}`);
+        resolved = true;
         resolve(false);
       }
     });

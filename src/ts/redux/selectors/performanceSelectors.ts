@@ -158,7 +158,6 @@ export const selectSpectrumData = createSelector(
   (websocket) => ({
     spectrumFrames: websocket.spectrumFrames,
     captureStatus: websocket.captureStatus,
-    autoFftOptions: websocket.autoFftOptions,
   }),
 );
 

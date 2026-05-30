@@ -52,7 +52,7 @@ fn test_mock_processor_creation() {
   // not the mock spectrum size (MOCK_SPECTRUM_SIZE = 4096)
   assert_eq!(
     spectrum.len(),
-    32768,
+    2048,
     "Spectrum should match FFT size (default_size from signals.yaml)"
   );
 }

@@ -47,6 +47,41 @@ const readCssColor = (name: string, fallback: string) => {
   return value || fallback;
 };
 
+const getDarkerColor = (colorStr: string) => {
+  if (!colorStr) return "rgba(170, 30, 30, 0.8)";
+  if (colorStr.startsWith("rgba")) {
+    const match = colorStr.match(
+      /rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
+    );
+    if (match) {
+      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
+      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
+      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
+      return `rgba(${r}, ${g}, ${b}, 0.8)`;
+    }
+  }
+  if (colorStr.startsWith("rgb")) {
+    const match = colorStr.match(
+      /rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/,
+    );
+    if (match) {
+      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
+      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
+      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  }
+  if (colorStr.startsWith("#")) {
+    const hex = colorStr.substring(1);
+    const num = parseInt(hex, 16);
+    const r = Math.max(0, Math.round(((num >> 16) & 0xff) * 0.75));
+    const g = Math.max(0, Math.round(((num >> 8) & 0xff) * 0.75));
+    const b = Math.max(0, Math.round((num & 0xff) * 0.75));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  return "rgba(170, 30, 30, 0.8)";
+};
+
 const getCanvasThemeColors = () => ({
   gridColor: readCssColor("--color-fft-grid", FFT_GRID_COLOR),
   textColor: readCssColor("--color-fft-text", FFT_TEXT_COLOR),
@@ -84,7 +119,7 @@ export function useOverlayRenderer() {
 
   const drawGridOnContext = useCallback(
     (
-      ctx: OffscreenCanvasRenderingContext2D,
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
       _frequencyRange: { min: number; max: number },
@@ -118,8 +153,8 @@ export function useOverlayRenderer() {
         useHighRes
           ? formatFrequencyHighRes(f)
           : formatFrequency(f, {
-              precisionMHz: 4,
-              precisionKHz: 0,
+              precisionMHz: 6,
+              precisionKHz: 3,
               trimTrailingZeros: true,
             });
 
@@ -181,8 +216,8 @@ export function useOverlayRenderer() {
           ? formatFrequencyHighRes(freq)
           : formatFrequency(freq, {
               trimTrailingZeros: true,
-              precisionMHz: 4,
-              precisionKHz: 0,
+              precisionMHz: 6,
+              precisionKHz: 3,
             });
       const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
@@ -217,16 +252,15 @@ export function useOverlayRenderer() {
       const occupiedRects: { x1: number; x2: number }[] = [];
       const startLabel = formatFreq(minFreq);
       const endLabel = formatFreq(maxFreq);
-      const centerPrecMHz = Math.max(3, tickPrec.precisionMHz);
-      const centerPrecKHz = 0;
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "--MHz"
           : useHighRes
             ? formatFrequencyHighRes(visualCenterFreq)
             : formatFrequency(visualCenterFreq, {
-                precisionMHz: centerPrecMHz,
-                precisionKHz: centerPrecKHz,
+                precisionMHz: 6,
+                precisionKHz: 3,
+                trimTrailingZeros: true,
               });
 
       const startW = ctx.measureText(startLabel).width;
@@ -305,33 +339,6 @@ export function useOverlayRenderer() {
         }
       }
 
-      // Top ticks
-      if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
-        ctx.save();
-        ctx.strokeStyle = canvasTheme.offsetTickLine;
-        ctx.fillStyle = canvasTheme.offsetTickText;
-        ctx.font = "10px JetBrains Mono";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-
-        for (const s of centerTicksHz) {
-          for (const sign of [-1, 1]) {
-            const f = visualCenterFreq + s * sign;
-            if (f <= minFreq || f >= maxFreq) continue;
-
-            const x = freqToX2(f);
-            ctx.beginPath();
-            ctx.moveTo(x, FFT_AREA_MIN.y);
-            ctx.lineTo(x, fftAreaMax.y);
-            ctx.stroke();
-
-            const label = formatOffset(s);
-            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 10);
-          }
-        }
-        ctx.restore();
-      }
-
       ctx.strokeStyle = canvasTheme.textColor;
       ctx.lineWidth = 1.0 / dpr;
       ctx.beginPath();
@@ -353,7 +360,6 @@ export function useOverlayRenderer() {
       if (shouldShowHWGrid) {
         ctx.save();
         ctx.strokeStyle = canvasTheme.snapHwRateLine;
-        ctx.setLineDash([4, 4]);
         ctx.lineWidth = 1 / dpr;
         ctx.fillStyle = canvasTheme.snapHwRateText;
         ctx.font = "10px JetBrains Mono";
@@ -424,7 +430,7 @@ export function useOverlayRenderer() {
 
   const drawMarkersOnContext = useCallback(
     (
-      ctx: OffscreenCanvasRenderingContext2D,
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
       _frequencyRange: { min: number; max: number },
@@ -483,39 +489,20 @@ export function useOverlayRenderer() {
         lineWidth: Math.max(0.5 / dpr, 1),
       });
 
-      if (_limitMarkers?.length) {
-        const viewBandwidth = maxFreq - minFreq;
-        const freqToX = (freq: number) =>
-          FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+      const viewBandwidth = maxFreq - minFreq;
+      const freqToX = (freq: number) =>
+        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
-        ctx.save();
-        ctx.strokeStyle = canvasTheme.boundaryLine;
-        ctx.setLineDash([6, 4]);
-        ctx.fillStyle = canvasTheme.boundaryText;
-        ctx.font = "10px JetBrains Mono";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
+      void _limitMarkers;
 
-        for (const marker of _limitMarkers) {
-          if (!Number.isFinite(marker.freq)) continue;
-          if (marker.freq < minFreq || marker.freq > maxFreq) continue;
-          const x = Math.round(freqToX(marker.freq));
-          ctx.beginPath();
-          ctx.moveTo(x, FFT_AREA_MIN.y);
-          ctx.lineTo(x, fftAreaMax.y);
-          ctx.stroke();
-          ctx.fillText(marker.label, x, FFT_AREA_MIN.y + 45);
-        }
-
-        ctx.restore();
-      }
+      void _fullCaptureRange;
     },
     [],
   );
 
   const drawDemodFocusOnContext = useCallback(
     (
-      ctx: OffscreenCanvasRenderingContext2D,
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
       frequencyRange: { min: number; max: number },
@@ -569,9 +556,10 @@ export function useOverlayRenderer() {
       );
       const label = formatFrequency(centerFrequencyHz, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
+        trimTrailingZeros: true,
       });
 
       const alignment = demodFocus.alignment || "centered";
@@ -579,15 +567,17 @@ export function useOverlayRenderer() {
         alignment === "centered"
           ? `±${formatFrequency(halfBandwidthHz, {
               showUnits: true,
-              precisionMHz: 3,
-              precisionGHz: 3,
-              precisionKHz: 0,
+              precisionMHz: 6,
+              precisionGHz: 9,
+              precisionKHz: 3,
+              trimTrailingZeros: true,
             })}`
           : formatFrequency(halfBandwidthHz * 2, {
               showUnits: true,
-              precisionMHz: 3,
-              precisionGHz: 3,
-              precisionKHz: 0,
+              precisionMHz: 6,
+              precisionGHz: 9,
+              precisionKHz: 3,
+              trimTrailingZeros: true,
             });
 
       ctx.save();
@@ -597,10 +587,9 @@ export function useOverlayRenderer() {
       ctx.fillStyle = canvasTheme.spectrumOverlay;
       ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
 
-      // 2. Selection Box - Boundary lines (Dotted from theme)
+      // 2. Selection Box - Boundary lines
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([3, 4]);
       ctx.lineCap = "round";
 
       for (const x of [leftX, rightX]) {
@@ -616,7 +605,6 @@ export function useOverlayRenderer() {
         ctx.save();
         ctx.strokeStyle = canvasTheme.centerLineColor;
         ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
-        ctx.setLineDash([]); // Solid center line
         ctx.beginPath();
         ctx.moveTo(centerLineX, plotTop);
         ctx.lineTo(centerLineX, plotBottom);
@@ -625,7 +613,6 @@ export function useOverlayRenderer() {
       }
 
       // 4. Drawing text labels and markers box
-      ctx.setLineDash([]);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.font = nodePreview
@@ -675,7 +662,7 @@ export function useOverlayRenderer() {
 
   const drawSelectionOverlayOnContext = useCallback(
     (
-      ctx: OffscreenCanvasRenderingContext2D,
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       width: number,
       height: number,
       frequencyRange: { min: number; max: number },
@@ -728,7 +715,6 @@ export function useOverlayRenderer() {
       ctx.fillRect(leftX, plotTop, bandWidth, plotBottom - plotTop);
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([3, 4]);
       ctx.lineCap = "round";
       for (const x of [leftX, rightX]) {
         ctx.beginPath();
@@ -741,7 +727,6 @@ export function useOverlayRenderer() {
       const centerX = (leftX + rightX) / 2;
       ctx.strokeStyle = canvasTheme.centerLineColor;
       ctx.lineWidth = Math.max(1, 1.5 / (window.devicePixelRatio || 1));
-      ctx.setLineDash([2, 4]); // Dotted line style
       ctx.beginPath();
       ctx.moveTo(centerX, plotTop);
       ctx.lineTo(centerX, plotBottom);
@@ -789,7 +774,6 @@ export function useOverlayRenderer() {
       ctx.shadowColor = "rgba(255, 72, 72, 0.45)";
       ctx.shadowBlur = 5;
       ctx.lineWidth = 1.15;
-      ctx.setLineDash([1, 5]);
       ctx.lineCap = "round";
 
       for (const marker of spikeMarkers) {
@@ -804,17 +788,89 @@ export function useOverlayRenderer() {
         ctx.lineTo(x, lineEndY);
         ctx.stroke();
 
-        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.arc(x, markerY, dotRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        ctx.setLineDash([1, 5]);
       }
 
       ctx.restore();
     },
     [],
+  );
+
+  const drawZoomMarkersOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      frequencyRange: { min: number; max: number },
+      fullCaptureRange?: { min: number; max: number },
+    ) => {
+      const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
+      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
+
+      if (!frequencyRange) return;
+      const minFreq = frequencyRange.min;
+      const maxFreq = frequencyRange.max;
+      const viewBandwidth = maxFreq - minFreq;
+      const visualCenterFreq = (minFreq + maxFreq) / 2;
+
+      const centerTicksHz: number[] = [];
+      if (viewBandwidth <= 5_000_000) centerTicksHz.push(500_000);
+      if (viewBandwidth <= 1_000_000) centerTicksHz.push(100_000);
+      if (viewBandwidth <= 500_000) {
+        centerTicksHz.push(50_000);
+        centerTicksHz.push(33_000);
+      }
+      if (viewBandwidth <= 250_000) centerTicksHz.push(25_000);
+      if (viewBandwidth <= 100_000) centerTicksHz.push(10_000);
+      if (viewBandwidth <= 50_000) centerTicksHz.push(5_000);
+      if (viewBandwidth <= 10_000) centerTicksHz.push(1_000);
+
+      const formatOffset = (hz: number) => {
+        return formatFrequency(hz, { trimTrailingZeros: true });
+      };
+
+      const clampLabelX = (x: number, text: string) => {
+        const tw = ctx.measureText(text).width;
+        const leftBound = FFT_AREA_MIN.x + tw / 2 + 8;
+        const rightBound = fftAreaMax.x - tw / 2 - 2;
+        return Math.max(leftBound, Math.min(rightBound, x));
+      };
+
+      const freqToX = (freq: number) =>
+        FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+      if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
+        ctx.save();
+        ctx.strokeStyle = canvasTheme.offsetTickLine;
+        ctx.fillStyle = canvasTheme.offsetTickText;
+        ctx.font = "10px JetBrains Mono";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        for (const s of centerTicksHz) {
+          for (const sign of [-1, 1]) {
+            const f = visualCenterFreq + s * sign;
+            if (f <= minFreq || f >= maxFreq) continue;
+
+            const x = freqToX(f);
+            ctx.beginPath();
+            ctx.moveTo(x, FFT_AREA_MIN.y);
+            ctx.lineTo(x, fftAreaMax.y);
+            ctx.stroke();
+
+            const label = formatOffset(s);
+            ctx.fillText(label, clampLabelX(x, label), FFT_AREA_MIN.y + 10);
+          }
+        }
+        ctx.restore();
+      }
+    },
+    [formatFrequency],
   );
 
   return {
@@ -823,5 +879,6 @@ export function useOverlayRenderer() {
     drawDemodFocusOnContext,
     drawSelectionOverlayOnContext,
     drawSpikeMarkersOnContext,
+    drawZoomMarkersOnContext,
   };
 }

@@ -180,12 +180,6 @@ export type CaptureStatus = {
   duration?: number;
 } | null;
 
-export type AutoFftOptionsResponse = {
-  type: "auto_fft_options";
-  autoSizes: number[];
-  recommended: number;
-};
-
 export interface DeviceProfile {
   kind: string;
   is_rtl_sdr: boolean;
@@ -238,5 +232,4 @@ export type WebSocketMessage =
       signalArea: string;
     }
   | ({ type: "capture" } & CaptureRequest)
-  | { type: "capture_stop"; jobId?: string }
-  | { type: "get_auto_fft_options"; screenWidth: number };
+  | { type: "capture_stop"; jobId?: string };

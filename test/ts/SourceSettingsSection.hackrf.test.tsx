@@ -88,6 +88,46 @@ describe("SourceSettingsSection HackRF controls", () => {
     expect(onHackrfBasebandBandwidthChange).toHaveBeenLastCalledWith(3_200_000);
   });
 
+  it("shows a baseband warning when the filter is narrower than the sample rate", () => {
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={16}
+          hackrfVgaGain={24}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={2_400_000}
+          hackrfCurrentSampleRate={3_200_000}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByTestId("tooltip-Baseband Filter Warning"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("tooltip-content-Baseband Filter Warning"),
+    ).toHaveTextContent("scrunched");
+    expect(screen.getByText("Baseband filter")).toBeInTheDocument();
+  });
+
   it("shows gain warnings when HackRF gain exceeds the low-frequency threshold", () => {
     render(
       <TestWrapper>

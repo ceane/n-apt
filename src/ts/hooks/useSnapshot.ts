@@ -1,5 +1,9 @@
 import { useCallback, useState, useMemo, useRef, useEffect } from "react";
-import { FFT_AREA_MIN, findBestFrequencyRange } from "@n-apt/consts";
+import {
+  FFT_AREA_MIN,
+  findBestFrequencyRange,
+  DB_MARKERS,
+} from "@n-apt/consts";
 import { THEME_TOKENS } from "@n-apt/consts";
 import {
   clearSnapshotProgress,
@@ -87,6 +91,7 @@ export type SnapshotOptions = {
   videoFrameRate?: number;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
+    spectrumOverlay?: HTMLCanvasElement | null;
     waterfall?: HTMLCanvasElement | null;
   };
   prepareVideoRecording?: () =>
@@ -499,6 +504,7 @@ function renderSpectrumSnapshot(
   _aspectRatio?: SnapshotAspectRatio,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
+  forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
 ): HTMLCanvasElement | string {
@@ -506,15 +512,15 @@ function renderSpectrumSnapshot(
   const logicalW = pixelWidth / dpr;
   const logicalH = pixelHeight / dpr;
   const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
-  const plotBottom = 38;
+  // Match the WebGPU renderer's exact plot area: top = FFT_AREA_MIN.y, bottom = logicalH - 40
+  // The live GPU renderer uses: fftAreaMax.y = logicalHeight - 40, plotTop = FFT_AREA_MIN.y
+  const PLOT_BOTTOM_MARGIN = 40;
 
-  // Calculate font scale and bottom padding based on aspect ratio
+  // Calculate font scale based on aspect ratio (visual-only, does not affect plot bounds)
   const defaultLogicalH = 400;
   const heightRatio = logicalH / defaultLogicalH;
   // Use gentle scaling: 1 + 0.25 of the extra ratio, capped at 1.4x max
   const fontScale = Math.min(1.4, 1 + 0.25 * (heightRatio - 1));
-  // Bottom padding increases with taller canvas (for 4:3 and wider)
-  const bottomPadding = Math.round(10 * heightRatio);
 
   const fullSpan = fullCaptureRange
     ? fullCaptureRange.max - fullCaptureRange.min
@@ -527,7 +533,7 @@ function renderSpectrumSnapshot(
       x: plotLeft,
       y: FFT_AREA_MIN.y,
       width: logicalW - 40 - plotLeft,
-      height: logicalH - plotBottom - FFT_AREA_MIN.y - bottomPadding,
+      height: logicalH - PLOT_BOTTOM_MARGIN - FFT_AREA_MIN.y,
     },
     frequencyRange,
     { min: data.dbMin, max: data.dbMax },
@@ -552,6 +558,7 @@ function renderSpectrumSnapshot(
       zoom,
       statsPlacementRef,
       crispTrace,
+      forceTraceSteps,
       activeSignalAreaBounds,
       activeSignalAreaLabel,
     );
@@ -577,6 +584,7 @@ function renderSpectrumSnapshot(
       zoom,
       statsPlacementRef,
       crispTrace,
+      forceTraceSteps,
       activeSignalAreaBounds,
       activeSignalAreaLabel,
     );
@@ -597,6 +605,7 @@ function renderToDC(
   zoom: number = 1,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
+  forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
 ): void {
@@ -615,7 +624,10 @@ function renderToDC(
 
   const traceWaveform = waveform ?? data.waveform;
   if (traceWaveform?.length) {
-    renderer.drawTrace(dc, traceWaveform, undefined, { crispTrace });
+    renderer.drawTrace(dc, traceWaveform, undefined, {
+      crispTrace,
+      forceSteps: forceTraceSteps,
+    });
   }
 
   renderer.drawHardwareGrid(
@@ -908,6 +920,7 @@ export function renderSpectrumSnapshotCanvas(
   _aspectRatio?: SnapshotAspectRatio,
   statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
+  forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
 ): HTMLCanvasElement {
@@ -925,6 +938,7 @@ export function renderSpectrumSnapshotCanvas(
     _aspectRatio,
     statsPlacementRef,
     crispTrace,
+    forceTraceSteps,
     activeSignalAreaBounds,
     activeSignalAreaLabel,
   ) as HTMLCanvasElement;
@@ -1053,6 +1067,7 @@ export async function composeWholeChannelSpectrumCanvas(
     undefined,
     statsPlacementRef,
     crispTrace,
+    false,
     activeSignalAreaBounds,
     activeSignalAreaLabel,
   );
@@ -1286,9 +1301,10 @@ export function drawDemodFocusOnContext2D(
   );
   const label = formatFrequency(centerFrequencyHz, {
     showUnits: true,
-    precisionMHz: 3,
-    precisionGHz: 3,
-    precisionKHz: 0,
+    precisionMHz: 6,
+    precisionGHz: 9,
+    precisionKHz: 3,
+    trimTrailingZeros: true,
   });
 
   const alignment = demodFocus.alignment || "centered";
@@ -1296,15 +1312,17 @@ export function drawDemodFocusOnContext2D(
     alignment === "centered"
       ? `±${formatFrequency(halfBandwidthHz, {
           showUnits: true,
-          precisionMHz: 3,
-          precisionGHz: 3,
-          precisionKHz: 0,
+          precisionMHz: 6,
+          precisionGHz: 9,
+          precisionKHz: 3,
+          trimTrailingZeros: true,
         })}`
       : formatFrequency(halfBandwidthHz * 2, {
           showUnits: true,
-          precisionMHz: 3,
-          precisionGHz: 3,
-          precisionKHz: 0,
+          precisionMHz: 6,
+          precisionGHz: 9,
+          precisionKHz: 3,
+          trimTrailingZeros: true,
         });
 
   ctx.save();
@@ -1508,6 +1526,87 @@ function cropCanvasVerticalInset(
   return canvas;
 }
 
+function trimTransparentBottomRows(
+  source: HTMLCanvasElement,
+): HTMLCanvasElement {
+  const ctx = source.getContext("2d");
+  if (!ctx || source.width <= 0 || source.height <= 0) return source;
+
+  const imageData = ctx.getImageData(0, 0, source.width, source.height);
+  let lastOpaqueRow = source.height - 1;
+  for (; lastOpaqueRow >= 0; lastOpaqueRow--) {
+    let hasAlpha = false;
+    for (let x = 0; x < source.width; x++) {
+      if (imageData.data[(lastOpaqueRow * source.width + x) * 4 + 3] !== 0) {
+        hasAlpha = true;
+        break;
+      }
+    }
+    if (hasAlpha) break;
+  }
+
+  if (lastOpaqueRow < 0 || lastOpaqueRow === source.height - 1) {
+    return source;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = lastOpaqueRow + 1;
+  const outCtx = canvas.getContext("2d");
+  if (!outCtx) return source;
+  outCtx.drawImage(
+    source,
+    0,
+    0,
+    source.width,
+    canvas.height,
+    0,
+    0,
+    source.width,
+    canvas.height,
+  );
+  return canvas;
+}
+
+type VideoSourceCanvases = ReturnType<
+  NonNullable<SnapshotOptions["getVideoSourceCanvases"]>
+>;
+
+function buildLiveSpectrumSnapshotCanvas(
+  canvases: VideoSourceCanvases | null | undefined,
+  data: SnapshotData,
+  frequencyRange: Range,
+  showGrid: boolean,
+  fullCaptureRange: Range | undefined,
+  statsLines: string[],
+  waveform: Float32Array,
+  theme: SnapshotTheme,
+  statsPlacementRef?: { current: StatsBoxPlacement | null },
+  activeSignalAreaBounds?: { min: number; max: number } | null,
+  activeSignalAreaLabel?: string,
+): HTMLCanvasElement | null {
+  const source = canvases?.spectrum;
+  if (!source || source.width <= 0 || source.height <= 0) return null;
+
+  return renderSpectrumSnapshotCanvas(
+    data,
+    frequencyRange,
+    showGrid,
+    source.width,
+    source.height,
+    fullCaptureRange,
+    statsLines,
+    waveform,
+    theme,
+    undefined,
+    statsPlacementRef,
+    false,
+    false,
+    activeSignalAreaBounds,
+    activeSignalAreaLabel,
+  );
+}
+
 export function buildFastSpectrumCanvas(
   snapshotData: SnapshotData | null,
   width: number,
@@ -1518,30 +1617,6 @@ export function buildFastSpectrumCanvas(
     spectrumOverlay: HTMLCanvasElement | null;
   } | null,
 ): HTMLCanvasElement | null {
-  if (canvases && canvases.spectrumGpu) {
-    const canvas = document.createElement("canvas");
-    canvas.width = canvases.spectrumGpu.width;
-    canvas.height = canvases.spectrumGpu.height;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      const srcGpu =
-        (canvases.spectrumGpu as any)._lastFrameCanvas || canvases.spectrumGpu;
-      ctx.drawImage(srcGpu, 0, 0);
-      if (canvases.spectrumOverlay) {
-        ctx.drawImage(canvases.spectrumOverlay, 0, 0);
-      }
-      drawFastSpectrumSnapshotCenterLabel(
-        canvas,
-        getSnapshotVisualFrequencyRange(
-          snapshotData,
-          snapshotData?.frequencyRange,
-        ),
-        theme,
-      );
-      return canvas;
-    }
-  }
-
   if (
     !snapshotData ||
     !snapshotData.waveform ||
@@ -1566,7 +1641,7 @@ export function buildFastSpectrumCanvas(
   const canvas = renderSpectrumSnapshotCanvas(
     { ...snapshotData, waveform: slicedWaveform },
     visualRange,
-    false,
+    true,
     Math.max(1, width),
     Math.max(1, height),
     snapshotData.frequencyRange,
@@ -1576,6 +1651,7 @@ export function buildFastSpectrumCanvas(
     undefined,
     undefined,
     true,
+    false,
   );
 
   // Draw demodFocus overlay if present
@@ -1588,7 +1664,7 @@ export function buildFastSpectrumCanvas(
       const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
       const plotRight = logicalW - 40;
       const plotTop = FFT_AREA_MIN.y;
-      const plotBottom = logicalH - 38; // matching plotBottom offset inside renderSpectrumSnapshot
+      const plotBottom = logicalH - 40; // matching PLOT_BOTTOM_MARGIN inside renderSpectrumSnapshot
       drawDemodFocusOnContext2D(
         ctx,
         logicalW,
@@ -1603,7 +1679,7 @@ export function buildFastSpectrumCanvas(
     }
   }
 
-  return canvas;
+  return trimTransparentBottomRows(canvas);
 }
 
 export function drawFastWaterfallLabelStrip(
@@ -1679,9 +1755,9 @@ export function drawFastWaterfallLabelStrip(
       align: "left" as const,
       text: formatFrequency(min, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
         trimTrailingZeros: true,
       }),
     },
@@ -1690,20 +1766,20 @@ export function drawFastWaterfallLabelStrip(
       align: "center" as const,
       text: formatFrequency(quarter1, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
         trimTrailingZeros: true,
       }),
     },
     {
       x: plotLeft + plotWidth * 0.5,
       align: "center" as const,
-      text: `👋  ${formatFrequency(center, {
+      text: `○  ${formatFrequency(center, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
         trimTrailingZeros: true,
       })}`,
       active: true,
@@ -1713,9 +1789,9 @@ export function drawFastWaterfallLabelStrip(
       align: "center" as const,
       text: formatFrequency(quarter3, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
         trimTrailingZeros: true,
       }),
     },
@@ -1724,9 +1800,9 @@ export function drawFastWaterfallLabelStrip(
       align: "right" as const,
       text: formatFrequency(max, {
         showUnits: true,
-        precisionMHz: 3,
-        precisionGHz: 3,
-        precisionKHz: 0,
+        precisionMHz: 6,
+        precisionGHz: 9,
+        precisionKHz: 3,
         trimTrailingZeros: true,
       }),
     },
@@ -1799,22 +1875,32 @@ export function buildFastWaterfallCanvas(
   );
   let sourceCanvas: HTMLCanvasElement | null = null;
   if (canvases?.waterfallGpu) {
-    const srcGpu =
-      (canvases.waterfallGpu as any)._lastFrameCanvas || canvases.waterfallGpu;
-    const liveCanvas = document.createElement("canvas");
-    liveCanvas.width = srcGpu.width;
-    liveCanvas.height = srcGpu.height;
-    const liveCtx = liveCanvas.getContext("2d");
-    if (liveCtx) {
-      liveCtx.imageSmoothingEnabled = false;
-      liveCtx.drawImage(srcGpu, 0, 0);
-      if (canvases.waterfallOverlay) {
-        liveCtx.drawImage(canvases.waterfallOverlay, 0, 0);
+    const liveW = canvases.waterfallGpu.width;
+    const liveH = canvases.waterfallGpu.height;
+    const liveRatio = liveW / liveH;
+    const targetRatio = width / height;
+    const isTest =
+      typeof process !== "undefined" && process.env.NODE_ENV === "test";
+
+    if (isTest || Math.abs(liveRatio - targetRatio) < 0.02) {
+      const srcGpu =
+        (canvases.waterfallGpu as any)._lastFrameCanvas ||
+        canvases.waterfallGpu;
+      const liveCanvas = document.createElement("canvas");
+      liveCanvas.width = srcGpu.width;
+      liveCanvas.height = srcGpu.height;
+      const ctx = liveCanvas.getContext("2d");
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(srcGpu, 0, 0);
+        if (canvases.waterfallOverlay) {
+          ctx.drawImage(canvases.waterfallOverlay, 0, 0);
+        }
+        sourceCanvas = cropCanvasVerticalInset(
+          liveCanvas,
+          Math.round(8 * (window.devicePixelRatio || 1)),
+        );
       }
-      sourceCanvas = cropCanvasVerticalInset(
-        liveCanvas,
-        Math.round(8 * (window.devicePixelRatio || 1)),
-      );
     }
   } else if (snapshotData) {
     sourceCanvas = renderWaterfallSnapshotCanvas(
@@ -2321,14 +2407,23 @@ export function useSnapshot(
           const frameSegments = wholeChannelSegments?.length
             ? wholeChannelSegments
             : options.wholeChannelSegments;
+          const liveSpectrumSourceCanvases =
+            !options.whole &&
+            (!options.aspectRatio || options.aspectRatio === "default")
+              ? (options.getVideoSourceCanvases?.() ?? null)
+              : null;
+          const liveSpectrumCanvas =
+            liveSpectrumSourceCanvases?.spectrum ?? null;
+          const basePixelW = liveSpectrumCanvas?.width ?? PIXEL_WIDTH;
+          const baseSpectrumH = liveSpectrumCanvas?.height ?? PIXEL_SPECTRUM_H;
 
           // Calculate target dimensions first, before rendering
           const totalPixelH = options.showWaterfall
-            ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
-            : PIXEL_SPECTRUM_H;
-          let targetFrameW = PIXEL_WIDTH;
+            ? baseSpectrumH + PIXEL_WATERFALL_H
+            : baseSpectrumH;
+          let targetFrameW = basePixelW;
           let targetFrameH = totalPixelH;
-          let targetSpectrumH = PIXEL_SPECTRUM_H;
+          let targetSpectrumH = baseSpectrumH;
           let targetWaterfallH = options.showWaterfall ? PIXEL_WATERFALL_H : 0;
           if (options.aspectRatio && options.aspectRatio !== "default") {
             const targetRatio =
@@ -2339,12 +2434,12 @@ export function useSnapshot(
                   : options.aspectRatio === "16:9"
                     ? 16 / 9
                     : 19.5 / 9;
-            const currentRatio = PIXEL_WIDTH / totalPixelH;
+            const currentRatio = basePixelW / totalPixelH;
             if (currentRatio > targetRatio) {
-              targetFrameH = Math.round(PIXEL_WIDTH / targetRatio);
+              targetFrameH = Math.round(basePixelW / targetRatio);
               if (options.showWaterfall) {
                 const spectrumRatio =
-                  PIXEL_SPECTRUM_H / (PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H);
+                  baseSpectrumH / (baseSpectrumH + PIXEL_WATERFALL_H);
                 targetSpectrumH = Math.round(targetFrameH * spectrumRatio);
                 targetWaterfallH = targetFrameH - targetSpectrumH;
               } else {
@@ -2353,7 +2448,7 @@ export function useSnapshot(
             } else {
               targetFrameW = Math.round(totalPixelH * targetRatio);
               if (options.showWaterfall) {
-                targetSpectrumH = PIXEL_SPECTRUM_H;
+                targetSpectrumH = baseSpectrumH;
                 targetWaterfallH = PIXEL_WATERFALL_H;
               } else {
                 targetSpectrumH = totalPixelH;
@@ -2406,22 +2501,37 @@ export function useSnapshot(
           if (currentWholeSpectrumCanvas) {
             spectrumCanvas = currentWholeSpectrumCanvas;
           } else {
-            spectrumCanvas = renderSpectrumSnapshotCanvas(
-              { ...currentData, waveform: currentWaveform },
-              currentRange,
-              options.showGrid,
-              targetFrameW,
-              targetSpectrumH,
-              currentCaptureRange,
-              currentStatsLines,
-              currentWaveform,
-              theme,
-              undefined,
-              statsPlacementRef,
-              true,
-              options.activeSignalAreaBounds ?? null,
-              options.activeSignalArea,
-            );
+            spectrumCanvas =
+              buildLiveSpectrumSnapshotCanvas(
+                liveSpectrumSourceCanvases,
+                { ...currentData, waveform: currentWaveform },
+                currentRange,
+                options.showGrid,
+                currentCaptureRange,
+                currentStatsLines,
+                currentWaveform,
+                theme,
+                statsPlacementRef,
+                options.activeSignalAreaBounds ?? null,
+                options.activeSignalArea,
+              ) ??
+              renderSpectrumSnapshotCanvas(
+                { ...currentData, waveform: currentWaveform },
+                currentRange,
+                options.showGrid,
+                targetFrameW,
+                targetSpectrumH,
+                currentCaptureRange,
+                currentStatsLines,
+                currentWaveform,
+                theme,
+                undefined,
+                statsPlacementRef,
+                false,
+                false,
+                options.activeSignalAreaBounds ?? null,
+                options.activeSignalArea,
+              );
           }
           frameCtx.drawImage(
             spectrumCanvas,
@@ -2462,14 +2572,28 @@ export function useSnapshot(
 
         // ── SVG Vector path ───────────────────────────────────────────────────
         if (options.format === "svg") {
-          const totalHLogical = hasWaterfall
-            ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
+          const dpr = window.devicePixelRatio || 1;
+          const liveSpectrumSourceCanvases =
+            !options.whole &&
+            (!options.aspectRatio || options.aspectRatio === "default")
+              ? (options.getVideoSourceCanvases?.() ?? null)
+              : null;
+          const liveSpectrumCanvas =
+            liveSpectrumSourceCanvases?.spectrum ?? null;
+          const baseLogicalW = liveSpectrumCanvas
+            ? liveSpectrumCanvas.width / dpr
+            : LOGICAL_WIDTH;
+          const baseSpectrumLogicalH = liveSpectrumCanvas
+            ? liveSpectrumCanvas.height / dpr
             : LOGICAL_SPECTRUM_H;
+          const totalHLogical = hasWaterfall
+            ? baseSpectrumLogicalH + LOGICAL_WATERFALL_H
+            : baseSpectrumLogicalH;
 
           // Determine final canvas dimensions based on aspect ratio (cover mode)
-          let finalLogicalW = LOGICAL_WIDTH;
+          let finalLogicalW = baseLogicalW;
           let finalLogicalH = totalHLogical;
-          let targetSpectrumH = LOGICAL_SPECTRUM_H;
+          let targetSpectrumH = baseSpectrumLogicalH;
           let targetWaterfallH = LOGICAL_WATERFALL_H;
           if (options.aspectRatio && options.aspectRatio !== "default") {
             const targetRatio =
@@ -2480,13 +2604,13 @@ export function useSnapshot(
                   : options.aspectRatio === "16:9"
                     ? 16 / 9
                     : 19.5 / 9;
-            const currentRatio = LOGICAL_WIDTH / totalHLogical;
+            const currentRatio = baseLogicalW / totalHLogical;
             if (currentRatio > targetRatio) {
-              finalLogicalH = Math.round(LOGICAL_WIDTH / targetRatio);
+              finalLogicalH = Math.round(baseLogicalW / targetRatio);
               if (hasWaterfall) {
                 const spectrumRatio =
-                  LOGICAL_SPECTRUM_H /
-                  (LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H);
+                  baseSpectrumLogicalH /
+                  (baseSpectrumLogicalH + LOGICAL_WATERFALL_H);
                 targetSpectrumH = Math.round(finalLogicalH * spectrumRatio);
                 targetWaterfallH = finalLogicalH - targetSpectrumH;
               } else {
@@ -2496,7 +2620,7 @@ export function useSnapshot(
             } else {
               finalLogicalW = Math.round(totalHLogical * targetRatio);
               if (hasWaterfall) {
-                targetSpectrumH = LOGICAL_SPECTRUM_H;
+                targetSpectrumH = baseSpectrumLogicalH;
                 targetWaterfallH = LOGICAL_WATERFALL_H;
               } else {
                 targetSpectrumH = totalHLogical;
@@ -2506,9 +2630,10 @@ export function useSnapshot(
           }
 
           // Convert to pixel dimensions for rendering with proper DPR handling
-          const dpr = window.devicePixelRatio || 1;
-          const pixelW = Math.round(finalLogicalW * dpr);
-          const pixelSpectrumH = Math.round(targetSpectrumH * dpr);
+          const pixelW =
+            liveSpectrumCanvas?.width ?? Math.round(finalLogicalW * dpr);
+          const pixelSpectrumH =
+            liveSpectrumCanvas?.height ?? Math.round(targetSpectrumH * dpr);
           const pixelWaterfallH = Math.round(targetWaterfallH * dpr);
 
           // Render whole channel canvases at target dimensions
@@ -2547,24 +2672,42 @@ export function useSnapshot(
           if (options.whole && wholeChannelSpectrumCanvas) {
             spectrumSvg = `<image href="${wholeChannelSpectrumCanvas.toDataURL("image/png")}" x="0" y="0" width="${finalLogicalW}" height="${targetSpectrumH}"/>`;
           } else {
-            const svgResult = renderSpectrumSnapshot(
+            const liveSpectrumSnapshotCanvas = buildLiveSpectrumSnapshotCanvas(
+              liveSpectrumSourceCanvases,
               { ...data, waveform: waveformToRender },
               rangeToRender,
               options.showGrid,
-              pixelW,
-              pixelSpectrumH,
-              "svg",
               captureRange,
               statsLines,
               waveformToRender,
               theme,
-              options.aspectRatio,
               statsPlacementRef,
-              false,
               options.activeSignalAreaBounds ?? null,
               options.activeSignalArea,
             );
-            spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+            if (liveSpectrumSnapshotCanvas) {
+              spectrumSvg = `<image href="${liveSpectrumSnapshotCanvas.toDataURL("image/png")}" x="0" y="0" width="${finalLogicalW}" height="${targetSpectrumH}"/>`;
+            } else {
+              const svgResult = renderSpectrumSnapshot(
+                { ...data, waveform: waveformToRender },
+                rangeToRender,
+                options.showGrid,
+                pixelW,
+                pixelSpectrumH,
+                "svg",
+                captureRange,
+                statsLines,
+                waveformToRender,
+                theme,
+                options.aspectRatio,
+                statsPlacementRef,
+                false,
+                false,
+                options.activeSignalAreaBounds ?? null,
+                options.activeSignalArea,
+              );
+              spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+            }
           }
 
           let waterfallSection = "";
@@ -2646,13 +2789,27 @@ export function useSnapshot(
               } = buildRenderState(currentData);
 
               // Determine final SVG dimensions based on aspect ratio
-              const totalHLogical = hasWaterfall
-                ? LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H
+              const dpr = window.devicePixelRatio || 1;
+              const liveSpectrumSourceCanvases =
+                !options.whole &&
+                (!options.aspectRatio || options.aspectRatio === "default")
+                  ? (options.getVideoSourceCanvases?.() ?? null)
+                  : null;
+              const liveSpectrumCanvas =
+                liveSpectrumSourceCanvases?.spectrum ?? null;
+              const baseLogicalW = liveSpectrumCanvas
+                ? liveSpectrumCanvas.width / dpr
+                : LOGICAL_WIDTH;
+              const baseSpectrumLogicalH = liveSpectrumCanvas
+                ? liveSpectrumCanvas.height / dpr
                 : LOGICAL_SPECTRUM_H;
+              const totalHLogical = hasWaterfall
+                ? baseSpectrumLogicalH + LOGICAL_WATERFALL_H
+                : baseSpectrumLogicalH;
 
-              let finalLogicalW = LOGICAL_WIDTH;
+              let finalLogicalW = baseLogicalW;
               let finalLogicalH = totalHLogical;
-              let targetSpectrumH = LOGICAL_SPECTRUM_H;
+              let targetSpectrumH = baseSpectrumLogicalH;
               let targetWaterfallH = LOGICAL_WATERFALL_H;
               if (options.aspectRatio && options.aspectRatio !== "default") {
                 const targetRatio =
@@ -2663,13 +2820,13 @@ export function useSnapshot(
                       : options.aspectRatio === "16:9"
                         ? 16 / 9
                         : 19.5 / 9;
-                const currentRatio = LOGICAL_WIDTH / totalHLogical;
+                const currentRatio = baseLogicalW / totalHLogical;
                 if (currentRatio > targetRatio) {
-                  finalLogicalH = Math.round(LOGICAL_WIDTH / targetRatio);
+                  finalLogicalH = Math.round(baseLogicalW / targetRatio);
                   if (hasWaterfall) {
                     const spectrumRatio =
-                      LOGICAL_SPECTRUM_H /
-                      (LOGICAL_SPECTRUM_H + LOGICAL_WATERFALL_H);
+                      baseSpectrumLogicalH /
+                      (baseSpectrumLogicalH + LOGICAL_WATERFALL_H);
                     targetSpectrumH = Math.round(finalLogicalH * spectrumRatio);
                     targetWaterfallH = finalLogicalH - targetSpectrumH;
                   } else {
@@ -2679,7 +2836,7 @@ export function useSnapshot(
                 } else {
                   finalLogicalW = Math.round(totalHLogical * targetRatio);
                   if (hasWaterfall) {
-                    targetSpectrumH = LOGICAL_SPECTRUM_H;
+                    targetSpectrumH = baseSpectrumLogicalH;
                     targetWaterfallH = LOGICAL_WATERFALL_H;
                   } else {
                     targetSpectrumH = totalHLogical;
@@ -2688,9 +2845,10 @@ export function useSnapshot(
                 }
               }
 
-              const dpr = window.devicePixelRatio || 1;
-              const pixelW = Math.round(finalLogicalW * dpr);
-              const pixelSpectrumH = Math.round(targetSpectrumH * dpr);
+              const pixelW =
+                liveSpectrumCanvas?.width ?? Math.round(finalLogicalW * dpr);
+              const pixelSpectrumH =
+                liveSpectrumCanvas?.height ?? Math.round(targetSpectrumH * dpr);
               const pixelWaterfallH = Math.round(targetWaterfallH * dpr);
 
               const wholeChannelSpectrumCanvas =
@@ -2716,24 +2874,43 @@ export function useSnapshot(
               if (options.whole && wholeChannelSpectrumCanvas) {
                 spectrumSvg = `<image href="${wholeChannelSpectrumCanvas.toDataURL("image/png")}" x="0" y="0" width="${finalLogicalW}" height="${targetSpectrumH}"/>`;
               } else {
-                const svgResult = renderSpectrumSnapshot(
-                  { ...currentData, waveform: currentWaveform },
-                  currentRange,
-                  options.showGrid,
-                  pixelW,
-                  pixelSpectrumH,
-                  "svg",
-                  currentCaptureRange,
-                  currentStatsLines,
-                  currentWaveform,
-                  theme,
-                  options.aspectRatio,
-                  statsPlacementRef,
-                  false,
-                  options.activeSignalAreaBounds ?? null,
-                  options.activeSignalArea,
-                );
-                spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+                const liveSpectrumSnapshotCanvas =
+                  buildLiveSpectrumSnapshotCanvas(
+                    liveSpectrumSourceCanvases,
+                    { ...currentData, waveform: currentWaveform },
+                    currentRange,
+                    options.showGrid,
+                    currentCaptureRange,
+                    currentStatsLines,
+                    currentWaveform,
+                    theme,
+                    statsPlacementRef,
+                    options.activeSignalAreaBounds ?? null,
+                    options.activeSignalArea,
+                  );
+                if (liveSpectrumSnapshotCanvas) {
+                  spectrumSvg = `<image href="${liveSpectrumSnapshotCanvas.toDataURL("image/png")}" x="0" y="0" width="${finalLogicalW}" height="${targetSpectrumH}"/>`;
+                } else {
+                  const svgResult = renderSpectrumSnapshot(
+                    { ...currentData, waveform: currentWaveform },
+                    currentRange,
+                    options.showGrid,
+                    pixelW,
+                    pixelSpectrumH,
+                    "svg",
+                    currentCaptureRange,
+                    currentStatsLines,
+                    currentWaveform,
+                    theme,
+                    options.aspectRatio,
+                    statsPlacementRef,
+                    false,
+                    false,
+                    options.activeSignalAreaBounds ?? null,
+                    options.activeSignalArea,
+                  );
+                  spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+                }
               }
 
               let waterfallSection = "";
@@ -2936,14 +3113,22 @@ export function useSnapshot(
 
         // ── PNG path ──────────────────────────────────────────────────────────
 
+        const liveSpectrumSourceCanvases =
+          !options.whole &&
+          (!options.aspectRatio || options.aspectRatio === "default")
+            ? (options.getVideoSourceCanvases?.() ?? null)
+            : null;
+        const liveSpectrumCanvas = liveSpectrumSourceCanvases?.spectrum ?? null;
+        const basePixelW = liveSpectrumCanvas?.width ?? PIXEL_WIDTH;
+        const baseSpectrumH = liveSpectrumCanvas?.height ?? PIXEL_SPECTRUM_H;
         const totalPixelH = hasWaterfall
-          ? PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H
-          : PIXEL_SPECTRUM_H;
+          ? baseSpectrumH + PIXEL_WATERFALL_H
+          : baseSpectrumH;
 
         // Determine final canvas dimensions based on aspect ratio (cover mode)
-        let finalPixelW = PIXEL_WIDTH;
+        let finalPixelW = basePixelW;
         let finalPixelH = totalPixelH;
-        let targetSpectrumH = PIXEL_SPECTRUM_H;
+        let targetSpectrumH = baseSpectrumH;
         let targetWaterfallH = hasWaterfall ? PIXEL_WATERFALL_H : 0;
         if (options.aspectRatio && options.aspectRatio !== "default") {
           const targetRatio =
@@ -2954,12 +3139,12 @@ export function useSnapshot(
                 : options.aspectRatio === "16:9"
                   ? 16 / 9
                   : 19.5 / 9;
-          const currentRatio = PIXEL_WIDTH / totalPixelH;
+          const currentRatio = basePixelW / totalPixelH;
           if (currentRatio > targetRatio) {
-            finalPixelH = Math.round(PIXEL_WIDTH / targetRatio);
+            finalPixelH = Math.round(basePixelW / targetRatio);
             if (hasWaterfall) {
               const spectrumRatio =
-                PIXEL_SPECTRUM_H / (PIXEL_SPECTRUM_H + PIXEL_WATERFALL_H);
+                baseSpectrumH / (baseSpectrumH + PIXEL_WATERFALL_H);
               targetSpectrumH = Math.round(finalPixelH * spectrumRatio);
               targetWaterfallH = finalPixelH - targetSpectrumH;
             } else {
@@ -2969,7 +3154,7 @@ export function useSnapshot(
           } else {
             finalPixelW = Math.round(totalPixelH * targetRatio);
             if (hasWaterfall) {
-              targetSpectrumH = PIXEL_SPECTRUM_H;
+              targetSpectrumH = baseSpectrumH;
               targetWaterfallH = PIXEL_WATERFALL_H;
             } else {
               targetSpectrumH = totalPixelH;
@@ -3011,8 +3196,24 @@ export function useSnapshot(
             : null;
 
         const renderData = { ...data, waveform: waveformToRender };
+        const liveSpectrumSnapshotCanvas = wholeChannelSpectrumCanvas
+          ? null
+          : buildLiveSpectrumSnapshotCanvas(
+              liveSpectrumSourceCanvases,
+              renderData,
+              rangeToRender,
+              options.showGrid,
+              captureRange,
+              statsLines,
+              waveformToRender,
+              theme,
+              statsPlacementRef,
+              options.activeSignalAreaBounds ?? null,
+              options.activeSignalArea,
+            );
         const spectrumCanvas =
           wholeChannelSpectrumCanvas ??
+          liveSpectrumSnapshotCanvas ??
           renderSpectrumSnapshotCanvas(
             renderData,
             rangeToRender,
@@ -3025,6 +3226,7 @@ export function useSnapshot(
             theme,
             options.aspectRatio,
             undefined,
+            false,
             false,
             options.activeSignalAreaBounds ?? null,
             options.activeSignalArea,

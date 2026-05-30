@@ -44,7 +44,6 @@ describe("useWebSocket Hook", () => {
     expect(typeof result.current.sendRestartDevice).toBe("function");
     expect(typeof result.current.sendTrainingCommand).toBe("function");
     expect(typeof result.current.sendCaptureCommand).toBe("function");
-    expect(typeof result.current.sendGetAutoFftOptions).toBe("function");
     // Note: dataRef now lives in liveDataRef from websocketMiddleware, not useWebSocket
   });
 

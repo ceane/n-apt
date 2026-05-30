@@ -81,7 +81,6 @@ export const SDRTestSidebar: React.FC = () => {
       sampleRateOptions,
       sendSettings,
       sendRestartDevice,
-      autoFftOptions,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
   } = useSpectrumStore();
@@ -126,7 +125,7 @@ export const SDRTestSidebar: React.FC = () => {
   });
 
   const resetLiveControls = useCallback(() => {
-    const recommendedFftSize = autoFftOptions?.recommended ?? state.fftSize;
+    const recommendedFftSize = 2048;
     const recommendedFrameRate = Math.max(
       1,
       Math.min(maxFrameRate, state.fftFrameRate),
@@ -148,14 +147,7 @@ export const SDRTestSidebar: React.FC = () => {
       tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
       rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
     });
-  }, [
-    autoFftOptions?.recommended,
-    dispatch,
-    maxFrameRate,
-    sendSettings,
-    state.fftFrameRate,
-    state.fftSize,
-  ]);
+  }, [dispatch, maxFrameRate, sendSettings, state.fftFrameRate, state.fftSize]);
 
   return (
     <SidebarContent>
@@ -250,7 +242,6 @@ export const SDRTestSidebar: React.FC = () => {
             fftSizeOptions={[8192, 16384, 32768, 65536, 131072, 262144]}
             fftWindow={fftWindow}
             temporalResolution={state.displayTemporalResolution}
-            autoFftOptions={autoFftOptions || null}
             backend={backend}
             deviceProfile={deviceProfile}
             powerScale={state.powerScale}

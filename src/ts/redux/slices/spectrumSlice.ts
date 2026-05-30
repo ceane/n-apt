@@ -28,7 +28,6 @@ export interface SpectrumState {
   fftSizeOptions: number[];
   fftWindow: string;
   fftFrameRate: number;
-  isAutoFftApplied: boolean;
   fftAvgEnabled: boolean;
   fftSmoothEnabled: boolean;
   wfSmoothEnabled: boolean;
@@ -38,7 +37,7 @@ export interface SpectrumState {
   hackrfLnaGain: number;
   hackrfVgaGain: number;
   hackrfAmpEnabled: boolean;
-  hackrfBasebandBandwidth: number;
+  hackrfBasebandBandwidth: number | null;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -81,7 +80,7 @@ const LIVE_CONTROL_DEFAULTS = {
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: 3200000,
+  hackrfBasebandBandwidth: null,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -107,7 +106,6 @@ const initialState: SpectrumState = {
   fftSizeOptions: [],
   fftWindow: "Rectangular",
   fftFrameRate: 60,
-  isAutoFftApplied: false,
   fftAvgEnabled: false,
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
@@ -116,7 +114,7 @@ const initialState: SpectrumState = {
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: 3200000,
+  hackrfBasebandBandwidth: null,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -248,10 +246,6 @@ const spectrumSlice = createSlice({
 
     setFftFrameRate: (state, action: PayloadAction<number>) => {
       state.fftFrameRate = action.payload;
-    },
-
-    setAutoFftApplied: (state, action: PayloadAction<boolean>) => {
-      state.isAutoFftApplied = action.payload;
     },
 
     setFftAvgEnabled: (state, action: PayloadAction<boolean>) => {
@@ -426,7 +420,6 @@ export const {
   setFftSizeOptions,
   setFftWindow,
   setFftFrameRate,
-  setAutoFftApplied,
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,

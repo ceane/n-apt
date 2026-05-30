@@ -21,19 +21,6 @@ use super::utils::{
 };
 use super::websocket_server::reconcile_stale_device_snapshot;
 
-/// Calculate optimal FFT sizes based on screen width (in physical pixels, i.e. CSS width × DPR).
-/// Returns (available_sizes, recommended_size).
-///
-/// RATIONALE:
-/// 1. Screen sizes are usually smaller than the FFT size; we keep them balanced since FFT is width-based.
-/// 2. Performance: Smaller FFTs are cheaper. Higher resolution is typically only needed when zooming.
-fn calculate_auto_fft_sizes(screen_width: u32) -> (Vec<usize>, usize) {
-  let sizes = vec![2048, 4096];
-  // Hi-DPI / Retina screens send width * dpr, typically >= 3000 physical pixels.
-  let recommended = if screen_width >= 3000 { 4096 } else { 2048 };
-  (sizes, recommended)
-}
-
 fn resolve_live_center_frequency(
   min_freq: f64,
   max_freq: f64,
@@ -299,25 +286,7 @@ pub async fn handle_ws_connection(
                 warn!("Invalid WebSocket message received: {}", e);
                 continue;
               }
-              // Handle auto FFT options directly in the connection loop
-              if message.message_type == "get_auto_fft_options" {
-                if let Some(screen_width) = message.screen_width {
-                  info!("Client requested auto FFT options for screen width: {}", screen_width);
-                  let (auto_sizes, recommended) = calculate_auto_fft_sizes(screen_width);
-
-                  let response = super::types::AutoFftOptionsResponse {
-                    message_type: "auto_fft_options".to_string(),
-                    auto_sizes,
-                    recommended,
-                  };
-
-                  if let Ok(response_json) = serde_json::to_string(&response) {
-                    if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
-                      break;
-                    }
-                  }
-                }
-              } else if message.message_type == "get_hardware_info" {
+              if message.message_type == "get_hardware_info" {
                 info!("Client requested hardware info");
                 let _device_connected = shared.device_connected.load(Ordering::Relaxed);
                 let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
@@ -607,6 +576,14 @@ pub fn handle_message(
       if let Some(ragc) = message.rtl_agc {
         sdr_settings.gain.rtl_agc = ragc;
       }
+      let kind = shared.device_profile.lock().unwrap().kind.clone();
+      sdr_settings.fft = crate::server::utils::resolve_fft_config(
+        &kind,
+        sdr_settings.sample_rate,
+        Some(sdr_settings.fft.default_size),
+      );
+      drop(sdr_settings);
+      super::websocket_server::broadcast_device_status(shared, broadcast_tx);
     }
     "restart_device" => {
       info!("Client requested device restart");

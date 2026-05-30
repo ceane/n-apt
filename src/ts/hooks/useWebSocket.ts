@@ -11,7 +11,6 @@ import {
   CaptureStatus,
   SpectrumFrame,
   LiveFrameData,
-  AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage,
@@ -26,7 +25,6 @@ export type {
   CaptureRequest,
   CaptureStatus,
   SpectrumFrame,
-  AutoFftOptionsResponse,
   DeviceProfile,
   SdrSettingsConfig,
   WebSocketMessage,
@@ -55,7 +53,6 @@ export type WebSocketData = {
   dataRef: React.MutableRefObject<LiveFrameData | null>;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
   cryptoCorrupted: boolean;
   sendFrequencyRange: (range: FrequencyRange) => void;
@@ -69,7 +66,6 @@ export type WebSocketData = {
     label: "target" | "noise",
     signalArea: string,
   ) => void;
-  sendGetAutoFftOptions: (screenWidth: number) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
 };
 
@@ -96,7 +92,6 @@ type WsState = {
   data: LiveFrameData | null;
   spectrumFrames: SpectrumFrame[];
   captureStatus: CaptureStatus;
-  autoFftOptions: AutoFftOptionsResponse | null;
   error: string | null;
   cryptoCorrupted: boolean;
 };
@@ -108,7 +103,6 @@ type WsAction =
   | { type: "ERROR"; error: string }
   | { type: "STATUS"; updates: Partial<WsState> }
   | { type: "CAPTURE_STATUS"; status: CaptureStatus }
-  | { type: "AUTO_FFT_OPTIONS"; options: AutoFftOptionsResponse }
   | { type: "DATA"; data: LiveFrameData | null }
   | { type: "CRYPTO_CORRUPTED" };
 
@@ -131,7 +125,6 @@ const INITIAL_WS_STATE: WsState = {
   data: null,
   spectrumFrames: [],
   captureStatus: null,
-  autoFftOptions: null,
   error: null,
   cryptoCorrupted: false,
 };
@@ -180,8 +173,6 @@ function wsReducer(state: WsState, action: WsAction): WsState {
       return { ...state, ...action.updates };
     case "CAPTURE_STATUS":
       return { ...state, captureStatus: action.status };
-    case "AUTO_FFT_OPTIONS":
-      return { ...state, autoFftOptions: action.options };
     case "DATA":
       return { ...state, data: action.data };
     case "CRYPTO_CORRUPTED":
@@ -576,26 +567,6 @@ export const useWebSocket = (
               // Silently handle JSON parsing errors
             }
           }
-
-          // ── Auto FFT options messages (plaintext) ─────────────────
-          if (raw.includes('"type":"auto_fft_options"')) {
-            try {
-              const parsed = JSON.parse(raw);
-              if (
-                Array.isArray(parsed.autoSizes) &&
-                typeof parsed.recommended === "number"
-              ) {
-                const options: AutoFftOptionsResponse = {
-                  type: "auto_fft_options",
-                  autoSizes: parsed.autoSizes,
-                  recommended: parsed.recommended,
-                };
-                dispatch({ type: "AUTO_FFT_OPTIONS", options });
-              }
-            } catch {
-              // Silently handle JSON parsing errors
-            }
-          }
         };
 
         ws.onclose = () => {
@@ -734,26 +705,6 @@ export const useWebSocket = (
     [],
   );
 
-  // Function to request auto FFT options from the server
-  const sendGetAutoFftOptions = useCallback(
-    (screenWidth: number) => {
-      // Check if we already have auto FFT options cached
-      if (state.autoFftOptions) {
-        return;
-      }
-
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const message = JSON.stringify({
-          type: "get_auto_fft_options",
-          screenWidth: screenWidth,
-        });
-        ws.send(message);
-      }
-    },
-    [state.autoFftOptions],
-  );
-
   // Function to send pause/resume commands to the server
   const sendPauseCommand = useCallback((isPaused: boolean) => {
     const ws = wsRef.current;
@@ -869,7 +820,6 @@ export const useWebSocket = (
     sendCaptureCommand,
     sendCaptureStopCommand,
     sendTrainingCommand,
-    sendGetAutoFftOptions,
     sendPowerScaleCommand,
   };
 };

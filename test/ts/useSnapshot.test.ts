@@ -165,7 +165,7 @@ describe("fast snapshot canvases", () => {
     global.clearCanvasCalls?.();
   });
 
-  it("builds fast FFT snapshots from live canvases and replaces only the center icon", () => {
+  it("builds fast FFT snapshots from the live canvas without the VFO overlay", () => {
     const spectrumGpu = document.createElement("canvas");
     spectrumGpu.width = 320;
     spectrumGpu.height = 180;
@@ -196,19 +196,10 @@ describe("fast snapshot canvases", () => {
     );
 
     expect(canvas).toBeTruthy();
-    expect(
-      (global as any).__CANVAS_CALLS__.filter(
-        (call: any) => call.name === "drawImage",
-      ).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(
-      (global as any).__CANVAS_CALLS__.some(
-        (call: any) =>
-          call.name === "fillText" &&
-          typeof call.args[0] === "string" &&
-          call.args[0].startsWith("○"),
-      ),
-    ).toBe(true);
+    const drawImageCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "drawImage",
+    );
+    expect(drawImageCalls.length).toBe(0);
   });
 
   it("trims the live waterfall render inset before adding the fast VFO axis", () => {
@@ -275,7 +266,7 @@ describe("fast snapshot canvases", () => {
         hwText: "#aaaaaa",
         cfText: "#fefefe",
       },
-      { spectrumGpu, spectrumOverlay: null },
+      null,
     );
 
     expect(canvas).toBeTruthy();
@@ -385,6 +376,51 @@ describe("useSnapshot", () => {
     expect(toDataURL).toHaveBeenCalledWith("image/png");
     expect(click).toHaveBeenCalled();
     expect(mockAnchor.download).toContain("fast-fft-snapshot");
+  });
+
+  it("uses the live spectrum canvas for regular onscreen PNG snapshots", async () => {
+    global.clearCanvasCalls?.();
+    const liveSpectrum = document.createElement("canvas");
+    const liveOverlay = document.createElement("canvas");
+    const { result } = renderHook(() => useSnapshot(null, true), {
+      wrapper: TestWrapper,
+    });
+
+    await act(async () => {
+      await result.current.handleSnapshot({
+        whole: false,
+        showWaterfall: false,
+        showStats: false,
+        showGeolocation: false,
+        showGrid: true,
+        format: "png",
+        getSnapshotData: () =>
+          ({
+            frequencyRange: { min: 24_720_000, max: 29_880_000 },
+            waveform: new Float32Array([-80, -75, -82, -70]),
+            fullChannelWaveform: null,
+            vizZoom: 1,
+            vizPanOffset: 0,
+            dbMin: -120,
+            dbMax: 0,
+            hardwareSampleRateHz: 5_120_000,
+          }) as any,
+        getVideoSourceCanvases: () => ({
+          spectrum: liveSpectrum,
+          spectrumOverlay: liveOverlay,
+          waterfall: null,
+        }),
+      });
+    });
+
+    const canvasCalls = (global as any).__CANVAS_CALLS__ ?? [];
+    expect(
+      canvasCalls.some(
+        (call: any) =>
+          call.name === "drawImage" &&
+          (call.args[0] === liveOverlay || call.args[0] === liveSpectrum),
+      ),
+    ).toBe(false);
   });
 });
 

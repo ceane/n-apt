@@ -173,12 +173,6 @@ export const CaptureStatusSchema = z.object({
   duration: z.number().optional(),
 });
 
-export const AutoFftOptionsResponseSchema = z.object({
-  type: z.literal("auto_fft_options"),
-  autoSizes: z.array(z.number()),
-  recommended: z.number(),
-});
-
 export const StatusMessageSchema = z.object({
   type: z.literal("status"),
   device_connected: z.boolean(),
@@ -279,13 +273,8 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("capture_stop"),
     jobId: z.string().optional(),
   }),
-  z.object({
-    type: z.literal("get_auto_fft_options"),
-    screenWidth: z.number(),
-  }),
   // Server-to-client messages
   StatusMessageSchema,
-  AutoFftOptionsResponseSchema,
 ]);
 
 // Type guards derived from schemas
@@ -335,10 +324,4 @@ export const isValidCaptureStatus = (
   data: unknown,
 ): data is z.infer<typeof CaptureStatusSchema> => {
   return CaptureStatusSchema.safeParse(data).success;
-};
-
-export const isValidAutoFftOptions = (
-  data: unknown,
-): data is z.infer<typeof AutoFftOptionsResponseSchema> => {
-  return AutoFftOptionsResponseSchema.safeParse(data).success;
 };

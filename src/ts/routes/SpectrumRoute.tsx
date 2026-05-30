@@ -557,16 +557,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     backend: backend ?? undefined,
     deviceInfo: deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
+    hackrfLnaGain: state.hackrfLnaGain,
+    hackrfVgaGain: state.hackrfVgaGain,
+    hackrfAmpEnabled: state.hackrfAmpEnabled,
+    hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
     deviceName: deviceName ?? undefined,
+    deviceProfile: deviceProfile ?? undefined,
     fftFrameRate: state.fftFrameRate,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
     getVideoSourceCanvases: () => {
       const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas() ?? null;
+      const spectrumOverlayCanvas =
+        fftCanvasRef.current?.getSpectrumOverlayCanvas() ?? null;
       const waterfallCanvas =
         fftCanvasRef.current?.getWaterfallCanvas() ?? null;
       return {
         spectrum: spectrumCanvas,
+        spectrumOverlay: spectrumOverlayCanvas,
         waterfall: waterfallCanvas,
       };
     },

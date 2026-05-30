@@ -165,11 +165,6 @@ interface SignalDisplaySectionProps {
   fftSizeOptions: number[];
   fftWindow: string;
   temporalResolution: "low" | "medium" | "high";
-  autoFftOptions: {
-    type: "auto_fft_options";
-    autoSizes: number[];
-    recommended: number;
-  } | null;
   backend: string | null;
   deviceProfile?: DeviceProfile | null;
   powerScale: "dB" | "dBm";
@@ -202,7 +197,6 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   fftSizeOptions,
   fftWindow,
   temporalResolution,
-  autoFftOptions,
   backend,
   deviceProfile,
   powerScale,
@@ -241,17 +235,6 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     [fftSize, fftSizeOptions],
   );
 
-  const autoFftSizeOptions = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          (autoFftOptions?.autoSizes ?? []).filter(
-            (size) => Number.isFinite(size) && size > 0,
-          ),
-        ),
-      ).sort((a, b) => a - b),
-    [autoFftOptions],
-  );
   const sampleRateOptionList = React.useMemo(() => {
     const rates = new Set(sampleRateOptions);
     if (
@@ -300,13 +283,13 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                 }}
               >
                 {showWholeChannelOption && (
-                    <option
-                      key="whole-channel"
-                      value={Math.round(wholeChannelSampleRate)}
-                    >
-                      {wholeChannelLabel}
-                    </option>
-                  )}
+                  <option
+                    key="whole-channel"
+                    value={Math.round(wholeChannelSampleRate)}
+                  >
+                    {wholeChannelLabel}
+                  </option>
+                )}
                 {sampleRateOptionList.map((rate) =>
                   showWholeChannelOption &&
                   Math.round(wholeChannelSampleRate) === rate ? null : (
@@ -380,29 +363,13 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                 scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
               }}
             >
-              {autoFftSizeOptions.length > 0 ? (
-                <>
-                  {autoFftSizeOptions.map((size) => (
-                    <option key={`auto-${size}`} value={size}>
-                      {size} (Auto)
-                    </option>
-                  ))}
-                  {manualFftOptions.length > 0 && <option disabled>---</option>}
-                  {manualFftOptions.map((size) => (
-                    <option key={`manual-${size}`} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <>
-                  {manualFftOptions.map((size) => (
-                    <option key={`manual-${size}`} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </>
-              )}
+              <>
+                {manualFftOptions.map((size) => (
+                  <option key={`manual-${size}`} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </>
             </SettingSelect>
           </Row>
           {variant !== "diagnostic" && (

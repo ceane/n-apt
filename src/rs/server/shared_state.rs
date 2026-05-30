@@ -149,7 +149,16 @@ impl SharedState {
       !connected && device_profile.kind.starts_with("mock_apt");
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
+    let kind = device_profile.kind.clone();
     *self.device_profile.lock().unwrap() = device_profile;
+    {
+      let mut settings = self.sdr_settings.lock().unwrap();
+      settings.fft = super::utils::resolve_fft_config(
+        &kind,
+        settings.sample_rate,
+        Some(settings.fft.default_size),
+      );
+    }
     *self.device_state.lock().unwrap() = if connected {
       "connected".to_string()
     } else {

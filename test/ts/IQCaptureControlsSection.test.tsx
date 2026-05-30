@@ -81,9 +81,7 @@ describe("IQCaptureControlsSection", () => {
       <TestWrapper>
         <IQCaptureControlsSection
           {...defaultProps}
-          availableCaptureAreas={[
-            { label: "Area A", min: 10, max: 20 },
-          ]}
+          availableCaptureAreas={[{ label: "Area A", min: 10, max: 20 }]}
           captureRange={{
             min: 10,
             max: 20,

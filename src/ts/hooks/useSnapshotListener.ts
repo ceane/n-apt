@@ -2,11 +2,77 @@ import { useEffect } from "react";
 import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { SnapshotOptions } from "@n-apt/hooks/useSnapshot";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   streamWholeChannelSegmentFrames,
   type WholeChannelSnapshotSegment,
 } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import { setSnapshotProgress, useAppDispatch } from "@n-apt/redux";
+
+export const buildSnapshotSettingsLabel = (params: {
+  effectiveSdrSettings?: SdrSettingsConfig;
+  hackrfLnaGain?: number | null;
+  hackrfVgaGain?: number | null;
+  hackrfAmpEnabled?: boolean | null;
+  hackrfBasebandBandwidth?: number | null;
+  deviceKind?: string;
+}): string | undefined => {
+  const {
+    effectiveSdrSettings,
+    hackrfLnaGain,
+    hackrfVgaGain,
+    hackrfAmpEnabled,
+    hackrfBasebandBandwidth,
+    deviceKind,
+  } = params;
+  if (!effectiveSdrSettings) return undefined;
+
+  const gainConfig = effectiveSdrSettings.gain;
+  const isHackrf = deviceKind === "hackrf_one";
+  const hasHackrfControls =
+    isHackrf &&
+    (hackrfLnaGain != null ||
+      hackrfVgaGain != null ||
+      hackrfAmpEnabled != null ||
+      gainConfig?.hackrf_lna_gain != null ||
+      gainConfig?.hackrf_vga_gain != null ||
+      gainConfig?.hackrf_amp_enable != null ||
+      hackrfBasebandBandwidth != null);
+
+  const gainStr = hasHackrfControls
+    ? `LNA ${hackrfLnaGain ?? gainConfig?.hackrf_lna_gain ?? 0}dB | VGA ${
+        hackrfVgaGain ?? gainConfig?.hackrf_vga_gain ?? 0
+      }dB | AMP ${
+        (hackrfAmpEnabled ?? gainConfig?.hackrf_amp_enable) ? "on" : "off"
+      }`
+    : gainConfig?.tuner_gain != null
+      ? `${gainConfig.tuner_gain}dB`
+      : "Auto";
+
+  const basebandFilterStr =
+    isHackrf && hackrfBasebandBandwidth != null
+      ? hackrfBasebandBandwidth > 0
+        ? `${formatFrequency(hackrfBasebandBandwidth, {
+            precisionMHz: 2,
+            precisionKHz: 0,
+            trimTrailingZeros: true,
+            showUnits: false,
+          })} MHz`
+        : "off"
+      : null;
+
+  const parts = [`Gain: ${gainStr}`];
+  if (isHackrf && hasHackrfControls && basebandFilterStr) {
+    parts.push(`Baseband Filter: ${basebandFilterStr}`);
+  }
+
+  const ppmStr =
+    effectiveSdrSettings.ppm !== undefined
+      ? effectiveSdrSettings.ppm.toString()
+      : "0";
+  parts.push(`PPM: ${ppmStr}`);
+  return parts.join(" | ");
+};
 
 interface UseSnapshotListenerOptions {
   takeSnapshot: (options: SnapshotOptions) => void;
@@ -18,12 +84,18 @@ interface UseSnapshotListenerOptions {
   backend?: string;
   deviceInfo?: string;
   effectiveSdrSettings?: SdrSettingsConfig;
+  hackrfLnaGain?: number | null;
+  hackrfVgaGain?: number | null;
+  hackrfAmpEnabled?: boolean | null;
+  hackrfBasebandBandwidth?: number | null;
   deviceName?: string;
+  deviceProfile?: any;
   fftFrameRate: number;
   captureWholeChannelSegments: () => Promise<WholeChannelSnapshotSegment[]>;
   getSnapshotData: () => SnapshotData | null | undefined;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
+    spectrumOverlay?: HTMLCanvasElement | null;
     waterfall: HTMLCanvasElement | null;
   };
   refreshVideoFrame?: () => void;
@@ -44,7 +116,12 @@ export const useSnapshotListener = ({
   backend,
   deviceInfo,
   effectiveSdrSettings,
+  hackrfLnaGain,
+  hackrfVgaGain,
+  hackrfAmpEnabled,
+  hackrfBasebandBandwidth,
   deviceName,
+  deviceProfile,
   fftFrameRate,
   captureWholeChannelSegments,
   getSnapshotData,
@@ -65,27 +142,14 @@ export const useSnapshotListener = ({
           total: null,
         }),
       );
-      let sdrSettingsLabel: string | undefined;
-
-      if (effectiveSdrSettings) {
-        const gainConfig = effectiveSdrSettings.gain;
-        const hasHackrfControls =
-          gainConfig?.hackrf_lna_gain != null ||
-          gainConfig?.hackrf_vga_gain != null ||
-          gainConfig?.hackrf_amp_enable != null;
-        const gainStr = hasHackrfControls
-          ? `LNA ${gainConfig?.hackrf_lna_gain ?? 0}dB | VGA ${
-              gainConfig?.hackrf_vga_gain ?? 0
-            }dB | AMP ${gainConfig?.hackrf_amp_enable ? "on" : "off"}`
-          : gainConfig?.tuner_gain != null
-            ? `${gainConfig.tuner_gain}dB`
-            : "Auto";
-        const ppmStr =
-          effectiveSdrSettings.ppm !== undefined
-            ? effectiveSdrSettings.ppm.toString()
-            : "0";
-        sdrSettingsLabel = `Gain: ${gainStr} | PPM: ${ppmStr}`;
-      }
+      const sdrSettingsLabel = buildSnapshotSettingsLabel({
+        effectiveSdrSettings,
+        hackrfLnaGain,
+        hackrfVgaGain,
+        hackrfAmpEnabled,
+        hackrfBasebandBandwidth,
+        deviceKind: deviceProfile?.kind,
+      });
 
       const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
       const isVideo = options.format === "mp4" || options.format === "webm";
@@ -137,6 +201,11 @@ export const useSnapshotListener = ({
     backend,
     deviceInfo,
     effectiveSdrSettings,
+    hackrfLnaGain,
+    hackrfVgaGain,
+    hackrfAmpEnabled,
+    hackrfBasebandBandwidth,
+    deviceProfile,
     dispatchProgress,
     fftFrameRate,
     captureWholeChannelSegments,

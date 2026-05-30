@@ -58,7 +58,6 @@ const Template = () => {
           ).map(Number)}
           fftWindow={window}
           temporalResolution={res}
-          autoFftOptions={null}
           backend="mock_apt"
           powerScale={scale}
           onFftFrameRateChange={setFrameRate}

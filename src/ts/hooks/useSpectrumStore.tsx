@@ -15,7 +15,6 @@ import type {
   SdrSettingsConfig,
   DeviceProfile,
   CaptureStatus,
-  AutoFftOptionsResponse,
   SDRSettings,
   CaptureRequest,
 } from "@n-apt/consts/schemas/websocket";
@@ -47,7 +46,6 @@ import {
   connectWebSocket,
   disconnectWebSocket,
   sendPowerScaleCommand as sendPowerScaleCommandThunk,
-  sendGetAutoFftOptions as sendGetAutoFftOptionsThunk,
   sendTrainingCommand as sendTrainingCommandThunk,
   sendFrequencyRange as sendFrequencyRangeThunk,
   requestNextPausedFrame as requestNextPausedFrameThunk,
@@ -165,7 +163,7 @@ export const LIVE_CONTROL_DEFAULTS = {
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: 3200000,
+  hackrfBasebandBandwidth: null,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -209,7 +207,6 @@ export type SpectrumState = {
   isStitchPaused: boolean;
   fftFrameRate: number;
   detectedFrameRate: number | null;
-  isAutoFftApplied: boolean;
   isWaterfallCleared: boolean;
   vizZoom: number;
   vizPanOffset: number;
@@ -222,7 +219,7 @@ export type SpectrumState = {
   hackrfLnaGain: number;
   hackrfVgaGain: number;
   hackrfAmpEnabled: boolean;
-  hackrfBasebandBandwidth: number;
+  hackrfBasebandBandwidth: number | null;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -294,7 +291,6 @@ export type SpectrumAction =
   | { type: "LEAVE_VISUALIZER" }
   | { type: "SET_FFT_FRAME_RATE"; fftFrameRate: number }
   | { type: "SET_DETECTED_FRAME_RATE"; detectedFrameRate: number | null }
-  | { type: "SET_AUTO_FFT_APPLIED"; applied: boolean }
   | { type: "CLEAR_WATERFALL" }
   | { type: "RESET_WATERFALL_CLEARED" }
   | { type: "SET_VIZ_ZOOM"; zoom: number }
@@ -370,7 +366,6 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   isStitchPaused: false,
   fftFrameRate: 60,
   detectedFrameRate: null,
-  isAutoFftApplied: false,
   isWaterfallCleared: false,
   vizZoom: 1,
   vizZoomFloor: 1,
@@ -386,7 +381,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: 3200000,
+  hackrfBasebandBandwidth: null,
   ppm: 0,
   tunerAGC: false,
   rtlAGC: false,
@@ -632,8 +627,6 @@ export function spectrumReducer(
       return { ...state, fftFrameRate: action.fftFrameRate };
     case "SET_DETECTED_FRAME_RATE":
       return { ...state, detectedFrameRate: action.detectedFrameRate };
-    case "SET_AUTO_FFT_APPLIED":
-      return { ...state, isAutoFftApplied: action.applied };
     case "LEAVE_VISUALIZER":
       return {
         ...state,
@@ -831,7 +824,6 @@ export type SpectrumStoreContextValue = {
     dataRef: React.MutableRefObject<any>;
     spectrumFrames: SpectrumFrame[];
     captureStatus: CaptureStatus;
-    autoFftOptions: AutoFftOptionsResponse | null;
     error: string | null;
     cryptoCorrupted: boolean;
     sendFrequencyRange: (range: FrequencyRange) => void;
@@ -851,7 +843,6 @@ export type SpectrumStoreContextValue = {
       label: "target" | "noise",
       signalArea: string,
     ) => void;
-    sendGetAutoFftOptions: (screenWidth: number) => void;
     sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
   };
   toggleVisualizerPause: () => void;
@@ -913,7 +904,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const sdrLimitMarkers = useAppSelector((s) => s.websocket.sdrLimitMarkers);
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
-    const autoFftOptions = useAppSelector((s) => s.websocket.autoFftOptions);
     const error = useAppSelector((s) => s.websocket.error);
     const deviceState = useAppSelector((s) => s.websocket.deviceState);
     const waterfallState = useAppSelector((s) => s.waterfall);
@@ -932,6 +922,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         ppm: reduxSpectrumState.ppm,
         tunerAGC: reduxSpectrumState.tunerAGC,
         rtlAGC: reduxSpectrumState.rtlAGC,
+        sampleRateHz: reduxSpectrumState.sampleRateHz,
+        minReceiveSampleRateHz: reduxSpectrumState.minReceiveSampleRateHz,
       }),
       [state, waterfallState, reduxSpectrumState],
     );
@@ -1021,13 +1013,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (previousKey && previousKey !== nextKey) {
         reduxDispatch(clearWaterfall());
       }
-    }, [
-      backend,
-      deviceInfo,
-      deviceName,
-      deviceProfile?.kind,
-      reduxDispatch,
-    ]);
+    }, [backend, deviceInfo, deviceName, deviceProfile?.kind, reduxDispatch]);
 
     useEffect(() => {
       reduxDispatch(
@@ -1104,13 +1090,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
-    const sendGetAutoFftOptionsCommand = useCallback(
-      (screenWidth: number) => {
-        reduxDispatch(sendGetAutoFftOptionsThunk(screenWidth));
-      },
-      [reduxDispatch],
-    );
-
     const sendPowerScaleCommand = useCallback(
       (scale: "dB" | "dBm") => {
         reduxDispatch(sendPowerScaleCommandThunk(scale));
@@ -1137,7 +1116,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         dataRef,
         spectrumFrames: wsSpectrumFrames,
         captureStatus,
-        autoFftOptions,
         error,
         cryptoCorrupted,
         sendFrequencyRange: sendFrequencyRangeCommand,
@@ -1148,7 +1126,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sendScanCommand,
         sendDemodulateCommand,
         sendTrainingCommand,
-        sendGetAutoFftOptions: sendGetAutoFftOptionsCommand,
         sendPowerScaleCommand,
       }),
       [
@@ -1168,7 +1145,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sdrLimitMarkers,
         dataRef,
         captureStatus,
-        autoFftOptions,
         error,
         cryptoCorrupted,
         sendFrequencyRangeCommand,
@@ -1179,7 +1155,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sendScanCommand,
         sendDemodulateCommand,
         sendTrainingCommand,
-        sendGetAutoFftOptionsCommand,
         sendPowerScaleCommand,
       ],
     );
@@ -1650,44 +1625,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       clampLiveFrequencyRange,
       storeDispatch,
       wsConnection.sendFrequencyRange,
-    ]);
-
-    // Screen width detection for auto FFT options
-    useEffect(() => {
-      if (!isVisualizerRoute || !isConnected) return;
-
-      const detectScreenWidth = () => {
-        const cssWidth =
-          window.innerWidth ||
-          document.documentElement.clientWidth ||
-          document.body.clientWidth;
-        const dpr = window.devicePixelRatio || 1;
-        wsConnection.sendGetAutoFftOptions(Math.round(cssWidth * dpr));
-      };
-
-      // Only request if we don't have cached auto FFT options
-      if (!autoFftOptions) {
-        // Initial detection on route load
-        detectScreenWidth();
-
-        // Listen for resize events (with debouncing)
-        let resizeTimeout: NodeJS.Timeout;
-        const handleResize = () => {
-          clearTimeout(resizeTimeout);
-          resizeTimeout = setTimeout(detectScreenWidth, 500);
-        };
-
-        window.addEventListener("resize", handleResize);
-        return () => {
-          window.removeEventListener("resize", handleResize);
-          clearTimeout(resizeTimeout);
-        };
-      }
-    }, [
-      isVisualizerRoute,
-      isConnected,
-      wsConnection.sendGetAutoFftOptions,
-      autoFftOptions,
     ]);
 
     useEffect(() => {

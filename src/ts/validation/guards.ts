@@ -25,7 +25,6 @@ export {
   isValidSpectrumFrame,
   isValidCaptureRequest,
   isValidCaptureStatus,
-  isValidAutoFftOptions,
 } from "@n-apt/validation/schemas";
 
 // Import base functions for enhanced validation

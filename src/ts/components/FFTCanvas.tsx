@@ -63,7 +63,10 @@ import {
 } from "@n-apt/utils/waterfallRows";
 import { roundDbValue } from "@n-apt/utils/frequency";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
-import type { DemodFocusOverlay } from "@n-apt/hooks/useOverlayRenderer";
+import {
+  useOverlayRenderer,
+  type DemodFocusOverlay,
+} from "@n-apt/hooks/useOverlayRenderer";
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -411,14 +414,6 @@ export interface FFTCanvasProps {
   fftMin?: number;
   fftMax?: number;
   onFftDbLimitsChange?: (min: number, max: number) => void;
-  /** Function to request auto FFT options from server */
-  sendGetAutoFftOptions?: (screenWidth: number) => void;
-  /** Auto FFT options from server/cache */
-  autoFftOptions?: {
-    type: "auto_fft_options";
-    autoSizes: number[];
-    recommended: number;
-  } | null;
   hardwareSampleRateHz?: number;
   deviceProfile?: DeviceProfile | null;
   tunerGainDb?: number;
@@ -543,8 +538,6 @@ const FFTCanvas = memo(
       fftMin = FFT_MIN_DB,
       fftMax,
       onFftDbLimitsChange,
-      sendGetAutoFftOptions,
-      autoFftOptions,
       hardwareSampleRateHz,
       deviceProfile,
       tunerGainDb,
@@ -571,6 +564,12 @@ const FFTCanvas = memo(
       autoZoomStability = false,
     } = props;
     const dispatch = useAppDispatch();
+    const {
+      drawMarkersOnContext,
+      drawDemodFocusOnContext,
+      drawSelectionOverlayOnContext,
+      drawZoomMarkersOnContext,
+    } = useOverlayRenderer();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
 
     const autoZoomStabilityRef = useRef(autoZoomStability);
@@ -767,7 +766,6 @@ const FFTCanvas = memo(
 
     const fftProcessedBufferRef = useRef<Float32Array | null>(null);
     const spectrumOutputBufferRef = useRef<Float32Array | null>(null);
-    const autoFftResizeTimeoutRef = useRef<number | null>(null);
     const pendingFftSizeChangeRef = useRef(false);
 
     const setVizZoom = useCallback(
@@ -1037,8 +1035,6 @@ const FFTCanvas = memo(
     const nodePreviewRef = useRef(nodePreview);
 
     const liveDragSelectionRef = useRef<FrequencyRange | null>(null);
-    const tooltipStartRef = useRef<HTMLSpanElement | null>(null);
-    const tooltipEndRef = useRef<HTMLSpanElement | null>(null);
     const tooltipSpanRef = useRef<HTMLSpanElement | null>(null);
 
     useEffect(() => {
@@ -1134,52 +1130,6 @@ const FFTCanvas = memo(
       overlayDirtyRef.current.grid = true;
     }, [isIqRecordingActive, hardwareSampleRateHz]);
 
-    // Effect: Detect screen width to request optimal FFT size from server
-    // Calculates CSS width × DPR for accurate pixel coverage. Debounced at 500ms.
-    useEffect(() => {
-      if (sendGetAutoFftOptions && !autoFftOptions) {
-        if (autoFftResizeTimeoutRef.current !== null) {
-          window.clearTimeout(autoFftResizeTimeoutRef.current);
-          autoFftResizeTimeoutRef.current = null;
-        }
-
-        const detectScreenWidth = () => {
-          const cssWidth =
-            window.innerWidth ||
-            document.documentElement.clientWidth ||
-            document.body.clientWidth;
-          const dpr = window.devicePixelRatio || 1;
-          sendGetAutoFftOptions(Math.round(cssWidth * dpr));
-        };
-
-        detectScreenWidth();
-
-        const handleResize = () => {
-          if (autoFftResizeTimeoutRef.current !== null) {
-            window.clearTimeout(autoFftResizeTimeoutRef.current);
-          }
-          autoFftResizeTimeoutRef.current = window.setTimeout(
-            detectScreenWidth,
-            500,
-          );
-        };
-
-        window.addEventListener("resize", handleResize);
-
-        return () => {
-          window.removeEventListener("resize", handleResize);
-          if (autoFftResizeTimeoutRef.current !== null) {
-            window.clearTimeout(autoFftResizeTimeoutRef.current);
-            autoFftResizeTimeoutRef.current = null;
-          }
-        };
-      }
-      if (autoFftResizeTimeoutRef.current !== null) {
-        window.clearTimeout(autoFftResizeTimeoutRef.current);
-        autoFftResizeTimeoutRef.current = null;
-      }
-    }, [sendGetAutoFftOptions, autoFftOptions]);
-
     const hasRealWaveform = !!(
       waveformFloatRef.current && waveformFloatRef.current.length > 0
     );
@@ -1234,8 +1184,6 @@ const FFTCanvas = memo(
         overlayDirtyRef.current.markers = true;
         forceRenderRef.current?.();
       }, [overlayDirtyRef]),
-      tooltipStartRef,
-      tooltipEndRef,
       tooltipSpanRef,
     });
 
@@ -1248,10 +1196,8 @@ const FFTCanvas = memo(
 
     // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
     const { drawSpectrum, cleanup: cleanupSpectrum } = useSpectrumRenderer();
-    const {
-      drawWebGPUFIFOWaterfall,
-      cleanup: cleanupWebGPUFIFOWaterfall,
-    } = useDrawWebGPUFIFOWaterfall();
+    const { drawWebGPUFIFOWaterfall, cleanup: cleanupWebGPUFIFOWaterfall } =
+      useDrawWebGPUFIFOWaterfall();
     const {
       computeWaterfallRetuneRow,
       cleanup: cleanupWaterfallRetuneCompute,
@@ -1727,7 +1673,7 @@ const FFTCanvas = memo(
               gridOverlayRenderer: compact
                 ? undefined
                 : gridOverlayRendererRef.current,
-              markersOverlayRenderer: markersOverlayRendererRef.current,
+              markersOverlayRenderer: undefined,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: centerFreqRef.current,
@@ -1766,6 +1712,83 @@ const FFTCanvas = memo(
             if (!hasRenderedSpectrumFrame) {
               setHasRenderedSpectrumFrame(true);
               onRenderableFrameChange?.(true);
+            }
+          }
+
+          // Render overlays to 2D HTML canvas instead of WebGPU texture
+          if (spectrumOverlayCanvas) {
+            const ctx = spectrumOverlayCanvas.getContext("2d");
+            if (ctx) {
+              const dpr = window.devicePixelRatio || 1;
+              const logicalW = spectrumOverlayCanvas.width / dpr;
+              const logicalH = spectrumOverlayCanvas.height / dpr;
+
+              const activeDemodFocus = liveDragSelectionRef.current
+                ? {
+                    centerFrequencyHz:
+                      (liveDragSelectionRef.current.min +
+                        liveDragSelectionRef.current.max) /
+                      2,
+                    halfBandwidthHz:
+                      (liveDragSelectionRef.current.max -
+                        liveDragSelectionRef.current.min) /
+                      2,
+                    alignment: bandwidthAlignment,
+                  }
+                : demodFocusOverlayRef.current;
+
+              const activeSelection = liveDragSelectionRef.current
+                ? {
+                    minFrequencyHz: liveDragSelectionRef.current.min,
+                    maxFrequencyHz: liveDragSelectionRef.current.max,
+                  }
+                : selectionOverlayRef.current;
+
+              if (!nodePreview && centerFreqRef.current !== undefined) {
+                drawMarkersOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  visualRange,
+                  centerFreqRef.current,
+                  isDeviceConnected,
+                  hardwareSampleRateHz,
+                  frequencyRangeRef.current,
+                  isIqRecordingActive,
+                  compact ? [] : limitMarkers,
+                );
+              }
+
+              if (activeDemodFocus) {
+                drawDemodFocusOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  visualRange,
+                  activeDemodFocus,
+                  nodePreview,
+                );
+              }
+
+              if (activeSelection) {
+                drawSelectionOverlayOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  visualRange,
+                  activeSelection,
+                  nodePreview,
+                );
+              }
+
+              // Draw zoom markers at top (e.g. 500kHz)
+              drawZoomMarkersOnContext(
+                ctx,
+                logicalW,
+                logicalH,
+                visualRange,
+                frequencyRangeRef.current,
+              );
             }
           }
 
@@ -2048,6 +2071,16 @@ const FFTCanvas = memo(
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
+        drawMarkersOnContext,
+        drawDemodFocusOnContext,
+        drawSelectionOverlayOnContext,
+        drawZoomMarkersOnContext,
+        hardwareSampleRateHz,
+        isIqRecordingActive,
+        limitMarkers,
+        compact,
+        nodePreview,
+        bandwidthAlignment,
       ],
     );
 
@@ -2762,12 +2795,6 @@ const FFTCanvas = memo(
                     {selectionTooltipText && selectionMode === "range" && (
                       <SelectionTooltip>
                         <strong>Selection</strong>
-                        <span ref={tooltipStartRef}>
-                          Start: {selectionTooltipText.startHz} Hz
-                        </span>
-                        <span ref={tooltipEndRef}>
-                          End: {selectionTooltipText.endHz} Hz
-                        </span>
                         <span ref={tooltipSpanRef}>
                           Span: {selectionTooltipText.spanHz} Hz
                         </span>

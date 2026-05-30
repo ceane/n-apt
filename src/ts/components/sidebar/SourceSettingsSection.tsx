@@ -180,6 +180,29 @@ const GainWarning: React.FC = () => (
   />
 );
 
+const BasebandWarningIcon = styled(TriangleAlert)`
+  width: 13px !important;
+  height: 13px !important;
+  color: #f59e0b !important;
+  opacity: 1 !important;
+  flex-shrink: 0;
+`;
+
+const BASEBAND_WARNING_CONTENT =
+  "When the Baseband Filter is narrower than the sample rate, the usable " +
+  "spectrum appears 'scrunched' into a center mound.<br/><br/>" +
+  "This happens because the hardware filter physically turns down the power " +
+  "(amplitude) of frequencies at the edges of the display, leaving only the " +
+  "center at full strength";
+
+const BasebandWarning: React.FC = () => (
+  <Tooltip
+    title="Baseband Filter Warning"
+    content={BASEBAND_WARNING_CONTENT}
+    trigger={<BasebandWarningIcon />}
+  />
+);
+
 const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
   icon: IconComponent,
   text,
@@ -210,7 +233,7 @@ interface SourceSettingsSectionProps {
   hackrfLnaGain?: number;
   hackrfVgaGain?: number;
   hackrfAmpEnabled?: boolean;
-  hackrfBasebandBandwidth?: number;
+  hackrfBasebandBandwidth?: number | null;
   hackrfCurrentSampleRate?: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -244,7 +267,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   hackrfLnaGain = 40.0,
   hackrfVgaGain = 62,
   hackrfAmpEnabled = false,
-  hackrfBasebandBandwidth = 0,
+  hackrfBasebandBandwidth,
   hackrfCurrentSampleRate = 0,
   tunerAGC,
   rtlAGC,
@@ -285,7 +308,13 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   const isRtlSdrLive =
     sourceMode === "live" &&
     (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
-  const isHackrfBasebandEnabled = hackrfBasebandBandwidth > 0;
+  const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
+  const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
+  const showBasebandWarning =
+    isHackrfLive &&
+    isHackrfBasebandEnabled &&
+    hackrfCurrentSampleRate > 0 &&
+    basebandBandwidthVal < hackrfCurrentSampleRate;
 
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
@@ -511,7 +540,14 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               </>
             }
             tooltipTitle="HackRF LNA Gain"
-            tooltip={`HackRF One low-noise amplifier. Max gain: ${gainLimits?.lna_max ?? 40} dB. Step: ${gainLimits?.lna_step ?? 8} dB.`}
+            tooltip={
+              "Low-Noise Amplifier (LNA) gain stage.<br/><br/>" +
+              "This is the intermediate-frequency (IF) amplifier located in the MAX2837 transceiver chip, after the mixer.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Primary stage for boosting weak signals without adding significant noise.<br/>" +
+              "• Controls mixer input level to prevent early clipping/intermodulation.<br/>" +
+              `• Adjustable in <strong>${gainLimits?.lna_step ?? 8} dB steps</strong> (0 to ${gainLimits?.lna_max ?? 40} dB).`
+            }
           >
             <InputGroup>
               <NarrowSettingInput
@@ -534,7 +570,15 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               </>
             }
             tooltipTitle="HackRF VGA Gain"
-            tooltip={`HackRF One variable-gain amplifier. Max gain: ${gainLimits?.vga_max ?? 62} dB. Step: ${gainLimits?.vga_step ?? 2} dB.`}
+            tooltip={
+              "Variable-Gain Amplifier (VGA) gain stage.<br/><br/>" +
+              "This is the baseband amplifier located after the low-pass filter and directly before the Analog-to-Digital Converter (ADC).<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Scales the analog baseband signal to fully utilize the ADC's dynamic range.<br/>" +
+              "• Too low: signal is weak and buried in ADC quantization noise.<br/>" +
+              "• Too high: causes ADC clipping/saturation, resulting in ghost signals (aliasing).<br/>" +
+              `• Adjustable in <strong>${gainLimits?.vga_step ?? 2} dB steps</strong> (0 to ${gainLimits?.vga_max ?? 62} dB).`
+            }
           >
             <InputGroup>
               <NarrowSettingInput
@@ -556,8 +600,15 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 {showAmpWarning && <GainWarning />}
               </>
             }
-            tooltipTitle="HackRF AMP"
-            tooltip="HackRF One RF amplifier enable toggle. Adds a fixed 11 dB of gain when enabled."
+            tooltipTitle="HackRF RF Amplifier"
+            tooltip={
+              "RF Frontend Amplifier (AMP) toggle.<br/><br/>" +
+              "This controls the bypassable MGA-86563 amplifier at the very front of the RX signal path, directly after the antenna input.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Adds a <strong>fixed 11 dB gain</strong> (up to 14 dB depending on RF frequency) to the input signal.<br/>" +
+              "• Helps capture extremely weak, distant transmissions.<br/>" +
+              "• <strong>Caution:</strong> Easily overloaded by strong nearby signals, which will saturate the mixer and introduce unwanted intermodulation distortion/ghost signals."
+            }
           >
             <ToggleSwitch $disabled={!isConnected}>
               <ToggleSwitchInput
@@ -570,9 +621,21 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             </ToggleSwitch>
           </Row>
           <Row
-            label="Baseband filter"
-            tooltipTitle="HackRF baseband filter bandwidth"
-            tooltip="HackRF One baseband filter bandwidth. When enabled, it should follow the active sample rate for the current channel."
+            label={
+              <>
+                Baseband filter
+                {showBasebandWarning && <BasebandWarning />}
+              </>
+            }
+            tooltipTitle="HackRF Baseband Filter"
+            tooltip={
+              "Analog Low-Pass Baseband Filter.<br/><br/>" +
+              "Controls the internal hardware low-pass filter (LPF) of the MAX2837 transceiver before the signal is digitized.<br/><br/>" +
+              "<strong>Effect on signal:</strong><br/>" +
+              "• Limits the frequency spectrum width reaching the ADC, filtering out out-of-band signals.<br/>" +
+              "• Prevents strong out-of-band noise or signals from aliasing into your view or saturating the receiver.<br/>" +
+              "• <strong>Note:</strong> When enabled, it automatically scales with the active sample rate. If set narrower than the sample rate, frequencies near the edges will be attenuated, causing a 'scrunched' center mound."
+            }
           >
             <InputGroup>
               <ToggleSwitch $disabled={!isConnected}>
@@ -586,7 +649,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               </ToggleSwitch>
               {isHackrfBasebandEnabled && (
                 <CompactFrequencyInput
-                  valueHz={hackrfBasebandBandwidth}
+                  valueHz={basebandBandwidthVal}
                   onChangeHz={(val) => onHackrfBasebandBandwidthChange?.(val)}
                   disabled={!isConnected}
                   minHz={0}

@@ -347,17 +347,29 @@ mod tests {
 
   #[test]
   fn test_large_fft_frame_rate_regression() {
-    assert_eq!(
-      n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(
-        262144
-      ),
-      12
-    );
-    assert_eq!(
-      n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(
-        32768
-      ),
-      60
-    );
+    let cases = [
+      (2048, 1_000_000, 60),
+      (2048, 3_200_000, 60),
+      (8192, 3_200_000, 60),
+      (32768, 3_200_000, 60),
+      (65536, 3_200_000, 48),
+      (131072, 3_200_000, 24),
+      (262144, 3_200_000, 12),
+      (262144, 1_000_000, 3),
+      (262144, 10_000, 1),
+    ];
+
+    for (fft_size, sample_rate, expected) in cases {
+      assert_eq!(
+        n_apt_backend::sdr::processor::SdrProcessor::calculate_valid_frame_rate(
+          fft_size,
+          sample_rate,
+        ),
+        expected,
+        "unexpected frame rate for fft_size={} sample_rate={}",
+        fft_size,
+        sample_rate
+      );
+    }
   }
 }

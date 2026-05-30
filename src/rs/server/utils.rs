@@ -417,11 +417,70 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   out
 }
 
+pub fn resolve_fft_config(
+  device_kind: &str,
+  sample_rate: u32,
+  preferred_size: Option<usize>,
+) -> super::types::SdrFftConfig {
+  let max_size: usize = if device_kind == "hackrf_one" {
+    4_194_304 // 2^22
+  } else {
+    262_144 // 2^18
+  };
+
+  let min_size: usize = 2048;
+  let mut sizes: Vec<usize> = Vec::new();
+  let mut current: usize = min_size;
+  let sr_usize = sample_rate as usize;
+  while current <= max_size {
+    if current <= sr_usize || sizes.is_empty() {
+      sizes.push(current);
+    }
+    current *= 2;
+  }
+
+  let mut size_to_frame_rate = std::collections::HashMap::new();
+  for &sz in &sizes {
+    let rate = if sz > 0 {
+      ((sample_rate as f64) / (sz as f64)).floor() as u32
+    } else {
+      super::types::MAX_LOGICAL_FRAME_RATE
+    };
+    let rate = rate.min(super::types::MAX_LOGICAL_FRAME_RATE).max(1);
+    size_to_frame_rate.insert(sz, rate);
+  }
+
+  let default_size = preferred_size
+    .filter(|sz| sizes.contains(sz))
+    .unwrap_or_else(|| {
+      if sizes.contains(&2048) {
+        2048
+      } else {
+        sizes[0]
+      }
+    });
+
+  let default_frame_rate =
+    *size_to_frame_rate.get(&default_size).unwrap_or(&60);
+
+  let max_frame_rate = *size_to_frame_rate.values().max().unwrap_or(&60);
+
+  super::types::SdrFftConfig {
+    default_size,
+    default_frame_rate,
+    max_size: *sizes.last().unwrap_or(&max_size),
+    max_frame_rate,
+    size_to_frame_rate,
+  }
+}
+
 /// Load SDR settings (panic if missing/malformed)
 pub fn load_sdr_settings() -> super::types::SdrConfig {
   let config = signals_config();
   let mut sdr = config.signals.sdr.clone();
   apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
+  sdr.fft =
+    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size));
   sdr
 }
 
@@ -2082,5 +2141,32 @@ mod save_tests {
     assert_eq!(parse_frequency_hz("3.2MHz"), 3_200_000.0);
     assert_eq!(parse_frequency_hz("1.2GHz"), 1_200_000_000.0);
     assert_eq!(parse_frequency_hz("100"), 100.0); // Default HZ
+  }
+
+  #[test]
+  fn test_resolve_fft_config_scales_with_sample_rate() {
+    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768));
+    assert_eq!(mock_low.default_size, 32768);
+    assert_eq!(mock_low.max_size, 262_144);
+    assert_eq!(mock_low.default_frame_rate, 30);
+    assert_eq!(mock_low.max_frame_rate, 60);
+    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
+    assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
+
+    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024));
+    assert_eq!(mock_fallback.default_size, 2048);
+
+    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768));
+    assert_eq!(mock_high.default_size, 32768);
+    assert_eq!(mock_high.max_size, 262_144);
+    assert_eq!(mock_high.default_frame_rate, 60);
+    assert_eq!(mock_high.max_frame_rate, 60);
+    assert_eq!(mock_high.size_to_frame_rate.get(&65536), Some(&48));
+    assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
+    assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
+
+    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768));
+    assert_eq!(hackrf.max_size, 2_097_152);
+    assert_eq!(hackrf.default_size, 32768);
   }
 }

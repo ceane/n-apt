@@ -385,8 +385,8 @@ export const ConnectionStatusSection: React.FC<
                     : isServerConnectedButNoDevice
                       ? "Connected to server but not device"
                       : deviceState === "connected"
-                      ? "Connected to server and device"
-                      : "Connected to server but device not connected"}
+                        ? "Connected to server and device"
+                        : "Connected to server but device not connected"}
           </StatusText>
         </ConnectionStatus>
 

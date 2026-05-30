@@ -50,9 +50,6 @@ export interface FrequencyDragOptions {
   liveDragSelectionRef?: React.MutableRefObject<FrequencyRange | null>;
   /** Callback triggered on every drag step to force overlay repaint without React re-render */
   onDragRepaint?: () => void;
-  /** Direct DOM refs to bypass React rendering for tooltip text updates */
-  tooltipStartRef?: React.RefObject<HTMLSpanElement | null>;
-  tooltipEndRef?: React.RefObject<HTMLSpanElement | null>;
   tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
 }
 
@@ -87,8 +84,6 @@ export function useFrequencyDrag({
   maxBandwidthHz,
   liveDragSelectionRef,
   onDragRepaint,
-  tooltipStartRef,
-  tooltipEndRef,
   tooltipSpanRef,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
@@ -770,13 +765,6 @@ export function useFrequencyDrag({
           liveDragSelectionRef.current = next;
         }
 
-        // Direct DOM updates for selection tooltip text
-        if (tooltipStartRef?.current) {
-          tooltipStartRef.current.textContent = `Start: ${Math.round(next.min).toLocaleString()} Hz`;
-        }
-        if (tooltipEndRef?.current) {
-          tooltipEndRef.current.textContent = `End: ${Math.round(next.max).toLocaleString()} Hz`;
-        }
         if (tooltipSpanRef?.current) {
           tooltipSpanRef.current.textContent = `Span: ${Math.round(next.max - next.min).toLocaleString()} Hz`;
         }
