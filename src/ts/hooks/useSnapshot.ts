@@ -35,7 +35,10 @@ import {
   getAntiAliasingParams,
 } from "@n-apt/utils/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/utils/formatters";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import {
+  formatFrequency,
+  formatFrequencyHighRes,
+} from "@n-apt/utils/frequency";
 import {
   buildFrequencyAxisTheme,
   composeCanvasWithFrequencyAxis,
@@ -470,16 +473,18 @@ export function buildSnapshotStatsLines({
     ? `${gain!.toFixed(1)}dB`
     : null;
   const ppmValue = Number.isFinite(ppm ?? Number.NaN) ? `${ppm}` : null;
-  const formatSnapshotRangeFrequency = (hz: number) =>
-    formatFrequency(hz, {
-      precisionMHz: 4,
-      precisionKHz: 2,
-      trimTrailingZeros: true,
-    });
   const derivedGainLabel =
     gainValue || ppmValue
       ? `Gain: ${gainValue ?? "Auto"} | PPM: ${ppmValue ?? "0"}`
       : null;
+  const formatSnapshotRangeFrequency = (hz: number) =>
+    Math.abs(hz) >= 1_000_000
+      ? formatFrequencyHighRes(hz)
+      : formatFrequency(hz, {
+          precisionMHz: 4,
+          precisionKHz: 2,
+          trimTrailingZeros: true,
+        });
   const lines = [
     `${formatSnapshotRangeFrequency(range.min)} – ${formatSnapshotRangeFrequency(range.max)}`,
     timestampLabel,

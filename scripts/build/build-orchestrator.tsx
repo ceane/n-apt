@@ -1332,6 +1332,13 @@ exit 1
 
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+  if (!hasTty) {
+    console.log('Build orchestrator requires an interactive TTY; skipping Ink UI startup.');
+    process.exit(0);
+  }
+
   render(<BuildOrchestrator />);
 }
 

@@ -313,21 +313,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const storeDispatch = dispatch as React.Dispatch<any>;
 
   const effectiveTunerGainDb = useMemo(() => {
-    if (deviceProfile?.kind === "hackrf_one") {
+    const gainConfig = effectiveSdrSettings?.gain;
+    const gainObject =
+      gainConfig && typeof gainConfig === "object" ? gainConfig : null;
+    if (deviceProfile?.kind === "hackrf_one" && gainObject) {
       return estimateHackrfTotalGainDb({
-        ampEnabled: effectiveSdrSettings?.gain?.hackrf_amp_enable,
-        lnaGainDb: effectiveSdrSettings?.gain?.hackrf_lna_gain,
-        vgaGainDb: effectiveSdrSettings?.gain?.hackrf_vga_gain,
+        ampEnabled: gainObject.hackrf_amp_enable,
+        lnaGainDb: gainObject.hackrf_lna_gain,
+        vgaGainDb: gainObject.hackrf_vga_gain,
       });
     }
 
-    return effectiveSdrSettings?.gain?.tuner_gain ?? 0;
+    return gainObject
+      ? gainObject.tuner_gain ?? 0
+      : 0;
   }, [
     deviceProfile?.kind,
-    effectiveSdrSettings?.gain?.hackrf_amp_enable,
-    effectiveSdrSettings?.gain?.hackrf_lna_gain,
-    effectiveSdrSettings?.gain?.hackrf_vga_gain,
-    effectiveSdrSettings?.gain?.tuner_gain,
+    effectiveSdrSettings?.gain,
   ]);
 
   const handleVisualizerLoadingStateChange = useCallback(

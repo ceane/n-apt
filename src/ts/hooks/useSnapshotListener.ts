@@ -10,7 +10,7 @@ import {
 import { setSnapshotProgress, useAppDispatch } from "@n-apt/redux";
 
 export const buildSnapshotSettingsLabel = (params: {
-  effectiveSdrSettings?: SdrSettingsConfig;
+  effectiveSdrSettings?: any;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;
@@ -83,7 +83,7 @@ interface UseSnapshotListenerOptions {
   sourceMode: "live" | "file";
   backend?: string;
   deviceInfo?: string;
-  effectiveSdrSettings?: SdrSettingsConfig;
+  effectiveSdrSettings?: any;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;

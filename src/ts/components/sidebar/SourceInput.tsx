@@ -40,7 +40,7 @@ const DevicePill = styled.button<{ $active?: boolean }>`
   cursor: pointer;
 `;
 
-const FilePill = styled.button<{ $active?: boolean }>`
+const FilePill = styled.div<{ $active?: boolean }>`
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -334,6 +334,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
               const actionLabel =
                 device.status?.actionLabel ??
                 (device.txMode ? "Pause" : "Resume");
+              const showDeviceSpaceHint =
+                isActiveDevice &&
+                actionLabel !== "Restarting…" &&
+                actionLabel !== "Loading…" &&
+                actionLabel !== "Paused" &&
+                actionLabel !== "Starting…" &&
+                actionLabel !== "Restart";
               const fileModeOpacity =
                 sourceMode === "file"
                   ? livePreviewStage <= 0
@@ -384,7 +391,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       title={device.status.actionTitle}
                     >
                       {actionLabel}
-                      {isActiveDevice && <ActionHint>[Space]</ActionHint>}
+                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : onToggleDeviceTxMode ? (
                     <DeviceActionButton
@@ -398,18 +405,27 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       title={device.txMode ? "Disable Tx" : "Enable Tx"}
                     >
                       {actionLabel}
-                      {isActiveDevice && <ActionHint>[Space]</ActionHint>}
+                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : null}
                 </DevicePill>
               );
             })}
           <FilePill
-            type="button"
             $active={fileSelectionActive}
+            role="button"
+            tabIndex={0}
             onClick={() => {
               if (sourceMode !== "file") {
                 onSourceModeChange("file");
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                if (sourceMode !== "file") {
+                  onSourceModeChange("file");
+                }
               }
             }}
             title={

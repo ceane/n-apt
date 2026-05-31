@@ -785,12 +785,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [mockDevices, setMockDevices] = useState([
     {
       id: "device-1",
-      name:
-        (liveBackend ?? backend ?? "").toLowerCase().includes("mock")
-          ? "Mock APT SDR"
-          : "Mock APT SDR",
-      backend: liveBackend || backend || "mock_apt",
-      deviceType: liveDeviceProfileToUse?.kind ?? backend ?? "rtl_sdr",
+      name: "Mock APT SDR",
+      backend: liveBackend || "mock_apt",
+      deviceType: liveDeviceProfileToUse?.kind ?? "rtl_sdr",
       txMode: false,
       ppm,
       gain,

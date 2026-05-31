@@ -1,5 +1,5 @@
 import { findBestFrequencyRange } from "@n-apt/consts";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
 
 export type VfoAxisOrientation = "top" | "bottom";
@@ -118,6 +118,9 @@ export function formatVfoAxisEdgeLabel(
   _useHighRes: boolean,
   _stepHz: number,
 ): string {
+  if (Math.abs(freq) >= 1_000_000) {
+    return formatFrequencyHighRes(freq);
+  }
   return formatFrequency(freq, {
     trimTrailingZeros: true,
     precisionMHz: 4,

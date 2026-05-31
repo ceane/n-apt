@@ -17,6 +17,9 @@ import type {
   CaptureStatus,
   SDRSettings,
   CaptureRequest,
+  SourceSdrSettings,
+  DeviceState,
+  DeviceLoadingReason,
 } from "@n-apt/consts/schemas/websocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { buildWsUrl } from "@n-apt/services/auth";
@@ -802,14 +805,14 @@ export type SpectrumStoreContextValue = {
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
   effectiveFrames: SpectrumFrame[];
-  effectiveSdrSettings: SdrSettingsConfig | null | undefined;
+  effectiveSdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null | undefined;
   sampleRateHzEffective: number | null;
   signalAreaBounds: Record<string, { min: number; max: number }> | null;
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
   wsConnection: {
     isConnected: boolean;
-    deviceState: "connected" | "loading" | "disconnected" | "stale" | null;
-    deviceLoadingReason: "connect" | "restart" | null;
+    deviceState: DeviceState;
+    deviceLoadingReason: DeviceLoadingReason;
     isPaused: boolean;
     serverPaused: boolean;
     backend: string | null;
@@ -819,7 +822,7 @@ export type SpectrumStoreContextValue = {
     maxSampleRateHz: number | null;
     sampleRateOptions: number[];
     sampleRateHz: number | null;
-    sdrSettings: SdrSettingsConfig | null;
+    sdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null;
     sdrLimitMarkers: Array<{
       kind: string;
       freq_hz: number;
@@ -894,6 +897,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
     const activeSource = useAppSelector(selectActiveSource);
     const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+    const deviceState = activeSourceDerived.deviceState;
+    const backend = activeSourceDerived.backend;
+    const deviceName = activeSourceDerived.deviceName;
+    const deviceProfile = activeSourceDerived.deviceProfile;
+    const maxSampleRateHz = activeSourceDerived.maxSampleRateHz;
+    const sampleRateHz = activeSourceDerived.sampleRateHz;
+    const sdrSettings = activeSourceDerived.sdrSettings;
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
@@ -1103,7 +1113,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         isConnected,
         deviceState: activeSourceDerived.deviceState,
         deviceLoadingReason:
-          activeSource?.status === "loading" ? "connect" : null,
+          (activeSource?.status === "loading" ? "connect" : null) as DeviceLoadingReason,
         isPaused,
         serverPaused,
         backend: activeSourceDerived.backend,
@@ -1187,12 +1197,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     });
 
     const [cachedSdrSettings, setCachedSdrSettings] =
-      useState<SdrSettingsConfig | null>(() => {
+      useState<SourceSdrSettings | null>(() => {
         if (typeof window === "undefined") return null;
         try {
           const raw = sessionStorage.getItem("napt-sdr-settings");
           if (!raw) return null;
-          return JSON.parse(raw) as SdrSettingsConfig;
+          return JSON.parse(raw) as SourceSdrSettings;
         } catch {
           return null;
         }

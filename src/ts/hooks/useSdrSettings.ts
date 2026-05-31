@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
-import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import type {
+  SDRSettings,
+  SdrSettingsConfig,
+} from "@n-apt/hooks/useWebSocket";
 import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import {
   useAppDispatch,
@@ -12,7 +15,7 @@ interface UseSdrSettingsProps {
   maxSampleRate: number;
   minReceiveSampleRate?: number;
   sampleRateOptions?: number[];
-  sdrSettings?: SdrSettingsConfig | null;
+  sdrSettings?: any;
   deviceType?: string;
   onSettingsChange?: (settings: SDRSettings) => void;
   spectrumStateOverride?: Pick<
@@ -85,7 +88,7 @@ export const computeMaxFrameRate = (
 };
 
 const getLogicalSizeToFrameRate = (
-  sdrSettings?: SdrSettingsConfig | null,
+  sdrSettings?: any,
 ): Map<number, number> => {
   const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
   if (!sizeMap) return new Map();
@@ -106,7 +109,7 @@ const getLogicalSizeToFrameRate = (
 export const getLogicalMaxFrameRate = (
   maxSampleRate: number,
   fftSize: number,
-  sdrSettings?: SdrSettingsConfig | null,
+  sdrSettings?: any,
 ): number => {
   const logicalMap = getLogicalSizeToFrameRate(sdrSettings);
   const mapped = logicalMap.get(fftSize);
@@ -152,7 +155,7 @@ const hasPersistedSpectrumSettings = (): boolean => {
 
 export const deriveStateFromConfig = (
   maxSampleRate: number,
-  sdrSettings?: SdrSettingsConfig | null,
+  sdrSettings?: any,
 ): Partial<SpectrumState> => {
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;

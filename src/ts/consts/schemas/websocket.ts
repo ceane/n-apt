@@ -13,6 +13,7 @@ export type DeviceState =
   | "loading"
   | "disconnected"
   | "stale"
+  | "error"
   | null;
 
 export type DeviceLoadingReason = "connect" | "restart" | null;
@@ -203,6 +204,8 @@ export type SourceSdrSettings = {
   fft_window?: string;
   frame_rate?: number;
   sample_rate?: number;
+  min_receive_sample_rate?: number;
+  center_frequency?: number;
   gain?: number;
   hackrf_lna_gain?: number;
   hackrf_vga_gain?: number;
@@ -213,6 +216,9 @@ export type SourceSdrSettings = {
   offset_tuning?: boolean;
   direct_sampling?: number;
   tuner_bandwidth?: number;
+  fft?: SdrSettingsConfig["fft"];
+  display?: SdrSettingsConfig["display"];
+  devices?: SdrSettingsConfig["devices"];
 };
 
 export interface SourceInfo {

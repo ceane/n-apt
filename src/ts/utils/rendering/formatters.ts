@@ -18,6 +18,9 @@ export function fmtFreq(hz: number, zoom: number = 1): string {
  */
 export function fmtFreqTick(hz: number, stepHz: number): string {
   const { precisionMHz } = tickPrecisionForStep(stepHz);
+  if (Math.abs(hz) >= 1_000_000) {
+    return formatFrequencyHighRes(hz);
+  }
   return formatFrequency(hz, {
     trimTrailingZeros: true,
     precisionMHz,

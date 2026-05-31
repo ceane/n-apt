@@ -284,7 +284,7 @@ export const selectHighFrequencyData = (_state: any) => null;
 
 // Selector for WebSocket connection readiness
 export const selectIsWebSocketReady = createSelector(
-  [selectConnectionState, selectDeviceState],
+  [selectConnectionState, selectActiveSourceDerivedState],
   (connection, device) => {
     return (
       connection.isConnected &&
@@ -296,7 +296,7 @@ export const selectIsWebSocketReady = createSelector(
 
 // Selector for device capabilities
 export const selectDeviceCapabilities = createSelector(
-  [selectDeviceState],
+  [selectActiveSourceDerivedState],
   (device) => ({
     supportsApproxDbm: device.deviceProfile?.supports_approx_dbm || false,
     supportsRawIqStream: device.deviceProfile?.supports_raw_iq_stream || false,

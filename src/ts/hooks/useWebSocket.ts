@@ -13,6 +13,7 @@ import {
   LiveFrameData,
   DeviceProfile,
   SdrSettingsConfig,
+  SourceSdrSettings,
   WebSocketMessage,
 } from "@n-apt/consts/schemas/websocket";
 
@@ -27,6 +28,7 @@ export type {
   SpectrumFrame,
   DeviceProfile,
   SdrSettingsConfig,
+  SourceSdrSettings,
   WebSocketMessage,
 };
 
