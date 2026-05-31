@@ -22,6 +22,10 @@ import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import type { NaptMetadata } from "@n-apt/consts/types";
+import {
+  selectActiveSourceDerivedState,
+  selectActiveSource,
+} from "@n-apt/redux/selectors/performanceSelectors";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -116,15 +120,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
 
   // Get real device data from Redux store
-  const isConnected = useAppSelector((s) => s.websocket.isConnected);
-  const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const deviceLoadingReason = useAppSelector(
-    (s) => s.websocket.deviceLoadingReason,
-  );
   const isPaused = useAppSelector((s) => s.websocket.isPaused);
-  const deviceName = useAppSelector((s) => s.websocket.deviceName);
-  const backend = useAppSelector((s) => s.websocket.backend);
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
+  const activeSource = useAppSelector(selectActiveSource);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
 
   const liveIsPaused =
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
@@ -280,8 +279,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       <SourceSidebar
         sourceMode={sourceMode}
         onSourceModeChange={handleSourceModeChange}
-        backend={backend}
-        deviceName={deviceName}
+        backend={activeSourceDerived.backend}
+        deviceName={activeSourceDerived.deviceName}
       />
 
       {sourceMode === "file" && (
@@ -307,9 +306,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       {sourceMode === "live" && (
         <ConnectionStatusSection
           isConnected={isConnected}
-          deviceState={deviceState}
-          deviceLoadingReason={deviceLoadingReason}
-          backend={backend}
+            deviceState={activeSourceDerived.deviceState}
+            deviceLoadingReason={activeSource?.status === "loading" ? "connect" : null}
+            backend={activeSourceDerived.backend}
           isPaused={liveIsPaused}
           cryptoCorrupted={cryptoCorrupted}
           onPauseToggle={toggleVisualizerPause}

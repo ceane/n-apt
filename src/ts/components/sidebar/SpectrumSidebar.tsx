@@ -78,6 +78,10 @@ import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { parseFrequency } from "@n-apt/utils/frequency";
 import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
+import {
+  selectActiveSource,
+  selectActiveSourceDerivedState,
+} from "@n-apt/redux/selectors/performanceSelectors";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -439,40 +443,32 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const connectionStatus = useAppSelector((s) => s.websocket.connectionStatus);
-  const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const deviceLoadingReason = useAppSelector(
-    (s) => s.websocket.deviceLoadingReason,
-  );
+  const activeSource = useAppSelector(selectActiveSource);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const isPaused = useAppSelector((s) => s.websocket.isPaused);
-  const deviceName = useAppSelector((s) => s.websocket.deviceName);
-  const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
-  const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
   const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
-  const backendSampleRateOptions = useAppSelector(
-    (s) => s.websocket.sampleRateOptions,
-  );
-  const backend = useAppSelector((s) => s.websocket.backend);
-  const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
 
-  const liveBackend = wsConnection.backend ?? backend;
-  const liveDeviceState = wsConnection.deviceState ?? deviceState;
+  const liveBackend = wsConnection.backend ?? activeSourceDerived.backend;
+  const liveDeviceState = wsConnection.deviceState ?? activeSourceDerived.deviceState;
   const liveDeviceLoadingReason =
-    wsConnection.deviceLoadingReason ?? deviceLoadingReason;
+    wsConnection.deviceLoadingReason ??
+    (activeSource?.status === "loading" ? "connect" : null);
   const liveIsConnected = wsConnection.isConnected ?? isConnected;
   const liveIsPaused =
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const liveCaptureStatus = wsConnection.captureStatus ?? captureStatus;
   const liveFramesToUse =
     effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames;
-  const liveSdrSettingsToUse = effectiveSdrSettings ?? sdrSettings;
+  const liveSdrSettingsToUse =
+    effectiveSdrSettings ?? activeSourceDerived.sdrSettings;
   const liveDeviceNameToUse =
-    liveDeviceName ?? wsConnection.deviceName ?? deviceName;
+    liveDeviceName ?? wsConnection.deviceName ?? activeSourceDerived.deviceName;
   const liveDeviceProfileToUse =
-    liveDeviceProfile ?? wsConnection.deviceProfile ?? deviceProfile;
+    liveDeviceProfile ?? wsConnection.deviceProfile ?? activeSourceDerived.deviceProfile;
   const deviceTypeToUse =
     liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined;
   const deviceTypeNormalized =
@@ -487,7 +483,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveSampleRateOptions =
     wsConnection.sampleRateOptions.length > 0
       ? wsConnection.sampleRateOptions
-      : backendSampleRateOptions;
+      : activeSourceDerived.sampleRateOptions;
+  const maxSampleRateHz =
+    wsConnection.maxSampleRateHz ?? activeSourceDerived.maxSampleRateHz;
   const isMockLiveSource =
     sourceMode === "live" &&
     !!(

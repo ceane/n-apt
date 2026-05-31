@@ -294,7 +294,7 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 });
 
 // WebSocket message union schema
-export const WebSocketMessageSchema = z.discriminatedUnion("type", [
+export const WebSocketMessageSchema = z.union([
   z.object({
     type: z.literal("frequency_range"),
     min_hz: z.number().int(),

@@ -497,7 +497,8 @@ export function useWasmSimdMath(
       if (
         renderingProcessorRef.current &&
         isSimdAvailable &&
-        requestedFftSize === fftSize
+        requestedFftSize === fftSize &&
+        normalizedWindowType === "hanning"
       ) {
         try {
           const processor = renderingProcessorRef.current as {

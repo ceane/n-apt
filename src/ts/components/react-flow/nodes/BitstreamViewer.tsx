@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
@@ -258,7 +259,7 @@ interface BitstreamViewerProps {
 export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   frequencyRange,
 }) => {
-  const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -368,7 +369,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   const handleNextPage = () => setPage((p) => Math.min(p + 1, totalPages - 1));
   const handlePrevPage = () => setPage((p) => Math.max(0, p - 1));
 
-  const deviceName = reduxDeviceName || "SDR Device";
+  const deviceName = activeSourceDerived.deviceName || "SDR Device";
 
   // Build rows: each row = iqPairsPerRow points → 2 bytes per point
   const rows: React.ReactNode[] = [];

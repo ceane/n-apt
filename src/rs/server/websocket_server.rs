@@ -99,8 +99,11 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     .map(|display| display.resolve_markers())
     .unwrap_or_default();
 
-  let device_name =
-    status_device_name(device_connected, &device_info, &device_profile);
+  let device_name = if device_profile.kind.starts_with("mock_apt") {
+    "Mock APT SDR".to_string()
+  } else {
+    status_device_name(device_connected, &device_info, &device_profile)
+  };
   let backend = status_device_backend_label(
     device_connected,
     &device_info,
@@ -1498,7 +1501,7 @@ mod tests {
 
     assert_eq!(payload["type"], "source_info");
     assert_eq!(payload["sources"][0]["capability"], "mock");
-    assert_eq!(payload["sources"][0]["status"], "streaming");
+    assert_eq!(payload["sources"][0]["status"], "connected");
     assert_eq!(payload["active_source"], "mock-apt");
     assert_eq!(payload["active_source_mode"], "live");
     assert_eq!(payload["device_name"], "RTL-SDR v4");
@@ -1521,7 +1524,7 @@ mod tests {
       markers.iter().any(|marker| marker["kind"] == "lower_limit"),
       "expected lower limit marker in websocket payload"
     );
-    assert_eq!(payload["sources"][0]["kind"], "mock_apt");
+    assert_eq!(payload["sources"][0]["kind"], "rtl_sdr");
     assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
   }
 

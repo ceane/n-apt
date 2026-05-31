@@ -23,6 +23,10 @@ import { buildWsUrl } from "@n-apt/services/auth";
 import { useLocation } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 import {
+  selectActiveSourceDerivedState,
+  selectActiveSource,
+} from "@n-apt/redux/selectors/performanceSelectors";
+import {
   clearWaterfall,
   resetTrainingCapture,
   resetWaterfallCleared,
@@ -887,25 +891,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const isConnected = useAppSelector((s) => s.websocket.isConnected);
     const isPaused = useAppSelector((s) => s.websocket.isPaused);
     const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
-    const backend = useAppSelector((s) => s.websocket.backend);
-    const deviceInfo = useAppSelector((s) => s.websocket.deviceInfo);
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
-    const deviceName = useAppSelector((s) => s.websocket.deviceName);
-    const deviceProfile = useAppSelector((s) => s.websocket.deviceProfile);
-    const deviceLoadingReason = useAppSelector(
-      (s) => s.websocket.deviceLoadingReason,
-    );
-    const maxSampleRateHz = useAppSelector((s) => s.websocket.maxSampleRateHz);
-    const sampleRateOptions = useAppSelector(
-      (s) => s.websocket.sampleRateOptions,
-    );
-    const sampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
-    const sdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
-    const sdrLimitMarkers = useAppSelector((s) => s.websocket.sdrLimitMarkers);
+    const activeSource = useAppSelector(selectActiveSource);
+    const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
-    const deviceState = useAppSelector((s) => s.websocket.deviceState);
     const waterfallState = useAppSelector((s) => s.waterfall);
     // liveDataRef is written directly by the middleware — never goes through Redux.
     const dataRef = liveDataRef;
@@ -1005,7 +996,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const deviceWaterfallClearKeyRef = useRef<string | null>(null);
     useEffect(() => {
       const nextKey =
-        backend || deviceProfile?.kind || deviceName || deviceInfo || null;
+        activeSourceDerived.backend ||
+        activeSourceDerived.deviceProfile?.kind ||
+        activeSourceDerived.deviceName ||
+        activeSourceDerived.deviceInfo ||
+        null;
       if (!nextKey) return;
 
       const previousKey = deviceWaterfallClearKeyRef.current;
@@ -1013,7 +1008,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (previousKey && previousKey !== nextKey) {
         reduxDispatch(clearWaterfall());
       }
-    }, [backend, deviceInfo, deviceName, deviceProfile?.kind, reduxDispatch]);
+    }, [
+      activeSourceDerived.backend,
+      activeSourceDerived.deviceInfo,
+      activeSourceDerived.deviceName,
+      activeSourceDerived.deviceProfile?.kind,
+      reduxDispatch,
+    ]);
 
     useEffect(() => {
       reduxDispatch(
@@ -1100,19 +1101,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const wsConnection = useMemo(
       () => ({
         isConnected,
-        deviceState,
-        deviceLoadingReason,
+        deviceState: activeSourceDerived.deviceState,
+        deviceLoadingReason:
+          activeSource?.status === "loading" ? "connect" : null,
         isPaused,
         serverPaused,
-        backend,
-        deviceInfo,
-        deviceName,
-        deviceProfile,
-        maxSampleRateHz,
-        sampleRateOptions,
-        sampleRateHz,
-        sdrSettings,
-        sdrLimitMarkers,
+        backend: activeSourceDerived.backend,
+        deviceInfo: activeSourceDerived.deviceInfo,
+        deviceName: activeSourceDerived.deviceName,
+        deviceProfile: activeSourceDerived.deviceProfile,
+        maxSampleRateHz: activeSourceDerived.maxSampleRateHz,
+        sampleRateOptions: activeSourceDerived.sampleRateOptions,
+        sampleRateHz: activeSourceDerived.sampleRateHz,
+        sdrSettings: activeSourceDerived.sdrSettings,
+        sdrLimitMarkers: activeSource?.sdr.fft_display.markers ?? [],
         dataRef,
         spectrumFrames: wsSpectrumFrames,
         captureStatus,
@@ -1130,19 +1132,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }),
       [
         isConnected,
-        deviceState,
-        deviceLoadingReason,
+        activeSourceDerived.deviceState,
+        activeSource,
+        activeSourceDerived,
         isPaused,
         serverPaused,
-        backend,
-        deviceInfo,
-        deviceName,
-        deviceProfile,
-        maxSampleRateHz,
-        sampleRateOptions,
-        sampleRateHz,
-        sdrSettings,
-        sdrLimitMarkers,
         dataRef,
         captureStatus,
         error,

@@ -1,7 +1,11 @@
 import React from "react";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { useAppSelector } from "@n-apt/redux";
 import styled from "styled-components";
+import {
+  selectActiveSourceDerivedState,
+  selectActiveSource,
+} from "@n-apt/redux/selectors/performanceSelectors";
+import { useAppSelector } from "@n-apt/redux";
 
 const SourceContainer = styled.div`
   display: flex;
@@ -70,7 +74,8 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
     deviceName: spectrumDeviceName,
     state: liveState,
   } = useSpectrumStore();
-  const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
+  const activeSource = useAppSelector(selectActiveSource);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
 
   const sourceMode = liveState?.sourceMode ?? "live";
   const selectedFiles = liveState?.selectedFiles ?? [];
@@ -79,9 +84,9 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
 
   const displayTitle = sourceMode === "file" ? "File" : "Source";
   const deviceName =
+    activeSourceDerived.deviceName ||
     wsConnection?.deviceName ||
     spectrumDeviceName ||
-    reduxDeviceName ||
     data?.label ||
     "SDR Device";
   const displaySubtitle = sourceMode === "file" ? primaryFileName : deviceName;
