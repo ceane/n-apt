@@ -15,6 +15,11 @@ import {
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import {
+  type SourceErrorMessage,
+  type SourceInfo,
+  type SourceInfoMessage,
+  type SourceSdrSettingsMessage,
+  type SourceStatusMessage,
   type IqRawFrame,
   type SpectrumFrame,
 } from "@n-apt/consts/schemas/websocket";
@@ -22,6 +27,10 @@ import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
   validateStatusMessage,
+  isValidSourceInfoMessage,
+  isValidSourceStatusMessage,
+  isValidSourceSdrSettingsMessage,
+  isValidSourceErrorMessage,
 } from "@n-apt/validation";
 
 // Module-level ref for high-frequency live frame data.
@@ -88,6 +97,50 @@ const equalValue = (current: unknown, next: unknown): boolean => {
     );
   }
   return false;
+};
+
+const deriveLegacyStateFromSource = (source: SourceInfo) => {
+  const sourceStatus = source.status ?? "disconnected";
+  return {
+    deviceState:
+      sourceStatus === "streaming" ? "connected" : sourceStatus,
+    deviceLoadingReason: sourceStatus === "loading" ? "connect" : null,
+    backend: source.kind,
+    deviceInfo: source.name,
+    deviceName: source.name,
+    deviceProfile: {
+      kind: source.kind,
+      is_rtl_sdr: source.capability === "rx",
+      supports_approx_dbm: source.supports_approx_dbm,
+      supports_raw_iq_stream: source.supports_raw_iq_stream,
+    },
+    maxSampleRateHz: source.sdr.max_sample_rate,
+    sampleRateOptions: source.sdr.sample_rate_options,
+    sampleRateHz: source.sdr.settings.sample_rate ?? null,
+    sdrSettings: {
+      fftSize: source.sdr.settings.fft_size,
+      fftWindow: source.sdr.settings.fft_window,
+      frameRate: source.sdr.settings.frame_rate,
+      sampleRate: source.sdr.settings.sample_rate,
+      gain: source.sdr.settings.gain,
+      hackrfLnaGain: source.sdr.settings.hackrf_lna_gain,
+      hackrfVgaGain: source.sdr.settings.hackrf_vga_gain,
+      hackrfAmpEnabled: source.sdr.settings.hackrf_amp_enable,
+      ppm: source.sdr.settings.ppm,
+      tunerAGC: source.sdr.settings.tuner_agc,
+      rtlAGC: source.sdr.settings.rtl_agc,
+    },
+    sdrLimitMarkers: source.sdr.fft_display.markers,
+  };
+};
+
+const mapSourceStatusToDeviceState = (
+  status: SourceInfo["status"],
+): "connected" | "loading" | "disconnected" | "stale" | null => {
+  if (status === "streaming") {
+    return "connected";
+  }
+  return status as "connected" | "loading" | "disconnected" | "stale" | null;
 };
 
 interface WebSocketInstance {
@@ -491,6 +544,162 @@ const processMessage = (
   }
 
   // Status messages (backend-driven device state)
+  if (parsedData?.type === "source_info") {
+    if (!isValidSourceInfoMessage(parsedData)) {
+      console.error("Source info message validation failed:", parsedData);
+      return;
+    }
+
+    try {
+      const activeSource =
+        parsedData.sources.find((source: SourceInfo) => source.id === parsedData.active_source) ??
+        parsedData.sources[0] ??
+        null;
+      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+      const sourceStatuses = Object.fromEntries(
+        parsedData.sources.map((source: SourceInfo) => [source.id, source.status]),
+      );
+      const updates: any = {
+        activeSourceId: parsedData.active_source,
+        activeSourceMode: parsedData.active_source_mode,
+        sources: parsedData.sources,
+        sourceStatuses,
+        ...derived,
+      };
+      if (pendingStatusUpdates === null) {
+        pendingStatusUpdates = updates;
+      } else {
+        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
+      }
+      if (statusBatchFrame === null) {
+        statusBatchFrame = window.requestAnimationFrame(() =>
+          processBatchedStatus(dispatch, getState),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to parse source_info message:", e);
+    }
+    return;
+  }
+
+  if (parsedData?.type === "status" && "source_id" in parsedData) {
+    if (!isValidSourceStatusMessage(parsedData)) {
+      console.error("Source status message validation failed:", parsedData);
+      return;
+    }
+
+    try {
+      const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
+      const sourceIndex = currentSources.findIndex(
+        (source) => source.id === parsedData.source_id,
+      );
+      const nextSources =
+        sourceIndex >= 0
+          ? currentSources.map((source, index) =>
+              index === sourceIndex
+                ? {
+                    ...source,
+                    status: parsedData.status,
+                    loading_attempt:
+                      parsedData.loading_attempt ?? source.loading_attempt,
+                    loading_attempt_max:
+                      parsedData.loading_attempt_max ??
+                      source.loading_attempt_max,
+                  }
+                : source,
+            )
+          : currentSources;
+      const activeSource =
+        nextSources.find(
+          (source) => source.id === getState().websocket.activeSourceId,
+        ) ?? nextSources[0] ?? null;
+      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+      const updates: any = {
+        sourceStatuses: {
+          ...(getState().websocket.sourceStatuses ?? {}),
+          [parsedData.source_id]: parsedData.status,
+        },
+        sources: nextSources,
+        ...derived,
+      };
+      if (parsedData.source_id === getState().websocket.activeSourceId) {
+        updates.deviceState = mapSourceStatusToDeviceState(parsedData.status);
+        updates.deviceLoadingReason =
+          parsedData.status === "loading" ? "connect" : null;
+      }
+      if (pendingStatusUpdates === null) {
+        pendingStatusUpdates = updates;
+      } else {
+        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
+      }
+      if (statusBatchFrame === null) {
+        statusBatchFrame = window.requestAnimationFrame(() =>
+          processBatchedStatus(dispatch, getState),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to parse source status message:", e);
+    }
+    return;
+  }
+
+  if (parsedData?.type === "sdr_settings" && "source_id" in parsedData) {
+    if (!isValidSourceSdrSettingsMessage(parsedData)) {
+      console.error("Source sdr settings message validation failed:", parsedData);
+      return;
+    }
+
+    try {
+      const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
+      const nextSources = currentSources.map((source) =>
+        source.id === parsedData.source_id
+          ? {
+              ...source,
+              sdr: {
+                ...source.sdr,
+                settings: {
+                  ...source.sdr.settings,
+                  ...parsedData.sdr,
+                },
+              },
+            }
+          : source,
+      );
+      const activeSource =
+        nextSources.find(
+          (source) => source.id === getState().websocket.activeSourceId,
+        ) ?? nextSources[0] ?? null;
+      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+      const updates: any = {
+        sources: nextSources,
+        ...derived,
+      };
+      if (pendingStatusUpdates === null) {
+        pendingStatusUpdates = updates;
+      } else {
+        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
+      }
+      if (statusBatchFrame === null) {
+        statusBatchFrame = window.requestAnimationFrame(() =>
+          processBatchedStatus(dispatch, getState),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to parse source sdr settings message:", e);
+    }
+    return;
+  }
+
+  if (parsedData?.type === "error" && "source_id" in parsedData) {
+    if (!isValidSourceErrorMessage(parsedData)) {
+      console.error("Source error message validation failed:", parsedData);
+      return;
+    }
+
+    dispatch(setError(parsedData.message));
+    return;
+  }
+
   if (parsedData?.type === "status") {
     // Additional validation for status messages
     if (!validateStatusMessage(parsedData)) {

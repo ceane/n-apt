@@ -187,6 +187,86 @@ export interface DeviceProfile {
   supports_raw_iq_stream: boolean;
 }
 
+export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
+
+export type SourceStatus =
+  | "connected"
+  | "loading"
+  | "disconnected"
+  | "stale"
+  | "error"
+  | "streaming"
+  | null;
+
+export type SourceSdrSettings = {
+  fft_size?: number;
+  fft_window?: string;
+  frame_rate?: number;
+  sample_rate?: number;
+  gain?: number;
+  hackrf_lna_gain?: number;
+  hackrf_vga_gain?: number;
+  hackrf_amp_enable?: boolean;
+  ppm?: number;
+  tuner_agc?: boolean;
+  rtl_agc?: boolean;
+  offset_tuning?: boolean;
+  direct_sampling?: number;
+  tuner_bandwidth?: number;
+};
+
+export interface SourceInfo {
+  id: string;
+  name: string;
+  kind: string;
+  capability: SourceCapability;
+  status: SourceStatus;
+  loading_attempt: number;
+  loading_attempt_max: number;
+  supports_approx_dbm: boolean;
+  supports_raw_iq_stream: boolean;
+  sdr: {
+    max_sample_rate: number;
+    sample_rate_options: number[];
+    fft_display: {
+      markers: Array<{
+        kind: string;
+        freq_hz: number;
+        label?: string;
+      }>;
+    };
+    settings: SourceSdrSettings;
+  };
+}
+
+export interface SourceInfoMessage {
+  type: "source_info";
+  active_source: string;
+  active_source_mode: "live" | "file";
+  sources: SourceInfo[];
+}
+
+export interface SourceStatusMessage {
+  type: "status";
+  source_id: string;
+  status: Exclude<SourceStatus, null>;
+  loading_attempt?: number;
+  loading_attempt_max?: number;
+}
+
+export interface SourceSdrSettingsMessage {
+  type: "sdr_settings";
+  source_id: string;
+  sdr: SourceSdrSettings;
+}
+
+export interface SourceErrorMessage {
+  type: "error";
+  source_id: string;
+  code: string;
+  message: string;
+}
+
 export interface StatusMessage {
   type: "status";
   device_connected: boolean;

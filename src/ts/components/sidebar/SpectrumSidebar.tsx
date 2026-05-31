@@ -63,8 +63,11 @@ import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySec
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
-import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
-import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
+import { TxSettingsSection } from "@n-apt/components/sidebar/TxSettingsSection";
+import FileMetadata, {
+  type NaptMetadata as FileMetadataNaptMetadata,
+} from "@n-apt/components/sidebar/FileMetadata";
+import SelectedFiles from "@n-apt/components/sidebar/SelectedFiles";
 import { Button } from "@n-apt/components/ui/Button";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Channels } from "@n-apt/components/sidebar/Channels";
@@ -74,6 +77,7 @@ import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { parseFrequency } from "@n-apt/utils/frequency";
+import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -773,6 +777,50 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   >("png");
   const [snapshotAspectRatio, setSnapshotAspectRatio] =
     useState<SnapshotAspectRatio>("default");
+  const [txSignal, setTxSignal] = useState("apt");
+  const [txSampleRateHz, setTxSampleRateHz] = useState(2_400_000);
+  const [txCenterFrequencyHz, setTxCenterFrequencyHz] = useState(137_100_000);
+  const [txPowerDbm, setTxPowerDbm] = useState(-18);
+  const [txVgaGain, setTxVgaGain] = useState(16);
+  const [txOverlayPosition, setTxOverlayPosition] = useState(62);
+  const [selectedMockDeviceId, setSelectedMockDeviceId] = useState("device-1");
+  const [mockDevices, setMockDevices] = useState([
+    {
+      id: "device-1",
+      name:
+        (liveBackend ?? backend ?? "").toLowerCase().includes("mock")
+          ? "Mock APT SDR"
+          : "Mock APT SDR",
+      backend: liveBackend || backend || "mock_apt",
+      deviceType: liveDeviceProfileToUse?.kind ?? backend ?? "rtl_sdr",
+      txMode: false,
+      ppm,
+      gain,
+      hackrfLnaGain: liveState.hackrfLnaGain,
+      hackrfVgaGain: liveState.hackrfVgaGain,
+      hackrfAmpEnabled: liveState.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: liveState.hackrfBasebandBandwidth,
+      tunerAGC,
+      rtlAGC,
+    },
+    {
+      id: "device-2",
+      // Temporary placeholder until real multi-device backend discovery is wired up.
+      name: "HackRF One #2",
+      backend: "hackrf_one",
+      deviceType: "hackrf_one",
+      txMode: true,
+      ppm: 0,
+      gain: 0,
+      hackrfLnaGain: 32,
+      hackrfVgaGain: 18,
+      hackrfAmpEnabled: true,
+      hackrfBasebandBandwidth: 3_200_000,
+      tunerAGC: false,
+      rtlAGC: false,
+    },
+  ]);
+  const [livePreviewStage, setLivePreviewStage] = useState(0);
   const activeCaptureAreasSet = useMemo(
     () => new Set(activeCaptureAreas),
     [activeCaptureAreas],
@@ -876,6 +924,78 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
     return metadataSource.includes("mock");
   }, [naptMetadata]);
+
+  const fileActionLabel = useMemo(() => {
+    if (sourceMode !== "file") return "File";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process [auto]";
+    }
+    if (isStitchPaused) return "Play";
+    return "Pause";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const fileActionTitle = useMemo(() => {
+    if (sourceMode !== "file") return "Switch to File Selection";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse files";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process selected file automatically";
+    }
+    if (isStitchPaused) return "Resume playback";
+    return "Pause playback";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const handleFileAction = useCallback(() => {
+    if (sourceMode !== "file") {
+      return;
+    }
+    if (!selectedFiles.length) return;
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (status.includes("processing") || status.includes("loading")) {
+      dispatch(triggerStitch());
+      storeDispatch({ type: "TRIGGER_STITCH" });
+      return;
+    }
+    dispatch(setStitchPaused(!isStitchPaused));
+    storeDispatch({
+      type: "SET_STITCH_PAUSED",
+      paused: !isStitchPaused,
+    });
+  }, [dispatch, isStitchPaused, selectedFiles.length, sourceMode, storeDispatch, stitchStatus]);
+
+  const handleSourceFilesSelected = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+
+      const registeredFiles = files.map((file) => ({
+        id: fileRegistry.register(file),
+        name: file.name,
+      }));
+
+      dispatch(setSelectedFiles(registeredFiles));
+      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
+      dispatch(clearWaterfall());
+    },
+    [dispatch, storeDispatch],
+  );
+
+  const handleSourceModeChange = useCallback(
+    (mode: "live" | "file") => {
+      if (mode === "file") {
+        setLivePreviewStage(0);
+        setMockDevices((current) =>
+          current.map((entry) => ({ ...entry, txMode: false })),
+        );
+      } else {
+        setLivePreviewStage(0);
+      }
+      dispatch(setSourceMode(mode));
+      storeDispatch({ type: "SET_SOURCE_MODE", mode });
+    },
+    [dispatch, storeDispatch],
+  );
 
   // Initial paused state for file mode - always reset to paused when entering file mode
   useEffect(() => {
@@ -1374,7 +1494,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   return (
     <SidebarContent>
-      <Section>
+      <Section style={{ position: "sticky", top: 16, zIndex: 20 }}>
         <SectionTitle $fileMode={sourceMode === "file"}>
           <SectionIcon>
             <Unplug size={14} />
@@ -1384,65 +1504,135 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
         <SourceInput
           sourceMode={sourceMode}
-          backend={liveBackend}
-          deviceName={liveDeviceNameToUse}
           fileModeColor="var(--color-file-mode)"
-          onSourceModeChange={(mode) => {
-            dispatch(setSourceMode(mode));
-            storeDispatch({ type: "SET_SOURCE_MODE", mode });
+          livePreviewStage={livePreviewStage}
+          fileActionLabel={fileActionLabel}
+          fileActionTitle={fileActionTitle}
+          selectedFilesCount={selectedFiles.length}
+          onFileAction={handleFileAction}
+          onFilesSelected={handleSourceFilesSelected}
+          devices={mockDevices.map((device) => ({
+            id: device.id,
+            name: device.name,
+            backend: device.backend,
+            txMode: device.txMode,
+            summary: `PPM ${device.ppm} · Gain ${device.gain} dB`,
+            status:
+              device.id === "device-1"
+                ? {
+                    color:
+                      liveDeviceState === "loading"
+                        ? "var(--color-warning)"
+                        : liveDeviceState === "connected" &&
+                            liveCryptoCorrupted
+                          ? "var(--color-danger)"
+                          : liveDeviceState === "connected"
+                            ? "var(--color-primary)"
+                            : "var(--color-secondary)",
+                    label:
+                      liveDeviceState === "loading"
+                        ? liveDeviceLoadingReason === "restart"
+                          ? "restarting"
+                          : "loading"
+                        : liveDeviceState === "connected"
+                          ? device.name === "Mock APT SDR"
+                            ? "streaming"
+                            : "connected"
+                          : "offline",
+                    loading: liveDeviceState === "loading",
+                    paused: liveIsPaused,
+                    actionLabel:
+                      liveDeviceState === "loading"
+                        ? liveDeviceLoadingReason === "restart"
+                          ? "Restarting…"
+                          : "Loading…"
+                        : liveDeviceState === "connected"
+                          ? liveIsPaused
+                            ? "Resume"
+                            : "Pause"
+                          : "Restart",
+                    actionTitle:
+                      liveDeviceState === "loading"
+                        ? liveDeviceLoadingReason === "restart"
+                          ? "Device is restarting..."
+                          : "Device is being initialized..."
+                        : liveDeviceState === "connected"
+                          ? liveIsPaused
+                            ? "Resume device"
+                            : "Pause device"
+                          : "Restart device",
+                    onAction:
+                      liveDeviceState === "loading"
+                        ? undefined
+                        : liveDeviceState === "connected"
+                          ? toggleVisualizerPause
+                          : handleRestartDevice,
+                  }
+                : undefined,
+          }))}
+          selectedDeviceId={selectedMockDeviceId}
+          onSelectedDeviceChange={(id) => {
+            if (sourceMode === "file") {
+              if (selectedMockDeviceId === id && livePreviewStage >= 1) {
+                handleSourceModeChange("live");
+                return;
+              }
+              setSelectedMockDeviceId(id);
+              setLivePreviewStage(1);
+              return;
+            }
+            setSelectedMockDeviceId(id);
           }}
+          onToggleDeviceTxMode={(id) =>
+            setMockDevices((current) =>
+              current.map((entry) =>
+                entry.id === id ? { ...entry, txMode: !entry.txMode } : entry,
+              ),
+            )
+          }
+          onSourceModeChange={handleSourceModeChange}
         />
       </Section>
 
       {sourceMode === "file" && (
         <>
-          <ConnectionStatusSection
-            isConnected={isConnected}
-            deviceState={liveDeviceState}
-            deviceLoadingReason={liveDeviceLoadingReason}
-            backend={liveBackend}
-            isPaused={isPaused}
-            cryptoCorrupted={liveCryptoCorrupted}
-            onPauseToggle={toggleVisualizerPause}
-            hidePauseButton
-            fileMode
-            fileProcessingStatus={stitchStatus}
-            fileIsPaused={isStitchPaused}
-            hasFileSelected={selectedFiles.length > 0}
-            isMockFile={isMockFile}
-            onFileProcess={() => {
-              dispatch(triggerStitch());
-              storeDispatch({ type: "TRIGGER_STITCH" });
-            }}
-            onFilePauseToggle={() => {
-              dispatch(setStitchPaused(!isStitchPaused));
-              storeDispatch({
-                type: "SET_STITCH_PAUSED",
-                paused: !isStitchPaused,
-              });
-            }}
-          />
+          {selectedFiles.length > 0 && (
+            <>
+              <Section>
+                <SelectedFiles
+                  title="Selected Files"
+                  selectedFiles={selectedFiles}
+                  onRemoveFile={(index) => {
+                    const fileToRemove = selectedFiles[index];
+                    if (fileToRemove) {
+                      fileRegistry.remove(fileToRemove.id);
+                    }
+                    const nextFiles = selectedFiles.filter((_, i) => i !== index);
+                    dispatch(setSelectedFiles(nextFiles));
+                    storeDispatch({
+                      type: "SET_SELECTED_FILES",
+                      files: nextFiles,
+                    });
+                  }}
+                  onClear={() => {
+                    selectedFiles.forEach((file) => fileRegistry.remove(file.id));
+                    dispatch(setSelectedFiles([]));
+                    storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
+                    dispatch(clearWaterfall());
+                  }}
+                  sessionToken={sessionToken}
+                />
+              </Section>
 
-          <FileSelectionSidebar
-            selectedFiles={selectedFiles}
-            onSelectedFilesChange={(
-              files: { id: string; name: string; downloadUrl?: string }[],
-            ) => {
-              dispatch(setSelectedFiles(files));
-              storeDispatch({ type: "SET_SELECTED_FILES", files });
-            }}
-            stitchStatus={stitchStatus}
-            isStitchPaused={isStitchPaused}
-            onClear={() => {
-              dispatch(setSelectedFiles([]));
-              storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
-              dispatch(clearWaterfall());
-            }}
-            selectedPrimaryFile={selectedPrimaryFile}
-            naptMetadata={naptMetadata}
-            naptMetadataError={naptMetadataError}
-            sessionToken={sessionToken}
-          />
+              <FileMetadata
+                selectedNaptFile={selectedPrimaryFile}
+                naptMetadata={naptMetadata as FileMetadataNaptMetadata | null}
+                naptMetadataError={naptMetadataError}
+                sessionToken={sessionToken}
+                showTitle={true}
+              />
+            </>
+          )}
 
           <SnapshotControlsSection
             snapshotWhole={snapshotWhole}
@@ -1522,17 +1712,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
       {sourceMode === "live" && (
         <>
-          <ConnectionStatusSection
-            isConnected={isServerConnected}
-            deviceState={liveDeviceState}
-            deviceLoadingReason={liveDeviceLoadingReason}
-            backend={liveBackend}
-            isPaused={liveIsPaused}
-            cryptoCorrupted={liveCryptoCorrupted}
-            onPauseToggle={toggleVisualizerPause}
-            onRestartDevice={handleRestartDevice}
-          />
-
           <Collapsible
             key={`notes-collapsible-${notesCollapsed ? "closed" : "open"}`}
             title="Notes"
@@ -1725,46 +1904,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
 
-          <SourceSettingsSection
-            sourceMode="live"
-            deviceType={
-              liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined
-            }
-            ppm={ppm}
-            gain={gain}
-            gainLimits={gainLimits}
-            hackrfLnaGain={liveState.hackrfLnaGain}
-            hackrfVgaGain={liveState.hackrfVgaGain}
-            hackrfAmpEnabled={liveState.hackrfAmpEnabled}
-            hackrfBasebandBandwidth={liveState.hackrfBasebandBandwidth}
-            hackrfCurrentSampleRate={
-              hackrfBasebandCurrentSampleRate ?? undefined
-            }
-            frequencyRangeMin={frequencyRange?.min ?? undefined}
-            tunerAGC={tunerAGC}
-            rtlAGC={rtlAGC}
-            stitchSourceSettings={{ gain: 0, ppm: 0 }}
-            isConnected={isServerConnected}
-            disableAgcControls={isMockLiveSource}
-            onPpmChange={setPpm}
-            onGainChange={setGain}
-            onHackrfLnaGainChange={setHackrfLnaGain}
-            onHackrfVgaGainChange={setHackrfVgaGain}
-            onHackrfAmpEnabledChange={setHackrfAmpEnabled}
-            onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
-            onTunerAGCChange={setTunerAGC}
-            onRtlAGCChange={setRtlAGC}
-            onStitchSourceSettingsChange={(settings) => {
-              dispatch(setStitchSourceSettingsAction(settings));
-              storeDispatch({
-                type: "SET_STITCH_SOURCE_SETTINGS",
-                settings,
-              });
-            }}
-            onAgcModeChange={(tuner, rtl) => {
-              setTunerAGC(tuner);
-              setRtlAGC(rtl);
-            }}
+          <TxSettingsSection
+            signal={txSignal}
+            sampleRateHz={txSampleRateHz}
+            maxSampleRateHz={maxSampleRate}
+            centerFrequencyHz={txCenterFrequencyHz}
+            powerDbm={txPowerDbm}
+            vgaGainDb={txVgaGain}
+            onSignalChange={setTxSignal}
+            onSampleRateChange={setTxSampleRateHz}
+            onCenterFrequencyChange={setTxCenterFrequencyHz}
+            onPowerDbmChange={setTxPowerDbm}
+            onVgaGainChange={setTxVgaGain}
           />
         </>
       )}

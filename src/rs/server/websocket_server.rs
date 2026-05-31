@@ -68,6 +68,120 @@ use crate::sdr::processor::SdrProcessor;
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
+pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
+  let device_connected = shared.device_connected.load(Ordering::Relaxed);
+  let device_info = shared.device_info.lock().unwrap().clone();
+  let device_state = reconcile_device_state(
+    device_connected,
+    &shared.device_state.lock().unwrap(),
+  );
+  let device_loading = *shared.device_loading.lock().unwrap();
+  let device_loading_reason =
+    shared.device_loading_reason.lock().unwrap().clone();
+  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
+  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+  let channels = shared.channels.lock().unwrap().clone();
+  let device_profile = shared.device_profile.lock().unwrap().clone();
+  let device_backend_error =
+    shared.device_backend_error.lock().unwrap().clone();
+  let (max_sample_rate, sample_rate_options) =
+    resolve_device_sample_rate_options(
+      device_connected,
+      &device_info,
+      &device_profile,
+      &sdr_settings,
+    );
+  let device_limits = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.fft_display.as_ref())
+    .map(|display| display.resolve_markers())
+    .unwrap_or_default();
+
+  let device_name =
+    status_device_name(device_connected, &device_info, &device_profile);
+  let backend = status_device_backend_label(
+    device_connected,
+    &device_info,
+    &device_profile,
+  );
+
+  let active_source = serde_json::json!({
+    "id": "mock-apt",
+    "name": device_name,
+    "kind": device_profile.kind,
+    "capability": "mock",
+    "status": if device_profile.kind.starts_with("mock_apt") { "streaming" } else { device_state.as_str() },
+    "loading_attempt": device_loading_attempt,
+    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    "supports_approx_dbm": device_profile.supports_approx_dbm,
+    "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
+    "sdr": {
+      "max_sample_rate": max_sample_rate,
+      "sample_rate_options": sample_rate_options,
+      "fft_display": { "markers": device_limits },
+      "settings": sdr_settings,
+    }
+  });
+
+  let hackrf_source = serde_json::json!({
+    "id": "hackrf-one-2",
+    "name": "HackRF One #2",
+    "kind": "hackrf_one",
+    "capability": "tx_rx",
+    "status": "disconnected",
+    "loading_attempt": 0,
+    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    "supports_approx_dbm": true,
+    "supports_raw_iq_stream": true,
+    "sdr": {
+      "max_sample_rate": 32_000_000_u32,
+      "sample_rate_options": [8_000_000_u32, 16_000_000_u32, 32_000_000_u32],
+      "fft_display": { "markers": [] },
+      "settings": {
+        "fft_size": sdr_settings.fft.default_size,
+        "fft_window": "Rectangular",
+        "frame_rate": sdr_settings.fft.default_frame_rate,
+        "sample_rate": 8_000_000_u32,
+        "gain": sdr_settings.gain.tuner_gain,
+        "hackrf_lna_gain": sdr_settings.gain.hackrf_lna_gain,
+        "hackrf_vga_gain": sdr_settings.gain.hackrf_vga_gain,
+        "hackrf_amp_enable": sdr_settings.gain.hackrf_amp_enable,
+        "ppm": sdr_settings.ppm,
+        "tuner_agc": sdr_settings.gain.tuner_agc,
+        "rtl_agc": sdr_settings.gain.rtl_agc,
+        "tuner_bandwidth": sdr_settings.gain.tuner_bandwidth,
+      }
+    }
+  });
+
+  serde_json::json!({
+    "type": "source_info",
+    "active_source": "mock-apt",
+    "active_source_mode": if paused { "file" } else { "live" },
+    "sources": [active_source, hackrf_source],
+    "device_connected": device_connected,
+    "device_info": device_info,
+    "device_name": device_name,
+    "device_loading": device_loading,
+    "device_loading_reason": device_loading_reason,
+    "device_loading_attempt": device_loading_attempt,
+    "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    "device_state": device_state,
+    "paused": paused,
+    "max_sample_rate": max_sample_rate,
+    "sample_rate_options": sample_rate_options,
+    "sdr_settings": sdr_settings,
+    "sdr_limit_markers": device_limits,
+    "channels": channels,
+    "backend": backend,
+    "device": backend,
+    "device_backend_error": device_backend_error,
+    "device_profile": device_profile,
+  })
+}
+
 pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
   let device_profile = shared.device_profile.lock().unwrap().clone();
   if device_profile.kind.starts_with("mock_apt") {
@@ -110,65 +224,7 @@ pub(crate) fn broadcast_device_status(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
-  let device_connected = shared.device_connected.load(Ordering::Relaxed);
-  let device_info = shared.device_info.lock().unwrap().clone();
-  let device_state = reconcile_device_state(
-    device_connected,
-    &shared.device_state.lock().unwrap(),
-  );
-  let device_loading = *shared.device_loading.lock().unwrap();
-  let device_loading_reason =
-    shared.device_loading_reason.lock().unwrap().clone();
-  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
-  let paused = shared.is_paused.load(Ordering::SeqCst);
-  let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-  let channels = shared.channels.lock().unwrap().clone();
-  let device_profile = shared.device_profile.lock().unwrap().clone();
-  let device_backend_error =
-    shared.device_backend_error.lock().unwrap().clone();
-  let (max_sample_rate, sample_rate_options) =
-    resolve_device_sample_rate_options(
-      device_connected,
-      &device_info,
-      &device_profile,
-      &sdr_settings,
-    );
-  let device_limits = sdr_settings
-    .devices
-    .get(device_config_key(&device_profile))
-    .and_then(|device_cfg| device_cfg.fft_display.as_ref())
-    .map(|display| display.resolve_markers())
-    .unwrap_or_default();
-
-  let device_name =
-    status_device_name(device_connected, &device_info, &device_profile);
-  let backend = status_device_backend_label(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
-
-  let msg = serde_json::json!({
-      "type": "status",
-      "device_connected": device_connected,
-      "device_info": device_info,
-      "device_name": device_name,
-      "device_loading": device_loading,
-      "device_loading_reason": device_loading_reason,
-      "device_loading_attempt": device_loading_attempt,
-      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-      "device_state": device_state,
-      "paused": paused,
-      "max_sample_rate": max_sample_rate,
-      "sample_rate_options": sample_rate_options,
-      "sdr_settings": sdr_settings,
-      "sdr_limit_markers": device_limits,
-      "channels": channels,
-      "backend": backend,
-      "device": backend,
-      "device_backend_error": device_backend_error,
-      "device_profile": device_profile,
-  });
+  let msg = build_source_info_snapshot(shared);
   let payload = msg.to_string();
   let mut last_payload = shared.last_broadcast_status.lock().unwrap();
   if last_payload.as_ref() == Some(&payload) {
@@ -1440,9 +1496,11 @@ mod tests {
     )
     .expect("status payload should be valid JSON");
 
-    assert_eq!(payload["type"], "status");
-    assert_eq!(payload["backend"], "rtl-sdr");
-    assert_eq!(payload["device"], "rtl-sdr");
+    assert_eq!(payload["type"], "source_info");
+    assert_eq!(payload["sources"][0]["capability"], "mock");
+    assert_eq!(payload["sources"][0]["status"], "streaming");
+    assert_eq!(payload["active_source"], "mock-apt");
+    assert_eq!(payload["active_source_mode"], "live");
     assert_eq!(payload["device_name"], "RTL-SDR v4");
     assert_eq!(
       payload["device_loading_attempt_max"],
@@ -1452,9 +1510,9 @@ mod tests {
       payload["sample_rate_options"],
       serde_json::json!([3_200_000])
     );
-    let markers = payload["sdr_limit_markers"]
+    let markers = payload["sources"][0]["sdr"]["fft_display"]["markers"]
       .as_array()
-      .expect("sdr_limit_markers should be an array");
+      .expect("source markers should be an array");
     assert!(
       markers.len() >= 2,
       "expected at least the base lower/upper SDR limit markers"
@@ -1463,6 +1521,7 @@ mod tests {
       markers.iter().any(|marker| marker["kind"] == "lower_limit"),
       "expected lower limit marker in websocket payload"
     );
+    assert_eq!(payload["sources"][0]["kind"], "mock_apt");
     assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
   }
 
@@ -1485,7 +1544,7 @@ mod tests {
     broadcast_device_status(&shared, &broadcast_tx);
 
     let first = broadcast_rx.try_recv().expect("first status broadcast");
-    assert!(first.contains(r#""type":"status""#));
+    assert!(first.contains(r#""type":"source_info""#));
     assert!(
       broadcast_rx.try_recv().is_err(),
       "expected duplicate snapshot to be suppressed"
@@ -1524,6 +1583,25 @@ mod tests {
     assert_eq!(payload["device_name"], "HackRF One");
     assert_eq!(payload["device_profile"]["kind"], "hackrf_one");
     assert_eq!(payload["device_profile"]["supports_approx_dbm"], true);
+  }
+
+  #[test]
+  #[serial]
+  fn source_info_snapshot_contains_all_sources() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    let snapshot = build_source_info_snapshot(&shared);
+
+    assert_eq!(snapshot["type"], "source_info");
+    assert!(snapshot["sources"].is_array());
+    assert_eq!(snapshot["sources"].as_array().map(|v| v.len()), Some(2));
+    assert_eq!(snapshot["sources"][0]["name"], "Mock APT SDR");
+    assert_eq!(snapshot["sources"][0]["capability"], "mock");
+    assert_eq!(snapshot["sources"][0]["status"], "streaming");
+    assert_eq!(snapshot["sources"][1]["name"], "HackRF One #2");
   }
 
   #[test]

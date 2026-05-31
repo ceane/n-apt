@@ -1,5 +1,6 @@
 import { createSelector } from "@reduxjs/toolkit";
 import { RootState } from "../store";
+import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 
 // Basic memoized selectors for individual state slices
 export const selectAuthState = (state: RootState) => state.auth;
@@ -134,23 +135,70 @@ export const selectConnectionState = createSelector(
 export const selectDeviceState = createSelector(
   [selectWebSocketState],
   (websocket) => ({
-    deviceState: websocket.deviceState,
-    deviceName: websocket.deviceName,
-    deviceProfile: websocket.deviceProfile,
-    deviceInfo: websocket.deviceInfo,
-    backend: websocket.backend,
+    activeSourceId: websocket.activeSourceId,
+    activeSourceMode: websocket.activeSourceMode,
+    sources: websocket.sources,
+    sourceStatuses: websocket.sourceStatuses,
   }),
 );
 
 export const selectDeviceSettings = createSelector(
   [selectWebSocketState],
   (websocket) => ({
-    maxSampleRateHz: websocket.maxSampleRateHz,
-    sampleRateHz: websocket.sampleRateHz,
-    sdrSettings: websocket.sdrSettings,
     isPaused: websocket.isPaused,
     serverPaused: websocket.serverPaused,
   }),
+);
+
+export const selectActiveSource = createSelector(
+  [selectWebSocketState],
+  (websocket): SourceInfo | null => {
+    if (!Array.isArray(websocket.sources) || websocket.sources.length === 0) {
+      return null;
+    }
+    return (
+      websocket.sources.find(
+        (source) => source.id === websocket.activeSourceId,
+      ) ?? websocket.sources[0] ?? null
+    );
+  },
+);
+
+export const selectActiveSourceDerivedState = createSelector(
+  [selectActiveSource],
+  (source) => {
+    if (!source) {
+      return {
+        deviceState: null,
+        deviceName: null,
+        deviceProfile: null,
+        deviceInfo: null,
+        backend: null,
+        maxSampleRateHz: null,
+        sampleRateOptions: [] as number[],
+        sampleRateHz: null,
+        sdrSettings: null,
+      };
+    }
+
+    return {
+      deviceState:
+        source.status === "streaming" ? "connected" : source.status,
+      deviceName: source.name,
+      deviceProfile: {
+        kind: source.kind,
+        is_rtl_sdr: source.capability === "rx",
+        supports_approx_dbm: source.supports_approx_dbm,
+        supports_raw_iq_stream: source.supports_raw_iq_stream,
+      },
+      deviceInfo: source.name,
+      backend: source.kind,
+      maxSampleRateHz: source.sdr.max_sample_rate,
+      sampleRateOptions: source.sdr.sample_rate_options,
+      sampleRateHz: source.sdr.settings.sample_rate ?? null,
+      sdrSettings: source.sdr.settings,
+    };
+  },
 );
 
 export const selectSpectrumData = createSelector(

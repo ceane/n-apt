@@ -143,6 +143,7 @@ const renderFileName = (name: string) => {
 };
 
 interface SelectedFilesProps {
+  title?: string;
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
   onRemoveFile: (index: number) => void;
   onClear: () => void;
@@ -150,6 +151,7 @@ interface SelectedFilesProps {
 }
 
 export const SelectedFiles: React.FC<SelectedFilesProps> = ({
+  title,
   selectedFiles,
   onRemoveFile,
   onClear,
@@ -163,7 +165,7 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
     <Section>
       <SidebarSectionTitle
         icon={<FileStack size={14} />}
-        title={`Selected files (${selectedFiles.length})`}
+        title={title ?? `Selected files (${selectedFiles.length})`}
       />
       {selectedFiles.map((file, index) => (
         <FileCard key={`${file.name}-${index}`}>

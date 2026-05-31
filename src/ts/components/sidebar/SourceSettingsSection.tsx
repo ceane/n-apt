@@ -228,6 +228,7 @@ export interface GainLimits {
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
   deviceType?: string;
+  disabled?: boolean;
   ppm: number;
   gain: number;
   hackrfLnaGain?: number;
@@ -262,6 +263,7 @@ interface SourceSettingsSectionProps {
 export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   sourceMode,
   deviceType,
+  disabled = false,
   ppm,
   gain,
   hackrfLnaGain = 40.0,
@@ -474,7 +476,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   };
 
   return (
-    <Section>
+    <Section style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
       <SectionTitle>
         <SlidersVertical size={14} />
         <SectionText>Source Settings</SectionText>

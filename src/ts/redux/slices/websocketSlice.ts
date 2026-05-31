@@ -6,6 +6,8 @@ import {
   SpectrumFrame,
   DeviceProfile,
   CaptureStatus,
+  SourceInfo,
+  SourceStatus,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 
@@ -98,6 +100,10 @@ export interface WebSocketState {
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
   serverPaused: boolean;
+  activeSourceId: string | null;
+  activeSourceMode: "live" | "file" | null;
+  sources: SourceInfo[];
+  sourceStatuses: Record<string, SourceStatus>;
 
   // Device info
   backend: string | null;
@@ -143,6 +149,10 @@ const initialState: WebSocketState = {
   deviceLoadingReason: null,
   isPaused: false,
   serverPaused: false,
+  activeSourceId: null,
+  activeSourceMode: null,
+  sources: [],
+  sourceStatuses: {},
 
   backend: null,
   deviceInfo: null,
@@ -188,6 +198,10 @@ const websocketSlice = createSlice({
       state.connectionStatus = "disconnected";
       state.deviceState = null;
       state.deviceLoadingReason = null;
+      state.activeSourceId = null;
+      state.activeSourceMode = null;
+      state.sources = [];
+      state.sourceStatuses = {};
       state.backend = null;
       state.deviceInfo = null;
       state.deviceName = null;

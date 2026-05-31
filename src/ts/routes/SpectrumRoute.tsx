@@ -11,6 +11,7 @@ import { FFTAndWaterfall, NoteCards } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
+import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
 import { Button } from "@n-apt/components/ui/Button";
 import {
   useSnapshot,
@@ -279,6 +280,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
+  const [txSignal] = useState("apt");
+  const txSampleRateHz = 2_400_000;
+  const txCenterFrequencyHz = 137_100_000;
+  const txPowerDbm = -18;
+  const [txOverlayPosition, setTxOverlayPosition] = useState(62);
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -811,6 +817,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             <>
               <FFTAndWaterfall
                 ref={fftCanvasRef}
+                overlayContent={
+                  <TxSliderOverlay
+                    signalLabel={txSignal.toUpperCase()}
+                    txPosition={txOverlayPosition}
+                    onTxPositionChange={setTxOverlayPosition}
+                    powerDbm={txPowerDbm}
+                    sampleRateHz={txSampleRateHz}
+                    centerFrequencyHz={txCenterFrequencyHz}
+                  />
+                }
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}
                 centerFrequencyHz={centerFrequencyHz}

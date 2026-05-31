@@ -7,6 +7,10 @@ import type { Dispatch } from "@reduxjs/toolkit";
 import {
   isValidWebSocketMessageWithIntegrity,
   isValidStatusMessageEnhanced,
+  isValidSourceInfoMessageEnhanced,
+  isValidSourceStatusMessageEnhanced,
+  isValidSourceSdrSettingsMessageEnhanced,
+  isValidSourceErrorMessageEnhanced,
   isValidCaptureStatus,
   quickValidate,
   validateAndExtract,
@@ -85,9 +89,41 @@ export function validateWebSocketMessage(data: unknown): boolean {
       return VALIDATION_CONFIG.skipBinaryValidation;
     }
 
-    // Status snapshots are the most important control-plane messages, so we
-    // validate them via the dedicated status path first and tolerate minor
+    // Snapshot/control messages are the most important control-plane messages,
+    // so we validate them via the dedicated paths first and tolerate minor
     // schema drift instead of dropping the entire update stream.
+    if (isValidObject(data)) {
+      const type = (data as { type?: unknown }).type;
+      if (type === "source_info") {
+        const isValid = isValidSourceInfoMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source info message", data);
+        }
+        return isValid;
+      }
+      if (type === "status" && "source_id" in data) {
+        const isValid = isValidSourceStatusMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source status message", data);
+        }
+        return isValid;
+      }
+      if (type === "sdr_settings" && "source_id" in data) {
+        const isValid = isValidSourceSdrSettingsMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source sdr settings message", data);
+        }
+        return isValid;
+      }
+      if (type === "error" && "source_id" in data) {
+        const isValid = isValidSourceErrorMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source error message", data);
+        }
+        return isValid;
+      }
+    }
+
     if (isValidObject(data) && (data as { type?: unknown }).type === "status") {
       const isStatusValid = validateStatusMessage(data);
       if (!isStatusValid) {
@@ -240,8 +276,18 @@ export function processWebSocketMessageWithValidation(
     const data = parsedData as Record<string, unknown>;
 
     switch (data.type) {
+      case "source_info":
+        return isValidSourceInfoMessageEnhanced(data);
+
       case "status":
+        if ("source_id" in data) return isValidSourceStatusMessageEnhanced(data);
         return validateStatusMessage(data);
+
+      case "sdr_settings":
+        return isValidSourceSdrSettingsMessageEnhanced(data);
+
+      case "error":
+        return isValidSourceErrorMessageEnhanced(data);
 
       case "capture_status":
         // Temporarily allow all capture status messages to fix I/Q capture

@@ -6,6 +6,10 @@ import {
   isValidAuthInfo,
   isValidAuthResult,
   isValidWebSocketMessage,
+  isValidSourceInfoMessage,
+  isValidSourceStatusMessage,
+  isValidSourceSdrSettingsMessage,
+  isValidSourceErrorMessage,
   isValidSpectrumFrame,
   isValidCaptureRequest,
   calculateExpectedLatency,
@@ -51,6 +55,75 @@ describe("Validation System", () => {
   });
 
   describe("WebSocket Message Validation", () => {
+    test("should validate source info snapshot", () => {
+      const validMessage = {
+        type: "source_info",
+        active_source: "mock-apt",
+        active_source_mode: "live",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "streaming",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [2_400_000, 3_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3_200_000,
+                fft_size: 2048,
+              },
+            },
+          },
+        ],
+      };
+
+      expect(isValidSourceInfoMessage(validMessage)).toBe(true);
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should validate source status update", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "mock-apt",
+          status: "loading",
+          loading_attempt: 1,
+          loading_attempt_max: 3,
+        }),
+      ).toBe(true);
+    });
+
+    test("should validate source sdr settings update", () => {
+      expect(
+        isValidSourceSdrSettingsMessage({
+          type: "sdr_settings",
+          source_id: "mock-apt",
+          sdr: {
+            sample_rate: 3_200_000,
+            gain: 12,
+          },
+        }),
+      ).toBe(true);
+    });
+
+    test("should validate source error update", () => {
+      expect(
+        isValidSourceErrorMessage({
+          type: "error",
+          source_id: "mock-apt",
+          code: "device_disconnect",
+          message: "Device disconnected",
+        }),
+      ).toBe(true);
+    });
+
     test("should validate valid frequency range message", () => {
       const validMessage = {
         type: "frequency_range",

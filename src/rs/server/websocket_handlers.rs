@@ -14,6 +14,7 @@ use crate::crypto;
 
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
+use super::websocket_server::build_source_info_snapshot;
 use super::utils::reconcile_device_state;
 use super::utils::{
   resolve_device_sample_rate_options, status_device_backend_label,
@@ -124,74 +125,8 @@ pub async fn handle_ws_connection(
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
   let _ = reconcile_stale_device_snapshot(&shared);
 
-  // Send initial status
-  let device_connected = shared.device_connected.load(Ordering::Relaxed);
-  let device_info = shared.device_info.lock().unwrap().clone();
-  let device_loading = *shared.device_loading.lock().unwrap();
-  let device_loading_reason =
-    shared.device_loading_reason.lock().unwrap().clone();
-  let device_state = reconcile_device_state(
-    device_connected,
-    &shared.device_state.lock().unwrap().clone(),
-  );
-  let paused = shared.is_paused.load(Ordering::Relaxed);
-  let channels = {
-    let mut guard = shared.channels.lock().unwrap();
-    if guard.is_empty() {
-      let loaded = super::utils::load_channels();
-      if !loaded.is_empty() {
-        *guard = loaded;
-      }
-    }
-    guard.clone()
-  };
-  let sdr_settings = { shared.sdr_settings.lock().unwrap().clone() };
-  let device_profile = shared.device_profile.lock().unwrap().clone();
-
-  let (max_sample_rate, sample_rate_options) =
-    resolve_device_sample_rate_options(
-      device_connected,
-      &device_info,
-      &device_profile,
-      &sdr_settings,
-    );
-
-  let device_name =
-    status_device_name(device_connected, &device_info, &device_profile);
-  let device_backend = status_device_backend_label(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
-  let device_backend_error =
-    shared.device_backend_error.lock().unwrap().clone();
-
-  let initial_status = super::types::StatusMessage {
-    message_type: "status".to_string(),
-    device_connected,
-    device_info,
-    device_name,
-    device_loading,
-    device_loading_reason,
-    device_state,
-    paused,
-    max_sample_rate,
-    sample_rate_options,
-    channels: channels
-      .into_iter()
-      .map(|c| super::types::SpectrumFrameMessage {
-        id: c.id,
-        label: c.label,
-        min_hz: c.min_hz,
-        max_hz: c.max_hz,
-        description: c.description,
-      })
-      .collect(),
-    sdr_settings,
-    device: device_backend,
-    device_backend_error,
-    device_profile,
-  };
+  // Send initial source snapshot
+  let initial_status = build_source_info_snapshot(&shared);
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
     if ws_sender
@@ -216,7 +151,10 @@ pub async fn handle_ws_connection(
             // to decrypt them.
             // Capture status messages also need to be plaintext for the frontend
             // to handle capture state updates properly.
-            if plaintext_json.contains("\"type\":\"status\"") || plaintext_json.contains("\"type\":\"capture_status\"") {
+            if plaintext_json.contains("\"type\":\"status\"")
+              || plaintext_json.contains("\"type\":\"source_info\"")
+              || plaintext_json.contains("\"type\":\"capture_status\"")
+            {
               if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
               }

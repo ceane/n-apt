@@ -353,7 +353,6 @@ export const ConnectionStatusSection: React.FC<
       backend.includes("mock"));
   const isServerConnectedButNoDevice =
     isConnected && deviceState === "connected" && isMockBackend;
-
   return (
     <>
       <ConnectionStatusContainer>

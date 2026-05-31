@@ -126,6 +126,88 @@ export const DeviceProfileSchema = z.object({
   supports_raw_iq_stream: z.boolean(),
 });
 
+export const SourceCapabilitySchema = z.enum(["rx", "tx", "tx_rx", "mock"]);
+
+export const SourceStatusSchema = z.enum([
+  "connected",
+  "loading",
+  "disconnected",
+  "stale",
+  "error",
+  "streaming",
+]);
+
+export const SourceSdrSettingsSchema = z.object({
+  fft_size: z.number().optional(),
+  fft_window: z.string().optional(),
+  frame_rate: z.number().optional(),
+  sample_rate: z.number().optional(),
+  gain: z.number().optional(),
+  hackrf_lna_gain: z.number().optional(),
+  hackrf_vga_gain: z.number().optional(),
+  hackrf_amp_enable: z.boolean().optional(),
+  ppm: z.number().optional(),
+  tuner_agc: z.boolean().optional(),
+  rtl_agc: z.boolean().optional(),
+  offset_tuning: z.boolean().optional(),
+  direct_sampling: z.number().optional(),
+  tuner_bandwidth: z.number().optional(),
+});
+
+export const SourceInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  capability: SourceCapabilitySchema,
+  status: SourceStatusSchema.nullable(),
+  loading_attempt: z.number().int().nonnegative(),
+  loading_attempt_max: z.number().int().nonnegative(),
+  supports_approx_dbm: z.boolean(),
+  supports_raw_iq_stream: z.boolean(),
+  sdr: z.object({
+    max_sample_rate: z.number(),
+    sample_rate_options: z.array(z.number()),
+    fft_display: z.object({
+      markers: z.array(
+        z.object({
+          kind: z.string(),
+          freq_hz: z.number(),
+          label: z.string().optional(),
+        }),
+      ),
+    }),
+    settings: SourceSdrSettingsSchema,
+  }),
+});
+
+export const SourceInfoMessageSchema = z.object({
+  type: z.literal("source_info"),
+  active_source: z.string(),
+  active_source_mode: z.enum(["live", "file"]),
+  sources: z.array(SourceInfoSchema),
+});
+
+export const SourceStatusMessageSchema = z.object({
+  type: z.literal("status"),
+  source_id: z.string(),
+  status: SourceStatusSchema,
+  loading_attempt: z.number().int().nonnegative().optional(),
+  loading_attempt_max: z.number().int().nonnegative().optional(),
+});
+
+export const SourceSdrSettingsMessageSchema = z.object({
+  type: z.literal("sdr_settings"),
+  source_id: z.string(),
+  sdr: SourceSdrSettingsSchema,
+});
+
+export const SourceErrorMessageSchema = z.object({
+  type: z.literal("error"),
+  source_id: z.string(),
+  code: z.string(),
+  message: z.string(),
+});
+
 export const SpectrumFrameSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -274,6 +356,10 @@ export const WebSocketMessageSchema = z.discriminatedUnion("type", [
     jobId: z.string().optional(),
   }),
   // Server-to-client messages
+  SourceInfoMessageSchema,
+  SourceStatusMessageSchema,
+  SourceSdrSettingsMessageSchema,
+  SourceErrorMessageSchema,
   StatusMessageSchema,
 ]);
 
@@ -324,4 +410,28 @@ export const isValidCaptureStatus = (
   data: unknown,
 ): data is z.infer<typeof CaptureStatusSchema> => {
   return CaptureStatusSchema.safeParse(data).success;
+};
+
+export const isValidSourceInfoMessage = (
+  data: unknown,
+): data is z.infer<typeof SourceInfoMessageSchema> => {
+  return SourceInfoMessageSchema.safeParse(data).success;
+};
+
+export const isValidSourceStatusMessage = (
+  data: unknown,
+): data is z.infer<typeof SourceStatusMessageSchema> => {
+  return SourceStatusMessageSchema.safeParse(data).success;
+};
+
+export const isValidSourceSdrSettingsMessage = (
+  data: unknown,
+): data is z.infer<typeof SourceSdrSettingsMessageSchema> => {
+  return SourceSdrSettingsMessageSchema.safeParse(data).success;
+};
+
+export const isValidSourceErrorMessage = (
+  data: unknown,
+): data is z.infer<typeof SourceErrorMessageSchema> => {
+  return SourceErrorMessageSchema.safeParse(data).success;
 };

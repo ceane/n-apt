@@ -7,6 +7,10 @@ import type {
   SpectrumFrame,
   CaptureRequest,
   StatusMessage,
+  SourceInfoMessage,
+  SourceStatusMessage,
+  SourceSdrSettingsMessage,
+  SourceErrorMessage,
 } from "@n-apt/consts/schemas/websocket";
 import type { AuthResult } from "@n-apt/services/auth";
 import type { SdrProcessorMetadata } from "@n-apt/validation/types";
@@ -22,6 +26,10 @@ export {
   isValidSessionValidation,
   isValidWebSocketMessage,
   isValidStatusMessage,
+  isValidSourceInfoMessage,
+  isValidSourceStatusMessage,
+  isValidSourceSdrSettingsMessage,
+  isValidSourceErrorMessage,
   isValidSpectrumFrame,
   isValidCaptureRequest,
   isValidCaptureStatus,
@@ -31,6 +39,10 @@ export {
 import {
   isValidWebSocketMessage as baseIsValidWebSocketMessage,
   isValidStatusMessage as baseIsValidStatusMessage,
+  isValidSourceInfoMessage as baseIsValidSourceInfoMessage,
+  isValidSourceStatusMessage as baseIsValidSourceStatusMessage,
+  isValidSourceSdrSettingsMessage as baseIsValidSourceSdrSettingsMessage,
+  isValidSourceErrorMessage as baseIsValidSourceErrorMessage,
   isValidSpectrumFrame as baseIsValidSpectrumFrame,
   isValidCaptureRequest as baseIsValidCaptureRequest,
 } from "@n-apt/validation/schemas";
@@ -722,6 +734,30 @@ export const isValidStatusMessageEnhanced = (
     // Don't require enhanced validation for channels to avoid circular validation issues
     true
   );
+};
+
+export const isValidSourceInfoMessageEnhanced = (
+  data: unknown,
+): data is SourceInfoMessage => {
+  return baseIsValidSourceInfoMessage(data);
+};
+
+export const isValidSourceStatusMessageEnhanced = (
+  data: unknown,
+): data is SourceStatusMessage => {
+  return baseIsValidSourceStatusMessage(data);
+};
+
+export const isValidSourceSdrSettingsMessageEnhanced = (
+  data: unknown,
+): data is SourceSdrSettingsMessage => {
+  return baseIsValidSourceSdrSettingsMessage(data);
+};
+
+export const isValidSourceErrorMessageEnhanced = (
+  data: unknown,
+): data is SourceErrorMessage => {
+  return baseIsValidSourceErrorMessage(data);
 };
 
 const isLooseStatusMessage = (data: unknown): boolean => {
