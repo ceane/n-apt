@@ -207,6 +207,9 @@
     "react-inspector": {
       "react": "^19.2.4"
     },
+    "protobufjs": "^7.5.11",
+    "qs": "^6.15.2",
+    "ws": "^8.21.0",
     "uuid": "^14.0.0",
     "braces": "^3.0.3",
     "micromatch": "^4.0.8"
