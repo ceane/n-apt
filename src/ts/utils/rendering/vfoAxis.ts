@@ -1,8 +1,5 @@
 import { findBestFrequencyRange } from "@n-apt/consts";
-import {
-  formatFrequency,
-  formatFrequencyHighRes,
-} from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
 
 export type VfoAxisOrientation = "top" | "bottom";
@@ -118,11 +115,9 @@ export function createCanvasVfoAxisContext(
 
 export function formatVfoAxisEdgeLabel(
   freq: number,
-  useHighRes: boolean,
-  stepHz: number,
+  _useHighRes: boolean,
+  _stepHz: number,
 ): string {
-  if (useHighRes) return formatFrequencyHighRes(freq);
-  if (Math.abs(freq) >= 1_000_000) return formatFrequencyHighRes(freq);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
     precisionMHz: 4,
@@ -132,16 +127,21 @@ export function formatVfoAxisEdgeLabel(
 
 export function formatVfoAxisCenterLabel(
   freq: number,
-  useHighRes: boolean,
+  _useHighRes: boolean,
   stepHz: number,
   precision?: VfoAxisPrecision,
 ): string {
-  if (useHighRes) return formatFrequencyHighRes(freq);
   const { precisionMHz, precisionKHz } = tickPrecisionForStep(stepHz);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
-    precisionMHz: Math.max(precision?.centerMinMHz ?? 6, precisionMHz),
-    precisionKHz: Math.max(precision?.centerMinKHz ?? 3, precisionKHz),
+    precisionMHz: Math.min(
+      Math.max(precision?.centerMinMHz ?? 4, precisionMHz),
+      4,
+    ),
+    precisionKHz: Math.min(
+      Math.max(precision?.centerMinKHz ?? 0, precisionKHz),
+      2,
+    ),
   });
 }
 
@@ -348,9 +348,7 @@ export function drawVfoAxis({
       }
     }
 
-    const label = useHighRes
-      ? formatFrequencyHighRes(freq)
-      : fmtFreqTick(freq, stepHz);
+    const label = fmtFreqTick(freq, stepHz);
     if (showTickLabels && label.length > 0 && !isColliding(x, label)) {
       ctx.setFill(theme.label);
       ctx.setTextAlign("center");

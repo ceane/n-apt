@@ -62,7 +62,7 @@ pub async fn ws_upgrade_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   // Validate session token
-  match state.session_store.validate(&params.token) {
+  match state.session_store.validate(&params.token).await {
     Some(_) => {}
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")

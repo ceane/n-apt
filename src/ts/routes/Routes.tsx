@@ -219,6 +219,10 @@ const AppRoutesInner: React.FC = () => {
           element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route
+          path="/auth"
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
+        />
+        <Route
           path="/visualizer"
           element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />

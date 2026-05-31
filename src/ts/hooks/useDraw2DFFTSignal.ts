@@ -9,7 +9,6 @@ import {
   VERTICAL_RANGE,
   FFT_AREA_MIN,
   formatFrequency,
-  formatFrequencyHighRes,
   findBestFrequencyRange,
   BOUNDARY_LINE_COLOR,
   BOUNDARY_TEXT_COLOR,
@@ -175,9 +174,12 @@ export function useDraw2DFFTSignal() {
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
-      const useHighRes = zoom >= 100;
       const formatFreq = (f: number) =>
-        useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+        formatFrequency(f, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+        });
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
@@ -456,9 +458,12 @@ export function useDraw2DFFTSignal() {
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
-      const useHighRes = zoom >= 100;
       const formatFreq = (f: number) =>
-        useHighRes ? formatFrequencyHighRes(f) : formatFrequency(f);
+        formatFrequency(f, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+        });
 
       const freqToX = (freq: number) =>
         leftPad + ((freq - minFreq) / viewBandwidth) * plotWidth;
@@ -531,7 +536,7 @@ export function useDraw2DFFTSignal() {
         fontPx: 12,
         centerFontPx: 12,
         textBaseline: "alphabetic",
-        useHighResLabels: useHighRes,
+        useHighResLabels: false,
         lineWidth: 1 / dpr,
       });
     },

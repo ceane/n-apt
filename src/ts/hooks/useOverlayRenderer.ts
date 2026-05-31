@@ -13,10 +13,7 @@ import {
   BOUNDARY_LINE_COLOR,
   BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
-import {
-  formatFrequency,
-  formatFrequencyHighRes,
-} from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import {
   createCanvasVfoAxisContext,
@@ -148,15 +145,12 @@ export function useOverlayRenderer() {
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
-      const useHighRes = zoom >= 100;
       const formatFreq = (f: number) =>
-        useHighRes
-          ? formatFrequencyHighRes(f)
-          : formatFrequency(f, {
-              precisionMHz: 6,
-              precisionKHz: 3,
-              trimTrailingZeros: true,
-            });
+        formatFrequency(f, {
+          precisionMHz: 4,
+          precisionKHz: 2,
+          trimTrailingZeros: true,
+        });
 
       const clampLabelX = (x: number, text: string) => {
         const tw = ctx.measureText(text).width;
@@ -212,13 +206,11 @@ export function useOverlayRenderer() {
       const step = findBestFrequencyRange(viewBandwidth2, 10);
       const tickPrec = tickPrecisionForStep(step);
       const formatTickLabel = (freq: number) =>
-        useHighRes
-          ? formatFrequencyHighRes(freq)
-          : formatFrequency(freq, {
-              trimTrailingZeros: true,
-              precisionMHz: 6,
-              precisionKHz: 3,
-            });
+        formatFrequency(freq, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+        });
       const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
 
@@ -255,13 +247,11 @@ export function useOverlayRenderer() {
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "--MHz"
-          : useHighRes
-            ? formatFrequencyHighRes(visualCenterFreq)
-            : formatFrequency(visualCenterFreq, {
-                precisionMHz: 6,
-                precisionKHz: 3,
-                trimTrailingZeros: true,
-              });
+          : formatFrequency(visualCenterFreq, {
+              precisionMHz: 4,
+              precisionKHz: 2,
+              trimTrailingZeros: true,
+            });
 
       const startW = ctx.measureText(startLabel).width;
       const endW = ctx.measureText(endLabel).width;
@@ -427,7 +417,7 @@ export function useOverlayRenderer() {
         ctx.restore();
       }
     },
-    [formatFrequency, formatFrequencyHighRes],
+    [formatFrequency],
   );
 
   const drawMarkersOnContext = useCallback(
@@ -487,7 +477,7 @@ export function useOverlayRenderer() {
         fontPx: 12,
         centerFontPx: 12,
         textBaseline: "alphabetic",
-        useHighResLabels: zoom >= 100,
+        useHighResLabels: false,
         lineWidth: Math.max(0.5 / dpr, 1),
       });
 

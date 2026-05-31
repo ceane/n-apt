@@ -646,7 +646,7 @@ pub async fn capture_download_handler(
       .into_response();
   }
 
-  let _session = match state.session_store.validate(&params.token) {
+  let _session = match state.session_store.validate(&params.token).await {
     Some(s) => s,
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")

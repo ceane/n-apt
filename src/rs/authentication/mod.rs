@@ -222,7 +222,7 @@ pub async fn require_session(
   }
 
   if let Some(token) = token {
-    if state.session_store.validate(&token).is_some() {
+    if state.session_store.validate(&token).await.is_some() {
       return Ok(next.run(req).await);
     } else {
       let masked = if token.len() > 8 {
