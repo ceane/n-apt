@@ -144,6 +144,7 @@ export async function logoutSession(token?: string | null): Promise<void> {
   const res = await fetch(logoutUrl, {
     method: "GET",
     credentials: "include",
+    keepalive: true,
   });
 
   if (!res.ok && res.status !== 303 && res.status !== 302) {

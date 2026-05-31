@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@n-apt/components/ui/Button";
 import { Lock } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
@@ -329,6 +330,25 @@ const LinkButton = styled.button`
   }
 `;
 
+const LegalNotice = styled.p`
+  width: min(100%, 360px);
+  margin: 0;
+  color: ${(props) => props.theme.textMuted};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+
+  a {
+    color: ${(props) => props.theme.primary};
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+`;
+
 const LoadingDot = styled.span`
   animation: ${pulse} 1.5s ease-in-out infinite;
 `;
@@ -592,6 +612,12 @@ export const AuthenticationUI = ({
 
       {showActions && (
         <>
+          <LegalNotice>
+            By continuing you are agreeing to the{" "}
+            <Link to="/terms">Terms of Use</Link> and{" "}
+            <Link to="/privacy">Privacy Policy</Link>.
+          </LegalNotice>
+
           {hasPasskeys && !effectiveShowPasswordForm && (
             <>
               <AuthButton
@@ -660,6 +686,7 @@ export const AuthenticationUI = ({
 export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
   children,
 }) => {
+  const location = useLocation();
   const {
     authState,
     isAuthenticated,
@@ -670,6 +697,15 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handlePasskeyAuth,
     handleRegisterPasskey,
   } = useAuthentication();
+  const isPublicLegalRoute =
+    location.pathname === "/terms" ||
+    location.pathname === "/privacy" ||
+    location.pathname === "/license" ||
+    location.pathname === "/responsible-use";
+
+  if (isPublicLegalRoute) {
+    return <>{children}</>;
+  }
 
   if (isInitialAuthCheck) {
     return (

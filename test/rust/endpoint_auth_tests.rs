@@ -92,7 +92,7 @@ async fn test_protected_endpoints_allow_authorized() {
   let (server, state) = setup_test_server().await;
 
   // Create a valid session
-  let token = state.session_store.create_session([0u8; 32]);
+  let token = state.session_store.create_session([0u8; 32]).await;
 
   // Test /api/towers/bounds (GET)
   let response = server
@@ -128,7 +128,7 @@ async fn test_invalid_token_denied() {
 async fn test_vault_key_matches_shared_password_key() {
   let (server, state) = setup_test_server().await;
 
-  let token = state.session_store.create_session([0u8; 32]);
+  let token = state.session_store.create_session([0u8; 32]).await;
 
   let response = server.get(&format!("/auth/vault-key?token={token}")).await;
   response.assert_status_ok();
@@ -150,7 +150,7 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
 
   let session_key = [7u8; 32];
   assert_ne!(session_key, state.shared.encryption_key);
-  let token = state.session_store.create_session(session_key);
+  let token = state.session_store.create_session(session_key).await;
 
   let ws_path = format!("/ws?token={token}");
   let mut websocket =

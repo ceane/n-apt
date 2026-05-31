@@ -36,18 +36,19 @@ export const LogoutRoute: React.FC = () => {
       }
 
       try {
-        await logoutSession(sessionToken);
+        void logoutSession(sessionToken).catch((err) => {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : "logout failed");
+          }
+        });
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "logout failed");
         }
-        return;
       }
 
-      if (!cancelled) {
-        clearSession();
-        window.location.replace("/");
-      }
+      clearSession();
+      window.location.replace("/");
     };
 
     void run();

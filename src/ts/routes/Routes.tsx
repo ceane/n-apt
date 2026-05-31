@@ -57,6 +57,11 @@ const TransformersRoute = lazy(() =>
     default: m.TransformersRoute,
   })),
 );
+const LegalDocumentRoute = lazy(() =>
+  import("@n-apt/routes/LegalDocumentRoute").then((m) => ({
+    default: m.LegalDocumentRoute,
+  })),
+);
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
@@ -309,6 +314,46 @@ const AppRoutesInner: React.FC = () => {
               fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <TransformersRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/terms"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/privacy"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/license"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/responsible-use"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
             </Suspense>
           }
         />

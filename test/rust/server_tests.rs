@@ -218,9 +218,9 @@ async fn test_auth_logout_endpoint() {
   let server = TestServer::new(app);
 
   // 1. Create a session first to verify revocation
-  let token = state.session_store.create_session([0u8; 32]);
+  let token = state.session_store.create_session([0u8; 32]).await;
   assert!(
-    state.session_store.validate(&token).is_some(),
+    state.session_store.validate(&token).await.is_some(),
     "Session should be valid after creation"
   );
 
@@ -241,7 +241,7 @@ async fn test_auth_logout_endpoint() {
 
   // 3. Verify the session is actually revoked in Redis
   assert!(
-    state.session_store.validate(&token).is_none(),
+    state.session_store.validate(&token).await.is_none(),
     "Session should be revoked after logout"
   );
 }
