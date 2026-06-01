@@ -91,7 +91,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should display passkey option when available", () => {
-    renderAuthenticationUI(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={true} />,
+    );
     expect(
       screen.getByRole("button", { name: /Sign in with Passkey/ }),
     ).toBeInTheDocument();
@@ -111,7 +113,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show password form when passkey available and user clicks 'Use password instead'", () => {
-    renderAuthenticationUI(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={true} />,
+    );
 
     // Initially passkey form should be shown
     expect(
@@ -187,7 +191,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should disable submit button when password is empty", async () => {
-    renderAuthenticationUI(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+    );
 
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });
     expect(submitButton).toBeDisabled();
@@ -228,7 +234,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show different message for ready state without passkeys", () => {
-    renderAuthenticationUI(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+    );
     expect(
       screen.getByText("Enter password to authenticate and start streaming"),
     ).toBeInTheDocument();

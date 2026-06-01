@@ -57,7 +57,10 @@ describe("SignalDisplaySection sample rate selector", () => {
     expect(
       screen.getByRole("option", { name: "Whole Channel (5.2MHz)" }),
     ).toBeInTheDocument();
-    expect(select).toHaveValue("5200000");
+    expect(
+      screen.queryByRole("option", { name: "5.2MHz" }),
+    ).not.toBeInTheDocument();
+    expect(select).toHaveValue("whole-channel");
 
     fireEvent.change(select, { target: { value: "20000000" } });
     expect(onSampleRateChange).toHaveBeenLastCalledWith(20_000_000);

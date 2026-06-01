@@ -19,9 +19,10 @@ use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
-use super::websocket_server::reconcile_stale_device_snapshot;
+use super::websocket_server::{
+  build_source_info_snapshot, reconcile_stale_device_snapshot,
+};
 use crate::fft::anti_aliasing;
-use crate::sdr::rtlsdr::RtlSdrDevice;
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -563,58 +564,17 @@ pub async fn status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   let _ = reconcile_stale_device_snapshot(&state.shared);
-  let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
-  let device_info = state.shared.device_info.lock().unwrap().clone();
   let client_count = state.shared.client_count.load(Ordering::Relaxed);
   let authenticated_count =
     state.shared.authenticated_count.load(Ordering::Relaxed);
-
-  // This is a cheap, non-blocking check (does not open the device) and remains
-  // responsive even if the SDR I/O thread is busy.
-  let device_count = RtlSdrDevice::get_device_count();
-  let device_present = device_count > 0;
-
-  let device_state = state.shared.device_state.lock().unwrap().clone();
-  let device_loading_reason =
-    state.shared.device_loading_reason.lock().unwrap().clone();
-  let device_backend_error =
-    state.shared.device_backend_error.lock().unwrap().clone();
-  let device_loading = *state.shared.device_loading.lock().unwrap();
-  let paused = state.shared.is_paused.load(Ordering::SeqCst);
-  let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
-  let channels = state.shared.channels.lock().unwrap().clone();
-  let device_profile = state.shared.device_profile.lock().unwrap().clone();
-  let device_name = crate::server::utils::status_device_name(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
-  let device_backend = crate::server::utils::status_device_backend_label(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
+  let snapshot = build_source_info_snapshot(&state.shared);
 
   Json(serde_json::json!({
-    "type": "status",
-    "device_connected": device_connected,
-    "device_present": device_present,
-    "device_count": device_count,
-    "device_state": device_state,
-    "device_loading": device_loading,
-    "device_loading_reason": device_loading_reason,
-    "device_info": device_info,
-    "device_name": device_name,
-    "paused": paused,
-    "max_sample_rate": sdr_settings.sample_rate,
-    "channels": channels,
-    "sdr_settings": sdr_settings,
-    "device": device_backend,
-    "backend": device_backend,
-    "device_backend_error": device_backend_error,
-    "device_profile": device_profile,
-    "clients": client_count,
-    "authenticated_clients": authenticated_count,
+    "meta": {
+      "clients": client_count,
+      "authenticated_clients": authenticated_count,
+    },
+    "status": snapshot,
   }))
 }
 

@@ -159,7 +159,9 @@ export const selectActiveSource = createSelector(
     return (
       websocket.sources.find(
         (source) => source.id === websocket.activeSourceId,
-      ) ?? websocket.sources[0] ?? null
+      ) ??
+      websocket.sources[0] ??
+      null
     );
   },
 );
@@ -182,8 +184,7 @@ export const selectActiveSourceDerivedState = createSelector(
     }
 
     return {
-      deviceState:
-        source.status === "streaming" ? "connected" : source.status,
+      deviceState: source.status === "streaming" ? "connected" : source.status,
       deviceName: source.name,
       deviceProfile: {
         kind: source.kind,

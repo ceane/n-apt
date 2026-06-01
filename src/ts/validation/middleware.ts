@@ -6,7 +6,7 @@
 import type { Dispatch } from "@reduxjs/toolkit";
 import {
   isValidWebSocketMessageWithIntegrity,
-  isValidStatusMessageEnhanced,
+  isValidChannelsMessageEnhanced,
   isValidSourceInfoMessageEnhanced,
   isValidSourceStatusMessageEnhanced,
   isValidSourceSdrSettingsMessageEnhanced,
@@ -101,7 +101,14 @@ export function validateWebSocketMessage(data: unknown): boolean {
         }
         return isValid;
       }
-      if (type === "status" && "source_id" in data) {
+      if (type === "channels") {
+        const isValid = isValidChannelsMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Channels message", data);
+        }
+        return isValid;
+      }
+      if (type === "status" && Array.isArray((data as any).sources)) {
         const isValid = isValidSourceStatusMessageEnhanced(data);
         if (!isValid) {
           logValidationFailure("Source status message", data);
@@ -122,14 +129,6 @@ export function validateWebSocketMessage(data: unknown): boolean {
         }
         return isValid;
       }
-    }
-
-    if (isValidObject(data) && (data as { type?: unknown }).type === "status") {
-      const isStatusValid = validateStatusMessage(data);
-      if (!isStatusValid) {
-        logValidationFailure("WebSocket message", data);
-      }
-      return isStatusValid;
     }
 
     // Quick validation for common message types
@@ -156,19 +155,6 @@ export function validateWebSocketMessage(data: unknown): boolean {
 
     return isValid;
   }, "WebSocket message validation");
-}
-
-// Status message validation
-export function validateStatusMessage(data: unknown): boolean {
-  return measureValidationTime(() => {
-    const isValid = isValidStatusMessageEnhanced(data);
-
-    if (!isValid) {
-      logValidationFailure("Status message", data);
-    }
-
-    return isValid;
-  }, "Status message validation");
 }
 
 // Capture status validation
@@ -278,10 +264,13 @@ export function processWebSocketMessageWithValidation(
     switch (data.type) {
       case "source_info":
         return isValidSourceInfoMessageEnhanced(data);
+      case "channels":
+        return isValidChannelsMessageEnhanced(data);
 
       case "status":
-        if ("source_id" in data) return isValidSourceStatusMessageEnhanced(data);
-        return validateStatusMessage(data);
+        return Array.isArray((data as any).sources)
+          ? isValidSourceStatusMessageEnhanced(data)
+          : false;
 
       case "sdr_settings":
         return isValidSourceSdrSettingsMessageEnhanced(data);

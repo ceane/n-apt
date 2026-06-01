@@ -104,6 +104,7 @@ export interface WebSocketState {
   activeSourceMode: "live" | "file" | null;
   sources: SourceInfo[];
   sourceStatuses: Record<string, SourceStatus>;
+  channels: SpectrumFrame[];
 
   // Device info
   backend: string | null;
@@ -153,6 +154,7 @@ const initialState: WebSocketState = {
   activeSourceMode: null,
   sources: [],
   sourceStatuses: {},
+  channels: [],
 
   backend: null,
   deviceInfo: null,
@@ -202,6 +204,7 @@ const websocketSlice = createSlice({
       state.activeSourceMode = null;
       state.sources = [];
       state.sourceStatuses = {};
+      state.channels = [];
       state.backend = null;
       state.deviceInfo = null;
       state.deviceName = null;

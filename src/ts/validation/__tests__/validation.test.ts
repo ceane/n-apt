@@ -92,10 +92,14 @@ describe("Validation System", () => {
       expect(
         isValidSourceStatusMessage({
           type: "status",
-          source_id: "mock-apt",
-          status: "loading",
-          loading_attempt: 1,
-          loading_attempt_max: 3,
+          sources: [
+            {
+              id: "mock-apt",
+              status: "loading",
+              loading_attempt: 1,
+              loading_attempt_max: 3,
+            },
+          ],
         }),
       ).toBe(true);
     });

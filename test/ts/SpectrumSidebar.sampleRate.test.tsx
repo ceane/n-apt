@@ -54,6 +54,11 @@ jest.mock("@n-apt/components/ui/PromptProvider", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+  LIVE_CONTROL_DEFAULTS: {
+    ppm: 0,
+    tunerAGC: false,
+    rtlAGC: false,
+  },
   useSpectrumStore: () => ({
     state: mockLiveState,
     dispatch: mockStoreDispatch,
@@ -300,6 +305,102 @@ const initMockState = () => {
 describe("SpectrumSidebar sample rate behavior", () => {
   beforeEach(() => {
     initMockState();
+  });
+
+  it("uses the active channel span for mock whole-channel mode instead of the mock device rate", async () => {
+    mockLiveState = {
+      ...mockLiveState,
+      activeSignalArea: "A",
+      frequencyRange: { min: 18_000, max: 3_218_000 },
+      sampleRateHz: 3_200_000,
+    };
+    mockEffectiveFrames = [];
+    mockSignalAreaBounds = null;
+    mockWsConnection = {
+      ...mockWsConnection,
+      backend: "mock_apt",
+      deviceName: "Mock APT SDR",
+      deviceProfile: { kind: "mock_apt" },
+      sampleRateOptions: [3_200_000],
+      sampleRateHz: 3_200_000,
+    };
+
+    const channels = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        description: "Mock APT channel A",
+      },
+    ];
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-apt",
+        activeSourceMode: "live",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "streaming",
+            loading_attempt: 0,
+            loading_attempt_max: 2,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [3_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3_200_000,
+                min_receive_sample_rate: 3_200_000,
+                center_frequency: 1_600_000,
+                fft: {
+                  default_size: 262144,
+                  default_frame_rate: 12,
+                  max_size: 262144,
+                  max_frame_rate: 60,
+                  size_to_frame_rate: { "262144": 12 },
+                },
+              },
+            },
+          },
+        ],
+        channels,
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
+    const sampleRateRow = sampleRateLabel.closest("div")?.parentElement;
+    expect(sampleRateRow).toBeTruthy();
+
+    expect(
+      within(sampleRateRow as HTMLElement).getByRole("option", {
+        name: "Whole Channel (4.372MHz)",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(sampleRateRow as HTMLElement).queryByRole("option", {
+        name: "Whole Channel (3.2MHz)",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(sampleRateRow as HTMLElement).queryByRole("option", {
+        name: "4.4MHz",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it.skip("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {

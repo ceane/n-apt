@@ -1,8 +1,5 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
-import type {
-  SDRSettings,
-  SdrSettingsConfig,
-} from "@n-apt/hooks/useWebSocket";
+import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
 import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import {
   useAppDispatch,
@@ -87,9 +84,7 @@ export const computeMaxFrameRate = (
   return Math.max(1, Math.min(theoretical, limit));
 };
 
-const getLogicalSizeToFrameRate = (
-  sdrSettings?: any,
-): Map<number, number> => {
+const getLogicalSizeToFrameRate = (sdrSettings?: any): Map<number, number> => {
   const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
   if (!sizeMap) return new Map();
 

@@ -302,6 +302,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         disabled={disabled}
         scanProgress={scanProgress}
         scanCurrentFreq={scanCurrentFreq}
+        forceFullWidth={wholeChannelDisplayMode}
       />
     </Container>
   );

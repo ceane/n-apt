@@ -127,6 +127,14 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type ChannelsMessage = {
+  type: "channels";
+  source_id: string;
+  channels: SpectrumFrame[];
+  active_signal_area?: string | null;
+  error?: string | null;
+};
+
 export type IqRawFrame = {
   type: "spectrum";
   is_mock_apt?: boolean;
@@ -206,7 +214,7 @@ export type SourceSdrSettings = {
   sample_rate?: number;
   min_receive_sample_rate?: number;
   center_frequency?: number;
-  gain?: number;
+  gain?: number | SdrSettingsConfig["gain"];
   hackrf_lna_gain?: number;
   hackrf_vga_gain?: number;
   hackrf_amp_enable?: boolean;
@@ -273,29 +281,12 @@ export interface SourceErrorMessage {
   message: string;
 }
 
-export interface StatusMessage {
-  type: "status";
-  device_connected: boolean;
-  device_info: string;
-  device_name: string;
-  device_loading: boolean;
-  device_loading_reason: DeviceLoadingReason;
-  device_loading_attempt?: number;
-  device_loading_attempt_max?: number;
-  device_state: DeviceState;
-  paused: boolean;
-  max_sample_rate: number;
-  sample_rate_options?: number[];
-  sdr_limit_markers?: Array<{
-    kind: string;
-    freq_hz: number;
-    label?: string;
-  }>;
-  channels: SpectrumFrame[];
-  sdr_settings: SdrSettingsConfig;
-  device: "rtl-sdr" | "mock_apt" | "mock_apt_metal" | "hackrf_one";
-  device_backend_error?: string | null;
-  device_profile: DeviceProfile;
+export interface SignalDisplaySettingsMessage {
+  type: "signal_display_settings";
+  source_id: string;
+  sample_rate: number;
+  fft_size: number;
+  frame_rate: number;
 }
 
 export type WebSocketMessage =
@@ -305,11 +296,12 @@ export type WebSocketMessage =
       max_hz: number;
       center_frequency?: number;
     }
+  | ChannelsMessage
   | { type: "pause"; paused: boolean }
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)
-  | { type: "frame_rate"; frameRate: number }
+  | SignalDisplaySettingsMessage
   | { type: "restart_device" }
   | {
       type: "training_capture";

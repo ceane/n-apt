@@ -1,5 +1,8 @@
 import { findBestFrequencyRange } from "@n-apt/consts";
-import { formatFrequency, formatFrequencyHighRes } from "@n-apt/utils/frequency";
+import {
+  formatFrequency,
+  formatFrequencyHighRes,
+} from "@n-apt/utils/frequency";
 import { fmtFreqTick, tickPrecisionForStep } from "./formatters";
 
 export type VfoAxisOrientation = "top" | "bottom";

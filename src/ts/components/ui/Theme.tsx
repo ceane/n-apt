@@ -194,9 +194,9 @@ const applyThemeToDocument = (theme: AppStyledTheme) => {
   body.style.fontFamily = theme.typography.mono;
   body.style.transition = "background-color 0.2s ease, color 0.2s ease";
 
-  const rootEl = document.querySelector(THEME_ROOT_SELECTOR) as
-    | HTMLElement
-    | null;
+  const rootEl = document.querySelector(
+    THEME_ROOT_SELECTOR,
+  ) as HTMLElement | null;
   if (rootEl) {
     rootEl.style.background = theme.colors.background;
     rootEl.style.color = theme.colors.textPrimary;

@@ -212,6 +212,8 @@ pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub source_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -530,26 +532,6 @@ pub struct DeviceProfile {
   pub is_rtl_sdr: bool,
   pub supports_approx_dbm: bool,
   pub supports_raw_iq_stream: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusMessage {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  pub device_connected: bool,
-  pub device_info: String,
-  pub device_name: String,
-  pub device_loading: bool,
-  pub device_loading_reason: Option<String>,
-  pub device_state: String,
-  pub paused: bool,
-  pub max_sample_rate: u32,
-  pub sample_rate_options: Vec<u32>,
-  pub channels: Vec<SpectrumFrameMessage>,
-  pub sdr_settings: SdrConfig,
-  pub device: String,
-  pub device_backend_error: Option<String>,
-  pub device_profile: DeviceProfile,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -897,6 +879,18 @@ pub struct SpectrumFrameMessage {
   pub min_hz: f64,
   pub max_hz: f64,
   pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelsMessage {
+  #[serde(rename = "type")]
+  pub message_type: String,
+  pub source_id: String,
+  pub channels: Vec<SpectrumFrameMessage>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub active_signal_area: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

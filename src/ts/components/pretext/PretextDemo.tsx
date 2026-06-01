@@ -103,7 +103,10 @@ export const PretextDemo: React.FC = () => {
         height={120}
         title="Signal Stats"
         stats={[
-          { label: "Frequency", value: formatFrequency(frequency, { precisionMHz: 2 }) },
+          {
+            label: "Frequency",
+            value: formatFrequency(frequency, { precisionMHz: 2 }),
+          },
           { label: "Signal", value: "-45.2 dBm", color: "#00ff00" },
           { label: "SNR", value: "23.4 dB", color: "#ffff00" },
           { label: "Sample Rate", value: "2.4 MS/s" },

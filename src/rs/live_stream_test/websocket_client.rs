@@ -9,7 +9,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream};
 
 use super::algorithms::AlgorithmTester;
 use super::data_parser::parse_binary_message;
-use super::types::{AuthChallenge, AuthRequest, WsStatusMessage};
+use super::types::{AuthChallenge, AuthRequest};
 use crate::crypto::derive_key;
 
 /// WebSocket client for n-apt live stream
@@ -183,13 +183,26 @@ impl WebSocketClient {
     loop {
       match read.next().await {
         Some(Ok(Message::Text(text))) => {
-          // Handle status messages
-          if let Ok(status_msg) = serde_json::from_str::<WsStatusMessage>(&text)
-          {
-            debug!(
-              "📊 Status update: device={}, state={}",
-              status_msg.device_name, status_msg.device_state
-            );
+          if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+            match json.get("type").and_then(|v| v.as_str()) {
+              Some("source_info") => {
+                debug!("📊 Source snapshot received");
+              }
+              Some("status") => {
+                debug!(
+                  "📊 Source status update: source_id={}, status={}",
+                  json.get("source_id").and_then(|v| v.as_str()).unwrap_or(""),
+                  json.get("status").and_then(|v| v.as_str()).unwrap_or("")
+                );
+              }
+              Some("signal_display_settings") => {
+                debug!("📊 Signal display settings update received");
+              }
+              Some("error") => {
+                debug!("⚠️ Source error received");
+              }
+              _ => debug!("📝 Text message: {}", text),
+            }
           } else {
             debug!("📝 Text message: {}", text);
           }

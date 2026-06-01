@@ -12,9 +12,7 @@ import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
 import { createRef } from "react";
 
-const processIqToDbmSpectrumMock = jest.fn(
-  () => new Float32Array([1, 2, 3]),
-);
+const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 
 // Mock useAuthentication to avoid auth errors during state init
@@ -393,10 +391,9 @@ describe("FFTCanvas Component", () => {
       );
     });
 
-    const lastCall =
-      processIqToDbmSpectrumMock.mock.calls[
-        processIqToDbmSpectrumMock.mock.calls.length - 1
-      ] as any[] | undefined;
+    const lastCall = processIqToDbmSpectrumMock.mock.calls[
+      processIqToDbmSpectrumMock.mock.calls.length - 1
+    ] as any[] | undefined;
     expect(lastCall?.[3]).toBe("Nuttall");
   });
 });

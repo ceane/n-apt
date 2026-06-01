@@ -7,7 +7,7 @@ import React, {
   memo,
 } from "react";
 import styled from "styled-components";
-import { Trash2, Unplug } from "lucide-react";
+import { SatelliteDish, Trash2, Unplug } from "lucide-react";
 import {
   useAppSelector,
   useAppDispatch,
@@ -15,6 +15,11 @@ import {
   selectNoteCardsCollapsed,
   setNoteCardsCollapsed,
   removeNoteCard,
+  setTxSignal,
+  setTxSampleRateHz,
+  setTxCenterFrequencyHz,
+  setTxPowerDbm,
+  setTxVgaGain,
 } from "@n-apt/redux";
 import {
   getSupportedSnapshotVideoFormat,
@@ -375,6 +380,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
   const lastSampleRateRef = useRef<number | null>(null);
+  const mockManualSampleRateRef = useRef(false);
 
   // Get state from Redux
   const {
@@ -402,15 +408,24 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     vizZoom,
     vizPanOffset,
     displayMode,
+    stitchSourceSettings,
   } = liveState;
+  const websocketChannels = useAppSelector((s) => s.websocket.channels);
+  const channelFramesToUse = useMemo(
+    () =>
+      Array.isArray(websocketChannels) && websocketChannels.length > 0
+        ? websocketChannels
+        : effectiveFrames,
+    [effectiveFrames, websocketChannels],
+  );
   const activeFrameForArea = useMemo(() => {
     const area = activeSignalArea?.toLowerCase?.() ?? "";
     return (
-      effectiveFrames.find((frame) => frame.label.toLowerCase() === area) ??
-      effectiveFrames.find((frame) => frame.label === activeSignalArea) ??
+      channelFramesToUse.find((frame) => frame.label.toLowerCase() === area) ??
+      channelFramesToUse.find((frame) => frame.label === activeSignalArea) ??
       null
     );
-  }, [activeSignalArea, effectiveFrames]);
+  }, [activeSignalArea, channelFramesToUse]);
   const activeSignalAreaBounds = useMemo(() => {
     const mappedBounds =
       signalAreaBounds?.[activeSignalArea] ??
@@ -452,8 +467,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
 
-  const liveBackend = wsConnection.backend ?? activeSourceDerived.backend;
-  const liveDeviceState = wsConnection.deviceState ?? activeSourceDerived.deviceState;
+  const liveBackend = activeSourceDerived.backend ?? wsConnection.backend;
+  const liveDeviceState =
+    activeSourceDerived.deviceState ?? wsConnection.deviceState;
   const liveDeviceLoadingReason =
     wsConnection.deviceLoadingReason ??
     (activeSource?.status === "loading" ? "connect" : null);
@@ -462,13 +478,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const liveCaptureStatus = wsConnection.captureStatus ?? captureStatus;
   const liveFramesToUse =
-    effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames;
+    channelFramesToUse.length > 0 ? channelFramesToUse : spectrumFrames;
   const liveSdrSettingsToUse =
-    effectiveSdrSettings ?? activeSourceDerived.sdrSettings;
+    activeSourceDerived.sdrSettings ?? effectiveSdrSettings;
   const liveDeviceNameToUse =
-    liveDeviceName ?? wsConnection.deviceName ?? activeSourceDerived.deviceName;
+    activeSourceDerived.deviceName ?? liveDeviceName ?? wsConnection.deviceName;
   const liveDeviceProfileToUse =
-    liveDeviceProfile ?? wsConnection.deviceProfile ?? activeSourceDerived.deviceProfile;
+    activeSourceDerived.deviceProfile ??
+    liveDeviceProfile ??
+    wsConnection.deviceProfile;
   const deviceTypeToUse =
     liveDeviceProfileToUse?.kind ?? liveBackend ?? undefined;
   const deviceTypeNormalized =
@@ -480,31 +498,31 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const isHackrfOne =
     liveDeviceProfileToUse?.kind === "hackrf_one" ||
     liveBackend?.toLowerCase() === "hackrf_one";
-  const liveSampleRateOptions =
-    wsConnection.sampleRateOptions.length > 0
-      ? wsConnection.sampleRateOptions
-      : activeSourceDerived.sampleRateOptions;
+  const liveSampleRateOptions = activeSourceDerived.sampleRateOptions;
   const maxSampleRateHz =
-    wsConnection.maxSampleRateHz ?? activeSourceDerived.maxSampleRateHz;
+    activeSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
   const isMockLiveSource =
     sourceMode === "live" &&
     !!(
+      activeSource?.kind?.toLowerCase().includes("mock") ||
+      activeSource?.capability === "mock" ||
       liveBackend?.toLowerCase().includes("mock") ||
       liveDeviceNameToUse?.toLowerCase().includes("mock")
     );
   const liveManualSampleRateOptions = isMockLiveSource
-    ? liveSampleRateOptions.length > 0
-      ? liveSampleRateOptions
-      : [3_200_000]
+    ? [3_200_000]
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
     sourceMode === "live" && (isHackrfOne || isMockLiveSource);
-  const maxSampleRate =
-    sampleRateHzEffective ??
-    sampleRateHz ??
-    maxSampleRateHz ??
-    liveSdrSettingsToUse?.sample_rate ??
-    0;
+  const liveWholeChannelSampleRate =
+    activeChannelSampleRate ?? (isMockLiveSource ? 3_200_000 : null);
+  const maxSampleRate = isMockLiveSource
+    ? Math.max(3_200_000, liveWholeChannelSampleRate ?? 0)
+    : (sampleRateHzEffective ??
+      sampleRateHz ??
+      maxSampleRateHz ??
+      liveSdrSettingsToUse?.sample_rate ??
+      0);
   const sampleRateHzLocal =
     (typeof liveState.sampleRateHz === "number" &&
     Number.isFinite(liveState.sampleRateHz) &&
@@ -523,6 +541,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               liveSdrSettingsToUse.sample_rate > 0
             ? liveSdrSettingsToUse.sample_rate
             : maxSampleRate) || null;
+
   const isServerConnected = useMemo(
     () =>
       liveIsConnected ||
@@ -634,6 +653,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sendLiveSettings(settings);
     },
   });
+  const signalDisplaySampleRateOptions = isMockLiveSource
+    ? [3_200_000]
+    : sampleRateOptions;
 
   const {
     wholeChannelSampleRate: hackrfWholeChannelSampleRate,
@@ -641,8 +663,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useLiveSampleRateControl({
     sourceMode,
     supportsWholeChannelSampleRate,
-    manualSampleRateOptions: sampleRateOptions,
-    activeChannelSampleRate,
+    manualSampleRateOptions: liveManualSampleRateOptions,
+    activeChannelSampleRate: liveWholeChannelSampleRate,
     activeSignalAreaBounds,
     frequencyRange,
     sampleRateHz: liveState.sampleRateHz,
@@ -652,6 +674,52 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       wsConnection.sendFrequencyRange(range);
     },
   });
+  const handleSignalDisplaySampleRateChange = useCallback(
+    (nextSampleRate: number) => {
+      if (isMockLiveSource) {
+        const roundedNext = Math.round(nextSampleRate);
+        const roundedWholeChannel =
+          typeof hackrfWholeChannelSampleRate === "number" &&
+          Number.isFinite(hackrfWholeChannelSampleRate)
+            ? Math.round(hackrfWholeChannelSampleRate)
+            : null;
+        mockManualSampleRateRef.current =
+          roundedWholeChannel === null || roundedNext !== roundedWholeChannel;
+      }
+
+      handleSampleRateChange(nextSampleRate);
+    },
+    [handleSampleRateChange, hackrfWholeChannelSampleRate, isMockLiveSource],
+  );
+
+  useEffect(() => {
+    if (
+      sourceMode !== "live" ||
+      !isMockLiveSource ||
+      mockManualSampleRateRef.current ||
+      typeof hackrfWholeChannelSampleRate !== "number" ||
+      !Number.isFinite(hackrfWholeChannelSampleRate) ||
+      hackrfWholeChannelSampleRate <= 0
+    ) {
+      return;
+    }
+
+    const roundedSampleRate =
+      typeof sampleRateHzLocal === "number" &&
+      Number.isFinite(sampleRateHzLocal)
+        ? Math.round(sampleRateHzLocal)
+        : null;
+    const roundedWholeChannelRate = Math.round(hackrfWholeChannelSampleRate);
+    if (roundedSampleRate === roundedWholeChannelRate) return;
+
+    handleSampleRateChange(hackrfWholeChannelSampleRate);
+  }, [
+    handleSampleRateChange,
+    hackrfWholeChannelSampleRate,
+    isMockLiveSource,
+    sampleRateHzLocal,
+    sourceMode,
+  ]);
 
   const hackrfBasebandCurrentSampleRate =
     isHackrfOne && sourceMode === "live" ? (sampleRateHzLocal ?? null) : null;
@@ -775,18 +843,22 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   >("png");
   const [snapshotAspectRatio, setSnapshotAspectRatio] =
     useState<SnapshotAspectRatio>("default");
-  const [txSignal, setTxSignal] = useState("apt");
-  const [txSampleRateHz, setTxSampleRateHz] = useState(2_400_000);
-  const [txCenterFrequencyHz, setTxCenterFrequencyHz] = useState(137_100_000);
-  const [txPowerDbm, setTxPowerDbm] = useState(-18);
-  const [txVgaGain, setTxVgaGain] = useState(16);
-  const [txOverlayPosition, setTxOverlayPosition] = useState(62);
+  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
+  const txSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txSampleRateHz,
+  );
+  const txCenterFrequencyHz = useAppSelector(
+    (state) => state.spectrum.txCenterFrequencyHz,
+  );
+  const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
+  const txVgaGain = useAppSelector((state) => state.spectrum.txVgaGain);
   const [selectedMockDeviceId, setSelectedMockDeviceId] = useState("device-1");
   const [mockDevices, setMockDevices] = useState([
     {
       id: "device-1",
       name: "Mock APT SDR",
       backend: liveBackend || "mock_apt",
+      capability: "mock",
       deviceType: liveDeviceProfileToUse?.kind ?? "rtl_sdr",
       txMode: false,
       ppm,
@@ -803,6 +875,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       // Temporary placeholder until real multi-device backend discovery is wired up.
       name: "HackRF One #2",
       backend: "hackrf_one",
+      capability: "tx_rx",
       deviceType: "hackrf_one",
       txMode: true,
       ppm: 0,
@@ -958,7 +1031,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       type: "SET_STITCH_PAUSED",
       paused: !isStitchPaused,
     });
-  }, [dispatch, isStitchPaused, selectedFiles.length, sourceMode, storeDispatch, stitchStatus]);
+  }, [
+    dispatch,
+    isStitchPaused,
+    selectedFiles.length,
+    sourceMode,
+    storeDispatch,
+    stitchStatus,
+  ]);
 
   const handleSourceFilesSelected = useCallback(
     (files: File[]) => {
@@ -1510,6 +1590,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             id: device.id,
             name: device.name,
             backend: device.backend,
+            capability: device.capability,
             txMode: device.txMode,
             summary: `PPM ${device.ppm} · Gain ${device.gain} dB`,
             status:
@@ -1518,8 +1599,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                     color:
                       liveDeviceState === "loading"
                         ? "var(--color-warning)"
-                        : liveDeviceState === "connected" &&
-                            liveCryptoCorrupted
+                        : liveDeviceState === "connected" && liveCryptoCorrupted
                           ? "var(--color-danger)"
                           : liveDeviceState === "connected"
                             ? "var(--color-primary)"
@@ -1541,7 +1621,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                         ? liveDeviceLoadingReason === "restart"
                           ? "Restarting…"
                           : "Loading…"
-                        : liveDeviceState === "connected"
+                        : device.name === "Mock APT SDR" ||
+                            liveDeviceState === "connected"
                           ? liveIsPaused
                             ? "Resume"
                             : "Pause"
@@ -1559,7 +1640,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                     onAction:
                       liveDeviceState === "loading"
                         ? undefined
-                        : liveDeviceState === "connected"
+                        : device.name === "Mock APT SDR" ||
+                            liveDeviceState === "connected"
                           ? toggleVisualizerPause
                           : handleRestartDevice,
                   }
@@ -1589,6 +1671,37 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         />
       </Section>
 
+      <Section>
+        <ResetButton
+          onClick={handleResetOptions}
+          title="Reset sidebar and visualizer options to defaults"
+        >
+          Reset Options to Defaults
+        </ResetButton>
+      </Section>
+
+      <Collapsible
+        title="Tx Settings"
+        icon={<SatelliteDish size={14} />}
+        defaultOpen={false}
+      >
+        <TxSettingsSection
+          signal={txSignal}
+          sampleRateHz={txSampleRateHz}
+          maxSampleRateHz={maxSampleRate}
+          centerFrequencyHz={txCenterFrequencyHz}
+          powerDbm={txPowerDbm}
+          vgaGainDb={txVgaGain}
+          onSignalChange={(value) => dispatch(setTxSignal(value))}
+          onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
+          onCenterFrequencyChange={(value) =>
+            dispatch(setTxCenterFrequencyHz(value))
+          }
+          onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
+          onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+        />
+      </Collapsible>
+
       {sourceMode === "file" && (
         <>
           {selectedFiles.length > 0 && (
@@ -1602,7 +1715,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                     if (fileToRemove) {
                       fileRegistry.remove(fileToRemove.id);
                     }
-                    const nextFiles = selectedFiles.filter((_, i) => i !== index);
+                    const nextFiles = selectedFiles.filter(
+                      (_, i) => i !== index,
+                    );
                     dispatch(setSelectedFiles(nextFiles));
                     storeDispatch({
                       type: "SET_SELECTED_FILES",
@@ -1610,7 +1725,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                     });
                   }}
                   onClear={() => {
-                    selectedFiles.forEach((file) => fileRegistry.remove(file.id));
+                    selectedFiles.forEach((file) =>
+                      fileRegistry.remove(file.id),
+                    );
                     dispatch(setSelectedFiles([]));
                     storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
                     dispatch(clearWaterfall());
@@ -1628,6 +1745,38 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               />
             </>
           )}
+        </>
+      )}
+
+      {sourceMode === "live" && (
+        <>
+          <IQCaptureControlsSection
+            activeCaptureAreas={activeCaptureAreas}
+            availableCaptureAreas={availableCaptureAreas}
+            captureDurationMode={captureDurationMode}
+            captureDurationS={captureDurationS}
+            captureFileType={captureFileTypeState}
+            acquisitionMode={acquisitionMode}
+            captureEncrypted={captureEncrypted}
+            capturePlayback={capturePlayback}
+            captureGeolocation={captureGeolocation}
+            captureRange={captureRange}
+            maxSampleRate={maxSampleRate}
+            captureStatus={liveCaptureStatus}
+            isConnected={isServerConnected}
+            deviceState={liveDeviceState}
+            onActiveCaptureAreasChange={setActiveCaptureAreas}
+            onCaptureDurationModeChange={setCaptureDurationMode}
+            onCaptureDurationSChange={setCaptureDurationS}
+            onCaptureFileTypeChange={setCaptureFileTypeState}
+            onAcquisitionModeChange={setAcquisitionMode}
+            onCaptureEncryptedChange={setCaptureEncrypted}
+            onCapturePlaybackChange={setCapturePlayback}
+            onCaptureGeolocationChange={setCaptureGeolocation}
+            onCapture={handleCapture}
+            onStopCapture={handleStopCapture}
+            onClearStatus={() => dispatch(setCaptureStatus(null))}
+          />
 
           <SnapshotControlsSection
             snapshotWhole={snapshotWhole}
@@ -1653,60 +1802,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
             titlePulseToken={snapshotPulseToken}
-            isFileMode={true}
-            hasFileLoaded={!!selectedPrimaryFile}
           />
-          <SignalDisplaySection
-            sourceMode={sourceMode}
-            maxSampleRate={maxSampleRate}
-            minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
-            sampleRate={
-              sampleRateHzLocal ??
-              liveSdrSettingsToUse?.sample_rate ??
-              maxSampleRate
-            }
-            sampleRateOptions={sampleRateOptions}
-            wholeChannelSampleRate={hackrfWholeChannelSampleRate}
-            fileCapturedRange={fileCapturedRange}
-            fftFrameRate={4}
-            maxFrameRate={4}
-            fftSize={1024}
-            fftSizeOptions={[1024]}
-            fftWindow={fftWindow || "Rectangular"}
-            temporalResolution={displayTemporalResolution}
-            backend={null}
-            deviceProfile={null}
-            powerScale={powerScale}
-            displayMode={displayMode || "fft"}
-            onFftFrameRateChange={() => {}}
-            onFftSizeChange={() => {}}
-            onSampleRateChange={() => {}}
-            onFftWindowChange={(win) => {
-              dispatch(setFftWindowAction(win));
-              storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
-            }}
-            onTemporalResolutionChange={(res) => {
-              dispatch(setTemporalResolution(res));
-              storeDispatch({
-                type: "SET_TEMPORAL_RESOLUTION",
-                resolution: res,
-              });
-            }}
-            onPowerScaleChange={(ps) => {
-              dispatch(setPowerScale(ps));
-              storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
-            }}
-            onDisplayModeChange={(mode) => {
-              dispatch(setDisplayMode(mode));
-              storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
-            }}
-            scheduleCoupledAdjustment={() => {}}
-          />
-        </>
-      )}
 
-      {sourceMode === "live" && (
-        <>
           <Collapsible
             key={`notes-collapsible-${notesCollapsed ? "closed" : "open"}`}
             title="Notes"
@@ -1782,69 +1879,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             </Section>
           </Collapsible>
 
-          <Section>
-            <ResetButton
-              onClick={handleResetOptions}
-              title="Reset sidebar and visualizer options to defaults"
-            >
-              Reset Options to Defaults
-            </ResetButton>
-          </Section>
-
-          <IQCaptureControlsSection
-            activeCaptureAreas={activeCaptureAreas}
-            availableCaptureAreas={availableCaptureAreas}
-            captureDurationMode={captureDurationMode}
-            captureDurationS={captureDurationS}
-            captureFileType={captureFileTypeState}
-            acquisitionMode={acquisitionMode}
-            captureEncrypted={captureEncrypted}
-            capturePlayback={capturePlayback}
-            captureGeolocation={captureGeolocation}
-            captureRange={captureRange}
-            maxSampleRate={maxSampleRate}
-            captureStatus={liveCaptureStatus}
-            isConnected={isServerConnected}
-            deviceState={liveDeviceState}
-            onActiveCaptureAreasChange={setActiveCaptureAreas}
-            onCaptureDurationModeChange={setCaptureDurationMode}
-            onCaptureDurationSChange={setCaptureDurationS}
-            onCaptureFileTypeChange={setCaptureFileTypeState}
-            onAcquisitionModeChange={setAcquisitionMode}
-            onCaptureEncryptedChange={setCaptureEncrypted}
-            onCapturePlaybackChange={setCapturePlayback}
-            onCaptureGeolocationChange={setCaptureGeolocation}
-            onCapture={handleCapture}
-            onStopCapture={handleStopCapture}
-            onClearStatus={() => dispatch(setCaptureStatus(null))}
-          />
-
-          <SnapshotControlsSection
-            snapshotWhole={snapshotWhole}
-            snapshotShowWaterfall={snapshotShowWaterfall}
-            snapshotShowStats={snapshotShowStats}
-            snapshotShowGeolocation={snapshotShowGeolocation}
-            snapshotGeolocationError={snapshotGeolocationError}
-            snapshotUseThemeColors={snapshotUseThemeColors}
-            snapshotFormat={snapshotFormat}
-            supportedSnapshotVideoFormat={supportedSnapshotVideoFormat}
-            snapshotGridPreference={snapshotGridPreference}
-            snapshotAspectRatio={snapshotAspectRatio}
-            onSnapshotWholeChange={setSnapshotWhole}
-            onSnapshotShowWaterfallChange={setSnapshotShowWaterfall}
-            onSnapshotShowStatsChange={setSnapshotShowStats}
-            onSnapshotUseThemeColorsChange={setSnapshotUseThemeColors}
-            onSnapshotShowGeolocationChange={handleSnapshotGeolocationToggle}
-            onSnapshotFormatChange={setSnapshotFormat}
-            onSnapshotGridPreferenceChange={(pref) => {
-              dispatch(setSettingsSnapshotGrid(pref));
-              storeDispatch({ type: "SET_SNAPSHOT_GRID", preference: pref });
-            }}
-            onSnapshotAspectRatioChange={setSnapshotAspectRatio}
-            onSnapshot={handleSnapshot}
-            titlePulseToken={snapshotPulseToken}
-          />
-
           <Channels
             variant="spectrum"
             fileMode={false}
@@ -1861,7 +1895,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate
             }
-            sampleRateOptions={sampleRateOptions}
+            sampleRateOptions={signalDisplaySampleRateOptions}
+            sampleRateOptionsOverride={
+              isMockLiveSource ? [3_200_000] : undefined
+            }
             wholeChannelSampleRate={hackrfWholeChannelSampleRate}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
@@ -1876,7 +1913,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
-            onSampleRateChange={handleSampleRateChange}
+            onSampleRateChange={handleSignalDisplaySampleRateChange}
             onFftWindowChange={(win) => {
               dispatch(setFftWindowAction(win));
               storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
@@ -1898,22 +1935,39 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }}
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
-
-          <TxSettingsSection
-            signal={txSignal}
-            sampleRateHz={txSampleRateHz}
-            maxSampleRateHz={maxSampleRate}
-            centerFrequencyHz={txCenterFrequencyHz}
-            powerDbm={txPowerDbm}
-            vgaGainDb={txVgaGain}
-            onSignalChange={setTxSignal}
-            onSampleRateChange={setTxSampleRateHz}
-            onCenterFrequencyChange={setTxCenterFrequencyHz}
-            onPowerDbmChange={setTxPowerDbm}
-            onVgaGainChange={setTxVgaGain}
-          />
         </>
       )}
+
+      <SourceSettingsSection
+        sourceMode={sourceMode}
+        deviceType={liveDeviceProfileToUse?.kind}
+        gain={gain}
+        gainLimits={gainLimits}
+        hackrfLnaGain={liveState.hackrfLnaGain}
+        hackrfVgaGain={liveState.hackrfVgaGain}
+        hackrfAmpEnabled={liveState.hackrfAmpEnabled}
+        hackrfBasebandBandwidth={liveState.hackrfBasebandBandwidth}
+        hackrfCurrentSampleRate={
+          sampleRateHzEffective ?? liveState.sampleRateHz
+        }
+        ppm={ppm}
+        tunerAGC={tunerAGC}
+        rtlAGC={rtlAGC}
+        isConnected={isServerConnected}
+        stitchSourceSettings={stitchSourceSettings}
+        onGainChange={setGain}
+        onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
+        onPpmChange={setPpm}
+        onTunerAGCChange={setTunerAGC}
+        onRtlAGCChange={setRtlAGC}
+        onStitchSourceSettingsChange={(settings) =>
+          dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })
+        }
+        onAgcModeChange={(nextTunerAGC, nextRtlAGC) => {
+          setTunerAGC(nextTunerAGC);
+          setRtlAGC(nextRtlAGC);
+        }}
+      />
 
       <ThemeSection />
     </SidebarContent>

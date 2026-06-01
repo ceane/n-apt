@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
-import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 const Section = styled.div`
   display: grid;
@@ -121,7 +121,7 @@ const UnitLabel = styled.span`
 `;
 
 const WideSettingSelect = styled(SettingSelect)`
-  min-width: 100px;
+  min-width: 120px;
   width: 100%;
   text-align-last: right;
 `;
@@ -157,7 +157,9 @@ interface SignalDisplaySectionProps {
   minReceiveSampleRate?: number;
   sampleRate: number;
   sampleRateOptions: number[];
+  sampleRateOptionsOverride?: number[];
   wholeChannelSampleRate?: number | null;
+  wholeChannelLabel?: string | null;
   fileCapturedRange: { min: number; max: number } | null;
   fftFrameRate: number;
   maxFrameRate: number;
@@ -190,7 +192,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   minReceiveSampleRate: _minReceiveSampleRate,
   sampleRate,
   sampleRateOptions,
+  sampleRateOptionsOverride,
   wholeChannelSampleRate = null,
+  wholeChannelLabel = null,
   fftFrameRate,
   maxFrameRate,
   fftSize,
@@ -236,31 +240,31 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   );
 
   const sampleRateOptionList = React.useMemo(() => {
-    const rates = new Set(sampleRateOptions);
-    if (
-      typeof wholeChannelSampleRate === "number" &&
-      Number.isFinite(wholeChannelSampleRate) &&
-      wholeChannelSampleRate > 0
-    ) {
-      rates.add(Math.round(wholeChannelSampleRate));
-    }
+    const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
     return Array.from(rates).sort((a, b) => a - b);
-  }, [sampleRateOptions, wholeChannelSampleRate]);
-  const wholeChannelLabel = React.useMemo(() => {
+  }, [sampleRateOptions, sampleRateOptionsOverride]);
+  const wholeChannelValue = React.useMemo(() => {
     if (
       typeof wholeChannelSampleRate !== "number" ||
       !Number.isFinite(wholeChannelSampleRate) ||
       wholeChannelSampleRate <= 0
     ) {
-      return "Whole Channel";
+      return null;
     }
-    return `Whole Channel (${formatChannelFreq(wholeChannelSampleRate)})`;
+    return Math.round(wholeChannelSampleRate);
   }, [wholeChannelSampleRate]);
   const showWholeChannelOption =
     !isRtlSdrDevice &&
-    typeof wholeChannelSampleRate === "number" &&
-    Number.isFinite(wholeChannelSampleRate) &&
-    wholeChannelSampleRate > 0;
+    typeof wholeChannelValue === "number" &&
+    Number.isFinite(wholeChannelValue) &&
+    wholeChannelValue > 0;
+  const sampleRateSelectValue =
+    showWholeChannelOption && Math.round(sampleRate) === wholeChannelValue
+      ? "whole-channel"
+      : String(sampleRate);
+  const SampleRateSelect = showWholeChannelOption
+    ? WideSettingSelect
+    : SettingSelect;
 
   return (
     <Section>
@@ -276,29 +280,35 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               tooltipTitle="Sample Rate"
               tooltip="Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
             >
-              <SettingSelect
-                value={sampleRate}
+              <SampleRateSelect
+                value={sampleRateSelectValue}
+                style={
+                  showWholeChannelOption ? { minWidth: "170px" } : undefined
+                }
                 onChange={(e) => {
+                  if (
+                    e.target.value === "whole-channel" &&
+                    wholeChannelValue !== null
+                  ) {
+                    onSampleRateChange(wholeChannelValue);
+                    return;
+                  }
                   onSampleRateChange(Number(e.target.value));
                 }}
               >
                 {showWholeChannelOption && (
-                  <option
-                    key="whole-channel"
-                    value={Math.round(wholeChannelSampleRate)}
-                  >
-                    {wholeChannelLabel}
+                  <option key="whole-channel" value="whole-channel">
+                    {wholeChannelLabel
+                      ? `Whole Channel (${wholeChannelLabel})`
+                      : `Whole Channel${wholeChannelValue !== null ? ` (${formatFrequency(wholeChannelValue, { precisionMHz: 3, trimTrailingZeros: true })})` : ""}`}
                   </option>
                 )}
-                {sampleRateOptionList.map((rate) =>
-                  showWholeChannelOption &&
-                  Math.round(wholeChannelSampleRate) === rate ? null : (
-                    <option key={rate} value={rate}>
-                      {formatFrequency(rate)}
-                    </option>
-                  ),
-                )}
-              </SettingSelect>
+                {sampleRateOptionList.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {formatFrequency(rate)}
+                  </option>
+                ))}
+              </SampleRateSelect>
             </Row>
           )}
           {variant !== "diagnostic" && (

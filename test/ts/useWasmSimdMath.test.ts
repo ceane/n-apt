@@ -71,12 +71,7 @@ describe("useWasmSimdMath", () => {
       64,
       "rectangular",
     );
-    const nuttall = result.current.processIqToDbmSpectrum(
-      iq,
-      0,
-      64,
-      "Nuttall",
-    );
+    const nuttall = result.current.processIqToDbmSpectrum(iq, 0, 64, "Nuttall");
 
     expect(Array.from(rectangular)).not.toEqual(Array.from(nuttall));
   });

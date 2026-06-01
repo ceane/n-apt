@@ -2,8 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/components/ui";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
-import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
-import { Radio, SlidersHorizontal, SatelliteDish, Waves } from "lucide-react";
+import { Radio, SlidersHorizontal, Waves } from "lucide-react";
 
 const Section = styled.div`
   display: grid;
@@ -54,7 +53,13 @@ const UnitSuffix = styled.span`
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
-const IconLabel = ({ icon: Icon, text }: { icon: React.ComponentType<{ size?: number }>; text: string }) => (
+const IconLabel = ({
+  icon: Icon,
+  text,
+}: {
+  icon: React.ComponentType<{ size?: number }>;
+  text: string;
+}) => (
   <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
     <Icon size={14} />
     {text}
@@ -90,7 +95,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
 }) => {
   return (
     <Section>
-      <SidebarSectionTitle icon={<SatelliteDish size={14} />} title="Tx Settings" />
       <Row label={<IconLabel icon={Radio} text="Signal" />}>
         <Select value={signal} onChange={(e) => onSignalChange(e.target.value)}>
           <option value="apt">APT</option>

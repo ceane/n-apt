@@ -9,6 +9,16 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 
+const TX_INTERACTION_SELECTOR = "[data-tx-slider-overlay='true']";
+
+const isTxOverlayEvent = (event: Event): boolean => {
+  const target = event.target;
+  return (
+    target instanceof Element &&
+    target.closest(TX_INTERACTION_SELECTOR) !== null
+  );
+};
+
 export interface FrequencyDragOptions {
   disabled?: boolean;
   selectionMode?: "zoom" | "range";
@@ -450,6 +460,8 @@ export function useFrequencyDrag({
     };
 
     const handlePointerMove = (e: PointerEvent) => {
+      if (isTxOverlayEvent(e)) return;
+
       const container = getContainer();
       if (!container) return;
 
@@ -841,6 +853,8 @@ export function useFrequencyDrag({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
+      if (isTxOverlayEvent(e)) return;
+
       const container = getContainer();
       if (!container) return;
 
@@ -1294,6 +1308,8 @@ export function useFrequencyDrag({
     };
 
     const handlePointerMoveForCursor = (e: PointerEvent) => {
+      if (isTxOverlayEvent(e)) return;
+
       const container = getContainer();
       if (!container || isDraggingRef.current) return;
 
@@ -1324,6 +1340,8 @@ export function useFrequencyDrag({
     };
 
     const handleWheel = (e: WheelEvent) => {
+      if (isTxOverlayEvent(e)) return;
+
       const container = getContainer();
       if (!container) return;
 

@@ -14,11 +14,9 @@ use crate::crypto;
 
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
-use super::websocket_server::build_source_info_snapshot;
-use super::utils::reconcile_device_state;
-use super::utils::{
-  resolve_device_sample_rate_options, status_device_backend_label,
-  status_device_name,
+use super::websocket_server::{
+  active_source_id, broadcast_signal_display_settings,
+  broadcast_source_status, build_channels_snapshot, build_source_info_snapshot,
 };
 use super::websocket_server::reconcile_stale_device_snapshot;
 
@@ -131,6 +129,19 @@ pub async fn handle_ws_connection(
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
     if ws_sender
       .send(Message::Text(status_json.into()))
+      .await
+      .is_err()
+    {
+      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+      shared.client_count.fetch_sub(1, Ordering::Relaxed);
+      return;
+    }
+  }
+
+  let initial_channels = build_channels_snapshot(&shared);
+  if let Ok(channels_json) = serde_json::to_string(&initial_channels) {
+    if ws_sender
+      .send(Message::Text(channels_json.into()))
       .await
       .is_err()
     {
@@ -316,57 +327,7 @@ pub fn handle_message(
     "pause" => {
       if let Some(paused) = message.paused {
         shared.is_paused.store(paused, Ordering::SeqCst);
-
-        let device_connected = shared.device_connected.load(Ordering::SeqCst);
-        let device_info = shared.device_info.lock().unwrap().clone();
-        let device_loading = *shared.device_loading.lock().unwrap();
-        let device_loading_reason =
-          shared.device_loading_reason.lock().unwrap().clone();
-        let device_state = reconcile_device_state(
-          device_connected,
-          &shared.device_state.lock().unwrap().clone(),
-        );
-        let channels = shared.channels.lock().unwrap().clone();
-        let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-        let device_profile = shared.device_profile.lock().unwrap().clone();
-        let device_name =
-          status_device_name(device_connected, &device_info, &device_profile);
-        let device_backend = status_device_backend_label(
-          device_connected,
-          &device_info,
-          &device_profile,
-        );
-        let device_backend_error =
-          shared.device_backend_error.lock().unwrap().clone();
-        let (max_sample_rate, sample_rate_options) =
-          resolve_device_sample_rate_options(
-            device_connected,
-            &device_info,
-            &device_profile,
-            &sdr_settings,
-          );
-
-        let status = super::types::StatusMessage {
-          message_type: "status".to_string(),
-          device_connected,
-          device_info,
-          device_name,
-          device_loading,
-          device_loading_reason,
-          device_state,
-          paused,
-          max_sample_rate,
-          sample_rate_options,
-          channels,
-          sdr_settings,
-          device: device_backend,
-          device_backend_error,
-          device_profile,
-        };
-
-        if let Ok(status_json) = serde_json::to_string(&status) {
-          let _ = broadcast_tx.send(status_json);
-        }
+        broadcast_source_status(&shared, &broadcast_tx, "connected");
       }
     }
     "gain" => {
@@ -459,23 +420,24 @@ pub fn handle_message(
         return;
       }
 
+      let settings_payload = super::types::SdrProcessorSettings {
+        fft_size,
+        fft_window: message.fft_window,
+        frame_rate,
+        sample_rate,
+        gain,
+        hackrf_lna_gain,
+        hackrf_vga_gain,
+        hackrf_amp_enable,
+        ppm,
+        tuner_agc: message.tuner_agc,
+        rtl_agc: message.rtl_agc,
+        offset_tuning: message.offset_tuning,
+        direct_sampling: message.direct_sampling,
+        tuner_bandwidth: message.tuner_bandwidth,
+      };
       let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
-        super::types::SdrProcessorSettings {
-          fft_size,
-          fft_window: message.fft_window,
-          frame_rate,
-          sample_rate,
-          gain,
-          hackrf_lna_gain,
-          hackrf_vga_gain,
-          hackrf_amp_enable,
-          ppm,
-          tuner_agc: message.tuner_agc,
-          rtl_agc: message.rtl_agc,
-          offset_tuning: message.offset_tuning,
-          direct_sampling: message.direct_sampling,
-          tuner_bandwidth: message.tuner_bandwidth,
-        },
+        settings_payload.clone(),
       ));
 
       // Update the shared settings so that future status broadcasts
@@ -521,7 +483,27 @@ pub fn handle_message(
         Some(sdr_settings.fft.default_size),
       );
       drop(sdr_settings);
-      super::websocket_server::broadcast_device_status(shared, broadcast_tx);
+      let source_id = active_source_id(shared);
+      if let (Some(fft_size), Some(frame_rate), Some(sample_rate)) =
+        (settings_payload.fft_size, settings_payload.frame_rate, settings_payload.sample_rate)
+      {
+        broadcast_signal_display_settings(
+          shared,
+          broadcast_tx,
+          sample_rate,
+          fft_size,
+          frame_rate,
+        );
+      } else {
+        let payload = serde_json::json!({
+          "type": "signal_display_settings",
+          "source_id": source_id,
+          "sample_rate": shared.sdr_settings.lock().unwrap().sample_rate,
+          "fft_size": shared.sdr_settings.lock().unwrap().fft.default_size,
+          "frame_rate": shared.sdr_settings.lock().unwrap().fft.default_frame_rate,
+        });
+        let _ = broadcast_tx.send(payload.to_string());
+      }
     }
     "restart_device" => {
       info!("Client requested device restart");

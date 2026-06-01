@@ -142,7 +142,22 @@ export const SourceSdrSettingsSchema = z.object({
   fft_window: z.string().optional(),
   frame_rate: z.number().optional(),
   sample_rate: z.number().optional(),
-  gain: z.number().optional(),
+  min_receive_sample_rate: z.number().optional(),
+  center_frequency: z.number().optional(),
+  gain: z
+    .union([
+      z.number(),
+      z.object({
+        tuner_gain: z.number(),
+        rtl_agc: z.boolean(),
+        tuner_agc: z.boolean(),
+        hackrf_lna_gain: z.number().optional(),
+        hackrf_vga_gain: z.number().optional(),
+        hackrf_amp_enable: z.boolean().optional(),
+        tuner_bandwidth: z.number().optional(),
+      }),
+    ])
+    .optional(),
   hackrf_lna_gain: z.number().optional(),
   hackrf_vga_gain: z.number().optional(),
   hackrf_amp_enable: z.boolean().optional(),
@@ -216,6 +231,14 @@ export const SpectrumFrameSchema = z.object({
   description: z.string(),
 });
 
+export const ChannelsMessageSchema = z.object({
+  type: z.literal("channels"),
+  source_id: z.string(),
+  channels: z.array(SpectrumFrameSchema),
+  active_signal_area: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+
 export const CaptureRequestSchema = z.object({
   jobId: z.string(),
   fragments: z.array(
@@ -253,28 +276,6 @@ export const CaptureStatusSchema = z.object({
   timestamp: z.number().optional(),
   fileSize: z.number().optional(),
   duration: z.number().optional(),
-});
-
-export const StatusMessageSchema = z.object({
-  type: z.literal("status"),
-  device_connected: z.boolean(),
-  device_info: z.string(),
-  device_name: z.string(),
-  device_loading: z.boolean(),
-  device_loading_reason: z.enum(["connect", "restart", "null"]).nullable(),
-  device_loading_attempt: z.number().int().nonnegative().optional(),
-  device_loading_attempt_max: z.number().int().nonnegative().optional(),
-  device_state: z
-    .enum(["connected", "loading", "disconnected", "stale", "null"])
-    .nullable(),
-  paused: z.boolean(),
-  max_sample_rate: z.number(),
-  sample_rate_options: z.array(z.number()).optional(),
-  channels: z.array(SpectrumFrameSchema),
-  sdr_settings: SdrSettingsConfigSchema,
-  device: z.enum(["rtl-sdr", "mock_apt", "mock_apt_metal", "hackrf_one"]),
-  device_backend_error: z.string().nullable().optional(),
-  device_profile: DeviceProfileSchema,
 });
 
 // Enhanced schemas with integrity/latency for SDR processor types
@@ -320,8 +321,11 @@ export const WebSocketMessageSchema = z.union([
     ppm: z.number().int().nonnegative(),
   }),
   z.object({
-    type: z.literal("frame_rate"),
-    frameRate: z.number(),
+    type: z.literal("signal_display_settings"),
+    source_id: z.string(),
+    sample_rate: z.number(),
+    fft_size: z.number(),
+    frame_rate: z.number(),
   }),
   z.object({
     type: z.literal("settings"),
@@ -357,10 +361,10 @@ export const WebSocketMessageSchema = z.union([
   }),
   // Server-to-client messages
   SourceInfoMessageSchema,
+  ChannelsMessageSchema,
   SourceStatusMessageSchema,
   SourceSdrSettingsMessageSchema,
   SourceErrorMessageSchema,
-  StatusMessageSchema,
 ]);
 
 // Type guards derived from schemas
@@ -388,12 +392,6 @@ export const isValidWebSocketMessage = (
   return WebSocketMessageSchema.safeParse(data).success;
 };
 
-export const isValidStatusMessage = (
-  data: unknown,
-): data is z.infer<typeof StatusMessageSchema> => {
-  return StatusMessageSchema.safeParse(data).success;
-};
-
 export const isValidSpectrumFrame = (
   data: unknown,
 ): data is z.infer<typeof SpectrumFrameSchema> => {
@@ -416,6 +414,12 @@ export const isValidSourceInfoMessage = (
   data: unknown,
 ): data is z.infer<typeof SourceInfoMessageSchema> => {
   return SourceInfoMessageSchema.safeParse(data).success;
+};
+
+export const isValidChannelsMessage = (
+  data: unknown,
+): data is z.infer<typeof ChannelsMessageSchema> => {
+  return ChannelsMessageSchema.safeParse(data).success;
 };
 
 export const isValidSourceStatusMessage = (

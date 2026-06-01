@@ -47,7 +47,11 @@ export const SimplePretextDemo: React.FC = () => {
     ctx.fillStyle = "#ffff00";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(`Frequency: ${formatFrequency(frequency, { precisionMHz: 2 })}`, 50, 50);
+    ctx.fillText(
+      `Frequency: ${formatFrequency(frequency, { precisionMHz: 2 })}`,
+      50,
+      50,
+    );
 
     // Draw stats box
     ctx.fillStyle = "rgba(0, 0, 0, 0.8)";

@@ -298,6 +298,7 @@ export const Channels: React.FC<ChannelsProps> = ({
 }) => {
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+  const websocketChannels = useAppSelector((s) => s.websocket.channels);
   const activeSignalArea = useAppSelector((s) => s.spectrum.activeSignalArea);
   const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
@@ -308,33 +309,54 @@ export const Channels: React.FC<ChannelsProps> = ({
     wsConnection,
   } = useSpectrumStore();
 
-  const liveFramesToUse = useMemo(
-    () => (effectiveFrames.length > 0 ? effectiveFrames : spectrumFrames),
-    [effectiveFrames, spectrumFrames],
-  );
+  const liveFramesToUse = useMemo(() => {
+    if (Array.isArray(websocketChannels) && websocketChannels.length > 0) {
+      return websocketChannels;
+    }
+    if (effectiveFrames.length > 0) {
+      return effectiveFrames;
+    }
+    return spectrumFrames;
+  }, [effectiveFrames, spectrumFrames, websocketChannels]);
 
   const [manualFrequency, setManualFrequency] = useState<string>("137_100_000"); // Default to APT frequency in Hz
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
 
   const channels = useMemo(() => {
-    if (!Array.isArray(effectiveFrames)) return [];
-    return effectiveFrames.filter((f) => ["A", "B", "C"].includes(f.label));
-  }, [effectiveFrames]);
+    const frames =
+      Array.isArray(websocketChannels) && websocketChannels.length > 0
+        ? websocketChannels
+        : effectiveFrames;
+    if (!Array.isArray(frames)) return [];
+    return frames.filter((f) => ["A", "B", "C"].includes(f.label));
+  }, [effectiveFrames, websocketChannels]);
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
-  const activeFrame = Array.isArray(effectiveFrames)
-    ? effectiveFrames.find(
-        (f: any) =>
-          String(f.label).toLowerCase() ===
-          String(activeSignalArea).toLowerCase(),
-      ) ||
-      channels.find(
-        (f: any) =>
-          String(f.label).toLowerCase() ===
-          String(activeSignalArea).toLowerCase(),
-      )
-    : undefined;
+  const activeFrame =
+    Array.isArray(websocketChannels) && websocketChannels.length > 0
+      ? websocketChannels.find(
+          (f: any) =>
+            String(f.label).toLowerCase() ===
+            String(activeSignalArea).toLowerCase(),
+        ) ||
+        channels.find(
+          (f: any) =>
+            String(f.label).toLowerCase() ===
+            String(activeSignalArea).toLowerCase(),
+        )
+      : Array.isArray(effectiveFrames)
+        ? effectiveFrames.find(
+            (f: any) =>
+              String(f.label).toLowerCase() ===
+              String(activeSignalArea).toLowerCase(),
+          ) ||
+          channels.find(
+            (f: any) =>
+              String(f.label).toLowerCase() ===
+              String(activeSignalArea).toLowerCase(),
+          )
+        : undefined;
   const isWholeChannelMode =
     typeof sampleRateHz === "number" &&
     Number.isFinite(sampleRateHz) &&

@@ -476,7 +476,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   };
 
   return (
-    <Section style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
+    <Section
+      style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}
+    >
       <SectionTitle>
         <SlidersVertical size={14} />
         <SectionText>Source Settings</SectionText>

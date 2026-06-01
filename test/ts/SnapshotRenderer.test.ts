@@ -365,8 +365,12 @@ describe("SnapshotRenderer", () => {
       lineTo: jest.fn(),
       stroke: jest.fn(() => {
         strokes.push([
-          ...((mockContext.moveTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
-          ...((mockContext.lineTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
+          ...(mockContext.moveTo as jest.Mock).mock.calls.map(
+            (call) => call as [number, number],
+          ),
+          ...(mockContext.lineTo as jest.Mock).mock.calls.map(
+            (call) => call as [number, number],
+          ),
         ]);
       }),
       fill: jest.fn(),

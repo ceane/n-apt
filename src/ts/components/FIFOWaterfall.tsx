@@ -399,7 +399,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
       const renderWaveform = waveform ?? lastWaveformRef.current;
       if (hasWebGPU && gpuDevice && gpuFormat && renderWaveform) {
-        const gpuSpectrum = Float32Array.from(renderWaveform as ArrayLike<number>);
+        const gpuSpectrum = Float32Array.from(
+          renderWaveform as ArrayLike<number>,
+        );
         void drawWebGPUFIFOWaterfall({
           canvas,
           device: gpuDevice,
@@ -464,7 +466,10 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       drawWebGPUFIFOWaterfall,
     ]);
 
-    useEffect(() => () => cleanupWebGPUFIFOWaterfall(), [cleanupWebGPUFIFOWaterfall]);
+    useEffect(
+      () => () => cleanupWebGPUFIFOWaterfall(),
+      [cleanupWebGPUFIFOWaterfall],
+    );
 
     return (
       <WaterfallViewport ref={viewportRef}>

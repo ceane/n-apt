@@ -21,7 +21,7 @@ const DevicePills = styled.div`
   gap: 8px;
 `;
 
-const DevicePill = styled.button<{ $active?: boolean }>`
+const DevicePill = styled.div<{ $active?: boolean }>`
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -50,9 +50,10 @@ const FilePill = styled.div<{ $active?: boolean }>`
   padding: 16px 16px 16px 18px;
   border-radius: 22px;
   border: 1px solid
-    ${({ $active }) => ($active ? "#17d5ff" : "#2f2f2f")};
-  background: ${({ $active }) => ($active ? "#10181c" : "#1d1d1d")};
-  color: ${({ $active }) => ($active ? "#17d5ff" : "#cfcfcf")};
+    ${({ theme, $active }) => ($active ? theme.primary : theme.borderHover)};
+  background: ${({ theme, $active }) =>
+    $active ? theme.primaryAnchor : theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
   font-family: ${({ theme }) => theme.typography.mono};
   font-size: 11px;
   cursor: pointer;
@@ -81,7 +82,7 @@ const FilePillName = styled.div`
 
 const FilePillMeta = styled.div`
   font-size: 10px;
-  color: inherit;
+  color: ${(props) => props.theme.textSecondary};
   text-transform: uppercase;
   letter-spacing: 0.04em;
   opacity: 0.65;
@@ -146,7 +147,10 @@ const DeviceStatusDot = styled.span<{ $active?: boolean; $loading?: boolean }>`
   flex-shrink: 0;
 `;
 
-const DeviceActionButton = styled.button<{ $active?: boolean; $opacity?: number }>`
+const DeviceActionButton = styled.button<{
+  $active?: boolean;
+  $opacity?: number;
+}>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -217,6 +221,7 @@ interface SourceInputProps {
     id: string;
     name: string;
     backend?: string | null;
+    capability?: "rx" | "tx" | "tx_rx" | "mock" | string;
     txMode?: boolean;
     summary?: string;
     status?: {
@@ -265,6 +270,12 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const [highlightedDeviceIds, setHighlightedDeviceIds] = useState<Set<string>>(
     () => new Set(),
   );
+
+  const formatCapability = (capability?: string | null): string => {
+    if (!capability) return "unknown";
+    if (capability === "tx_rx") return "TX/RX";
+    return capability.toUpperCase();
+  };
 
   useEffect(() => {
     const previousDeviceState = previousDeviceStateRef.current;
@@ -328,89 +339,90 @@ export const SourceInput: React.FC<SourceInputProps> = ({
       <DevicePicker>
         <DevicePills>
           {devices?.map((device) => {
-              const isSelectedDevice = device.id === selectedDeviceId;
-              const isActiveDevice =
-                isSelectedDevice && sourceMode === "live";
-              const actionLabel =
-                device.status?.actionLabel ??
-                (device.txMode ? "Pause" : "Resume");
-              const showDeviceSpaceHint =
-                isActiveDevice &&
-                actionLabel !== "Restarting…" &&
-                actionLabel !== "Loading…" &&
-                actionLabel !== "Paused" &&
-                actionLabel !== "Starting…" &&
-                actionLabel !== "Restart";
-              const fileModeOpacity =
-                sourceMode === "file"
-                  ? livePreviewStage <= 0
-                    ? 0.25
-                    : livePreviewStage === 1
-                      ? 0.5
-                      : 1
-                  : 1;
-              const textOpacity = highlightedDeviceIds.has(device.id)
-                ? 1
-                : fileModeOpacity;
+            const isSelectedDevice = device.id === selectedDeviceId;
+            const isActiveDevice = isSelectedDevice && sourceMode === "live";
+            const actionLabel =
+              device.status?.actionLabel ??
+              (device.txMode ? "Pause" : "Resume");
+            const showDeviceSpaceHint =
+              isActiveDevice &&
+              (actionLabel === "Resume" || actionLabel === "Pause");
+            const fileModeOpacity =
+              sourceMode === "file"
+                ? livePreviewStage <= 0
+                  ? 0.25
+                  : livePreviewStage === 1
+                    ? 0.5
+                    : 1
+                : 1;
+            const textOpacity = highlightedDeviceIds.has(device.id)
+              ? 1
+              : fileModeOpacity;
 
-              return (
-                <DevicePill
-                  key={device.id}
-                  type="button"
-                  $active={isSelectedDevice}
-                  onClick={() => onSelectedDeviceChange?.(device.id)}
-                  title={`Switch to ${device.name}`}
-                >
-                  <DeviceStatusDot
+            return (
+              <DevicePill
+                key={device.id}
+                role="button"
+                tabIndex={0}
+                $active={isSelectedDevice}
+                onClick={() => onSelectedDeviceChange?.(device.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectedDeviceChange?.(device.id);
+                  }
+                }}
+                title={`Switch to ${device.name}`}
+              >
+                <DeviceStatusDot
+                  $active={isActiveDevice}
+                  $loading={device.status?.loading}
+                  style={
+                    device.status?.color
+                      ? { backgroundColor: device.status.color }
+                      : undefined
+                  }
+                  aria-hidden="true"
+                />
+                <DevicePillMain $opacity={textOpacity}>
+                  <DevicePillName>{device.name}</DevicePillName>
+                  <DevicePillMeta>
+                    {formatCapability(device.capability)}
+                    {device.status?.label ? ` · ${device.status.label}` : ""}
+                  </DevicePillMeta>
+                </DevicePillMain>
+                {device.status?.onAction ? (
+                  <DeviceActionButton
+                    type="button"
                     $active={isActiveDevice}
-                    $loading={device.status?.loading}
-                    style={
-                      device.status?.color
-                        ? { backgroundColor: device.status.color }
-                        : undefined
-                    }
-                    aria-hidden="true"
-                  />
-                  <DevicePillMain $opacity={textOpacity}>
-                    <DevicePillName>{device.name}</DevicePillName>
-                    <DevicePillMeta>
-                      {device.backend ?? "unknown backend"}{" "}
-                      {device.txMode ? "· Tx" : "· Rx"}
-                      {device.status?.label ? ` · ${device.status.label}` : ""}
-                    </DevicePillMeta>
-                  </DevicePillMain>
-                  {device.status?.onAction ? (
-                    <DeviceActionButton
-                      type="button"
-                      $active={isActiveDevice}
-                      $opacity={fileModeOpacity}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        device.status?.onAction?.();
-                      }}
-                      title={device.status.actionTitle}
-                    >
-                      {actionLabel}
-                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
-                    </DeviceActionButton>
-                  ) : onToggleDeviceTxMode ? (
-                    <DeviceActionButton
-                      type="button"
-                      $active={isActiveDevice}
-                      $opacity={fileModeOpacity}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleDeviceTxMode(device.id);
-                      }}
-                      title={device.txMode ? "Disable Tx" : "Enable Tx"}
-                    >
-                      {actionLabel}
-                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
-                    </DeviceActionButton>
-                  ) : null}
-                </DevicePill>
-              );
-            })}
+                    $opacity={fileModeOpacity}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      device.status?.onAction?.();
+                    }}
+                    title={device.status.actionTitle}
+                  >
+                    {actionLabel}
+                    {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
+                  </DeviceActionButton>
+                ) : onToggleDeviceTxMode ? (
+                  <DeviceActionButton
+                    type="button"
+                    $active={isActiveDevice}
+                    $opacity={fileModeOpacity}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleDeviceTxMode(device.id);
+                    }}
+                    title={device.txMode ? "Disable Tx" : "Enable Tx"}
+                  >
+                    {actionLabel}
+                    {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
+                  </DeviceActionButton>
+                ) : null}
+              </DevicePill>
+            );
+          })}
           <FilePill
             $active={fileSelectionActive}
             role="button"
@@ -434,7 +446,6 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 ? "Browse / Process / Play / Pause"
                 : "Switch to File Selection")
             }
-            style={fileModeColor ? { color: fileModeColor } : undefined}
           >
             <FilePillMain>
               <FilePillName>File Selection</FilePillName>

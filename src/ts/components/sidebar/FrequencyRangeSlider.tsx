@@ -34,6 +34,7 @@ interface FrequencyRangeSliderProps {
   scanProgress?: number; // Scan progress for visual feedback
   scanCurrentFreq?: number; // Current scanning frequency
   disabled?: boolean; // Disable slider interaction while keeping it visible
+  forceFullWidth?: boolean;
 }
 
 // Styled Components
@@ -180,6 +181,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   scanProgress = 0,
   scanCurrentFreq,
   disabled = false,
+  forceFullWidth = false,
 }) => {
   const totalRange = maxFreq - minFreq;
   const safeTotalRange =
@@ -296,7 +298,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }, [isActive]);
 
-  const isWholeChannelWindow = windowWidth >= 1;
+  const isWholeChannelWindow = forceFullWidth || windowWidth >= 1;
   const renderedWindowWidth = isWholeChannelWindow ? 1 : windowWidth;
   const widthPercent = Math.max(0, Math.min(100, renderedWindowWidth * 100));
   const logicalThumbWidth = Math.max(0, renderedWindowWidth * trackWidth);

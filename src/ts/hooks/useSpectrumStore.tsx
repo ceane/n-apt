@@ -805,7 +805,11 @@ export type SpectrumStoreContextValue = {
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
   effectiveFrames: SpectrumFrame[];
-  effectiveSdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null | undefined;
+  effectiveSdrSettings:
+    | Partial<SdrSettingsConfig>
+    | SourceSdrSettings
+    | null
+    | undefined;
   sampleRateHzEffective: number | null;
   signalAreaBounds: Record<string, { min: number; max: number }> | null;
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
@@ -897,6 +901,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
     const activeSource = useAppSelector(selectActiveSource);
     const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+    const websocketChannels = useAppSelector((s) => s.websocket.channels);
     const deviceState = activeSourceDerived.deviceState;
     const backend = activeSourceDerived.backend;
     const deviceName = activeSourceDerived.deviceName;
@@ -904,6 +909,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const maxSampleRateHz = activeSourceDerived.maxSampleRateHz;
     const sampleRateHz = activeSourceDerived.sampleRateHz;
     const sdrSettings = activeSourceDerived.sdrSettings;
+    const activeSourceId = activeSource?.id ?? "";
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
@@ -1112,8 +1118,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       () => ({
         isConnected,
         deviceState: activeSourceDerived.deviceState,
-        deviceLoadingReason:
-          (activeSource?.status === "loading" ? "connect" : null) as DeviceLoadingReason,
+        deviceLoadingReason: (activeSource?.status === "loading"
+          ? "connect"
+          : null) as DeviceLoadingReason,
         isPaused,
         serverPaused,
         backend: activeSourceDerived.backend,
@@ -1371,14 +1378,24 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxDispatch({
         type: "websocket/sendMessage",
         payload: {
-          type: "frame_rate",
+          type: "signal_display_settings",
           data: {
-            frameRate: Math.round(state.detectedFrameRate),
+            source_id: activeSourceId,
+            sample_rate: state.sampleRateHz,
+            fft_size: state.fftSize,
+            frame_rate: Math.round(state.detectedFrameRate),
           },
         },
       });
       lastSentFrameRateRef.current = state.detectedFrameRate;
-    }, [isConnected, reduxDispatch, state.detectedFrameRate]);
+    }, [
+      isConnected,
+      reduxDispatch,
+      state.detectedFrameRate,
+      state.sampleRateHz,
+      state.fftSize,
+      activeSourceId,
+    ]);
 
     // Revert power scale to dB if not supported by the current device
     useEffect(() => {
@@ -1535,12 +1552,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       if (mergedState.frequencyRange) return;
       if (!isConnected) return;
-      if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0)
-        return;
+      const sourceChannels =
+        Array.isArray(websocketChannels) && websocketChannels.length > 0
+          ? websocketChannels
+          : [];
+      if (!Array.isArray(sourceChannels) || sourceChannels.length === 0) return;
 
       const primaryFrame =
-        effectiveFrames.find((frame) => frame.label.toLowerCase() === "a") ??
-        effectiveFrames[0];
+        sourceChannels.find((frame) => frame.label?.toLowerCase?.() === "a") ??
+        sourceChannels[0];
       if (!primaryFrame) return;
 
       const min = primaryFrame.min_hz;
@@ -1562,7 +1582,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [
       mergedState.frequencyRange,
       sampleRateHz,
-      effectiveFrames,
+      websocketChannels,
       isConnected,
       deviceState,
       wsConnection.sendFrequencyRange,

@@ -1,6 +1,19 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { FrequencyRange, Alignment } from "@n-apt/consts/types";
 
+export const getMaxTxPowerDbm = (frequencyHz: number): number => {
+  if (frequencyHz < 2_150_000_000) {
+    return 15;
+  }
+  if (frequencyHz < 2_750_000_000) {
+    return 15;
+  }
+  if (frequencyHz < 4_000_000_000) {
+    return 5;
+  }
+  return 0;
+};
+
 export type DisplayTemporalResolution = "low" | "medium" | "high";
 export type PowerScale = "dB" | "dBm";
 export type SourceMode = "live" | "file";
@@ -33,6 +46,11 @@ export interface SpectrumState {
   wfSmoothEnabled: boolean;
 
   // SDR settings
+  txSignal: string;
+  txSampleRateHz: number;
+  txCenterFrequencyHz: number;
+  txPowerDbm: number;
+  txVgaGain: number;
   gain: number;
   hackrfLnaGain: number;
   hackrfVgaGain: number;
@@ -77,6 +95,11 @@ const LIVE_CONTROL_DEFAULTS = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   gain: 49.6,
+  txSignal: "apt",
+  txSampleRateHz: 2_400_000,
+  txCenterFrequencyHz: 137_100_000,
+  txPowerDbm: -18,
+  txVgaGain: 16,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
@@ -111,6 +134,11 @@ const initialState: SpectrumState = {
   wfSmoothEnabled: false,
 
   gain: 30,
+  txSignal: "apt",
+  txSampleRateHz: 2_400_000,
+  txCenterFrequencyHz: 137_100_000,
+  txPowerDbm: -18,
+  txVgaGain: 16,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
@@ -261,6 +289,31 @@ const spectrumSlice = createSlice({
     },
 
     // SDR settings
+    setTxSignal: (state, action: PayloadAction<string>) => {
+      state.txSignal = action.payload;
+    },
+
+    setTxSampleRateHz: (state, action: PayloadAction<number>) => {
+      state.txSampleRateHz = action.payload;
+    },
+
+    setTxCenterFrequencyHz: (state, action: PayloadAction<number>) => {
+      state.txCenterFrequencyHz = action.payload;
+      const maxPower = getMaxTxPowerDbm(action.payload);
+      if (state.txPowerDbm > maxPower) {
+        state.txPowerDbm = maxPower;
+      }
+    },
+
+    setTxPowerDbm: (state, action: PayloadAction<number>) => {
+      const maxPower = getMaxTxPowerDbm(state.txCenterFrequencyHz);
+      state.txPowerDbm = Math.min(action.payload, maxPower);
+    },
+
+    setTxVgaGain: (state, action: PayloadAction<number>) => {
+      state.txVgaGain = action.payload;
+    },
+
     setGain: (state, action: PayloadAction<number>) => {
       state.gain = action.payload;
     },
@@ -303,6 +356,10 @@ const spectrumSlice = createSlice({
       action: PayloadAction<Partial<SpectrumState>>,
     ) => {
       Object.assign(state, action.payload);
+      const maxPower = getMaxTxPowerDbm(state.txCenterFrequencyHz);
+      if (state.txPowerDbm > maxPower) {
+        state.txPowerDbm = maxPower;
+      }
     },
 
     // Visualization state
@@ -423,6 +480,11 @@ export const {
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
+  setTxSignal,
+  setTxSampleRateHz,
+  setTxCenterFrequencyHz,
+  setTxPowerDbm,
+  setTxVgaGain,
   setGain,
   setHackrfLnaGain,
   setHackrfVgaGain,

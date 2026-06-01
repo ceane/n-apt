@@ -307,7 +307,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         <ConnectionStatusSection
           isConnected={wsConnection.isConnected}
           deviceState={activeSourceDerived.deviceState}
-          deviceLoadingReason={activeSource?.status === "loading" ? "connect" : null}
+          deviceLoadingReason={
+            activeSource?.status === "loading" ? "connect" : null
+          }
           backend={activeSourceDerived.backend}
           isPaused={liveIsPaused}
           cryptoCorrupted={cryptoCorrupted}

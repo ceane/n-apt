@@ -57,8 +57,7 @@ use super::shared_state::SharedState;
 use super::types::{DeviceProfile, PowerScale, SpectrumData};
 use super::utils::{
   device_config_key, reconcile_device_state,
-  resolve_device_sample_rate_options, status_device_backend_label,
-  status_device_name,
+  resolve_device_sample_rate_options, status_device_name,
 };
 use crate::sdr::hotplug::{
   is_recovery_budget_exhausted, scan_usb_for_supported_device,
@@ -75,16 +74,17 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     device_connected,
     &shared.device_state.lock().unwrap(),
   );
-  let device_loading = *shared.device_loading.lock().unwrap();
-  let device_loading_reason =
-    shared.device_loading_reason.lock().unwrap().clone();
   let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-  let channels = shared.channels.lock().unwrap().clone();
   let device_profile = shared.device_profile.lock().unwrap().clone();
-  let device_backend_error =
-    shared.device_backend_error.lock().unwrap().clone();
+  let active_source_id = if device_profile.kind.starts_with("mock_apt") {
+    "mock-apt"
+  } else if device_profile.kind == "hackrf_one" {
+    "hackrf-one-2"
+  } else {
+    "rtl-sdr-1"
+  };
   let (max_sample_rate, sample_rate_options) =
     resolve_device_sample_rate_options(
       device_connected,
@@ -98,23 +98,25 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     .and_then(|device_cfg| device_cfg.fft_display.as_ref())
     .map(|display| display.resolve_markers())
     .unwrap_or_default();
+  let capability = if device_profile.kind.starts_with("mock_apt") {
+    "mock"
+  } else if device_profile.kind == "hackrf_one" {
+    "tx_rx"
+  } else {
+    "rx"
+  };
 
   let device_name = if device_profile.kind.starts_with("mock_apt") {
     "Mock APT SDR".to_string()
   } else {
     status_device_name(device_connected, &device_info, &device_profile)
   };
-  let backend = status_device_backend_label(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
 
   let active_source = serde_json::json!({
-    "id": "mock-apt",
+    "id": active_source_id,
     "name": device_name,
     "kind": device_profile.kind,
-    "capability": "mock",
+    "capability": capability,
     "status": if device_profile.kind.starts_with("mock_apt") { "streaming" } else { device_state.as_str() },
     "loading_attempt": device_loading_attempt,
     "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
@@ -161,28 +163,91 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
 
   serde_json::json!({
     "type": "source_info",
-    "active_source": "mock-apt",
+    "active_source": active_source_id,
     "active_source_mode": if paused { "file" } else { "live" },
     "sources": [active_source, hackrf_source],
-    "device_connected": device_connected,
-    "device_info": device_info,
-    "device_name": device_name,
-    "device_loading": device_loading,
-    "device_loading_reason": device_loading_reason,
-    "device_loading_attempt": device_loading_attempt,
-    "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-    "device_state": device_state,
-    "paused": paused,
-    "max_sample_rate": max_sample_rate,
-    "sample_rate_options": sample_rate_options,
-    "sdr_settings": sdr_settings,
-    "sdr_limit_markers": device_limits,
-    "channels": channels,
-    "backend": backend,
-    "device": backend,
-    "device_backend_error": device_backend_error,
-    "device_profile": device_profile,
   })
+}
+
+pub(crate) fn active_source_id(shared: &SharedState) -> String {
+  let device_profile = shared.device_profile.lock().unwrap().clone();
+  if device_profile.kind.starts_with("mock_apt") {
+    "mock-apt".to_string()
+  } else if device_profile.kind == "hackrf_one" {
+    "hackrf-one-2".to_string()
+  } else {
+    "rtl-sdr-1".to_string()
+  }
+}
+
+pub(crate) fn broadcast_source_status(
+  shared: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+  status: &str,
+) {
+  let payload = serde_json::json!({
+    "type": "status",
+    "source_id": active_source_id(shared),
+    "status": status,
+    "loading_attempt": shared.recovery_attempts.load(Ordering::Relaxed),
+    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+  });
+  let payload = payload.to_string();
+  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  if last_payload.as_ref() == Some(&payload) {
+    return;
+  }
+  *last_payload = Some(payload.clone());
+  let _ = broadcast_tx.send(payload);
+}
+
+pub(crate) fn broadcast_channels(
+  shared: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+) {
+  let payload = build_channels_snapshot(shared);
+  let payload = payload.to_string();
+  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  if last_payload.as_ref() == Some(&payload) {
+    return;
+  }
+  *last_payload = Some(payload.clone());
+  let _ = broadcast_tx.send(payload);
+}
+
+pub(crate) fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
+  let channels = shared.channels.lock().unwrap().clone();
+  let active_signal_area = channels.first().map(|channel| channel.label.clone());
+  serde_json::json!({
+    "type": "channels",
+    "source_id": active_source_id(shared),
+    "channels": channels,
+    "active_signal_area": active_signal_area,
+    "error": serde_json::Value::Null,
+  })
+}
+
+pub(crate) fn broadcast_signal_display_settings(
+  shared: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+  sample_rate: u32,
+  fft_size: usize,
+  frame_rate: u32,
+) {
+  let payload = serde_json::json!({
+    "type": "signal_display_settings",
+    "source_id": active_source_id(shared),
+    "sample_rate": sample_rate,
+    "fft_size": fft_size,
+    "frame_rate": frame_rate,
+  });
+  let payload = payload.to_string();
+  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  if last_payload.as_ref() == Some(&payload) {
+    return;
+  }
+  *last_payload = Some(payload.clone());
+  let _ = broadcast_tx.send(payload);
 }
 
 pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
@@ -929,7 +994,7 @@ impl WebSocketServer {
               let mut guard = shared_state.channels.lock().unwrap();
               *guard = new_channels;
             }
-            broadcast_device_status(&shared_state, &_broadcast_tx);
+            broadcast_channels(&shared_state, &_broadcast_tx);
           }
         }
       }
@@ -1454,19 +1519,21 @@ mod tests {
     let shared = SharedState::new("redis://127.0.0.1:6379");
     shared.recovery_attempts.store(1, Ordering::Relaxed);
     shared.set_device_state("loading", Some("restart"));
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
 
-    let device_loading_attempt =
-      shared.recovery_attempts.load(Ordering::Relaxed);
-    let payload = serde_json::json!({
-      "device_loading_reason": "restart",
-      "device_loading_attempt": device_loading_attempt,
-      "device_loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-    });
+    broadcast_source_status(&shared, &broadcast_tx, "loading");
 
-    assert_eq!(payload["device_loading_reason"], "restart");
-    assert_eq!(payload["device_loading_attempt"], 1);
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("status broadcast"),
+    )
+    .expect("status payload should be valid JSON");
+
+    assert_eq!(payload["type"], "status");
+    assert_eq!(payload["source_id"], "mock-apt");
+    assert_eq!(payload["status"], "loading");
+    assert_eq!(payload["loading_attempt"], 1);
     assert_eq!(
-      payload["device_loading_attempt_max"],
+      payload["loading_attempt_max"],
       crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
     );
   }
@@ -1500,19 +1567,12 @@ mod tests {
     .expect("status payload should be valid JSON");
 
     assert_eq!(payload["type"], "source_info");
-    assert_eq!(payload["sources"][0]["capability"], "mock");
+    assert_eq!(payload["sources"][0]["capability"], "rx");
     assert_eq!(payload["sources"][0]["status"], "connected");
-    assert_eq!(payload["active_source"], "mock-apt");
+    assert_eq!(payload["active_source"], "rtl-sdr-1");
     assert_eq!(payload["active_source_mode"], "live");
-    assert_eq!(payload["device_name"], "RTL-SDR v4");
-    assert_eq!(
-      payload["device_loading_attempt_max"],
-      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS
-    );
-    assert_eq!(
-      payload["sample_rate_options"],
-      serde_json::json!([3_200_000])
-    );
+    assert!(payload.get("device_name").is_none());
+    assert!(payload.get("sample_rate_options").is_none());
     let markers = payload["sources"][0]["sdr"]["fft_display"]["markers"]
       .as_array()
       .expect("source markers should be an array");
@@ -1524,8 +1584,6 @@ mod tests {
       markers.iter().any(|marker| marker["kind"] == "lower_limit"),
       "expected lower limit marker in websocket payload"
     );
-    assert_eq!(payload["sources"][0]["kind"], "rtl_sdr");
-    assert_eq!(payload["device_profile"]["kind"], "rtl_sdr");
   }
 
   #[test]
@@ -1581,11 +1639,11 @@ mod tests {
     )
     .expect("status payload should be valid JSON");
 
-    assert_eq!(payload["backend"], "hackrf_one");
-    assert_eq!(payload["device"], "hackrf_one");
-    assert_eq!(payload["device_name"], "HackRF One");
-    assert_eq!(payload["device_profile"]["kind"], "hackrf_one");
-    assert_eq!(payload["device_profile"]["supports_approx_dbm"], true);
+    assert_eq!(payload["type"], "source_info");
+    assert_eq!(payload["sources"][0]["name"], "HackRF One");
+    assert_eq!(payload["sources"][0]["kind"], "hackrf_one");
+    assert_eq!(payload["sources"][0]["capability"], "tx_rx");
+    assert_eq!(payload["sources"][0]["status"], "connected");
   }
 
   #[test]

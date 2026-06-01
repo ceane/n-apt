@@ -12,6 +12,10 @@ import {
   clearQueuedMessages,
   incrementDataFrameCounter,
 } from "../slices/websocketSlice";
+import {
+  setSignalAreaAndRange,
+  setFrequencyRange,
+} from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import {
@@ -26,7 +30,7 @@ import {
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   processWebSocketMessageWithValidation,
-  validateStatusMessage,
+  isValidChannelsMessageEnhanced,
   isValidSourceInfoMessage,
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
@@ -101,9 +105,11 @@ const equalValue = (current: unknown, next: unknown): boolean => {
 
 const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const sourceStatus = source.status ?? "disconnected";
+  const sourceGain = source.sdr.settings.gain;
+  const tunerGain =
+    typeof sourceGain === "number" ? sourceGain : sourceGain?.tuner_gain;
   return {
-    deviceState:
-      sourceStatus === "streaming" ? "connected" : sourceStatus,
+    deviceState: sourceStatus === "streaming" ? "connected" : sourceStatus,
     deviceLoadingReason: sourceStatus === "loading" ? "connect" : null,
     backend: source.kind,
     deviceInfo: source.name,
@@ -122,7 +128,7 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
       fftWindow: source.sdr.settings.fft_window,
       frameRate: source.sdr.settings.frame_rate,
       sampleRate: source.sdr.settings.sample_rate,
-      gain: source.sdr.settings.gain,
+      gain: tunerGain,
       hackrfLnaGain: source.sdr.settings.hackrf_lna_gain,
       hackrfVgaGain: source.sdr.settings.hackrf_vga_gain,
       hackrfAmpEnabled: source.sdr.settings.hackrf_amp_enable,
@@ -552,12 +558,19 @@ const processMessage = (
 
     try {
       const activeSource =
-        parsedData.sources.find((source: SourceInfo) => source.id === parsedData.active_source) ??
+        parsedData.sources.find(
+          (source: SourceInfo) => source.id === parsedData.active_source,
+        ) ??
         parsedData.sources[0] ??
         null;
-      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+      const derived = activeSource
+        ? deriveLegacyStateFromSource(activeSource)
+        : {};
       const sourceStatuses = Object.fromEntries(
-        parsedData.sources.map((source: SourceInfo) => [source.id, source.status]),
+        parsedData.sources.map((source: SourceInfo) => [
+          source.id,
+          source.status,
+        ]),
       );
       const updates: any = {
         activeSourceId: parsedData.active_source,
@@ -582,6 +595,47 @@ const processMessage = (
     return;
   }
 
+  if (parsedData?.type === "channels") {
+    if (!isValidChannelsMessageEnhanced(parsedData)) {
+      console.error("Channels message validation failed:", parsedData);
+      dispatch(setError("Error: Bad JSON"));
+      return;
+    }
+
+    try {
+      const channels = parsedData.channels as SpectrumFrame[];
+      const firstChannel = channels[0];
+      if (!firstChannel) {
+        dispatch(setError("Error: Bad JSON"));
+        return;
+      }
+
+      const nextRange = {
+        min: firstChannel.min_hz,
+        max: firstChannel.max_hz,
+      };
+      dispatch(
+        setSignalAreaAndRange({
+          area: parsedData.active_signal_area ?? firstChannel.label ?? "A",
+          range: nextRange,
+        }),
+      );
+      dispatch(setFrequencyRange(nextRange));
+      dispatch(
+        updateDeviceState({
+          channels,
+        }),
+      );
+      if (parsedData.error) {
+        dispatch(setError(`Error: ${parsedData.error}`));
+      }
+    } catch (e) {
+      console.error("Failed to parse channels message:", e);
+      dispatch(setError("Error: Bad JSON"));
+    }
+    return;
+  }
+
   if (parsedData?.type === "status" && "source_id" in parsedData) {
     if (!isValidSourceStatusMessage(parsedData)) {
       console.error("Source status message validation failed:", parsedData);
@@ -590,35 +644,33 @@ const processMessage = (
 
     try {
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
-      const sourceIndex = currentSources.findIndex(
-        (source) => source.id === parsedData.source_id,
+      const nextSources = currentSources.map((source) =>
+        source.id === parsedData.source_id
+          ? {
+              ...source,
+              status: parsedData.status,
+              loading_attempt:
+                parsedData.loading_attempt ?? source.loading_attempt,
+              loading_attempt_max:
+                parsedData.loading_attempt_max ?? source.loading_attempt_max,
+            }
+          : source,
       );
-      const nextSources =
-        sourceIndex >= 0
-          ? currentSources.map((source, index) =>
-              index === sourceIndex
-                ? {
-                    ...source,
-                    status: parsedData.status,
-                    loading_attempt:
-                      parsedData.loading_attempt ?? source.loading_attempt,
-                    loading_attempt_max:
-                      parsedData.loading_attempt_max ??
-                      source.loading_attempt_max,
-                  }
-                : source,
-            )
-          : currentSources;
       const activeSource =
         nextSources.find(
           (source) => source.id === getState().websocket.activeSourceId,
-        ) ?? nextSources[0] ?? null;
-      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+        ) ??
+        nextSources[0] ??
+        null;
+      const derived = activeSource
+        ? deriveLegacyStateFromSource(activeSource)
+        : {};
+      const sourceStatuses = {
+        ...(getState().websocket.sourceStatuses ?? {}),
+      };
+      sourceStatuses[parsedData.source_id] = parsedData.status;
       const updates: any = {
-        sourceStatuses: {
-          ...(getState().websocket.sourceStatuses ?? {}),
-          [parsedData.source_id]: parsedData.status,
-        },
+        sourceStatuses,
         sources: nextSources,
         ...derived,
       };
@@ -645,7 +697,10 @@ const processMessage = (
 
   if (parsedData?.type === "sdr_settings" && "source_id" in parsedData) {
     if (!isValidSourceSdrSettingsMessage(parsedData)) {
-      console.error("Source sdr settings message validation failed:", parsedData);
+      console.error(
+        "Source sdr settings message validation failed:",
+        parsedData,
+      );
       return;
     }
 
@@ -668,8 +723,12 @@ const processMessage = (
       const activeSource =
         nextSources.find(
           (source) => source.id === getState().websocket.activeSourceId,
-        ) ?? nextSources[0] ?? null;
-      const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+        ) ??
+        nextSources[0] ??
+        null;
+      const derived = activeSource
+        ? deriveLegacyStateFromSource(activeSource)
+        : {};
       const updates: any = {
         sources: nextSources,
         ...derived,
@@ -700,162 +759,7 @@ const processMessage = (
     return;
   }
 
-  if (parsedData?.type === "status") {
-    // Additional validation for status messages
-    if (!validateStatusMessage(parsedData)) {
-      console.error("Status message validation failed:", parsedData);
-      return;
-    }
-
-    try {
-      const updates: any = {
-        serverPaused: parsedData.paused || false,
-      };
-
-      if (typeof parsedData.backend === "string") {
-        updates.backend = parsedData.backend;
-      }
-      if (typeof parsedData.device_info === "string") {
-        updates.deviceInfo = parsedData.device_info;
-      }
-      // More aggressive device name updates - update even if empty to clear stale data
-      if (typeof parsedData.device_name === "string") {
-        updates.deviceName = parsedData.device_name;
-      }
-      if (parsedData.device_profile) {
-        updates.deviceProfile = parsedData.device_profile;
-      }
-      if (typeof parsedData.max_sample_rate === "number") {
-        updates.maxSampleRateHz = parsedData.max_sample_rate;
-      }
-      if (Array.isArray(parsedData.sample_rate_options)) {
-        updates.sampleRateOptions = parsedData.sample_rate_options.filter(
-          (rate: any) => typeof rate === "number" && Number.isFinite(rate),
-        );
-      }
-      if (parsedData.sdr_settings) {
-        let sdrSettings = parsedData.sdr_settings;
-
-        // Anti-clobbering guard: If we recently requested a specific FFT size,
-        // don't let a stale backend status overwrite it (especially if it tries to force 2048).
-        if (
-          lastSettingsRequest &&
-          Date.now() - lastSettingsRequest.timestamp < 5000
-        ) {
-          const intendedFftSize = lastSettingsRequest.fft_size;
-          const reportedFftSize = sdrSettings.fft?.default_size;
-
-          if (
-            intendedFftSize &&
-            reportedFftSize &&
-            intendedFftSize !== reportedFftSize
-          ) {
-            console.warn(
-              `[WebsocketMiddleware] Backend reported stale FFT size (${reportedFftSize}), preserving intended client state (${intendedFftSize})`,
-            );
-            sdrSettings = {
-              ...sdrSettings,
-              fft: {
-                ...sdrSettings.fft,
-                default_size: intendedFftSize,
-              },
-            };
-          }
-        }
-
-        updates.sdrSettings = sdrSettings;
-        if (Array.isArray(parsedData.sdr_limit_markers)) {
-          updates.sdrLimitMarkers = parsedData.sdr_limit_markers.filter(
-            (marker: any) =>
-              marker &&
-              typeof marker.kind === "string" &&
-              typeof marker.freq_hz === "number",
-          );
-        }
-        if (typeof sdrSettings.sample_rate === "number") {
-          updates.sampleRateHz = sdrSettings.sample_rate;
-        }
-        if (typeof sdrSettings.min_receive_sample_rate === "number") {
-          updates.minReceiveSampleRateHz = sdrSettings.min_receive_sample_rate;
-        }
-      }
-      if (typeof parsedData.device_state === "string") {
-        updates.deviceState = parsedData.device_state;
-        // When device connects, force immediate update of device info
-        if (parsedData.device_state === "connected" && !updates.deviceName) {
-          // Set a default name immediately if backend hasn't provided one yet
-          updates.deviceName = updates.deviceInfo || "RTL-SDR Device";
-        }
-      }
-      if (Array.isArray(parsedData.channels)) {
-        updates.spectrumFrames = (parsedData.channels as any[]).reduce<
-          SpectrumFrame[]
-        >((acc, f: any) => {
-          if (!(f && typeof f.id === "string")) return acc;
-          const label = typeof f.label === "string" ? f.label : "";
-          const min_hz = Number(f.min_hz);
-          const max_hz = Number(f.max_hz);
-          if (
-            label.length > 0 &&
-            Number.isFinite(min_hz) &&
-            Number.isFinite(max_hz) &&
-            max_hz > min_hz
-          ) {
-            acc.push({
-              id: f.id,
-              label,
-              min_hz,
-              max_hz,
-              description:
-                typeof f.description === "string" ? f.description : "",
-            });
-          }
-          return acc;
-        }, []);
-      }
-
-      const reason = parsedData.device_loading_reason;
-      if (reason === "connect" || reason === "restart" || reason === null) {
-        updates.deviceLoadingReason = reason;
-        if (reason === "restart") {
-          const attempt = Number(parsedData.device_loading_attempt || 0);
-          const attemptMax = Number(parsedData.device_loading_attempt_max || 0);
-          const nowLabel = new Date().toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          });
-          console.warn(
-            `[device] ${parsedData.device_name || parsedData.device_info || "Device"} restarting (${attempt}/${attemptMax}) at ${nowLabel}`,
-          );
-        }
-      }
-
-      if (
-        updates.deviceState === "disconnected" &&
-        !parsedData.device_connected &&
-        isMockDeviceStatus(parsedData)
-      ) {
-        updates.deviceState = "connected";
-        updates.deviceLoadingReason = null;
-        if (!updates.deviceName) {
-          updates.deviceName = "Mock APT SDR";
-        }
-      }
-
-      if (pendingStatusUpdates === null) {
-        pendingStatusUpdates = updates;
-      } else {
-        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
-      }
-
-      if (statusBatchFrame === null) {
-        statusBatchFrame = window.requestAnimationFrame(() =>
-          processBatchedStatus(dispatch, getState),
-        );
-      }
-    } catch (e) {
-      console.error("Failed to parse status message:", e);
-    }
+  if (false && parsedData?.type === "status") {
     return;
   }
 

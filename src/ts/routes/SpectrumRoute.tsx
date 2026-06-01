@@ -37,6 +37,8 @@ import {
   createNoteCardFromSpectrum,
   selectNoteCardsCollapsed,
   setNoteCardsCollapsed,
+  setTxCenterFrequencyHz,
+  setTxSampleRateHz,
 } from "@n-apt/redux";
 import {
   clampFrequencyRangeToBounds,
@@ -280,11 +282,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
-  const [txSignal] = useState("apt");
-  const txSampleRateHz = 2_400_000;
-  const txCenterFrequencyHz = 137_100_000;
-  const txPowerDbm = -18;
-  const [txOverlayPosition, setTxOverlayPosition] = useState(62);
+  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
+  const txSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txSampleRateHz,
+  );
+  const txCenterFrequencyHz = useAppSelector(
+    (state) => state.spectrum.txCenterFrequencyHz,
+  );
+  const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -324,13 +329,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       });
     }
 
-    return gainObject
-      ? gainObject.tuner_gain ?? 0
-      : 0;
-  }, [
-    deviceProfile?.kind,
-    effectiveSdrSettings?.gain,
-  ]);
+    return gainObject ? (gainObject.tuner_gain ?? 0) : 0;
+  }, [deviceProfile?.kind, effectiveSdrSettings?.gain]);
 
   const handleVisualizerLoadingStateChange = useCallback(
     (isLoading: boolean) => {
@@ -821,12 +821,18 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 ref={fftCanvasRef}
                 overlayContent={
                   <TxSliderOverlay
-                    signalLabel={txSignal.toUpperCase()}
-                    txPosition={txOverlayPosition}
-                    onTxPositionChange={setTxOverlayPosition}
+                    signalLabel={String(txSignal).toUpperCase()}
                     powerDbm={txPowerDbm}
-                    sampleRateHz={txSampleRateHz}
-                    centerFrequencyHz={txCenterFrequencyHz}
+                    visibleMinHz={state.frequencyRange.min}
+                    visibleMaxHz={state.frequencyRange.max}
+                    txCenterHz={txCenterFrequencyHz}
+                    txSampleRateHz={txSampleRateHz}
+                    onCenterFrequencyChange={(value) =>
+                      reduxDispatch(setTxCenterFrequencyHz(value))
+                    }
+                    onSampleRateChange={(value) =>
+                      reduxDispatch(setTxSampleRateHz(value))
+                    }
                   />
                 }
                 dataRef={dataRef}

@@ -200,7 +200,10 @@ const ErrorBox = styled.div`
   color: ${(props) => props.theme.textSecondary};
 `;
 
-const legalDocs: Record<string, { title: string; source?: string; content?: string }> = {
+const legalDocs: Record<
+  string,
+  { title: string; source?: string; content?: string }
+> = {
   terms: {
     title: "Terms of Use",
     source: "/pages/terms-of-use.md",
@@ -234,7 +237,10 @@ const legalNavItems: Record<string, Array<{ label: string; href: string }>> = {
   ],
   privacy: [
     { label: "Top", href: "#top" },
-    { label: "Information we may collect", href: "#information-we-may-collect" },
+    {
+      label: "Information we may collect",
+      href: "#information-we-may-collect",
+    },
     { label: "How we use information", href: "#how-we-use-information" },
     { label: "What we do not collect", href: "#what-we-do-not-collect" },
     { label: "California privacy rights", href: "#california-privacy-rights" },
@@ -268,7 +274,7 @@ export const LegalDocumentRoute: React.FC = () => {
         ? "license"
         : location.pathname === "/responsible-use"
           ? "responsible_use"
-        : "terms";
+          : "terms";
   const page = legalDocs[pageKey];
   const navItems = legalNavItems[pageKey];
   const [markdown, setMarkdown] = useState("");

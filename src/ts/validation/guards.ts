@@ -6,7 +6,7 @@
 import type {
   SpectrumFrame,
   CaptureRequest,
-  StatusMessage,
+  ChannelsMessage,
   SourceInfoMessage,
   SourceStatusMessage,
   SourceSdrSettingsMessage,
@@ -25,7 +25,7 @@ export {
   isValidAuthResult,
   isValidSessionValidation,
   isValidWebSocketMessage,
-  isValidStatusMessage,
+  isValidChannelsMessage,
   isValidSourceInfoMessage,
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
@@ -38,7 +38,7 @@ export {
 // Import base functions for enhanced validation
 import {
   isValidWebSocketMessage as baseIsValidWebSocketMessage,
-  isValidStatusMessage as baseIsValidStatusMessage,
+  isValidChannelsMessage as baseIsValidChannelsMessage,
   isValidSourceInfoMessage as baseIsValidSourceInfoMessage,
   isValidSourceStatusMessage as baseIsValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage as baseIsValidSourceSdrSettingsMessage,
@@ -709,37 +709,16 @@ export const isValidCaptureRequestEnhanced = (
   );
 };
 
-// Status message validation
-export const isValidStatusMessageEnhanced = (
-  data: unknown,
-): data is StatusMessage => {
-  if (!baseIsValidStatusMessage(data)) {
-    return isLooseStatusMessage(data);
-  }
-
-  // Additional validation - be more lenient with optional fields
-  const status = data as StatusMessage;
-  return (
-    // Only validate device_info if it exists and is not empty
-    (!status.device_info ||
-      isValidStringEnhanced(status.device_info, 0, 1000)) &&
-    // Only validate device_name if it exists and is not empty
-    (!status.device_name ||
-      isValidStringEnhanced(status.device_name, 0, 500)) &&
-    // More lenient sample rate validation (allow up to 100MHz for modern SDRs)
-    (!status.max_sample_rate ||
-      isValidNumberEnhanced(status.max_sample_rate, 1000, 100000000)) &&
-    // Only validate channels if they exist
-    (!status.channels || isValidArray(status.channels)) &&
-    // Don't require enhanced validation for channels to avoid circular validation issues
-    true
-  );
-};
-
 export const isValidSourceInfoMessageEnhanced = (
   data: unknown,
 ): data is SourceInfoMessage => {
   return baseIsValidSourceInfoMessage(data);
+};
+
+export const isValidChannelsMessageEnhanced = (
+  data: unknown,
+): data is ChannelsMessage => {
+  return baseIsValidChannelsMessage(data);
 };
 
 export const isValidSourceStatusMessageEnhanced = (
@@ -758,31 +737,6 @@ export const isValidSourceErrorMessageEnhanced = (
   data: unknown,
 ): data is SourceErrorMessage => {
   return baseIsValidSourceErrorMessage(data);
-};
-
-const isLooseStatusMessage = (data: unknown): boolean => {
-  if (!isObject(data)) return false;
-
-  const status = data as Record<string, unknown>;
-  return (
-    status.type === "status" &&
-    typeof status.device_connected === "boolean" &&
-    typeof status.device_info === "string" &&
-    typeof status.device_name === "string" &&
-    typeof status.device_loading === "boolean" &&
-    (typeof status.device_loading_reason === "string" ||
-      status.device_loading_reason === null ||
-      status.device_loading_reason === undefined) &&
-    (typeof status.device_state === "string" ||
-      status.device_state === null ||
-      status.device_state === undefined) &&
-    typeof status.paused === "boolean" &&
-    typeof status.max_sample_rate === "number" &&
-    Array.isArray(status.channels) &&
-    isObject(status.sdr_settings) &&
-    typeof status.device === "string" &&
-    isObject(status.device_profile)
-  );
 };
 
 // Authentication response validation
