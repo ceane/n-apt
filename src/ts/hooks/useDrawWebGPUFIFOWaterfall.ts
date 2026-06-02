@@ -548,25 +548,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.end();
         device.queue.submit([enc.finish()]);
 
-        if (canvas instanceof HTMLCanvasElement) {
-          if (!s.cacheCanvas) {
-            s.cacheCanvas = document.createElement("canvas");
-            s.cacheCtx = s.cacheCanvas.getContext("2d");
-          }
-          if (
-            s.cacheCanvas.width !== canvas.width ||
-            s.cacheCanvas.height !== canvas.height
-          ) {
-            s.cacheCanvas.width = canvas.width;
-            s.cacheCanvas.height = canvas.height;
-          }
-          if (s.cacheCtx) {
-            s.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
-            s.cacheCtx.drawImage(canvas, 0, 0);
-          }
-          s.lastFrameCanvas = s.cacheCanvas;
-          (canvas as any)._lastFrameCanvas = s.cacheCanvas;
-        }
+
 
         return true;
       } catch (error) {

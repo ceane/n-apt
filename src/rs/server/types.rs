@@ -115,6 +115,20 @@ pub enum SdrCommand {
   SetPowerScale {
     scale: PowerScale,
   },
+  SetTransmitMode {
+    enabled: bool,
+    device: String,
+    serial_number: String,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: Option<u64>,
+    power_dbm: Option<f64>,
+    lna_gain_db: Option<f64>,
+    vga_gain_db: Option<f64>,
+    amp_enabled: Option<bool>,
+    tuner_agc: Option<bool>,
+    rtl_agc: Option<bool>,
+    ppm: Option<u32>,
+  },
   ScanForAudio {
     job_id: String,
     frequency_range: (f64, f64),
@@ -318,6 +332,10 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txMode")]
+  pub tx_mode: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
+  pub tx_device: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub channels: Option<Vec<ChannelSpec>>,
   /// Hardware frequency range info (get_hardware_info)

@@ -13,6 +13,7 @@ use validator::Validate;
 use crate::crypto;
 
 use super::shared_state::SharedState;
+use super::tx_log::{write_global, TxLogEntry};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
@@ -460,6 +461,24 @@ pub fn handle_message(
       let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
         settings_payload.clone(),
       ));
+      let device = shared.device_info.lock().unwrap().clone();
+      let serial_number = shared.device_serial.lock().unwrap().clone();
+      let current_settings = shared.sdr_settings.lock().unwrap().clone();
+      let entry = TxLogEntry::start(
+        device,
+        serial_number,
+        Some(current_settings.center_frequency as u64),
+        Some(sample_rate.unwrap_or(current_settings.sample_rate) as u64),
+        gain,
+        hackrf_lna_gain,
+        hackrf_vga_gain,
+        hackrf_amp_enable,
+        message.tuner_agc,
+        message.rtl_agc,
+        ppm,
+      )
+      .change();
+      write_global(&entry);
 
       // Update the shared settings so that future status broadcasts
       // reflect the new settings requested by the client.
@@ -527,6 +546,46 @@ pub fn handle_message(
         });
         let _ = broadcast_tx.send(payload.to_string());
       }
+    }
+    "tx_mode" => {
+      let enabled = message.tx_mode.unwrap_or(false);
+      let device = message
+        .tx_device
+        .clone()
+        .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
+      let serial_number = shared.device_serial.lock().unwrap().clone();
+      let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+      let entry = if enabled {
+        TxLogEntry::start(
+          device,
+          serial_number,
+          Some(sdr_settings.center_frequency as u64),
+          Some(sdr_settings.sample_rate as u64),
+          Some(sdr_settings.gain.tuner_gain),
+          sdr_settings.gain.hackrf_lna_gain,
+          sdr_settings.gain.hackrf_vga_gain,
+          sdr_settings.gain.hackrf_amp_enable,
+          Some(sdr_settings.gain.tuner_agc),
+          Some(sdr_settings.gain.rtl_agc),
+          Some(sdr_settings.ppm as u32),
+        )
+      } else {
+        TxLogEntry::start(
+          device,
+          serial_number,
+          Some(sdr_settings.center_frequency as u64),
+          Some(sdr_settings.sample_rate as u64),
+          Some(sdr_settings.gain.tuner_gain),
+          sdr_settings.gain.hackrf_lna_gain,
+          sdr_settings.gain.hackrf_vga_gain,
+          sdr_settings.gain.hackrf_amp_enable,
+          Some(sdr_settings.gain.tuner_agc),
+          Some(sdr_settings.gain.rtl_agc),
+          Some(sdr_settings.ppm as u32),
+        )
+        .end()
+      };
+      write_global(&entry);
     }
     "restart_device" => {
       info!("Client requested device restart");

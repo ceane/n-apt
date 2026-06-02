@@ -69,6 +69,22 @@ export type WebSocketData = {
     signalArea: string,
   ) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
+  sendTransmitMode: (
+    enabled: boolean,
+    device: string,
+    txSettings: {
+      serialNumber: string;
+      centerFrequencyHz?: number | null;
+      sampleRateHz?: number | null;
+      powerDbm?: number | null;
+      lnaGainDb?: number | null;
+      vgaGainDb?: number | null;
+      ampEnabled?: boolean | null;
+      tunerAgc?: boolean | null;
+      rtlAgc?: boolean | null;
+      ppm?: number | null;
+    },
+  ) => void;
 };
 
 type WsState = {
@@ -810,6 +826,37 @@ export const useWebSocket = (
     ws.send(message);
   }, []);
 
+  const sendTransmitMode = useCallback(
+    (
+      enabled: boolean,
+      device: string,
+      txSettings: {
+        serialNumber: string;
+        centerFrequencyHz?: number | null;
+        sampleRateHz?: number | null;
+        powerDbm?: number | null;
+        lnaGainDb?: number | null;
+        vgaGainDb?: number | null;
+        ampEnabled?: boolean | null;
+        tunerAgc?: boolean | null;
+        rtlAgc?: boolean | null;
+        ppm?: number | null;
+      },
+    ) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: "tx_mode",
+          txMode: enabled,
+          txDevice: device,
+          ...txSettings,
+        }),
+      );
+    },
+    [],
+  );
+
   return {
     ...state,
     sampleRateOptions: state.sampleRateOptions,
@@ -823,5 +870,6 @@ export const useWebSocket = (
     sendCaptureStopCommand,
     sendTrainingCommand,
     sendPowerScaleCommand,
+    sendTransmitMode,
   };
 };

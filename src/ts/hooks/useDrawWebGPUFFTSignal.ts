@@ -948,25 +948,7 @@ export function useDrawWebGPUFFTSignal() {
         pass.end();
         state.device.queue.submit([encoder.finish()]);
 
-        if (canvas instanceof HTMLCanvasElement) {
-          if (!state.cacheCanvas) {
-            state.cacheCanvas = document.createElement("canvas");
-            state.cacheCtx = state.cacheCanvas.getContext("2d");
-          }
-          if (
-            state.cacheCanvas.width !== canvas.width ||
-            state.cacheCanvas.height !== canvas.height
-          ) {
-            state.cacheCanvas.width = canvas.width;
-            state.cacheCanvas.height = canvas.height;
-          }
-          if (state.cacheCtx) {
-            state.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
-            state.cacheCtx.drawImage(canvas, 0, 0);
-          }
-          state.lastFrameCanvas = state.cacheCanvas;
-          (canvas as any)._lastFrameCanvas = state.cacheCanvas;
-        }
+
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
           const readbackBuffer = state.spikeCountReadbackBuffer;
@@ -997,6 +979,18 @@ export function useDrawWebGPUFFTSignal() {
 
   const cleanup = useCallback(() => {
     flushRetiredBuffers();
+    const state = rendererRef.current;
+    if (state) {
+      state.uniformBuffer?.destroy();
+      state.resampleInputBuffer?.destroy();
+      state.resampleOutputBuffer?.destroy();
+      state.resampleParamsBuffer?.destroy();
+      state.spikeBuffer?.destroy();
+      state.spikeCountBuffer?.destroy();
+      state.spikeCountReadbackBuffer?.destroy();
+      state.spikeParamsBuffer?.destroy();
+      state.floorAvgResultBuffer?.destroy();
+    }
     rendererRef.current = null;
     lastDataRef.current = null;
   }, [flushRetiredBuffers]);

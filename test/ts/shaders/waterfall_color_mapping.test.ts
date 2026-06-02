@@ -7,7 +7,7 @@ import {
 
 describe("waterfall WebGPU color mapping", () => {
   const source = readFileSync(
-    join(process.cwd(), "src/ts/hooks/useDrawWebGPUFIFOWaterfall.ts"),
+    join(process.cwd(), "src/ts/shaders/waterfall_fifo.wgsl"),
     "utf8",
   );
 

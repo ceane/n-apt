@@ -1885,35 +1885,8 @@ export function buildFastWaterfallCanvas(
     frequencyRange,
   );
   let sourceCanvas: HTMLCanvasElement | null = null;
-  if (canvases?.waterfallGpu) {
-    const liveW = canvases.waterfallGpu.width;
-    const liveH = canvases.waterfallGpu.height;
-    const liveRatio = liveW / liveH;
-    const targetRatio = width / height;
-    const isTest =
-      typeof process !== "undefined" && process.env.NODE_ENV === "test";
-
-    if (isTest || Math.abs(liveRatio - targetRatio) < 0.02) {
-      const srcGpu =
-        (canvases.waterfallGpu as any)._lastFrameCanvas ||
-        canvases.waterfallGpu;
-      const liveCanvas = document.createElement("canvas");
-      liveCanvas.width = srcGpu.width;
-      liveCanvas.height = srcGpu.height;
-      const ctx = liveCanvas.getContext("2d");
-      if (ctx) {
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(srcGpu, 0, 0);
-        if (canvases.waterfallOverlay) {
-          ctx.drawImage(canvases.waterfallOverlay, 0, 0);
-        }
-        sourceCanvas = cropCanvasVerticalInset(
-          liveCanvas,
-          Math.round(8 * (window.devicePixelRatio || 1)),
-        );
-      }
-    }
-  } else if (snapshotData) {
+  
+  if (snapshotData) {
     sourceCanvas = renderWaterfallSnapshotCanvas(
       snapshotData,
       Math.max(1, width),
@@ -1924,6 +1897,23 @@ export function buildFastWaterfallCanvas(
         marginY: 0,
       },
     );
+  } else if (canvases?.waterfallGpu) {
+    const srcGpu = canvases.waterfallGpu;
+    const liveCanvas = document.createElement("canvas");
+    liveCanvas.width = srcGpu.width;
+    liveCanvas.height = srcGpu.height;
+    const ctx = liveCanvas.getContext("2d");
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(srcGpu, 0, 0);
+      if (canvases.waterfallOverlay) {
+        ctx.drawImage(canvases.waterfallOverlay, 0, 0);
+      }
+      sourceCanvas = cropCanvasVerticalInset(
+        liveCanvas,
+        Math.round(8 * (window.devicePixelRatio || 1)),
+      );
+    }
   }
 
   const composed = composeCanvasWithFrequencyAxis({

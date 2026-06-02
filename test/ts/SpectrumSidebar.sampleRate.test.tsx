@@ -6,6 +6,7 @@ import {
   fireEvent,
   within,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
@@ -32,6 +33,7 @@ let mockSignalAreaBounds: Record<string, { min: number; max: number }> | null;
 let mockWsConnection: any;
 let mockStoreDispatch: jest.Mock;
 let mockToggleVisualizerPause: jest.Mock;
+let mockShowPrompt: jest.Mock;
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
@@ -49,7 +51,7 @@ jest.mock("@n-apt/hooks/useGeolocation", () => ({
 
 jest.mock("@n-apt/components/ui/PromptProvider", () => ({
   usePrompt: () => ({
-    showPrompt: jest.fn(),
+    showPrompt: mockShowPrompt,
   }),
 }));
 
@@ -118,7 +120,15 @@ jest.mock("@n-apt/components/sidebar/ThemeSection", () => ({
 
 jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
   __esModule: true,
-  default: () => <div data-testid="source-input" />,
+  default: ({ onToggleDeviceTxMode }: { onToggleDeviceTxMode?: (id: string) => void }) => (
+    <button
+      type="button"
+      data-testid="source-input"
+      onClick={() => onToggleDeviceTxMode?.("device-1")}
+    >
+      source-input
+    </button>
+  ),
 }));
 
 jest.mock("@n-apt/components/ui/Collapsible", () => ({
@@ -256,6 +266,7 @@ const initMockState = () => {
     deviceProfile: { kind: "hackrf_one" },
     sendSettings: jest.fn(),
     sendFrequencyRange: jest.fn(),
+    sendTransmitMode: jest.fn(),
   };
   mockStoreDispatch = jest.fn((action: any) => {
     if (action?.type === "SET_SDR_SETTINGS_BUNDLE" && action.settings) {
@@ -305,6 +316,7 @@ const initMockState = () => {
 describe("SpectrumSidebar sample rate behavior", () => {
   beforeEach(() => {
     initMockState();
+    mockShowPrompt = jest.fn();
   });
 
   it("uses the active channel span for mock whole-channel mode instead of the mock device rate", async () => {
@@ -401,6 +413,83 @@ describe("SpectrumSidebar sample rate behavior", () => {
         name: "4.4MHz",
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("prompts before enabling transmit and only sends the transmit command after confirmation", async () => {
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-apt",
+        activeSourceMode: "live",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "tx_rx",
+            status: "connected",
+            loading_attempt: 0,
+            loading_attempt_max: 2,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [3_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3_200_000,
+                min_receive_sample_rate: 3_200_000,
+                center_frequency: 1_600_000,
+                fft: {
+                  default_size: 262144,
+                  default_frame_rate: 12,
+                  max_size: 262144,
+                  max_frame_rate: 60,
+                  size_to_frame_rate: { "262144": 12 },
+                },
+              },
+            },
+          },
+        ],
+        channels: [],
+      } as any),
+    );
+
+    const { getByRole } = render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(getByRole("button", { name: /source-input/i }));
+
+    expect(mockShowPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Check before you transmit",
+        confirmText: "Continue",
+        cancelText: "Cancel",
+      }),
+    );
+    expect(mockWsConnection.sendTransmitMode).not.toHaveBeenCalled();
+
+    await act(async () => {
+      mockShowPrompt.mock.calls[0][0].onConfirm();
+    });
+
+    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      true,
+      "Mock APT SDR",
+      expect.objectContaining({
+        serialNumber: "device-1",
+        centerFrequencyHz: 137_100_000,
+        sampleRateHz: 2_400_000,
+        powerDbm: -18,
+        vgaGainDb: 16,
+      }),
+    );
   });
 
   it.skip("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {

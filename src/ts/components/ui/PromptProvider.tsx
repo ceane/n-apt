@@ -97,7 +97,7 @@ const Button = styled.button<{ $primary?: boolean }>`
 
 interface PromptOptions {
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void;

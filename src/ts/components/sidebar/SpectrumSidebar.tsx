@@ -913,6 +913,76 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     },
   ]);
   const [livePreviewStage, setLivePreviewStage] = useState(0);
+  const handleToggleTransmitMode = useCallback(
+    (deviceId: string, nextEnabled: boolean) => {
+      const device =
+        mockDevices.find((entry) => entry.id === deviceId) ?? null;
+      const applyToggle = () => {
+        setMockDevices((current) =>
+          current.map((entry) =>
+            entry.id === deviceId ? { ...entry, txMode: nextEnabled } : entry,
+          ),
+        );
+        wsConnection.sendTransmitMode(nextEnabled, device?.name ?? deviceId, {
+          serialNumber: deviceId,
+          centerFrequencyHz: txCenterFrequencyHz,
+          sampleRateHz: txSampleRateHz,
+          powerDbm: txPowerDbm,
+          lnaGainDb: null,
+          vgaGainDb: txVgaGain,
+          ampEnabled: null,
+          tunerAgc: null,
+          rtlAgc: null,
+          ppm: null,
+        });
+      };
+
+      if (nextEnabled) {
+        showPrompt({
+          title: "Check before you transmit",
+          message: (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                Check before you transmit, it is your responsibility to have a
+                valid FCC license for transmitting on waves.
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <a
+                  href="https://www.fcc.gov/obtaining-license"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Obtaining A License
+                </a>
+                <a
+                  href="https://www.fcc.gov/media/radio/public-and-broadcasting"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  The Public And Broadcasting
+                </a>
+              </div>
+            </div>
+          ),
+          confirmText: "Continue",
+          cancelText: "Cancel",
+          onConfirm: applyToggle,
+        });
+        return;
+      }
+
+      applyToggle();
+    },
+    [
+      mockDevices,
+      showPrompt,
+      txCenterFrequencyHz,
+      txPowerDbm,
+      txSampleRateHz,
+      txVgaGain,
+      wsConnection,
+    ],
+  );
   const activeCaptureAreasSet = useMemo(
     () => new Set(activeCaptureAreas),
     [activeCaptureAreas],
@@ -1722,13 +1792,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                         ? "Pause transmit mode"
                         : "Resume transmit mode",
                       onAction: () =>
-                        setMockDevices((current) =>
-                          current.map((entry) =>
-                            entry.id === device.id
-                              ? { ...entry, txMode: !entry.txMode }
-                              : entry,
-                          ),
-                        ),
+                        handleToggleTransmitMode(device.id, !device.txMode),
                     },
                   }
                 : {}),
@@ -1757,13 +1821,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             setSelectedMockDeviceId(id);
             dispatch(setDeviceKind(nextSelectedDevice?.deviceType ?? null));
           }}
-          onToggleDeviceTxMode={(id) =>
-            setMockDevices((current) =>
-              current.map((entry) =>
-                entry.id === id ? { ...entry, txMode: !entry.txMode } : entry,
-              ),
-            )
-          }
+          onToggleDeviceTxMode={(id) => {
+            const current =
+              mockDevices.find((entry) => entry.id === id)?.txMode ?? false;
+            handleToggleTransmitMode(id, !current);
+          }}
           onSourceModeChange={handleSourceModeChange}
         />
       </StickyHeaderWrapper>

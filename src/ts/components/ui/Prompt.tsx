@@ -117,7 +117,7 @@ const Button = styled.button<{ $variant?: "primary" | "danger" }>`
 interface PromptProps {
   open: boolean;
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void;
