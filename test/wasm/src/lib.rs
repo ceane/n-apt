@@ -3,11 +3,11 @@
 //! Headless WASM unit tests for verifying WASM module functionality
 
 #[cfg(test)]
+pub mod anti_aliasing_wasm_tests;
+#[cfg(test)]
 pub mod simple_wasm_tests;
 #[cfg(test)]
 pub mod wasm_simd_processor_tests;
-#[cfg(test)]
-pub mod anti_aliasing_wasm_tests;
 
 // #[cfg(test)]
 // wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

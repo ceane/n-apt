@@ -541,6 +541,21 @@ impl SdrProcessor {
     self.device.get_error()
   }
 
+  /// Get the device's USB serial number.
+  pub fn get_serial_number(&self) -> String {
+    self.device.get_serial_number()
+  }
+
+  /// Get the device's USB manufacturer string.
+  pub fn get_manufacturer(&self) -> String {
+    self.device.get_manufacturer()
+  }
+
+  /// Get the device's USB product string.
+  pub fn get_product(&self) -> String {
+    self.device.get_product()
+  }
+
   /// Check if the device is ready for reading
   pub fn is_ready(&self) -> bool {
     self.device.is_ready()

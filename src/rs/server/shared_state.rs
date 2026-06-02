@@ -46,6 +46,12 @@ pub struct SharedState {
   pub shutdown: AtomicBool,
   /// Device info string (set once at init)
   pub device_info: Mutex<String>,
+  /// USB serial number of the active SDR device
+  pub device_serial: Mutex<String>,
+  /// USB manufacturer string of the active SDR device
+  pub device_manufacturer: Mutex<String>,
+  /// USB product string of the active SDR device
+  pub device_product: Mutex<String>,
   /// Backend/device error string surfaced to the frontend when available.
   pub device_backend_error: Mutex<Option<String>>,
   /// Current device profile/capabilities for frontend feature gating
@@ -110,6 +116,9 @@ impl SharedState {
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
+      device_serial: Mutex::new(String::new()),
+      device_manufacturer: Mutex::new(String::new()),
+      device_product: Mutex::new(String::new()),
       device_backend_error: Mutex::new(None),
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
@@ -172,6 +181,18 @@ impl SharedState {
       self.allow_next_paused_frame.store(true, Ordering::SeqCst);
     }
     *self.last_broadcast_status.lock().unwrap() = None;
+  }
+
+  /// Update USB device identification strings (serial, manufacturer, product).
+  pub fn update_device_usb_strings(
+    &self,
+    serial: String,
+    manufacturer: String,
+    product: String,
+  ) {
+    *self.device_serial.lock().unwrap() = serial;
+    *self.device_manufacturer.lock().unwrap() = manufacturer;
+    *self.device_product.lock().unwrap() = product;
   }
 
   pub fn set_device_backend_error(&self, error: Option<String>) {

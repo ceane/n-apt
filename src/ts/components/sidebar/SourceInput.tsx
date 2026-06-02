@@ -277,6 +277,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability.toUpperCase();
   };
 
+  const formatStatusLabel = (status?: string | null): string | null => {
+    if (!status) return null;
+    if (status === "transmitting") return "Transmitting (Tx)";
+    if (status === "streaming") return "Streaming";
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
   useEffect(() => {
     const previousDeviceState = previousDeviceStateRef.current;
 
@@ -388,7 +395,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   <DevicePillName>{device.name}</DevicePillName>
                   <DevicePillMeta>
                     {formatCapability(device.capability)}
-                    {device.status?.label ? ` · ${device.status.label}` : ""}
+                    {formatStatusLabel(device.status?.label)
+                      ? ` · ${formatStatusLabel(device.status?.label)}`
+                      : ""}
                   </DevicePillMeta>
                 </DevicePillMain>
                 {device.status?.onAction ? (

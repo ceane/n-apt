@@ -134,6 +134,7 @@ export const SourceStatusSchema = z.enum([
   "disconnected",
   "stale",
   "error",
+  "transmitting",
   "streaming",
 ]);
 
@@ -200,6 +201,12 @@ export const SourceInfoMessageSchema = z.object({
   active_source: z.string(),
   active_source_mode: z.enum(["live", "file"]),
   sources: z.array(SourceInfoSchema),
+});
+
+export const ActiveSourceMessageSchema = z.object({
+  type: z.literal("active_source"),
+  source_id: z.string(),
+  source_mode: z.enum(["live", "file"]),
 });
 
 export const SourceStatusMessageSchema = z.object({
@@ -361,6 +368,7 @@ export const WebSocketMessageSchema = z.union([
   }),
   // Server-to-client messages
   SourceInfoMessageSchema,
+  ActiveSourceMessageSchema,
   ChannelsMessageSchema,
   SourceStatusMessageSchema,
   SourceSdrSettingsMessageSchema,
@@ -438,4 +446,10 @@ export const isValidSourceErrorMessage = (
   data: unknown,
 ): data is z.infer<typeof SourceErrorMessageSchema> => {
   return SourceErrorMessageSchema.safeParse(data).success;
+};
+
+export const isValidActiveSourceMessage = (
+  data: unknown,
+): data is z.infer<typeof ActiveSourceMessageSchema> => {
+  return ActiveSourceMessageSchema.safeParse(data).success;
 };

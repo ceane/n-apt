@@ -20,6 +20,8 @@ import {
   setTxCenterFrequencyHz,
   setTxPowerDbm,
   setTxVgaGain,
+  setShowTxSlider,
+  setDeviceKind,
 } from "@n-apt/redux";
 import {
   getSupportedSnapshotVideoFormat,
@@ -121,6 +123,24 @@ const SectionTitle = memo(styled.div<{ $fileMode?: boolean }>`
   display: flex;
   align-items: center;
   gap: 8px;
+`);
+
+const StickyHeaderWrapper = memo(styled.div<{ $isSticky?: boolean }>`
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: ${(props: any) => props.theme.background};
+  grid-column: 1 / -1;
+  margin-left: -24px;
+  margin-right: -24px;
+  margin-top: calc(-24px - env(safe-area-inset-top, 0px));
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 16px 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-bottom: 1px solid ${(props: any) => props.$isSticky ? props.theme.borderHover : 'transparent'};
+  transition: border-bottom 0.2s ease;
 `);
 
 const SectionIcon = memo(styled.div`
@@ -509,6 +529,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveBackend?.toLowerCase().includes("mock") ||
       liveDeviceNameToUse?.toLowerCase().includes("mock")
     );
+
+  useEffect(() => {
+    dispatch(setDeviceKind(liveDeviceProfileToUse?.kind ?? null));
+  }, [liveDeviceProfileToUse?.kind, dispatch]);
   const liveManualSampleRateOptions = isMockLiveSource
     ? [3_200_000]
     : liveSampleRateOptions;
@@ -1566,10 +1590,28 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           : next;
     });
   }, [availableCaptureAreas]);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isSticky, setIsSticky] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsSticky(!entry.isIntersecting);
+      },
+      { threshold: [1], rootMargin: "-24px 0px 0px 0px" }
+    );
+
+    if (sentinelRef.current) {
+      observer.observe(sentinelRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <SidebarContent>
-      <Section style={{ position: "sticky", top: 16, zIndex: 20 }}>
+      <div ref={sentinelRef} style={{ gridColumn: '1 / -1', height: 0, pointerEvents: 'none' }} />
+      <StickyHeaderWrapper $isSticky={isSticky}>
         <SectionTitle $fileMode={sourceMode === "file"}>
           <SectionIcon>
             <Unplug size={14} />
@@ -1586,79 +1628,134 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           selectedFilesCount={selectedFiles.length}
           onFileAction={handleFileAction}
           onFilesSelected={handleSourceFilesSelected}
-          devices={mockDevices.map((device) => ({
-            id: device.id,
-            name: device.name,
-            backend: device.backend,
-            capability: device.capability,
-            txMode: device.txMode,
-            summary: `PPM ${device.ppm} · Gain ${device.gain} dB`,
-            status:
-              device.id === "device-1"
-                ? {
-                    color:
-                      liveDeviceState === "loading"
-                        ? "var(--color-warning)"
-                        : liveDeviceState === "connected" && liveCryptoCorrupted
-                          ? "var(--color-danger)"
+          devices={mockDevices.map((device) => {
+            const isMockApt =
+              device.id === "device-1" &&
+              (!liveDeviceProfileToUse ||
+                liveDeviceProfileToUse.kind === "mock_apt" ||
+                liveDeviceProfileToUse.kind === "mock_apt_metal");
+            return {
+              id: device.id,
+              name:
+                device.id === "device-1"
+                  ? liveDeviceNameToUse || device.name
+                  : device.name,
+              backend:
+                device.id === "device-1"
+                  ? liveBackend || device.backend
+                  : device.backend,
+              capability:
+                device.id === "device-1"
+                  ? isMockApt
+                    ? "mock"
+                    : liveDeviceProfileToUse?.kind === "hackrf_one"
+                      ? "tx_rx"
+                      : "rx"
+                  : device.capability,
+              txMode: device.txMode,
+              summary: `PPM ${device.ppm} · Gain ${device.gain} dB`,
+              status:
+                device.id === "device-1"
+                  ? {
+                      color:
+                        liveDeviceState === "loading"
+                          ? "var(--color-warning)"
+                          : liveDeviceState === "connected" &&
+                              liveCryptoCorrupted
+                            ? "var(--color-danger)"
+                            : liveDeviceState === "connected"
+                              ? "var(--color-primary)"
+                              : "var(--color-secondary)",
+                      label:
+                        liveDeviceState === "loading"
+                          ? liveDeviceLoadingReason === "restart"
+                            ? "restarting"
+                            : "loading"
                           : liveDeviceState === "connected"
-                            ? "var(--color-primary)"
-                            : "var(--color-secondary)",
-                    label:
-                      liveDeviceState === "loading"
-                        ? liveDeviceLoadingReason === "restart"
-                          ? "restarting"
-                          : "loading"
-                        : liveDeviceState === "connected"
-                          ? device.name === "Mock APT SDR"
-                            ? "streaming"
-                            : "connected"
-                          : "offline",
-                    loading: liveDeviceState === "loading",
-                    paused: liveIsPaused,
-                    actionLabel:
-                      liveDeviceState === "loading"
-                        ? liveDeviceLoadingReason === "restart"
-                          ? "Restarting…"
-                          : "Loading…"
-                        : device.name === "Mock APT SDR" ||
-                            liveDeviceState === "connected"
-                          ? liveIsPaused
-                            ? "Resume"
-                            : "Pause"
-                          : "Restart",
-                    actionTitle:
-                      liveDeviceState === "loading"
-                        ? liveDeviceLoadingReason === "restart"
-                          ? "Device is restarting..."
-                          : "Device is being initialized..."
-                        : liveDeviceState === "connected"
-                          ? liveIsPaused
-                            ? "Resume device"
-                            : "Pause device"
-                          : "Restart device",
-                    onAction:
-                      liveDeviceState === "loading"
-                        ? undefined
-                        : device.name === "Mock APT SDR" ||
-                            liveDeviceState === "connected"
-                          ? toggleVisualizerPause
-                          : handleRestartDevice,
+                            ? isMockApt
+                              ? "streaming"
+                              : "connected"
+                            : "offline",
+                      loading: liveDeviceState === "loading",
+                      paused: liveIsPaused,
+                      actionLabel:
+                        liveDeviceState === "loading"
+                          ? liveDeviceLoadingReason === "restart"
+                            ? "Restarting…"
+                            : "Loading…"
+                          : isMockApt || liveDeviceState === "connected"
+                            ? liveIsPaused
+                              ? "Resume"
+                              : "Pause"
+                            : "Restart",
+                      actionTitle:
+                        liveDeviceState === "loading"
+                          ? liveDeviceLoadingReason === "restart"
+                            ? "Device is restarting..."
+                            : "Device is being initialized..."
+                          : liveDeviceState === "connected"
+                            ? liveIsPaused
+                              ? "Resume device"
+                              : "Pause device"
+                            : "Restart device",
+                      onAction:
+                        liveDeviceState === "loading"
+                          ? undefined
+                          : isMockApt || liveDeviceState === "connected"
+                            ? toggleVisualizerPause
+                            : handleRestartDevice,
+                    }
+                  : undefined,
+              ...(device.id === "device-2"
+                ? {
+                    status: {
+                      color: device.txMode
+                        ? "var(--color-primary)"
+                        : "var(--color-secondary)",
+                      label: device.txMode
+                        ? "transmitting"
+                        : "disconnected",
+                      loading: false,
+                      paused: false,
+                      actionLabel: device.txMode ? "Pause" : "Resume",
+                      actionTitle: device.txMode
+                        ? "Pause transmit mode"
+                        : "Resume transmit mode",
+                      onAction: () =>
+                        setMockDevices((current) =>
+                          current.map((entry) =>
+                            entry.id === device.id
+                              ? { ...entry, txMode: !entry.txMode }
+                              : entry,
+                          ),
+                        ),
+                    },
                   }
-                : undefined,
-          }))}
+                : {}),
+            };
+          })}
           selectedDeviceId={selectedMockDeviceId}
           onSelectedDeviceChange={(id) => {
+            const nextSelectedDevice =
+              mockDevices.find((entry) => entry.id === id) ?? null;
+            if (
+              nextSelectedDevice?.deviceType === "hackrf_one" ||
+              nextSelectedDevice?.capability?.includes("tx")
+            ) {
+              dispatch(setShowTxSlider(false));
+            }
             if (sourceMode === "file") {
               if (selectedMockDeviceId === id && livePreviewStage >= 1) {
                 handleSourceModeChange("live");
                 return;
               }
               setSelectedMockDeviceId(id);
+              dispatch(setDeviceKind(nextSelectedDevice?.deviceType ?? null));
               setLivePreviewStage(1);
               return;
             }
             setSelectedMockDeviceId(id);
+            dispatch(setDeviceKind(nextSelectedDevice?.deviceType ?? null));
           }}
           onToggleDeviceTxMode={(id) =>
             setMockDevices((current) =>
@@ -1669,7 +1766,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           }
           onSourceModeChange={handleSourceModeChange}
         />
-      </Section>
+      </StickyHeaderWrapper>
 
       <Section>
         <ResetButton

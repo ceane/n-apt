@@ -249,7 +249,6 @@ export const useLiveSampleRateControl = ({
 
   useEffect(() => {
     if (
-      !canUseWholeChannel ||
       !frequencyRange ||
       !activeSignalAreaBounds ||
       typeof sampleRateHz !== "number" ||
@@ -259,14 +258,28 @@ export const useLiveSampleRateControl = ({
       return;
     }
 
-    const nextRange = buildLiveSampleRateRange({
-      currentRange: frequencyRange,
-      sampleRateHz,
-      channelBounds: activeSignalAreaBounds,
-    });
+    const currentSpan = rangeSpanHz(frequencyRange);
 
-    if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
-      applyFrequencyRange(nextRange);
+    if (canUseWholeChannel) {
+      const nextRange = buildLiveSampleRateRange({
+        currentRange: frequencyRange,
+        sampleRateHz,
+        channelBounds: activeSignalAreaBounds,
+      });
+
+      if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
+        applyFrequencyRange(nextRange);
+      }
+    } else if (currentSpan > sampleRateHz) {
+      const nextRange = buildLiveSampleRateRange({
+        currentRange: frequencyRange,
+        sampleRateHz,
+        channelBounds: activeSignalAreaBounds,
+      });
+
+      if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
+        applyFrequencyRange(nextRange);
+      }
     }
   }, [
     activeSignalAreaBounds,

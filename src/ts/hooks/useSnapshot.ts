@@ -300,8 +300,8 @@ async function recordSnapshotFramesToVideo(
         ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
         ctx.drawImage(frame, 0, 0);
+        rafId = window.requestAnimationFrame(tick);
       });
-      rafId = window.requestAnimationFrame(tick);
     };
     tick();
 

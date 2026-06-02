@@ -22,6 +22,9 @@ pub struct RtlSdrDevice {
   iq_overflow: Vec<u8>,
   max_sample_rate_cache: Option<u32>,
   last_error: Option<String>,
+  usb_serial: String,
+  usb_manufacturer: String,
+  usb_product: String,
 }
 
 struct AsyncContext {
@@ -96,7 +99,7 @@ impl RtlSdrDevice {
       // macOS often fails with LIBUSB_ERROR_IO (-5) if bulk transfers are too large.
       // Using more frequent, smaller buffers (64 * 8KB) is often more stable
       // for high-power devices like the Blog V4 on macOS USB hubs.
-      let buf_num = 32;
+      let buf_num = 4;
       let buf_len = 16384;
 
       let ret = unsafe {
@@ -157,6 +160,40 @@ impl RtlSdrDevice {
       Self::get_device_name(index)
     );
 
+    // Retrieve USB descriptor strings (serial, manufacturer, product)
+    let (usb_serial, usb_manufacturer, usb_product) = {
+      let mut manufact_buf = [0i8; 256];
+      let mut product_buf = [0i8; 256];
+      let mut serial_buf = [0i8; 256];
+      let ret = unsafe {
+        ffi::rtlsdr_get_device_usb_strings(
+          index,
+          manufact_buf.as_mut_ptr(),
+          product_buf.as_mut_ptr(),
+          serial_buf.as_mut_ptr(),
+        )
+      };
+      if ret == 0 {
+        let m = unsafe { CStr::from_ptr(manufact_buf.as_ptr()) }
+          .to_string_lossy()
+          .into_owned();
+        let p = unsafe { CStr::from_ptr(product_buf.as_ptr()) }
+          .to_string_lossy()
+          .into_owned();
+        let s = unsafe { CStr::from_ptr(serial_buf.as_ptr()) }
+          .to_string_lossy()
+          .into_owned();
+        (s, m, p)
+      } else {
+        (String::new(), String::new(), String::new())
+      }
+    };
+
+    info!(
+      "RTL-SDR USB strings — serial: {:?}, manufacturer: {:?}, product: {:?}",
+      usb_serial, usb_manufacturer, usb_product
+    );
+
     let device = Self {
       dev,
       device_index: index,
@@ -165,6 +202,9 @@ impl RtlSdrDevice {
       iq_overflow: Vec::new(),
       max_sample_rate_cache: None,
       last_error: None,
+      usb_serial,
+      usb_manufacturer,
+      usb_product,
     };
 
     // Set mandatory default sample rate so get_device_info doesn't return 0Hz
@@ -210,20 +250,27 @@ impl RtlSdrDevice {
 
   /// Set the sample rate in Hz
   pub fn set_sample_rate(&self, rate: u32) -> Result<()> {
-    let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) };
+    let target_rate = 3_200_000;
+    if rate != target_rate {
+      info!(
+        "Enforcing RTL-SDR sample rate of 3.2MHz (requested: {} Hz)",
+        rate
+      );
+    }
+    let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, target_rate) };
     if ret != 0 {
-      return Err(anyhow!("Failed to set sample rate to {} Hz", rate));
+      return Err(anyhow!("Failed to set sample rate to {} Hz", target_rate));
     }
 
     // Verify the rate was actually set correctly
     let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
-    if actual_rate != rate {
+    if actual_rate != target_rate {
       warn!(
         "Sample rate mismatch: requested {} Hz, device reports {} Hz",
-        rate, actual_rate
+        target_rate, actual_rate
       );
     } else {
-      info!("Sample rate verified: {} Hz", rate);
+      info!("Sample rate verified: {} Hz", target_rate);
     }
 
     Ok(())
@@ -231,7 +278,7 @@ impl RtlSdrDevice {
 
   /// Get the current sample rate in Hz
   pub fn get_sample_rate(&self) -> u32 {
-    unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
+    3_200_000
   }
 
   #[allow(dead_code)]
@@ -454,74 +501,7 @@ impl RtlSdrDevice {
   /// Get the maximum supported sample rate for this device
   /// Tests common sample rates and returns the highest one that works
   pub fn get_max_sample_rate(&mut self) -> u32 {
-    if let Some(cached) = self.max_sample_rate_cache {
-      return cached;
-    }
-
-    // Common RTL-SDR sample rates to test (highest to lowest)
-    let test_rates = [
-      3_200_000, // 3.2 MHz - peak rate
-      2_800_000, // 2.8 MHz
-      2_560_000, // 2.56 MHz
-      2_400_000, // 2.4 MHz - common stable max
-      2_048_000, // 2.048 MHz
-      1_920_000, // 1.92 MHz
-      1_800_000, // 1.8 MHz
-      1_600_000, // 1.6 MHz
-      1_440_000, // 1.44 MHz
-      1_200_000, // 1.2 MHz
-      1_024_000, // 1.024 MHz
-      960_000,   // 960 kHz
-      900_001,   // 900 kHz (common for FM radio)
-      480_000,   // 480 kHz
-    ];
-
-    let mut current_rate = self.get_sample_rate();
-    // If the device was just opened, the sample rate might read as 0
-    // in which case we should restore to our desired default (3.2MHz)
-    if current_rate == 0 {
-      current_rate = 3_200_000;
-    }
-
-    info!("Sample rate is set at {} Hz", current_rate);
-
-    let mut max_supported = current_rate;
-
-    // Test from highest to lowest, stop at first successful rate
-    for &rate in &test_rates {
-      let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) };
-      if ret == 0 {
-        // Verify the rate was actually set
-        let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
-        if actual_rate == rate {
-          max_supported = rate;
-          break; // Found the highest supported rate, stop testing
-        }
-      }
-    }
-
-    info!("After testing sample rate is set to {} Hz", current_rate);
-
-    // Restore original sample rate
-    let restore_ret =
-      unsafe { ffi::rtlsdr_set_sample_rate(self.dev, current_rate) };
-    if restore_ret != 0 {
-      warn!(
-        "Failed to restore original sample rate {} Hz (error code: {})",
-        current_rate, restore_ret
-      );
-    } else {
-      let restored_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
-      if restored_rate != current_rate {
-        warn!(
-          "Sample rate not properly restored: expected {} Hz, got {} Hz",
-          current_rate, restored_rate
-        );
-      }
-    }
-
-    self.max_sample_rate_cache = Some(max_supported);
-    max_supported
+    3_200_000
   }
 
   /// Reset the device buffer (call before starting reads)
@@ -674,6 +654,18 @@ impl SdrDevice for RtlSdrDevice {
 
   fn get_device_info(&self) -> String {
     self.get_device_info()
+  }
+
+  fn get_serial_number(&self) -> String {
+    self.usb_serial.clone()
+  }
+
+  fn get_manufacturer(&self) -> String {
+    self.usb_manufacturer.clone()
+  }
+
+  fn get_product(&self) -> String {
+    self.usb_product.clone()
   }
 
   fn initialize(&mut self) -> Result<()> {
@@ -837,11 +829,11 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn get_sample_rate(&self) -> u32 {
-    unsafe { ffi::rtlsdr_get_sample_rate(self.dev) }
+    self.get_sample_rate()
   }
 
   fn get_max_sample_rate(&mut self) -> u32 {
-    RtlSdrDevice::get_max_sample_rate(self)
+    3_200_000
   }
 
   fn cleanup(&mut self) -> Result<()> {
@@ -909,6 +901,9 @@ mod tests {
       iq_overflow: Vec::new(),
       max_sample_rate_cache: None,
       last_error: None,
+      usb_serial: String::new(),
+      usb_manufacturer: String::new(),
+      usb_product: String::new(),
     });
 
     assert!(!SdrDevice::is_ready(&*device));

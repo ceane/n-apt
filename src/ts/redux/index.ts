@@ -88,6 +88,7 @@ import {
   setTxSignal,
   setTxSampleRateHz,
   setTxCenterFrequencyHz,
+  setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
   setGain,
@@ -106,6 +107,7 @@ import {
   setPowerScale,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setShowTxSlider,
 } from "./slices/spectrumSlice";
 
 // Export spectrum actions as individual
@@ -130,6 +132,7 @@ export {
   setTxSignal,
   setTxSampleRateHz,
   setTxCenterFrequencyHz,
+  setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
   setGain,
@@ -148,6 +151,7 @@ export {
   setPowerScale,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setShowTxSlider,
 } from "./slices/spectrumSlice";
 
 // Export collective action objects for convenience
@@ -172,6 +176,7 @@ export const spectrumActions = {
   setTxSignal,
   setTxSampleRateHz,
   setTxCenterFrequencyHz,
+  setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
   setGain,
@@ -190,6 +195,7 @@ export const spectrumActions = {
   setPowerScale,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setShowTxSlider,
 };
 
 export {

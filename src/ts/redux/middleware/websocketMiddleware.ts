@@ -35,6 +35,7 @@ import {
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
   isValidSourceErrorMessage,
+  isValidActiveSourceMessage,
 } from "@n-apt/validation";
 
 // Module-level ref for high-frequency live frame data.
@@ -591,6 +592,50 @@ const processMessage = (
       }
     } catch (e) {
       console.error("Failed to parse source_info message:", e);
+    }
+    return;
+  }
+
+  if (parsedData?.type === "active_source") {
+    if (!isValidActiveSourceMessage(parsedData)) {
+      console.error("Active source message validation failed:", parsedData);
+      return;
+    }
+
+    try {
+      const updates: any = {
+        activeSourceId: parsedData.source_id,
+        activeSourceMode: parsedData.source_mode,
+      };
+
+      const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
+      const activeSource =
+        currentSources.find(
+          (source: SourceInfo) => source.id === parsedData.source_id,
+        ) ??
+        currentSources[0] ??
+        null;
+      const derived = activeSource
+        ? deriveLegacyStateFromSource(activeSource)
+        : {};
+
+      const combinedUpdates = {
+        ...updates,
+        ...derived,
+      };
+
+      if (pendingStatusUpdates === null) {
+        pendingStatusUpdates = combinedUpdates;
+      } else {
+        pendingStatusUpdates = { ...pendingStatusUpdates, ...combinedUpdates };
+      }
+      if (statusBatchFrame === null) {
+        statusBatchFrame = window.requestAnimationFrame(() =>
+          processBatchedStatus(dispatch, getState),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to parse active_source message:", e);
     }
     return;
   }

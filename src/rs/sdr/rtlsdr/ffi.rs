@@ -54,6 +54,12 @@ extern "C" {
   pub fn rtlsdr_set_direct_sampling(dev: *mut RtlSdrDev, on: c_int) -> c_int;
   pub fn rtlsdr_set_offset_tuning(dev: *mut RtlSdrDev, on: c_int) -> c_int;
   pub fn rtlsdr_get_tuner_type(dev: *mut RtlSdrDev) -> c_int;
+  pub fn rtlsdr_get_device_usb_strings(
+    index: u32,
+    manufact: *mut c_char,
+    product: *mut c_char,
+    serial: *mut c_char,
+  ) -> c_int;
 
   // Streaming
   pub fn rtlsdr_reset_buffer(dev: *mut RtlSdrDev) -> c_int;

@@ -14,11 +14,11 @@ use crate::crypto;
 
 use super::shared_state::SharedState;
 use super::types::{WebSocketMessage, WsQueryParams};
+use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
-  active_source_id, broadcast_signal_display_settings,
+  active_source_id, broadcast_active_source, broadcast_signal_display_settings,
   broadcast_source_status, build_channels_snapshot, build_source_info_snapshot,
 };
-use super::websocket_server::reconcile_stale_device_snapshot;
 
 fn resolve_live_center_frequency(
   min_freq: f64,
@@ -129,6 +129,26 @@ pub async fn handle_ws_connection(
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
     if ws_sender
       .send(Message::Text(status_json.into()))
+      .await
+      .is_err()
+    {
+      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+      shared.client_count.fetch_sub(1, Ordering::Relaxed);
+      return;
+    }
+  }
+
+  // Send initial active source payload
+  let active_id = active_source_id(&shared);
+  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let active_source_payload = serde_json::json!({
+    "type": "active_source",
+    "source_id": active_id,
+    "source_mode": if paused { "file" } else { "live" },
+  });
+  if let Ok(active_json) = serde_json::to_string(&active_source_payload) {
+    if ws_sender
+      .send(Message::Text(active_json.into()))
       .await
       .is_err()
     {
@@ -328,6 +348,7 @@ pub fn handle_message(
       if let Some(paused) = message.paused {
         shared.is_paused.store(paused, Ordering::SeqCst);
         broadcast_source_status(&shared, &broadcast_tx, "connected");
+        broadcast_active_source(&shared, &broadcast_tx);
       }
     }
     "gain" => {
@@ -484,9 +505,11 @@ pub fn handle_message(
       );
       drop(sdr_settings);
       let source_id = active_source_id(shared);
-      if let (Some(fft_size), Some(frame_rate), Some(sample_rate)) =
-        (settings_payload.fft_size, settings_payload.frame_rate, settings_payload.sample_rate)
-      {
+      if let (Some(fft_size), Some(frame_rate), Some(sample_rate)) = (
+        settings_payload.fft_size,
+        settings_payload.frame_rate,
+        settings_payload.sample_rate,
+      ) {
         broadcast_signal_display_settings(
           shared,
           broadcast_tx,

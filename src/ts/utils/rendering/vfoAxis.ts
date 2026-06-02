@@ -118,16 +118,16 @@ export function createCanvasVfoAxisContext(
 
 export function formatVfoAxisEdgeLabel(
   freq: number,
-  _useHighRes: boolean,
+  useHighRes: boolean,
   _stepHz: number,
 ): string {
-  if (Math.abs(freq) >= 1_000_000) {
+  if (useHighRes && Math.abs(freq) >= 1_000_000) {
     return formatFrequencyHighRes(freq);
   }
   return formatFrequency(freq, {
     trimTrailingZeros: true,
     precisionMHz: 4,
-    precisionKHz: 0,
+    precisionKHz: 2,
   });
 }
 
@@ -359,7 +359,6 @@ export function drawVfoAxis({
       ctx.setFill(theme.label);
       ctx.setTextAlign("center");
       ctx.fillText(label, x, labelY);
-      occupy(x, label);
     }
   }
 

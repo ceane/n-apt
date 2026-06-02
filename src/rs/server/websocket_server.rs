@@ -67,7 +67,9 @@ use crate::sdr::processor::SdrProcessor;
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
-pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
+pub(crate) fn build_source_info_snapshot(
+  shared: &SharedState,
+) -> serde_json::Value {
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let device_info = shared.device_info.lock().unwrap().clone();
   let device_state = reconcile_device_state(
@@ -112,6 +114,10 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     status_device_name(device_connected, &device_info, &device_profile)
   };
 
+  let device_serial = shared.device_serial.lock().unwrap().clone();
+  let device_manufacturer = shared.device_manufacturer.lock().unwrap().clone();
+  let device_product = shared.device_product.lock().unwrap().clone();
+
   let active_source = serde_json::json!({
     "id": active_source_id,
     "name": device_name,
@@ -122,6 +128,9 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
     "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
+    "serial_number": device_serial,
+    "manufacturer": device_manufacturer,
+    "product": device_product,
     "sdr": {
       "max_sample_rate": max_sample_rate,
       "sample_rate_options": sample_rate_options,
@@ -140,6 +149,9 @@ pub(crate) fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Va
     "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "supports_approx_dbm": true,
     "supports_raw_iq_stream": true,
+    "serial_number": "",
+    "manufacturer": "",
+    "product": "",
     "sdr": {
       "max_sample_rate": 32_000_000_u32,
       "sample_rate_options": [8_000_000_u32, 16_000_000_u32, 32_000_000_u32],
@@ -215,9 +227,12 @@ pub(crate) fn broadcast_channels(
   let _ = broadcast_tx.send(payload);
 }
 
-pub(crate) fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
+pub(crate) fn build_channels_snapshot(
+  shared: &SharedState,
+) -> serde_json::Value {
   let channels = shared.channels.lock().unwrap().clone();
-  let active_signal_area = channels.first().map(|channel| channel.label.clone());
+  let active_signal_area =
+    channels.first().map(|channel| channel.label.clone());
   serde_json::json!({
     "type": "channels",
     "source_id": active_source_id(shared),
@@ -256,6 +271,9 @@ pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
     return false;
   }
 
+  #[cfg(test)]
+  let supported_device_present = false;
+  #[cfg(not(test))]
   let supported_device_present = match scan_usb_for_supported_device() {
     Ok(Some(_)) => true,
     Ok(None) => false,
@@ -300,17 +318,34 @@ pub(crate) fn broadcast_device_status(
   }
   *last_payload = Some(payload.clone());
   let _ = broadcast_tx.send(payload);
+
+  // Also broadcast the active source to propagate changes
+  broadcast_active_source(shared, broadcast_tx);
+}
+
+pub(crate) fn broadcast_active_source(
+  shared: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+) {
+  let active_id = active_source_id(shared);
+  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let payload = serde_json::json!({
+    "type": "active_source",
+    "active_source": active_id,
+    "active_source_mode": if paused { "file" } else { "live" },
+  });
+  let _ = broadcast_tx.send(payload.to_string());
 }
 
 pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
-  match device_type {
-    "rtl-sdr" => DeviceProfile {
+  match device_type.to_lowercase().as_str() {
+    "rtl-sdr" | "rtl_sdr" => DeviceProfile {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
       supports_raw_iq_stream: true,
     },
-    "hackrf_one" => DeviceProfile {
+    "hackrf_one" | "hackrf" => DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
@@ -380,6 +415,11 @@ impl WebSocketServer {
       !sdr_processor.is_mock(),
       sdr_processor.get_device_info(),
       build_device_profile(sdr_processor.device_type()),
+    );
+    shared.update_device_usb_strings(
+      sdr_processor.get_serial_number(),
+      sdr_processor.get_manufacturer(),
+      sdr_processor.get_product(),
     );
     shared.set_device_backend_error(sdr_processor.get_error());
 
@@ -524,6 +564,11 @@ impl WebSocketServer {
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
                   );
+                  shared_state.update_device_usb_strings(
+                    processor.get_serial_number(),
+                    processor.get_manufacturer(),
+                    processor.get_product(),
+                  );
                   shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 } else {
@@ -531,6 +576,11 @@ impl WebSocketServer {
                     !processor.is_mock(),
                     processor.get_device_info(),
                     build_device_profile(processor.device_type()),
+                  );
+                  shared_state.update_device_usb_strings(
+                    processor.get_serial_number(),
+                    processor.get_manufacturer(),
+                    processor.get_product(),
                   );
                   shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -550,6 +600,11 @@ impl WebSocketServer {
                   !processor.is_mock(),
                   processor.get_device_info(),
                   build_device_profile(processor.device_type()),
+                );
+                shared_state.update_device_usb_strings(
+                  processor.get_serial_number(),
+                  processor.get_manufacturer(),
+                  processor.get_product(),
                 );
                 shared_state.set_device_backend_error(processor.get_error());
                 broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -1545,7 +1600,7 @@ mod tests {
     crate::server::utils::clear_signals_config_cache();
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     let shared = SharedState::new("redis://127.0.0.1:6379");
-    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
     shared.update_device_status(
       true,
@@ -1593,7 +1648,7 @@ mod tests {
     crate::server::utils::clear_signals_config_cache();
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     let shared = SharedState::new("redis://127.0.0.1:6379");
-    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(2);
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
     shared.update_device_status(
       false,
@@ -1606,6 +1661,9 @@ mod tests {
 
     let first = broadcast_rx.try_recv().expect("first status broadcast");
     assert!(first.contains(r#""type":"source_info""#));
+    if let Ok(second) = broadcast_rx.try_recv() {
+      assert!(second.contains(r#""type":"active_source""#));
+    }
     assert!(
       broadcast_rx.try_recv().is_err(),
       "expected duplicate snapshot to be suppressed"
@@ -1619,7 +1677,7 @@ mod tests {
     crate::server::utils::clear_signals_config_cache();
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     let shared = SharedState::new("redis://127.0.0.1:6379");
-    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
     shared.update_device_status(
       true,

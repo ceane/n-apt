@@ -143,6 +143,21 @@ pub trait SdrDevice: Send {
   /// deciding to abandon the device and fall back to mock.
   fn is_healthy(&self) -> bool;
 
+  /// Get the device serial number (empty string if unavailable)
+  fn get_serial_number(&self) -> String {
+    String::new()
+  }
+
+  /// Get the device manufacturer string (empty string if unavailable)
+  fn get_manufacturer(&self) -> String {
+    String::new()
+  }
+
+  /// Get the device product string (empty string if unavailable)
+  fn get_product(&self) -> String {
+    String::new()
+  }
+
   /// Get the last error message if any
   fn get_error(&self) -> Option<String>;
 }

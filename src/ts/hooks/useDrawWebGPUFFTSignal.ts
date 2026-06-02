@@ -41,6 +41,7 @@ import {
   RESAMPLE_WGSL,
   SPIKE_COMPUTE_WGSL,
   SPIKE_RENDER_WGSL,
+  FLOOR_AVG_WGSL,
 } from "@n-apt/shaders";
 import {
   configureWebGPUCanvas,
@@ -159,6 +160,10 @@ type FFTWebGPUState = {
   spikeWaveformLength: number;
   floorAvgResultBuffer: GPUBuffer;
   floorAvgScratch: Uint32Array;
+  floorAvgPipeline: GPUComputePipeline;
+  floorAvgFinalizePipeline: GPUComputePipeline;
+  floorAvgBindGroupLayout: GPUBindGroupLayout;
+  floorAvgBindGroup: GPUBindGroup | null;
   // Persistent scratch buffers — allocated once, reused every frame
   scratchSpikeParamsAB: ArrayBuffer;
   scratchSpikeParamsU32: Uint32Array;
@@ -486,14 +491,32 @@ export function useDrawWebGPUFFTSignal() {
 
       const spikeParamsBuffer = device.createBuffer({
         size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
       const floorAvgResultBuffer = device.createBuffer({
         size: 12,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       });
       const floorAvgScratch = new Uint32Array(3);
+
+      // Floor Avg Pipelines
+      const floorAvgModule = device.createShaderModule({ code: FLOOR_AVG_WGSL });
+      const floorAvgBindGroupLayout = device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        ],
+      });
+      const floorAvgPipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [floorAvgBindGroupLayout] }),
+        compute: { module: floorAvgModule, entryPoint: "reduce" },
+      });
+      const floorAvgFinalizePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [floorAvgBindGroupLayout] }),
+        compute: { module: floorAvgModule, entryPoint: "finalize" },
+      });
 
       // Persistent scratch buffers — allocated once, reused every frame to avoid GC
       const scratchSpikeParamsAB = new ArrayBuffer(16);
@@ -538,6 +561,10 @@ export function useDrawWebGPUFFTSignal() {
         spikeWaveformLength: 0,
         floorAvgResultBuffer,
         floorAvgScratch,
+        floorAvgPipeline,
+        floorAvgFinalizePipeline,
+        floorAvgBindGroupLayout,
+        floorAvgBindGroup: null,
         scratchSpikeParamsAB,
         scratchSpikeParamsU32,
         scratchSpikeParamsF32,
@@ -610,7 +637,7 @@ export function useDrawWebGPUFFTSignal() {
         // --- Resample input buffer: recreate when waveform length changes ---
         if (
           !state.resampleInputBuffer ||
-          srcLen !== state.resampleInputLength
+          srcLen > state.resampleInputLength
         ) {
           retireBuffer(state.resampleInputBuffer);
           state.resampleInputBuffer = state.device.createBuffer({
@@ -625,7 +652,7 @@ export function useDrawWebGPUFFTSignal() {
         // This buffer holds the downsampled data that the render shader reads
         if (
           !state.resampleOutputBuffer ||
-          displayWidth !== state.resampleOutputLength
+          displayWidth > state.resampleOutputLength
         ) {
           retireBuffer(state.resampleOutputBuffer);
           state.resampleOutputBuffer = state.device.createBuffer({
@@ -660,14 +687,12 @@ export function useDrawWebGPUFFTSignal() {
         }
 
         // --- Spikes buffers rebuild ---
-        if (!state.spikeBuffer || srcLen !== state.spikeWaveformLength) {
-          retireBuffer(state.spikeBuffer);
+        if (!state.spikeBuffer) {
           state.spikeBuffer = state.device.createBuffer({
             // 128 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
             size: 128 * 16,
             usage: GPUBufferUsage.STORAGE,
           });
-          retireBuffer(state.spikeCountBuffer);
           state.spikeCountBuffer = state.device.createBuffer({
             size: 4,
             usage:
@@ -675,20 +700,29 @@ export function useDrawWebGPUFFTSignal() {
               GPUBufferUsage.COPY_DST |
               GPUBufferUsage.COPY_SRC,
           });
-          retireBuffer(state.spikeCountReadbackBuffer);
           state.spikeCountReadbackBuffer = state.device.createBuffer({
             size: 4,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
           });
-          state.spikeWaveformLength = srcLen;
+        }
+
+        if (buffersChanged || !state.spikeComputeBindGroup) {
+          state.floorAvgBindGroup = state.device.createBindGroup({
+            layout: state.floorAvgBindGroupLayout,
+            entries: [
+              { binding: 0, resource: { buffer: state.resampleInputBuffer! } },
+              { binding: 1, resource: { buffer: state.floorAvgResultBuffer } },
+              { binding: 2, resource: { buffer: state.spikeParamsBuffer } },
+            ],
+          });
 
           state.spikeComputeBindGroup = state.device.createBindGroup({
             layout: state.spikeComputePipeline.getBindGroupLayout(0),
             entries: [
               { binding: 0, resource: { buffer: state.resampleInputBuffer! } },
               { binding: 1, resource: { buffer: state.spikeParamsBuffer } },
-              { binding: 2, resource: { buffer: state.spikeBuffer } },
-              { binding: 3, resource: { buffer: state.spikeCountBuffer } },
+              { binding: 2, resource: { buffer: state.spikeBuffer! } },
+              { binding: 3, resource: { buffer: state.spikeCountBuffer! } },
               { binding: 4, resource: { buffer: state.floorAvgResultBuffer } },
             ],
           });
@@ -696,9 +730,9 @@ export function useDrawWebGPUFFTSignal() {
           state.spikeRenderBindGroup = state.device.createBindGroup({
             layout: state.spikeRenderLinePipeline.getBindGroupLayout(0),
             entries: [
-              { binding: 0, resource: { buffer: state.spikeBuffer } },
+              { binding: 0, resource: { buffer: state.spikeBuffer! } },
               { binding: 1, resource: { buffer: state.uniformBuffer } },
-              { binding: 2, resource: { buffer: state.spikeCountBuffer } },
+              { binding: 2, resource: { buffer: state.spikeCountBuffer! } },
             ],
           });
         }
@@ -718,17 +752,7 @@ export function useDrawWebGPUFFTSignal() {
         state.scratchSpikeParamsU32[0] = srcLen;
         state.scratchSpikeParamsU32[1] = windowSize;
         state.scratchSpikeParamsF32[2] = 3.0; // min_z_score
-        let floorSum = 0.0;
-        for (let i = 0; i < srcLen; i++) {
-          floorSum += waveformData[i];
-        }
-        const globalFloor = floorSum / Math.max(1, srcLen);
-        state.scratchSpikeParamsF32[3] = globalFloor;
-        state.floorAvgScratch[0] = new Uint32Array(
-          new Float32Array([globalFloor]).buffer,
-        )[0];
-        state.floorAvgScratch[1] = srcLen;
-        state.floorAvgScratch[2] = Math.round(globalFloor * 1024);
+        state.scratchSpikeParamsF32[3] = 0.0; // padding
 
         // --- All Uploads FIRST ---
         state.device.queue.writeBuffer(
@@ -761,14 +785,13 @@ export function useDrawWebGPUFFTSignal() {
             state.scratchZeroCount,
           );
         }
-        state.device.queue.writeBuffer(
-          state.floorAvgResultBuffer,
-          0,
-          state.floorAvgScratch,
-        );
 
         // --- Build command encoder: compute (resample → spikes) then render ---
         const encoder = state.device.createCommandEncoder();
+
+        if (showSpikeOverlay) {
+          encoder.clearBuffer(state.floorAvgResultBuffer);
+        }
 
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(state.resamplePipeline);
@@ -777,9 +800,21 @@ export function useDrawWebGPUFFTSignal() {
 
         if (
           showSpikeOverlay &&
+          state.floorAvgBindGroup &&
           state.spikeComputeBindGroup &&
           state.spikeCountBuffer
         ) {
+          // Floor Avg (reduce)
+          computePass.setPipeline(state.floorAvgPipeline);
+          computePass.setBindGroup(0, state.floorAvgBindGroup);
+          computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));
+
+          // Floor Avg (finalize)
+          computePass.setPipeline(state.floorAvgFinalizePipeline);
+          computePass.setBindGroup(0, state.floorAvgBindGroup);
+          computePass.dispatchWorkgroups(1);
+
+          // Spike Compute
           computePass.setPipeline(state.spikeComputePipeline);
           computePass.setBindGroup(0, state.spikeComputeBindGroup);
           computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));

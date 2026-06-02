@@ -71,8 +71,8 @@ export interface TxSettingsSectionProps {
   sampleRateHz: number;
   maxSampleRateHz?: number | null;
   centerFrequencyHz: number;
-  powerDbm: number;
-  vgaGainDb: number;
+  powerDbm?: number;
+  vgaGainDb?: number;
   onSignalChange: (value: string) => void;
   onSampleRateChange: (value: number) => void;
   onCenterFrequencyChange: (value: number) => void;
@@ -85,14 +85,74 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   sampleRateHz,
   maxSampleRateHz = 20_000_000,
   centerFrequencyHz,
-  powerDbm,
-  vgaGainDb,
+  powerDbm = 0,
+  vgaGainDb = 0,
   onSignalChange,
   onSampleRateChange,
   onCenterFrequencyChange,
   onPowerDbmChange,
   onVgaGainChange,
 }) => {
+  const [localPower, setLocalPower] = React.useState(
+    Number.isFinite(powerDbm) ? powerDbm.toString() : "0",
+  );
+  const [localVgaGain, setLocalVgaGain] = React.useState(
+    Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0",
+  );
+
+  const powerInputRef = React.useRef<HTMLInputElement>(null);
+  const vgaGainInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (document.activeElement !== powerInputRef.current) {
+      setLocalPower(Number.isFinite(powerDbm) ? powerDbm.toString() : "0");
+    }
+  }, [powerDbm]);
+
+  React.useEffect(() => {
+    if (document.activeElement !== vgaGainInputRef.current) {
+      setLocalVgaGain(Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0");
+    }
+  }, [vgaGainDb]);
+
+  const handlePowerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.trim();
+    setLocalPower(val);
+    const num = Number(val);
+    if (Number.isFinite(num) && val !== "" && val !== "-") {
+      onPowerDbmChange(num);
+    }
+  };
+
+  const handlePowerBlur = () => {
+    const num = Number(localPower);
+    if (Number.isFinite(num) && localPower !== "" && localPower !== "-") {
+      onPowerDbmChange(num);
+      setLocalPower(num.toString());
+    } else {
+      setLocalPower(Number.isFinite(powerDbm) ? powerDbm.toString() : "0");
+    }
+  };
+
+  const handleVgaGainChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.trim();
+    setLocalVgaGain(val);
+    const num = Number(val);
+    if (Number.isFinite(num) && val !== "" && val !== "-") {
+      onVgaGainChange(num);
+    }
+  };
+
+  const handleVgaGainBlur = () => {
+    const num = Number(localVgaGain);
+    if (Number.isFinite(num) && localVgaGain !== "" && localVgaGain !== "-") {
+      onVgaGainChange(num);
+      setLocalVgaGain(num.toString());
+    } else {
+      setLocalVgaGain(Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0");
+    }
+  };
+
   return (
     <Section>
       <Row label={<IconLabel icon={Radio} text="Signal" />}>
@@ -122,9 +182,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       <Row label="Power">
         <InlineField>
           <NumericInput
-            type="number"
-            value={powerDbm}
-            onChange={(e) => onPowerDbmChange(Number(e.target.value))}
+            ref={powerInputRef}
+            type="text"
+            value={localPower}
+            onChange={handlePowerChange}
+            onBlur={handlePowerBlur}
           />
           <UnitSuffix>dBm</UnitSuffix>
         </InlineField>
@@ -132,9 +194,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       <Row label="VGA gain">
         <InlineField>
           <NumericInput
-            type="number"
-            value={vgaGainDb}
-            onChange={(e) => onVgaGainChange(Number(e.target.value))}
+            ref={vgaGainInputRef}
+            type="text"
+            value={localVgaGain}
+            onChange={handleVgaGainChange}
+            onBlur={handleVgaGainBlur}
           />
           <UnitSuffix>dB</UnitSuffix>
         </InlineField>

@@ -78,6 +78,16 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const vizZoomFloorPan = useAppSelector(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
     );
+    const showTxSlider = useAppSelector(
+      (reduxState) => reduxState.spectrum.showTxSlider,
+    );
+    const deviceKind = useAppSelector(
+      (reduxState) => reduxState.spectrum.deviceKind,
+    );
+    const canShowTxSlider =
+      deviceKind === "hackrf_one" ||
+      deviceKind === "tx_rx" ||
+      deviceKind === "tx";
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -263,6 +273,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             }
             onWfSmoothChange={(enabled) =>
               dispatch(spectrumActions.setWfSmoothEnabled(enabled))
+            }
+            showTxSlider={showTxSlider}
+            canShowTxSlider={canShowTxSlider}
+            onShowTxSliderChange={(enabled) =>
+              dispatch(spectrumActions.setShowTxSlider(enabled))
             }
             onResetZoomDb={() => {
               props.onVizZoomFloorChange?.(1);

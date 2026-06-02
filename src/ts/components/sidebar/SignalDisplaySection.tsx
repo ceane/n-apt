@@ -308,9 +308,31 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     {formatFrequency(rate)}
                   </option>
                 ))}
-              </SampleRateSelect>
+                </SampleRateSelect>
             </Row>
           )}
+          <Row
+            label={<IconLabel icon={ImageIcon} text="FFT Size" />}
+            tooltipTitle="FFT Size"
+            tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
+          >
+            <SettingSelect
+              value={fftSize}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                onFftSizeChange(val);
+                scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
+              }}
+            >
+              <>
+                {manualFftOptions.map((size) => (
+                  <option key={`manual-${size}`} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </>
+            </SettingSelect>
+          </Row>
           {variant !== "diagnostic" && (
             <Row
               label={
@@ -360,68 +382,46 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               </InputGroup>
             </Row>
           )}
-          <Row
-            label={<IconLabel icon={ImageIcon} text="FFT Size" />}
-            tooltipTitle="FFT Size"
-            tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
-          >
-            <SettingSelect
-              value={fftSize}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                onFftSizeChange(val);
-                scheduleCoupledAdjustment("fftSize", val, fftFrameRate);
-              }}
-            >
-              <>
-                {manualFftOptions.map((size) => (
-                  <option key={`manual-${size}`} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </>
-            </SettingSelect>
-          </Row>
           {variant !== "diagnostic" && (
-            <>
-              <Row
-                label={<IconLabel icon={Blend} text="FFT Window" />}
-                tooltipTitle="FFT Window"
-                tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
+            <Row
+              label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
+              tooltipTitle="Display Temporal Resolution"
+              tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+            >
+              <WideSettingSelect
+                value={temporalResolution}
+                onChange={(e) => {
+                  onTemporalResolutionChange(
+                    e.target.value as "low" | "medium" | "high",
+                  );
+                }}
               >
-                <WideSettingSelect
-                  value={fftWindow}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    onFftWindowChange(val);
-                  }}
-                >
-                  <option value="Rectangular">Rectangular</option>
-                  <option value="Nuttall">Nuttall</option>
-                  <option value="Hamming">Hamming</option>
-                  <option value="Hanning">Hanning</option>
-                  <option value="Blackman">Blackman</option>
-                </WideSettingSelect>
-              </Row>
-              <Row
-                label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
-                tooltipTitle="Display Temporal Resolution"
-                tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </WideSettingSelect>
+            </Row>
+          )}
+          {variant !== "diagnostic" && (
+            <Row
+              label={<IconLabel icon={Blend} text="FFT Window" />}
+              tooltipTitle="FFT Window"
+              tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
+            >
+              <WideSettingSelect
+                value={fftWindow}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  onFftWindowChange(val);
+                }}
               >
-                <WideSettingSelect
-                  value={temporalResolution}
-                  onChange={(e) => {
-                    onTemporalResolutionChange(
-                      e.target.value as "low" | "medium" | "high",
-                    );
-                  }}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </WideSettingSelect>
-              </Row>
-            </>
+                <option value="Rectangular">Rectangular</option>
+                <option value="Nuttall">Nuttall</option>
+                <option value="Hamming">Hamming</option>
+                <option value="Hanning">Hanning</option>
+                <option value="Blackman">Blackman</option>
+              </WideSettingSelect>
+            </Row>
           )}
         </>
       )}

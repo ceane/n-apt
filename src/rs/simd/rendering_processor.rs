@@ -2,9 +2,9 @@
 //!
 //! ARM-optimized processor for rendering operations using unified SIMD backend.
 
+use crate::fft::processor::WindowType;
 #[allow(unused_imports)]
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
-use crate::fft::processor::WindowType;
 use crate::simd::common::WindowFunctions;
 use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(target_arch = "wasm32")]
@@ -96,8 +96,10 @@ impl RenderingProcessor {
       _ => WindowType::Hanning,
     };
 
-    let window_coeffs = WindowFunctions::get_coeffs(normalized_window, num_samples);
-    let window_sum = WindowFunctions::get_window_sum(normalized_window, num_samples);
+    let window_coeffs =
+      WindowFunctions::get_coeffs(normalized_window, num_samples);
+    let window_sum =
+      WindowFunctions::get_window_sum(normalized_window, num_samples);
     let inv_norm = 1.0 / (window_sum * window_sum).max(1e-12);
 
     let mut buffer = vec![Complex::new(0.0f32, 0.0f32); fft_size];

@@ -313,8 +313,10 @@ impl MockAptDevice {
       }
 
       // Normalization factor to keep peak sum < 0.8 (room for noise)
-      let norm_factor = if total_amp > 0.8 {
-        0.8 / total_amp
+      // Account for the +10dB max modulation gain (factor of ~3.162)
+      let max_expected_peak = total_amp * 3.16227766;
+      let norm_factor = if max_expected_peak > 0.8 {
+        0.8 / max_expected_peak
       } else {
         1.0
       };
@@ -593,11 +595,9 @@ impl MockAptDevice {
 
     let sample_rate = self.sample_rate as f64;
     let center_freq = self.center_freq as f64;
-    let pulse_phase_step = 2.0 * PI64 * 3.0 / sample_rate;
     let frame_pulse_phase_base =
       2.0 * PI64 * 3.0 * self.total_samples as f64 / sample_rate;
     let modulation_phase_step = 0.31 / sample_rate;
-    let (pulse_rot_im, pulse_rot_re) = pulse_phase_step.sin_cos();
 
     // Calculate settle factor (0.0 to 1.0) for realistic warm-up
     let settle_factor = if self.samples_since_init < self.settle_time_samples {
@@ -740,11 +740,10 @@ impl MockAptDevice {
               let pulse_phase_base = chunk_pulse_phase_base
                 + state.modulation_phase as f64
                 + state.frame_start_phase as f64 * 0.15;
-              let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
+              let (pulse_im, _pulse_re) = pulse_phase_base.sin_cos();
+              let cur_amp = amp * modulation_gain(pulse_im);
 
               for j in 0..current_chunk_size {
-                let cur_amp = amp * modulation_gain(pulse_im);
-
                 i_chunk[j] += cur_amp * p_re;
                 q_chunk[j] += cur_amp * p_im;
 
@@ -752,13 +751,6 @@ impl MockAptDevice {
                 let next_im = p_im * r_re + p_re * r_im;
                 p_re = next_re;
                 p_im = next_im;
-
-                let next_pulse_re =
-                  pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
-                let next_pulse_im =
-                  pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
-                pulse_re = next_pulse_re;
-                pulse_im = next_pulse_im;
               }
             }
           });
@@ -785,11 +777,10 @@ impl MockAptDevice {
             let pulse_phase_base = chunk_pulse_phase_base
               + state.modulation_phase as f64
               + state.frame_start_phase as f64 * 0.15;
-            let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
+            let (pulse_im, _pulse_re) = pulse_phase_base.sin_cos();
+            let cur_amp = amp * modulation_gain(pulse_im);
 
             for j in 0..current_chunk_size {
-              let cur_amp = amp * modulation_gain(pulse_im);
-
               i_chunk[j] += cur_amp * p_re;
               q_chunk[j] += cur_amp * p_im;
 
@@ -797,13 +788,6 @@ impl MockAptDevice {
               let next_im = p_im * r_re + p_re * r_im;
               p_re = next_re;
               p_im = next_im;
-
-              let next_pulse_re =
-                pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
-              let next_pulse_im =
-                pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
-              pulse_re = next_pulse_re;
-              pulse_im = next_pulse_im;
             }
           }
         }

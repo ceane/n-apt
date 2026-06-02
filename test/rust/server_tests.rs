@@ -68,9 +68,13 @@ async fn test_server_status_endpoint() {
   response.assert_status_ok();
 
   let json = response.json::<serde_json::Value>();
-  assert!(json.get("device_connected").is_some());
-  assert!(json.get("clients").is_some());
-  assert!(json.get("authenticated_clients").is_some());
+  let meta = json.get("meta").expect("Expected 'meta' field");
+  assert!(meta.get("clients").is_some());
+  assert!(meta.get("authenticated_clients").is_some());
+
+  let status = json.get("status").expect("Expected 'status' field");
+  assert_eq!(status["type"], "source_info");
+  assert_eq!(status["active_source"], "mock-apt");
 }
 
 #[tokio::test]

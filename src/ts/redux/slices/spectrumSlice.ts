@@ -1,7 +1,13 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { FrequencyRange, Alignment } from "@n-apt/consts/types";
 
-export const getMaxTxPowerDbm = (frequencyHz: number): number => {
+export const getMaxTxPowerDbm = (
+  frequencyHz: number,
+  deviceKind: string | null,
+): number => {
+  if (deviceKind !== "hackrf_one") {
+    return Infinity;
+  }
   if (frequencyHz < 2_150_000_000) {
     return 15;
   }
@@ -12,6 +18,28 @@ export const getMaxTxPowerDbm = (frequencyHz: number): number => {
     return 5;
   }
   return 0;
+};
+
+export const getMinTxPowerDbm = (
+  frequencyHz: number,
+  deviceKind: string | null,
+): number => {
+  if (deviceKind !== "hackrf_one") {
+    return -Infinity;
+  }
+  if (frequencyHz < 30_000_000) {
+    return -65;
+  }
+  if (frequencyHz < 100_000_000) {
+    return -70;
+  }
+  if (frequencyHz < 1_000_000_000) {
+    return -75;
+  }
+  if (frequencyHz < 3_000_000_000) {
+    return -70;
+  }
+  return -60;
 };
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
@@ -61,12 +89,14 @@ export interface SpectrumState {
   rtlAGC: boolean;
   sampleRateHz: number;
   minReceiveSampleRateHz: number;
+  deviceKind: string | null;
 
   // Visualization state
   visualizerPaused: boolean;
   isWaterfallCleared: boolean;
   showSpikeOverlay: boolean;
   gpuSpikeCount: number;
+  showTxSlider: boolean;
 
   // Diagnostic state
   diagnosticStatus: string;
@@ -125,7 +155,7 @@ const initialState: SpectrumState = {
 
   fftMinDb: -120,
   fftMaxDb: 0, // This will be updated based on powerScale
-  fftSize: 32768,
+  fftSize: 2048,
   fftSizeOptions: [],
   fftWindow: "Rectangular",
   fftFrameRate: 60,
@@ -148,11 +178,13 @@ const initialState: SpectrumState = {
   rtlAGC: false,
   sampleRateHz: 3_200_000,
   minReceiveSampleRateHz: 3_200_000,
+  deviceKind: "hackrf_one",
 
   visualizerPaused: false,
   isWaterfallCleared: false,
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
+  showTxSlider: true,
   previewRange: null,
   previewAlignment: "centered",
 
@@ -228,14 +260,17 @@ const spectrumSlice = createSlice({
     },
 
     setVizZoom: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoom = action.payload;
     },
 
     setVizZoomFloor: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoomFloor = action.payload;
     },
 
     setVizZoomFloorPan: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoomFloorPan = action.payload;
     },
 
@@ -244,6 +279,7 @@ const spectrumSlice = createSlice({
     },
 
     setVizPan: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizPanOffset = action.payload;
     },
 
@@ -256,11 +292,17 @@ const spectrumSlice = createSlice({
       state,
       action: PayloadAction<{ min: number; max: number }>,
     ) => {
+      if (
+        !Number.isFinite(action.payload.min) ||
+        !Number.isFinite(action.payload.max)
+      )
+        return;
       state.fftMinDb = Math.round(action.payload.min);
       state.fftMaxDb = Math.round(action.payload.max);
     },
 
     setFftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.fftSize = action.payload;
     },
 
@@ -273,6 +315,7 @@ const spectrumSlice = createSlice({
     },
 
     setFftFrameRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.fftFrameRate = action.payload;
     },
 
@@ -294,35 +337,49 @@ const spectrumSlice = createSlice({
     },
 
     setTxSampleRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.txSampleRateHz = action.payload;
     },
 
     setTxCenterFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.txCenterFrequencyHz = action.payload;
-      const maxPower = getMaxTxPowerDbm(action.payload);
-      if (state.txPowerDbm > maxPower) {
-        state.txPowerDbm = maxPower;
-      }
+      const minPower = getMinTxPowerDbm(action.payload, state.deviceKind);
+      const maxPower = getMaxTxPowerDbm(action.payload, state.deviceKind);
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
     },
 
     setTxPowerDbm: (state, action: PayloadAction<number>) => {
-      const maxPower = getMaxTxPowerDbm(state.txCenterFrequencyHz);
-      state.txPowerDbm = Math.min(action.payload, maxPower);
+      if (!Number.isFinite(action.payload)) return;
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      state.txPowerDbm = Math.max(minPower, Math.min(action.payload, maxPower));
     },
 
     setTxVgaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.txVgaGain = action.payload;
     },
 
     setGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.gain = action.payload;
     },
 
     setHackrfLnaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.hackrfLnaGain = action.payload;
     },
 
     setHackrfVgaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.hackrfVgaGain = action.payload;
     },
 
@@ -331,6 +388,7 @@ const spectrumSlice = createSlice({
     },
 
     setPpm: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.ppm = action.payload;
     },
 
@@ -343,23 +401,51 @@ const spectrumSlice = createSlice({
     },
 
     setSampleRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.sampleRateHz = action.payload;
     },
 
     setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.minReceiveSampleRateHz = action.payload;
     },
 
-    // Bundle updates for efficiency
     setSdrSettingsBundle: (
       state,
       action: PayloadAction<Partial<SpectrumState>>,
     ) => {
-      Object.assign(state, action.payload);
-      const maxPower = getMaxTxPowerDbm(state.txCenterFrequencyHz);
-      if (state.txPowerDbm > maxPower) {
-        state.txPowerDbm = maxPower;
+      const cleanPayload: Partial<SpectrumState> = {};
+      for (const [key, val] of Object.entries(action.payload)) {
+        if (typeof val === "number" && !Number.isFinite(val)) {
+          continue;
+        }
+        (cleanPayload as any)[key] = val;
       }
+      Object.assign(state, cleanPayload);
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
+    },
+
+    setDeviceKind: (state, action: PayloadAction<string | null>) => {
+      state.deviceKind = action.payload;
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        action.payload,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        action.payload,
+      );
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
     },
 
     // Visualization state
@@ -388,6 +474,10 @@ const spectrumSlice = createSlice({
 
     setGpuSpikeCount: (state, action: PayloadAction<number>) => {
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
+    },
+
+    setShowTxSlider: (state, action: PayloadAction<boolean>) => {
+      state.showTxSlider = action.payload;
     },
 
     // Diagnostic state
@@ -483,6 +573,7 @@ export const {
   setTxSignal,
   setTxSampleRateHz,
   setTxCenterFrequencyHz,
+  setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
   setGain,
@@ -507,6 +598,7 @@ export const {
   setGpuSpikeCount,
   setPreviewRange,
   setPreviewAlignment,
+  setShowTxSlider,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

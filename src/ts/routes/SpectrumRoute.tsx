@@ -39,7 +39,9 @@ import {
   setNoteCardsCollapsed,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
+  setDeviceKind,
 } from "@n-apt/redux";
+import { selectActiveSource } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
@@ -290,6 +292,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.txCenterFrequencyHz,
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
+  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
+  const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
+  const activeSource = useAppSelector(selectActiveSource);
+  const canShowTxSlider =
+    deviceKind === "hackrf_one" ||
+    deviceKind === "tx_rx" ||
+    deviceKind === "tx" ||
+    activeSource?.capability?.includes("tx") ||
+    false;
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -370,6 +381,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       window.dispatchEvent(new Event("resize"));
     });
   }, [activeTab]);
+
+  useEffect(() => {
+    reduxDispatch(setDeviceKind(deviceProfile?.kind ?? null));
+  }, [deviceProfile?.kind, reduxDispatch]);
 
   // Device connection state management
   useDeviceConnectionState({
@@ -820,20 +835,22 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               <FFTAndWaterfall
                 ref={fftCanvasRef}
                 overlayContent={
-                  <TxSliderOverlay
-                    signalLabel={String(txSignal).toUpperCase()}
-                    powerDbm={txPowerDbm}
-                    visibleMinHz={state.frequencyRange.min}
-                    visibleMaxHz={state.frequencyRange.max}
-                    txCenterHz={txCenterFrequencyHz}
-                    txSampleRateHz={txSampleRateHz}
-                    onCenterFrequencyChange={(value) =>
-                      reduxDispatch(setTxCenterFrequencyHz(value))
-                    }
-                    onSampleRateChange={(value) =>
-                      reduxDispatch(setTxSampleRateHz(value))
-                    }
-                  />
+                  showTxSlider && canShowTxSlider ? (
+                    <TxSliderOverlay
+                      signalLabel={String(txSignal).toUpperCase()}
+                      powerDbm={txPowerDbm}
+                      visibleMinHz={state.frequencyRange.min}
+                      visibleMaxHz={state.frequencyRange.max}
+                      txCenterHz={txCenterFrequencyHz}
+                      txSampleRateHz={txSampleRateHz}
+                      onCenterFrequencyChange={(value) =>
+                        reduxDispatch(setTxCenterFrequencyHz(value))
+                      }
+                      onSampleRateChange={(value) =>
+                        reduxDispatch(setTxSampleRateHz(value))
+                      }
+                    />
+                  ) : null
                 }
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}

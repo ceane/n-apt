@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use log::{debug, info};
+use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
 use std::thread::JoinHandle;
@@ -47,6 +48,7 @@ pub struct HackRfDevice {
   ppm: u32,
   iq_buffer: Vec<u8>,
   streaming_started: bool,
+  serial_number: String,
 }
 
 unsafe impl Send for HackRfDevice {}
@@ -89,12 +91,29 @@ impl HackRfDevice {
       }
       let mut dev: *mut ffi::HackRfDeviceHandle = ptr::null_mut();
       let ret = ffi::hackrf_device_list_open(list, index, &mut dev);
+
+      // Extract serial number before freeing the list
+      let serial_number =
+        if (*list).devicecount > index && !(*list).serial_numbers.is_null() {
+          let sn_ptr = *(*list).serial_numbers.offset(index as isize);
+          if sn_ptr.is_null() {
+            String::new()
+          } else {
+            CStr::from_ptr(sn_ptr).to_string_lossy().into_owned()
+          }
+        } else {
+          String::new()
+        };
+
       ffi::hackrf_device_list_free(list);
       if ret != 0 || dev.is_null() {
         let _ = ffi::hackrf_exit();
         return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
-      info!("Opened HackRF One device #{}", index);
+      info!(
+        "Opened HackRF One device #{} (serial: {:?})",
+        index, serial_number
+      );
 
       let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
@@ -109,6 +128,7 @@ impl HackRfDevice {
         ppm: 0,
         iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
         streaming_started: false,
+        serial_number,
       })
     }
   }
@@ -185,6 +205,10 @@ impl SdrDevice for HackRfDevice {
       "HackRF One - Freq: {} Hz, Rate: {} Hz",
       self.requested_center_frequency, self.sample_rate
     )
+  }
+
+  fn get_serial_number(&self) -> String {
+    self.serial_number.clone()
   }
 
   fn initialize(&mut self) -> Result<()> {

@@ -482,6 +482,11 @@ async fn attach_real_device(
     processor.get_device_info(),
     build_device_profile(processor.device_type()),
   );
+  shared_state.update_device_usb_strings(
+    processor.get_serial_number(),
+    processor.get_manufacturer(),
+    processor.get_product(),
+  );
   broadcast_device_status(shared_state, broadcast_tx);
   Ok(())
 }
@@ -505,6 +510,11 @@ async fn disconnect_to_mock(
     false,
     processor.get_device_info(),
     build_device_profile(processor.device_type()),
+  );
+  shared_state.update_device_usb_strings(
+    String::new(),
+    String::new(),
+    String::new(),
   );
   broadcast_device_status(shared_state, broadcast_tx);
   state.last_failure_at = Some(Instant::now());

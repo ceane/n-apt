@@ -30,6 +30,7 @@ export {
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
   isValidSourceErrorMessage,
+  isValidActiveSourceMessage,
   isValidSpectrumFrame,
   isValidCaptureRequest,
   isValidCaptureStatus,

@@ -7,9 +7,9 @@ const OverlayRoot = styled.div`
   position: absolute;
   left: 18px;
   right: 18px;
-  bottom: 72px;
+  bottom: 96px;
   z-index: 160;
-  pointer-events: auto;
+  pointer-events: none;
   user-select: none;
 `;
 
@@ -17,15 +17,15 @@ const OverlayCard = styled.div`
   pointer-events: auto;
   display: grid;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(
     180deg,
-    rgba(8, 10, 14, 0.82),
-    rgba(4, 6, 10, 0.92)
+    rgba(8, 10, 14, 0.72),
+    rgba(4, 6, 10, 0.84)
   );
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(10px);
 `;
 
@@ -62,7 +62,7 @@ const Badge = styled.span`
 
 const Body = styled.div`
   display: grid;
-  gap: 8px;
+  gap: 6px;
   pointer-events: auto;
 `;
 
@@ -403,7 +403,8 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
           </Marks>
           <Hint>
             {formatHz(txSampleRateHz)} sample rate · {formatHz(txCenterHz)}{" "}
-            center · {powerDbm.toFixed(1)} dBm target
+            center · {(Number.isFinite(powerDbm) ? powerDbm : 0).toFixed(1)} dBm
+            target
           </Hint>
         </Body>
       </OverlayCard>

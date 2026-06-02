@@ -14,6 +14,7 @@ export type DeviceState =
   | "disconnected"
   | "stale"
   | "error"
+  | "transmitting"
   | null;
 
 export type DeviceLoadingReason = "connect" | "restart" | null;
@@ -204,6 +205,7 @@ export type SourceStatus =
   | "disconnected"
   | "stale"
   | "error"
+  | "transmitting"
   | "streaming"
   | null;
 
@@ -260,6 +262,12 @@ export interface SourceInfoMessage {
   sources: SourceInfo[];
 }
 
+export interface ActiveSourceMessage {
+  type: "active_source";
+  source_id: string;
+  source_mode: "live" | "file";
+}
+
 export interface SourceStatusMessage {
   type: "status";
   source_id: string;
@@ -310,4 +318,5 @@ export type WebSocketMessage =
       signalArea: string;
     }
   | ({ type: "capture" } & CaptureRequest)
-  | { type: "capture_stop"; jobId?: string };
+  | { type: "capture_stop"; jobId?: string }
+  | ActiveSourceMessage;

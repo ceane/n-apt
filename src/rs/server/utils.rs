@@ -679,6 +679,12 @@ pub fn device_sample_rate_ceiling(
     return 20_000_000;
   }
 
+  if device_profile.is_rtl_sdr
+    || matches!(device_profile.kind.as_str(), "rtl_sdr" | "rtl-sdr")
+  {
+    return 3_200_000;
+  }
+
   if device_connected {
     parse_device_info_sample_rate(device_info)
       .unwrap_or(sdr_settings.sample_rate)
@@ -919,6 +925,30 @@ mod tests {
     let (max_sample_rate, options) = resolve_device_sample_rate_options(
       false,
       "Mock APT SDR - Freq: 1600000 Hz, Rate: 3200000 Hz (Sample Rate: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 3_200_000);
+    assert_eq!(options, vec![3_200_000]);
+  }
+
+  #[test]
+  fn resolves_rtl_sdr_sample_rate_options_to_exactly_3_2_mhz() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "rtl_sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    let settings = load_sdr_settings();
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      true,
+      "RTL-SDR v4 - Freq: 1600000 Hz, Rate: 3200000 Hz",
       &profile,
       &settings,
     );

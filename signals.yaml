@@ -57,7 +57,7 @@ signals:
     # and !max from the device's supported ceiling.
     devices:
       rtl_sdr:
-        sample_rate: !max
+        sample_rate: !frequency 3.2MHz
         gain_limits:
           min: 0.0
           max: 49.6

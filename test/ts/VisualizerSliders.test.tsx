@@ -208,6 +208,21 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("FFT Averaging")).toBeInTheDocument();
   });
 
+  test("hides the tx slider toggle when the active source cannot transmit", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders
+          {...defaultProps}
+          canShowTxSlider={false}
+          showTxSlider={true}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByText(/tx slider/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /tx slider/i })).toBeNull();
+  });
+
   test("sliders trigger change callbacks on interaction", () => {
     const onZoom = jest.fn();
     render(

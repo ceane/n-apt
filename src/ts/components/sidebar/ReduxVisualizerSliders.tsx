@@ -49,6 +49,10 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const vizZoomFloorPan = useAppSelector(
     (state) => state.spectrum.vizZoomFloorPan,
   );
+  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
+  const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
+  const canShowTxSlider =
+    deviceKind === "hackrf_one" || deviceKind === "tx_rx" || deviceKind === "tx";
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(
@@ -136,6 +140,11 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
         autoZoomStability={autoZoomStability}
         onAutoZoomStabilityChange={(enabled) =>
           dispatch(spectrumActions.setAutoZoomStability(enabled))
+        }
+        showTxSlider={showTxSlider}
+        canShowTxSlider={canShowTxSlider}
+        onShowTxSliderChange={(show) =>
+          dispatch(spectrumActions.setShowTxSlider(show))
         }
         onLockZoomFloor={() => {
           dispatch(spectrumActions.setVizZoomFloor(vizZoom));

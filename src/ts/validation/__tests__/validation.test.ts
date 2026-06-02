@@ -7,10 +7,12 @@ import {
   isValidAuthResult,
   isValidWebSocketMessage,
   isValidSourceInfoMessage,
+  isValidActiveSourceMessage,
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
   isValidSourceErrorMessage,
   isValidSpectrumFrame,
+  isValidSpectrumFrameEnhanced,
   isValidCaptureRequest,
   calculateExpectedLatency,
   calculateTrustLevel,
@@ -88,18 +90,35 @@ describe("Validation System", () => {
       expect(isValidWebSocketMessage(validMessage)).toBe(true);
     });
 
+    test("should validate active source update", () => {
+      const validMessage = {
+        type: "active_source",
+        source_id: "rtl-sdr-1",
+        source_mode: "live",
+      };
+
+      expect(isValidActiveSourceMessage(validMessage)).toBe(true);
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should reject active source update with invalid mode", () => {
+      const invalidMessage = {
+        type: "active_source",
+        source_id: "rtl-sdr-1",
+        source_mode: "invalid_mode",
+      };
+
+      expect(isValidActiveSourceMessage(invalidMessage)).toBe(false);
+    });
+
     test("should validate source status update", () => {
       expect(
         isValidSourceStatusMessage({
           type: "status",
-          sources: [
-            {
-              id: "mock-apt",
-              status: "loading",
-              loading_attempt: 1,
-              loading_attempt_max: 3,
-            },
-          ],
+          source_id: "mock-apt",
+          status: "loading",
+          loading_attempt: 1,
+          loading_attempt_max: 3,
         }),
       ).toBe(true);
     });
@@ -180,7 +199,7 @@ describe("Validation System", () => {
         description: "Test description",
       };
 
-      expect(isValidSpectrumFrame(invalidFrame)).toBe(false);
+      expect(isValidSpectrumFrameEnhanced(invalidFrame)).toBe(false);
     });
   });
 
@@ -192,6 +211,7 @@ describe("Validation System", () => {
           { minFreq: 100_000_000, maxFreq: 200_000_000 },
           { minFreq: 300_000_000, maxFreq: 400_000_000 },
         ],
+        durationMode: "timed" as const,
         durationS: 60.0,
         fileType: ".napt" as const,
         acquisitionMode: "stepwise" as const,

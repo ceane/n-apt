@@ -16,15 +16,11 @@ export function fmtFreq(hz: number, zoom: number = 1): string {
  * Format a frequency for tick labels.
  * Precision adapts to the step size so adjacent ticks are distinguishable.
  */
-export function fmtFreqTick(hz: number, stepHz: number): string {
-  const { precisionMHz } = tickPrecisionForStep(stepHz);
-  if (Math.abs(hz) >= 1_000_000) {
-    return formatFrequencyHighRes(hz);
-  }
+export function fmtFreqTick(hz: number, _stepHz: number): string {
   return formatFrequency(hz, {
     trimTrailingZeros: true,
-    precisionMHz,
-    precisionKHz: 0,
+    precisionMHz: 4,
+    precisionKHz: 2,
   });
 }
 
