@@ -491,30 +491,54 @@ export function useDrawWebGPUFFTSignal() {
 
       const spikeParamsBuffer = device.createBuffer({
         size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.UNIFORM |
+          GPUBufferUsage.COPY_DST,
       });
 
       const floorAvgResultBuffer = device.createBuffer({
         size: 12,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_DST |
+          GPUBufferUsage.COPY_SRC,
       });
       const floorAvgScratch = new Uint32Array(3);
 
       // Floor Avg Pipelines
-      const floorAvgModule = device.createShaderModule({ code: FLOOR_AVG_WGSL });
+      const floorAvgModule = device.createShaderModule({
+        code: FLOOR_AVG_WGSL,
+      });
       const floorAvgBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "uniform" },
+          },
         ],
       });
       const floorAvgPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [floorAvgBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [floorAvgBindGroupLayout],
+        }),
         compute: { module: floorAvgModule, entryPoint: "reduce" },
       });
       const floorAvgFinalizePipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [floorAvgBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [floorAvgBindGroupLayout],
+        }),
         compute: { module: floorAvgModule, entryPoint: "finalize" },
       });
 
@@ -635,10 +659,7 @@ export function useDrawWebGPUFFTSignal() {
         let buffersChanged = false;
 
         // --- Resample input buffer: recreate when waveform length changes ---
-        if (
-          !state.resampleInputBuffer ||
-          srcLen > state.resampleInputLength
-        ) {
+        if (!state.resampleInputBuffer || srcLen > state.resampleInputLength) {
           retireBuffer(state.resampleInputBuffer);
           state.resampleInputBuffer = state.device.createBuffer({
             size: srcLen * Float32Array.BYTES_PER_ELEMENT,
@@ -947,8 +968,6 @@ export function useDrawWebGPUFFTSignal() {
         }
         pass.end();
         state.device.queue.submit([encoder.finish()]);
-
-
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
           const readbackBuffer = state.spikeCountReadbackBuffer;

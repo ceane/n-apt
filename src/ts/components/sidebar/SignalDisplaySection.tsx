@@ -308,7 +308,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     {formatFrequency(rate)}
                   </option>
                 ))}
-                </SampleRateSelect>
+              </SampleRateSelect>
             </Row>
           )}
           <Row

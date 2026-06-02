@@ -1885,8 +1885,11 @@ export function buildFastWaterfallCanvas(
     frequencyRange,
   );
   let sourceCanvas: HTMLCanvasElement | null = null;
-  
-  if (snapshotData) {
+
+  if (
+    snapshotData &&
+    (snapshotData.waterfallTextureSnapshot || snapshotData.waterfallBuffer)
+  ) {
     sourceCanvas = renderWaterfallSnapshotCanvas(
       snapshotData,
       Math.max(1, width),

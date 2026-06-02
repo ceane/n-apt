@@ -31,8 +31,12 @@ describe("SourceInput", () => {
     );
 
     expect(screen.getByText("TX/RX · Transmitting (Tx)")).toBeInTheDocument();
-    const deviceRow = screen.getByText("HackRF One #2").closest('[role="button"]');
+    const deviceRow = screen
+      .getByText("HackRF One #2")
+      .closest('[role="button"]');
     expect(deviceRow).not.toBeNull();
-    expect(within(deviceRow as HTMLElement).getByRole("button", { name: /pause/i })).toBeInTheDocument();
+    expect(
+      within(deviceRow as HTMLElement).getByRole("button", { name: /pause/i }),
+    ).toBeInTheDocument();
   });
 });

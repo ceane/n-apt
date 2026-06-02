@@ -204,10 +204,7 @@ impl TxLogger {
     if let Some(parent) = path.parent() {
       create_dir_all(parent)?;
     }
-    let file = OpenOptions::new()
-      .create(true)
-      .append(true)
-      .open(&path)?;
+    let file = OpenOptions::new().create(true).append(true).open(&path)?;
     Ok(Self {
       file: Mutex::new(file),
       path,
@@ -235,10 +232,8 @@ mod tests {
 
   #[test]
   fn writes_expected_fields() {
-    let dir = std::env::temp_dir().join(format!(
-      "napt-tx-log-test-{}",
-      std::process::id()
-    ));
+    let dir = std::env::temp_dir()
+      .join(format!("napt-tx-log-test-{}", std::process::id()));
     let path = dir.join("tx_log.txt");
     let logger = TxLogger::with_path(&path).unwrap();
 

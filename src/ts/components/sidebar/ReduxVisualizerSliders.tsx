@@ -52,7 +52,9 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
   const canShowTxSlider =
-    deviceKind === "hackrf_one" || deviceKind === "tx_rx" || deviceKind === "tx";
+    deviceKind === "hackrf_one" ||
+    deviceKind === "tx_rx" ||
+    deviceKind === "tx";
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(

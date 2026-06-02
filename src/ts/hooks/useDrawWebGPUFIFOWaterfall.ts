@@ -548,8 +548,6 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.end();
         device.queue.submit([enc.finish()]);
 
-
-
         return true;
       } catch (error) {
         console.error("WebGPU waterfall rendering failed:", error);

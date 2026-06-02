@@ -139,7 +139,9 @@ const StickyHeaderWrapper = memo(styled.div<{ $isSticky?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border-bottom: 1px solid ${(props: any) => props.$isSticky ? props.theme.borderHover : 'transparent'};
+  border-bottom: 1px solid
+    ${(props: any) =>
+      props.$isSticky ? props.theme.borderHover : "transparent"};
   transition: border-bottom 0.2s ease;
 `);
 
@@ -915,8 +917,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [livePreviewStage, setLivePreviewStage] = useState(0);
   const handleToggleTransmitMode = useCallback(
     (deviceId: string, nextEnabled: boolean) => {
-      const device =
-        mockDevices.find((entry) => entry.id === deviceId) ?? null;
+      const device = mockDevices.find((entry) => entry.id === deviceId) ?? null;
       const applyToggle = () => {
         setMockDevices((current) =>
           current.map((entry) =>
@@ -1668,7 +1669,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       ([entry]) => {
         setIsSticky(!entry.isIntersecting);
       },
-      { threshold: [1], rootMargin: "-24px 0px 0px 0px" }
+      { threshold: [1], rootMargin: "-24px 0px 0px 0px" },
     );
 
     if (sentinelRef.current) {
@@ -1680,7 +1681,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   return (
     <SidebarContent>
-      <div ref={sentinelRef} style={{ gridColumn: '1 / -1', height: 0, pointerEvents: 'none' }} />
+      <div
+        ref={sentinelRef}
+        style={{ gridColumn: "1 / -1", height: 0, pointerEvents: "none" }}
+      />
       <StickyHeaderWrapper $isSticky={isSticky}>
         <SectionTitle $fileMode={sourceMode === "file"}>
           <SectionIcon>
@@ -1782,9 +1786,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                       color: device.txMode
                         ? "var(--color-primary)"
                         : "var(--color-secondary)",
-                      label: device.txMode
-                        ? "transmitting"
-                        : "disconnected",
+                      label: device.txMode ? "transmitting" : "disconnected",
                       loading: false,
                       paused: false,
                       actionLabel: device.txMode ? "Pause" : "Resume",

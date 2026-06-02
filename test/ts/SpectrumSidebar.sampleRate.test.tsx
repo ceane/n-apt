@@ -120,7 +120,11 @@ jest.mock("@n-apt/components/sidebar/ThemeSection", () => ({
 
 jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
   __esModule: true,
-  default: ({ onToggleDeviceTxMode }: { onToggleDeviceTxMode?: (id: string) => void }) => (
+  default: ({
+    onToggleDeviceTxMode,
+  }: {
+    onToggleDeviceTxMode?: (id: string) => void;
+  }) => (
     <button
       type="button"
       data-testid="source-input"
