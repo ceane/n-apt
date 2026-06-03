@@ -98,11 +98,11 @@ const getCanvasThemeColors = () => ({
   boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
   spectrumOverlay: readCssColor(
     "--color-spectrum-overlay",
-    "rgba(255, 255, 255, 0.15)",
+    "rgba(255, 255, 255, 0.08)",
   ),
   spectrumOverlayBorder: readCssColor(
     "--color-spectrum-overlay-border",
-    "rgba(255, 255, 255, 0.75)",
+    "rgba(37, 64, 105, 0.78)",
   ),
   powerLineColor: readCssColor(
     "--color-fft-power-line",
@@ -712,6 +712,7 @@ export function useOverlayRenderer() {
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
       ctx.lineCap = "round";
+      ctx.setLineDash([4, 4]);
       for (const x of [leftX, rightX]) {
         ctx.beginPath();
         ctx.moveTo(x, plotTop);
@@ -721,8 +722,9 @@ export function useOverlayRenderer() {
 
       // Draw yellow dotted center line using the center frequency line color
       const centerX = (leftX + rightX) / 2;
-      ctx.strokeStyle = canvasTheme.centerLineColor;
+      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 1.5 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(centerX, plotTop);
       ctx.lineTo(centerX, plotBottom);
@@ -909,12 +911,31 @@ export function useOverlayRenderer() {
       const rectHeight = 18;
       const rectWidth = textWidth + paddingX * 2;
       const rectX = FFT_AREA_MIN.x + 4;
-      const rectY = ix - rectHeight / 2;
+      const pillGap = 10;
+      const topRectY = ix - rectHeight - pillGap;
+      const bottomRectY = ix + pillGap;
+      const shouldPlaceBelow = yPos <= FFT_AREA_MIN.y + fftHeight * 0.3;
+      const rectY = shouldPlaceBelow
+        ? Math.min(bottomRectY, fftAreaMax.y - rectHeight - 4)
+        : topRectY >= FFT_AREA_MIN.y + 4
+          ? topRectY
+          : Math.min(bottomRectY, fftAreaMax.y - rectHeight - 4);
 
-      // 1. Draw background pill
-      ctx.fillStyle = "rgba(10, 10, 10, 0.85)";
+      // 1. Draw dashed line across the full plot width
+      ctx.strokeStyle = canvasTheme.powerLineColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(FFT_AREA_MIN.x, ix);
+      ctx.lineTo(fftAreaMax.x, ix);
+      ctx.stroke();
+
+      // 2. Draw background pill
+      // Keep the badge neutral so it reads correctly in light mode.
+      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
       ctx.strokeStyle = canvasTheme.powerLineColor;
       ctx.lineWidth = 1;
+      ctx.setLineDash([]);
 
       ctx.beginPath();
       if (typeof ctx.roundRect === "function") {
@@ -925,29 +946,11 @@ export function useOverlayRenderer() {
       ctx.fill();
       ctx.stroke();
 
-      // 2. Draw dark shadow/backing line (halo) starting from after the label to the right edge
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(rectX + rectWidth + 6, ix);
-      ctx.lineTo(fftAreaMax.x, ix);
-      ctx.stroke();
-
-      // 3. Draw yellow dashed line starting from after the label to the right edge
-      ctx.strokeStyle = canvasTheme.powerLineColor;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(rectX + rectWidth + 6, ix);
-      ctx.lineTo(fftAreaMax.x, ix);
-      ctx.stroke();
-
-      // 4. Draw text inside the pill
+      // 3. Draw text inside the pill
       ctx.fillStyle = canvasTheme.powerLineColor;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(label, rectX + rectWidth / 2, ix);
+      ctx.fillText(label, rectX + rectWidth / 2, rectY + rectHeight / 2);
 
       ctx.restore();
     },

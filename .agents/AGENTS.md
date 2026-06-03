@@ -17,7 +17,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 - Skip confirmations like "I'll continue..." Just do it.
 - If a task needs 1 tool call, don't use 3. Plan before acting.
 - Do not summarize what you just did unless the result is ambiguous or you need additional input.
-- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE, UNLESS IT DIRECTLY ADDRESSES WHAT I ASKED FOR IN THE PROMPT. IF IT DOES NOT, DO NOT ADD IT.
+- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE!
 - Be sure to add regression tests for bugs you find instead of running tests blindly
 
 ## Documentation Guidelines

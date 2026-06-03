@@ -49,6 +49,7 @@ import {
   resetLiveControls as resetLiveControlsAction,
   resetZoomAndDb as resetZoomAndDbAction,
   setShowSpikeOverlay as setShowSpikeOverlayAction,
+  websocketActions,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -519,6 +520,12 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     // Keeping a persisted value here causes HMR/reload drift.
     if ("sampleRateHz" in parsed) {
       delete parsed.sampleRateHz;
+    }
+
+    // Older persisted spectrum state can contain gain=0 as a placeholder.
+    // That should not override the live default restored from the backend.
+    if (parsed.gain === 0) {
+      delete parsed.gain;
     }
 
     return parsed;
@@ -1462,6 +1469,14 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     // Track if we've already synced backend connection settings
     const hasInitializedBackendSettingsRef = useRef(false);
 
+    const wasConnectedRef = useRef(false);
+    useEffect(() => {
+      if (isConnected && !wasConnectedRef.current) {
+        hasInitializedBackendSettingsRef.current = false;
+      }
+      wasConnectedRef.current = isConnected;
+    }, [isConnected]);
+
     const [cachedFrames, setCachedFrames] = useState<SpectrumFrame[]>(() => {
       if (typeof window === "undefined") return [];
       try {
@@ -1644,7 +1659,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const lastSentFrameRateRef = useRef<number | null>(null);
     useEffect(() => {
-      if (!isConnected || state.detectedFrameRate == null) return;
+      if (!isConnected || state.detectedFrameRate == null || !activeSourceId)
+        return;
       if (lastSentFrameRateRef.current === state.detectedFrameRate) return;
       reduxDispatch({
         type: "websocket/sendMessage",
@@ -1700,10 +1716,19 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           "napt-sdr-settings",
           JSON.stringify(sdrSettings),
         );
+        localStorage.setItem(
+          "napt-sdr-settings",
+          JSON.stringify(sdrSettings),
+        );
       } catch {
         /* ignore */
       }
-    }, [sdrSettings]);
+      reduxDispatch(
+        websocketActions.updateDeviceState({
+          sdrSettings: sdrSettings as any,
+        }),
+      );
+    }, [sdrSettings, reduxDispatch]);
 
     const hydratedBackendSampleRateRef = useRef(false);
 
@@ -1863,7 +1888,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
     useEffect(() => {
-      if (!sdrSettings || hasInitializedBackendSettingsRef.current) return;
+      if (!isConnected || !sdrSettings || hasInitializedBackendSettingsRef.current) return;
 
       // Validate we actually received meaningful backend config (e.g. valid sample rate)
       if (
@@ -1895,7 +1920,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               : derived.fftFrameRate,
         },
       });
-    }, [sdrSettings, sampleRateHzEffective, storeDispatch]);
+    }, [isConnected, sdrSettings, sampleRateHzEffective, storeDispatch, mergedState.fftSize, mergedState.fftFrameRate]);
 
     useEffect(() => {
       if (!isConnected || !mergedState.frequencyRange) return;

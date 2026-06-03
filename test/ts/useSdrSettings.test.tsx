@@ -57,6 +57,7 @@ testApi.mock("@n-apt/hooks/useWebSocket", () => ({
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
   sampleRateOptions?: number[];
+  deviceType?: string;
   spectrumStateOverride?: Pick<
     SpectrumState,
     | "fftSize"
@@ -76,12 +77,14 @@ type HookHarnessProps = {
 const HookHarness: React.FC<HookHarnessProps> = ({
   sdrSettings,
   sampleRateOptions,
+  deviceType,
   spectrumStateOverride,
 }) => {
   const { fftSize, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, fftSizeOptions } =
     useSdrSettings({
       maxSampleRate: sdrSettings.sample_rate,
       sampleRateOptions,
+      deviceType,
       onSettingsChange: mockOnSettingsChange,
       sdrSettings,
       spectrumStateOverride,
@@ -161,7 +164,7 @@ describe("useSdrSettings", () => {
     );
 
     expect(screen.getByTestId("fftSize")).toHaveTextContent("16384");
-    expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("42");
+    expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("48");
     expect(screen.getByTestId("gain")).toHaveTextContent("49.6");
     expect(screen.getByTestId("ppm")).toHaveTextContent("2");
     expect(screen.getByTestId("tunerAGC")).toHaveTextContent("false");
@@ -235,7 +238,7 @@ describe("useSdrSettings", () => {
       expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
           fftSize: 16384,
-          frameRate: 42,
+          frameRate: 48,
         }),
       );
     });
@@ -320,6 +323,55 @@ describe("useSdrSettings", () => {
     expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
 
     localStorage.removeItem("napt-sdr-settings-v2");
+  });
+
+  it("preserves per-source persisted fft size instead of backend defaults when sdrSettings updates", async () => {
+    localStorage.setItem(
+      "napt-spectrum-view-v1:mock-device",
+      JSON.stringify({
+        fftSize: 8192,
+      }),
+    );
+
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 8192,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: true,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <HookHarness
+          sdrSettings={{
+            ...mockSdrSettings,
+            fft: {
+              ...mockSdrSettings.fft,
+              default_size: 16384,
+            },
+          }}
+          deviceType="mock-device"
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftSize).toBe(8192);
+    });
+    expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
+
+    localStorage.removeItem("napt-spectrum-view-v1:mock-device");
   });
 
   it("does not re-enable HackRF baseband filtering when sample rate changes while disabled", () => {

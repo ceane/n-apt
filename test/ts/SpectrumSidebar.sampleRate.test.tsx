@@ -690,7 +690,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     );
 
     // 1. Assert active device name is "Mock APT SDR"
-    const sourceInputButton = await screen.findByRole("button", { name: /source-input/i });
+    const sourceInputButton = await screen.findByRole("button", {
+      name: /source-input/i,
+    });
     expect(sourceInputButton).toBeInTheDocument();
 
     // 2. Assert sample rate options:
@@ -702,17 +704,26 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "combobox",
     ) as HTMLSelectElement;
 
-    const optionTexts = Array.from(sampleRateSelect.options).map((opt) => opt.text);
+    const optionTexts = Array.from(sampleRateSelect.options).map(
+      (opt) => opt.text,
+    );
     expect(optionTexts).toContain("Whole Channel (18.25MHz)");
     expect(optionTexts).toContain("3.2MHz");
 
     // 3. Assert FFT Sizes dropdown has values from 2^11 (2048) to 2^18 (262144)
-    const fftSizeLabel = screen.getAllByText("FFT Size").find(el => el.tagName.toLowerCase() === "span")
-      || screen.getAllByText("FFT Size")[0];
+    const fftSizeLabel =
+      screen
+        .getAllByText("FFT Size")
+        .find((el) => el.tagName.toLowerCase() === "span") ||
+      screen.getAllByText("FFT Size")[0];
     const fftSizeRow = fftSizeLabel.closest("div")?.parentElement;
     expect(fftSizeRow).toBeTruthy();
-    const fftSizeSelect = within(fftSizeRow as HTMLElement).getByRole("combobox") as HTMLSelectElement;
-    const fftSizeOptionValues = Array.from(fftSizeSelect.options).map((opt) => opt.value);
+    const fftSizeSelect = within(fftSizeRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+    const fftSizeOptionValues = Array.from(fftSizeSelect.options).map(
+      (opt) => opt.value,
+    );
     expect(fftSizeOptionValues).toContain("2048");
     expect(fftSizeOptionValues).toContain("4096");
     expect(fftSizeOptionValues).toContain("262144");

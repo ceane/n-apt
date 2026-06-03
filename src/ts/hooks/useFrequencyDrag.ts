@@ -566,26 +566,13 @@ export function useFrequencyDrag({
           const div = document.createElement("div");
           if (div.style) {
             div.style.position = "absolute";
-            div.style.border = "1px dashed rgba(255, 255, 255, 0.8)";
-            div.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+            div.style.border = "1px dashed rgba(37, 64, 105, 0.78)";
+            div.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
+            div.style.boxShadow =
+              "inset 0 0 0 1px rgba(255, 255, 255, 0.65), 0 0 0 1px rgba(37, 64, 105, 0.18)";
             div.style.pointerEvents = "none";
             div.style.zIndex = "100";
             div.style.display = "block";
-
-            // Add custom animation stylesheet if not present
-            if (!document.getElementById("napt-zoom-line-anim-style")) {
-              const style = document.createElement("style");
-              if (style) {
-                style.id = "napt-zoom-line-anim-style";
-                style.textContent = `
-                  @keyframes napt-zoom-line-scroll {
-                    from { background-position-y: 0px; }
-                    to { background-position-y: 28px; }
-                  }
-                `;
-                document.head?.appendChild(style);
-              }
-            }
 
             // Add center line
             const centerLine = document.createElement("div");
@@ -594,14 +581,10 @@ export function useFrequencyDrag({
               centerLine.style.top = "0";
               centerLine.style.bottom = "0";
               centerLine.style.left = "50%";
-              centerLine.style.width = "1px";
-              centerLine.style.backgroundImage =
-                "linear-gradient(to bottom, var(--color-fft-center-line, rgba(220, 255, 0, 0.7)) 20px, transparent 20px)";
-              centerLine.style.backgroundSize = "1px 28px";
-              centerLine.style.backgroundRepeat = "repeat-y";
-              centerLine.style.mixBlendMode = "difference";
-              centerLine.style.animation =
-                "napt-zoom-line-scroll 0.8s linear infinite";
+              centerLine.style.width = "2px";
+              centerLine.style.background = "rgba(37, 64, 105, 0.72)";
+              centerLine.style.boxShadow =
+                "0 0 0 1px rgba(255, 255, 255, 0.62)";
               centerLine.style.transform = "translateX(-50%)";
               centerLine.style.pointerEvents = "none";
               div.appendChild(centerLine);

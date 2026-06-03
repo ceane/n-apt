@@ -163,7 +163,7 @@ const initialState: SpectrumState = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
 
-  gain: 30,
+  gain: 49.6,
   txSignal: "apt",
   txSampleRateHz: 2_400_000,
   txCenterFrequencyHz: 137_100_000,

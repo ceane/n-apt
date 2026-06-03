@@ -1343,11 +1343,11 @@ export function drawDemodFocusOnContext2D(
     centerLineColor: readCssColor("--color-fft-center-line", "#ffff00"),
     spectrumOverlay: readCssColor(
       "--color-spectrum-overlay",
-      "rgba(255, 255, 255, 0.15)",
+      "rgba(255, 255, 255, 0.08)",
     ),
     spectrumOverlayBorder: readCssColor(
       "--color-spectrum-overlay-border",
-      "rgba(255, 255, 255, 0.75)",
+      "rgba(37, 64, 105, 0.78)",
     ),
   };
 
@@ -1372,7 +1372,7 @@ export function drawDemodFocusOnContext2D(
   // 3. Boundary lines (Dotted)
   ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
   ctx.lineWidth = Math.max(1, 2 / dpr);
-  ctx.setLineDash([3, 4]);
+  ctx.setLineDash([4, 4]);
   ctx.lineCap = "round";
 
   for (const x of [leftX, rightX]) {

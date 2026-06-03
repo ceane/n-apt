@@ -15,6 +15,7 @@ describe("Spectrum Slice Power Clamping", () => {
   test("starts with the Tx slider hidden", () => {
     const state = getInitialState();
     expect(state.showTxSlider).toBe(false);
+    expect(state.gain).toBe(49.6);
   });
 
   test("getMaxTxPowerDbm returns correct caps", () => {

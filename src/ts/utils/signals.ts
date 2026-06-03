@@ -17,24 +17,34 @@ export function resolveSampleRateSpec(
   spec: SampleRateSpec | undefined,
   activeFrame: { min_hz: number; max_hz: number } | null,
   floorSampleRate: number,
-  maxSampleRate: number
+  maxSampleRate: number,
 ): { rate: number; options: number[] } {
   // Safe default boundaries to prevent division by zero or excessive allocation
-  const SAFE_MIN_RATE = 10_000;      // 10 kHz
-  const SAFE_MAX_RATE = 40_000_000;  // 40 MHz
+  const SAFE_MIN_RATE = 10_000; // 10 kHz
+  const SAFE_MAX_RATE = 40_000_000; // 40 MHz
 
-  const safeFloor = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, floorSampleRate));
-  const safeMax = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, maxSampleRate));
+  const safeFloor = Math.max(
+    SAFE_MIN_RATE,
+    Math.min(SAFE_MAX_RATE, floorSampleRate),
+  );
+  const safeMax = Math.max(
+    SAFE_MIN_RATE,
+    Math.min(SAFE_MAX_RATE, maxSampleRate),
+  );
 
   if (spec === undefined) {
     return { rate: safeFloor, options: [safeFloor] };
   }
 
   // Active channel span:
-  const channelSpan = activeFrame && activeFrame.max_hz > activeFrame.min_hz
-    ? activeFrame.max_hz - activeFrame.min_hz
-    : safeFloor;
-  const safeChannelSpan = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, channelSpan));
+  const channelSpan =
+    activeFrame && activeFrame.max_hz > activeFrame.min_hz
+      ? activeFrame.max_hz - activeFrame.min_hz
+      : safeFloor;
+  const safeChannelSpan = Math.max(
+    SAFE_MIN_RATE,
+    Math.min(SAFE_MAX_RATE, channelSpan),
+  );
 
   // Strict validation of placeholder values
   const resolveSymbolic = (val: string): number => {
@@ -42,7 +52,7 @@ export function resolveSampleRateSpec(
     if (val === "__NAPT_SAMPLE_RATE_CHANNEL__") return safeChannelSpan;
     if (val === "__NAPT_SAMPLE_RATE_FLOOR__") return safeFloor;
     if (val === "__NAPT_SAMPLE_RATE_MAX__") return safeMax;
-    
+
     // For numbers passed as strings, strictly validate format
     if (/^\d+$/.test(val)) {
       const parsed = Number(val);
@@ -54,8 +64,8 @@ export function resolveSampleRateSpec(
   };
 
   const CURATED_RATES = [
-    1_000_000, 2_000_000, 3_200_000, 4_000_000, 5_000_000, 6_400_000,
-    8_000_000, 10_000_000, 12_800_000, 16_000_000, 20_000_000,
+    1_000_000, 2_000_000, 3_200_000, 4_000_000, 5_000_000, 6_400_000, 8_000_000,
+    10_000_000, 12_800_000, 16_000_000, 20_000_000,
   ];
 
   const resolveOptionsRange = (minVal: number, maxVal: number): number[] => {
@@ -90,8 +100,10 @@ export function resolveSampleRateSpec(
 
   if (Array.isArray(spec)) {
     // Range format: e.g., ["__NAPT_SAMPLE_RATE_FLOOR__", "__NAPT_SAMPLE_RATE_CHANNEL__"]
-    const minVal = typeof spec[0] === "string" ? resolveSymbolic(spec[0]) : safeFloor;
-    const maxVal = typeof spec[1] === "string" ? resolveSymbolic(spec[1]) : safeMax;
+    const minVal =
+      typeof spec[0] === "string" ? resolveSymbolic(spec[0]) : safeFloor;
+    const maxVal =
+      typeof spec[1] === "string" ? resolveSymbolic(spec[1]) : safeMax;
     const options = resolveOptionsRange(minVal, maxVal);
     const rate = maxVal;
     return { rate, options };
@@ -102,7 +114,11 @@ export function resolveSampleRateSpec(
     const minStr = (spec as any).min;
     const maxStr = (spec as any).max;
 
-    if (typeof valueStr === "string" && typeof minStr === "string" && typeof maxStr === "string") {
+    if (
+      typeof valueStr === "string" &&
+      typeof minStr === "string" &&
+      typeof maxStr === "string"
+    ) {
       const val = resolveSymbolic(valueStr);
       const minVal = resolveSymbolic(minStr);
       const maxVal = resolveSymbolic(maxStr);
@@ -114,3 +130,39 @@ export function resolveSampleRateSpec(
 
   return { rate: safeFloor, options: [safeFloor] };
 }
+
+export const MAX_SCREEN_REFRESH_RATE = 60;
+
+export const computeMaxFrameRate = (
+  maxSampleRate: number,
+  fftSize: number,
+  maxFrameRateLimit?: number,
+): number => {
+  if (!fftSize) return 0;
+  // Fallback calculation: floor(sample_rate / fft_size) clamped to range [1, MAX_SCREEN_REFRESH_RATE]
+  const theoretical = Math.floor(maxSampleRate / fftSize);
+  const limit = Math.min(
+    maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE,
+    MAX_SCREEN_REFRESH_RATE,
+  );
+  return Math.max(1, Math.min(theoretical, limit));
+};
+
+export const getLogicalMaxFrameRate = (
+  sampleRate: number,
+  fftSize: number,
+  sdrSettings?: any,
+): number => {
+  // Compute frame rate from the actual sample rate:
+  // floor(sampleRate / fftSize) clamped to max_frame_rate.
+  //
+  // The size_to_frame_rate map is NOT used here because its values are
+  // computed for a specific sample rate, but sdrSettings.sample_rate is
+  // dynamically updated to the active rate by the WebSocket middleware.
+  // This makes it impossible to detect when the map values are stale.
+  return computeMaxFrameRate(
+    sampleRate,
+    fftSize,
+    sdrSettings?.fft?.max_frame_rate,
+  );
+};

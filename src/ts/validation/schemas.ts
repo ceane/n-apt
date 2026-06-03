@@ -105,8 +105,8 @@ export const SdrSettingsConfigSchema = z.object({
         base: z.string(),
         fft_min: z.number().optional(),
         fft_max: z.number().optional(),
-      })
-    )
+      }),
+    ),
   ),
   devices: nullableToOptional(
     z.record(
@@ -120,8 +120,8 @@ export const SdrSettingsConfigSchema = z.object({
               base: z.string(),
               fft_min: z.number().optional(),
               fft_max: z.number().optional(),
-            })
-          )
+            }),
+          ),
         ),
         gain_limits: nullableToOptional(
           z.object({
@@ -134,10 +134,10 @@ export const SdrSettingsConfigSchema = z.object({
             vga_min: nullableToOptional(z.number()),
             vga_max: nullableToOptional(z.number()),
             vga_step: nullableToOptional(z.number()),
-          })
+          }),
         ),
-      })
-    )
+      }),
+    ),
   ),
 });
 

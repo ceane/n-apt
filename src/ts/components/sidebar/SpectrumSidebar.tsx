@@ -566,9 +566,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (!isMockLiveSource) return null;
     const spec = activeDeviceConfig?.sample_rate as SampleRateSpec | undefined;
     const activeFrameToPass = activeSignalAreaBounds
-      ? { min_hz: activeSignalAreaBounds.min, max_hz: activeSignalAreaBounds.max }
+      ? {
+          min_hz: activeSignalAreaBounds.min,
+          max_hz: activeSignalAreaBounds.max,
+        }
       : activeFrameForArea
-        ? { min_hz: activeFrameForArea.min_hz, max_hz: activeFrameForArea.max_hz }
+        ? {
+            min_hz: activeFrameForArea.min_hz,
+            max_hz: activeFrameForArea.max_hz,
+          }
         : null;
     const floorRate = 3_200_000;
     const maxRate = Math.max(3_200_000, activeChannelSampleRate ?? 0);

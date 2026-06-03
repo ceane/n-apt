@@ -304,13 +304,6 @@ export function drawVfoAxis({
   }
 
   if (showCenterLine) {
-    // Draw a dark shadow/backing line for high contrast
-    ctx.setStroke("rgba(0, 0, 0, 0.8)", lineWidth + 2);
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerLineTop);
-    ctx.lineTo(centerX, centerLineBottom);
-    ctx.stroke();
-
     // Draw the main center line
     ctx.setStroke(theme.centerLine ?? theme.center, lineWidth);
     ctx.beginPath();

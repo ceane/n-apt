@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --no-deprecation`.trim();
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Text, useApp, useInput } from 'ink';
@@ -1338,6 +1339,28 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log('Build orchestrator requires an interactive TTY; skipping Ink UI startup.');
     process.exit(0);
   }
+
+  // Enter alternate screen buffer to prevent scrolling/jumping bugs in terminal
+  process.stdout.write('\x1b[?1049h');
+
+  const cleanup = () => {
+    process.stdout.write('\x1b[?1049l');
+  };
+
+  // Ensure we exit alternate screen buffer on process exit or crash
+  process.on('exit', cleanup);
+
+  process.on('uncaughtException', (err) => {
+    cleanup();
+    console.error('Uncaught Exception:', err);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    cleanup();
+    console.error('Unhandled Rejection:', reason);
+    process.exit(1);
+  });
 
   render(<BuildOrchestrator />);
 }

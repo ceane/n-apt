@@ -173,6 +173,12 @@ export const loadPersistedSdrSettings = () => {
       delete parsed.sampleRateHz;
     }
 
+    // Preserve the restored live default gain if stale cache data wrote a zero
+    // generic gain. Zero is a common "missing value" in older persisted state.
+    if (parsed.gain === 0) {
+      delete parsed.gain;
+    }
+
     return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings:", error);
@@ -205,7 +211,13 @@ export const loadPersistedSdrSettingsCache = () => {
   if (!stored) return null;
 
   try {
-    return JSON.parse(stored);
+    const parsed = JSON.parse(stored);
+    if (parsed?.gain && typeof parsed.gain === "object") {
+      if (parsed.gain.tuner_gain === 0) {
+        delete parsed.gain.tuner_gain;
+      }
+    }
+    return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings cache:", error);
     safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
