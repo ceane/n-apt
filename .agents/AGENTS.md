@@ -5,14 +5,20 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 ## Token Efficiency
 
 - DO NOT RERUN THE DEV SERVER!
+- If testing the frontend app, the site is at http://localhost:5173 AND the password is in the .env.local
+  - Prefer to inspect code and reason its mechanics versus code and test in the browser
+- If inspecting the Rust app, the rust log is at /tmp/rust_log.txt
+- If inspecting the Tx logs, the logs are in /tmp/n-apt/tx_log.txt
 - Never re-read files you just wrote or edited. You know the contents.
 - Never re-run commands to "verify" unless the outcome was uncertain.
 - Don't echo back large blocks of code or file contents unless asked.
 - Batch related edits into single operations. Don't make 5 edits when 1 handles it.
+- Use the Act MCP tool to search
 - Skip confirmations like "I'll continue..." Just do it.
 - If a task needs 1 tool call, don't use 3. Plan before acting.
-- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE, UNLESS IT DIRECTLY ADDRESSES WHAT I ASKED FOR IN THE PROMPT. IF IT DOES NOT, DO NOT ADD IT.
 - Do not summarize what you just did unless the result is ambiguous or you need additional input.
+- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE, UNLESS IT DIRECTLY ADDRESSES WHAT I ASKED FOR IN THE PROMPT. IF IT DOES NOT, DO NOT ADD IT.
+- Be sure to add regression tests for bugs you find instead of running tests blindly
 
 ## Documentation Guidelines
 
@@ -251,7 +257,7 @@ n-apt/
 
 ## Key Conventions
 
-1. **Hot Reload**: Edit `mock_signals.yaml` while server runs - changes apply automatically
+1. **Hot Reload**: Edit `signals.yaml` while server runs - changes apply automatically
 2. **WASM Changes**: Use `npm run dev` (rebuilds WASM)
 3. **Fast Iteration**: Use `npm run dev` (single orchestrated flow)
 4. **Before Commit**: Run `npm run test:all`
@@ -291,18 +297,6 @@ The project has multiple server configurations:
 - **Test WASM**: `npm run test:wasm`
 - Login password comes from `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`
 
-## WindSurf Ignore Rules
-
-The following paths should be ignored by WindSurf:
-```
-node_modules/
-dist/
-scripts/dist/
-package-lock.json
-coverage/
-*.svg
-*.csv
-```
 
 ## Linting
 
@@ -312,7 +306,6 @@ After making changes on in Typescript/JavaScript, run:
 npm run format  # or npx oxfmt
 npm run lint    # or npx oxlint
 ```
-
 
 ### React Doctor
 

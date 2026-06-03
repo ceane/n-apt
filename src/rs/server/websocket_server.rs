@@ -47,6 +47,7 @@
 
 use anyhow::Result;
 use log::{debug, error, info, warn};
+use std::ffi::CStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -60,107 +61,250 @@ use super::utils::{
   resolve_device_sample_rate_options, status_device_name,
 };
 use crate::sdr::hotplug::{
-  is_recovery_budget_exhausted, scan_usb_for_supported_device,
+  is_recovery_budget_exhausted, supported_usb_device_count,
 };
+#[cfg(has_hackrf)]
+use crate::sdr::hackrf::device::HackRfDevice;
+use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
 use crate::sdr::processor::SdrProcessor;
+#[cfg(has_hackrf)]
+use crate::sdr::hackrf::ffi as hackrf_ffi;
 
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
-pub(crate) fn build_source_info_snapshot(
-  shared: &SharedState,
-) -> serde_json::Value {
-  let device_connected = shared.device_connected.load(Ordering::Relaxed);
-  let device_info = shared.device_info.lock().unwrap().clone();
-  let device_state = reconcile_device_state(
-    device_connected,
-    &shared.device_state.lock().unwrap(),
-  );
-  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
-  let paused = shared.is_paused.load(Ordering::SeqCst);
-  let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-  let device_profile = shared.device_profile.lock().unwrap().clone();
-  let active_source_id = if device_profile.kind.starts_with("mock_apt") {
-    "mock-apt"
-  } else if device_profile.kind == "hackrf_one" {
-    "hackrf-one-2"
+fn sanitize_source_component(value: &str) -> String {
+  let mut sanitized = String::with_capacity(value.len());
+  for ch in value.chars() {
+    if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+      sanitized.push(ch);
+    } else {
+      sanitized.push('_');
+    }
+  }
+
+  let trimmed = sanitized.trim_matches('_');
+  if trimmed.is_empty() {
+    "unknown".to_string()
   } else {
-    "rtl-sdr-1"
+    trimmed.to_string()
+  }
+}
+
+fn source_id_for_device(
+  kind: &str,
+  serial_number: Option<&str>,
+  fallback_index: usize,
+) -> String {
+  if let Some(serial_number) = serial_number {
+    let serial_number = serial_number.trim();
+    if !serial_number.is_empty() {
+      return sanitize_source_component(&format!("{kind}-{serial_number}"));
+    }
+  }
+
+  sanitize_source_component(&format!("{kind}-{fallback_index}"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceSelection {
+  MockApt,
+  RtlSdr(u32),
+  #[cfg(has_hackrf)]
+  HackRf(i32),
+}
+
+fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
+  if source_id == "mock-apt" {
+    return Ok(SourceSelection::MockApt);
+  }
+
+  let rtl_count = RtlSdrDevice::get_device_count();
+  for index in 0..rtl_count {
+    let (serial, _, _) = read_rtl_usb_strings(index);
+    if source_id_for_device("rtl-sdr", Some(&serial), index as usize)
+      == source_id
+    {
+      return Ok(SourceSelection::RtlSdr(index));
+    }
+  }
+
+  #[cfg(has_hackrf)]
+  unsafe {
+    if hackrf_ffi::hackrf_init() != 0 {
+      return Err(anyhow::anyhow!(
+        "Failed to initialize HackRF device list for source selection"
+      ));
+    }
+
+    let list = hackrf_ffi::hackrf_device_list();
+    if list.is_null() {
+      let _ = hackrf_ffi::hackrf_exit();
+      return Err(anyhow::anyhow!(
+        "No HackRF One device list available for source selection"
+      ));
+    }
+
+    let devicecount = (*list).devicecount.max(0) as usize;
+    for index in 0..devicecount {
+      let serial_number = if !(*list).serial_numbers.is_null() {
+        let serial_ptr = *(*list).serial_numbers.add(index);
+        if serial_ptr.is_null() {
+          String::new()
+        } else {
+          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
+        }
+      } else {
+        String::new()
+      };
+
+      if source_id_for_device(
+        "hackrf_one",
+        Some(&serial_number),
+        index,
+      ) == source_id
+      {
+        hackrf_ffi::hackrf_device_list_free(list);
+        let _ = hackrf_ffi::hackrf_exit();
+        return Ok(SourceSelection::HackRf(index as i32));
+      }
+    }
+
+    hackrf_ffi::hackrf_device_list_free(list);
+    let _ = hackrf_ffi::hackrf_exit();
+  }
+
+  Err(anyhow::anyhow!(
+    "No matching source found for source_id={source_id}"
+  ))
+}
+
+fn open_device_for_source_id(
+  source_id: &str,
+) -> Result<Box<dyn crate::sdr::SdrDevice>> {
+  match resolve_source_selection(source_id)? {
+    SourceSelection::MockApt => Ok(crate::sdr::SdrDeviceFactory::create_mock_device()),
+    SourceSelection::RtlSdr(index) => {
+      Ok(Box::new(RtlSdrDevice::open(index)?))
+    }
+    #[cfg(has_hackrf)]
+    SourceSelection::HackRf(index) => {
+      Ok(Box::new(HackRfDevice::open(index)?))
+    }
+  }
+}
+
+fn source_capability_for_kind(kind: &str) -> &'static str {
+  match kind {
+    "mock_apt" | "mock_apt_metal" => "mock",
+    "hackrf_one" => "tx_rx",
+    _ => "rx",
+  }
+}
+
+fn source_status_for_entry(
+  is_active_source: bool,
+  device_state: &str,
+  kind: &str,
+) -> &'static str {
+  if kind.starts_with("mock_apt") {
+    "streaming"
+  } else if is_active_source {
+    match device_state {
+      "loading" => "loading",
+      "disconnected" => "disconnected",
+      "stale" => "stale",
+      "error" => "error",
+      "transmitting" => "transmitting",
+      _ => "connected",
+    }
+  } else {
+    "connected"
+  }
+}
+
+fn read_rtl_usb_strings(index: u32) -> (String, String, String) {
+  let mut manufacturer = [0i8; 256];
+  let mut product = [0i8; 256];
+  let mut serial = [0i8; 256];
+
+  let ret = unsafe {
+    rtlsdr_ffi::rtlsdr_get_device_usb_strings(
+      index,
+      manufacturer.as_mut_ptr(),
+      product.as_mut_ptr(),
+      serial.as_mut_ptr(),
+    )
   };
-  let (max_sample_rate, sample_rate_options) =
-    resolve_device_sample_rate_options(
-      device_connected,
-      &device_info,
-      &device_profile,
-      &sdr_settings,
-    );
+  if ret != 0 {
+    return (String::new(), String::new(), String::new());
+  }
+
+  let manufacturer = unsafe { CStr::from_ptr(manufacturer.as_ptr()) }
+    .to_string_lossy()
+    .into_owned();
+  let product = unsafe { CStr::from_ptr(product.as_ptr()) }
+    .to_string_lossy()
+    .into_owned();
+  let serial = unsafe { CStr::from_ptr(serial.as_ptr()) }
+    .to_string_lossy()
+    .into_owned();
+  (serial, manufacturer, product)
+}
+
+fn build_source_payload(
+  shared: &SharedState,
+  source_id: String,
+  name: String,
+  kind: &str,
+  device_state: &str,
+  loading_attempt: u32,
+  loading_attempt_max: u32,
+  serial_number: String,
+  manufacturer: String,
+  product: String,
+  device_info: String,
+  device_connected: bool,
+  is_active_source: bool,
+) -> serde_json::Value {
+  let device_profile = build_device_profile(kind);
+  let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+  let (max_sample_rate, sample_rate_options) = resolve_device_sample_rate_options(
+    device_connected,
+    &device_info,
+    &device_profile,
+    &sdr_settings,
+  );
   let device_limits = sdr_settings
     .devices
     .get(device_config_key(&device_profile))
     .and_then(|device_cfg| device_cfg.fft_display.as_ref())
     .map(|display| display.resolve_markers())
     .unwrap_or_default();
-  let capability = if device_profile.kind.starts_with("mock_apt") {
-    "mock"
-  } else if device_profile.kind == "hackrf_one" {
-    "tx_rx"
-  } else {
-    "rx"
-  };
 
-  let device_name = if device_profile.kind.starts_with("mock_apt") {
-    "Mock APT SDR".to_string()
-  } else {
-    status_device_name(device_connected, &device_info, &device_profile)
-  };
-
-  let device_serial = shared.device_serial.lock().unwrap().clone();
-  let device_manufacturer = shared.device_manufacturer.lock().unwrap().clone();
-  let device_product = shared.device_product.lock().unwrap().clone();
-
-  let active_source = serde_json::json!({
-    "id": active_source_id,
-    "name": device_name,
-    "kind": device_profile.kind,
-    "capability": capability,
-    "status": if device_profile.kind.starts_with("mock_apt") { "streaming" } else { device_state.as_str() },
-    "loading_attempt": device_loading_attempt,
-    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+  serde_json::json!({
+    "id": source_id,
+    "name": name,
+    "kind": kind,
+    "capability": source_capability_for_kind(kind),
+    "status": source_status_for_entry(is_active_source, device_state, kind),
+    "loading_attempt": loading_attempt,
+    "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
     "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
-    "serial_number": device_serial,
-    "manufacturer": device_manufacturer,
-    "product": device_product,
+    "serial_number": serial_number,
+    "manufacturer": manufacturer,
+    "product": product,
     "sdr": {
       "max_sample_rate": max_sample_rate,
       "sample_rate_options": sample_rate_options,
       "fft_display": { "markers": device_limits },
-      "settings": sdr_settings,
-    }
-  });
-
-  let hackrf_source = serde_json::json!({
-    "id": "hackrf-one-2",
-    "name": "HackRF One #2",
-    "kind": "hackrf_one",
-    "capability": "tx_rx",
-    "status": "disconnected",
-    "loading_attempt": 0,
-    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-    "supports_approx_dbm": true,
-    "supports_raw_iq_stream": true,
-    "serial_number": "",
-    "manufacturer": "",
-    "product": "",
-    "sdr": {
-      "max_sample_rate": 32_000_000_u32,
-      "sample_rate_options": [8_000_000_u32, 16_000_000_u32, 32_000_000_u32],
-      "fft_display": { "markers": [] },
       "settings": {
         "fft_size": sdr_settings.fft.default_size,
         "fft_window": "Rectangular",
         "frame_rate": sdr_settings.fft.default_frame_rate,
-        "sample_rate": 8_000_000_u32,
+        "sample_rate": sdr_settings.sample_rate,
+        "center_frequency": sdr_settings.center_frequency,
         "gain": sdr_settings.gain.tuner_gain,
         "hackrf_lna_gain": sdr_settings.gain.hackrf_lna_gain,
         "hackrf_vga_gain": sdr_settings.gain.hackrf_vga_gain,
@@ -171,25 +315,202 @@ pub(crate) fn build_source_info_snapshot(
         "tuner_bandwidth": sdr_settings.gain.tuner_bandwidth,
       }
     }
-  });
+  })
+}
+
+fn build_active_source_payload(
+  shared: &SharedState,
+  source_id: String,
+  device_state: &str,
+  loading_attempt: u32,
+  loading_attempt_max: u32,
+) -> serde_json::Value {
+  let device_profile = shared.device_profile.lock().unwrap().clone();
+  let device_info = shared.device_info.lock().unwrap().clone();
+  let device_serial = shared.device_serial.lock().unwrap().clone();
+  let device_manufacturer = shared.device_manufacturer.lock().unwrap().clone();
+  let device_product = shared.device_product.lock().unwrap().clone();
+  let device_name = if device_profile.kind.starts_with("mock_apt") {
+    "Mock APT SDR".to_string()
+  } else {
+    status_device_name(true, &device_info, &device_profile)
+  };
+
+  build_source_payload(
+    shared,
+    source_id,
+    device_name,
+    &device_profile.kind,
+    device_state,
+    loading_attempt,
+    loading_attempt_max,
+    device_serial,
+    device_manufacturer,
+    device_product,
+    device_info,
+    shared.device_connected.load(Ordering::Relaxed),
+    true,
+  )
+}
+
+fn enumerate_rtl_sdr_sources(
+  shared: &SharedState,
+  active_source_id: &str,
+) -> Vec<serde_json::Value> {
+  let mut sources = Vec::new();
+  let count = RtlSdrDevice::get_device_count();
+  for index in 0..count {
+    let device_name = RtlSdrDevice::get_device_name(index);
+    let (serial, manufacturer, product) = read_rtl_usb_strings(index);
+    let source_id = source_id_for_device("rtl-sdr", Some(&serial), index as usize);
+    if source_id == active_source_id {
+      continue;
+    }
+
+    let source_name = status_device_name(
+      true,
+      if product.trim().is_empty() {
+        &device_name
+      } else {
+        &product
+      },
+      &build_device_profile("rtl-sdr"),
+    );
+    sources.push(build_source_payload(
+      shared,
+      source_id,
+      source_name,
+      "rtl-sdr",
+      "connected",
+      0,
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+      serial,
+      manufacturer,
+      product,
+      device_name,
+      true,
+      false,
+    ));
+  }
+  sources
+}
+
+#[cfg(has_hackrf)]
+fn enumerate_hackrf_sources(
+  shared: &SharedState,
+  active_source_id: &str,
+) -> Vec<serde_json::Value> {
+  let mut sources = Vec::new();
+  unsafe {
+    if hackrf_ffi::hackrf_init() != 0 {
+      warn!("Failed to initialize HackRF device list for source inventory");
+      return sources;
+    }
+
+    let list = hackrf_ffi::hackrf_device_list();
+    if list.is_null() {
+      let _ = hackrf_ffi::hackrf_exit();
+      return sources;
+    }
+
+    let devicecount = (*list).devicecount.max(0) as usize;
+    for index in 0..devicecount {
+      let serial_number = if !(*list).serial_numbers.is_null() {
+        let serial_ptr = *(*list).serial_numbers.add(index);
+        if serial_ptr.is_null() {
+          String::new()
+        } else {
+          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
+        }
+      } else {
+        String::new()
+      };
+
+      let source_id = source_id_for_device(
+        "hackrf_one",
+        Some(&serial_number),
+        index,
+      );
+      if source_id == active_source_id {
+        continue;
+      }
+
+      let source_name = status_device_name(
+        true,
+        "HackRF One",
+        &build_device_profile("hackrf_one"),
+      );
+      sources.push(build_source_payload(
+        shared,
+        source_id,
+        source_name,
+        "hackrf_one",
+        "connected",
+        0,
+        crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+        serial_number,
+        String::new(),
+        "HackRF One".to_string(),
+        "HackRF One".to_string(),
+        true,
+        false,
+      ));
+    }
+
+    hackrf_ffi::hackrf_device_list_free(list);
+    let _ = hackrf_ffi::hackrf_exit();
+  }
+
+  sources
+}
+
+pub(crate) fn build_source_info_snapshot(
+  shared: &SharedState,
+) -> serde_json::Value {
+  let device_connected = shared.device_connected.load(Ordering::Relaxed);
+  let device_state = reconcile_device_state(
+    device_connected,
+    &shared.device_state.lock().unwrap(),
+  );
+  let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
+  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let mut sources = Vec::new();
+  let active_source_id = active_source_id(shared);
+  let active_source = build_active_source_payload(
+    shared,
+    active_source_id.clone(),
+    &device_state,
+    device_loading_attempt,
+    crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+  );
+
+  sources.push(active_source);
+  sources.extend(enumerate_rtl_sdr_sources(shared, &active_source_id));
+  #[cfg(has_hackrf)]
+  {
+    sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
+  }
 
   serde_json::json!({
     "type": "source_info",
     "active_source": active_source_id,
     "active_source_mode": if paused { "file" } else { "live" },
-    "sources": [active_source, hackrf_source],
+    "sources": sources,
   })
 }
 
 pub(crate) fn active_source_id(shared: &SharedState) -> String {
   let device_profile = shared.device_profile.lock().unwrap().clone();
   if device_profile.kind.starts_with("mock_apt") {
-    "mock-apt".to_string()
-  } else if device_profile.kind == "hackrf_one" {
-    "hackrf-one-2".to_string()
-  } else {
-    "rtl-sdr-1".to_string()
+    return "mock-apt".to_string();
   }
+
+  let device_serial = shared.device_serial.lock().unwrap().clone();
+  if !device_serial.trim().is_empty() {
+    return source_id_for_device(&device_profile.kind, Some(&device_serial), 0);
+  }
+
+  source_id_for_device(&device_profile.kind, None, 0)
 }
 
 pub(crate) fn broadcast_source_status(
@@ -274,9 +595,8 @@ pub(crate) fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
   #[cfg(test)]
   let supported_device_present = false;
   #[cfg(not(test))]
-  let supported_device_present = match scan_usb_for_supported_device() {
-    Ok(Some(_)) => true,
-    Ok(None) => false,
+  let supported_device_present = match supported_usb_device_count() {
+    Ok(count) => count > 0,
     Err(e) => {
       warn!(
         "USB reconciliation probe failed, keeping current status: {}",
@@ -545,6 +865,80 @@ impl WebSocketServer {
                 ..Default::default()
               },
             );
+          }
+          crate::server::types::SdrCommand::SetActiveSource { source_id } => {
+            let mut processor = sdr_processor.lock().await;
+            let current_source_id = active_source_id(&shared_state);
+            if current_source_id == source_id {
+              debug!(
+                "SetActiveSource requested for current source {}, skipping",
+                source_id
+              );
+              broadcast_device_status(&shared_state, &_broadcast_tx);
+              continue;
+            }
+
+            info!("Switching active source to {}", source_id);
+            shared_state.set_device_state("loading", Some("connect"));
+            broadcast_device_status(&shared_state, &_broadcast_tx);
+
+            match open_device_for_source_id(&source_id) {
+              Ok(new_device) => {
+                if let Err(e) = processor.swap_device(new_device) {
+                  error!(
+                    "Failed to swap SDR processor to source {}: {}",
+                    source_id, e
+                  );
+                  shared_state.update_device_status(
+                    !processor.is_mock(),
+                    processor.get_device_info(),
+                    build_device_profile(processor.device_type()),
+                  );
+                  shared_state.update_device_usb_strings(
+                    processor.get_serial_number(),
+                    processor.get_manufacturer(),
+                    processor.get_product(),
+                  );
+                  shared_state.set_device_backend_error(processor.get_error());
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                } else {
+                  shared_state.update_device_status(
+                    !processor.is_mock(),
+                    processor.get_device_info(),
+                    build_device_profile(processor.device_type()),
+                  );
+                  shared_state.update_device_usb_strings(
+                    processor.get_serial_number(),
+                    processor.get_manufacturer(),
+                    processor.get_product(),
+                  );
+                  shared_state.set_device_backend_error(processor.get_error());
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                }
+              }
+              Err(e) => {
+                error!(
+                  "Failed to open source {} for switching: {}",
+                  source_id, e
+                );
+                shared_state.update_device_status(
+                  !processor.is_mock(),
+                  processor.get_device_info(),
+                  build_device_profile(processor.device_type()),
+                );
+                shared_state.update_device_usb_strings(
+                  processor.get_serial_number(),
+                  processor.get_manufacturer(),
+                  processor.get_product(),
+                );
+                shared_state.set_device_backend_error(Some(format!(
+                  "Failed to switch to source {}: {}",
+                  source_id, e
+                )));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+              }
+            }
           }
           crate::server::types::SdrCommand::RestartDevice => {
             let mut processor = sdr_processor.lock().await;
@@ -1224,7 +1618,7 @@ impl WebSocketServer {
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
               let supported_device_present =
-                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
+                matches!(supported_usb_device_count(), Ok(count) if count > 0);
               if !supported_device_present {
                 warn!(
                   "Supported USB device unplugged after read error. Falling back to mock immediately."
@@ -1311,7 +1705,7 @@ impl WebSocketServer {
             } else {
               // Threshold reached — immediate fallback
               let supported_device_present =
-                matches!(scan_usb_for_supported_device(), Ok(Some(_)));
+                matches!(supported_usb_device_count(), Ok(count) if count > 0);
               warn!(
                   "Read-error threshold reached (streak={}). Supported USB device present={}.",
                   streak, supported_device_present,
@@ -1716,11 +2110,19 @@ mod tests {
 
     assert_eq!(snapshot["type"], "source_info");
     assert!(snapshot["sources"].is_array());
-    assert_eq!(snapshot["sources"].as_array().map(|v| v.len()), Some(2));
-    assert_eq!(snapshot["sources"][0]["name"], "Mock APT SDR");
-    assert_eq!(snapshot["sources"][0]["capability"], "mock");
-    assert_eq!(snapshot["sources"][0]["status"], "streaming");
-    assert_eq!(snapshot["sources"][1]["name"], "HackRF One #2");
+    let sources = snapshot["sources"].as_array().expect("sources array");
+    assert!(!sources.is_empty());
+    let active_source = snapshot["active_source"]
+      .as_str()
+      .expect("active source id");
+    assert!(sources
+      .iter()
+      .any(|source| source["id"].as_str() == Some(active_source)));
+    let unique_ids = sources
+      .iter()
+      .filter_map(|source| source["id"].as_str())
+      .collect::<std::collections::HashSet<_>>();
+    assert_eq!(unique_ids.len(), sources.len());
   }
 
   #[test]

@@ -20,6 +20,7 @@ import type {
   SourceSdrSettings,
   DeviceState,
   DeviceLoadingReason,
+  SourceInfo,
 } from "@n-apt/consts/schemas/websocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { buildWsUrl } from "@n-apt/services/auth";
@@ -28,6 +29,7 @@ import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 import {
   selectActiveSourceDerivedState,
   selectActiveSource,
+  deriveSourceDerivedState,
 } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   clearWaterfall,
@@ -61,6 +63,7 @@ import {
   sendCaptureCommand as sendCaptureCommandThunk,
   sendScanCommand as sendScanCommandThunk,
   sendDemodulateCommand as sendDemodulateCommandThunk,
+  sendSelectSource as sendSelectSourceThunk,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/hooks/useSdrSettings";
 import { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
@@ -72,6 +75,13 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import {
+  getSourceViewStorageKeyForSource,
+  loadStoredJson,
+  saveStoredJson,
+  loadSelectedSourceId,
+  saveSelectedSourceId,
+} from "@n-apt/utils/sourcePersistence";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -262,6 +272,66 @@ export type SpectrumState = {
     jsNoiseFloorMatching: boolean;
     acquisitionMode: "stepwise" | "interleaved";
   };
+};
+
+const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
+  "activeSignalArea",
+  "frequencyRange",
+  "displayTemporalResolution",
+  "powerScale",
+  "vizZoom",
+  "vizZoomFloor",
+  "vizZoomFloorPan",
+  "autoZoomStability",
+  "vizPanOffset",
+  "fftMinDb",
+  "fftMaxDb",
+  "fftSize",
+  "fftWindow",
+  "showSpikeOverlay",
+  "gain",
+  "hackrfLnaGain",
+  "hackrfVgaGain",
+  "hackrfAmpEnabled",
+  "hackrfBasebandBandwidth",
+  "ppm",
+  "tunerAGC",
+  "rtlAGC",
+  "lastKnownRanges",
+  "displayMode",
+  "fftAvgEnabled",
+  "fftSmoothEnabled",
+  "wfSmoothEnabled",
+];
+
+const buildPersistedSourceViewState = (
+  state: SpectrumState,
+): Partial<SpectrumState> => {
+  const persisted: Partial<SpectrumState> = {};
+  for (const key of PERSISTED_SOURCE_VIEW_FIELDS) {
+    const value = state[key];
+    if (typeof value !== "undefined") {
+      persisted[key] = value as never;
+    }
+  }
+  return persisted;
+};
+
+const normalizePersistedSourceViewState = (
+  persisted: Partial<SpectrumState> | null | undefined,
+): Partial<SpectrumState> => {
+  if (!persisted || typeof persisted !== "object") {
+    return {};
+  }
+
+  const next: Partial<SpectrumState> = {};
+  for (const key of PERSISTED_SOURCE_VIEW_FIELDS) {
+    const value = persisted[key];
+    if (typeof value !== "undefined") {
+      next[key] = value as never;
+    }
+  }
+  return next;
 };
 
 export type SpectrumAction =
@@ -804,6 +874,20 @@ export type SpectrumStoreContextValue = {
   fftVisualizerMachine: FFTVisualizerMachine;
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
+  selectedSourceId: string;
+  setSelectedSourceId: React.Dispatch<React.SetStateAction<string>>;
+  selectedSource: SourceInfo | null;
+  selectedSourceDerived: {
+    deviceState: DeviceState | null;
+    deviceName: string | null;
+    deviceProfile: DeviceProfile | null;
+    deviceInfo: string | null;
+    backend: string | null;
+    maxSampleRateHz: number | null;
+    sampleRateOptions: number[];
+    sampleRateHz: number | null;
+    sdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null;
+  };
   effectiveFrames: SpectrumFrame[];
   effectiveSdrSettings:
     | Partial<SdrSettingsConfig>
@@ -815,6 +899,7 @@ export type SpectrumStoreContextValue = {
   lastSentPauseRef: React.MutableRefObject<boolean | null>;
   wsConnection: {
     isConnected: boolean;
+    activeSourceId: string | null;
     deviceState: DeviceState;
     deviceLoadingReason: DeviceLoadingReason;
     isPaused: boolean;
@@ -834,6 +919,7 @@ export type SpectrumStoreContextValue = {
     }>;
     dataRef: React.MutableRefObject<any>;
     spectrumFrames: SpectrumFrame[];
+    sources: SourceInfo[];
     captureStatus: CaptureStatus;
     error: string | null;
     cryptoCorrupted: boolean;
@@ -855,11 +941,28 @@ export type SpectrumStoreContextValue = {
       signalArea: string,
     ) => void;
     sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
+    sendTransmitMode: (
+      enabled: boolean,
+      device: string,
+      txSettings: {
+        serialNumber: string;
+        centerFrequencyHz?: number | null;
+        sampleRateHz?: number | null;
+        powerDbm?: number | null;
+        lnaGainDb?: number | null;
+        vgaGainDb?: number | null;
+        ampEnabled?: boolean | null;
+        tunerAgc?: boolean | null;
+        rtlAgc?: boolean | null;
+        ppm?: number | null;
+      },
+    ) => void;
   };
   toggleVisualizerPause: () => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
+  sources: SourceInfo[];
 };
 
 const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
@@ -901,6 +1004,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
     const activeSource = useAppSelector(selectActiveSource);
     const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+    const websocketSources = useAppSelector((s) => s.websocket.sources);
     const websocketChannels = useAppSelector((s) => s.websocket.channels);
     const deviceState = activeSourceDerived.deviceState;
     const backend = activeSourceDerived.backend;
@@ -910,6 +1014,37 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const sampleRateHz = activeSourceDerived.sampleRateHz;
     const sdrSettings = activeSourceDerived.sdrSettings;
     const activeSourceId = activeSource?.id ?? "";
+    const [selectedSourceId, setSelectedSourceId] = useState<string>(() => {
+      const stored = loadSelectedSourceId();
+      return stored || activeSourceId || websocketSources[0]?.id || "";
+    });
+    const currentSourceStateRef = useRef(state);
+    const selectedSourceViewKeyRef = useRef<string | null>(null);
+    const skipNextSourceViewPersistRef = useRef<string | null>(null);
+    const pendingSourceSwitchRef = useRef<string | null>(null);
+    useEffect(() => {
+      currentSourceStateRef.current = state;
+    }, [state]);
+    const selectedSource = useMemo(() => {
+      if (!Array.isArray(websocketSources) || websocketSources.length === 0) {
+        return null;
+      }
+
+      return (
+        websocketSources.find((source) => source.id === selectedSourceId) ??
+        websocketSources.find((source) => source.id === activeSourceId) ??
+        websocketSources[0] ??
+        null
+      );
+    }, [activeSourceId, selectedSourceId, websocketSources]);
+    const selectedSourceViewKey = useMemo(
+      () => getSourceViewStorageKeyForSource(selectedSource),
+      [selectedSource],
+    );
+    const selectedSourceDerived = useMemo(
+      () => deriveSourceDerivedState(selectedSource),
+      [selectedSource],
+    );
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
@@ -918,6 +1053,104 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const dataRef = liveDataRef;
 
     const reduxSpectrumState = useAppSelector((s) => s.spectrum);
+
+    useEffect(() => {
+      const availableSourceIds = Array.isArray(websocketSources)
+        ? websocketSources.map((source) => source.id)
+        : [];
+
+      if (availableSourceIds.length === 0) {
+        return;
+      }
+
+      const hasSelectedSource =
+        selectedSourceId.length > 0 &&
+        availableSourceIds.includes(selectedSourceId);
+      const fallbackSourceId = activeSourceId || availableSourceIds[0] || "";
+
+      if (!hasSelectedSource && fallbackSourceId) {
+        setSelectedSourceId(fallbackSourceId);
+      }
+    }, [activeSourceId, selectedSourceId, websocketSources]);
+
+    useEffect(() => {
+      if (!selectedSourceId || !selectedSourceViewKey) {
+        return;
+      }
+
+      const previousSourceViewKey = selectedSourceViewKeyRef.current;
+      if (
+        previousSourceViewKey &&
+        previousSourceViewKey !== selectedSourceViewKey
+      ) {
+        saveStoredJson(
+          previousSourceViewKey,
+          buildPersistedSourceViewState(currentSourceStateRef.current),
+        );
+      }
+
+      if (previousSourceViewKey !== selectedSourceViewKey) {
+        const restoredState = normalizePersistedSourceViewState(
+          loadStoredJson<Partial<SpectrumState>>(selectedSourceViewKey),
+        );
+        skipNextSourceViewPersistRef.current = selectedSourceViewKey;
+        if (Object.keys(restoredState).length > 0) {
+          dispatch({
+            type: "SET_SDR_SETTINGS_BUNDLE",
+            settings: restoredState,
+          });
+        }
+        selectedSourceViewKeyRef.current = selectedSourceViewKey;
+      }
+
+      saveSelectedSourceId(selectedSourceId);
+    }, [dispatch, selectedSourceId, selectedSourceViewKey]);
+
+    useEffect(() => {
+      if (state.sourceMode !== "live") {
+        pendingSourceSwitchRef.current = null;
+        return;
+      }
+
+      if (
+        !isConnected ||
+        !selectedSourceId ||
+        selectedSourceId === activeSourceId
+      ) {
+        pendingSourceSwitchRef.current = null;
+        return;
+      }
+
+      if (pendingSourceSwitchRef.current === selectedSourceId) {
+        return;
+      }
+
+      liveDataRef.current = [];
+      reduxDispatch(sendSelectSourceThunk(selectedSourceId));
+      pendingSourceSwitchRef.current = selectedSourceId;
+    }, [
+      activeSourceId,
+      isConnected,
+      reduxDispatch,
+      selectedSourceId,
+      state.sourceMode,
+    ]);
+
+    useEffect(() => {
+      if (!selectedSourceId || !selectedSourceViewKey) {
+        return;
+      }
+
+      if (skipNextSourceViewPersistRef.current === selectedSourceViewKey) {
+        skipNextSourceViewPersistRef.current = null;
+        return;
+      }
+
+      saveStoredJson(
+        selectedSourceViewKey,
+        buildPersistedSourceViewState(state),
+      );
+    }, [selectedSourceId, selectedSourceViewKey, state]);
 
     const mergedState = useMemo(
       () => ({
@@ -1114,9 +1347,42 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
+    const sendTransmitModeCommand = useCallback(
+      (
+        enabled: boolean,
+        device: string,
+        txSettings: {
+          serialNumber: string;
+          centerFrequencyHz?: number | null;
+          sampleRateHz?: number | null;
+          powerDbm?: number | null;
+          lnaGainDb?: number | null;
+          vgaGainDb?: number | null;
+          ampEnabled?: boolean | null;
+          tunerAgc?: boolean | null;
+          rtlAgc?: boolean | null;
+          ppm?: number | null;
+        },
+      ) => {
+        reduxDispatch({
+          type: "websocket/sendMessage",
+          payload: {
+            type: "tx_mode",
+            data: {
+              txMode: enabled,
+              txDevice: device,
+              ...txSettings,
+            },
+          },
+        });
+      },
+      [reduxDispatch],
+    );
+
     const wsConnection = useMemo(
       () => ({
         isConnected,
+        activeSourceId: activeSourceId || null,
         deviceState: activeSourceDerived.deviceState,
         deviceLoadingReason: (activeSource?.status === "loading"
           ? "connect"
@@ -1134,6 +1400,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sdrLimitMarkers: activeSource?.sdr.fft_display.markers ?? [],
         dataRef,
         spectrumFrames: wsSpectrumFrames,
+        sources: websocketSources,
         captureStatus,
         error,
         cryptoCorrupted,
@@ -1146,15 +1413,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sendDemodulateCommand,
         sendTrainingCommand,
         sendPowerScaleCommand,
+        sendTransmitMode: sendTransmitModeCommand,
       }),
       [
         isConnected,
+        activeSourceId,
         activeSourceDerived.deviceState,
         activeSource,
         activeSourceDerived,
         isPaused,
         serverPaused,
         dataRef,
+        websocketSources,
         captureStatus,
         error,
         cryptoCorrupted,
@@ -1167,6 +1437,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sendDemodulateCommand,
         sendTrainingCommand,
         sendPowerScaleCommand,
+        sendTransmitModeCommand,
       ],
     );
 
@@ -1719,6 +1990,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         fftVisualizerMachine,
         manualVisualizerPaused,
         setManualVisualizerPaused,
+        selectedSourceId,
+        setSelectedSourceId,
+        selectedSource,
+        selectedSourceDerived,
         effectiveFrames,
         effectiveSdrSettings,
         sampleRateHzEffective,
@@ -1729,12 +2004,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         cryptoCorrupted,
         deviceName,
         deviceProfile,
+        sources: websocketSources,
       }),
       [
         mergedState,
         storeDispatch,
         fftVisualizerMachine,
         manualVisualizerPaused,
+        selectedSourceId,
+        selectedSource,
+        selectedSourceDerived,
         effectiveFrames,
         effectiveSdrSettings,
         sampleRateHzEffective,
@@ -1744,6 +2023,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         cryptoCorrupted,
         deviceName,
         deviceProfile,
+        websocketSources,
       ],
     );
 

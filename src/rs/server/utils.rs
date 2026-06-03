@@ -588,6 +588,8 @@ pub fn reconcile_device_state(
   match (device_connected, device_state) {
     // "loading" is always authoritative — it means we're mid-transition
     (_, "loading") => "loading".to_string(),
+    // "loose" is authoritative — the device briefly vanished but may recover
+    (_, "loose") => "loose".to_string(),
     // "stale" is authoritative — the health loop set it deliberately
     (_, "stale") => "stale".to_string(),
     // Normal consistency checks

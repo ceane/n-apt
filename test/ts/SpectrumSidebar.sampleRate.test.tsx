@@ -472,9 +472,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     expect(mockShowPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Check before you transmit",
-        confirmText: "Continue",
-        cancelText: "Cancel",
+        title: "Check Before You Transmit",
+        confirmText: "Continue (Accept Responsibility)",
+        cancelText: "Let me think about it...",
       }),
     );
     expect(mockWsConnection.sendTransmitMode).not.toHaveBeenCalled();

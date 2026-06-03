@@ -61,6 +61,7 @@ export const DemodFilePlaybackBridge: React.FC<
     hasStitchedData,
     isPaused,
     activeChannel,
+    fftSize,
     allChannelsRef,
     precomputedFrames,
     fftCanvasDataRef: playbackDataRef,

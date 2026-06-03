@@ -135,9 +135,13 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     if (safeZoom <= 1) {
       const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
       const halfHardware = hardwareSpan / 2;
+      const visualCenter = Math.max(
+        minFreq + halfHardware,
+        Math.min(maxFreq - halfHardware, hardwareCenter),
+      );
       return {
-        min: Math.max(minFreq, hardwareCenter - halfHardware),
-        max: Math.min(maxFreq, hardwareCenter + halfHardware),
+        min: visualCenter - halfHardware,
+        max: visualCenter + halfHardware,
       };
     }
 

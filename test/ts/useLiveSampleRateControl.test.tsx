@@ -105,13 +105,13 @@ describe("useLiveSampleRateControl", () => {
     });
     expect(setSampleRate).toHaveBeenLastCalledWith(4_000_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 4_018_000,
+      min: 204_000,
+      max: 4_204_000,
     });
 
     rerender({
       ...initialProps,
-      frequencyRange: { min: 18_000, max: 4_018_000 },
+      frequencyRange: { min: 204_000, max: 4_204_000 },
       sampleRateHz: 4_000_000,
     });
 
@@ -120,8 +120,8 @@ describe("useLiveSampleRateControl", () => {
     });
     expect(setSampleRate).toHaveBeenLastCalledWith(3_200_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 3_218_000,
+      min: 604_000,
+      max: 3_804_000,
     });
   });
 
@@ -312,14 +312,14 @@ describe("useLiveSampleRateControl", () => {
     expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
-  it("anchors sample-rate ranges at the channel lower bound", () => {
+  it("centers and clamps sample-rate ranges when smaller than channel bounds", () => {
     expect(
       buildLiveSampleRateRange({
         currentRange: { min: 50, max: 150 },
         sampleRateHz: 50,
         channelBounds: { min: 10, max: 100 },
       }),
-    ).toEqual({ min: 10, max: 60 });
+    ).toEqual({ min: 50, max: 100 });
   });
 
   it("preserves the requested sample-rate span from the active channel lower bound", () => {

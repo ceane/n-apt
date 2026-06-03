@@ -39,8 +39,9 @@ export const buildLiveSampleRateRange = ({
       : 0;
 
   if (channelBounds && channelSpan > 0) {
-    const min = Math.max(0, Math.round(channelBounds.min));
-    if (sampleRateHz <= channelSpan) {
+    if (sampleRateHz < channelSpan) {
+      const idealMin = centerHz - requestedSpan / 2;
+      const min = Math.max(0, idealMin);
       return clampFrequencyRangeToBounds(
         normalizeFrequencyRangeToHz({
           min,
@@ -50,6 +51,7 @@ export const buildLiveSampleRateRange = ({
       );
     }
 
+    const min = Math.max(0, Math.round(channelBounds.min));
     return normalizeFrequencyRangeToHz({
       min,
       max: min + requestedSpan,

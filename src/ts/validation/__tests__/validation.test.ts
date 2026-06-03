@@ -166,6 +166,15 @@ describe("Validation System", () => {
       expect(isValidWebSocketMessage(validMessage)).toBe(true);
     });
 
+    test("should validate select source message", () => {
+      const validMessage = {
+        type: "select_source",
+        source_id: "rtl-sdr-1",
+      };
+
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
     test("should reject invalid message type", () => {
       const invalidMessage = {
         type: "invalid_type",

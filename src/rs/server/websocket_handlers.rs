@@ -591,6 +591,16 @@ pub fn handle_message(
       info!("Client requested device restart");
       let _ = cmd_tx.send(super::types::SdrCommand::RestartDevice);
     }
+    "select_source" => {
+      if let Some(source_id) = message.source_id.clone() {
+        info!("Client requested source switch: {}", source_id);
+        let _ = cmd_tx.send(super::types::SdrCommand::SetActiveSource {
+          source_id,
+        });
+      } else {
+        debug!("Ignoring select_source message without source_id");
+      }
+    }
     "training_capture" => {
       if let Some(action) = message.action.as_deref() {
         match action {
@@ -915,6 +925,31 @@ mod tests {
       SdrCommand::ApplySettings(settings) => {
         assert_eq!(settings.sample_rate, Some(5_200_000));
         assert_eq!(settings.tuner_bandwidth, Some(5_200_000));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn forwards_select_source_as_active_source_command() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"select_source",
+        "source_id":"rtl-sdr-1"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx.recv().expect("expected SetActiveSource command");
+    match cmd {
+      SdrCommand::SetActiveSource { source_id } => {
+        assert_eq!(source_id, "rtl-sdr-1");
       }
       other => panic!("unexpected command: {:?}", other),
     }

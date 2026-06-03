@@ -123,7 +123,16 @@ export const usePrompt = () => {
 export const PromptProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [promptState, setPromptState] = useState({
+  const [promptState, setPromptState] = useState<{
+    open: boolean;
+    title: string;
+    message: ReactNode;
+    confirmText: string;
+    cancelText: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    variant: "primary" | "danger";
+  }>({
     open: false,
     title: "",
     message: "",
@@ -131,7 +140,7 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({
     cancelText: "Cancel",
     onConfirm: () => {},
     onCancel: () => {},
-    variant: "primary" as "primary" | "danger",
+    variant: "primary",
   });
 
   const [passwordState, setPasswordState] = useState({

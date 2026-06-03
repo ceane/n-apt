@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import styled from "styled-components";
+import { Lock } from "lucide-react";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
 import {
@@ -160,6 +161,9 @@ const WindowLabel = styled.span<{ $isActive: boolean }>`
   user-select: none;
   padding: 0 8px;
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 `;
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
@@ -227,6 +231,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null);
   const internalChangeIdRef = useRef(0);
   const lastNotifiedChangeIdRef = useRef(0);
+  const isLeftLockedRef = useRef(false);
+  const isRightLockedRef = useRef(false);
+  const [isLeftLocked, setIsLeftLocked] = useState(false);
+  const [isRightLocked, setIsRightLocked] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   // Calculate scan position if scanning
@@ -461,6 +469,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [disabled, isActive, moveWindow, readOnly]);
 
   useEffect(() => {
+    const handleScroll = () => {
+      isLeftLockedRef.current = false;
+      isRightLockedRef.current = false;
+      setIsLeftLocked(false);
+      setIsRightLocked(false);
+    };
+    window.addEventListener("wheel", handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("wheel", handleScroll);
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !trackRef.current) return;
 
@@ -479,14 +502,57 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       if (windowWidth <= 1) {
         const ratioDelta = deltaX / draggablePixels;
         const windowStartDelta = ratioDelta * mws;
-
         newStart = dragStartWindowRef.current + windowStartDelta;
-        newStart = Math.max(0, Math.min(mws, newStart));
+
+        if (isLeftLockedRef.current && newStart > 0) {
+          isLeftLockedRef.current = false;
+          setIsLeftLocked(false);
+        }
+        if (isRightLockedRef.current && newStart < mws) {
+          isRightLockedRef.current = false;
+          setIsRightLocked(false);
+        }
+
+        if (newStart <= 0) {
+          newStart = 0;
+          if (!isLeftLockedRef.current) {
+            isLeftLockedRef.current = true;
+            setIsLeftLocked(true);
+          }
+        } else if (newStart >= mws) {
+          newStart = mws;
+          if (!isRightLockedRef.current) {
+            isRightLockedRef.current = true;
+            setIsRightLocked(true);
+          }
+        }
       } else {
         const ratioDelta = deltaX / tw;
         newStart = dragStartWindowRef.current + ratioDelta;
         const overscan = windowWidth - 1;
-        newStart = Math.max(-overscan, Math.min(0, newStart));
+
+        if (isLeftLockedRef.current && newStart > -overscan) {
+          isLeftLockedRef.current = false;
+          setIsLeftLocked(false);
+        }
+        if (isRightLockedRef.current && newStart < 0) {
+          isRightLockedRef.current = false;
+          setIsRightLocked(false);
+        }
+
+        if (newStart <= -overscan) {
+          newStart = -overscan;
+          if (!isLeftLockedRef.current) {
+            isLeftLockedRef.current = true;
+            setIsLeftLocked(true);
+          }
+        } else if (newStart >= 0) {
+          newStart = 0;
+          if (!isRightLockedRef.current) {
+            isRightLockedRef.current = true;
+            setIsRightLocked(true);
+          }
+        }
       }
 
       internalChangeIdRef.current += 1;
@@ -515,6 +581,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
     onActivate?.();
+    isLeftLockedRef.current = false;
+    isRightLockedRef.current = false;
+    setIsLeftLocked(false);
+    setIsRightLocked(false);
     isDraggingRef.current = true;
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
@@ -601,7 +671,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             onMouseDown={handleMouseDown}
           >
             <WindowLabel ref={windowLabelRef} $isActive={isActive}>
+              {isLeftLocked && <Lock size={10} style={{ marginRight: 2 }} />}
               {formatFreq(currentMin)} - {formatFreq(currentMax)}
+              {isRightLocked && <Lock size={10} style={{ marginLeft: 2 }} />}
             </WindowLabel>
           </VisibleWindow>
         </RangeTrack>

@@ -20,8 +20,8 @@ import {
   setTxCenterFrequencyHz,
   setTxPowerDbm,
   setTxVgaGain,
-  setShowTxSlider,
   setDeviceKind,
+  setShowTxSlider,
 } from "@n-apt/redux";
 import {
   getSupportedSnapshotVideoFormat,
@@ -70,25 +70,19 @@ import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySec
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
 import { TxSettingsSection } from "@n-apt/components/sidebar/TxSettingsSection";
-import FileMetadata, {
-  type NaptMetadata as FileMetadataNaptMetadata,
-} from "@n-apt/components/sidebar/FileMetadata";
-import SelectedFiles from "@n-apt/components/sidebar/SelectedFiles";
 import { Button } from "@n-apt/components/ui/Button";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
 import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
+import { TransmitPrompt } from "@n-apt/components/prompts/TransmitPrompt";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { parseFrequency } from "@n-apt/utils/frequency";
 import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
-import {
-  selectActiveSource,
-  selectActiveSourceDerivedState,
-} from "@n-apt/redux/selectors/performanceSelectors";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -98,6 +92,7 @@ const SidebarContent = memo(styled.div`
   padding: calc(24px + env(safe-area-inset-top, 0px)) 24px 24px 24px;
   box-sizing: border-box;
   max-width: 100%;
+  overflow-anchor: none;
 `);
 
 const Section = memo(styled.div<{ $marginBottom?: string }>`
@@ -142,8 +137,12 @@ const StickyHeaderWrapper = memo(styled.div<{ $isSticky?: boolean }>`
   border-bottom: 1px solid
     ${(props: any) =>
       props.$isSticky ? props.theme.borderHover : "transparent"};
+  overflow-anchor: none;
   transition: border-bottom 0.2s ease;
 `);
+
+const STICKY_COMPACT_ENTER_OFFSET_PX = 0;
+const STICKY_COMPACT_EXIT_OFFSET_PX = 16;
 
 const SectionIcon = memo(styled.div`
   display: flex;
@@ -379,6 +378,18 @@ interface SpectrumSidebarProps {
   visualizerLoading?: boolean;
 }
 
+const EMPTY_SELECTED_SOURCE_DERIVED = {
+  deviceState: null,
+  deviceName: null,
+  deviceProfile: null,
+  deviceInfo: null,
+  backend: null,
+  maxSampleRateHz: null,
+  sampleRateOptions: [] as number[],
+  sampleRateHz: null,
+  sdrSettings: null,
+};
+
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   onCreateNoteCard,
   visualizerLoading = false,
@@ -394,6 +405,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     effectiveSdrSettings,
     sampleRateHzEffective,
     signalAreaBounds,
+    selectedSource,
+    selectedSourceDerived = EMPTY_SELECTED_SOURCE_DERIVED,
+    selectedSourceId = "",
+    setSelectedSourceId = () => {},
+    sources = [],
     wsConnection,
     manualVisualizerPaused,
     toggleVisualizerPause: toggleLiveVisualizerPause,
@@ -480,21 +496,29 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const isConnected = useAppSelector((s) => s.websocket.isConnected);
   const connectionStatus = useAppSelector((s) => s.websocket.connectionStatus);
-  const activeSource = useAppSelector(selectActiveSource);
-  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const isPaused = useAppSelector((s) => s.websocket.isPaused);
   const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+  const websocketSources = useAppSelector((s) => s.websocket.sources);
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
+  const sourcesToUse = useMemo(
+    () =>
+      sources.length > 0
+        ? sources
+        : Array.isArray(wsConnection.sources) && wsConnection.sources.length > 0
+          ? wsConnection.sources
+          : websocketSources,
+    [sources, websocketSources, wsConnection.sources],
+  );
 
-  const liveBackend = activeSourceDerived.backend ?? wsConnection.backend;
+  const liveBackend = selectedSourceDerived.backend ?? wsConnection.backend;
   const liveDeviceState =
-    activeSourceDerived.deviceState ?? wsConnection.deviceState;
+    selectedSourceDerived.deviceState ?? wsConnection.deviceState;
   const liveDeviceLoadingReason =
     wsConnection.deviceLoadingReason ??
-    (activeSource?.status === "loading" ? "connect" : null);
+    (selectedSource?.status === "loading" ? "connect" : null);
   const liveIsConnected = wsConnection.isConnected ?? isConnected;
   const liveIsPaused =
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
@@ -502,11 +526,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveFramesToUse =
     channelFramesToUse.length > 0 ? channelFramesToUse : spectrumFrames;
   const liveSdrSettingsToUse =
-    activeSourceDerived.sdrSettings ?? effectiveSdrSettings;
+    selectedSourceDerived.sdrSettings ?? effectiveSdrSettings;
   const liveDeviceNameToUse =
-    activeSourceDerived.deviceName ?? liveDeviceName ?? wsConnection.deviceName;
+    selectedSourceDerived.deviceName ??
+    liveDeviceName ??
+    wsConnection.deviceName;
   const liveDeviceProfileToUse =
-    activeSourceDerived.deviceProfile ??
+    selectedSourceDerived.deviceProfile ??
     liveDeviceProfile ??
     wsConnection.deviceProfile;
   const deviceTypeToUse =
@@ -520,14 +546,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const isHackrfOne =
     liveDeviceProfileToUse?.kind === "hackrf_one" ||
     liveBackend?.toLowerCase() === "hackrf_one";
-  const liveSampleRateOptions = activeSourceDerived.sampleRateOptions;
+  const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
   const maxSampleRateHz =
-    activeSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
+    selectedSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
   const isMockLiveSource =
     sourceMode === "live" &&
     !!(
-      activeSource?.kind?.toLowerCase().includes("mock") ||
-      activeSource?.capability === "mock" ||
+      selectedSource?.kind?.toLowerCase().includes("mock") ||
+      selectedSource?.capability === "mock" ||
       liveBackend?.toLowerCase().includes("mock") ||
       liveDeviceNameToUse?.toLowerCase().includes("mock")
     );
@@ -878,95 +904,49 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const txVgaGain = useAppSelector((state) => state.spectrum.txVgaGain);
-  const [selectedMockDeviceId, setSelectedMockDeviceId] = useState("device-1");
-  const [mockDevices, setMockDevices] = useState([
-    {
-      id: "device-1",
-      name: "Mock APT SDR",
-      backend: liveBackend || "mock_apt",
-      capability: "mock",
-      deviceType: liveDeviceProfileToUse?.kind ?? "rtl_sdr",
-      txMode: false,
-      ppm,
-      gain,
-      hackrfLnaGain: liveState.hackrfLnaGain,
-      hackrfVgaGain: liveState.hackrfVgaGain,
-      hackrfAmpEnabled: liveState.hackrfAmpEnabled,
-      hackrfBasebandBandwidth: liveState.hackrfBasebandBandwidth,
-      tunerAGC,
-      rtlAGC,
-    },
-    {
-      id: "device-2",
-      // Temporary placeholder until real multi-device backend discovery is wired up.
-      name: "HackRF One #2",
-      backend: "hackrf_one",
-      capability: "tx_rx",
-      deviceType: "hackrf_one",
-      txMode: true,
-      ppm: 0,
-      gain: 0,
-      hackrfLnaGain: 32,
-      hackrfVgaGain: 18,
-      hackrfAmpEnabled: true,
-      hackrfBasebandBandwidth: 3_200_000,
-      tunerAGC: false,
-      rtlAGC: false,
-    },
-  ]);
   const [livePreviewStage, setLivePreviewStage] = useState(0);
   const handleToggleTransmitMode = useCallback(
-    (deviceId: string, nextEnabled: boolean) => {
-      const device = mockDevices.find((entry) => entry.id === deviceId) ?? null;
+    (sourceId: string, nextEnabled: boolean) => {
+      const source =
+        sourcesToUse.find((entry) => entry.id === sourceId) ??
+        (sourcesToUse.length === 1 ? sourcesToUse[0] : null);
+      if (!source) {
+        return;
+      }
+
       const applyToggle = () => {
-        setMockDevices((current) =>
-          current.map((entry) =>
-            entry.id === deviceId ? { ...entry, txMode: nextEnabled } : entry,
-          ),
-        );
-        wsConnection.sendTransmitMode(nextEnabled, device?.name ?? deviceId, {
-          serialNumber: deviceId,
-          centerFrequencyHz: txCenterFrequencyHz,
-          sampleRateHz: txSampleRateHz,
-          powerDbm: txPowerDbm,
-          lnaGainDb: null,
-          vgaGainDb: txVgaGain,
-          ampEnabled: null,
-          tunerAgc: null,
-          rtlAgc: null,
-          ppm: null,
+        wsConnection.sendTransmitMode?.(nextEnabled, source.name ?? sourceId, {
+          serialNumber: source.serial_number?.trim() || sourceId,
+          centerFrequencyHz:
+            txCenterFrequencyHz ??
+            source.sdr.settings.center_frequency ??
+            undefined,
+          sampleRateHz:
+            txSampleRateHz ?? source.sdr.settings.sample_rate ?? undefined,
+          powerDbm: txPowerDbm ?? undefined,
+          vgaGainDb:
+            txVgaGain ?? source.sdr.settings.hackrf_vga_gain ?? undefined,
+          lnaGainDb:
+            source.sdr.settings.hackrf_lna_gain ??
+            liveState.hackrfLnaGain ??
+            undefined,
+          ampEnabled:
+            source.sdr.settings.hackrf_amp_enable ??
+            liveState.hackrfAmpEnabled ??
+            undefined,
+          tunerAgc:
+            source.sdr.settings.tuner_agc ?? liveState.tunerAGC ?? undefined,
+          rtlAgc: source.sdr.settings.rtl_agc ?? liveState.rtlAGC ?? undefined,
+          ppm: source.sdr.settings.ppm ?? liveState.ppm ?? undefined,
         });
       };
 
       if (nextEnabled) {
         showPrompt({
-          title: "Check before you transmit",
-          message: (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div>
-                Check before you transmit, it is your responsibility to have a
-                valid FCC license for transmitting on waves.
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <a
-                  href="https://www.fcc.gov/obtaining-license"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Obtaining A License
-                </a>
-                <a
-                  href="https://www.fcc.gov/media/radio/public-and-broadcasting"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  The Public And Broadcasting
-                </a>
-              </div>
-            </div>
-          ),
-          confirmText: "Continue",
-          cancelText: "Cancel",
+          title: "Check Before You Transmit",
+          message: <TransmitPrompt />,
+          confirmText: "Continue (Accept Responsibility)",
+          cancelText: "Let me think about it...",
           onConfirm: applyToggle,
         });
         return;
@@ -975,13 +955,94 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       applyToggle();
     },
     [
-      mockDevices,
+      liveState.hackrfAmpEnabled,
+      liveState.hackrfLnaGain,
+      liveState.ppm,
+      liveState.rtlAGC,
+      liveState.tunerAGC,
       showPrompt,
+      sourcesToUse,
       txCenterFrequencyHz,
       txPowerDbm,
       txSampleRateHz,
       txVgaGain,
-      wsConnection,
+      wsConnection.sendTransmitMode,
+    ],
+  );
+  const sourceDevices = useMemo(
+    () =>
+      sourcesToUse.map((source) => {
+        const isTransmitting = source.status === "transmitting";
+        const isStreaming = source.status === "streaming";
+        const supportsTx =
+          source.capability === "tx" || source.capability === "tx_rx";
+        const isMockSource = source.capability === "mock";
+        const isLiveConnected =
+          source.status === "connected" || isStreaming || isMockSource;
+        const canToggleStreaming = isLiveConnected;
+        const actionLabel =
+          isTransmitting || supportsTx
+            ? isTransmitting
+              ? "Pause"
+              : "Resume"
+            : canToggleStreaming
+              ? liveIsPaused
+                ? "Resume"
+                : "Pause"
+              : undefined;
+        const actionTitle =
+          isTransmitting || supportsTx
+            ? isTransmitting
+              ? "Pause transmit mode"
+              : "Resume transmit mode"
+            : canToggleStreaming
+              ? liveIsPaused
+                ? "Resume playback"
+                : "Pause playback"
+              : undefined;
+        const onAction =
+          isTransmitting || supportsTx
+            ? () => handleToggleTransmitMode(source.id, !isTransmitting)
+            : canToggleStreaming
+              ? toggleLiveVisualizerPause
+              : undefined;
+
+        return {
+          id: source.id,
+          name: source.name,
+          backend: source.kind,
+          capability: source.capability,
+          txMode: isTransmitting,
+          summary: source.serial_number
+            ? `SN ${source.serial_number}`
+            : source.manufacturer
+              ? source.manufacturer
+              : undefined,
+          status: {
+            color: isTransmitting
+              ? "#19d9ff"
+              : isMockSource && isStreaming
+                ? "#ffb000"
+                : isStreaming
+                  ? "#19d97d"
+                  : undefined,
+            label: source.status ?? undefined,
+            loading: source.status === "loading",
+            loadingLabel:
+              source.status === "loading"
+                ? `Loading ${source.name}`
+                : undefined,
+            actionLabel,
+            actionTitle,
+            onAction,
+          },
+        };
+      }),
+    [
+      handleToggleTransmitMode,
+      liveIsPaused,
+      sourcesToUse,
+      toggleLiveVisualizerPause,
     ],
   );
   const activeCaptureAreasSet = useMemo(
@@ -1064,11 +1125,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     dispatch,
     storeDispatch,
   ]);
-
-  // Toggle visualizer pause
-  const toggleVisualizerPause = useCallback(() => {
-    toggleLiveVisualizerPause();
-  }, [toggleLiveVisualizerPause]);
 
   // Memoized values for sections
   const selectedPrimaryFile = useMemo(() => {
@@ -1155,9 +1211,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     (mode: "live" | "file") => {
       if (mode === "file") {
         setLivePreviewStage(0);
-        setMockDevices((current) =>
-          current.map((entry) => ({ ...entry, txMode: false })),
-        );
       } else {
         setLivePreviewStage(0);
       }
@@ -1496,7 +1549,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   useEffect(() => {
     let cancelled = false;
     if (!selectedPrimaryFile) {
-      setNaptMetadata(null);
+      if (naptMetadata !== null) {
+        setNaptMetadata(null);
+      }
+      if (naptMetadataError !== null) {
+        setNaptMetadataError(null);
+      }
       return;
     }
 
@@ -1621,7 +1679,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPrimaryFile, aesKey]);
+  }, [selectedPrimaryFile, aesKey, naptMetadata, naptMetadataError]);
 
   const limitMarkers = useMemo(
     () => buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
@@ -1654,38 +1712,96 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         availableCaptureAreas.map((area) => area.label),
       );
       const next = current.filter((label) => validLabels.has(label));
-      return next.length > 0
-        ? next
-        : validLabels.has("Onscreen")
-          ? ["Onscreen"]
-          : next;
+      const resolved =
+        next.length > 0
+          ? next
+          : validLabels.has("Onscreen")
+            ? ["Onscreen"]
+            : next;
+      if (
+        resolved.length === current.length &&
+        resolved.every((label, index) => label === current[index])
+      ) {
+        return current;
+      }
+      return resolved;
     });
   }, [availableCaptureAreas]);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const stickyWrapperRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
+  const stickyStartRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsSticky(!entry.isIntersecting);
-      },
-      { threshold: [1], rootMargin: "-24px 0px 0px 0px" },
-    );
+    const wrapper = stickyWrapperRef.current;
+    if (!wrapper) return;
 
-    if (sentinelRef.current) {
-      observer.observe(sentinelRef.current);
+    const findScrollParent = (element: HTMLElement): HTMLElement | Window => {
+      let parent = element.parentElement;
+      while (parent) {
+        const { overflowY } = window.getComputedStyle(parent);
+        if (
+          /(auto|scroll|overlay)/.test(overflowY) &&
+          parent.scrollHeight > parent.clientHeight
+        ) {
+          return parent;
+        }
+        parent = parent.parentElement;
+      }
+      return window;
+    };
+
+    const scrollParent = findScrollParent(wrapper);
+    const readScrollTop = () =>
+      scrollParent === window
+        ? window.scrollY
+        : (scrollParent as HTMLElement).scrollTop;
+
+    const readStickyStart = () => {
+      if (scrollParent === window) {
+        return wrapper.getBoundingClientRect().top + window.scrollY;
+      }
+
+      let top = 0;
+      let current: HTMLElement | null = wrapper;
+
+      while (current && current !== scrollParent) {
+        top += current.offsetTop;
+        current = current.offsetParent as HTMLElement | null;
+      }
+
+      return top;
+    };
+
+    if (stickyStartRef.current === null) {
+      stickyStartRef.current = readStickyStart();
     }
 
-    return () => observer.disconnect();
-  }, []);
+    const updateStickyState = () => {
+      const stickyStart = stickyStartRef.current ?? readStickyStart();
+      const scrollTop = readScrollTop();
+      const nextIsSticky = isSticky
+        ? scrollTop >= stickyStart - STICKY_COMPACT_EXIT_OFFSET_PX
+        : scrollTop >= stickyStart - STICKY_COMPACT_ENTER_OFFSET_PX;
+      setIsSticky((current) =>
+        current === nextIsSticky ? current : nextIsSticky,
+      );
+    };
+
+    updateStickyState();
+    scrollParent.addEventListener("scroll", updateStickyState, {
+      passive: true,
+    });
+    window.addEventListener("resize", updateStickyState);
+
+    return () => {
+      scrollParent.removeEventListener("scroll", updateStickyState);
+      window.removeEventListener("resize", updateStickyState);
+    };
+  }, [isSticky]);
 
   return (
     <SidebarContent>
-      <div
-        ref={sentinelRef}
-        style={{ gridColumn: "1 / -1", height: 0, pointerEvents: "none" }}
-      />
-      <StickyHeaderWrapper $isSticky={isSticky}>
+      <StickyHeaderWrapper ref={stickyWrapperRef} $isSticky={isSticky}>
         <SectionTitle $fileMode={sourceMode === "file"}>
           <SectionIcon>
             <Unplug size={14} />
@@ -1695,6 +1811,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
         <SourceInput
           sourceMode={sourceMode}
+          compactActiveOnly={isSticky}
           fileModeColor="var(--color-file-mode)"
           livePreviewStage={livePreviewStage}
           fileActionLabel={fileActionLabel}
@@ -1702,215 +1819,67 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           selectedFilesCount={selectedFiles.length}
           onFileAction={handleFileAction}
           onFilesSelected={handleSourceFilesSelected}
-          devices={mockDevices.map((device) => {
-            const isMockApt =
-              device.id === "device-1" &&
-              (!liveDeviceProfileToUse ||
-                liveDeviceProfileToUse.kind === "mock_apt" ||
-                liveDeviceProfileToUse.kind === "mock_apt_metal");
-            return {
-              id: device.id,
-              name:
-                device.id === "device-1"
-                  ? liveDeviceNameToUse || device.name
-                  : device.name,
-              backend:
-                device.id === "device-1"
-                  ? liveBackend || device.backend
-                  : device.backend,
-              capability:
-                device.id === "device-1"
-                  ? isMockApt
-                    ? "mock"
-                    : liveDeviceProfileToUse?.kind === "hackrf_one"
-                      ? "tx_rx"
-                      : "rx"
-                  : device.capability,
-              txMode: device.txMode,
-              summary: `PPM ${device.ppm} · Gain ${device.gain} dB`,
-              status:
-                device.id === "device-1"
-                  ? {
-                      color:
-                        liveDeviceState === "loading"
-                          ? "var(--color-warning)"
-                          : liveDeviceState === "connected" &&
-                              liveCryptoCorrupted
-                            ? "var(--color-danger)"
-                            : liveDeviceState === "connected"
-                              ? "var(--color-primary)"
-                              : "var(--color-secondary)",
-                      label:
-                        liveDeviceState === "loading"
-                          ? liveDeviceLoadingReason === "restart"
-                            ? "restarting"
-                            : "loading"
-                          : liveDeviceState === "connected"
-                            ? isMockApt
-                              ? "streaming"
-                              : "connected"
-                            : "offline",
-                      loading: liveDeviceState === "loading",
-                      paused: liveIsPaused,
-                      actionLabel:
-                        liveDeviceState === "loading"
-                          ? liveDeviceLoadingReason === "restart"
-                            ? "Restarting…"
-                            : "Loading…"
-                          : isMockApt || liveDeviceState === "connected"
-                            ? liveIsPaused
-                              ? "Resume"
-                              : "Pause"
-                            : "Restart",
-                      actionTitle:
-                        liveDeviceState === "loading"
-                          ? liveDeviceLoadingReason === "restart"
-                            ? "Device is restarting..."
-                            : "Device is being initialized..."
-                          : liveDeviceState === "connected"
-                            ? liveIsPaused
-                              ? "Resume device"
-                              : "Pause device"
-                            : "Restart device",
-                      onAction:
-                        liveDeviceState === "loading"
-                          ? undefined
-                          : isMockApt || liveDeviceState === "connected"
-                            ? toggleVisualizerPause
-                            : handleRestartDevice,
-                    }
-                  : undefined,
-              ...(device.id === "device-2"
-                ? {
-                    status: {
-                      color: device.txMode
-                        ? "var(--color-primary)"
-                        : "var(--color-secondary)",
-                      label: device.txMode ? "transmitting" : "disconnected",
-                      loading: false,
-                      paused: false,
-                      actionLabel: device.txMode ? "Pause" : "Resume",
-                      actionTitle: device.txMode
-                        ? "Pause transmit mode"
-                        : "Resume transmit mode",
-                      onAction: () =>
-                        handleToggleTransmitMode(device.id, !device.txMode),
-                    },
-                  }
-                : {}),
-            };
-          })}
-          selectedDeviceId={selectedMockDeviceId}
+          devices={sourceDevices}
+          selectedDeviceId={
+            sourceMode === "live" ? selectedSourceId : undefined
+          }
+          spaceBoundDeviceId={
+            sourceMode === "live" ? selectedSourceId || null : null
+          }
           onSelectedDeviceChange={(id) => {
+            setSelectedSourceId(id);
             const nextSelectedDevice =
-              mockDevices.find((entry) => entry.id === id) ?? null;
-            if (
-              nextSelectedDevice?.deviceType === "hackrf_one" ||
-              nextSelectedDevice?.capability?.includes("tx")
-            ) {
+              sourcesToUse.find((entry) => entry.id === id) ?? null;
+            if (!nextSelectedDevice?.capability?.toLowerCase().includes("tx")) {
               dispatch(setShowTxSlider(false));
             }
             if (sourceMode === "file") {
-              if (selectedMockDeviceId === id && livePreviewStage >= 1) {
-                handleSourceModeChange("live");
-                return;
-              }
-              setSelectedMockDeviceId(id);
-              dispatch(setDeviceKind(nextSelectedDevice?.deviceType ?? null));
-              setLivePreviewStage(1);
-              return;
+              handleSourceModeChange("live");
             }
-            setSelectedMockDeviceId(id);
-            dispatch(setDeviceKind(nextSelectedDevice?.deviceType ?? null));
+            setLivePreviewStage(1);
           }}
           onToggleDeviceTxMode={(id) => {
             const current =
-              mockDevices.find((entry) => entry.id === id)?.txMode ?? false;
+              sourceDevices.find((entry) => entry.id === id)?.txMode ?? false;
             handleToggleTransmitMode(id, !current);
           }}
           onSourceModeChange={handleSourceModeChange}
         />
       </StickyHeaderWrapper>
 
-      <Section>
-        <ResetButton
-          onClick={handleResetOptions}
-          title="Reset sidebar and visualizer options to defaults"
-        >
-          Reset Options to Defaults
-        </ResetButton>
-      </Section>
-
-      <Collapsible
-        title="Tx Settings"
-        icon={<SatelliteDish size={14} />}
-        defaultOpen={false}
-      >
-        <TxSettingsSection
-          signal={txSignal}
-          sampleRateHz={txSampleRateHz}
-          maxSampleRateHz={maxSampleRate}
-          centerFrequencyHz={txCenterFrequencyHz}
-          powerDbm={txPowerDbm}
-          vgaGainDb={txVgaGain}
-          onSignalChange={(value) => dispatch(setTxSignal(value))}
-          onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
-          onCenterFrequencyChange={(value) =>
-            dispatch(setTxCenterFrequencyHz(value))
-          }
-          onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
-          onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
-        />
-      </Collapsible>
-
-      {sourceMode === "file" && (
+      {sourceMode === "live" ? (
         <>
-          {selectedFiles.length > 0 && (
-            <>
-              <Section>
-                <SelectedFiles
-                  title="Selected Files"
-                  selectedFiles={selectedFiles}
-                  onRemoveFile={(index) => {
-                    const fileToRemove = selectedFiles[index];
-                    if (fileToRemove) {
-                      fileRegistry.remove(fileToRemove.id);
-                    }
-                    const nextFiles = selectedFiles.filter(
-                      (_, i) => i !== index,
-                    );
-                    dispatch(setSelectedFiles(nextFiles));
-                    storeDispatch({
-                      type: "SET_SELECTED_FILES",
-                      files: nextFiles,
-                    });
-                  }}
-                  onClear={() => {
-                    selectedFiles.forEach((file) =>
-                      fileRegistry.remove(file.id),
-                    );
-                    dispatch(setSelectedFiles([]));
-                    storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
-                    dispatch(clearWaterfall());
-                  }}
-                  sessionToken={sessionToken}
-                />
-              </Section>
+          <Section>
+            <ResetButton
+              onClick={handleResetOptions}
+              title="Reset sidebar and visualizer options to defaults"
+            >
+              Reset Options to Defaults
+            </ResetButton>
+          </Section>
 
-              <FileMetadata
-                selectedNaptFile={selectedPrimaryFile}
-                naptMetadata={naptMetadata as FileMetadataNaptMetadata | null}
-                naptMetadataError={naptMetadataError}
-                sessionToken={sessionToken}
-                showTitle={true}
-              />
-            </>
-          )}
-        </>
-      )}
+          <Collapsible
+            title="Tx Settings"
+            icon={<SatelliteDish size={14} />}
+            defaultOpen={false}
+          >
+            <TxSettingsSection
+              signal={txSignal}
+              sampleRateHz={txSampleRateHz}
+              maxSampleRateHz={maxSampleRate}
+              centerFrequencyHz={txCenterFrequencyHz}
+              powerDbm={txPowerDbm}
+              vgaGainDb={txVgaGain}
+              onSignalChange={(value) => dispatch(setTxSignal(value))}
+              onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
+              onCenterFrequencyChange={(value) =>
+                dispatch(setTxCenterFrequencyHz(value))
+              }
+              onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
+              onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+            />
+          </Collapsible>
 
-      {sourceMode === "live" && (
-        <>
           <IQCaptureControlsSection
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
@@ -2096,41 +2065,115 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }}
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
+
+          <SourceSettingsSection
+            sourceMode={sourceMode}
+            deviceType={liveDeviceProfileToUse?.kind}
+            gain={gain}
+            gainLimits={gainLimits}
+            hackrfLnaGain={liveState.hackrfLnaGain}
+            hackrfVgaGain={liveState.hackrfVgaGain}
+            hackrfAmpEnabled={liveState.hackrfAmpEnabled}
+            hackrfBasebandBandwidth={liveState.hackrfBasebandBandwidth}
+            hackrfCurrentSampleRate={
+              sampleRateHzEffective ?? liveState.sampleRateHz
+            }
+            ppm={ppm}
+            tunerAGC={tunerAGC}
+            rtlAGC={rtlAGC}
+            isConnected={isServerConnected}
+            stitchSourceSettings={stitchSourceSettings}
+            onGainChange={setGain}
+            onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
+            onPpmChange={setPpm}
+            onTunerAGCChange={setTunerAGC}
+            onRtlAGCChange={setRtlAGC}
+            onStitchSourceSettingsChange={(settings) =>
+              dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })
+            }
+            onAgcModeChange={(nextTunerAGC, nextRtlAGC) => {
+              setTunerAGC(nextTunerAGC);
+              setRtlAGC(nextRtlAGC);
+            }}
+          />
+
+          <ThemeSection />
+        </>
+      ) : (
+        <>
+          <FileSelectionSidebar
+            selectedFiles={selectedFiles}
+            onSelectedFilesChange={(files) => {
+              dispatch(setSelectedFiles(files));
+              storeDispatch({ type: "SET_SELECTED_FILES", files });
+              dispatch(clearWaterfall());
+            }}
+            stitchStatus={stitchStatus}
+            isStitchPaused={isStitchPaused}
+            onClear={() => {
+              selectedFiles.forEach((file) => fileRegistry.remove(file.id));
+              dispatch(setSelectedFiles([]));
+              storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
+              dispatch(clearWaterfall());
+            }}
+            selectedPrimaryFile={selectedPrimaryFile}
+            naptMetadata={naptMetadata}
+            naptMetadataError={naptMetadataError}
+            sessionToken={sessionToken}
+            showMetadata={true}
+            signalDisplayProps={{
+              maxSampleRate: maxSampleRate,
+              minReceiveSampleRate:
+                liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
+              sampleRate:
+                sampleRateHzLocal ??
+                liveSdrSettingsToUse?.sample_rate ??
+                maxSampleRate,
+              sampleRateOptions: signalDisplaySampleRateOptions,
+              sampleRateOptionsOverride: isMockLiveSource
+                ? [3_200_000]
+                : undefined,
+              wholeChannelSampleRate: hackrfWholeChannelSampleRate,
+              fileCapturedRange,
+              fftFrameRate,
+              maxFrameRate,
+              fftSize,
+              fftSizeOptions,
+              fftWindow: fftWindow || "Rectangular",
+              temporalResolution: displayTemporalResolution,
+              backend: liveBackend,
+              deviceProfile: liveDeviceProfileToUse,
+              powerScale,
+              displayMode: displayMode || "fft",
+              onFftFrameRateChange: setFftFrameRate,
+              onFftSizeChange: setFftSize,
+              onSampleRateChange: handleSignalDisplaySampleRateChange,
+              onFftWindowChange: (win) => {
+                dispatch(setFftWindowAction(win));
+                storeDispatch({ type: "SET_FFT_WINDOW", fftWindow: win });
+              },
+              onTemporalResolutionChange: (res) => {
+                dispatch(setTemporalResolution(res));
+                storeDispatch({
+                  type: "SET_TEMPORAL_RESOLUTION",
+                  resolution: res,
+                });
+              },
+              onPowerScaleChange: (ps) => {
+                dispatch(setPowerScale(ps));
+                storeDispatch({ type: "SET_POWER_SCALE", powerScale: ps });
+              },
+              onDisplayModeChange: (mode) => {
+                dispatch(setDisplayMode(mode));
+                storeDispatch({ type: "SET_DISPLAY_MODE", displayMode: mode });
+              },
+              scheduleCoupledAdjustment,
+            }}
+          />
+
+          <ThemeSection />
         </>
       )}
-
-      <SourceSettingsSection
-        sourceMode={sourceMode}
-        deviceType={liveDeviceProfileToUse?.kind}
-        gain={gain}
-        gainLimits={gainLimits}
-        hackrfLnaGain={liveState.hackrfLnaGain}
-        hackrfVgaGain={liveState.hackrfVgaGain}
-        hackrfAmpEnabled={liveState.hackrfAmpEnabled}
-        hackrfBasebandBandwidth={liveState.hackrfBasebandBandwidth}
-        hackrfCurrentSampleRate={
-          sampleRateHzEffective ?? liveState.sampleRateHz
-        }
-        ppm={ppm}
-        tunerAGC={tunerAGC}
-        rtlAGC={rtlAGC}
-        isConnected={isServerConnected}
-        stitchSourceSettings={stitchSourceSettings}
-        onGainChange={setGain}
-        onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
-        onPpmChange={setPpm}
-        onTunerAGCChange={setTunerAGC}
-        onRtlAGCChange={setRtlAGC}
-        onStitchSourceSettingsChange={(settings) =>
-          dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })
-        }
-        onAgcModeChange={(nextTunerAGC, nextRtlAGC) => {
-          setTunerAGC(nextTunerAGC);
-          setRtlAGC(nextRtlAGC);
-        }}
-      />
-
-      <ThemeSection />
     </SidebarContent>
   );
 };

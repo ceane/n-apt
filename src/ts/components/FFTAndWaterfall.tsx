@@ -103,7 +103,10 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
       : props.dataRef.current;
     const hasIncomingData = !!(
-      currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
+      currentFrame &&
+      ((currentFrame.iq_data?.length ?? 0) > 0 ||
+        (currentFrame.data?.length ?? 0) > 0 ||
+        (currentFrame.waveform?.length ?? 0) > 0)
     );
     const hasLiveFrame = hasIncomingData || hasRenderableFrame;
 
@@ -150,11 +153,14 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
 
     useEffect(() => {
-      if (awaitingDeviceData || placeholderErrorReason) {
+      if (
+        sourceMode === "live" &&
+        (awaitingDeviceData || placeholderErrorReason)
+      ) {
         setHasRenderableFrame(false);
         setIsFftCanvasLoading(true);
       }
-    }, [awaitingDeviceData, placeholderErrorReason]);
+    }, [awaitingDeviceData, placeholderErrorReason, sourceMode]);
 
     useEffect(() => {
       props.onLoadingStateChange?.(isGlobalLoading);
@@ -226,7 +232,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               ref={ref}
               {...props}
               interactionDisabled={isGlobalLoading}
-              awaitingDeviceData={awaitingDeviceData || !hasLiveFrame}
+              awaitingDeviceData={
+                sourceMode === "live"
+                  ? awaitingDeviceData || !hasLiveFrame
+                  : awaitingDeviceData
+              }
               placeholderSourceLabel={props.placeholderSourceLabel}
               placeholderPaneLabel="FFT"
               placeholderErrorReason={placeholderErrorReason}
@@ -241,7 +251,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
             headerActionContent={props.waterfallHeaderActionContent}
             heterodyningHighlightedBins={props.heterodyningHighlightedBins}
-            awaitingDeviceData={awaitingDeviceData || !hasRenderableFrame}
+            awaitingDeviceData={
+              sourceMode === "live"
+                ? awaitingDeviceData || !hasRenderableFrame
+                : awaitingDeviceData
+            }
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}

@@ -1,6 +1,6 @@
 use n_apt_backend::sdr::hotplug::{
-  scan_usb_device_snapshots, scan_usb_for_supported_device, HotplugEvent,
-  HotplugEventKind, HotplugMonitor, UsbDeviceSnapshot,
+  scan_supported_usb_device_snapshots, scan_usb_device_snapshots,
+  HotplugEvent, HotplugEventKind, HotplugMonitor, UsbDeviceSnapshot,
 };
 use n_apt_backend::sdr::{SdrDevice, SdrDeviceFactory};
 use serial_test::serial;
@@ -81,15 +81,16 @@ fn hotplug_smoke_scan_reports_supported_device() {
     eprintln!("Verbose USB snapshots enabled.");
   }
 
-  let mut last_seen = scan_usb_for_supported_device()
+  let mut last_seen_devices = scan_supported_usb_device_snapshots()
     .expect("USB scan should not fail unexpectedly");
-  report_state("Initial scan", last_seen.as_deref(), open_devices);
+  report_supported_devices("Initial scan", &last_seen_devices, open_devices);
   if open_devices {
-    if let Some(device_type) = &last_seen {
+    if let Some(device_type) = last_seen_devices.first().map(|d| &d.device_type)
+    {
       open_and_report(device_type);
     }
   }
-  if verbose_usb && last_seen.is_none() {
+  if verbose_usb && last_seen_devices.is_empty() {
     report_usb_snapshot("Initial USB snapshot");
   }
 
@@ -108,36 +109,36 @@ fn hotplug_smoke_scan_reports_supported_device() {
       if verbose_usb {
         eprintln!("  {}", format_hotplug_event(&event));
       }
-      let seen = scan_usb_for_supported_device()
+      let seen = scan_supported_usb_device_snapshots()
         .expect("USB scan should not fail unexpectedly");
-      if seen != last_seen {
-        report_state("Reconciled", seen.as_deref(), open_devices);
+      if seen != last_seen_devices {
+        report_supported_devices("Reconciled", &seen, open_devices);
         if open_devices {
-          if let Some(device_type) = &seen {
+          if let Some(device_type) = seen.first().map(|d| &d.device_type) {
             open_and_report(device_type);
           }
         }
-        last_seen = seen;
-      } else if verbose_usb && seen.is_none() {
+        last_seen_devices = seen;
+      } else if verbose_usb && seen.is_empty() {
         report_usb_snapshot("USB snapshot after unknown event");
       }
     }
 
-    let seen = scan_usb_for_supported_device()
+    let seen = scan_supported_usb_device_snapshots()
       .expect("USB scan should not fail unexpectedly");
-    if seen != last_seen {
-      report_state("Polled", seen.as_deref(), open_devices);
+    if seen != last_seen_devices {
+      report_supported_devices("Polled", &seen, open_devices);
       if open_devices {
-        if let Some(device_type) = &seen {
+        if let Some(device_type) = seen.first().map(|d| &d.device_type) {
           open_and_report(device_type);
         }
       }
-      last_seen = seen;
+      last_seen_devices = seen;
     }
 
     if last_heartbeat.elapsed() >= Duration::from_secs(5) {
-      report_state("Heartbeat", last_seen.as_deref(), false);
-      if verbose_usb && last_seen.is_none() {
+      report_supported_devices("Heartbeat", &last_seen_devices, false);
+      if verbose_usb && last_seen_devices.is_empty() {
         report_usb_snapshot("Heartbeat USB snapshot");
       }
       last_heartbeat = Instant::now();
@@ -205,25 +206,26 @@ fn cleanup_device(device: &mut dyn SdrDevice) {
   }
 }
 
-fn report_state(label: &str, seen: Option<&str>, include_open_prompt: bool) {
-  match seen {
-    Some(device_type) => {
-      eprintln!(
-        "{}: supported ({})",
-        label,
-        display_device_type(device_type)
-      );
-      if include_open_prompt {
-        eprintln!("{}: attempting device open", label);
-      }
-      if device_type == "hackrf_dfu" {
-        eprintln!(
-          "{}: HackRF DFU mode detected; runtime discovery will stay unavailable until firmware loads",
-          label
-        );
-      }
-    }
-    None => eprintln!("{}: unsupported", label),
+fn report_supported_devices(
+  label: &str,
+  devices: &[UsbDeviceSnapshot],
+  include_open_prompt: bool,
+) {
+  if devices.is_empty() {
+    eprintln!("{}: unsupported", label);
+    return;
+  }
+
+  eprintln!(
+    "{}: supported devices ({})",
+    label,
+    devices.len()
+  );
+  for device in devices {
+    eprintln!("  {}", format_usb_snapshot(device));
+  }
+  if include_open_prompt {
+    eprintln!("{}: attempting device open", label);
   }
 }
 

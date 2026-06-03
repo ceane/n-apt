@@ -12,6 +12,11 @@ describe("Spectrum Slice Power Clamping", () => {
     return spectrumReducer(undefined, { type: "@@INIT" });
   };
 
+  test("starts with the Tx slider hidden", () => {
+    const state = getInitialState();
+    expect(state.showTxSlider).toBe(false);
+  });
+
   test("getMaxTxPowerDbm returns correct caps", () => {
     // With hackrf_one
     // 10 MHz - 2.15 GHz -> +15 dBm

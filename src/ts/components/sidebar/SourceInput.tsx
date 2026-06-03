@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef } from "react";
 import styled from "styled-components";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
@@ -21,7 +21,10 @@ const DevicePills = styled.div`
   gap: 8px;
 `;
 
-const DevicePill = styled.div<{ $active?: boolean }>`
+const DevicePill = styled.div<{
+  $selected?: boolean;
+  $opacity?: number;
+}>`
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -30,14 +33,20 @@ const DevicePill = styled.div<{ $active?: boolean }>`
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid
-    ${({ theme, $active }) => ($active ? theme.primary : theme.borderHover)};
-  background: ${({ theme, $active }) =>
-    $active ? `${theme.primary}14` : theme.surface};
-  color: ${({ theme, $active }) =>
-    $active ? theme.primary : theme.textPrimary};
+    ${({ theme, $selected }) => ($selected ? theme.primary : theme.borderHover)};
+  background: ${({ theme, $selected }) =>
+    $selected ? `${theme.primary}14` : theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
   font-family: ${({ theme }) => theme.typography.mono};
   font-size: 11px;
   cursor: pointer;
+  user-select: none;
+  opacity: ${({ $opacity = 1 }) => $opacity};
+  transition:
+    opacity 0.18s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
 `;
 
 const FilePill = styled.div<{ $active?: boolean }>`
@@ -57,6 +66,7 @@ const FilePill = styled.div<{ $active?: boolean }>`
   font-family: ${({ theme }) => theme.typography.mono};
   font-size: 11px;
   cursor: pointer;
+  user-select: none;
   transition:
     transform 0.16s ease,
     border-color 0.16s ease,
@@ -104,6 +114,7 @@ const FileBrowseLink = styled.button`
   text-decoration: underline;
   text-underline-offset: 3px;
   text-transform: uppercase;
+  user-select: none;
 
   &:hover {
     opacity: 1;
@@ -136,7 +147,10 @@ const DevicePillMeta = styled.div`
   letter-spacing: 0.04em;
 `;
 
-const DeviceStatusDot = styled.span<{ $active?: boolean; $loading?: boolean }>`
+const DeviceStatusDot = styled.span<{
+  $active?: boolean;
+  $loading?: boolean;
+}>`
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -174,6 +188,7 @@ const DeviceActionButton = styled.button<{
   line-height: 1.05;
   cursor: pointer;
   box-shadow: none;
+  user-select: none;
   opacity: ${({ $opacity = 1 }) => $opacity};
   transition:
     transform 0.16s ease,
@@ -209,6 +224,7 @@ interface SourceInputProps {
   sourceMode: SourceMode;
   backend?: string | null;
   deviceName?: string | null;
+  compactActiveOnly?: boolean;
   fileModeColor?: string;
   livePreviewStage?: number;
   fileActionLabel?: string;
@@ -217,6 +233,7 @@ interface SourceInputProps {
   onFileAction?: () => void;
   onFilesSelected?: (files: File[]) => void;
   onSourceModeChange: (mode: SourceMode) => void;
+  spaceBoundDeviceId?: string | null;
   devices?: Array<{
     id: string;
     name: string;
@@ -245,6 +262,7 @@ interface SourceInputProps {
 
 export const SourceInput: React.FC<SourceInputProps> = ({
   sourceMode,
+  compactActiveOnly = false,
   fileModeColor,
   livePreviewStage = 0,
   fileActionLabel,
@@ -253,6 +271,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   onFileAction,
   onFilesSelected,
   onSourceModeChange,
+  spaceBoundDeviceId,
   devices,
   selectedDeviceId,
   onSelectedDeviceChange,
@@ -265,11 +284,6 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const showFileSpaceHint =
     fileSelectionActive &&
     (fileButtonLabel === "Play" || fileButtonLabel === "Pause");
-  const previousDeviceStateRef = useRef<Map<string, string>>(new Map());
-  const highlightTimeoutsRef = useRef<number[]>([]);
-  const [highlightedDeviceIds, setHighlightedDeviceIds] = useState<Set<string>>(
-    () => new Set(),
-  );
 
   const formatCapability = (capability?: string | null): string => {
     if (!capability) return "unknown";
@@ -284,48 +298,60 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
-  useEffect(() => {
-    const previousDeviceState = previousDeviceStateRef.current;
-
-    devices?.forEach((device) => {
-      const signature = [
-        device.backend,
-        device.txMode ? "tx" : "rx",
-        device.status?.color,
-        device.status?.label,
-        device.status?.loading ? "loading" : "idle",
-      ].join("|");
-      const previousSignature = previousDeviceState.get(device.id);
-
-      if (previousSignature !== undefined && previousSignature !== signature) {
-        setHighlightedDeviceIds((current) => {
-          const next = new Set(current);
-          next.add(device.id);
-          return next;
-        });
-
-        const timeout = window.setTimeout(() => {
-          setHighlightedDeviceIds((current) => {
-            const next = new Set(current);
-            next.delete(device.id);
-            return next;
-          });
-        }, 3000);
-        highlightTimeoutsRef.current.push(timeout);
-      }
-
-      previousDeviceState.set(device.id, signature);
-    });
-  }, [devices]);
-
-  useEffect(() => {
-    return () => {
-      highlightTimeoutsRef.current.forEach((timeout) =>
-        window.clearTimeout(timeout),
-      );
-    };
-  }, []);
-
+  const sourceDevices = devices ?? [];
+  const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
+    device.status?.label?.toLowerCase?.() === "transmitting" || device.txMode;
+  const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
+  const selectedDevice =
+    sourceDevices.find((device) => device.id === selectedDeviceId) ?? null;
+  const spaceBoundDevice =
+    sourceDevices.find((device) => device.id === spaceBoundDeviceId) ?? null;
+  const isDeviceConnected = (device: (typeof sourceDevices)[number]) => {
+    const label = device.status?.label?.toLowerCase?.() ?? "";
+    return (
+      label !== "disconnected" &&
+      label !== "offline" &&
+      label !== "stale" &&
+      label !== "error"
+    );
+  };
+  const connectedDevice =
+    sourceDevices.find((device) => isDeviceConnected(device)) ?? null;
+  const stickyDevice =
+    spaceBoundDevice ??
+    transmittingDevice ??
+    (sourceMode === "live"
+      ? selectedDevice && isDeviceConnected(selectedDevice)
+        ? selectedDevice
+        : (connectedDevice ?? sourceDevices[0] ?? null)
+      : null);
+  const visibleDevices =
+    compactActiveOnly && stickyDevice
+      ? [stickyDevice]
+      : compactActiveOnly
+        ? []
+        : sourceDevices;
+  const showFilePill =
+    !compactActiveOnly || (sourceMode === "file" && !transmittingDevice);
+  const transmittingDeviceId = transmittingDevice?.id ?? null;
+  const activeDeviceId =
+    spaceBoundDevice?.id ??
+    transmittingDeviceId ??
+    (sourceMode === "live"
+      ? selectedDevice && isDeviceConnected(selectedDevice)
+        ? selectedDevice.id
+        : (connectedDevice?.id ?? selectedDevice?.id ?? null)
+      : null);
+  const fileSelectionActiveDisplay =
+    fileSelectionActive && !transmittingDeviceId;
+  const fileModeOpacity =
+    sourceMode === "file"
+      ? livePreviewStage <= 0
+        ? 0.25
+        : livePreviewStage === 1
+          ? 0.5
+          : 1
+      : 1;
   return (
     <SourceInputWrapper>
       <HiddenFileInput
@@ -345,33 +371,25 @@ export const SourceInput: React.FC<SourceInputProps> = ({
       />
       <DevicePicker>
         <DevicePills>
-          {devices?.map((device) => {
+          {visibleDevices.map((device) => {
+            const isOnscreenStreaming = device.id === activeDeviceId;
             const isSelectedDevice = device.id === selectedDeviceId;
-            const isActiveDevice = isSelectedDevice && sourceMode === "live";
+            const isTxCapable =
+              device.capability?.toLowerCase().includes("tx") ?? false;
             const actionLabel =
               device.status?.actionLabel ??
               (device.txMode ? "Pause" : "Resume");
             const showDeviceSpaceHint =
-              isActiveDevice &&
+              isOnscreenStreaming &&
               (actionLabel === "Resume" || actionLabel === "Pause");
-            const fileModeOpacity =
-              sourceMode === "file"
-                ? livePreviewStage <= 0
-                  ? 0.25
-                  : livePreviewStage === 1
-                    ? 0.5
-                    : 1
-                : 1;
-            const textOpacity = highlightedDeviceIds.has(device.id)
-              ? 1
-              : fileModeOpacity;
 
             return (
               <DevicePill
                 key={device.id}
                 role="button"
                 tabIndex={0}
-                $active={isSelectedDevice}
+                $selected={isSelectedDevice}
+                $opacity={fileModeOpacity}
                 onClick={() => onSelectedDeviceChange?.(device.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -382,7 +400,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 title={`Switch to ${device.name}`}
               >
                 <DeviceStatusDot
-                  $active={isActiveDevice}
+                  $active={isOnscreenStreaming}
                   $loading={device.status?.loading}
                   style={
                     device.status?.color
@@ -391,7 +409,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   }
                   aria-hidden="true"
                 />
-                <DevicePillMain $opacity={textOpacity}>
+                <DevicePillMain $opacity={fileModeOpacity}>
                   <DevicePillName>{device.name}</DevicePillName>
                   <DevicePillMeta>
                     {formatCapability(device.capability)}
@@ -403,7 +421,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 {device.status?.onAction ? (
                   <DeviceActionButton
                     type="button"
-                    $active={isActiveDevice}
+                    $active={isSelectedDevice}
                     $opacity={fileModeOpacity}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -414,10 +432,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                     {actionLabel}
                     {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
                   </DeviceActionButton>
-                ) : onToggleDeviceTxMode ? (
+                ) : isTxCapable &&
+                  (!transmittingDeviceId ||
+                    device.id === transmittingDeviceId) &&
+                  onToggleDeviceTxMode ? (
                   <DeviceActionButton
                     type="button"
-                    $active={isActiveDevice}
+                    $active={isSelectedDevice}
                     $opacity={fileModeOpacity}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -432,66 +453,68 @@ export const SourceInput: React.FC<SourceInputProps> = ({
               </DevicePill>
             );
           })}
-          <FilePill
-            $active={fileSelectionActive}
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              if (sourceMode !== "file") {
-                onSourceModeChange("file");
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
+          {showFilePill ? (
+            <FilePill
+              $active={fileSelectionActiveDisplay}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
                 if (sourceMode !== "file") {
                   onSourceModeChange("file");
                 }
-              }
-            }}
-            title={
-              fileActionTitle ||
-              (sourceMode === "file"
-                ? "Browse / Process / Play / Pause"
-                : "Switch to File Selection")
-            }
-          >
-            <FilePillMain>
-              <FilePillName>File Selection</FilePillName>
-              {fileSelectionActive && selectedFilesCount > 0 ? (
-                <FileBrowseLink
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    fileInputRef.current?.click();
-                  }}
-                >
-                  Browse...
-                </FileBrowseLink>
-              ) : (
-                <FilePillMeta>Playback I/Q captures</FilePillMeta>
-              )}
-            </FilePillMain>
-            <FileActionButton
-              type="button"
-              $active={fileSelectionActive}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (sourceMode !== "file") {
-                  onSourceModeChange("file");
-                  return;
-                }
-                if (selectedFilesCount === 0) {
-                  fileInputRef.current?.click();
-                  return;
-                }
-                onFileAction?.();
               }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  if (sourceMode !== "file") {
+                    onSourceModeChange("file");
+                  }
+                }
+              }}
+              title={
+                fileActionTitle ||
+                (sourceMode === "file"
+                  ? "Browse / Process / Play / Pause"
+                  : "Switch to File Selection")
+              }
             >
-              {fileButtonLabel}
-              {showFileSpaceHint && <ActionHint>[Space]</ActionHint>}
-            </FileActionButton>
-          </FilePill>
+              <FilePillMain>
+                <FilePillName>File Selection</FilePillName>
+                {fileSelectionActive && selectedFilesCount > 0 ? (
+                  <FileBrowseLink
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    Browse...
+                  </FileBrowseLink>
+                ) : (
+                  <FilePillMeta>Playback I/Q captures</FilePillMeta>
+                )}
+              </FilePillMain>
+              <FileActionButton
+                type="button"
+                $active={fileSelectionActiveDisplay}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (sourceMode !== "file") {
+                    onSourceModeChange("file");
+                    return;
+                  }
+                  if (selectedFilesCount === 0) {
+                    fileInputRef.current?.click();
+                    return;
+                  }
+                  onFileAction?.();
+                }}
+              >
+                {fileButtonLabel}
+                {showFileSpaceHint && <ActionHint>[Space]</ActionHint>}
+              </FileActionButton>
+            </FilePill>
+          ) : null}
         </DevicePills>
       </DevicePicker>
     </SourceInputWrapper>

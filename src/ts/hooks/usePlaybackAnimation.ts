@@ -5,6 +5,7 @@ interface UsePlaybackAnimationProps {
   hasStitchedData: boolean;
   isPaused: boolean;
   activeChannel: number;
+  fftSize?: number;
   allChannelsRef: React.MutableRefObject<any[]>;
   precomputedFrames: React.MutableRefObject<Array<LiveFrameData | null>>;
   fftCanvasDataRef: React.MutableRefObject<LiveFrameData | null>;
@@ -16,6 +17,7 @@ export const usePlaybackAnimation = ({
   hasStitchedData,
   isPaused,
   activeChannel,
+  fftSize,
   allChannelsRef,
   precomputedFrames: _precomputedFrames,
   fftCanvasDataRef,
@@ -69,8 +71,8 @@ export const usePlaybackAnimation = ({
             // Zero-copy when already Uint8Array (our worker now always provides this)
             cachedIqRef.current =
               iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-            const fftSize = channelData.bins_per_frame || 2048;
-            cachedChunkSizeRef.current = fftSize * 2;
+            const frameFftSize = fftSize || channelData.bins_per_frame || 2048;
+            cachedChunkSizeRef.current = frameFftSize * 2;
             cachedTotalFramesRef.current = Math.max(
               1,
               Math.floor(
@@ -102,6 +104,7 @@ export const usePlaybackAnimation = ({
               type: "spectrum",
               center_frequency_hz: channelData.center_freq_hz,
               sample_rate: channelData.sample_rate_hz,
+              timestamp,
               data_type: "iq_raw",
               iq_data: chunk,
             };
@@ -118,7 +121,7 @@ export const usePlaybackAnimation = ({
         }
       }
     },
-    [allChannelsRef, activeChannel, fftCanvasDataRef, onFrameEmitted],
+    [allChannelsRef, activeChannel, fftCanvasDataRef, fftSize, onFrameEmitted],
   );
 
   useEffect(() => {

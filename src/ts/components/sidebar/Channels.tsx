@@ -434,7 +434,11 @@ export const Channels: React.FC<ChannelsProps> = ({
                   maxFreq={maxFreq}
                   disabled={rangeSlidersDisabled}
                   sampleRateHz={sampleRateHz}
-                  isWholeChannelMode={isWholeChannelMode}
+                  isWholeChannelMode={
+                    typeof sampleRateHz === "number" &&
+                    Number.isFinite(sampleRateHz) &&
+                    Math.round(sampleRateHz) === Math.round(span)
+                  }
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {

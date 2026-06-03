@@ -13,6 +13,7 @@ const visualizerSlidersMock = jest.fn((_props: any) => (
 const waterfallCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fifo-waterfall-canvas" />
 ));
+let mockedSourceMode: "live" | "file" = "live";
 
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -54,7 +55,7 @@ jest.mock("@n-apt/redux", () => ({
         waterfallTheme: "classic",
       },
       waterfall: {
-        sourceMode: "live",
+        sourceMode: mockedSourceMode,
       },
       websocket: {
         isConnected: true,
@@ -76,6 +77,7 @@ jest.mock("@n-apt/redux", () => ({
 
 describe("FFTAndWaterfall", () => {
   beforeEach(() => {
+    mockedSourceMode = "live";
     fftCanvasMock.mockClear();
     fftCanvasMountSpy.mockClear();
     fftCanvasUnmountSpy.mockClear();
@@ -111,6 +113,31 @@ describe("FFTAndWaterfall", () => {
     const waterfallCalls = waterfallCanvasMock.mock.calls;
     const waterfallProps = waterfallCalls[waterfallCalls.length - 1]?.[0];
     expect(waterfallProps?.awaitingDeviceData).toBe(true);
+  });
+
+  it("does not require a live frame before rendering file playback", () => {
+    mockedSourceMode = "file";
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
   });
 
   it("clears waterfall loading as soon as FFT reports a rendered frame", () => {

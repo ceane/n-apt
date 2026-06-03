@@ -258,6 +258,24 @@ export const sendRestartDevice = createAsyncThunk(
   },
 );
 
+// Request the backend to make a source the active live stream
+export const sendSelectSource = createAsyncThunk(
+  "websocket/sendSelectSource",
+  async (sourceId: string, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: sourceId },
+        },
+      });
+    }
+    return sourceId;
+  },
+);
+
 // Send training capture command
 export const sendTrainingCommand = createAsyncThunk(
   "websocket/sendTrainingCommand",

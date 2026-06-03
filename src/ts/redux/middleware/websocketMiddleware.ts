@@ -558,6 +558,11 @@ const processMessage = (
     }
 
     try {
+      const previousActiveSourceId = getState().websocket.activeSourceId;
+      if (parsedData.active_source !== previousActiveSourceId) {
+        liveDataRef.current = [];
+        pendingDataUpdate = null;
+      }
       const activeSource =
         parsedData.sources.find(
           (source: SourceInfo) => source.id === parsedData.active_source,
@@ -603,6 +608,11 @@ const processMessage = (
     }
 
     try {
+      const previousActiveSourceId = getState().websocket.activeSourceId;
+      if (parsedData.source_id !== previousActiveSourceId) {
+        liveDataRef.current = [];
+        pendingDataUpdate = null;
+      }
       const updates: any = {
         activeSourceId: parsedData.source_id,
         activeSourceMode: parsedData.source_mode,

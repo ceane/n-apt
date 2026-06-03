@@ -455,6 +455,15 @@ export const getLatestLiveFrame = <T,>(
     : liveData;
 };
 
+export const getLiveFrameSignature = (
+  liveFrame: LiveFrameData | null | undefined,
+): number | LiveFrameData | null => {
+  if (!liveFrame) return null;
+  return typeof liveFrame.timestamp === "number"
+    ? liveFrame.timestamp
+    : liveFrame;
+};
+
 /**
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
@@ -693,6 +702,9 @@ const FFTCanvas = memo(
     const frameBufferRef = useRef<Float32Array[]>([]);
     const maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
+    const lastProcessedFrameSignatureRef = useRef<
+      number | LiveFrameData | null
+    >(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
     centerFreqRef.current = centerFrequencyHz;
@@ -1033,6 +1045,7 @@ const FFTCanvas = memo(
 
     const invalidateSpectrumProcessingCaches = useCallback(() => {
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       lastRenderedPowerScaleRef.current = null;
       pendingFftSizeChangeRef.current = true;
       fftProcessedBufferRef.current = null;
@@ -1318,8 +1331,11 @@ const FFTCanvas = memo(
         const currentFrame = getLatestLiveFrame(currentData);
         const hasRenderableFrame = !!(
           currentFrame &&
-          currentFrame.iq_data &&
-          currentFrame.iq_data.length > 0
+          ((currentFrame.iq_data && currentFrame.iq_data.length > 0) ||
+            ((currentFrame as any).waveform &&
+              (currentFrame as any).waveform.length > 0) ||
+            ((currentFrame as any).data &&
+              (currentFrame as any).data.length > 0))
         );
 
         const hasDrawableCachedWaveform = !!(
@@ -1353,16 +1369,26 @@ const FFTCanvas = memo(
         const hasNewData =
           !isPaused &&
           currentFrame &&
-          currentFrame !== lastProcessedDataRef.current &&
-          !!currentFrame.iq_data;
+          getLiveFrameSignature(currentFrame) !==
+            lastProcessedFrameSignatureRef.current &&
+          (!!currentFrame.iq_data ||
+            !!(currentFrame as any).waveform ||
+            !!(currentFrame as any).data);
         const shouldReprocessCurrentFrame = !!(
           currentFrame &&
-          (currentFrame === lastProcessedDataRef.current || isPaused) &&
+          (getLiveFrameSignature(currentFrame) ===
+            lastProcessedFrameSignatureRef.current ||
+            isPaused) &&
           (powerScaleChanged || fftWindowChanged) &&
-          !!currentFrame.iq_data
+          (!!currentFrame.iq_data ||
+            !!(currentFrame as any).waveform ||
+            !!(currentFrame as any).data)
         );
 
-        if (hasNewData || shouldReprocessCurrentFrame) {
+        if (
+          (hasNewData || shouldReprocessCurrentFrame) &&
+          currentFrame?.iq_data
+        ) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
           // The only variable is the dB offset for the power scale.
           const iqBytes = currentFrame?.iq_data;
@@ -1427,6 +1453,8 @@ const FFTCanvas = memo(
           if (waveform && waveform.length > 0) {
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentFrame;
+            lastProcessedFrameSignatureRef.current =
+              getLiveFrameSignature(currentFrame);
             lastRenderedPowerScaleRef.current = effectivePowerScale;
             previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
@@ -1552,37 +1580,105 @@ const FFTCanvas = memo(
             }
           }
         } else if (
-          isPaused &&
-          currentFrame?.iq_data &&
-          (currentFrame !== lastProcessedDataRef.current || powerScaleChanged)
+          currentFrame &&
+          (currentFrame.iq_data ? isPaused : true) &&
+          (currentFrame.iq_data ||
+            (currentFrame as any).waveform ||
+            (currentFrame as any).data) &&
+          (currentFrame !== lastProcessedDataRef.current ||
+            powerScaleChanged ||
+            fftWindowChanged)
         ) {
-          // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-          const processedWaveform = processIqToDbmSpectrum(
-            currentFrame.iq_data,
-            effectiveDbmOffsetDb,
-            effectiveFftSize,
-            fftWindow,
-            spectrumOutputBufferRef.current ?? undefined,
-          );
+          let processedWaveform: Float32Array | undefined;
+
+          if (currentFrame.iq_data) {
+            // Paused: ingest once to avoid blank frames (file mode or first paused frame)
+            processedWaveform = processIqToDbmSpectrum(
+              currentFrame.iq_data,
+              effectiveDbmOffsetDb,
+              effectiveFftSize,
+              fftWindow,
+              spectrumOutputBufferRef.current ?? undefined,
+            );
+            spectrumOutputBufferRef.current = processedWaveform;
+            previousFftWindowRef.current = fftWindow ?? "Rectangular";
+          } else {
+            // Handle pre-processed FFT data (playback mode)
+            processedWaveform = ((currentFrame as any).waveform ||
+              (currentFrame as any).data) as Float32Array;
+          }
 
           // Validate waveform before processing
           if (!processedWaveform || processedWaveform.length === 0) {
             return;
           }
 
-          spectrumOutputBufferRef.current = processedWaveform;
           waveformFloatRef.current = processedWaveform;
           lastProcessedDataRef.current = currentFrame;
+          lastProcessedFrameSignatureRef.current =
+            getLiveFrameSignature(currentFrame);
           lastRenderedPowerScaleRef.current = powerScale;
-          previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
-          const prev = renderWaveformRef.current;
-          if (!prev || prev.length !== processedWaveform.length) {
-            renderWaveformRef.current = new Float32Array(processedWaveform);
+          const temporalWindow = getTemporalResolutionWindow(
+            displayTemporalResolution,
+            fftFrameRate,
+          );
+          if (temporalWindow <= 1) {
+            const prev = renderWaveformRef.current;
+            if (!prev || prev.length !== processedWaveform.length) {
+              renderWaveformRef.current = new Float32Array(processedWaveform);
+            } else {
+              prev.fill(0);
+              prev.set(processedWaveform);
+            }
+            temporalActiveCountRef.current = 0;
           } else {
-            prev.fill(0);
-            prev.set(processedWaveform);
+            const pool = temporalFramePoolRef.current;
+            if (
+              pool.length !== temporalWindow ||
+              (pool.length > 0 && pool[0].length !== processedWaveform.length)
+            ) {
+              pool.length = 0;
+              for (let i = 0; i < temporalWindow; i++) {
+                pool.push(new Float32Array(processedWaveform.length));
+              }
+              temporalWriteIndexRef.current = 0;
+              temporalActiveCountRef.current = 0;
+            }
+
+            const writeIdx = temporalWriteIndexRef.current;
+            pool[writeIdx].set(processedWaveform);
+            temporalWriteIndexRef.current = (writeIdx + 1) % temporalWindow;
+            temporalActiveCountRef.current = Math.min(
+              temporalWindow,
+              temporalActiveCountRef.current + 1,
+            );
+
+            const activeFrames = activeTemporalFramesRef.current;
+            const activeCount = temporalActiveCountRef.current;
+            activeFrames.length = activeCount;
+            for (let i = 0; i < activeCount; i++) {
+              const idx =
+                (temporalWriteIndexRef.current - 1 - i + temporalWindow) %
+                temporalWindow;
+              activeFrames[i] = pool[idx];
+            }
+
+            if (
+              !renderWaveformRef.current ||
+              renderWaveformRef.current.length !== processedWaveform.length
+            ) {
+              renderWaveformRef.current = new Float32Array(
+                processedWaveform.length,
+              );
+            }
+            renderWaveformRef.current = averageTemporalWaveforms(
+              activeFrames,
+              renderWaveformRef.current,
+              renderWaveformRef.current,
+            );
           }
+
           pendingFftSizeChangeRef.current = false;
         }
 
@@ -2155,9 +2251,15 @@ const FFTCanvas = memo(
       const currentWaveform = waveformFloatRef.current;
       if (currentWaveform && currentWaveform.length > 0) {
         renderWaveformRef.current = new Float32Array(currentWaveform);
-      } else if (isPaused && dataRef.current?.iq_data) {
+      } else if (
+        isPaused &&
+        (dataRef.current?.iq_data ||
+          (dataRef.current as any)?.waveform ||
+          (dataRef.current as any)?.data)
+      ) {
         // Trigger a re-process of paused I/Q data
         lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
       }
 
       overlayDirtyRef.current.grid = true;
@@ -2355,7 +2457,7 @@ const FFTCanvas = memo(
         visualizerMachine?.restore(visualizerSessionKey) ?? null,
       );
       if (restoredFromMachine) {
-        forceRender();
+        forceRenderRef.current?.();
       }
 
       return () => {
@@ -2368,7 +2470,6 @@ const FFTCanvas = memo(
       cleanupWebGPUFIFOWaterfall,
       cleanupWaterfallRetuneCompute,
       cleanupSpectrum,
-      forceRender,
       persistVisualizerSession,
       restoreVisualizerSessionSnapshot,
       visualizerMachine,
@@ -2389,6 +2490,7 @@ const FFTCanvas = memo(
           prevRange.max !== frequencyRange.max)
       ) {
         lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
         renderWaveformRef.current = null;
         waveformFloatRef.current = null;
         fullChannelWaveformRef.current = null;
@@ -2411,7 +2513,12 @@ const FFTCanvas = memo(
       const id = setInterval(() => {
         const currentData = dataRef.current;
         const currentFrame = getLatestLiveFrame(currentData);
-        const hasData = !!(currentFrame && currentFrame.iq_data);
+        const hasData = !!(
+          currentFrame &&
+          (currentFrame.iq_data ||
+            (currentFrame as any).waveform ||
+            (currentFrame as any).data)
+        );
 
         if (hasData && currentFrame !== lastIncomingFrameRef.current) {
           lastIncomingFrameRef.current = currentFrame;
@@ -2457,18 +2564,26 @@ const FFTCanvas = memo(
 
         if (spectrumRect && spectrumOverlayCanvasRef.current) {
           const canvas = spectrumOverlayCanvasRef.current;
-          canvas.width = spectrumRect.width * dpr;
-          canvas.height = spectrumRect.height * dpr;
-          canvas.style.width = `${spectrumRect.width}px`;
-          canvas.style.height = `${spectrumRect.height}px`;
-          canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const targetW = spectrumRect.width * dpr;
+          const targetH = spectrumRect.height * dpr;
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${spectrumRect.width}px`;
+            canvas.style.height = `${spectrumRect.height}px`;
+            canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
         }
 
         if (spectrumRect && spectrumWebgpuEnabled && gpuCanvas) {
-          gpuCanvas.width = Math.max(1, Math.round(spectrumRect.width * dpr));
-          gpuCanvas.height = Math.max(1, Math.round(spectrumRect.height * dpr));
-          gpuCanvas.style.width = `${spectrumRect.width}px`;
-          gpuCanvas.style.height = `${spectrumRect.height}px`;
+          const targetW = Math.max(1, Math.round(spectrumRect.width * dpr));
+          const targetH = Math.max(1, Math.round(spectrumRect.height * dpr));
+          if (gpuCanvas.width !== targetW || gpuCanvas.height !== targetH) {
+            gpuCanvas.width = targetW;
+            gpuCanvas.height = targetH;
+            gpuCanvas.style.width = `${spectrumRect.width}px`;
+            gpuCanvas.style.height = `${spectrumRect.height}px`;
+          }
 
           spectrumWidthRef.current = spectrumRect.width;
           spectrumHeightRef.current = spectrumRect.height;
@@ -2478,19 +2593,27 @@ const FFTCanvas = memo(
 
         if (waterfallRect && waterfallOverlayCanvasRef.current) {
           const canvas = waterfallOverlayCanvasRef.current;
-          canvas.width = waterfallRect.width * dpr;
-          canvas.height = waterfallRect.height * dpr;
-          canvas.style.width = `${waterfallRect.width}px`;
-          canvas.style.height = `${waterfallRect.height}px`;
-          canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const targetW = waterfallRect.width * dpr;
+          const targetH = waterfallRect.height * dpr;
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${waterfallRect.width}px`;
+            canvas.style.height = `${waterfallRect.height}px`;
+            canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
         }
 
         if (waterfallRect && waterfallGpuCanvasRef.current) {
           const canvas = waterfallGpuCanvasRef.current;
-          canvas.width = Math.max(1, Math.round(waterfallRect.width * dpr));
-          canvas.height = Math.max(1, Math.round(waterfallRect.height * dpr));
-          canvas.style.width = `${waterfallRect.width}px`;
-          canvas.style.height = `${waterfallRect.height}px`;
+          const targetW = Math.max(1, Math.round(waterfallRect.width * dpr));
+          const targetH = Math.max(1, Math.round(waterfallRect.height * dpr));
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${waterfallRect.width}px`;
+            canvas.style.height = `${waterfallRect.height}px`;
+          }
 
           const marginX = Math.round(40 * dpr);
           const marginY = Math.round(8 * dpr);
@@ -2516,7 +2639,7 @@ const FFTCanvas = memo(
           ensurePausedFrame();
         }
 
-        forceRender();
+        forceRenderRef.current?.();
       };
 
       handleResize();
@@ -2540,7 +2663,6 @@ const FFTCanvas = memo(
         resizeObserver.disconnect();
       };
     }, [
-      forceRender,
       spectrumWebgpuEnabled,
       isPaused,
       ensurePausedFrame,
@@ -2562,7 +2684,13 @@ const FFTCanvas = memo(
           }
         }
 
-        if (waveformFloatRef.current && !dataRef.current?.iq_data) {
+        const currentFrameForCleanup = getLatestLiveFrame(dataRef.current);
+        if (
+          waveformFloatRef.current &&
+          !currentFrameForCleanup?.iq_data &&
+          !(currentFrameForCleanup as any)?.waveform &&
+          !(currentFrameForCleanup as any)?.data
+        ) {
           waveformFloatRef.current = null;
         }
       }, 30000);
@@ -2610,6 +2738,7 @@ const FFTCanvas = memo(
       }
       previousPowerScaleRef.current = effectivePowerScale;
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       lastRenderedPowerScaleRef.current = null;
       // Keep render buffers intact so the new power scale can redraw immediately
       // from the existing live IQ frame instead of flashing a blank placeholder.
@@ -2620,6 +2749,16 @@ const FFTCanvas = memo(
       }
     }, [effectivePowerScale, isPaused, forceRender]);
 
+    // Effect: When FFT Window or Temporal Resolution changes, re-process the frame
+    // to apply the new windowing function or averaging window.
+    useEffect(() => {
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      if (isPaused) {
+        forceRender();
+      }
+    }, [fftWindow, displayTemporalResolution, isPaused, forceRender]);
+
     // Effect: When FFT size changes, drop the cached processed frame so the
     // next render recomputes at the newly selected resolution.
     useEffect(() => {
@@ -2629,6 +2768,7 @@ const FFTCanvas = memo(
 
       previousFftSizeRef.current = effectiveFftSize;
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       pendingFftSizeChangeRef.current = true;
     }, [effectiveFftSize, isPaused, forceRender]);
 

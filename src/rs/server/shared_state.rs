@@ -60,7 +60,7 @@ pub struct SharedState {
   pub device_loading: Mutex<bool>,
   /// When device_loading is true, why: "connect" | "restart" (optional)
   pub device_loading_reason: Mutex<Option<String>>,
-  /// Canonical device state: "connected", "loading", "disconnected", "stale"
+  /// Canonical device state: "connected", "loading", "loose", "disconnected", "stale"
   /// This is the single source of truth for the frontend.
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)

@@ -26,6 +26,7 @@ import {
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
 import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
 import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
@@ -41,7 +42,6 @@ import {
   setTxSampleRateHz,
   setDeviceKind,
 } from "@n-apt/redux";
-import { selectActiveSource } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
@@ -294,12 +294,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const activeSource = useAppSelector(selectActiveSource);
   const canShowTxSlider =
     deviceKind === "hackrf_one" ||
     deviceKind === "tx_rx" ||
     deviceKind === "tx" ||
-    activeSource?.capability?.includes("tx") ||
     false;
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
@@ -310,9 +308,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     manualVisualizerPaused,
     effectiveSdrSettings,
     signalAreaBounds,
+    selectedSource,
+    selectedSourceDerived,
     wsConnection: {
       isConnected,
-      deviceState,
       backend,
       deviceInfo,
       deviceName,
@@ -327,12 +326,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     toggleVisualizerPause,
   } = useSpectrumStore();
   const storeDispatch = dispatch as React.Dispatch<any>;
+  const visualizerSessionKey = useMemo(
+    () => getSourceViewStorageKeyForSource(selectedSource),
+    [selectedSource],
+  );
 
   const effectiveTunerGainDb = useMemo(() => {
     const gainConfig = effectiveSdrSettings?.gain;
     const gainObject =
       gainConfig && typeof gainConfig === "object" ? gainConfig : null;
-    if (deviceProfile?.kind === "hackrf_one" && gainObject) {
+    if (
+      selectedSourceDerived.deviceProfile?.kind === "hackrf_one" &&
+      gainObject
+    ) {
       return estimateHackrfTotalGainDb({
         ampEnabled: gainObject.hackrf_amp_enable,
         lnaGainDb: gainObject.hackrf_lna_gain,
@@ -341,7 +347,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
 
     return gainObject ? (gainObject.tuner_gain ?? 0) : 0;
-  }, [deviceProfile?.kind, effectiveSdrSettings?.gain]);
+  }, [effectiveSdrSettings?.gain, selectedSourceDerived.deviceProfile?.kind]);
 
   const handleVisualizerLoadingStateChange = useCallback(
     (isLoading: boolean) => {
@@ -383,12 +389,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [activeTab]);
 
   useEffect(() => {
-    reduxDispatch(setDeviceKind(deviceProfile?.kind ?? null));
-  }, [deviceProfile?.kind, reduxDispatch]);
+    reduxDispatch(
+      setDeviceKind(selectedSourceDerived.deviceProfile?.kind ?? null),
+    );
+  }, [reduxDispatch, selectedSourceDerived.deviceProfile?.kind]);
 
   // Device connection state management
   useDeviceConnectionState({
-    deviceState: deviceState || "disconnected",
+    deviceState: selectedSourceDerived.deviceState || "disconnected",
     showSpikeOverlay: state.showSpikeOverlay,
     dispatch,
   });
@@ -577,15 +585,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     signalAreaBounds,
     activeSignalArea: state.activeSignalArea,
     sourceMode: state.sourceMode,
-    backend: backend ?? undefined,
-    deviceInfo: deviceInfo ?? undefined,
+    backend: selectedSourceDerived.backend ?? backend ?? undefined,
+    deviceInfo: selectedSourceDerived.deviceInfo ?? deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
     hackrfLnaGain: state.hackrfLnaGain,
     hackrfVgaGain: state.hackrfVgaGain,
     hackrfAmpEnabled: state.hackrfAmpEnabled,
     hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-    deviceName: deviceName ?? undefined,
-    deviceProfile: deviceProfile ?? undefined,
+    deviceName: selectedSourceDerived.deviceName ?? deviceName ?? undefined,
+    deviceProfile:
+      selectedSourceDerived.deviceProfile ?? deviceProfile ?? undefined,
     fftFrameRate: state.fftFrameRate,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
@@ -833,6 +842,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           centerFrequencyHz !== null && (
             <>
               <FFTAndWaterfall
+                key={visualizerSessionKey}
                 ref={fftCanvasRef}
                 overlayContent={
                   showTxSlider && canShowTxSlider ? (
@@ -858,7 +868,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
-                deviceProfile={deviceProfile}
+                deviceProfile={
+                  selectedSourceDerived.deviceProfile ?? deviceProfile
+                }
                 tunerGainDb={effectiveTunerGainDb}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
@@ -866,7 +878,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}
                 powerScale={state.powerScale}
-                isDeviceConnected={deviceState === "connected"}
+                isDeviceConnected={
+                  selectedSourceDerived.deviceState === "connected"
+                }
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}
                 vizZoom={vizZoom}
@@ -874,7 +888,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 vizZoomFloorPan={state.vizZoomFloorPan}
                 vizPanOffset={vizPanOffset}
                 autoZoomStability={state.autoZoomStability}
-                placeholderSourceLabel={deviceName ?? backend ?? "device"}
+                placeholderSourceLabel={
+                  selectedSourceDerived.deviceName ??
+                  selectedSourceDerived.backend ??
+                  "device"
+                }
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={(pan) =>
@@ -907,7 +925,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 }
                 awaitingDeviceData={false}
                 visualizerMachine={fftVisualizerMachine}
-                visualizerSessionKey="live"
+                visualizerSessionKey={visualizerSessionKey}
                 onLoadingStateChange={handleVisualizerLoadingStateChange}
                 headerActionContent={
                   <>
@@ -949,8 +967,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               stitchSourceSettings={state.stitchSourceSettings}
               isPaused={state.isStitchPaused}
               fftSize={state.fftSize}
+              displayTemporalResolution={
+                state.displayTemporalResolution === "medium"
+                  ? "high"
+                  : state.displayTemporalResolution
+              }
               displayMode={state.displayMode}
               powerScale={state.powerScale}
+              vizZoom={vizZoom}
+              vizZoomFloor={vizZoomFloor}
+              vizZoomFloorPan={state.vizZoomFloorPan}
+              vizPanOffset={vizPanOffset}
+              autoZoomStability={state.autoZoomStability}
+              fftMin={state.fftMinDb}
+              fftMax={state.fftMaxDb}
+              onVizZoomChange={setVizZoom}
+              onVizZoomFloorChange={setVizZoomFloor}
+              onVizZoomFloorPanChange={(pan) =>
+                dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
+              }
+              onVizPanChange={setVizPanOffset}
               onStitchStatus={(status) =>
                 storeDispatch({ type: "SET_STITCH_STATUS", status })
               }

@@ -49,6 +49,7 @@ describe("AntiAliasingDiagnostics", () => {
     signalAreaBounds: null,
     lastSentPauseRef: { current: null },
     wsConnection: {
+      activeSourceId: null,
       isConnected: true,
       deviceState: "connected" as const,
       deviceLoadingReason: null,
@@ -65,6 +66,7 @@ describe("AntiAliasingDiagnostics", () => {
       sdrLimitMarkers: [],
       dataRef: { current: null },
       spectrumFrames: [],
+      sources: [],
       captureStatus: {
         status: "started" as const,
         progress: 0,
@@ -83,11 +85,27 @@ describe("AntiAliasingDiagnostics", () => {
       sendTrainingCommand: jest.fn(),
       sendGetAutoFftOptions: jest.fn(),
       sendPowerScaleCommand: jest.fn(),
+      sendTransmitMode: jest.fn(),
     },
     toggleVisualizerPause: jest.fn(),
     cryptoCorrupted: false,
     deviceName: "Mock Device",
     deviceProfile: null,
+    selectedSourceId: "",
+    setSelectedSourceId: jest.fn(),
+    selectedSource: null,
+    selectedSourceDerived: {
+      deviceState: null,
+      deviceName: null,
+      deviceProfile: null,
+      deviceInfo: null,
+      backend: null,
+      maxSampleRateHz: null,
+      sampleRateOptions: [],
+      sampleRateHz: null,
+      sdrSettings: null,
+    },
+    sources: [],
   };
 
   beforeEach(() => {

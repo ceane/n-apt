@@ -38,11 +38,15 @@ interface FFTPlaybackCanvasProps {
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   snapshotGridPreference?: boolean;
   fftSize: number;
+  displayTemporalResolution?: "low" | "medium" | "high";
   vizZoom?: number;
   vizZoomFloor?: number;
+  vizZoomFloorPan?: number;
   vizPanOffset?: number;
+  autoZoomStability?: boolean;
   onVizZoomChange?: (zoom: number) => void;
   onVizZoomFloorChange?: (zoomFloor: number) => void;
+  onVizZoomFloorPanChange?: (pan: number) => void;
   onVizPanChange?: (pan: number) => void;
   fftMin?: number;
   fftMax?: number;
@@ -185,11 +189,15 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       onStitchStatus,
       snapshotGridPreference,
       fftSize,
+      displayTemporalResolution,
       vizZoom,
       vizZoomFloor,
+      vizZoomFloorPan,
       vizPanOffset,
+      autoZoomStability,
       onVizZoomChange,
       onVizZoomFloorChange,
+      onVizZoomFloorPanChange,
       onVizPanChange,
       fftMin,
       fftMax,
@@ -281,6 +289,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       hasStitchedData,
       isPaused,
       activeChannel,
+      fftSize,
       allChannelsRef,
       precomputedFrames,
       fftCanvasDataRef,
@@ -507,6 +516,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         displayMode,
         precomputedFrames: precomputedFrames.current,
         channelData,
+        fftSize,
       });
 
       // If paused, manually trigger one frame update to reflect channel/mode changes
@@ -571,11 +581,15 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               activeSignalArea="Stitched"
               isPaused={isPaused}
               snapshotGridPreference={snapshotGridPreference ?? true}
+              displayTemporalResolution={displayTemporalResolution}
               vizZoom={vizZoom}
               vizZoomFloor={vizZoomFloor}
+              vizZoomFloorPan={vizZoomFloorPan}
               vizPanOffset={vizPanOffset}
+              autoZoomStability={autoZoomStability}
               onVizZoomChange={onVizZoomChange}
               onVizZoomFloorChange={onVizZoomFloorChange}
+              onVizZoomFloorPanChange={onVizZoomFloorPanChange}
               onVizPanChange={onVizPanChange}
               fftMin={fftMin}
               fftMax={fftMax}
@@ -587,6 +601,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               visualizerMachine={visualizerMachine}
               visualizerSessionKey={visualizerSessionKey}
               onLoadingStateChange={setSnapshotButtonsLoading}
+              awaitingDeviceData={false}
               headerActionContent={fastSpectrumSnapshotAction}
               waterfallHeaderActionContent={fastWaterfallSnapshotAction}
             />

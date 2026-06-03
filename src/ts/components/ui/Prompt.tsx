@@ -60,16 +60,8 @@ const ButtonRow = styled.div`
 `;
 
 const Button = styled.button<{ $variant?: "primary" | "danger" }>`
-  background: ${(props) => {
-    const { $variant = "primary", theme } = props;
-    if ($variant === "danger") {
-      return theme.danger;
-    }
-    if ($variant === "primary") {
-      return theme.primary;
-    }
-    return theme.surfaceHover;
-  }};
+  background: ${(props) =>
+    props.$variant === "danger" ? props.theme.danger : props.theme.primary};
   color: ${(props) => {
     const { $variant = "primary", theme } = props;
     if ($variant === "danger") {
@@ -80,7 +72,9 @@ const Button = styled.button<{ $variant?: "primary" | "danger" }>`
     }
     return "#fff";
   }};
-  border: none;
+  border: 1px solid
+    ${(props) =>
+      props.$variant === "danger" ? props.theme.danger : props.theme.primary};
   border-radius: 6px;
   padding: 10px 16px;
   font-size: ${({ theme }) => theme.typography.codeSize};
@@ -90,16 +84,12 @@ const Button = styled.button<{ $variant?: "primary" | "danger" }>`
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${(props) => {
-      const { $variant = "primary", theme } = props;
-      if ($variant === "danger") {
-        return theme.mode === "light" ? "#e53e3e" : "#ff6666";
-      }
-      if ($variant === "primary") {
-        return theme.mode === "light" ? "#0044cc" : "#fff";
-      }
-      return theme.mode === "light" ? "#e2e8f0" : "#444";
-    }};
+    background: ${(props) =>
+      props.$variant === "danger"
+        ? props.theme.mode === "light"
+          ? "#e53e3e"
+          : "#ff6666"
+        : props.theme.primary};
     transform: translateY(-1px);
   }
 

@@ -352,6 +352,10 @@ export const WebSocketMessageSchema = z.union([
     type: z.literal("restart_device"),
   }),
   z.object({
+    type: z.literal("select_source"),
+    source_id: z.string(),
+  }),
+  z.object({
     type: z.literal("training_capture"),
     action: z.enum(["start", "stop"]),
     label: z.enum(["target", "noise"]),

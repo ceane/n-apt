@@ -241,6 +241,9 @@ export interface SourceInfo {
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
   supports_raw_iq_stream: boolean;
+  serial_number?: string;
+  manufacturer?: string;
+  product?: string;
   sdr: {
     max_sample_rate: number;
     sample_rate_options: number[];
@@ -311,6 +314,7 @@ export type WebSocketMessage =
   | ({ type: "settings" } & SDRSettings)
   | SignalDisplaySettingsMessage
   | { type: "restart_device" }
+  | { type: "select_source"; source_id: string }
   | {
       type: "training_capture";
       action: "start" | "stop";

@@ -166,40 +166,60 @@ export const selectActiveSource = createSelector(
   },
 );
 
-export const selectActiveSourceDerivedState = createSelector(
-  [selectActiveSource],
-  (source) => {
-    if (!source) {
-      return {
-        deviceState: null,
-        deviceName: null,
-        deviceProfile: null,
-        deviceInfo: null,
-        backend: null,
-        maxSampleRateHz: null,
-        sampleRateOptions: [] as number[],
-        sampleRateHz: null,
-        sdrSettings: null,
-      };
+export const deriveSourceDerivedState = (source: SourceInfo | null) => {
+  if (!source) {
+    return {
+      deviceState: null,
+      deviceName: null,
+      deviceProfile: null,
+      deviceInfo: null,
+      backend: null,
+      maxSampleRateHz: null,
+      sampleRateOptions: [] as number[],
+      sampleRateHz: null,
+      sdrSettings: null,
+    };
+  }
+
+  return {
+    deviceState: source.status === "streaming" ? "connected" : source.status,
+    deviceName: source.name,
+    deviceProfile: {
+      kind: source.kind,
+      is_rtl_sdr: source.capability === "rx",
+      supports_approx_dbm: source.supports_approx_dbm,
+      supports_raw_iq_stream: source.supports_raw_iq_stream,
+    },
+    deviceInfo: source.name,
+    backend: source.kind,
+    maxSampleRateHz: source.sdr.max_sample_rate,
+    sampleRateOptions: source.sdr.sample_rate_options,
+    sampleRateHz: source.sdr.settings.sample_rate ?? null,
+    sdrSettings: source.sdr.settings,
+  };
+};
+
+export const selectSourceDerivedState = createSelector(
+  [
+    selectWebSocketState,
+    (_state: RootState, sourceId: string | null) => sourceId,
+  ],
+  (websocket, sourceId) => {
+    if (!Array.isArray(websocket.sources) || websocket.sources.length === 0) {
+      return deriveSourceDerivedState(null);
     }
 
-    return {
-      deviceState: source.status === "streaming" ? "connected" : source.status,
-      deviceName: source.name,
-      deviceProfile: {
-        kind: source.kind,
-        is_rtl_sdr: source.capability === "rx",
-        supports_approx_dbm: source.supports_approx_dbm,
-        supports_raw_iq_stream: source.supports_raw_iq_stream,
-      },
-      deviceInfo: source.name,
-      backend: source.kind,
-      maxSampleRateHz: source.sdr.max_sample_rate,
-      sampleRateOptions: source.sdr.sample_rate_options,
-      sampleRateHz: source.sdr.settings.sample_rate ?? null,
-      sdrSettings: source.sdr.settings,
-    };
+    const source =
+      websocket.sources.find((candidate) => candidate.id === sourceId) ??
+      websocket.sources[0] ??
+      null;
+    return deriveSourceDerivedState(source);
   },
+);
+
+export const selectActiveSourceDerivedState = createSelector(
+  [selectActiveSource],
+  (source) => deriveSourceDerivedState(source),
 );
 
 export const selectSpectrumData = createSelector(

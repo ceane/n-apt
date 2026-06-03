@@ -3,7 +3,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "../../src/ts/components/FFTCanvas";
 import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
-import { getLatestLiveFrame } from "../../src/ts/components/FFTCanvas";
+import {
+  getLatestLiveFrame,
+  getLiveFrameSignature,
+} from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
 import { TestWrapper } from "./testUtils";
@@ -339,6 +342,25 @@ describe("FFTCanvas Component", () => {
     expect(getLatestLiveFrame([])).toBeNull();
   });
 
+  it("prefers explicit timestamps when deriving a live frame signature", () => {
+    const frame = {
+      type: "spectrum" as const,
+      iq_data: new Uint8Array([1, 2, 3]),
+      data_type: "iq_raw" as const,
+      timestamp: 12345,
+    };
+
+    expect(getLiveFrameSignature(frame)).toBe(12345);
+    expect(
+      getLiveFrameSignature({
+        type: "spectrum",
+        iq_data: new Uint8Array([1, 2, 3]),
+        data_type: "iq_raw",
+      }),
+    ).toEqual(expect.objectContaining({ iq_data: expect.any(Uint8Array) }));
+    expect(getLiveFrameSignature(null)).toBeNull();
+  });
+
   it("reprocesses the live frame when fftWindow changes without temporal resolution changes", async () => {
     processIqToDbmSpectrumMock.mockClear();
     const liveFrame = {
@@ -395,5 +417,62 @@ describe("FFTCanvas Component", () => {
       processIqToDbmSpectrumMock.mock.calls.length - 1
     ] as any[] | undefined;
     expect(lastCall?.[3]).toBe("Nuttall");
+  });
+
+  it("does not clear the waterfall or persist premature snapshot on state rerender (e.g. pause/unpause)", async () => {
+    const machine = createFFTVisualizerMachine();
+    const seededSnapshot = {
+      waveform: new Float32Array([1, 2, 3, 4]),
+      waterfallTextureSnapshot: new Uint8Array([10, 20, 30, 255]),
+      waterfallTextureMeta: { width: 1, height: 1, writeRow: 0 },
+      waterfallBuffer: new Uint8ClampedArray([10, 20, 30, 255]),
+      waterfallDims: { width: 1, height: 1 },
+    };
+    machine.persist("live", seededSnapshot);
+
+    const { rerender } = render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                isPaused={true}
+                visualizerMachine={machine}
+                visualizerSessionKey="live"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    // Verify machine has the data initially
+    expect(machine.restore("live")?.waterfallBuffer).toEqual(
+      seededSnapshot.waterfallBuffer,
+    );
+
+    // Rerender with isPaused=false (which triggers callback/forceRender recreation)
+    rerender(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                isPaused={false}
+                visualizerMachine={machine}
+                visualizerSessionKey="live"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    // The machine's snapshot MUST still be intact and not reset
+    expect(machine.restore("live")?.waterfallBuffer).toEqual(
+      seededSnapshot.waterfallBuffer,
+    );
   });
 });

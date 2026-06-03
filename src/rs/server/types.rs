@@ -86,6 +86,9 @@ pub enum SdrCommand {
   SetDirectSampling(u8),
   RequestNextFrame,
   RestartDevice,
+  SetActiveSource {
+    source_id: String,
+  },
   StartTraining {
     label: String,
     signal_area: String,
@@ -226,8 +229,6 @@ pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub source_id: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -336,6 +337,9 @@ pub struct WebSocketMessage {
   pub tx_mode: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
   pub tx_device: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
+  pub source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub channels: Option<Vec<ChannelSpec>>,
   /// Hardware frequency range info (get_hardware_info)

@@ -2,12 +2,14 @@ interface PlaybackSeedFrameOptions {
   displayMode: "fft" | "iq";
   precomputedFrames: any[];
   channelData: any;
+  fftSize?: number;
 }
 
 export const buildPlaybackSeedFrame = ({
   displayMode,
   precomputedFrames,
   channelData,
+  fftSize,
 }: PlaybackSeedFrameOptions) => {
   const stitchedFrame =
     precomputedFrames.length > 0 ? precomputedFrames[0] : null;
@@ -19,8 +21,8 @@ export const buildPlaybackSeedFrame = ({
   if (iqData && iqData.length > 0) {
     const fullIq =
       iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-    const fftSize = channelData?.bins_per_frame || 2048;
-    const chunkSize = fftSize * 2;
+    const frameFftSize = fftSize || channelData?.bins_per_frame || 2048;
+    const chunkSize = frameFftSize * 2;
     const chunk = fullIq.subarray(0, Math.min(fullIq.length, chunkSize));
 
     if (chunk.length >= 2) {

@@ -384,26 +384,6 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
           )}
           {variant !== "diagnostic" && (
             <Row
-              label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
-              tooltipTitle="Display Temporal Resolution"
-              tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
-            >
-              <WideSettingSelect
-                value={temporalResolution}
-                onChange={(e) => {
-                  onTemporalResolutionChange(
-                    e.target.value as "low" | "medium" | "high",
-                  );
-                }}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </WideSettingSelect>
-            </Row>
-          )}
-          {variant !== "diagnostic" && (
-            <Row
               label={<IconLabel icon={Blend} text="FFT Window" />}
               tooltipTitle="FFT Window"
               tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
@@ -424,6 +404,26 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             </Row>
           )}
         </>
+      )}
+      {variant !== "diagnostic" && (
+        <Row
+          label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
+          tooltipTitle="Display Temporal Resolution"
+          tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+        >
+          <WideSettingSelect
+            value={temporalResolution}
+            onChange={(e) => {
+              onTemporalResolutionChange(
+                e.target.value as "low" | "medium" | "high",
+              );
+            }}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </WideSettingSelect>
+        </Row>
       )}
       {/* Device-specific power scale toggle - enabled when approximate dBm is supported */}
       {(showsApproxDbmToggle || sourceMode === "file") &&
