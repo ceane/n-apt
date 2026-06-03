@@ -7,7 +7,7 @@ import {
   Frame,
   GalleryHorizontal,
   Gauge,
-  Image as ImageIcon,
+  Grip,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -312,7 +312,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             </Row>
           )}
           <Row
-            label={<IconLabel icon={ImageIcon} text="FFT Size" />}
+            label={<IconLabel icon={Grip} text="FFT Size" />}
             tooltipTitle="FFT Size"
             tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
           >

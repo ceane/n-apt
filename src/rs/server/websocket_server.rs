@@ -300,6 +300,10 @@ fn build_source_payload(
       "sample_rate_options": sample_rate_options,
       "fft_display": { "markers": device_limits },
       "settings": {
+        "fft": sdr_settings.fft,
+        "display": sdr_settings.display,
+        "devices": sdr_settings.devices,
+        "fft_sizes": sdr_settings.fft_sizes,
         "fft_size": sdr_settings.fft.default_size,
         "fft_window": "Rectangular",
         "frame_rate": sdr_settings.fft.default_frame_rate,
@@ -1996,11 +2000,12 @@ mod tests {
     let shared = SharedState::new("redis://127.0.0.1:6379");
     let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
+    *shared.device_serial.lock().unwrap() = "1".to_string();
     shared.update_device_status(
       true,
       "Generic RTL2832U".to_string(),
       DeviceProfile {
-        kind: "rtl_sdr".to_string(),
+        kind: "rtl-sdr".to_string(),
         is_rtl_sdr: true,
         supports_approx_dbm: true,
         supports_raw_iq_stream: true,

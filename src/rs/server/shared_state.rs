@@ -166,6 +166,7 @@ impl SharedState {
         &kind,
         settings.sample_rate,
         Some(settings.fft.default_size),
+        Some(&settings),
       );
     }
     *self.device_state.lock().unwrap() = if connected {

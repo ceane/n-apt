@@ -521,6 +521,7 @@ pub fn handle_message(
         &kind,
         sdr_settings.sample_rate,
         Some(sdr_settings.fft.default_size),
+        Some(&sdr_settings),
       );
       drop(sdr_settings);
       let source_id = active_source_id(shared);

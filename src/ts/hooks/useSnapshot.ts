@@ -56,6 +56,9 @@ import {
   sanitizeSVG,
 } from "@n-apt/utils/sanitization";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import {
+  normalizeWaterfallDbForColor,
+} from "@n-apt/utils/waterfallColor";
 import { useTheme } from "styled-components";
 import type { AppStyledTheme } from "@n-apt/components/ui/Theme";
 
@@ -780,9 +783,6 @@ function drawWaterfallToCanvas(
     lut[i] = (255 << 24) | (b << 16) | (g << 8) | r;
   }
 
-  const range = dbMax - dbMin;
-  const invRange = 255 / (range || 1);
-
   for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
     // FIFO: newest row at top (rowIdx=0), oldest at bottom
     const textureRow =
@@ -791,9 +791,10 @@ function drawWaterfallToCanvas(
 
     for (let binIdx = 0; binIdx < textureBinsPerRow; binIdx++) {
       const dbVal = floatView[rowOffset + binIdx];
+      const normalized = normalizeWaterfallDbForColor(dbVal, dbMin, dbMax);
       const lutIdx = Math.max(
         0,
-        Math.min(255, Math.floor((dbVal - dbMin) * invRange)),
+        Math.min(255, Math.round(normalized * 255)),
       );
 
       pixels32[rowIdx * textureBinsPerRow + binIdx] = lut[lutIdx];
@@ -899,7 +900,7 @@ export function renderWaterfallSnapshotCanvas(
       data.waterfallTextureMeta,
       data.dbMin,
       data.dbMax,
-      WATERFALL_COLORMAPS.classic,
+      data.colormap?.length ? data.colormap : WATERFALL_COLORMAPS.classic,
       options,
     );
     return canvas;

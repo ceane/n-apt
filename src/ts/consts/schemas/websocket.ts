@@ -65,10 +65,15 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
+  fft_sizes?: Array<{
+    base: string;
+    fft_min?: number;
+    fft_max?: number;
+  }>;
   devices?: Record<
     string,
     {
-      sample_rate: number | string | Array<string>;
+      sample_rate: number | string | Array<string> | Record<string, any>;
       fft_display?: {
         markers?: Array<{
           kind: string;
@@ -76,6 +81,11 @@ export type SdrSettingsConfig = {
           label?: string;
         }>;
       };
+      fft_sizes?: Array<{
+        base: string;
+        fft_min?: number;
+        fft_max?: number;
+      }>;
       gain_limits?: {
         min?: number;
         max?: number;
@@ -229,6 +239,7 @@ export type SourceSdrSettings = {
   fft?: SdrSettingsConfig["fft"];
   display?: SdrSettingsConfig["display"];
   devices?: SdrSettingsConfig["devices"];
+  fft_sizes?: SdrSettingsConfig["fft_sizes"];
 };
 
 export interface SourceInfo {

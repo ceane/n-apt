@@ -83,6 +83,7 @@ import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { parseFrequency } from "@n-apt/utils/frequency";
 import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
+import { resolveSampleRateSpec, SampleRateSpec } from "@n-apt/utils/signals";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -561,8 +562,27 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   useEffect(() => {
     dispatch(setDeviceKind(liveDeviceProfileToUse?.kind ?? null));
   }, [liveDeviceProfileToUse?.kind, dispatch]);
+  const mockResolved = useMemo(() => {
+    if (!isMockLiveSource) return null;
+    const spec = activeDeviceConfig?.sample_rate as SampleRateSpec | undefined;
+    const activeFrameToPass = activeSignalAreaBounds
+      ? { min_hz: activeSignalAreaBounds.min, max_hz: activeSignalAreaBounds.max }
+      : activeFrameForArea
+        ? { min_hz: activeFrameForArea.min_hz, max_hz: activeFrameForArea.max_hz }
+        : null;
+    const floorRate = 3_200_000;
+    const maxRate = Math.max(3_200_000, activeChannelSampleRate ?? 0);
+    return resolveSampleRateSpec(spec, activeFrameToPass, floorRate, maxRate);
+  }, [
+    isMockLiveSource,
+    activeDeviceConfig?.sample_rate,
+    activeSignalAreaBounds,
+    activeFrameForArea,
+    activeChannelSampleRate,
+  ]);
+
   const liveManualSampleRateOptions = isMockLiveSource
-    ? [3_200_000]
+    ? (mockResolved?.options ?? [3_200_000])
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
     sourceMode === "live" && (isHackrfOne || isMockLiveSource);
@@ -580,19 +600,21 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     Number.isFinite(liveState.sampleRateHz) &&
     liveState.sampleRateHz > 0
       ? liveState.sampleRateHz
-      : typeof sampleRateHz === "number" &&
-          Number.isFinite(sampleRateHz) &&
-          sampleRateHz > 0
-        ? sampleRateHz
-        : typeof sampleRateHzEffective === "number" &&
-            Number.isFinite(sampleRateHzEffective) &&
-            sampleRateHzEffective > 0
-          ? sampleRateHzEffective
-          : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
-              Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
-              liveSdrSettingsToUse.sample_rate > 0
-            ? liveSdrSettingsToUse.sample_rate
-            : maxSampleRate) || null;
+      : isMockLiveSource && mockResolved !== null
+        ? mockResolved.rate
+        : typeof sampleRateHz === "number" &&
+            Number.isFinite(sampleRateHz) &&
+            sampleRateHz > 0
+          ? sampleRateHz
+          : typeof sampleRateHzEffective === "number" &&
+              Number.isFinite(sampleRateHzEffective) &&
+              sampleRateHzEffective > 0
+            ? sampleRateHzEffective
+            : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
+                Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
+                liveSdrSettingsToUse.sample_rate > 0
+              ? liveSdrSettingsToUse.sample_rate
+              : maxSampleRate) || null;
 
   const isServerConnected = useMemo(
     () =>

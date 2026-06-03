@@ -79,12 +79,43 @@ pub fn preprocess_frequency_tags(content: &str) -> String {
 }
 
 pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
+  let re_seq = Regex::new(r"(?ms)sample_rate:\s*\n\s*-\s*base:\s*\S+.*?\n\s*freq_hz:\s*(\d+).*?\n\s*-\s*channel:\s*\S+.*?\n\s*freq_hz:\s*[^\n]+").unwrap();
+  let content = re_seq.replace_all(content, "sample_rate: $1").to_string();
+
   let re_floor_max = Regex::new(r"sample_rate:\s*!floor\.\.\.!max\b").unwrap();
   let content = re_floor_max
     .replace_all(
-      content,
+      &content,
       "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_MAX__\"]",
     )
+    .to_string();
+
+  let re_floor_channel = Regex::new(r"sample_rate:\s*!floor\.\.\.!channel\b").unwrap();
+  let content = re_floor_channel
+    .replace_all(
+      &content,
+      "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_CHANNEL__\"]",
+    )
+    .to_string();
+
+  let re_clamp_tag = Regex::new(r"sample_rate:\s*!clamp\b").unwrap();
+  let content = re_clamp_tag
+    .replace_all(&content, "sample_rate:")
+    .to_string();
+
+  let re_channel_tag = Regex::new(r"!channel\s+sample_rate\b").unwrap();
+  let content = re_channel_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_CHANNEL__\"")
+    .to_string();
+
+  let re_floor_tag = Regex::new(r"!floor\s+sample_rate\b").unwrap();
+  let content = re_floor_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_FLOOR__\"")
+    .to_string();
+
+  let re_max_tag = Regex::new(r"!max\s+sample_rate\b").unwrap();
+  let content = re_max_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_MAX__\"")
     .to_string();
 
   let re_max = Regex::new(r"sample_rate:\s*!max\b").unwrap();
@@ -93,8 +124,21 @@ pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
     .to_string();
 
   let re_floor = Regex::new(r"sample_rate:\s*!floor\b").unwrap();
-  re_floor
+  let content = re_floor
     .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"")
+    .to_string();
+
+  // Preprocess power-of-two tags (e.g. !pow2 22 or 2^11) safely:
+  let re_pow2 = Regex::new(r"(?:!pow2\s+|2\^)(\d+)\b").unwrap();
+  re_pow2
+    .replace_all(&content, |caps: &regex::Captures| {
+      let exponent: u32 = caps[1].parse().unwrap_or(0);
+      if exponent >= 8 && exponent <= 24 {
+        2u32.pow(exponent).to_string()
+      } else {
+        "2048".to_string()
+      }
+    })
     .to_string()
 }
 
@@ -421,14 +465,58 @@ pub fn resolve_fft_config(
   device_kind: &str,
   sample_rate: u32,
   preferred_size: Option<usize>,
+  sdr_settings: Option<&super::types::SdrConfig>,
 ) -> super::types::SdrFftConfig {
-  let max_size: usize = if device_kind == "hackrf_one" {
+  let mut min_size: usize = 2048;
+  let mut max_size: usize = if device_kind == "hackrf_one" {
     4_194_304 // 2^22
   } else {
     262_144 // 2^18
   };
 
-  let min_size: usize = 2048;
+  // Override from sdr_settings if available
+  if let Some(settings) = sdr_settings {
+    // 1. Check global fft_sizes
+    if let Some(fft_sizes_list) = &settings.fft_sizes {
+      for item in fft_sizes_list {
+        if item.base == "base_fft_sizes" {
+          if let Some(min) = item.fft_min {
+            min_size = min as usize;
+          }
+          if let Some(max) = item.fft_max {
+            max_size = max as usize;
+          }
+        }
+      }
+    }
+    // 2. Check device-specific overrides
+    if let Some(device_cfg) = settings.devices.get(device_kind) {
+      if let Some(fft_sizes_list) = &device_cfg.fft_sizes {
+        for item in fft_sizes_list {
+          if item.base == "base_fft_sizes" {
+            if let Some(min) = item.fft_min {
+              min_size = min as usize;
+            }
+            if let Some(max) = item.fft_max {
+              max_size = max as usize;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Security bounds checks
+  if min_size < 256 {
+    min_size = 256;
+  }
+  if max_size > 8_388_608 {
+    max_size = 8_388_608;
+  }
+  if min_size > max_size {
+    min_size = max_size;
+  }
+
   let mut sizes: Vec<usize> = Vec::new();
   let mut current: usize = min_size;
   let sr_usize = sample_rate as usize;
@@ -480,7 +568,7 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
   let mut sdr = config.signals.sdr.clone();
   apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
   sdr.fft =
-    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size));
+    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size), Some(&sdr));
   sdr
 }
 
@@ -811,6 +899,9 @@ mod tests {
     assert!(sdr_value.is_some(), "expected signals.sdr in signals.yaml");
     let parsed: Result<crate::server::types::SdrConfig, _> =
       serde_yaml::from_value(sdr_value.expect("signals.sdr value"));
+    if parsed.is_err() {
+      eprintln!("DESERIALIZATION ERROR: {:?}", parsed.as_ref().unwrap_err());
+    }
     assert!(parsed.is_ok(), "expected signals.sdr to parse");
 
     let settings = load_sdr_settings();
@@ -2177,7 +2268,7 @@ mod save_tests {
 
   #[test]
   fn test_resolve_fft_config_scales_with_sample_rate() {
-    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768));
+    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768), None);
     assert_eq!(mock_low.default_size, 32768);
     assert_eq!(mock_low.max_size, 262_144);
     assert_eq!(mock_low.default_frame_rate, 30);
@@ -2185,10 +2276,10 @@ mod save_tests {
     assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
     assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
 
-    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024));
+    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024), None);
     assert_eq!(mock_fallback.default_size, 2048);
 
-    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768));
+    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768), None);
     assert_eq!(mock_high.default_size, 32768);
     assert_eq!(mock_high.max_size, 262_144);
     assert_eq!(mock_high.default_frame_rate, 60);
@@ -2197,7 +2288,7 @@ mod save_tests {
     assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
     assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
 
-    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768));
+    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768), None);
     assert_eq!(hackrf.max_size, 2_097_152);
     assert_eq!(hackrf.default_size, 32768);
   }

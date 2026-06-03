@@ -626,6 +626,15 @@ pub struct NaptConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FftSizesOptionYaml {
+  pub base: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fft_min: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fft_max: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrConfig {
   pub sample_rate: u32,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -638,6 +647,8 @@ pub struct SdrConfig {
   pub display: SdrDisplayConfig,
   #[serde(default)]
   pub devices: IndexMap<String, SdrDeviceConfig>,
+  #[serde(default)]
+  pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -669,6 +680,8 @@ pub struct SdrDeviceConfig {
   pub fft_display: Option<SdrFftDisplayConfig>,
   #[serde(default)]
   pub gain_limits: Option<DeviceGainLimits>,
+  #[serde(default)]
+  pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -677,6 +690,11 @@ pub enum SdrSampleRateSpec {
   Fixed(u32),
   Symbolic(String),
   FloorMaxRange(Vec<String>),
+  Clamp {
+    value: String,
+    min: String,
+    max: String,
+  },
 }
 
 impl SdrSampleRateSpec {
@@ -698,8 +716,32 @@ impl SdrSampleRateSpec {
       Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
         vec![floor_sample_rate]
       }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_CHANNEL__" => {
+        vec![floor_sample_rate]
+      }
       Self::Symbolic(_) => vec![floor_sample_rate],
-      Self::FloorMaxRange(_) => {
+      Self::FloorMaxRange(tags) => {
+        let ceiling = if tags.contains(&"__NAPT_SAMPLE_RATE_CHANNEL__".to_string()) {
+          max_sample_rate
+        } else {
+          max_sample_rate
+        };
+        let mut out = CURATED_RATES
+          .iter()
+          .copied()
+          .filter(|rate| *rate >= floor_sample_rate && *rate <= ceiling)
+          .collect::<Vec<_>>();
+        if out.first().copied() != Some(floor_sample_rate) {
+          out.insert(0, floor_sample_rate);
+        }
+        if out.last().copied() != Some(ceiling) {
+          out.push(ceiling);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+      }
+      Self::Clamp { .. } => {
         let mut out = CURATED_RATES
           .iter()
           .copied()
@@ -727,8 +769,12 @@ impl SdrSampleRateSpec {
       Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
         floor_sample_rate
       }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_CHANNEL__" => {
+        floor_sample_rate
+      }
       Self::Symbolic(_) => floor_sample_rate,
       Self::FloorMaxRange(_) => max_sample_rate.max(floor_sample_rate),
+      Self::Clamp { .. } => max_sample_rate.max(floor_sample_rate),
     }
   }
 }

@@ -6,6 +6,7 @@ import {
   buildSnapshotStatsLines,
   buildFastSpectrumCanvas,
   buildFastWaterfallCanvas,
+  renderWaterfallSnapshotCanvas,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
@@ -274,6 +275,40 @@ describe("fast snapshot canvases", () => {
           call.args[0] !== undefined,
       ),
     ).toBe(true);
+  });
+
+  it("uses the snapshot colormap when recoloring raw waterfall textures", () => {
+    const canvas = renderWaterfallSnapshotCanvas(
+      {
+        dbMin: 0,
+        dbMax: 10,
+        colormap: [
+          [0, 0, 255],
+          [255, 0, 0],
+        ],
+        waterfallTextureSnapshot: new Uint8Array(new Float32Array([30]).buffer),
+        waterfallTextureMeta: {
+          width: 1,
+          height: 1,
+          writeRow: 1,
+        },
+        waterfallBuffer: null,
+        waterfallDims: null,
+      } as any,
+      1,
+      1,
+      { marginX: 0, marginY: 0, noBackground: true },
+    );
+
+    expect(canvas).toBeTruthy();
+    const putImageCall = (global as any).__CANVAS_CALLS__.find(
+      (call: any) => call.name === "putImageData",
+    );
+    expect(putImageCall).toBeTruthy();
+    const imageData = putImageCall.args[0];
+    expect(imageData.data[0]).toBeGreaterThan(200);
+    expect(imageData.data[1]).toBe(0);
+    expect(imageData.data[2]).toBeLessThan(60);
   });
 
   it("renders the demod channel band on fast spectrum snapshots", () => {

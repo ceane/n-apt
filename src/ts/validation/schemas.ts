@@ -6,6 +6,10 @@
 import { z } from "zod";
 import type { TrustLevel, ExpectedLatency } from "./types";
 
+// Preprocesses null values to undefined so they map properly to optional types rather than null
+const nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((val) => (val === null ? undefined : val), schema.optional());
+
 // Base schemas
 const TrustLevelSchema = z.enum([
   "high",
@@ -95,28 +99,46 @@ export const SdrSettingsConfigSchema = z.object({
       padding: z.number(),
     })
     .optional(),
-  devices: z
-    .record(
+  fft_sizes: nullableToOptional(
+    z.array(
+      z.object({
+        base: z.string(),
+        fft_min: z.number().optional(),
+        fft_max: z.number().optional(),
+      })
+    )
+  ),
+  devices: nullableToOptional(
+    z.record(
       z.string(),
       z.object({
         sample_rate: z.any(),
-        fft_display: z.any().optional(),
-        gain_limits: z
-          .object({
-            min: z.number().optional(),
-            max: z.number().optional(),
-            step: z.number().optional(),
-            lna_min: z.number().optional(),
-            lna_max: z.number().optional(),
-            lna_step: z.number().optional(),
-            vga_min: z.number().optional(),
-            vga_max: z.number().optional(),
-            vga_step: z.number().optional(),
+        fft_display: nullableToOptional(z.any()),
+        fft_sizes: nullableToOptional(
+          z.array(
+            z.object({
+              base: z.string(),
+              fft_min: z.number().optional(),
+              fft_max: z.number().optional(),
+            })
+          )
+        ),
+        gain_limits: nullableToOptional(
+          z.object({
+            min: nullableToOptional(z.number()),
+            max: nullableToOptional(z.number()),
+            step: nullableToOptional(z.number()),
+            lna_min: nullableToOptional(z.number()),
+            lna_max: nullableToOptional(z.number()),
+            lna_step: nullableToOptional(z.number()),
+            vga_min: nullableToOptional(z.number()),
+            vga_max: nullableToOptional(z.number()),
+            vga_step: nullableToOptional(z.number()),
           })
-          .optional(),
-      }),
+        ),
+      })
     )
-    .optional(),
+  ),
 });
 
 export const DeviceProfileSchema = z.object({
@@ -168,6 +190,9 @@ export const SourceSdrSettingsSchema = z.object({
   offset_tuning: z.boolean().optional(),
   direct_sampling: z.number().optional(),
   tuner_bandwidth: z.number().optional(),
+  fft: SdrSettingsConfigSchema.shape.fft,
+  display: SdrSettingsConfigSchema.shape.display,
+  devices: SdrSettingsConfigSchema.shape.devices,
 });
 
 export const SourceInfoSchema = z.object({

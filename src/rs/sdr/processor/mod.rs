@@ -351,6 +351,7 @@ impl SdrProcessor {
         kind,
         sample_rate,
         Some(s.fft.default_size),
+        Some(&s),
       );
       s
     };

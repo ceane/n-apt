@@ -73,7 +73,7 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
         default_frame_rate: mockLiveState.fftFrameRate,
         max_size: mockLiveState.fftSize,
         max_frame_rate: mockLiveState.fftFrameRate,
-        size_to_frame_rate: {
+        size_to_frame_rate: mockLiveState.size_to_frame_rate ?? {
           [String(mockLiveState.fftSize)]: mockLiveState.fftFrameRate,
         },
       },
@@ -84,8 +84,8 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
     manualVisualizerPaused: null,
     toggleVisualizerPause: mockToggleVisualizerPause,
     cryptoCorrupted: false,
-    deviceName: "HackRF One",
-    deviceProfile: { kind: "hackrf_one" },
+    deviceName: mockWsConnection?.deviceName ?? "HackRF One",
+    deviceProfile: mockWsConnection?.deviceProfile ?? { kind: "hackrf_one" },
   }),
 }));
 
@@ -577,5 +577,144 @@ describe("SpectrumSidebar sample rate behavior", () => {
     await waitFor(() => expect(sampleRateSelect).toHaveValue("12800000"));
     expect(mockLiveState.sampleRateHz).toBe(12_800_000);
     expect(sampleRateSelect).not.toHaveDisplayValue("Whole Channel (5.2MHz)");
+  });
+
+  it("asserts active device details, sample rates, and fft sizes for mock_apt", async () => {
+    const store = createStore();
+    store.dispatch(setConnected());
+
+    const channels = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_408_000, // 4.39 MHz span
+        description: "Mock APT channel A",
+      },
+      {
+        id: "b",
+        label: "B",
+        min_hz: 24_720_000,
+        max_hz: 29_880_000, // 5.16 MHz span
+        description: "Mock APT channel B",
+      },
+      {
+        id: "c",
+        label: "C",
+        min_hz: 4_750_000,
+        max_hz: 23_000_000, // 18.25 MHz span
+        description: "Mock APT channel C",
+      },
+    ];
+
+    mockLiveState = {
+      ...mockLiveState,
+      activeSignalArea: "C",
+      frequencyRange: { min: 4_750_000, max: 23_000_000 },
+      sampleRateHz: 3_200_000,
+      size_to_frame_rate: {
+        "2048": 1562,
+        "4096": 781,
+        "8192": 390,
+        "16384": 195,
+        "32768": 97,
+        "65536": 48,
+        "131072": 24,
+        "262144": 12,
+      },
+    };
+    mockEffectiveFrames = [];
+    mockSignalAreaBounds = null;
+    mockWsConnection = {
+      ...mockWsConnection,
+      backend: "mock_apt",
+      deviceName: "Mock APT SDR",
+      deviceProfile: { kind: "mock_apt" },
+      sampleRateOptions: [3_200_000],
+      sampleRateHz: 3_200_000,
+    };
+
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-apt",
+        activeSourceMode: "live",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "streaming",
+            loading_attempt: 0,
+            loading_attempt_max: 2,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [3_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3_200_000,
+                min_receive_sample_rate: 3_200_000,
+                center_frequency: 1_600_000,
+                fft: {
+                  default_size: 262144,
+                  default_frame_rate: 12,
+                  max_size: 262144,
+                  max_frame_rate: 60,
+                  size_to_frame_rate: {
+                    "2048": 1562,
+                    "4096": 781,
+                    "8192": 390,
+                    "16384": 195,
+                    "32768": 97,
+                    "65536": 48,
+                    "131072": 24,
+                    "262144": 12,
+                  },
+                },
+              },
+            },
+          },
+        ],
+        channels,
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    // 1. Assert active device name is "Mock APT SDR"
+    const sourceInputButton = await screen.findByRole("button", { name: /source-input/i });
+    expect(sourceInputButton).toBeInTheDocument();
+
+    // 2. Assert sample rate options:
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
+    const sampleRateRow = sampleRateLabel.closest("div")?.parentElement;
+    expect(sampleRateRow).toBeTruthy();
+
+    const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+
+    const optionTexts = Array.from(sampleRateSelect.options).map((opt) => opt.text);
+    expect(optionTexts).toContain("Whole Channel (18.25MHz)");
+    expect(optionTexts).toContain("3.2MHz");
+
+    // 3. Assert FFT Sizes dropdown has values from 2^11 (2048) to 2^18 (262144)
+    const fftSizeLabel = screen.getAllByText("FFT Size").find(el => el.tagName.toLowerCase() === "span")
+      || screen.getAllByText("FFT Size")[0];
+    const fftSizeRow = fftSizeLabel.closest("div")?.parentElement;
+    expect(fftSizeRow).toBeTruthy();
+    const fftSizeSelect = within(fftSizeRow as HTMLElement).getByRole("combobox") as HTMLSelectElement;
+    const fftSizeOptionValues = Array.from(fftSizeSelect.options).map((opt) => opt.value);
+    expect(fftSizeOptionValues).toContain("2048");
+    expect(fftSizeOptionValues).toContain("4096");
+    expect(fftSizeOptionValues).toContain("262144");
   });
 });
