@@ -10,6 +10,7 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnVizZoomFloorChange = jest.fn();
   const mockOnFftDbLimitsChange = jest.fn();
   const mockOnSelectionChange = jest.fn();
+  const mockOnPowerLineDbChange = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
   const spectrumGpuCanvasRef = {
@@ -59,6 +60,7 @@ describe("useFrequencyDrag Hook", () => {
     onVizZoomFloorChange: mockOnVizZoomFloorChange,
     onFftDbLimitsChange: mockOnFftDbLimitsChange,
     onSelectionChange: mockOnSelectionChange,
+    onPowerLineDbChange: mockOnPowerLineDbChange,
     vizZoomRef: { current: 1 },
     vizZoomFloorRef: { current: 1 },
     vizPanOffsetRef: { current: 0 },
@@ -70,6 +72,7 @@ describe("useFrequencyDrag Hook", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockOnPowerLineDbChange.mockClear();
     listeners = {};
     frequencyRangeRef.current = { min: 100, max: 110 };
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 1;
@@ -553,5 +556,48 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizZoomChange.mock.calls.length - 1
       ][0];
     expect(zoomCall).toBeGreaterThanOrEqual(3);
+  });
+
+  it("should handle draggable power line vertically in the left dB margin and clear it on pointerup", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    // Pointer down at x=20, y=300 (left scale margin area)
+    triggerPointerDown(20, 300);
+    expect(mockOnPowerLineDbChange).toHaveBeenCalled();
+    const firstCall = mockOnPowerLineDbChange.mock.calls[0][0];
+    // y=300 is the center of 20 to 560, so it should map near -62.2 dB
+    expect(firstCall).toBeCloseTo(-62.2, 1);
+
+    // Pointer move to y=200
+    triggerPointerMove(20, 200);
+    const lastCall =
+      mockOnPowerLineDbChange.mock.calls[
+        mockOnPowerLineDbChange.mock.calls.length - 1
+      ][0];
+    // y=200 is 180px down from 560 on a 540px plot area -> 1/3 of the way down from top (0 dB) -> -40 dB
+    expect(lastCall).toBeCloseTo(-40, 1);
+
+    // Pointer up should set power line to null to hide it
+    triggerPointerUp(20, 200);
+    const finalCall =
+      mockOnPowerLineDbChange.mock.calls[
+        mockOnPowerLineDbChange.mock.calls.length - 1
+      ][0];
+    expect(finalCall).toBeNull();
+  });
+
+  it("should disable scroll/wheel events in the left scale margin", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    const preventDefaultMock = jest.fn();
+    triggerWheel({
+      clientX: 20, // inside left margin x < 50
+      clientY: 300,
+      preventDefault: preventDefaultMock,
+    });
+
+    expect(preventDefaultMock).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
   });
 });

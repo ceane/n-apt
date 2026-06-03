@@ -579,6 +579,7 @@ const FFTCanvas = memo(
       drawDemodFocusOnContext,
       drawSelectionOverlayOnContext,
       drawZoomMarkersOnContext,
+      drawPowerLineOnContext,
     } = useOverlayRenderer();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
     const themeAppMode = useAppSelector(
@@ -631,6 +632,12 @@ const FFTCanvas = memo(
     const liveGpuProcessInFlightRef = useRef(false);
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
+
+    const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
+    const powerLineDbRef = useRef<number | null>(null);
+    useEffect(() => {
+      powerLineDbRef.current = powerLineDb;
+    }, [powerLineDb]);
 
     const {
       waterfallBufferRef,
@@ -1227,6 +1234,8 @@ const FFTCanvas = memo(
         forceRenderRef.current?.();
       }, [overlayDirtyRef]),
       tooltipSpanRef,
+      powerLineDbRef,
+      onPowerLineDbChange: setPowerLineDb,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -1916,6 +1925,19 @@ const FFTCanvas = memo(
                 visualRange,
                 frequencyRangeRef.current,
               );
+
+              // Draw draggable horizontal power line
+              if (powerLineDbRef.current !== null) {
+                drawPowerLineOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  powerLineDbRef.current,
+                  activeScaleDbMinRef.current,
+                  activeScaleDbMaxRef.current,
+                  effectivePowerScaleRef.current,
+                );
+              }
             }
           }
 

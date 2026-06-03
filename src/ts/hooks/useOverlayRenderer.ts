@@ -104,6 +104,10 @@ const getCanvasThemeColors = () => ({
     "--color-spectrum-overlay-border",
     "rgba(255, 255, 255, 0.75)",
   ),
+  powerLineColor: readCssColor(
+    "--color-fft-power-line",
+    "rgba(0, 212, 255, 0.85)",
+  ),
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
 
@@ -865,6 +869,91 @@ export function useOverlayRenderer() {
     [formatFrequency],
   );
 
+  const drawPowerLineOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      powerLineDb: number | null,
+      fftMin: number,
+      fftMax: number,
+      powerScale: "dB" | "dBm" = "dB",
+    ) => {
+      if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
+      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
+
+      const vertRange = fftMax - fftMin;
+      if (vertRange <= 0) return;
+      const scaleFactor = fftHeight / vertRange;
+
+      const yPos = fftAreaMax.y - (powerLineDb - fftMin) * scaleFactor;
+
+      // Bounds check with padding
+      if (yPos < FFT_AREA_MIN.y || yPos > fftAreaMax.y) return;
+
+      ctx.save();
+
+      // Formulate label e.g., -35.4dBm or -35.4dB
+      const label = `${powerLineDb.toFixed(1)}${powerScale}`;
+      ctx.font = "12px JetBrains Mono";
+      const textWidth = ctx.measureText(label).width;
+
+      const ix = Math.round(yPos);
+
+      // Measure label dimensions
+      const paddingX = 6;
+      const rectHeight = 18;
+      const rectWidth = textWidth + paddingX * 2;
+      const rectX = FFT_AREA_MIN.x + 4;
+      const rectY = ix - rectHeight / 2;
+
+      // 1. Draw background pill
+      ctx.fillStyle = "rgba(10, 10, 10, 0.85)";
+      ctx.strokeStyle = canvasTheme.powerLineColor;
+      ctx.lineWidth = 1;
+
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, 4);
+      } else {
+        ctx.rect(rectX, rectY, rectWidth, rectHeight);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // 2. Draw dark shadow/backing line (halo) starting from after the label to the right edge
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(rectX + rectWidth + 6, ix);
+      ctx.lineTo(fftAreaMax.x, ix);
+      ctx.stroke();
+
+      // 3. Draw yellow dashed line starting from after the label to the right edge
+      ctx.strokeStyle = canvasTheme.powerLineColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(rectX + rectWidth + 6, ix);
+      ctx.lineTo(fftAreaMax.x, ix);
+      ctx.stroke();
+
+      // 4. Draw text inside the pill
+      ctx.fillStyle = canvasTheme.powerLineColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, rectX + rectWidth / 2, ix);
+
+      ctx.restore();
+    },
+    [],
+  );
+
   return {
     drawGridOnContext,
     drawMarkersOnContext,
@@ -872,5 +961,6 @@ export function useOverlayRenderer() {
     drawSelectionOverlayOnContext,
     drawSpikeMarkersOnContext,
     drawZoomMarkersOnContext,
+    drawPowerLineOnContext,
   };
 }

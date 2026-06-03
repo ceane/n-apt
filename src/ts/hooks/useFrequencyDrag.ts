@@ -61,6 +61,8 @@ export interface FrequencyDragOptions {
   /** Callback triggered on every drag step to force overlay repaint without React re-render */
   onDragRepaint?: () => void;
   tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
+  powerLineDbRef?: React.MutableRefObject<number | null>;
+  onPowerLineDbChange?: (db: number | null) => void;
 }
 
 export function useFrequencyDrag({
@@ -95,9 +97,12 @@ export function useFrequencyDrag({
   liveDragSelectionRef,
   onDragRepaint,
   tooltipSpanRef,
+  powerLineDbRef,
+  onPowerLineDbChange,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
+  const isPowerDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -476,6 +481,28 @@ export function useFrequencyDrag({
           x: e.clientX,
           y: e.clientY,
         });
+      }
+
+      if (
+        isPowerDraggingRef.current &&
+        onPowerLineDbChange &&
+        vizDbMinRef &&
+        vizDbMaxRef
+      ) {
+        const canvas = getActiveSpectrumCanvas();
+        const canvasRect = (canvas ? canvasDragRectRef.current : null) || rect;
+        const canvasY = e.clientY - canvasRect.top;
+        const plot = getPlotBounds(canvasRect);
+        const clampedY = Math.max(plot.top, Math.min(plot.bottom, canvasY));
+        const fraction = (plot.bottom - clampedY) / (plot.bottom - plot.top);
+        const db =
+          vizDbMinRef.current +
+          fraction * (vizDbMaxRef.current - vizDbMinRef.current);
+        onPowerLineDbChange(db);
+        if (onDragRepaint) {
+          onDragRepaint();
+        }
+        return;
       }
 
       // Handle multi-touch pinch-to-zoom (mobile)
@@ -904,6 +931,26 @@ export function useFrequencyDrag({
         canvasDragRectRef.current = canvas.getBoundingClientRect();
       }
 
+      const canvasRect = canvasDragRectRef.current || rect;
+      const canvasX = e.clientX - canvasRect.left;
+      const canvasY = e.clientY - canvasRect.top;
+      const plot = getPlotBounds(canvasRect);
+
+      // Check if clicking inside the left margin (dB scale area)
+      const isLeftMargin =
+        canvasX < plot.left && canvasY >= plot.top && canvasY <= plot.bottom;
+      if (isLeftMargin && onPowerLineDbChange && vizDbMinRef && vizDbMaxRef) {
+        isPowerDraggingRef.current = true;
+        const clampedY = Math.max(plot.top, Math.min(plot.bottom, canvasY));
+        const fraction = (plot.bottom - clampedY) / (plot.bottom - plot.top);
+        const db =
+          vizDbMinRef.current +
+          fraction * (vizDbMaxRef.current - vizDbMinRef.current);
+        onPowerLineDbChange(db);
+        setPointerCaptureIfAvailable(container, e.pointerId);
+        return;
+      }
+
       const height = rect.height;
       const y = e.clientY - rect.top;
       const vfoThreshold = 60;
@@ -1040,6 +1087,20 @@ export function useFrequencyDrag({
 
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
+
+      if (isPowerDraggingRef.current) {
+        isPowerDraggingRef.current = false;
+        if (container) {
+          releasePointerCaptureIfAvailable(container, e.pointerId);
+        }
+        if (onPowerLineDbChange) {
+          onPowerLineDbChange(null);
+        }
+        if (onDragRepaint) {
+          onDragRepaint();
+        }
+        return;
+      }
 
       activePointersRef.current.delete(e.pointerId);
       if (activePointersRef.current.size < 2) {
@@ -1349,6 +1410,12 @@ export function useFrequencyDrag({
         containerRectRef.current || container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      const plot = getPlotBounds(rect);
+      if (x < 50 && y >= plot.top && y <= plot.bottom) {
+        e.preventDefault();
+        return;
+      }
 
       // 1. Handle Pinch-to-Zoom (ctrlKey is true on trackpad pinches)
       if (e.ctrlKey) {
