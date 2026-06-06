@@ -127,16 +127,18 @@ describe("Backend Health Integration", () => {
     const response = await fetch(`${BASE_URL}/status`);
     expect(response.status).toBe(200);
     const data = await response.json();
-    expect(data).toHaveProperty("device_connected");
-    expect(data).toHaveProperty("device_state");
-    expect(data).toHaveProperty("device_name");
+    expect(data).toHaveProperty("meta.clients");
+    expect(data).toHaveProperty("meta.authenticated_clients");
+    expect(data).toHaveProperty("status.type", "source_info");
+    expect(data).toHaveProperty("status.active_source");
+    expect(Array.isArray(data.status.sources)).toBe(true);
   });
 
   it("should have loaded channels from signals.yaml", async () => {
-    const response = await fetch(`${BASE_URL}/status`);
+    const response = await fetch(`${BASE_URL}/api/agent/status`);
     const data = await response.json();
-    expect(Array.isArray(data.channels)).toBe(true);
-    expect(data.channels.length).toBeGreaterThan(0);
+    expect(data).toHaveProperty("signals.frequency_range");
+    expect(data.signals.frequency_range).not.toBe("unknown");
   });
 
   it("should respond to authentication challenges", async () => {
