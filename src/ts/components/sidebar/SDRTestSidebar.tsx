@@ -116,6 +116,7 @@ export const SDRTestSidebar: React.FC = () => {
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate,
+    currentSampleRateHz: state.sampleRateHz,
     sampleRateOptions,
     sdrSettings: effectiveSdrSettings ?? null,
     deviceType: deviceProfile?.kind,

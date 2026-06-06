@@ -1,6 +1,7 @@
 use n_apt_backend::sdr::mock_apt::MockAptDevice;
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::sdr::SdrDevice;
+use n_apt_backend::server::types::MockAptRealisticRfConfig;
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -10,6 +11,22 @@ mod tests {
   fn new_perf_device(seed: u64) -> MockAptDevice {
     // Keep the checksum-regression test on the canonical CPU path.
     MockAptDevice::new_with_seed(seed)
+  }
+
+  fn realistic_rf_config() -> MockAptRealisticRfConfig {
+    MockAptRealisticRfConfig {
+      enabled: true,
+      aliasing: true,
+      passband: true,
+      retune_settling: true,
+    }
+  }
+
+  fn centered_energy(samples: &[u8]) -> u64 {
+    samples
+      .iter()
+      .map(|&byte| (byte as i16 - 128).unsigned_abs() as u64)
+      .sum()
   }
 
   #[test]
@@ -213,6 +230,111 @@ mod tests {
       duration.as_millis() < 5000,
       "Performance is extremely out of control: {:?}",
       duration
+    );
+  }
+
+  #[test]
+  fn test_realistic_rf_helpers_fold_and_shape_signal() {
+    let sample_rate = 3_200_000.0;
+    let folded =
+      n_apt_backend::sdr::mock_apt::alias_to_baseband(1_900_000.0, sample_rate);
+    assert!(
+      (folded + 1_300_000.0).abs() < 1.0,
+      "expected 1.9MHz offset to fold to -1.3MHz, got {folded}"
+    );
+
+    let center_gain =
+      n_apt_backend::sdr::mock_apt::passband_gain(0.0, sample_rate);
+    let edge_gain =
+      n_apt_backend::sdr::mock_apt::passband_gain(1_550_000.0, sample_rate);
+    assert!(center_gain > edge_gain);
+    assert!(edge_gain > 0.0);
+
+    let in_band = n_apt_backend::sdr::mock_apt::realistic_visibility_gain(
+      400_000.0,
+      400_000.0,
+      sample_rate,
+    );
+    let folded_leak = n_apt_backend::sdr::mock_apt::realistic_visibility_gain(
+      3_600_000.0,
+      n_apt_backend::sdr::mock_apt::alias_to_baseband(3_600_000.0, sample_rate),
+      sample_rate,
+    );
+    assert!(in_band > folded_leak);
+    assert!(folded_leak > 0.0);
+  }
+
+  #[test]
+  fn test_realistic_rf_mode_is_deterministic() {
+    let mut device = MockAptDevice::new_with_seed(98765);
+    device.set_realistic_rf_config(realistic_rf_config());
+    device.set_settle_time(0);
+    device.set_retune_settle_time(0);
+    let frame1 = device.read_samples(8192).unwrap();
+    let frame2 = device.read_samples(8192).unwrap();
+    assert_ne!(
+      frame1.data, frame2.data,
+      "realistic frames should continue advancing"
+    );
+
+    let mut device2 = MockAptDevice::new_with_seed(98765);
+    device2.set_realistic_rf_config(realistic_rf_config());
+    device2.set_settle_time(0);
+    device2.set_retune_settle_time(0);
+    let frame1_b = device2.read_samples(8192).unwrap();
+    let frame2_b = device2.read_samples(8192).unwrap();
+
+    assert_eq!(frame1.data, frame1_b.data);
+    assert_eq!(frame2.data, frame2_b.data);
+  }
+
+  #[test]
+  fn test_realistic_rf_aliasing_keeps_folded_signal_visible() {
+    let mut canonical = MockAptDevice::new_with_seed(24680);
+    canonical.set_settle_time(0);
+    canonical.set_center_frequency(10_000_000).unwrap();
+    let canonical_frame = canonical.read_samples(32768).unwrap();
+    let canonical_energy = centered_energy(&canonical_frame.data);
+
+    let mut realistic = MockAptDevice::new_with_seed(24680);
+    realistic.set_realistic_rf_config(realistic_rf_config());
+    realistic.set_settle_time(0);
+    realistic.set_retune_settle_time(0);
+    realistic.set_center_frequency(10_000_000).unwrap();
+    let realistic_frame = realistic.read_samples(32768).unwrap();
+    let realistic_energy = centered_energy(&realistic_frame.data);
+
+    assert!(
+      realistic_energy > canonical_energy,
+      "folded realistic signal should have more centered energy than canonical out-of-window noise"
+    );
+  }
+
+  #[test]
+  fn test_realistic_rf_retune_settling_ramps_after_tune() {
+    let mut device = MockAptDevice::new_with_seed(13579);
+    device.set_realistic_rf_config(realistic_rf_config());
+    device.set_settle_time(0);
+    device.set_retune_settle_time(32768);
+
+    device.read_samples(8192).unwrap();
+    device.set_center_frequency(1_700_000).unwrap();
+
+    let first = device.read_samples(8192).unwrap();
+    let second = device.read_samples(8192).unwrap();
+    let third = device.read_samples(8192).unwrap();
+
+    let first_energy = centered_energy(&first.data);
+    let second_energy = centered_energy(&second.data);
+    let third_energy = centered_energy(&third.data);
+
+    assert!(
+      second_energy > first_energy,
+      "retuned realistic signal should ramp upward after first settled frame"
+    );
+    assert!(
+      third_energy >= second_energy,
+      "retuned realistic signal should not drop while settling"
     );
   }
 

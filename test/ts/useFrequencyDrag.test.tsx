@@ -359,12 +359,38 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastCall.min).toBe(100);
   });
 
+  it("allows hardware wheel scrolling past the selected channel edge immediately", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 102,
+      max: 112,
+    });
+  });
+
   it("should retune the hardware window when zoomed wheel panning crosses the edge", () => {
+    const panRef = { current: 2.4 };
+
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
         vizZoomRef: { current: 2 },
-        vizPanOffsetRef: { current: 2.4 },
+        vizPanOffsetRef: panRef,
       }),
     );
 
@@ -390,14 +416,16 @@ describe("useFrequencyDrag Hook", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("should keep zoomed wheel panning inside the active channel bounds", () => {
+  it("allows zoomed wheel panning past active channel bounds while respecting hardware bounds", () => {
+    const panRef = { current: 2.4 };
+
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
         hardwareSpectrumBounds: { min: 0, max: 1000 },
         vizZoomRef: { current: 2 },
-        vizPanOffsetRef: { current: 2.4 },
+        vizPanOffsetRef: panRef,
       }),
     );
 
@@ -418,18 +446,20 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizPanChange.mock.calls.length - 1
       ][0];
 
-    expect(lastRange.min).toBe(100);
-    expect(lastRange.max).toBe(110);
-    expect(lastPan).toBeLessThanOrEqual(2.5);
+    expect(lastRange.min).toBeGreaterThan(100);
+    expect(lastRange.max).toBeGreaterThan(110);
+    expect(lastRange.max).toBeLessThanOrEqual(1000);
+    expect(Number.isFinite(lastPan)).toBe(true);
   });
 
   it("never retunes the hardware window below 0 Hz when edge panning left", () => {
+    const panRef = { current: -2.4 };
     const zeroClampOptions = {
       ...defaultOptions,
       frequencyRangeRef: { current: { min: 100, max: 110 } },
       hardwareSpectrumBounds: { min: 0, max: 1000 },
       vizZoomRef: { current: 2 },
-      vizPanOffsetRef: { current: -2.4 },
+      vizPanOffsetRef: panRef,
     };
 
     renderHook(() => useFrequencyDrag(zeroClampOptions));

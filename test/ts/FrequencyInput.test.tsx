@@ -47,7 +47,9 @@ describe("FrequencyInput", () => {
   it("renders with initial value and correct optimal unit", () => {
     render(<ControlledFrequencyInput valueHz={1500000} />);
     expect(screen.getByDisplayValue("1.500")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("MHz");
+    expect(
+      screen.getByRole("button", { name: "Frequency unit" }),
+    ).toHaveTextContent("MHz");
   });
 
   it("calls onChangeHz when typing", () => {
@@ -127,7 +129,9 @@ describe("FrequencyInput", () => {
     // 1000 Hz -> 1.000 kHz in getOptimalUnit
     await waitFor(() => {
       expect(screen.getByDisplayValue("1.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("kHz");
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("kHz");
     });
   });
 
@@ -146,7 +150,9 @@ describe("FrequencyInput", () => {
     expect(onChange).toHaveBeenLastCalledWith(30_000_000_000);
     await waitFor(() => {
       expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("GHz");
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("GHz");
     });
   });
 
@@ -205,7 +211,9 @@ describe("FrequencyInput", () => {
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith(30_000_000_000);
       expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("GHz");
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("GHz");
     });
   });
 
@@ -245,10 +253,12 @@ describe("FrequencyInput", () => {
     render(<ControlledFrequencyInput valueHz={1500} />);
     expect(screen.getByDisplayValue("1.500")).toBeInTheDocument();
 
-    const select = screen.getByRole("combobox");
-    fireEvent.change(select, { target: { value: "Hz" } });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Frequency unit" }),
+    );
+    fireEvent.pointerDown(screen.getByRole("option", { name: "Hz" }));
 
-    expect(screen.getByDisplayValue("1500.000")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1,500")).toBeInTheDocument();
   });
 
   it("does not pad decimals from parent updates while the field is focused", () => {

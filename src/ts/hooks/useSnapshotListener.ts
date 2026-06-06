@@ -8,9 +8,11 @@ import {
   type WholeChannelSnapshotSegment,
 } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import { setSnapshotProgress, useAppDispatch } from "@n-apt/redux";
+import { canUseWholeChannelSnapshot } from "@n-apt/utils/sdrSampleRateGuards";
 
 export const buildSnapshotSettingsLabel = (params: {
   effectiveSdrSettings?: any;
+  gain?: number | null;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;
@@ -19,6 +21,7 @@ export const buildSnapshotSettingsLabel = (params: {
 }): string | undefined => {
   const {
     effectiveSdrSettings,
+    gain,
     hackrfLnaGain,
     hackrfVgaGain,
     hackrfAmpEnabled,
@@ -47,7 +50,9 @@ export const buildSnapshotSettingsLabel = (params: {
       }`
     : gainConfig?.tuner_gain != null
       ? `${gainConfig.tuner_gain}dB`
-      : "Auto";
+      : Number.isFinite(gain ?? Number.NaN)
+        ? `${gain}dB`
+        : "Auto";
 
   const basebandFilterStr =
     isHackrf && hackrfBasebandBandwidth != null
@@ -84,6 +89,7 @@ interface UseSnapshotListenerOptions {
   backend?: string;
   deviceInfo?: string;
   effectiveSdrSettings?: any;
+  gain?: number | null;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;
@@ -116,6 +122,7 @@ export const useSnapshotListener = ({
   backend,
   deviceInfo,
   effectiveSdrSettings,
+  gain,
   hackrfLnaGain,
   hackrfVgaGain,
   hackrfAmpEnabled,
@@ -144,6 +151,7 @@ export const useSnapshotListener = ({
       );
       const sdrSettingsLabel = buildSnapshotSettingsLabel({
         effectiveSdrSettings,
+        gain,
         hackrfLnaGain,
         hackrfVgaGain,
         hackrfAmpEnabled,
@@ -151,15 +159,23 @@ export const useSnapshotListener = ({
         deviceKind: deviceProfile?.kind,
       });
 
-      const modeLabel = options.whole ? "Whole Channel" : "Onscreen";
+      const wholeRequested = canUseWholeChannelSnapshot({
+        requestedWhole: !!options.whole,
+        deviceKind: deviceProfile?.kind,
+        backend,
+        deviceName,
+        isRtlSdr: deviceProfile?.is_rtl_sdr,
+      });
+      const modeLabel = wholeRequested ? "Whole Channel" : "Onscreen";
       const isVideo = options.format === "mp4" || options.format === "webm";
       const wholeChannelSegments =
-        options.whole && sourceMode === "live" && !isVideo
+        wholeRequested && sourceMode === "live" && !isVideo
           ? await captureWholeChannelSegments()
           : [];
 
       takeSnapshot({
         ...options,
+        whole: wholeRequested,
         modeLabel,
         wholeChannelSegments,
         showGrid: options.grid ?? snapshotGridPreference,
@@ -179,7 +195,7 @@ export const useSnapshotListener = ({
         geolocation: options.geolocation,
         videoFrameRate: isVideo ? 30 : fftFrameRate,
         getWholeChannelSegmentFrames:
-          options.whole && sourceMode === "live" && isVideo
+          wholeRequested && sourceMode === "live" && isVideo
             ? () =>
                 streamWholeChannelSegmentFrames(captureWholeChannelSegments, 30)
             : undefined,

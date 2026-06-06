@@ -170,9 +170,8 @@ const DeviceActionButton = styled.button<{
   justify-content: center;
   flex-direction: column;
   gap: 3px;
-  min-width: 72px;
-  width: 72px;
-  height: 72px;
+  width: 65px;
+  aspect-ratio: 1;
   padding: 0;
   border-radius: 50%;
   border: 1px solid
@@ -206,9 +205,8 @@ const DeviceActionButton = styled.button<{
 `;
 
 const FileActionButton = styled(DeviceActionButton)`
-  width: 72px;
-  min-width: 72px;
-  height: 72px;
+  width: 65px;
+  aspect-ratio: 1;
   justify-self: end;
   border-radius: 50%;
 `;
@@ -280,7 +278,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fileButtonLabel =
-    fileActionLabel || (fileSelectionActive ? "Process" : "File");
+    fileActionLabel || (fileSelectionActive ? "Browse" : "File");
   const showFileSpaceHint =
     fileSelectionActive &&
     (fileButtonLabel === "Play" || fileButtonLabel === "Pause");

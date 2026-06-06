@@ -50,6 +50,14 @@ export interface SpectrumRendererOptions {
   isDeviceConnected?: boolean;
   /** Hardware sample rate in Hz for block boundary markers */
   hardwareSampleRateHz?: number;
+  /** FFT size displayed in the live canvas status row */
+  fftSize?: number;
+  /** FFT window displayed in the live canvas status row */
+  fftWindow?: string;
+  /** Temporal resolution displayed in the live canvas status row */
+  temporalResolution?: "low" | "medium" | "high";
+  /** Bottom pixels reserved below the FFT plot for VFO/status labels */
+  reservedBottomPx?: number;
   /** The full unzoomed capture range used as an anchor for hardware blocks */
   fullCaptureRange?: { min: number; max: number };
   /** Whether I/Q recording is active (forces hardware block labels) */
@@ -118,6 +126,10 @@ export function useSpectrumRenderer() {
         centerFrequencyHz,
         isDeviceConnected = true,
         hardwareSampleRateHz,
+        fftSize,
+        fftWindow,
+        temporalResolution,
+        reservedBottomPx = 0,
         fullCaptureRange,
         isIqRecordingActive,
         limitMarkers = [],
@@ -204,6 +216,9 @@ export function useSpectrumRenderer() {
               fullCaptureRange,
               isIqRecordingActive,
               limitMarkers,
+              fftSize,
+              fftWindow,
+              temporalResolution,
             );
           }
           drawDemodFocusOnContext(
@@ -247,6 +262,7 @@ export function useSpectrumRenderer() {
           lineColor,
           fillColor,
           nodePreview,
+          reservedBottomPx,
         });
       } else {
         return false;

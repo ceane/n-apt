@@ -266,8 +266,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   disabled = false,
   ppm,
   gain,
-  hackrfLnaGain = 40.0,
-  hackrfVgaGain = 62,
+  hackrfLnaGain = 0.0,
+  hackrfVgaGain = 30,
   hackrfAmpEnabled = false,
   hackrfBasebandBandwidth,
   hackrfCurrentSampleRate = 0,
@@ -511,8 +511,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 sourceMode === "file"
                   ? stitchSourceSettings.gain
                   : gainLimits?.step === 0.1
-                    ? Number(gain.toFixed(1))
-                    : gain
+                    ? Number((gain ?? 0).toFixed(1))
+                    : (gain ?? 0)
               }
               onChange={(e) => {
                 const stepVal = gainLimits?.step ?? 1.0;

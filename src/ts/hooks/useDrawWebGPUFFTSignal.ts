@@ -194,6 +194,7 @@ export interface WebGPUFFTSignalOptions {
   nodePreview?: boolean;
   showSpikeOverlay?: boolean;
   onSpikeCount?: (count: number) => void;
+  reservedBottomPx?: number;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -618,6 +619,7 @@ export function useDrawWebGPUFFTSignal() {
         nodePreview = false,
         showSpikeOverlay = false,
         onSpikeCount,
+        reservedBottomPx = 0,
       } = options;
 
       onSpikeCountRef.current = onSpikeCount;
@@ -877,7 +879,7 @@ export function useDrawWebGPUFFTSignal() {
         const logicalHeight = canvas.offsetHeight || canvas.clientHeight || 1;
         const fftAreaMax = {
           x: logicalWidth - (nodePreview ? 0 : 40),
-          y: logicalHeight - (nodePreview ? 0 : 40),
+          y: logicalHeight - (nodePreview ? 0 : 40 + reservedBottomPx),
         };
 
         // Plot bounds in NDC: X is [-1, 1], Y is [+1, -1] (Y flipped for screen coords)

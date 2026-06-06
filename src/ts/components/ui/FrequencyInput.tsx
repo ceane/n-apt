@@ -10,7 +10,9 @@ import {
   clampFrequencyHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
+  formatFrequencyHz,
   formatFrequencyValue,
+  type FrequencyUnit,
 } from "@n-apt/utils/frequency";
 
 const OuterContainer = styled.div`
@@ -30,7 +32,8 @@ const Label = styled.label`
 
 const InputContainer = styled.div`
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
   width: 100%;
 `;
 
@@ -44,6 +47,11 @@ const StyledInput = styled.input`
   font-family: ${({ theme }) => theme.typography.mono};
   flex: 1;
   min-width: 0;
+
+  &::placeholder {
+    color: ${({ theme }) => theme.colors.textMuted};
+    opacity: 1;
+  }
 
   &:focus {
     outline: none;
@@ -63,7 +71,12 @@ const StyledInput = styled.input`
   }
 `;
 
-const UnitSelect = styled.select`
+const UnitControl = styled.div`
+  position: relative;
+  z-index: 1;
+`;
+
+const UnitButton = styled.button`
   background: ${({ theme }) =>
     theme.colors.surface || "rgba(255, 255, 255, 0.05)"};
   border: 1px solid
@@ -73,9 +86,10 @@ const UnitSelect = styled.select`
   font-size: 9px;
   font-family: ${({ theme }) => theme.typography.mono || "monospace"};
   color: ${({ theme }) => theme.colors.primary};
-  min-width: 30px;
+  min-width: 44px;
+  width: 44px;
+  height: 24px;
   cursor: pointer;
-  appearance: none;
   text-align: center;
   transition: all 0.2s ease;
 
@@ -92,12 +106,53 @@ const UnitSelect = styled.select`
     outline: none;
     border-color: ${({ theme }) => theme.colors.primary};
   }
+`;
 
-  option {
-    background: ${({ theme }) => theme.colors.surface || "#1a1a1a"};
-    color: ${({ theme }) => theme.colors.textPrimary || "#ffffff"};
+const UnitMenu = styled.div`
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 60px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 6px;
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: 0 10px 24px
+    ${({ theme }) =>
+      theme.mode === "light"
+        ? "rgba(31, 37, 50, 0.14)"
+        : "rgba(0, 0, 0, 0.34)"};
+  overflow: hidden;
+  z-index: 20;
+`;
+
+const UnitOption = styled.button<{ $active?: boolean }>`
+  border: 0;
+  border-radius: 0;
+  background: ${({ theme, $active }) =>
+    $active ? `${theme.colors.primary}1f` : theme.colors.surface};
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.textPrimary};
+  cursor: pointer;
+  font-family: ${({ theme }) => theme.typography.mono || "monospace"};
+  font-size: 10px;
+  padding: 7px 10px;
+  text-align: left;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceHover};
   }
 `;
+
+const FREQUENCY_UNITS: FrequencyUnit[] = ["Hz", "kHz", "MHz", "GHz"];
+
+const logFrequencyInputUnitEvent = (
+  eventName: string,
+  details: Record<string, unknown>,
+) => {
+  console.debug("[FrequencyInput:unit]", eventName, details);
+};
 
 interface FrequencyInputProps {
   valueHz: number;
@@ -107,6 +162,11 @@ interface FrequencyInputProps {
   stepHz?: number;
   label?: string;
   id?: string;
+  placeholder?: string;
+  autoFocus?: boolean;
+  commitOnBlur?: boolean;
+  onBlur?: () => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -120,6 +180,11 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     stepHz,
     label,
     id,
+    placeholder,
+    autoFocus,
+    commitOnBlur,
+    onBlur,
+    onKeyDown,
     disabled,
     className,
   }) => {
@@ -132,10 +197,12 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       formatFrequencyValue(initialScale.value),
     );
     const [displayUnit, setDisplayUnit] = useState<string>(initialScale.unit);
+    const [isUnitMenuOpen, setIsUnitMenuOpen] = useState(false);
 
     // Track focus state to prevent prop updates from clobbering user input
     const isFocusedRef = useRef(false);
     const inputRef = useRef<HTMLInputElement>(null);
+    const outerContainerRef = useRef<HTMLDivElement>(null);
 
     // Track current value in Hz for internal calculations
     const hzRef = useRef(valueHz);
@@ -171,8 +238,12 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         if (forceRefreshUI) {
           const { value, unit } = getOptimalFrequencyScale(cappedHz);
-          setDisplayValue(formatFrequencyValue(value));
           setDisplayUnit(unit);
+          setDisplayValue(
+            unit === "Hz"
+              ? formatFrequencyHz(cappedHz)
+              : formatFrequencyValue(value),
+          );
         }
       },
       [minHz, maxHz, onChangeHz],
@@ -211,6 +282,10 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       const valStr = e.target.value.replace(/\s+/g, "");
       setDisplayValue(valStr);
 
+      if (commitOnBlur) {
+        return;
+      }
+
       const val = parseFloat(valStr);
       if (Number.isFinite(val)) {
         const multiplier = getFrequencyUnitScale(displayUnit as any);
@@ -233,24 +308,75 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       isFocusedRef.current = true;
     };
 
-    const handleBlur = () => {
-      isFocusedRef.current = false;
-      // On blur, normalize the display value
-      const { value, unit } = getOptimalFrequencyScale(hzRef.current);
-      setDisplayValue(formatFrequencyValue(value));
-      setDisplayUnit(unit);
+    const handleUnitChange = (newUnit: FrequencyUnit) => {
+      if (disabled) return;
+      logFrequencyInputUnitEvent("change", {
+        from: displayUnit,
+        to: newUnit,
+        hz: hzRef.current,
+      });
+      setDisplayUnit(newUnit);
+      setIsUnitMenuOpen(false);
+      setDisplayValue(
+        newUnit === "Hz"
+          ? formatFrequencyHz(hzRef.current)
+          : formatFrequencyValue(
+              hzRef.current / getFrequencyUnitScale(newUnit),
+            ),
+      );
     };
 
-    const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>): void => {
       if (disabled) return;
-      const newUnit = e.target.value;
-      setDisplayUnit(newUnit);
-      const multiplier = getFrequencyUnitScale(newUnit as any);
-      setDisplayValue(formatFrequencyValue(hzRef.current / multiplier));
+
+      const nextFocus = e.relatedTarget as Node | null;
+      if (nextFocus && outerContainerRef.current?.contains(nextFocus)) {
+        logFrequencyInputUnitEvent("container-blur-inside", {
+          displayUnit,
+          menuOpen: isUnitMenuOpen,
+        });
+        return;
+      }
+
+      logFrequencyInputUnitEvent("container-blur-outside", {
+        displayUnit,
+        menuOpen: isUnitMenuOpen,
+        commitOnBlur: !!commitOnBlur,
+      });
+      setIsUnitMenuOpen(false);
+      isFocusedRef.current = false;
+
+      if (commitOnBlur) {
+        const val = parseFloat(displayValue.replace(/\s+/g, ""));
+        if (Number.isFinite(val)) {
+          const multiplier = getFrequencyUnitScale(displayUnit as any);
+          const newHz = val * multiplier;
+          handleUpdate(newHz, true);
+        } else {
+          const { value, unit } = getOptimalFrequencyScale(hzRef.current);
+          setDisplayValue(formatFrequencyValue(value));
+          setDisplayUnit(unit);
+        }
+        onBlur?.();
+        return;
+      }
+
+      const { value, unit } = getOptimalFrequencyScale(hzRef.current);
+      setDisplayUnit(unit);
+      setDisplayValue(
+        unit === "Hz"
+          ? formatFrequencyHz(hzRef.current)
+          : formatFrequencyValue(value),
+      );
+      onBlur?.();
     };
 
     return (
-      <OuterContainer className={className}>
+      <OuterContainer
+        ref={outerContainerRef}
+        className={className}
+        onBlur={handleContainerBlur}
+      >
         {label && <Label htmlFor={id}>{label}</Label>}
         <InputContainer>
           <StyledInput
@@ -259,23 +385,83 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
             type="text"
             value={displayValue}
             onFocus={handleFocus}
-            onKeyDown={handleKeyDown}
+            onKeyDown={(event) => {
+              onKeyDown?.(event);
+              if (!event.defaultPrevented) {
+                handleKeyDown(event);
+              }
+            }}
             onChange={handleInputChange}
-            onBlur={handleBlur}
             autoComplete="off"
             spellCheck={false}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
             disabled={disabled}
           />
-          <UnitSelect
-            value={displayUnit}
-            onChange={handleUnitChange}
-            disabled={disabled}
-          >
-            <option value="Hz">Hz</option>
-            <option value="kHz">kHz</option>
-            <option value="MHz">MHz</option>
-            <option value="GHz">GHz</option>
-          </UnitSelect>
+          <UnitControl>
+            <UnitButton
+              type="button"
+              disabled={disabled}
+              aria-haspopup="listbox"
+              aria-expanded={isUnitMenuOpen}
+              aria-label="Frequency unit"
+              onPointerDown={(event) => {
+                logFrequencyInputUnitEvent("button-pointerdown", {
+                  displayUnit,
+                  menuOpen: isUnitMenuOpen,
+                  disabled: !!disabled,
+                });
+                event.preventDefault();
+                event.stopPropagation();
+                if (!disabled) {
+                  setIsUnitMenuOpen((open) => !open);
+                }
+              }}
+              onClick={(event) => {
+                logFrequencyInputUnitEvent("button-click", {
+                  displayUnit,
+                  menuOpen: isUnitMenuOpen,
+                  disabled: !!disabled,
+                });
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              {displayUnit}
+            </UnitButton>
+            {isUnitMenuOpen && (
+              <UnitMenu role="listbox" aria-label="Frequency unit options">
+                {FREQUENCY_UNITS.map((unit) => (
+                  <UnitOption
+                    key={unit}
+                    type="button"
+                    role="option"
+                    aria-selected={unit === displayUnit}
+                    $active={unit === displayUnit}
+                    onPointerDown={(event) => {
+                      logFrequencyInputUnitEvent("option-pointerdown", {
+                        displayUnit,
+                        unit,
+                      });
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleUnitChange(unit);
+                    }}
+                    onClick={(event) => {
+                      logFrequencyInputUnitEvent("option-click", {
+                        displayUnit,
+                        unit,
+                      });
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  >
+                    {unit}
+                  </UnitOption>
+                ))}
+              </UnitMenu>
+            )}
+          </UnitControl>
         </InputContainer>
       </OuterContainer>
     );

@@ -2,6 +2,7 @@ import {
   clampFrequencyHz,
   getBandwidthEndHz,
   getBandwidthStartHz,
+  buildCenteredFrequencyRange,
   getCenteredFrequencyHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
@@ -36,6 +37,15 @@ describe("Frequency Utilities", () => {
     test("should format frequencies in GHz", () => {
       expect(formatFrequency(1500000000)).toBe("1.5GHz");
       expect(formatFrequency(1000000000)).toBe("1.0GHz");
+    });
+
+    test("should support finer GHz precision for VFO center labels", () => {
+      expect(
+        formatFrequency(1_001_000_000, {
+          precisionGHz: 3,
+          trimTrailingZeros: true,
+        }),
+      ).toBe("1.001GHz");
     });
 
     test("should handle zero frequency", () => {
@@ -154,6 +164,21 @@ describe("Frequency Utilities", () => {
       expect(getCenteredFrequencyHz(100_000_000, 3_200_000)).toBe(98_400_000);
       expect(getBandwidthEndHz(98_400_000, 3_200_000)).toBe(101_600_000);
       expect(getBandwidthStartHz(101_600_000, 3_200_000)).toBe(98_400_000);
+    });
+
+    test("should never emit a negative start when building a centered range", () => {
+      expect(buildCenteredFrequencyRange(100, 1_000)).toEqual({
+        min: 0,
+        max: 1_000,
+      });
+      expect(buildCenteredFrequencyRange(500, 1_000)).toEqual({
+        min: 0,
+        max: 1_000,
+      });
+      expect(buildCenteredFrequencyRange(1_500, 1_000)).toEqual({
+        min: 1_000,
+        max: 2_000,
+      });
     });
 
     test("should expose the expected scale factors for units", () => {

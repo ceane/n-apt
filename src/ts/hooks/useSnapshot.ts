@@ -39,6 +39,7 @@ import {
   formatFrequency,
   formatFrequencyHighRes,
 } from "@n-apt/utils/frequency";
+import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 import {
   buildFrequencyAxisTheme,
   composeCanvasWithFrequencyAxis,
@@ -56,9 +57,7 @@ import {
   sanitizeSVG,
 } from "@n-apt/utils/sanitization";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
-import {
-  normalizeWaterfallDbForColor,
-} from "@n-apt/utils/waterfallColor";
+import { normalizeWaterfallDbForColor } from "@n-apt/utils/waterfallColor";
 import { useTheme } from "styled-components";
 import type { AppStyledTheme } from "@n-apt/components/ui/Theme";
 
@@ -462,8 +461,11 @@ export function buildSnapshotStatsLines({
     Number.isFinite(hardwareSampleRateHz ?? Number.NaN) &&
     Number.isFinite(renderedSpanHz) &&
     renderedSpanHz >= (hardwareSampleRateHz ?? 0) - 1;
+  const allowInferredWholeChannel = !isRtlSdrDevice({ deviceName });
   const isWholeChannel =
-    modeLabel === "Whole Channel" || whole || wholeBySpan || wholeBySampleRate;
+    modeLabel === "Whole Channel" ||
+    whole ||
+    (allowInferredWholeChannel && (wholeBySpan || wholeBySampleRate));
 
   const channelLabel = channelName
     ? isWholeChannel
@@ -481,13 +483,11 @@ export function buildSnapshotStatsLines({
       ? `Gain: ${gainValue ?? "Auto"} | PPM: ${ppmValue ?? "0"}`
       : null;
   const formatSnapshotRangeFrequency = (hz: number) =>
-    Math.abs(hz) >= 1_000_000
-      ? formatFrequencyHighRes(hz)
-      : formatFrequency(hz, {
-          precisionMHz: 4,
-          precisionKHz: 2,
-          trimTrailingZeros: true,
-        });
+    formatFrequency(hz, {
+      precisionMHz: 4,
+      precisionKHz: 2,
+      trimTrailingZeros: true,
+    });
   const lines = [
     `${formatSnapshotRangeFrequency(range.min)} – ${formatSnapshotRangeFrequency(range.max)}`,
     timestampLabel,
@@ -792,10 +792,7 @@ function drawWaterfallToCanvas(
     for (let binIdx = 0; binIdx < textureBinsPerRow; binIdx++) {
       const dbVal = floatView[rowOffset + binIdx];
       const normalized = normalizeWaterfallDbForColor(dbVal, dbMin, dbMax);
-      const lutIdx = Math.max(
-        0,
-        Math.min(255, Math.round(normalized * 255)),
-      );
+      const lutIdx = Math.max(0, Math.min(255, Math.round(normalized * 255)));
 
       pixels32[rowIdx * textureBinsPerRow + binIdx] = lut[lutIdx];
     }
@@ -1314,7 +1311,7 @@ export function drawDemodFocusOnContext2D(
   const label = formatFrequency(centerFrequencyHz, {
     showUnits: true,
     precisionMHz: 6,
-    precisionGHz: 9,
+    precisionGHz: 3,
     precisionKHz: 3,
     trimTrailingZeros: true,
   });
@@ -1325,14 +1322,14 @@ export function drawDemodFocusOnContext2D(
       ? `±${formatFrequency(halfBandwidthHz, {
           showUnits: true,
           precisionMHz: 6,
-          precisionGHz: 9,
+          precisionGHz: 3,
           precisionKHz: 3,
           trimTrailingZeros: true,
         })}`
       : formatFrequency(halfBandwidthHz * 2, {
           showUnits: true,
           precisionMHz: 6,
-          precisionGHz: 9,
+          precisionGHz: 3,
           precisionKHz: 3,
           trimTrailingZeros: true,
         });
@@ -1459,6 +1456,7 @@ function drawFastSpectrumSnapshotCenterLabel(
     useHighRes,
     stepHz,
   );
+  const centerFontPx = centerText.includes("GHz") ? 11 : 12;
   const oldLabel = `👋  ${centerText}`;
   const nextLabel = `○  ${centerText}`;
 
@@ -1500,7 +1498,7 @@ function drawFastSpectrumSnapshotCenterLabel(
       center: theme?.cfText ?? "#ffffff",
     },
     fontPx: 12,
-    centerFontPx: 12,
+    centerFontPx,
     textBaseline: "alphabetic",
     useHighResLabels: useHighRes,
   });
@@ -1768,7 +1766,7 @@ export function drawFastWaterfallLabelStrip(
       text: formatFrequency(min, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       }),
@@ -1779,7 +1777,7 @@ export function drawFastWaterfallLabelStrip(
       text: formatFrequency(quarter1, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       }),
@@ -1790,7 +1788,7 @@ export function drawFastWaterfallLabelStrip(
       text: `○  ${formatFrequency(center, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       })}`,
@@ -1802,7 +1800,7 @@ export function drawFastWaterfallLabelStrip(
       text: formatFrequency(quarter3, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       }),
@@ -1813,7 +1811,7 @@ export function drawFastWaterfallLabelStrip(
       text: formatFrequency(max, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       }),

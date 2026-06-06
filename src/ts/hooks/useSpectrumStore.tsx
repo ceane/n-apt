@@ -83,6 +83,7 @@ import {
   loadSelectedSourceId,
   saveSelectedSourceId,
 } from "@n-apt/utils/sourcePersistence";
+import { clampRtlSdrFrequencyRangeToHardwareWindow } from "@n-apt/utils/sdrSampleRateGuards";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -101,6 +102,15 @@ const getPersistedNumber = (key: string): number | null => {
   } catch {
     return null;
   }
+};
+
+const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
+  if (!source) return false;
+  return (
+    source.capability === "mock" ||
+    source.kind?.toLowerCase?.().includes("mock") ||
+    source.name?.toLowerCase?.().includes("mock")
+  );
 };
 
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
@@ -179,9 +189,9 @@ export const LIVE_CONTROL_DEFAULTS = {
   fftWindow: "Rectangular",
   gain: 49.6,
   hackrfLnaGain: 0.0,
-  hackrfVgaGain: 0.0,
-  hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: null,
+  hackrfVgaGain: 30.0,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -342,6 +352,10 @@ export type SpectrumAction =
       type: "SET_SIGNAL_AREA_AND_RANGE";
       area: string;
       range: FrequencyRange;
+    }
+  | {
+      type: "MERGE_LAST_KNOWN_RANGES";
+      ranges: Record<string, FrequencyRange>;
     }
   | {
       type: "SET_TEMPORAL_RESOLUTION";
@@ -621,6 +635,16 @@ export function spectrumReducer(
         activeSignalArea: action.area,
         frequencyRange: action.range,
         lastKnownRanges: { ...safeRanges2, [action.area]: action.range },
+      };
+    case "MERGE_LAST_KNOWN_RANGES":
+      return {
+        ...state,
+        lastKnownRanges: {
+          ...(state.lastKnownRanges && typeof state.lastKnownRanges === "object"
+            ? state.lastKnownRanges
+            : {}),
+          ...action.ranges,
+        },
       };
     case "SET_TEMPORAL_RESOLUTION":
       return {
@@ -1073,6 +1097,19 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const hasSelectedSource =
         selectedSourceId.length > 0 &&
         availableSourceIds.includes(selectedSourceId);
+      const selectedSourceCandidate = hasSelectedSource
+        ? websocketSources.find((source) => source.id === selectedSourceId)
+        : null;
+      const loadingHardwareSource = websocketSources.find(
+        (source) => source.status === "loading" && !isMockSourceInfo(source),
+      );
+      if (
+        loadingHardwareSource &&
+        (!selectedSourceCandidate || isMockSourceInfo(selectedSourceCandidate))
+      ) {
+        setSelectedSourceId(loadingHardwareSource.id);
+        return;
+      }
       const fallbackSourceId = activeSourceId || availableSourceIds[0] || "";
 
       if (!hasSelectedSource && fallbackSourceId) {
@@ -1716,10 +1753,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           "napt-sdr-settings",
           JSON.stringify(sdrSettings),
         );
-        localStorage.setItem(
-          "napt-sdr-settings",
-          JSON.stringify(sdrSettings),
-        );
+        localStorage.setItem("napt-sdr-settings", JSON.stringify(sdrSettings));
       } catch {
         /* ignore */
       }
@@ -1817,11 +1851,27 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const clampLiveFrequencyRange = useCallback(
       (range: FrequencyRange) => {
-        const bounds = activeSignalAreaBounds;
+        const bounds = mergedState.vizZoom > 1 ? null : activeSignalAreaBounds;
         if (!bounds) return normalizeFrequencyRangeToHz(range);
 
         const rangeSpan = range.max - range.min;
         const boundsSpan = bounds.max - bounds.min;
+        const rtlClampedRange = clampRtlSdrFrequencyRangeToHardwareWindow({
+          range,
+          channelBounds: bounds,
+          hardwareSampleRateHz: sampleRateHzEffective,
+          deviceKind: deviceProfile?.kind,
+          backend,
+          deviceName,
+          isRtlSdr: deviceProfile?.is_rtl_sdr,
+        });
+        if (
+          rtlClampedRange.min !== range.min ||
+          rtlClampedRange.max !== range.max
+        ) {
+          return normalizeFrequencyRangeToHz(rtlClampedRange);
+        }
+
         if (Number.isFinite(rangeSpan) && rangeSpan > boundsSpan) {
           return normalizeFrequencyRangeToHz(range);
         }
@@ -1830,7 +1880,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           clampFrequencyRangeToBounds(range, bounds),
         );
       },
-      [activeSignalAreaBounds],
+      [
+        activeSignalAreaBounds,
+        backend,
+        deviceName,
+        deviceProfile?.is_rtl_sdr,
+        deviceProfile?.kind,
+        mergedState.vizZoom,
+        sampleRateHzEffective,
+      ],
     );
 
     const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
@@ -1849,9 +1907,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (mergedState.frequencyRange) return;
       if (!isConnected) return;
       const sourceChannels =
-        Array.isArray(websocketChannels) && websocketChannels.length > 0
-          ? websocketChannels
-          : [];
+        effectiveFrames.length > 0
+          ? effectiveFrames
+          : Array.isArray(websocketChannels) && websocketChannels.length > 0
+            ? websocketChannels
+            : [];
       if (!Array.isArray(sourceChannels) || sourceChannels.length === 0) return;
 
       const primaryFrame =
@@ -1860,8 +1920,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (!primaryFrame) return;
 
       const min = primaryFrame.min_hz;
-      const max = sampleRateHz
-        ? Math.max(min, Math.min(primaryFrame.max_hz, min + sampleRateHz))
+      const initialSampleRateHz = sampleRateHzEffective ?? sampleRateHz;
+      const max = initialSampleRateHz
+        ? Math.max(
+            min,
+            Math.min(primaryFrame.max_hz, min + initialSampleRateHz),
+          )
         : primaryFrame.max_hz;
       const nextRange = clampLiveFrequencyRange({ min, max });
 
@@ -1878,6 +1942,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [
       mergedState.frequencyRange,
       sampleRateHz,
+      sampleRateHzEffective,
+      effectiveFrames,
       websocketChannels,
       isConnected,
       deviceState,
@@ -1888,7 +1954,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
     useEffect(() => {
-      if (!isConnected || !sdrSettings || hasInitializedBackendSettingsRef.current) return;
+      if (
+        !isConnected ||
+        !sdrSettings ||
+        hasInitializedBackendSettingsRef.current
+      )
+        return;
 
       // Validate we actually received meaningful backend config (e.g. valid sample rate)
       if (
@@ -1920,7 +1991,14 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               : derived.fftFrameRate,
         },
       });
-    }, [isConnected, sdrSettings, sampleRateHzEffective, storeDispatch, mergedState.fftSize, mergedState.fftFrameRate]);
+    }, [
+      isConnected,
+      sdrSettings,
+      sampleRateHzEffective,
+      storeDispatch,
+      mergedState.fftSize,
+      mergedState.fftFrameRate,
+    ]);
 
     useEffect(() => {
       if (!isConnected || !mergedState.frequencyRange) return;

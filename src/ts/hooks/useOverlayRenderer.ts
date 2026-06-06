@@ -19,6 +19,7 @@ import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
 } from "@n-apt/utils/rendering/vfoAxis";
+import { drawLiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -104,12 +105,15 @@ const getCanvasThemeColors = () => ({
     "--color-spectrum-overlay-border",
     "rgba(37, 64, 105, 0.78)",
   ),
+  surfaceColor: readCssColor("--color-surface", "#ffffff"),
   powerLineColor: readCssColor(
     "--color-fft-power-line",
     "rgba(0, 212, 255, 0.85)",
   ),
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
+
+const LIVE_STATUS_ROW_HEIGHT = 40;
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
@@ -133,7 +137,10 @@ export function useOverlayRenderer() {
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+      };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
@@ -151,9 +158,10 @@ export function useOverlayRenderer() {
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
       const formatFreq = (f: number) =>
         formatFrequency(f, {
+          trimTrailingZeros: true,
           precisionMHz: 4,
           precisionKHz: 2,
-          trimTrailingZeros: true,
+          precisionGHz: 3,
         });
 
       const clampLabelX = (x: number, text: string) => {
@@ -208,12 +216,13 @@ export function useOverlayRenderer() {
       }
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
-      const tickPrec = tickPrecisionForStep(step);
+      const tickPrecision = tickPrecisionForStep(step);
       const formatTickLabel = (freq: number) =>
         formatFrequency(freq, {
           trimTrailingZeros: true,
           precisionMHz: 4,
           precisionKHz: 2,
+          precisionGHz: tickPrecision.precisionGHz,
         });
       const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
@@ -239,9 +248,12 @@ export function useOverlayRenderer() {
         return formatFrequency(hz, { trimTrailingZeros: true });
       };
 
+      const isGHzRange = Math.max(Math.abs(minFreq), Math.abs(maxFreq)) >= 1e9;
+      const tickFontPx = isGHzRange ? 10 : 12;
+
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = canvasTheme.textColor;
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = `${tickFontPx}px JetBrains Mono`;
       ctx.textAlign = "center";
 
       // ── Collision Avoidance Setup ──────────────────────────────────────────
@@ -252,9 +264,10 @@ export function useOverlayRenderer() {
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "--MHz"
           : formatFrequency(visualCenterFreq, {
+              trimTrailingZeros: true,
               precisionMHz: 4,
               precisionKHz: 2,
-              trimTrailingZeros: true,
+              precisionGHz: 3,
             });
 
       const startW = ctx.measureText(startLabel).width;
@@ -436,10 +449,16 @@ export function useOverlayRenderer() {
       _fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
       _limitMarkers?: SdrLimitMarker[],
+      _fftSize?: number,
+      _fftWindow?: string,
+      _temporalResolution?: "low" | "medium" | "high",
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+      };
       if (!_frequencyRange) return;
       const minFreq = _frequencyRange.min;
       const maxFreq = _frequencyRange.max;
@@ -484,6 +503,26 @@ export function useOverlayRenderer() {
         useHighResLabels: false,
         lineWidth: Math.max(0.5 / dpr, 1),
       });
+
+      if (
+        typeof _hardwareSampleRateHz === "number" &&
+        typeof _fftSize === "number" &&
+        _fftWindow &&
+        _temporalResolution
+      ) {
+        drawLiveCanvasStatusRow(
+          ctx as CanvasRenderingContext2D,
+          width,
+          height,
+          {
+            sampleRateHz: _hardwareSampleRateHz,
+            fftSize: _fftSize,
+            fftWindow: _fftWindow,
+            temporalResolution: _temporalResolution,
+            textColor: canvasTheme.textColor,
+          },
+        );
+      }
 
       const viewBandwidth = maxFreq - minFreq;
       const freqToX = (freq: number) =>
@@ -536,7 +575,9 @@ export function useOverlayRenderer() {
       const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
       const plotRight = nodePreview ? width : width - 40;
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
-      const plotBottom = nodePreview ? height : height - 40;
+      const plotBottom = nodePreview
+        ? height
+        : height - 40 - LIVE_STATUS_ROW_HEIGHT;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -553,7 +594,7 @@ export function useOverlayRenderer() {
       const label = formatFrequency(centerFrequencyHz, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       });
@@ -564,14 +605,14 @@ export function useOverlayRenderer() {
           ? `±${formatFrequency(halfBandwidthHz, {
               showUnits: true,
               precisionMHz: 6,
-              precisionGHz: 9,
+              precisionGHz: 3,
               precisionKHz: 3,
               trimTrailingZeros: true,
             })}`
           : formatFrequency(halfBandwidthHz * 2, {
               showUnits: true,
               precisionMHz: 6,
-              precisionGHz: 9,
+              precisionGHz: 3,
               precisionKHz: 3,
               trimTrailingZeros: true,
             });
@@ -694,7 +735,9 @@ export function useOverlayRenderer() {
       const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
       const plotRight = nodePreview ? width : width - 40;
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
-      const plotBottom = nodePreview ? height : height - 40;
+      const plotBottom = nodePreview
+        ? height
+        : height - 40 - LIVE_STATUS_ROW_HEIGHT;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -807,7 +850,10 @@ export function useOverlayRenderer() {
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+      };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
       if (!frequencyRange) return;
@@ -885,7 +931,10 @@ export function useOverlayRenderer() {
 
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+      };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
 
       const vertRange = fftMax - fftMin;

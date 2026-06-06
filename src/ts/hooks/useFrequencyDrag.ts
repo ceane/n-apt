@@ -10,6 +10,8 @@ import {
 } from "@n-apt/utils/frequency";
 
 const TX_INTERACTION_SELECTOR = "[data-tx-slider-overlay='true']";
+const LIVE_STATUS_ROW_HEIGHT = 40;
+const VFO_INTERACTION_HEIGHT = 60 + LIVE_STATUS_ROW_HEIGHT;
 
 const isTxOverlayEvent = (event: Event): boolean => {
   const target = event.target;
@@ -139,7 +141,7 @@ export function useFrequencyDrag({
     // Block incoming WebSocket updates for 1.5s after interaction
     manualOverrideTimerRef.current = setTimeout(() => {
       manualOverrideTimerRef.current = null;
-    }, 1500);
+    }, 0);
   }, []);
 
   // Refs for multi-touch pinch-to-zoom
@@ -173,7 +175,7 @@ export function useFrequencyDrag({
     const left = Math.min(50, rect.width);
     const right = Math.max(left, rect.width - 40);
     const top = Math.min(20, rect.height);
-    const bottom = Math.max(top, rect.height - 40);
+    const bottom = Math.max(top, rect.height - 40 - LIVE_STATUS_ROW_HEIGHT);
     return {
       left,
       right,
@@ -342,9 +344,24 @@ export function useFrequencyDrag({
         : normalized;
     };
 
+    const clampWheelRangeToHardwareBounds = (
+      range: FrequencyRange,
+    ): FrequencyRange => {
+      const normalized = normalizeFrequencyRangeToHz(
+        clampFrequencyRangeToBounds(range, hardwareSpectrumBounds),
+      );
+      return normalized.min < 0
+        ? {
+            min: 0,
+            max: Math.max(0, normalized.max - normalized.min),
+          }
+        : normalized;
+    };
+
     const getVizPanBounds = (
       sourceRange: FrequencyRange,
       zoom: number,
+      constrainToActiveChannel = true,
     ): { min: number; max: number } => {
       const fullRange = sourceRange.max - sourceRange.min;
       if (!Number.isFinite(fullRange) || fullRange <= 0 || zoom <= 0) {
@@ -360,7 +377,9 @@ export function useFrequencyDrag({
       const absoluteMinPan = 0 + visualRange / 2 - center; // visualMin >= 0
       minPan = Math.max(minPan, absoluteMinPan);
 
-      const channelBounds = getActiveSignalAreaBounds();
+      const channelBounds = constrainToActiveChannel
+        ? getActiveSignalAreaBounds()
+        : null;
       if (channelBounds) {
         const channelMinPan = channelBounds.min + visualRange / 2 - center;
         const channelMaxPan = channelBounds.max - visualRange / 2 - center;
@@ -392,8 +411,13 @@ export function useFrequencyDrag({
       pan: number,
       sourceRange: FrequencyRange,
       zoom: number,
+      panBounds: FrequencyRange | null | undefined = null,
     ): number => {
-      const bounds = getVizPanBounds(sourceRange, zoom);
+      const bounds = getVizPanBounds(
+        panBounds ?? sourceRange,
+        zoom,
+        panBounds == null,
+      );
       return Math.max(bounds.min, Math.min(bounds.max, pan));
     };
 
@@ -426,7 +450,7 @@ export function useFrequencyDrag({
       const hardwareSpan = fullRange;
       const halfHardware = hardwareSpan / 2;
 
-      const clampedHardwareRange = clampRangeToTuningBounds({
+      const clampedHardwareRange = clampWheelRangeToHardwareBounds({
         min: currentHardwareCenter + overflowPan - halfHardware,
         max: currentHardwareCenter + overflowPan + halfHardware,
       });
@@ -442,6 +466,7 @@ export function useFrequencyDrag({
         nextPan - (newHardwareCenter - currentHardwareCenter),
         clampedHardwareRange,
         zoom,
+        hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
       );
       onVizPanChange(remainingPan);
       if (vizPanOffsetRef) {
@@ -774,7 +799,13 @@ export function useFrequencyDrag({
             // Limit panning bounds, but allow visual pan if full plot selection is active
             const clampedPan = fullPlotSelection
               ? Math.max(-centerFreq, newPan)
-              : clampVizPan(newPan, bounds, zoom);
+              : clampVizPan(
+                  newPan,
+                  bounds,
+                  zoom,
+                  hardwareSpectrumBounds ??
+                    signalAreaBounds?.[activeSignalArea],
+                );
             onVizPanChange(clampedPan);
             if (vizPanOffsetRef) {
               vizPanOffsetRef.current = clampedPan;
@@ -831,6 +862,7 @@ export function useFrequencyDrag({
           desiredPan,
           frequencyRangeRef.current,
           zoom,
+          hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
         );
         onVizPanChange(clampedPan);
 
@@ -936,7 +968,7 @@ export function useFrequencyDrag({
 
       const height = rect.height;
       const y = e.clientY - rect.top;
-      const vfoThreshold = 60;
+      const vfoThreshold = VFO_INTERACTION_HEIGHT;
 
       if (
         selectionMode === "range" &&
@@ -1135,11 +1167,11 @@ export function useFrequencyDrag({
             //   Left:   FFT_AREA_MIN.x = 50 CSS px
             //   Top:    FFT_AREA_MIN.y = 20 CSS px
             //   Right:  containerWidth - 40 CSS px
-            //   Bottom: containerHeight - 40 CSS px
+            //   Bottom: containerHeight - 40 CSS px - live status row
             const plotLeftCSS = 50;
             const plotRightCSS = rect.width - 40;
             const plotTopCSS = 20;
-            const plotBottomCSS = rect.height - 40;
+            const plotBottomCSS = rect.height - 40 - LIVE_STATUS_ROW_HEIGHT;
             const plotWidthCSS = plotRightCSS - plotLeftCSS;
             const plotHeightCSS = plotBottomCSS - plotTopCSS;
 
@@ -1249,7 +1281,7 @@ export function useFrequencyDrag({
         container.releasePointerCapture(e.pointerId);
         const rect = container.getBoundingClientRect();
         const y = e.clientY - rect.top;
-        const vfoThreshold = 60;
+        const vfoThreshold = VFO_INTERACTION_HEIGHT;
         if (y >= rect.height - vfoThreshold) {
           addClassIfAvailable(container, "cursor-grab");
           removeClassIfAvailable(container, "cursor-crosshair");
@@ -1360,7 +1392,7 @@ export function useFrequencyDrag({
       const rect =
         containerRectRef.current || container.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      const vfoThreshold = 60;
+      const vfoThreshold = VFO_INTERACTION_HEIGHT;
 
       const isOverVfo = y >= rect.height - vfoThreshold;
 
@@ -1472,7 +1504,10 @@ export function useFrequencyDrag({
       // 2. Lateral movement on scroll (panning/retuning)
       // Now triggered by scrolling over the margins instead of just the bottom VFO area.
       const isOverMargin =
-        x < 50 || x > rect.width - 40 || y < 20 || y > rect.height - 40;
+        x < 50 ||
+        x > rect.width - 40 ||
+        y < 20 ||
+        y > rect.height - 40 - LIVE_STATUS_ROW_HEIGHT;
 
       if (isOverMargin) {
         // Move laterally on scroll
@@ -1506,7 +1541,12 @@ export function useFrequencyDrag({
             return;
           }
 
-          newPan = clampVizPan(newPan, frequencyRangeRef.current, zoom);
+          newPan = clampVizPan(
+            newPan,
+            frequencyRangeRef.current,
+            zoom,
+            hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+          );
           onVizPanChange(newPan);
 
           // Auto zoom stability: track floor pan so Refocus can restore this position
@@ -1522,9 +1562,9 @@ export function useFrequencyDrag({
           const currentMin = currentRange.min;
           const newMin = currentMin + freqChange;
           const newMax = newMin + fullRange;
-          onFrequencyRangeChange(
-            clampRangeToTuningBounds({ min: newMin, max: newMax }),
-          );
+          const nextRange = { min: newMin, max: newMax };
+          const clampedRange = clampWheelRangeToHardwareBounds(nextRange);
+          onFrequencyRangeChange(clampedRange);
         }
       }
     };

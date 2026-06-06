@@ -39,9 +39,9 @@ signals:
       # HackRF LNA gain in dB
       hackrf_lna_gain: !dB 0.0dB
       # HackRF VGA gain in dB
-      hackrf_vga_gain: !dB 0.0dB
+      hackrf_vga_gain: !dB 30.0dB
       # HackRF RF amplifier enable
-      hackrf_amp_enable: true
+      hackrf_amp_enable: false
       # HackRF baseband filter bandwidth
       tuner_bandwidth: 3200000
     
@@ -111,6 +111,11 @@ signals:
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated
   mock_apt:
+    realistic_rf:
+      enabled: true
+      aliasing: true
+      passband: true
+      retune_settling: true
     # Per-channel mock APT configuration
     # These channels define where mock signals are generated
     # The keys (a, b, c) should match the n_apt.channels keys
@@ -125,7 +130,7 @@ signals:
         signal_strength_range: !dB_range -80dB..-20dB
       b:
         label: "B"
-        freq_range_hz: !frequency_range 24.72MHz..29.88MHz
+        freq_range_hz: !frequency_range 24.1MHz..30.37MHz
         description: "Channel B mock signals"
         apt_spike_density: !frequency 33kHz
         noise_floor_db: !dB -100dB
@@ -189,7 +194,8 @@ signals:
           description: "The potentially primary N-APT channel, notably on the lowe end of the spectrum, encompassing features like audio, voice, physiological effects and more."
         b:
           label: "B"
-          freq_range_hz: !frequency_range 24.72MHz..29.88MHz
+          freq_range_hz: !frequency_range 24.1MHz..30.37MHz
+          # freq_range_hz: !frequency_range 24.72MHz..29.88MHz
           description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.) OR this channel being responsible for manipulating intellectual cognitive infrastructure and processing like reasoning, memory and general consciousness."
         c:
           label: "C"

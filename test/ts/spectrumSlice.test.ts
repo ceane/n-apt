@@ -3,6 +3,7 @@ import spectrumReducer, {
   setTxPowerDbm,
   setSdrSettingsBundle,
   setDeviceKind,
+  mergeLastKnownRanges,
   getMaxTxPowerDbm,
   getMinTxPowerDbm,
 } from "../../src/ts/redux/slices/spectrumSlice";
@@ -16,6 +17,25 @@ describe("Spectrum Slice Power Clamping", () => {
     const state = getInitialState();
     expect(state.showTxSlider).toBe(false);
     expect(state.gain).toBe(49.6);
+  });
+
+  test("mergeLastKnownRanges updates inactive channel remembered ranges", () => {
+    const state = spectrumReducer(
+      getInitialState(),
+      mergeLastKnownRanges({
+        C: { min: 4_750_000, max: 7_950_000 },
+        c: { min: 4_750_000, max: 7_950_000 },
+      }),
+    );
+
+    expect(state.lastKnownRanges.C).toEqual({
+      min: 4_750_000,
+      max: 7_950_000,
+    });
+    expect(state.lastKnownRanges.c).toEqual({
+      min: 4_750_000,
+      max: 7_950_000,
+    });
   });
 
   test("getMaxTxPowerDbm returns correct caps", () => {

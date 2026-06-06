@@ -44,6 +44,7 @@ import {
   setFftWindow as setFftWindowAction,
   setFileMetadata,
   bumpSnapshotSectionPulse,
+  mergeLastKnownRanges,
 } from "@n-apt/redux";
 import { NaptMetadata } from "@n-apt/consts/types";
 
@@ -78,6 +79,11 @@ import { Channels } from "@n-apt/components/sidebar/Channels";
 import SourceInput from "@n-apt/components/sidebar/SourceInput";
 import { TransmitPrompt } from "@n-apt/components/prompts/TransmitPrompt";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import {
+  canUseWholeChannelSnapshot,
+  isRtlSdrDevice,
+  resolveCaptureAcquisitionMode,
+} from "@n-apt/utils/sdrSampleRateGuards";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
@@ -452,9 +458,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const websocketChannels = useAppSelector((s) => s.websocket.channels);
   const channelFramesToUse = useMemo(
     () =>
-      Array.isArray(websocketChannels) && websocketChannels.length > 0
-        ? websocketChannels
-        : effectiveFrames,
+      effectiveFrames.length > 0
+        ? effectiveFrames
+        : Array.isArray(websocketChannels) && websocketChannels.length > 0
+          ? websocketChannels
+          : [],
     [effectiveFrames, websocketChannels],
   );
   const activeFrameForArea = useMemo(() => {
@@ -547,6 +555,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const isHackrfOne =
     liveDeviceProfileToUse?.kind === "hackrf_one" ||
     liveBackend?.toLowerCase() === "hackrf_one";
+  const isRtlSdr = isRtlSdrDevice({
+    deviceKind: liveDeviceProfileToUse?.kind,
+    backend: liveBackend,
+    deviceName: liveDeviceNameToUse,
+    isRtlSdr: liveDeviceProfileToUse?.is_rtl_sdr,
+  });
   const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
   const maxSampleRateHz =
     selectedSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
@@ -594,8 +608,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     sourceMode === "live" && (isHackrfOne || isMockLiveSource);
   const liveWholeChannelSampleRate =
     activeChannelSampleRate ?? (isMockLiveSource ? 3_200_000 : null);
+  // For frame rate computation, use the actual SDR sample rate — NOT the
+  // channel bandwidth.  The channel bandwidth (max_hz - min_hz) can exceed
+  // the hardware sample rate and inflate floor(sampleRate / fftSize).
   const maxSampleRate = isMockLiveSource
-    ? Math.max(3_200_000, liveWholeChannelSampleRate ?? 0)
+    ? (liveSdrSettingsToUse?.sample_rate ??
+      sampleRateHzEffective ??
+      sampleRateHz ??
+      maxSampleRateHz ??
+      3_200_000)
     : (sampleRateHzEffective ??
       sampleRateHz ??
       maxSampleRateHz ??
@@ -669,6 +690,20 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate,
+    currentSampleRateHz:
+      typeof liveState.sampleRateHz === "number" &&
+      Number.isFinite(liveState.sampleRateHz) &&
+      liveState.sampleRateHz > 0
+        ? liveState.sampleRateHz
+        : typeof sampleRateHzEffective === "number" &&
+            Number.isFinite(sampleRateHzEffective) &&
+            sampleRateHzEffective > 0
+          ? sampleRateHzEffective
+          : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
+              Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
+              liveSdrSettingsToUse.sample_rate > 0
+            ? liveSdrSettingsToUse.sample_rate
+            : undefined,
     minReceiveSampleRate:
       liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
     sampleRateOptions: liveManualSampleRateOptions,
@@ -748,7 +783,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     activeSignalAreaBounds,
     frequencyRange,
     sampleRateHz: liveState.sampleRateHz,
+    fftSize,
+    maxFrameRateLimit: maxFrameRate,
     setSampleRate,
+    setFftFrameRate,
     applyFrequencyRange: (range) => {
       storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
       wsConnection.sendFrequencyRange(range);
@@ -756,20 +794,69 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   });
   const handleSignalDisplaySampleRateChange = useCallback(
     (nextSampleRate: number) => {
+      const roundedNext = Math.round(nextSampleRate);
+      const roundedWholeChannel =
+        typeof hackrfWholeChannelSampleRate === "number" &&
+        Number.isFinite(hackrfWholeChannelSampleRate)
+          ? Math.round(hackrfWholeChannelSampleRate)
+          : null;
+      const roundedCurrent =
+        typeof liveState.sampleRateHz === "number" &&
+        Number.isFinite(liveState.sampleRateHz)
+          ? Math.round(liveState.sampleRateHz)
+          : null;
+      const isLeavingWholeChannel =
+        roundedWholeChannel !== null &&
+        roundedCurrent === roundedWholeChannel &&
+        roundedNext !== roundedWholeChannel;
+
+      if (isLeavingWholeChannel && Number.isFinite(nextSampleRate)) {
+        const anchoredRanges = liveFramesToUse.reduce<
+          Record<string, { min: number; max: number }>
+        >((ranges, frame) => {
+          if (
+            !frame?.label ||
+            !Number.isFinite(frame.min_hz) ||
+            !Number.isFinite(frame.max_hz) ||
+            frame.max_hz <= frame.min_hz
+          ) {
+            return ranges;
+          }
+          const span = Math.max(1, Math.round(nextSampleRate));
+          const range = {
+            min: Math.round(frame.min_hz),
+            max: Math.round(Math.min(frame.max_hz, frame.min_hz + span)),
+          };
+          ranges[frame.label] = range;
+          ranges[frame.label.toLowerCase()] = range;
+          return ranges;
+        }, {});
+
+        if (Object.keys(anchoredRanges).length > 0) {
+          dispatch(mergeLastKnownRanges(anchoredRanges));
+          storeDispatch({
+            type: "MERGE_LAST_KNOWN_RANGES",
+            ranges: anchoredRanges,
+          });
+        }
+      }
+
       if (isMockLiveSource) {
-        const roundedNext = Math.round(nextSampleRate);
-        const roundedWholeChannel =
-          typeof hackrfWholeChannelSampleRate === "number" &&
-          Number.isFinite(hackrfWholeChannelSampleRate)
-            ? Math.round(hackrfWholeChannelSampleRate)
-            : null;
         mockManualSampleRateRef.current =
           roundedWholeChannel === null || roundedNext !== roundedWholeChannel;
       }
 
       handleSampleRateChange(nextSampleRate);
     },
-    [handleSampleRateChange, hackrfWholeChannelSampleRate, isMockLiveSource],
+    [
+      dispatch,
+      handleSampleRateChange,
+      hackrfWholeChannelSampleRate,
+      isMockLiveSource,
+      liveFramesToUse,
+      liveState.sampleRateHz,
+      storeDispatch,
+    ],
   );
 
   useEffect(() => {
@@ -1461,12 +1548,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       ? visibleOnscreenRange.max - visibleOnscreenRange.min
       : 0;
     const hardwareSampleRateHz = maxSampleRate;
-    const effectiveAcquisitionMode =
-      onscreenIsActive &&
-      hardwareSampleRateHz > 0 &&
-      Math.abs(onscreenSpan - hardwareSampleRateHz) < 10_000
-        ? "whole_sample"
-        : acquisitionMode;
+    const effectiveAcquisitionMode = resolveCaptureAcquisitionMode({
+      requestedMode: acquisitionMode,
+      isOnscreenActive: onscreenIsActive,
+      onscreenSpanHz: onscreenSpan,
+      hardwareSampleRateHz,
+      deviceKind: liveDeviceProfileToUse?.kind,
+      backend: liveBackend,
+      deviceName: liveDeviceNameToUse,
+      isRtlSdr: liveDeviceProfileToUse?.is_rtl_sdr,
+    });
 
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()}`,
@@ -1493,6 +1584,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     captureFileTypeState,
     acquisitionMode,
     maxSampleRate,
+    liveDeviceProfileToUse?.kind,
+    liveBackend,
+    liveDeviceNameToUse,
     captureEncrypted,
     captureGeolocation,
     fftSize,
@@ -1502,11 +1596,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   const handleSnapshot = () => {
+    const canSnapshotWhole = canUseWholeChannelSnapshot({
+      requestedWhole: snapshotWhole,
+      deviceKind: liveDeviceProfileToUse?.kind,
+      backend: liveBackend,
+      deviceName: liveDeviceNameToUse,
+      isRtlSdr: liveDeviceProfileToUse?.is_rtl_sdr,
+    });
     dispatch(bumpSnapshotSectionPulse());
     window.dispatchEvent(
       new CustomEvent("napt-snapshot", {
         detail: {
-          whole: snapshotWhole,
+          whole: canSnapshotWhole,
           showWaterfall: snapshotShowWaterfall,
           showStats: snapshotShowStats,
           showGeolocation: snapshotShowGeolocation && snapshotShowStats,
@@ -1960,6 +2061,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onSnapshotAspectRatioChange={setSnapshotAspectRatio}
             onSnapshot={handleSnapshot}
             titlePulseToken={snapshotPulseToken}
+            wholeChannelDisabled={isRtlSdr}
+            wholeChannelDisabledReason="RTL-SDR is limited to its current 3.2MHz hardware window; whole-channel retune/stitch snapshots are disabled."
           />
 
           <Collapsible
@@ -2106,12 +2209,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             hackrfCurrentSampleRate={
               sampleRateHzEffective ?? liveState.sampleRateHz
             }
+            frequencyRangeMin={
+              frequencyRange?.min ?? activeSignalAreaBounds?.min
+            }
             ppm={ppm}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             isConnected={isServerConnected}
             stitchSourceSettings={stitchSourceSettings}
             onGainChange={setGain}
+            onHackrfLnaGainChange={setHackrfLnaGain}
+            onHackrfVgaGainChange={setHackrfVgaGain}
+            onHackrfAmpEnabledChange={setHackrfAmpEnabled}
             onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
             onPpmChange={setPpm}
             onTunerAGCChange={setTunerAGC}

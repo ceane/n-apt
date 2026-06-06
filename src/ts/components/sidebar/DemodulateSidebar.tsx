@@ -3,17 +3,16 @@ import styled from "styled-components";
 import {
   useAppSelector,
   useAppDispatch,
+  clearWaterfall,
   setFileMetadata,
   setSelectedFiles,
   setSourceMode,
   setStitchPaused,
   triggerStitch,
 } from "@n-apt/redux";
-import { sendRestartDevice } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
 import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
-import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
@@ -22,10 +21,7 @@ import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import type { NaptMetadata } from "@n-apt/consts/types";
-import {
-  selectActiveSourceDerivedState,
-  selectActiveSource,
-} from "@n-apt/redux/selectors/performanceSelectors";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -95,7 +91,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const {
     toggleVisualizerPause,
     manualVisualizerPaused,
-    wsConnection,
+    selectedSourceId,
+    setSelectedSourceId,
+    sources,
     state: liveState,
     dispatch: storeDispatch,
   } = useSpectrumStore();
@@ -118,16 +116,60 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const isStitchPaused = useAppSelector(
     (state) => state.waterfall.isStitchPaused,
   );
+  const liveIsPaused = useAppSelector((s) => s.websocket.isPaused);
 
-  // Get real device data from Redux store
-  const isPaused = useAppSelector((s) => s.websocket.isPaused);
-  const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
-  const activeSource = useAppSelector(selectActiveSource);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const sourceDevices = useMemo(
+    () =>
+      sources.map((source) => {
+        const isStreaming = source.status === "streaming";
+        const isMockSource = source.capability === "mock";
+        const isLiveConnected =
+          source.status === "connected" || isStreaming || isMockSource;
+        const actionLabel = isLiveConnected
+          ? liveIsPaused
+            ? "Resume"
+            : "Pause"
+          : undefined;
+        const actionTitle = isLiveConnected
+          ? liveIsPaused
+            ? "Resume playback"
+            : "Pause playback"
+          : undefined;
 
-  const liveIsPaused =
-    manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
-  const wasLivePausedBeforeFileModeRef = useRef<boolean>(liveIsPaused);
+        return {
+          id: source.id,
+          name: source.name,
+          backend: source.kind,
+          capability: source.capability,
+          summary: source.serial_number
+            ? `SN ${source.serial_number}`
+            : source.manufacturer
+              ? source.manufacturer
+              : undefined,
+          status: {
+            color:
+              isMockSource && isStreaming
+                ? "#ffb000"
+                : isStreaming
+                  ? "#19d97d"
+                  : undefined,
+            label: source.status ?? undefined,
+            loading: source.status === "loading",
+            loadingLabel:
+              source.status === "loading"
+                ? `Loading ${source.name}`
+                : undefined,
+            actionLabel,
+            actionTitle,
+            onAction: isLiveConnected ? toggleVisualizerPause : undefined,
+          },
+        };
+      }),
+    [liveIsPaused, sources, toggleVisualizerPause],
+  );
+
+  const wasLivePausedBeforeFileModeRef = useRef<boolean>(false);
   const previousSourceModeRef = useRef<SourceMode>(
     sourceMode === "file" ? "live" : sourceMode,
   );
@@ -136,6 +178,67 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     dispatch(setSourceMode(mode));
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
+
+  const fileActionLabel = useMemo(() => {
+    if (sourceMode !== "file") return "File";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process [auto]";
+    }
+    return isStitchPaused ? "Play" : "Pause";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const fileActionTitle = useMemo(() => {
+    if (sourceMode !== "file") return "Switch to File Selection";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse files";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process selected file automatically";
+    }
+    return isStitchPaused ? "Resume playback" : "Pause playback";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const handleFileAction = useCallback(() => {
+    if (sourceMode !== "file") return;
+    if (!selectedFiles.length) return;
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (status.includes("processing") || status.includes("loading")) {
+      dispatch(triggerStitch());
+      storeDispatch({ type: "TRIGGER_STITCH" });
+      return;
+    }
+    dispatch(setStitchPaused(!isStitchPaused));
+    storeDispatch({
+      type: "SET_STITCH_PAUSED",
+      paused: !isStitchPaused,
+    });
+  }, [
+    dispatch,
+    isStitchPaused,
+    selectedFiles.length,
+    sourceMode,
+    storeDispatch,
+    stitchStatus,
+  ]);
+
+  const handleSourceFilesSelected = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+
+      const registeredFiles = files.map((file) => ({
+        id: fileRegistry.register(file),
+        name: file.name,
+      }));
+
+      dispatch(setSelectedFiles(registeredFiles));
+      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
+      dispatch(clearWaterfall());
+      dispatch(triggerStitch());
+      storeDispatch({ type: "TRIGGER_STITCH" });
+    },
+    [dispatch, storeDispatch],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -262,12 +365,11 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     }
 
     liveDataRef.current = null;
-    if (wasLivePausedBeforeFileModeRef.current !== manualVisualizerPaused) {
+    if (wasLivePausedBeforeFileModeRef.current) {
       toggleVisualizerPause();
     }
   }, [
     dispatch,
-    liveIsPaused,
     manualVisualizerPaused,
     sourceMode,
     storeDispatch,
@@ -281,6 +383,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         onSourceModeChange={handleSourceModeChange}
         backend={activeSourceDerived.backend}
         deviceName={activeSourceDerived.deviceName}
+        devices={sourceDevices as any}
+        selectedDeviceId={selectedSourceId}
+        onSelectedDeviceChange={(id) => setSelectedSourceId(id)}
+        spaceBoundDeviceId={selectedSourceId || null}
+        selectedFilesCount={selectedFiles.length}
+        onFileAction={handleFileAction}
+        onFilesSelected={handleSourceFilesSelected}
+        fileActionLabel={fileActionLabel}
+        fileActionTitle={fileActionTitle}
       />
 
       {sourceMode === "file" && (
@@ -300,21 +411,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           naptMetadata={null}
           naptMetadataError={null}
           showMetadata={false}
-        />
-      )}
-
-      {sourceMode === "live" && (
-        <ConnectionStatusSection
-          isConnected={wsConnection.isConnected}
-          deviceState={activeSourceDerived.deviceState}
-          deviceLoadingReason={
-            activeSource?.status === "loading" ? "connect" : null
-          }
-          backend={activeSourceDerived.backend}
-          isPaused={liveIsPaused}
-          cryptoCorrupted={cryptoCorrupted}
-          onPauseToggle={toggleVisualizerPause}
-          onRestartDevice={() => dispatch(sendRestartDevice())}
         />
       )}
 

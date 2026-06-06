@@ -109,4 +109,22 @@ describe("SignalDisplaySection sample rate selector", () => {
     ).not.toBeInTheDocument();
     expect(select).toHaveValue("3200000");
   });
+
+  it("shows the reordered temporal resolution labels", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRate={5_200_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("option", { name: "Slow" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Reduced" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Lossless" }),
+    ).toBeInTheDocument();
+  });
 });

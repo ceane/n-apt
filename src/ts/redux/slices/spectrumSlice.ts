@@ -131,9 +131,9 @@ const LIVE_CONTROL_DEFAULTS = {
   txPowerDbm: -18,
   txVgaGain: 16,
   hackrfLnaGain: 0.0,
-  hackrfVgaGain: 0.0,
-  hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: null,
+  hackrfVgaGain: 30.0,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -170,9 +170,9 @@ const initialState: SpectrumState = {
   txPowerDbm: -18,
   txVgaGain: 16,
   hackrfLnaGain: 0.0,
-  hackrfVgaGain: 0.0,
-  hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: null,
+  hackrfVgaGain: 30.0,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -234,6 +234,19 @@ const spectrumSlice = createSlice({
         state.lastKnownRanges = {};
       }
       state.lastKnownRanges[action.payload.area] = action.payload.range;
+    },
+
+    mergeLastKnownRanges: (
+      state,
+      action: PayloadAction<Record<string, FrequencyRange>>,
+    ) => {
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+        state.lastKnownRanges = {};
+      }
+      state.lastKnownRanges = {
+        ...state.lastKnownRanges,
+        ...action.payload,
+      };
     },
 
     // Display settings
@@ -554,6 +567,7 @@ export const {
   setActiveSignalArea,
   setFrequencyRange,
   setSignalAreaAndRange,
+  mergeLastKnownRanges,
   setTemporalResolution,
   setPowerScale,
   setVizZoom,

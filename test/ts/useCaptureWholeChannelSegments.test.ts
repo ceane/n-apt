@@ -145,4 +145,46 @@ describe("useCaptureWholeChannelSegments", () => {
     expect(dispatch).toHaveBeenCalledWith({ type: "CLEAR_WATERFALL" });
     expect(getSnapshotData).toHaveBeenCalledTimes(183);
   });
+
+  it("does not sweep whole-channel segments for RTL-SDR sources", async () => {
+    const dispatch = jest.fn();
+    const sendFrequencyRange = jest.fn();
+    const getSnapshotData = jest.fn();
+
+    const fftCanvasRef = {
+      current: {
+        getSnapshotData,
+      },
+    } as any;
+
+    const { result } = renderHook(
+      () =>
+        useCaptureWholeChannelSegments({
+          frequencyRange: { min: 18_000, max: 4_390_000 },
+          sourceMode: "live",
+          sampleRateHzEffective: 3_200_000,
+          deviceKind: "rtl_sdr",
+          backend: "rtl-sdr",
+          deviceName: "RTL-SDR Blog V4",
+          activeSignalArea: undefined,
+          signalAreaBounds: null,
+          fftFrameRate: 12,
+          vizPanOffset: 0,
+          vizZoom: 1,
+          dispatch,
+          sendFrequencyRange,
+          fftCanvasRef,
+        }),
+      { wrapper: TestWrapper },
+    );
+
+    let segments: Awaited<ReturnType<typeof result.current>> = [];
+    await act(async () => {
+      segments = await result.current();
+    });
+
+    expect(segments).toEqual([]);
+    expect(sendFrequencyRange).not.toHaveBeenCalled();
+    expect(getSnapshotData).not.toHaveBeenCalled();
+  });
 });

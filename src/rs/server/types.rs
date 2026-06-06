@@ -288,7 +288,7 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerBandwidth")]
   pub tuner_bandwidth: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
-  #[validate(range(min = 256, max = 262144))]
+  #[validate(range(min = 256, max = 8388608))]
   pub fft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftWindow")]
   pub fft_window: Option<String>,
@@ -609,6 +609,8 @@ pub struct MockAptSignalsConfig {
   #[serde(default)]
   pub global_settings: Option<MockAptGlobalSettings>,
   #[serde(default)]
+  pub realistic_rf: Option<MockAptRealisticRfConfig>,
+  #[serde(default)]
   pub bandwidths: Option<MockAptBandwidths>,
   #[serde(default)]
   pub strength_ranges: Option<MockAptStrengthRanges>,
@@ -618,6 +620,22 @@ pub struct MockAptSignalsConfig {
   pub training_areas: Option<HashMap<String, MockAptTrainingArea>>,
   #[serde(default)]
   pub channels: IndexMap<String, MockAptChannelConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MockAptRealisticRfConfig {
+  #[serde(default)]
+  pub enabled: bool,
+  #[serde(default = "default_true")]
+  pub aliasing: bool,
+  #[serde(default = "default_true")]
+  pub passband: bool,
+  #[serde(default = "default_true")]
+  pub retune_settling: bool,
+}
+
+fn default_true() -> bool {
+  true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -721,11 +739,12 @@ impl SdrSampleRateSpec {
       }
       Self::Symbolic(_) => vec![floor_sample_rate],
       Self::FloorMaxRange(tags) => {
-        let ceiling = if tags.contains(&"__NAPT_SAMPLE_RATE_CHANNEL__".to_string()) {
-          max_sample_rate
-        } else {
-          max_sample_rate
-        };
+        let ceiling =
+          if tags.contains(&"__NAPT_SAMPLE_RATE_CHANNEL__".to_string()) {
+            max_sample_rate
+          } else {
+            max_sample_rate
+          };
         let mut out = CURATED_RATES
           .iter()
           .copied()

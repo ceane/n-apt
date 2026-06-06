@@ -12,6 +12,7 @@ import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
+import { EditableCenterFrequency } from "@n-apt/components/ui/EditableCenterFrequency";
 import { Button } from "@n-apt/components/ui/Button";
 import {
   useSnapshot,
@@ -44,6 +45,7 @@ import {
 } from "@n-apt/redux";
 import {
   clampFrequencyRangeToBounds,
+  buildCenteredFrequencyRange,
   normalizeFrequencyRangeToHz,
   formatFrequency,
 } from "@n-apt/utils/frequency";
@@ -284,6 +286,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
+  const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
+    useState(false);
   const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,
@@ -568,6 +572,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     frequencyRange: state.frequencyRange,
     sourceMode: state.sourceMode,
     sampleRateHzEffective,
+    deviceKind:
+      selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind,
+    backend: selectedSourceDerived.backend ?? backend,
+    deviceName: selectedSourceDerived.deviceName ?? deviceName,
+    isRtlSdr:
+      selectedSourceDerived.deviceProfile?.is_rtl_sdr ??
+      deviceProfile?.is_rtl_sdr,
     activeSignalArea: state.activeSignalArea,
     signalAreaBounds,
     fftFrameRate: state.fftFrameRate,
@@ -588,6 +599,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     backend: selectedSourceDerived.backend ?? backend ?? undefined,
     deviceInfo: selectedSourceDerived.deviceInfo ?? deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
+    gain: state.gain,
     hackrfLnaGain: state.hackrfLnaGain,
     hackrfVgaGain: state.hackrfVgaGain,
     hackrfAmpEnabled: state.hackrfAmpEnabled,
@@ -628,25 +640,37 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
-      const channelClampedRange = clampFrequencyRangeToBounds(
-        range,
-        activeSignalAreaBounds,
+      const zoomed = state.vizZoom > 1;
+      const primaryBounds = zoomed
+        ? hardwareSpectrumBounds
+        : activeSignalAreaBounds;
+      const clampedRange = normalizeFrequencyRangeToHz(
+        primaryBounds
+          ? clampFrequencyRangeToBounds(range, primaryBounds)
+          : range,
       );
-      const hardwareClampedRange = normalizeFrequencyRangeToHz(
-        clampFrequencyRangeToBounds(
-          channelClampedRange,
-          hardwareSpectrumBounds,
-        ),
-      );
-      dispatch({ type: "SET_FREQUENCY_RANGE", range: hardwareClampedRange });
-      sendFrequencyRange(hardwareClampedRange);
+      dispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
+      sendFrequencyRange(clampedRange);
     },
     [
       sendFrequencyRange,
       dispatch,
       hardwareSpectrumBounds,
       activeSignalAreaBounds,
+      state.vizZoom,
     ],
+  );
+
+  const handleCenterFrequencyChange = useCallback(
+    (nextCenterFrequencyHz: number) => {
+      if (!state.frequencyRange) return;
+
+      const spanHz = state.frequencyRange.max - state.frequencyRange.min;
+      handleFrequencyRangeChange(
+        buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz),
+      );
+    },
+    [handleFrequencyRangeChange, state.frequencyRange],
   );
 
   const centerFrequencyHz = useMemo(() => {
@@ -845,32 +869,46 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 key={visualizerSessionKey}
                 ref={fftCanvasRef}
                 overlayContent={
-                  showTxSlider && canShowTxSlider ? (
-                    <TxSliderOverlay
-                      signalLabel={String(txSignal).toUpperCase()}
-                      powerDbm={txPowerDbm}
-                      visibleMinHz={state.frequencyRange.min}
-                      visibleMaxHz={state.frequencyRange.max}
-                      txCenterHz={txCenterFrequencyHz}
-                      txSampleRateHz={txSampleRateHz}
-                      onCenterFrequencyChange={(value) =>
-                        reduxDispatch(setTxCenterFrequencyHz(value))
-                      }
-                      onSampleRateChange={(value) =>
-                        reduxDispatch(setTxSampleRateHz(value))
-                      }
-                    />
-                  ) : null
+                  <>
+                    {showTxSlider && canShowTxSlider ? (
+                      <TxSliderOverlay
+                        signalLabel={String(txSignal).toUpperCase()}
+                        powerDbm={txPowerDbm}
+                        visibleMinHz={state.frequencyRange.min}
+                        visibleMaxHz={state.frequencyRange.max}
+                        txCenterHz={txCenterFrequencyHz}
+                        txSampleRateHz={txSampleRateHz}
+                        onCenterFrequencyChange={(value) =>
+                          reduxDispatch(setTxCenterFrequencyHz(value))
+                        }
+                        onSampleRateChange={(value) =>
+                          reduxDispatch(setTxSampleRateHz(value))
+                        }
+                      />
+                    ) : null}
+                    {isCenterFrequencyEditing ? (
+                      <EditableCenterFrequency
+                        centerFrequencyHz={centerFrequencyHz}
+                        onCenterFrequencyChange={handleCenterFrequencyChange}
+                        onClose={() => setIsCenterFrequencyEditing(false)}
+                      />
+                    ) : null}
+                  </>
                 }
                 dataRef={dataRef}
                 frequencyRange={state.frequencyRange}
                 centerFrequencyHz={centerFrequencyHz}
+                onCenterFrequencyDoubleClick={() =>
+                  setIsCenterFrequencyEditing(true)
+                }
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
                 deviceProfile={
                   selectedSourceDerived.deviceProfile ?? deviceProfile
                 }
+                deviceBackend={selectedSourceDerived.backend ?? backend}
+                deviceName={selectedSourceDerived.deviceName ?? deviceName}
                 tunerGainDb={effectiveTunerGainDb}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}

@@ -13,7 +13,100 @@ import {
   BOUNDARY_LINE_COLOR,
   BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
+import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
+import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
+
+export type LiveCanvasStatusRow = {
+  sampleRateLabel: string;
+  fftSizeLabel: string;
+  fftWindowLabel: string;
+  timingLabel: string;
+};
+
+export function formatLiveCanvasStatusRow({
+  sampleRateHz,
+  fftSize,
+  fftWindow,
+  temporalResolution,
+}: {
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  temporalResolution: "low" | "medium" | "high";
+}): LiveCanvasStatusRow {
+  const sampleRateLabel = formatFrequency(sampleRateHz, {
+    trimTrailingZeros: true,
+    precisionMHz: 4,
+    precisionKHz: 2,
+    precisionGHz: 3,
+  });
+
+  return {
+    sampleRateLabel: `${sampleRateLabel} sample rate`,
+    fftSizeLabel: `FFT Size: ${fftSize.toLocaleString("en-US")}`,
+    fftWindowLabel: `FFT Window: ${fftWindow}`,
+    timingLabel: `Timing: ${getTemporalResolutionLabel(temporalResolution)}`,
+  };
+}
+
+export function drawLiveCanvasStatusRow(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  options: {
+    sampleRateHz: number;
+    fftSize: number;
+    fftWindow: string;
+    temporalResolution: "low" | "medium" | "high";
+    textColor?: string;
+    backgroundColor?: string;
+  },
+) {
+  const canvasTheme = getCanvasThemeColors();
+  const status = formatLiveCanvasStatusRow({
+    sampleRateHz: options.sampleRateHz,
+    fftSize: options.fftSize,
+    fftWindow: options.fftWindow,
+    temporalResolution: options.temporalResolution,
+  });
+
+  const dpr = window.devicePixelRatio || 1;
+  const rowHeight = 40;
+  const rowTop = height - rowHeight;
+  const leftX = FFT_AREA_MIN.x;
+  const rightX = width - 40;
+  const centerX = width / 2;
+
+  ctx.save();
+  ctx.clearRect(leftX, rowTop, rightX - leftX, rowHeight);
+  if (options.backgroundColor) {
+    ctx.fillStyle = options.backgroundColor;
+    ctx.fillRect(leftX, rowTop, rightX - leftX, rowHeight);
+  }
+  ctx.strokeStyle = options.textColor ?? canvasTheme.textColor;
+  ctx.lineWidth = 1 / dpr;
+  ctx.beginPath();
+  ctx.moveTo(leftX, rowTop + 0.5);
+  ctx.lineTo(rightX, rowTop + 0.5);
+  ctx.stroke();
+
+  ctx.fillStyle = options.textColor ?? canvasTheme.textColor;
+  ctx.font = "11px JetBrains Mono";
+  ctx.textBaseline = "middle";
+
+  ctx.textAlign = "center";
+  ctx.fillText(`⌞ ${status.sampleRateLabel} ⌟`, centerX, rowTop + 12);
+  ctx.textAlign = "left";
+  ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 28);
+  ctx.textAlign = "center";
+  ctx.fillText(status.fftWindowLabel, centerX, rowTop + 28);
+  ctx.textAlign = "right";
+  ctx.fillText(status.timingLabel, rightX - 4, rowTop + 28);
+  ctx.restore();
+
+  return status;
+}
 
 const readCssColor = (name: string, fallback: string) => {
   if (typeof window === "undefined" || typeof document === "undefined")
@@ -65,6 +158,9 @@ const getCanvasThemeColors = () => ({
   gridColor: readCssColor("--color-fft-grid", "rgba(50,50,50,1)"),
   boundaryLine: readCssColor("--color-fft-boundary-line", BOUNDARY_LINE_COLOR),
   boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
+  surfaceColor: readCssColor("--color-surface", "#fff"),
+  borderColor: readCssColor("--color-border", "rgba(255,255,255,0.2)"),
+  mutedTextColor: readCssColor("--color-text-muted", "#666"),
 });
 
 export interface Draw2DFFTSignalOptions {
@@ -83,6 +179,9 @@ export interface Draw2DFFTSignalOptions {
   fullCaptureRange?: { min: number; max: number };
   isIqRecordingActive?: boolean;
   limitMarkers?: SdrLimitMarker[];
+  fftSize?: number;
+  fftWindow?: string;
+  temporalResolution?: "low" | "medium" | "high";
   displayMode?: "fft" | "iq";
   textColor?: string;
   backgroundColor?: string;
@@ -145,6 +244,7 @@ export function useDraw2DFFTSignal() {
       const maxFreq = frequencyRange?.max ?? 3.2;
       const viewBandwidth = maxFreq - minFreq;
       const range = findBestFrequencyRange(viewBandwidth, 10);
+      const tickPrecision = tickPrecisionForStep(range);
       const lowerFreq = Math.ceil(minFreq / range) * range;
       const upperFreq = maxFreq;
       const freqToX = (freq: number) =>
@@ -179,6 +279,7 @@ export function useDraw2DFFTSignal() {
           trimTrailingZeros: true,
           precisionMHz: 4,
           precisionKHz: 2,
+          precisionGHz: tickPrecision.precisionGHz,
         });
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
@@ -253,14 +354,7 @@ export function useDraw2DFFTSignal() {
         ctx.stroke();
 
         // Tick label
-        const tickLabel =
-          maxFreq < 1
-            ? `${Math.round(freq * 1000)}kHz`
-            : range >= 0.5
-              ? freq.toFixed(1)
-              : range >= 0.01
-                ? freq.toFixed(2)
-                : freq.toFixed(3);
+        const tickLabel = formatFreq(freq);
         if (!isColliding(xPos, tickLabel)) {
           ctx.fillText(tickLabel, ix, fftAreaMax.y + 25);
         }
@@ -524,6 +618,7 @@ export function useDraw2DFFTSignal() {
         showTickMarks: false,
         showTickLabels: false,
         showCenterLine: Number.isFinite(centerFrequencyHz),
+        showCenterLabel: false,
         centerLineTop: topPad,
         centerLineBottom: fftAreaMax.y,
         icon: "hand",

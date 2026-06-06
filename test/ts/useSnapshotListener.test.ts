@@ -107,4 +107,17 @@ describe("buildSnapshotSettingsLabel", () => {
 
     expect(label).toBe("Gain: Auto | PPM: 0");
   });
+
+  it("uses live generic gain when bundled tuner gain is unavailable", () => {
+    const label = buildSnapshotSettingsLabel({
+      effectiveSdrSettings: {
+        gain: {},
+        ppm: 1,
+      } as any,
+      gain: 49.6,
+      deviceKind: "rtl_sdr",
+    });
+
+    expect(label).toBe("Gain: 49.6dB | PPM: 1");
+  });
 });

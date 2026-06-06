@@ -236,6 +236,8 @@ interface SnapshotControlsSectionProps {
   titlePulseToken?: number;
   isFileMode?: boolean;
   hasFileLoaded?: boolean;
+  wholeChannelDisabled?: boolean;
+  wholeChannelDisabledReason?: string;
 }
 
 export const SnapshotControlsSection: React.FC<
@@ -263,6 +265,8 @@ export const SnapshotControlsSection: React.FC<
   titlePulseToken,
   isFileMode = false,
   hasFileLoaded = false,
+  wholeChannelDisabled = false,
+  wholeChannelDisabledReason = "Whole-channel snapshots are unavailable for this source",
 }) => {
   const progress = useAppSelector((state) => state.snapshot);
   const isCapturing =
@@ -275,6 +279,7 @@ export const SnapshotControlsSection: React.FC<
     : "Save snapshot";
 
   const isDisabled = isFileMode && !hasFileLoaded;
+  const effectiveSnapshotWhole = wholeChannelDisabled ? false : snapshotWhole;
 
   return (
     <Section>
@@ -286,13 +291,22 @@ export const SnapshotControlsSection: React.FC<
       >
         <Row label={<IconLabel icon={Scan} text="Range" />}>
           <SettingSelect
-            value={snapshotWhole ? "whole" : "onscreen"}
-            onChange={(e) => onSnapshotWholeChange(e.target.value === "whole")}
+            value={effectiveSnapshotWhole ? "whole" : "onscreen"}
+            onChange={(e) => {
+              const nextWhole =
+                e.target.value === "whole" && !wholeChannelDisabled;
+              onSnapshotWholeChange(nextWhole);
+            }}
             style={{ minWidth: "120px" }}
             $disabled={isDisabled}
+            title={
+              wholeChannelDisabled ? wholeChannelDisabledReason : undefined
+            }
           >
             <option value="onscreen">On screen</option>
-            <option value="whole">Whole Channel</option>
+            {!wholeChannelDisabled ? (
+              <option value="whole">Whole Channel</option>
+            ) : null}
           </SettingSelect>
         </Row>
 

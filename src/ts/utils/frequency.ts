@@ -64,6 +64,28 @@ export const getCenteredFrequencyHz = (
   bandwidthHz: number,
 ): number => centerHz - bandwidthHz / 2;
 
+export const buildCenteredFrequencyRange = (
+  centerHz: number,
+  spanHz: number,
+): FrequencyRange => {
+  const safeSpan = Number.isFinite(spanHz) && spanHz > 0 ? spanHz : 0;
+  const halfSpan = safeSpan / 2;
+  const rawMin = Math.round(centerHz - halfSpan);
+  const rawMax = Math.round(centerHz + halfSpan);
+
+  if (!Number.isFinite(rawMin) || !Number.isFinite(rawMax) || safeSpan <= 0) {
+    return { min: 0, max: 0 };
+  }
+
+  if (rawMin < 0) {
+    return { min: 0, max: Math.round(safeSpan) };
+  }
+
+  return rawMin <= rawMax
+    ? { min: rawMin, max: rawMax }
+    : { min: rawMax, max: rawMin };
+};
+
 export const getBandwidthEndHz = (
   startHz: number,
   bandwidthHz: number,

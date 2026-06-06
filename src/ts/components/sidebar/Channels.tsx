@@ -12,6 +12,7 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
 const ChannelsSection = styled.div`
@@ -299,6 +300,17 @@ export const Channels: React.FC<ChannelsProps> = ({
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
   const websocketChannels = useAppSelector((s) => s.websocket.channels);
+  const websocketSampleRateHz = useAppSelector((s) => s.websocket.sampleRateHz);
+  const websocketSdrSampleRateHz = useAppSelector(
+    (s) => s.websocket.sdrSettings?.sample_rate,
+  );
+  const websocketMaxSampleRateHz = useAppSelector(
+    (s) => s.websocket.maxSampleRateHz,
+  );
+  const websocketDeviceProfile = useAppSelector(
+    (s) => s.websocket.deviceProfile,
+  );
+  const websocketBackend = useAppSelector((s) => s.websocket.backend);
   const activeSignalArea = useAppSelector((s) => s.spectrum.activeSignalArea);
   const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
@@ -306,15 +318,84 @@ export const Channels: React.FC<ChannelsProps> = ({
     dispatch: storeDispatch,
     effectiveFrames,
     sampleRateHzEffective: sampleRateHz,
+    selectedSourceDerived,
     wsConnection,
   } = useSpectrumStore();
+  const isRtlSdr = isRtlSdrDevice({
+    deviceKind:
+      websocketDeviceProfile?.kind ??
+      selectedSourceDerived?.deviceProfile?.kind ??
+      wsConnection?.deviceProfile?.kind,
+    backend:
+      websocketBackend ??
+      selectedSourceDerived?.backend ??
+      wsConnection?.backend,
+    deviceName:
+      selectedSourceDerived?.deviceName ??
+      wsConnection?.deviceName ??
+      undefined,
+    isRtlSdr:
+      websocketDeviceProfile?.is_rtl_sdr ??
+      selectedSourceDerived?.deviceProfile?.is_rtl_sdr ??
+      wsConnection?.deviceProfile?.is_rtl_sdr,
+  });
+  const sourceKind = (
+    websocketDeviceProfile?.kind ??
+    selectedSourceDerived?.deviceProfile?.kind ??
+    selectedSourceDerived?.backend ??
+    wsConnection?.deviceProfile?.kind ??
+    wsConnection?.backend ??
+    ""
+  ).toLowerCase();
+  const sourceName = (
+    selectedSourceDerived?.deviceName ??
+    wsConnection?.deviceName ??
+    ""
+  ).toLowerCase();
+  const supportsWholeChannelDisplay =
+    !isRtlSdr &&
+    (sourceKind.includes("hackrf") ||
+      sourceKind.includes("mock") ||
+      sourceName.includes("mock"));
+  const rtlHardwareSampleRateHz =
+    typeof websocketSdrSampleRateHz === "number" &&
+    Number.isFinite(websocketSdrSampleRateHz) &&
+    websocketSdrSampleRateHz > 0
+      ? websocketSdrSampleRateHz
+      : typeof selectedSourceDerived?.sdrSettings?.sample_rate === "number" &&
+          Number.isFinite(selectedSourceDerived.sdrSettings.sample_rate) &&
+          selectedSourceDerived.sdrSettings.sample_rate > 0
+        ? selectedSourceDerived.sdrSettings.sample_rate
+        : typeof wsConnection?.sdrSettings?.sample_rate === "number" &&
+            Number.isFinite(wsConnection.sdrSettings.sample_rate) &&
+            wsConnection.sdrSettings.sample_rate > 0
+          ? wsConnection.sdrSettings.sample_rate
+          : 3_200_000;
+  const channelSampleRateHz = isRtlSdr
+    ? rtlHardwareSampleRateHz
+    : typeof state.sampleRateHz === "number" &&
+        Number.isFinite(state.sampleRateHz) &&
+        state.sampleRateHz > 0
+      ? state.sampleRateHz
+      : typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? sampleRateHz
+        : typeof websocketSampleRateHz === "number" &&
+            Number.isFinite(websocketSampleRateHz)
+          ? websocketSampleRateHz
+          : typeof websocketSdrSampleRateHz === "number" &&
+              Number.isFinite(websocketSdrSampleRateHz)
+            ? websocketSdrSampleRateHz
+            : typeof websocketMaxSampleRateHz === "number" &&
+                Number.isFinite(websocketMaxSampleRateHz)
+              ? websocketMaxSampleRateHz
+              : null;
 
   const liveFramesToUse = useMemo(() => {
-    if (Array.isArray(websocketChannels) && websocketChannels.length > 0) {
-      return websocketChannels;
-    }
     if (effectiveFrames.length > 0) {
       return effectiveFrames;
+    }
+    if (Array.isArray(websocketChannels) && websocketChannels.length > 0) {
+      return websocketChannels;
     }
     return spectrumFrames;
   }, [effectiveFrames, spectrumFrames, websocketChannels]);
@@ -324,9 +405,7 @@ export const Channels: React.FC<ChannelsProps> = ({
 
   const channels = useMemo(() => {
     const frames =
-      Array.isArray(websocketChannels) && websocketChannels.length > 0
-        ? websocketChannels
-        : effectiveFrames;
+      effectiveFrames.length > 0 ? effectiveFrames : websocketChannels;
     if (!Array.isArray(frames)) return [];
     return frames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames, websocketChannels]);
@@ -334,8 +413,8 @@ export const Channels: React.FC<ChannelsProps> = ({
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
   const activeFrame =
-    Array.isArray(websocketChannels) && websocketChannels.length > 0
-      ? websocketChannels.find(
+    effectiveFrames.length > 0
+      ? effectiveFrames.find(
           (f: any) =>
             String(f.label).toLowerCase() ===
             String(activeSignalArea).toLowerCase(),
@@ -345,8 +424,8 @@ export const Channels: React.FC<ChannelsProps> = ({
             String(f.label).toLowerCase() ===
             String(activeSignalArea).toLowerCase(),
         )
-      : Array.isArray(effectiveFrames)
-        ? effectiveFrames.find(
+      : Array.isArray(websocketChannels)
+        ? websocketChannels.find(
             (f: any) =>
               String(f.label).toLowerCase() ===
               String(activeSignalArea).toLowerCase(),
@@ -358,10 +437,11 @@ export const Channels: React.FC<ChannelsProps> = ({
           )
         : undefined;
   const isWholeChannelMode =
-    typeof sampleRateHz === "number" &&
-    Number.isFinite(sampleRateHz) &&
+    supportsWholeChannelDisplay &&
+    typeof channelSampleRateHz === "number" &&
+    Number.isFinite(channelSampleRateHz) &&
     !!activeFrame &&
-    Math.round(sampleRateHz) ===
+    Math.round(channelSampleRateHz) ===
       Math.round(Math.max(0, activeFrame.max_hz - activeFrame.min_hz));
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
@@ -424,7 +504,14 @@ export const Channels: React.FC<ChannelsProps> = ({
               const label = frame.label;
               const minFreq = frame.min_hz;
               const maxFreq = frame.max_hz;
-              const span = maxFreq - minFreq;
+              const channelSpan = maxFreq - minFreq;
+              const sliderSampleRateHz =
+                !supportsWholeChannelDisplay &&
+                typeof channelSampleRateHz === "number" &&
+                Number.isFinite(channelSampleRateHz) &&
+                channelSampleRateHz >= channelSpan
+                  ? Math.min(3_200_000, channelSpan)
+                  : channelSampleRateHz;
 
               return (
                 <ReduxFrequencyRangeSlider
@@ -433,37 +520,34 @@ export const Channels: React.FC<ChannelsProps> = ({
                   minFreq={minFreq}
                   maxFreq={maxFreq}
                   disabled={rangeSlidersDisabled}
-                  sampleRateHz={sampleRateHz}
-                  isWholeChannelMode={
-                    typeof sampleRateHz === "number" &&
-                    Number.isFinite(sampleRateHz) &&
-                    Math.round(sampleRateHz) === Math.round(span)
-                  }
+                  sampleRateHz={sliderSampleRateHz}
+                  isWholeChannelMode={isWholeChannelMode}
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
-                    const channelSpan = maxFreq - minFreq;
                     const sampleRateCoversChannel =
-                      typeof sampleRateHz === "number" &&
-                      Number.isFinite(sampleRateHz) &&
-                      sampleRateHz >= channelSpan;
-                    const rememberedRange = sampleRateCoversChannel
+                      supportsWholeChannelDisplay &&
+                      typeof sliderSampleRateHz === "number" &&
+                      Number.isFinite(sliderSampleRateHz) &&
+                      sliderSampleRateHz >= channelSpan;
+                    const shouldUseWholeChannelRange =
+                      isWholeChannelMode || sampleRateCoversChannel;
+                    const rememberedRange = shouldUseWholeChannelRange
                       ? null
                       : (state.lastKnownRanges[label] ??
                         state.lastKnownRanges[label.toLowerCase()]);
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
-                      max:
-                        minFreq +
-                        (typeof sampleRateHz === "number"
-                          ? sampleRateCoversChannel
-                            ? sampleRateHz
-                            : Math.min(sampleRateHz, span)
-                          : span),
+                      max: shouldUseWholeChannelRange
+                        ? maxFreq
+                        : minFreq +
+                          (typeof sliderSampleRateHz === "number"
+                            ? Math.min(sliderSampleRateHz, channelSpan)
+                            : channelSpan),
                     };
                     const clampedRange =
-                      typeof sampleRateHz === "number" &&
-                      sampleRateHz > channelSpan
+                      typeof sliderSampleRateHz === "number" &&
+                      sliderSampleRateHz > channelSpan
                         ? normalizeFrequencyRangeToHz(nextRange)
                         : normalizeFrequencyRangeToHz(
                             clampFrequencyRangeToBounds(
@@ -471,7 +555,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                                 min: minFreq,
                                 max: maxFreq,
                               }),
-                              hardwareSpectrumBounds,
+                              isRtlSdr
+                                ? { min: minFreq, max: maxFreq }
+                                : hardwareSpectrumBounds,
                             ),
                           );
                     reduxDispatch(
@@ -536,8 +622,8 @@ export const Channels: React.FC<ChannelsProps> = ({
   const handleTune = (frame: any) => {
     const range = {
       min: frame.min_hz,
-      max: sampleRateHz
-        ? Math.min(frame.max_hz, frame.min_hz + sampleRateHz)
+      max: channelSampleRateHz
+        ? Math.min(frame.max_hz, frame.min_hz + channelSampleRateHz)
         : frame.max_hz,
     };
 
@@ -658,7 +744,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                     minFreq={ch.min_hz}
                     maxFreq={ch.max_hz}
                     disabled={rangeSlidersDisabled}
-                    sampleRateHz={sampleRateHz}
+                    sampleRateHz={channelSampleRateHz}
                     isWholeChannelMode={isWholeChannelMode}
                     allowWideSampleRateOverscan
                     onActivate={() => handleTune(ch)}
@@ -678,7 +764,9 @@ export const Channels: React.FC<ChannelsProps> = ({
         <SampleRateLabel>
           Hardware sample rate:{" "}
           <SampleRateValue>
-            {sampleRateHz ? formatFrequency(sampleRateHz) : "X.X MHz"}
+            {channelSampleRateHz
+              ? formatFrequency(channelSampleRateHz)
+              : "X.X MHz"}
           </SampleRateValue>
         </SampleRateLabel>
       </ChannelsDemodBody>

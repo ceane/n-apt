@@ -170,6 +170,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     scheduleCoupledAdjustment,
   } = useSdrSettings({
     maxSampleRate: sampleRateHzEffective || 3_200_000,
+    currentSampleRateHz: sampleRateHzEffective || 3_200_000,
     minReceiveSampleRate:
       liveSdrSettingsConfig?.min_receive_sample_rate ?? undefined,
     sampleRateOptions: liveSampleRateOptions,

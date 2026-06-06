@@ -262,6 +262,9 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   frequencyRange,
 }) => {
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -292,6 +295,14 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
     }, 250); // 4fps
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const current = Array.isArray(liveDataRef.current)
+      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
+      : liveDataRef.current;
+    lastIqRefRef.current = current?.iq_data;
+    setFrameIqData(current?.iq_data as Uint8Array | undefined);
+  }, [activeSourceId]);
 
   useEffect(() => {
     if (!gridRef.current) return;

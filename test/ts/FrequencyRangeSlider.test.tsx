@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import FrequencyRangeSlider from "../../src/ts/components/sidebar/FrequencyRangeSlider";
 import { TestWrapper } from "./testUtils";
 
@@ -189,5 +189,69 @@ describe("FrequencyRangeSlider", () => {
     const thumb = screen.getByText(/18kHz.*-.*4\.39MHz/).parentElement;
     expect(thumb).toBeInTheDocument();
     expect(thumb).toHaveStyle({ width: "100%" });
+  });
+
+  test("uses frequency ratio for Channel A hardware window width instead of label width", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={604_000}
+          visibleMax={3_804_000}
+          sampleRateHz={3_200_000}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/604kHz.*-.*3\.804MHz/).parentElement;
+    expect(thumb).toBeInTheDocument();
+    expect(thumb).toHaveStyle({ width: "73.19304666056725%" });
+  });
+
+  test("keeps min-content label width visual-only so narrow windows do not rewrite the frequency span", async () => {
+    const originalScrollWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollWidth",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get() {
+        return 180;
+      },
+    });
+
+    try {
+      render(
+        <TestWrapper>
+          <FrequencyRangeSlider
+            {...defaultProps}
+            minFreq={4_750_000}
+            maxFreq={23_000_000}
+            visibleMin={11_688_000}
+            visibleMax={16_061_000}
+            sampleRateHz={4_373_000}
+          />
+        </TestWrapper>,
+      );
+
+      const thumb = screen.getByText(/11\.688MHz.*-.*16\.061MHz/).parentElement;
+      expect(thumb).toBeInTheDocument();
+      expect(thumb).toHaveStyle({ width: "23.96164383561644%" });
+      await waitFor(() => {
+        expect(thumb).toHaveStyle({ minWidth: "196px", maxWidth: "100%" });
+      });
+    } finally {
+      if (originalScrollWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollWidth",
+          originalScrollWidth,
+        );
+      } else {
+        delete (HTMLElement.prototype as any).scrollWidth;
+      }
+    }
   });
 });

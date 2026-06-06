@@ -57,6 +57,9 @@ const CanvasContainer = styled.div`
 `;
 
 export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
   const { processIqToDbmSpectrum } = useWasmSimdMath({
@@ -85,6 +88,14 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
     }, 125); // 8fps — smooth waterfall scrolling
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const next = Array.isArray(liveDataRef.current)
+      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
+      : liveDataRef.current;
+    lastRefRef.current = next;
+    setLiveFrame(next);
+  }, [activeSourceId]);
 
   const waveform = useMemo(() => {
     const iq = liveFrame?.iq_data;

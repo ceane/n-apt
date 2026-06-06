@@ -31,6 +31,10 @@ import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
+import {
+  isRtlSdrDevice,
+  resolveRenderableFrequencyRange,
+} from "@n-apt/utils/sdrSampleRateGuards";
 // New hooks
 import { useCanvasState } from "@n-apt/hooks/useCanvasState";
 import { useWaterfallBufferPool } from "@n-apt/hooks/useWaterfallBufferPool";
@@ -357,6 +361,8 @@ export interface FFTCanvasProps {
   isDeviceConnected?: boolean;
   /** Callback for frequency range changes */
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  /** Fires when the user double-clicks the center-frequency/VFO label region. */
+  onCenterFrequencyDoubleClick?: () => void;
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
   selectionMode?: "zoom" | "range";
@@ -417,6 +423,8 @@ export interface FFTCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   hardwareSampleRateHz?: number;
   deviceProfile?: DeviceProfile | null;
+  deviceBackend?: string | null;
+  deviceName?: string | null;
   tunerGainDb?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
@@ -525,11 +533,11 @@ const FFTCanvas = memo(
       powerScale,
       isDeviceConnected = true,
       onFrequencyRangeChange,
+      onCenterFrequencyDoubleClick,
       displayTemporalResolution = "medium",
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
-      overlayContent,
       headerActionContent,
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
@@ -550,6 +558,8 @@ const FFTCanvas = memo(
       onFftDbLimitsChange,
       hardwareSampleRateHz,
       deviceProfile,
+      deviceBackend,
+      deviceName,
       tunerGainDb,
       isIqRecordingActive = false,
       limitMarkers = [],
@@ -715,6 +725,27 @@ const FFTCanvas = memo(
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
     centerFreqRef.current = centerFrequencyHz;
+    const renderableFrequencyRange = useMemo(
+      () =>
+        resolveRenderableFrequencyRange({
+          requestedRange: frequencyRange,
+          centerFrequencyHz,
+          hardwareSampleRateHz,
+          deviceKind: deviceProfile?.kind,
+          backend: deviceBackend,
+          deviceName,
+          isRtlSdr: deviceProfile?.is_rtl_sdr,
+        }),
+      [
+        frequencyRange,
+        centerFrequencyHz,
+        hardwareSampleRateHz,
+        deviceProfile?.kind,
+        deviceProfile?.is_rtl_sdr,
+        deviceBackend,
+        deviceName,
+      ],
+    );
 
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
@@ -722,6 +753,12 @@ const FFTCanvas = memo(
 
     const effectivePowerScale = powerScale ?? "dB";
     const isHackrfDevice = deviceProfile?.kind === "hackrf_one";
+    const isRtlSdr = isRtlSdrDevice({
+      deviceKind: deviceProfile?.kind,
+      backend: deviceBackend,
+      deviceName,
+      isRtlSdr: deviceProfile?.is_rtl_sdr,
+    });
     const effectiveDbmOffsetDb =
       effectivePowerScale === "dBm"
         ? isHackrfDevice
@@ -1153,8 +1190,8 @@ const FFTCanvas = memo(
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
-      frequencyRangeRef.current = frequencyRange;
-    }, [frequencyRange, overlayDirtyRef]);
+      frequencyRangeRef.current = renderableFrequencyRange;
+    }, [renderableFrequencyRange, overlayDirtyRef]);
 
     // Effect: When center frequency changes, only mark markers overlay for redraw
     // (grid lines stay at same positions, but frequency labels shift)
@@ -1403,6 +1440,16 @@ const FFTCanvas = memo(
           const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
+          frequencyRangeRef.current = resolveRenderableFrequencyRange({
+            requestedRange: frequencyRange,
+            centerFrequencyHz: currentFrame.center_frequency_hz,
+            hardwareSampleRateHz: currentFrame.sample_rate,
+            deviceKind: deviceProfile?.kind,
+            backend: deviceBackend,
+            deviceName,
+            isRtlSdr: deviceProfile?.is_rtl_sdr,
+          });
+
           if (gpuProcessingDevice && webgpuEnabled && !isInitializingWebGPU) {
             if (!liveGpuProcessInFlightRef.current) {
               liveGpuProcessInFlightRef.current = true;
@@ -1469,8 +1516,13 @@ const FFTCanvas = memo(
 
             // Accumulate frequency-hop data into full-channel composite buffer.
             // This builds a 4096-bin representation of the entire channel span
-            // from individual hop-sized I/Q chunks for "Whole Channel" snapshots.
-            {
+            // from individual hop-sized I/Q chunks for intentional wide snapshots.
+            // RTL-SDR must never synthesize a whole-channel buffer because its
+            // hardware window is limited to the current 3.2MHz sample rate.
+            if (isRtlSdr) {
+              fullChannelWaveformRef.current = null;
+              fullChannelRangeRef.current = null;
+            } else {
               const channelRange = frequencyRangeRef.current;
               if (!channelRange) return;
               const channelSpan = channelRange.max - channelRange.min;
@@ -1815,6 +1867,10 @@ const FFTCanvas = memo(
               centerFrequencyHz: centerFreqRef.current,
               isDeviceConnected,
               hardwareSampleRateHz,
+              fftSize: effectiveFftSize,
+              fftWindow,
+              temporalResolution: displayTemporalResolution,
+              reservedBottomPx: 40,
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
@@ -1892,6 +1948,9 @@ const FFTCanvas = memo(
                   frequencyRangeRef.current,
                   isIqRecordingActive,
                   compact ? [] : limitMarkers,
+                  effectiveFftSize,
+                  fftWindow,
+                  displayTemporalResolution,
                 );
               }
 
@@ -2221,6 +2280,11 @@ const FFTCanvas = memo(
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
         fftWindow,
+        frequencyRange,
+        deviceProfile?.kind,
+        deviceProfile?.is_rtl_sdr,
+        deviceBackend,
+        deviceName,
         drawMarkersOnContext,
         drawDemodFocusOnContext,
         drawSelectionOverlayOnContext,
@@ -2503,13 +2567,13 @@ const FFTCanvas = memo(
     // If paused, force a re-render to update the visual state.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
-      frequencyRangeRef.current = frequencyRange;
+      frequencyRangeRef.current = renderableFrequencyRange;
 
       if (
-        frequencyRange &&
+        renderableFrequencyRange &&
         prevRange &&
-        (prevRange.min !== frequencyRange.min ||
-          prevRange.max !== frequencyRange.max)
+        (prevRange.min !== renderableFrequencyRange.min ||
+          prevRange.max !== renderableFrequencyRange.max)
       ) {
         lastProcessedDataRef.current = null;
         lastProcessedFrameSignatureRef.current = null;
@@ -2523,7 +2587,7 @@ const FFTCanvas = memo(
       if (isPaused) {
         forceRender();
       }
-    }, [frequencyRange, isPaused, forceRender]);
+    }, [renderableFrequencyRange, isPaused, forceRender]);
 
     // Effect: Tracks when new data frames arrive while paused.
     // Uses a polling interval instead of dataFrameCounter to avoid triggering
@@ -2803,9 +2867,10 @@ const FFTCanvas = memo(
 
       return {
         waveform: new Float32Array(waveform),
-        fullChannelWaveform: fullChannelWaveformRef.current
-          ? new Float32Array(fullChannelWaveformRef.current)
-          : null,
+        fullChannelWaveform:
+          !isRtlSdr && fullChannelWaveformRef.current
+            ? new Float32Array(fullChannelWaveformRef.current)
+            : null,
         frequencyRange: { ...frequencyRangeCurrent },
         dbMin: roundDbValue(vizDbMinRef.current),
         dbMax: roundDbValue(vizDbMaxRef.current),
@@ -2840,6 +2905,7 @@ const FFTCanvas = memo(
       hardwareSampleRateHz,
       isDeviceConnected,
       isIqRecordingActive,
+      isRtlSdr,
       webgpuEnabled,
     ]);
 
@@ -2988,7 +3054,10 @@ const FFTCanvas = memo(
                   </SectionTitleRow>
                 )}
                 <SpectrumRow>
-                  <CanvasWrapper ref={spectrumContainerRef}>
+                  <CanvasWrapper
+                    ref={spectrumContainerRef}
+                    onDoubleClick={onCenterFrequencyDoubleClick}
+                  >
                     {canvasPlaceholderState && (
                       <CanvasPlaceholder state={canvasPlaceholderState} />
                     )}
@@ -3024,7 +3093,6 @@ const FFTCanvas = memo(
                         </span>
                       </SelectionTooltip>
                     )}
-                    {overlayContent}
                   </CanvasWrapper>
                 </SpectrumRow>
               </SpectrumSection>

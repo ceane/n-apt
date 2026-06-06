@@ -104,6 +104,9 @@ const CanvasContainer = styled.div`
 export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
   const initialFrame = Array.isArray(liveDataRef.current)
     ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
     : liveDataRef.current;
@@ -139,6 +142,13 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const showSpikeOverlay = useAppSelector(
     (state) => state.spectrum.showSpikeOverlay,
   );
+
+  useEffect(() => {
+    const liveFrame = Array.isArray(liveDataRef.current)
+      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
+      : liveDataRef.current;
+    dataRef.current = liveFrame;
+  }, [activeSourceId]);
   const demodCenterFreqHz = useAppSelector(
     (state) => state.demod?.centerFreqHz ?? null,
   );

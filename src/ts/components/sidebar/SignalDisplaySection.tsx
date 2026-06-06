@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
 
 const Section = styled.div`
   display: grid;
@@ -419,9 +420,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
               );
             }}
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
+            <option value="low">{getTemporalResolutionLabel("low")}</option>
+            <option value="medium">
+              {getTemporalResolutionLabel("medium")}
+            </option>
+            <option value="high">{getTemporalResolutionLabel("high")}</option>
           </WideSettingSelect>
         </Row>
       )}

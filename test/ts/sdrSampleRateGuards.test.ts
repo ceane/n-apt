@@ -1,0 +1,116 @@
+import {
+  canUseWholeChannelSnapshot,
+  clampRtlSdrFrequencyRangeToHardwareWindow,
+  resolveRenderableFrequencyRange,
+  resolveCaptureAcquisitionMode,
+} from "@n-apt/utils/sdrSampleRateGuards";
+
+describe("sdrSampleRateGuards", () => {
+  it("blocks whole-channel snapshots for RTL-SDR even when stale UI state asks for them", () => {
+    expect(
+      canUseWholeChannelSnapshot({
+        requestedWhole: true,
+        deviceKind: "rtl_sdr",
+        backend: "rtl-sdr",
+        deviceName: "RTL-SDR Blog V4",
+      }),
+    ).toBe(false);
+  });
+
+  it("downgrades RTL-SDR whole_sample capture requests wider than the hardware sample rate", () => {
+    expect(
+      resolveCaptureAcquisitionMode({
+        requestedMode: "whole_sample",
+        isOnscreenActive: true,
+        onscreenSpanHz: 4_390_000,
+        hardwareSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        backend: "rtl-sdr",
+      }),
+    ).toBe("stepwise");
+  });
+
+  it("allows exact current-window whole_sample captures at the RTL-SDR sample rate", () => {
+    expect(
+      resolveCaptureAcquisitionMode({
+        requestedMode: "stepwise",
+        isOnscreenActive: true,
+        onscreenSpanHz: 3_200_000,
+        hardwareSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        backend: "rtl-sdr",
+      }),
+    ).toBe("whole_sample");
+  });
+
+  it("start-anchors stale RTL-SDR full-channel render requests instead of using frame center", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: 18_000, max: 4_390_000 },
+        centerFrequencyHz: 2_204_000,
+        hardwareSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+      }),
+    ).toEqual({
+      min: 18_000,
+      max: 3_218_000,
+    });
+  });
+
+  it("uses DeviceProfile.is_rtl_sdr when kind is only the generic rx capability without centering", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: 18_000, max: 4_390_000 },
+        centerFrequencyHz: 2_204_000,
+        hardwareSampleRateHz: 3_200_000,
+        deviceKind: "rx",
+        isRtlSdr: true,
+      }),
+    ).toEqual({
+      min: 18_000,
+      max: 3_218_000,
+    });
+  });
+
+  it("preserves RTL-SDR requested render windows that already fit the hardware sample rate", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: 900_000, max: 4_100_000 },
+        centerFrequencyHz: 2_204_000,
+        hardwareSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+      }),
+    ).toEqual({
+      min: 900_000,
+      max: 4_100_000,
+    });
+  });
+
+  it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {
+    expect(
+      clampRtlSdrFrequencyRangeToHardwareWindow({
+        range: { min: 18_000, max: 4_390_000 },
+        channelBounds: { min: 18_000, max: 4_390_000 },
+        hardwareSampleRateHz: 3_200_000,
+        isRtlSdr: true,
+      }),
+    ).toEqual({
+      min: 18_000,
+      max: 3_218_000,
+    });
+  });
+
+  it("preserves a user-scrolled RTL-SDR hardware-sized VFO range", () => {
+    expect(
+      clampRtlSdrFrequencyRangeToHardwareWindow({
+        range: { min: 900_000, max: 4_100_000 },
+        channelBounds: { min: 18_000, max: 4_390_000 },
+        hardwareSampleRateHz: 3_200_000,
+        isRtlSdr: true,
+      }),
+    ).toEqual({
+      min: 900_000,
+      max: 4_100_000,
+    });
+  });
+});

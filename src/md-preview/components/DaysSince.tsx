@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import styled from 'styled-components';
-import { motion } from 'framer-motion';
+import { motion, animate } from 'framer-motion';
 
 const START_DATE = new Date('2018-09-30T00:00:00Z');
 const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
@@ -97,10 +97,91 @@ const CostContainer = styled(DataContainer)`
   margin-top: 0;
 `;
 
+const DigitContainer = styled.span`
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  vertical-align: bottom;
+  will-change: transform;
+`;
+
+const PlaceholderDigit = styled.span`
+  visibility: hidden;
+  display: inline-block;
+  padding: 0.15em 0;
+`;
+
+const DigitList = styled(motion.span)`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+`;
+
+const SingleDigit = styled.span`
+  display: inline-block;
+  padding: 0.15em 0;
+  flex-shrink: 0;
+  text-align: center;
+`;
+
+const CounterWrapper = styled.span`
+  display: inline-flex;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+`;
+
+const RollingCounter: React.FC<{ value: string | number }> = ({ value }) => {
+  const str = String(value);
+
+  return (
+    <CounterWrapper>
+      {str.split('').map((char, idx) => {
+        if (char >= '0' && char <= '9') {
+          const digit = parseInt(char, 10);
+          return (
+            <DigitContainer key={idx}>
+              <PlaceholderDigit>{digit}</PlaceholderDigit>
+              <DigitList
+                initial={{ y: '0%' }}
+                animate={{ y: `-${digit * 10}%` }}
+                transition={{
+                  duration: 2,
+                  delay: 0.1, // brief delay to start rolling after fade-in starts
+                  ease: [0.1, 1.0, 0.1, 1.0], // cubic-bezier(0.1, 1, 0.1, 1)
+                }}
+              >
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
+                  <SingleDigit key={d}>{d}</SingleDigit>
+                ))}
+              </DigitList>
+            </DigitContainer>
+          );
+        }
+        return <span key={idx}>{char}</span>;
+      })}
+    </CounterWrapper>
+  );
+};
+
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
   }).format(num);
+};
+
+const formatCurrency = (val: number) => {
+  if (val >= 1000000) {
+    return `$${(val / 1000000).toFixed(2)}M`;
+  }
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(val);
 };
 
 // Helper to convert units to base MB or GB
@@ -265,17 +346,6 @@ export const DaysSince: React.FC = () => {
     const totalGB = (totalSeconds * rateMbs) / 1000;
     const dailyGB = (rateMbs * 86400) / 1000;
 
-    const formatCurrency = (val: number) => {
-      if (val >= 1000000) {
-        return `$${(val / 1000000).toFixed(2)}M`;
-      }
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 0,
-      }).format(val);
-    };
-
     return {
       total: `${formatCurrency(totalGB * 0.07)} – ${formatCurrency(totalGB * 0.12)}`,
       daily: `${formatCurrency(dailyGB * 0.07)} – ${formatCurrency(dailyGB * 0.12)}`,
@@ -292,7 +362,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Hours Total</Label>
           <Value>
-            {formatNumber(stats.totalHours)}
+            <RollingCounter value={formatNumber(stats.totalHours)} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
@@ -304,7 +374,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Since Escalation</Label>
           <Value>
-            {formatNumber(stats.escalationHours)}
+            <RollingCounter value={formatNumber(stats.escalationHours)} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
@@ -316,7 +386,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Days Total</Label>
           <Value>
-            {formatNumber(stats.totalDays)}
+            <RollingCounter value={formatNumber(stats.totalDays)} />
             <span className="unit">days</span>
           </Value>
         </StatBox>
@@ -330,7 +400,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Data Intercepted Total</Label>
           <Value>
-            {data.val}
+            <RollingCounter value={data.val} />
             <span className="unit">{data.unit}</span>
           </Value>
           {approxGB && <SubValue>{approxGB}</SubValue>}
@@ -344,7 +414,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Data Intercepted in 24HRS</Label>
           <Value>
-            {Math.round(rateDayGb)}
+            <RollingCounter value={Math.round(rateDayGb)} />
             <span className="unit">GB</span>
           </Value>
           <SubValue>{dailyComparisonText}</SubValue>
@@ -359,7 +429,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Data total Cost (to present)</Label>
           <Value>
-            {costs.total}
+            <RollingCounter value={costs.total} />
           </Value>
         </StatBox>
 
@@ -370,7 +440,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Data cost per Day</Label>
           <Value>
-            {costs.daily}
+            <RollingCounter value={costs.daily} />
             <span className="unit">/day</span>
           </Value>
         </StatBox>

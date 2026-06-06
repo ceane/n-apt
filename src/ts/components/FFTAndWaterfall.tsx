@@ -48,9 +48,20 @@ const SpectrumStage = styled.div`
   display: flex;
   flex-direction: column;
   position: relative;
-  flex: 1;
+  flex: 1 1 40px;
   min-height: 0;
   width: 100%;
+`;
+
+const SpectrumOverlayLayer = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 160;
+  pointer-events: none;
+
+  > * {
+    pointer-events: auto;
+  }
 `;
 
 const SlidersRail = styled.div`
@@ -186,12 +197,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           props.signalAreaBounds?.[props.activeSignalArea] ??
           props.signalAreaBounds?.[props.activeSignalArea?.toLowerCase?.()] ??
           null;
+        const zoomedBounds = clampedZoom > 1 ? null : activeBounds;
         const retune = getRetunedVizPanForZoomChange({
           currentPan: pan,
           nextZoom: clampedZoom,
           rangeMin: props.frequencyRange.min,
           rangeMax: props.frequencyRange.max,
-          bounds: activeBounds,
+          bounds: zoomedBounds,
         });
         const nextPan = retune.retuned
           ? retune.pan
@@ -243,7 +255,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               onRenderableFrameChange={setHasRenderableFrame}
               onCanvasLoadingChange={setIsFftCanvasLoading}
               waterfallCanvasBindings={waterfallCanvasBindings}
+              overlayContent={undefined}
             />
+            {props.overlayContent ? (
+              <SpectrumOverlayLayer>
+                {props.overlayContent}
+              </SpectrumOverlayLayer>
+            ) : null}
           </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}

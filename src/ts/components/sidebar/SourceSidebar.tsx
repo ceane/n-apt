@@ -18,6 +18,17 @@ interface SourceSidebarProps {
   onSourceModeChange?: (mode: SourceMode) => void;
   backend?: string | null;
   deviceName?: string | null;
+  devices?: React.ComponentProps<typeof SourceInput>["devices"];
+  selectedDeviceId?: string;
+  onSelectedDeviceChange?: (id: string) => void;
+  spaceBoundDeviceId?: string | null;
+  onToggleDeviceTxMode?: (id: string) => void;
+  compactActiveOnly?: boolean;
+  selectedFilesCount?: number;
+  onFileAction?: () => void;
+  onFilesSelected?: (files: File[]) => void;
+  fileActionLabel?: string;
+  fileActionTitle?: string;
 }
 
 export const SourceSidebar: React.FC<SourceSidebarProps> = ({
@@ -25,6 +36,17 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
   onSourceModeChange,
   backend,
   deviceName,
+  devices,
+  selectedDeviceId,
+  onSelectedDeviceChange,
+  spaceBoundDeviceId,
+  onToggleDeviceTxMode,
+  compactActiveOnly,
+  selectedFilesCount,
+  onFileAction,
+  onFilesSelected,
+  fileActionLabel,
+  fileActionTitle,
 }) => {
   return (
     <Section>
@@ -34,6 +56,17 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         backend={backend || null}
         deviceName={deviceName || null}
         onSourceModeChange={onSourceModeChange || (() => {})}
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onSelectedDeviceChange={onSelectedDeviceChange}
+        spaceBoundDeviceId={spaceBoundDeviceId}
+        onToggleDeviceTxMode={onToggleDeviceTxMode}
+        compactActiveOnly={compactActiveOnly}
+        selectedFilesCount={selectedFilesCount}
+        onFileAction={onFileAction}
+        onFilesSelected={onFilesSelected}
+        fileActionLabel={fileActionLabel}
+        fileActionTitle={fileActionTitle}
       />
     </Section>
   );

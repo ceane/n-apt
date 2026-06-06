@@ -5,8 +5,10 @@ import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import { computeMaxFrameRate } from "@n-apt/utils/signals";
 
 export type SampleRateMode = "whole" | "manual";
+export type SampleRateAnchorPosition = "start" | "center" | "end";
 
 type UseLiveSampleRateControlArgs = {
   sourceMode: "live" | "file";
@@ -16,7 +18,11 @@ type UseLiveSampleRateControlArgs = {
   activeSignalAreaBounds: FrequencyRange | null;
   frequencyRange: FrequencyRange | null;
   sampleRateHz: number | null;
+  fftSize?: number;
+  maxFrameRateLimit?: number;
+  startingAnchorPosition?: SampleRateAnchorPosition;
   setSampleRate: (rate: number) => void;
+  setFftFrameRate?: (rate: number) => void;
   applyFrequencyRange: (range: FrequencyRange) => void;
 };
 
@@ -24,12 +30,16 @@ type BuildSampleRateRangeArgs = {
   currentRange: FrequencyRange;
   sampleRateHz: number;
   channelBounds?: FrequencyRange | null;
+  startingAnchorPosition?: SampleRateAnchorPosition;
+  forceStartingAnchor?: boolean;
 };
 
 export const buildLiveSampleRateRange = ({
   currentRange,
   sampleRateHz,
   channelBounds,
+  startingAnchorPosition = "start",
+  forceStartingAnchor = false,
 }: BuildSampleRateRangeArgs): FrequencyRange => {
   const centerHz = getFrequencyRangeCenterHz(currentRange);
   const requestedSpan = Math.max(1, Math.round(sampleRateHz));
@@ -40,7 +50,20 @@ export const buildLiveSampleRateRange = ({
 
   if (channelBounds && channelSpan > 0) {
     if (sampleRateHz < channelSpan) {
-      const idealMin = centerHz - requestedSpan / 2;
+      const currentSpan = Math.max(0, currentRange.max - currentRange.min);
+      const currentRangeUsable =
+        !forceStartingAnchor &&
+        Number.isFinite(currentRange.min) &&
+        Number.isFinite(currentRange.max) &&
+        currentSpan > 0 &&
+        currentSpan <= requestedSpan + 1;
+      const anchoredMin =
+        startingAnchorPosition === "end"
+          ? channelBounds.max - requestedSpan
+          : startingAnchorPosition === "center"
+            ? centerHz - requestedSpan / 2
+            : channelBounds.min;
+      const idealMin = currentRangeUsable ? currentRange.min : anchoredMin;
       const min = Math.max(0, idealMin);
       return clampFrequencyRangeToBounds(
         normalizeFrequencyRangeToHz({
@@ -93,7 +116,11 @@ export const useLiveSampleRateControl = ({
   activeSignalAreaBounds,
   frequencyRange,
   sampleRateHz,
+  fftSize,
+  maxFrameRateLimit,
+  startingAnchorPosition = "start",
   setSampleRate,
+  setFftFrameRate,
   applyFrequencyRange,
 }: UseLiveSampleRateControlArgs) => {
   const sampleRateModeRef = useRef<SampleRateMode | null>(null);
@@ -127,6 +154,13 @@ export const useLiveSampleRateControl = ({
       }
 
       setSampleRate(resolvedSampleRate);
+      setFftFrameRate?.(
+        computeMaxFrameRate(
+          resolvedSampleRate,
+          fftSize ?? 0,
+          maxFrameRateLimit,
+        ),
+      );
 
       if (
         sourceMode !== "live" ||
@@ -137,20 +171,33 @@ export const useLiveSampleRateControl = ({
         return;
       }
 
+      const isLeavingWholeChannelMode =
+        wholeChannelSampleRate !== null &&
+        typeof sampleRateHz === "number" &&
+        Number.isFinite(sampleRateHz) &&
+        Math.round(sampleRateHz) === Math.round(wholeChannelSampleRate) &&
+        Math.round(resolvedSampleRate) !== Math.round(wholeChannelSampleRate);
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
         sampleRateHz: resolvedSampleRate,
         channelBounds: activeSignalAreaBounds,
+        startingAnchorPosition,
+        forceStartingAnchor: isLeavingWholeChannelMode,
       });
       applyFrequencyRange(nextRange);
     },
     [
       activeSignalAreaBounds,
       frequencyRange,
+      sampleRateHz,
+      startingAnchorPosition,
       setSampleRate,
+      setFftFrameRate,
       sourceMode,
       applyFrequencyRange,
       wholeChannelSampleRate,
+      fftSize,
+      maxFrameRateLimit,
     ],
   );
 
@@ -193,12 +240,16 @@ export const useLiveSampleRateControl = ({
       sampleRateModeRef.current = "whole";
       lastAppliedWholeChannelRateRef.current = nextRate;
       setSampleRate(nextRate);
+      setFftFrameRate?.(
+        computeMaxFrameRate(nextRate, fftSize ?? 0, maxFrameRateLimit),
+      );
       if (frequencyRange) {
         applyFrequencyRange(
           buildLiveSampleRateRange({
             currentRange: frequencyRange,
             sampleRateHz: nextRate,
             channelBounds: activeSignalAreaBounds,
+            startingAnchorPosition,
           }),
         );
       }
@@ -233,6 +284,7 @@ export const useLiveSampleRateControl = ({
           currentRange: frequencyRange,
           sampleRateHz: nextRate,
           channelBounds: activeSignalAreaBounds,
+          startingAnchorPosition,
         }),
       );
     }
@@ -245,6 +297,7 @@ export const useLiveSampleRateControl = ({
     sampleRateHz,
     setSampleRate,
     sourceMode,
+    startingAnchorPosition,
     wholeChannelSampleRate,
     canUseWholeChannel,
   ]);
@@ -267,6 +320,7 @@ export const useLiveSampleRateControl = ({
         currentRange: frequencyRange,
         sampleRateHz,
         channelBounds: activeSignalAreaBounds,
+        startingAnchorPosition,
       });
 
       if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
@@ -277,6 +331,7 @@ export const useLiveSampleRateControl = ({
         currentRange: frequencyRange,
         sampleRateHz,
         channelBounds: activeSignalAreaBounds,
+        startingAnchorPosition,
       });
 
       if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
@@ -289,6 +344,7 @@ export const useLiveSampleRateControl = ({
     canUseWholeChannel,
     frequencyRange,
     sampleRateHz,
+    startingAnchorPosition,
   ]);
 
   return {

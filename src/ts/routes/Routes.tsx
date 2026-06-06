@@ -57,6 +57,11 @@ const TransformersRoute = lazy(() =>
     default: m.TransformersRoute,
   })),
 );
+const Model3DGalleryRoute = lazy(() =>
+  import("@n-apt/routes/Model3DGalleryRoute").then((m) => ({
+    default: m.Model3DGalleryRoute,
+  })),
+);
 const LegalDocumentRoute = lazy(() =>
   import("@n-apt/routes/LegalDocumentRoute").then((m) => ({
     default: m.LegalDocumentRoute,
@@ -289,6 +294,16 @@ const AppRoutesInner: React.FC = () => {
                 <AntiAliasingDiagnostics />
               </Suspense>
             </MainLayout>
+          }
+        />
+        <Route
+          path="/3d-model-gallery"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <Model3DGalleryRoute />
+            </Suspense>
           }
         />
         <Route

@@ -15,6 +15,8 @@ use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::server::types::MockAptRealisticRfConfig;
+
 use super::SdrDevice;
 
 #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
@@ -45,8 +47,12 @@ pub struct MockAptDevice {
   total_samples: u64,
   signals: Vec<MockAptSignal>,
   noise_floor_db: f32,
+  realistic_rf: MockAptRealisticRfConfig,
   rng: StdRng,
   settle_time_samples: u64,
+  retune_settle_time_samples: u64,
+  samples_since_retune: u64,
+  previous_center_freq: u32,
   samples_since_init: u64,
   last_config_reload_check: Instant,
   last_config_modified: Option<SystemTime>,
@@ -92,6 +98,81 @@ fn modulation_gain(pulse_sin: f64) -> f64 {
   // because powf(base, exp) internally computes exp(exp * ln(base)) plus
   // additional branch/NaN handling for arbitrary bases.
   ((5.0 + 5.0 * pulse_sin) * (std::f64::consts::LN_10 / 20.0)).exp()
+}
+
+impl Default for MockAptRealisticRfConfig {
+  fn default() -> Self {
+    Self {
+      enabled: false,
+      aliasing: true,
+      passband: true,
+      retune_settling: true,
+    }
+  }
+}
+
+/// Fold an RF offset into the complex-baseband Nyquist interval.
+pub fn alias_to_baseband(rel_freq_hz: f64, sample_rate_hz: f64) -> f64 {
+  if !rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  (rel_freq_hz + sample_rate_hz / 2.0).rem_euclid(sample_rate_hz)
+    - sample_rate_hz / 2.0
+}
+
+/// Smooth mock receiver passband response for a displayed baseband offset.
+pub fn passband_gain(rel_freq_hz: f64, sample_rate_hz: f64) -> f64 {
+  if !rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  let nyquist = sample_rate_hz / 2.0;
+  let x = (rel_freq_hz.abs() / nyquist).min(1.5);
+  if x <= 0.70 {
+    1.0 - 0.08 * (x / 0.70).powi(2)
+  } else if x <= 1.0 {
+    let t = (x - 0.70) / 0.30;
+    let smooth = t * t * (3.0 - 2.0 * t);
+    0.92 + (0.30 - 0.92) * smooth
+  } else {
+    0.0
+  }
+}
+
+/// Combined visibility for realistic mock RF: passband plus folded leakage.
+pub fn realistic_visibility_gain(
+  abs_rel_freq_hz: f64,
+  displayed_rel_freq_hz: f64,
+  sample_rate_hz: f64,
+) -> f64 {
+  if !abs_rel_freq_hz.is_finite()
+    || !displayed_rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  let nyquist = sample_rate_hz / 2.0;
+  let fold_order = if abs_rel_freq_hz <= nyquist {
+    0
+  } else {
+    ((abs_rel_freq_hz - nyquist) / sample_rate_hz).floor() as i32 + 1
+  };
+
+  if fold_order > 8 {
+    return 0.0;
+  }
+
+  let leakage = 0.52f64.powi(fold_order);
+  passband_gain(displayed_rel_freq_hz, sample_rate_hz) * leakage
 }
 
 /// Lightweight snapshot for tracking mock APT generation cost.
@@ -184,6 +265,7 @@ impl MockAptDevice {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals_with_rng(&mock_settings, &mut rng);
     let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    let realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
     let (metal_backend, metal_backend_error) = if _enable_gpu_backend {
       match Self::metal_backend_probe_result() {
@@ -216,8 +298,12 @@ impl MockAptDevice {
       total_samples: 0,
       signals,
       noise_floor_db,
+      realistic_rf,
       rng,
       settle_time_samples: 160_000, // 50ms at 3.2MSPS
+      retune_settle_time_samples: 64_000, // 20ms at 3.2MSPS
+      samples_since_retune: u64::MAX,
+      previous_center_freq: 1_600_000,
       samples_since_init: 0,
       last_config_reload_check: Instant::now(),
       last_config_modified: crate::server::utils::signals_config_modified_at(),
@@ -406,6 +492,7 @@ impl MockAptDevice {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     self.signals = Self::create_signals_with_rng(&mock_settings, &mut self.rng);
     self.noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    self.realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
     self.last_config_modified =
       crate::server::utils::signals_config_modified_at().or(current_modified);
     self.last_config_checksum = current_checksum;
@@ -437,6 +524,7 @@ impl SdrDevice for MockAptDevice {
     log::info!("Initializing mock APT SDR device");
     self.total_samples = 0;
     self.samples_since_init = 0;
+    self.samples_since_retune = u64::MAX;
 
     // For now, use simple synchronous initialization
     // TODO: Add optional async mode when it's properly implemented
@@ -475,6 +563,10 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
+    if freq != self.center_freq {
+      self.previous_center_freq = self.center_freq;
+      self.samples_since_retune = 0;
+    }
     self.center_freq = freq;
     log::debug!("Mock device center frequency set to {} Hz", freq);
     Ok(())
@@ -538,6 +630,7 @@ impl SdrDevice for MockAptDevice {
     log::debug!("Mock APT device buffer reset");
     self.total_samples = 0;
     self.samples_since_init = 0;
+    self.samples_since_retune = u64::MAX;
     Ok(())
   }
 
@@ -606,6 +699,16 @@ impl MockAptDevice {
     } else {
       1.0
     };
+    let realistic_retune_factor = if self.realistic_rf.enabled
+      && self.realistic_rf.retune_settling
+      && self.samples_since_retune < self.retune_settle_time_samples
+    {
+      (self.samples_since_retune as f64
+        / self.retune_settle_time_samples.max(1) as f64)
+        .powf(1.6)
+    } else {
+      1.0
+    };
 
     // Use the actual device gain for realistic modeling.
     let analog_gain = 0.0;
@@ -646,17 +749,59 @@ impl MockAptDevice {
           signal.config.center_frequency_hz + (signal.drift_offset as f64);
         let effective_center_freq =
           center_freq * (1.0 - (self.ppm as f64) / 1_000_000.0);
-        let rel_freq = abs_freq_hz - effective_center_freq;
+        let raw_rel_freq = abs_freq_hz - effective_center_freq;
+        let mut rel_freq = raw_rel_freq;
+        let mut visibility_gain = 1.0;
 
-        // Skip signals way out of range
-        if rel_freq.abs() > (sample_rate / 2.0) + 100_000.0 {
-          continue;
+        if self.realistic_rf.enabled {
+          let displayed_rel_freq = if self.realistic_rf.aliasing {
+            alias_to_baseband(raw_rel_freq, sample_rate)
+          } else {
+            raw_rel_freq
+          };
+
+          if !self.realistic_rf.aliasing
+            && displayed_rel_freq.abs() > (sample_rate / 2.0) + 100_000.0
+          {
+            continue;
+          }
+
+          let visibility = if self.realistic_rf.passband {
+            realistic_visibility_gain(
+              raw_rel_freq.abs(),
+              displayed_rel_freq,
+              sample_rate,
+            )
+          } else if self.realistic_rf.aliasing {
+            0.52f64.powi(
+              ((raw_rel_freq.abs() - sample_rate / 2.0).max(0.0) / sample_rate)
+                .floor() as i32,
+            )
+          } else {
+            1.0
+          };
+
+          if visibility < 1.0e-5 {
+            continue;
+          }
+
+          rel_freq = displayed_rel_freq;
+          visibility_gain = visibility;
+        } else {
+          // Skip signals way out of range. This is the canonical path used by
+          // checksum-sensitive tests; keep it byte-identical when realism is off.
+          if raw_rel_freq.abs() > (sample_rate / 2.0) + 100_000.0 {
+            continue;
+          }
         }
 
         let rf_signal_db = signal.config.strength_db;
         let adc_signal_db = rf_signal_db + analog_gain;
-        let amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp()
+        let mut amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp()
           * settle_factor;
+        if self.realistic_rf.enabled {
+          amp *= visibility_gain * realistic_retune_factor;
+        }
 
         let frame_start_phase = signal.phase;
         let (mut p_im, mut p_re) = (frame_start_phase as f64).sin_cos();
@@ -830,6 +975,8 @@ impl MockAptDevice {
           self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
           self.samples_since_init =
             self.samples_since_init.wrapping_add(fft_size as u64);
+          self.samples_since_retune =
+            self.samples_since_retune.wrapping_add(fft_size as u64);
           self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
           return Ok(RawSamples {
             data,
@@ -874,6 +1021,8 @@ impl MockAptDevice {
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
+    self.samples_since_retune =
+      self.samples_since_retune.wrapping_add(fft_size as u64);
 
     let next_buffer = self
       .recycled_byte_buffer
@@ -935,6 +1084,8 @@ impl MockAptDevice {
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
+    self.samples_since_retune =
+      self.samples_since_retune.wrapping_add(fft_size as u64);
 
     let next_buffer = self
       .recycled_byte_buffer
@@ -957,6 +1108,16 @@ impl MockAptDevice {
   /// Get settle time in samples
   pub fn get_settle_time(&self) -> u64 {
     self.settle_time_samples
+  }
+
+  /// Enable or disable realistic RF modeling.
+  pub fn set_realistic_rf_config(&mut self, config: MockAptRealisticRfConfig) {
+    self.realistic_rf = config;
+  }
+
+  /// Set the realistic-mode retune settling duration in samples.
+  pub fn set_retune_settle_time(&mut self, samples: u64) {
+    self.retune_settle_time_samples = samples;
   }
 
   /// Return a stable estimate of the work required to generate one frame.

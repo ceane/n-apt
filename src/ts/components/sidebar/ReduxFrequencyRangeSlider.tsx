@@ -8,6 +8,7 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 
 // Styled Components
 const Container = styled.div`
@@ -26,6 +27,7 @@ interface ReduxFrequencyRangeSliderProps {
   minFreq: number;
   maxFreq: number;
   sampleRateHz?: number | null;
+  startingAnchorPosition?: "start" | "center" | "end";
   isWholeChannelMode?: boolean;
   allowWideSampleRateOverscan?: boolean;
   wideSampleRateZoomThreshold?: number;
@@ -44,6 +46,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   minFreq,
   maxFreq,
   sampleRateHz,
+  startingAnchorPosition = "start",
   isWholeChannelMode = false,
   allowWideSampleRateOverscan = false,
   wideSampleRateZoomThreshold = 1.5,
@@ -59,6 +62,12 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const { state, dispatch: storeDispatch, wsConnection } = useSpectrumStore();
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
+  );
+  const websocketDeviceProfile = useAppSelector(
+    (reduxState) => reduxState.websocket.deviceProfile,
+  );
+  const websocketBackend = useAppSelector(
+    (reduxState) => reduxState.websocket.backend,
   );
 
   const areaKey = signalAreaKey ?? label;
@@ -77,10 +86,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
       ? sampleRateHz
       : span;
-  const channelCardCoversWholeSpan =
-    safeSpan > 0 && requestedHardwareSpan >= safeSpan;
-  const wholeChannelDisplayMode =
-    isWholeChannelMode || channelCardCoversWholeSpan;
+  const wholeChannelDisplayMode = isWholeChannelMode;
   const wideHardwareRangeActive =
     allowWideSampleRateOverscan &&
     safeSpan > 0 &&
@@ -88,21 +94,47 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const channelClampZoomThreshold = wideHardwareRangeActive
     ? requestedHardwareSpan / safeSpan
     : 1;
-  const hardwareSpan = wholeChannelDisplayMode
-    ? safeSpan
-    : Math.min(requestedHardwareSpan, safeSpan);
+  const hardwareSpan = Math.min(requestedHardwareSpan, safeSpan);
   const rememberedRange = wholeChannelDisplayMode
     ? null
     : (lastKnownRanges[areaKey] ??
       lastKnownRanges[areaKey.toLowerCase()] ??
       null);
-  const externalFrequencyRange = wholeChannelDisplayMode
-    ? null
-    : isCurrentActive && (Number.isFinite(vizZoom) ? vizZoom : 1) > 1
-      ? null
-      : isCurrentActive
-        ? frequencyRange
-        : rememberedRange;
+
+  const resolveHardwareWindow = useCallback(
+    (range: FrequencyRange | null | undefined): FrequencyRange => {
+      if (safeSpan <= hardwareSpan) {
+        return { min: minFreq, max: maxFreq };
+      }
+      const rangeSpan =
+        range && Number.isFinite(range.min) && Number.isFinite(range.max)
+          ? range.max - range.min
+          : null;
+      const hasUsableRange =
+        range &&
+        Number.isFinite(range.min) &&
+        Number.isFinite(range.max) &&
+        rangeSpan !== null &&
+        rangeSpan > 0 &&
+        rangeSpan <= hardwareSpan + 1;
+      const anchoredMin =
+        startingAnchorPosition === "end"
+          ? maxFreq - hardwareSpan
+          : startingAnchorPosition === "center"
+            ? minFreq + (safeSpan - hardwareSpan) / 2
+            : minFreq;
+      const requestedMin = hasUsableRange ? range.min : anchoredMin;
+      const min = Math.max(
+        minFreq,
+        Math.min(maxFreq - hardwareSpan, requestedMin),
+      );
+      return {
+        min,
+        max: min + hardwareSpan,
+      };
+    },
+    [hardwareSpan, maxFreq, minFreq, safeSpan, startingAnchorPosition],
+  );
 
   // Calculate visible range based on zoom/pan settings
   const calculateVisibleRange = useCallback(() => {
@@ -115,34 +147,20 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     }
 
     if (!isCurrentActive) {
-      const baseRange = rememberedRange ?? {
-        min: minFreq,
-        max: minFreq + hardwareSpan,
-      };
-      return {
-        min: baseRange.min,
-        max: baseRange.max,
-      };
+      return resolveHardwareWindow(rememberedRange);
     }
 
     if (!frequencyRange) {
-      return {
-        min: minFreq,
-        max: minFreq + hardwareSpan,
-      };
+      return resolveHardwareWindow(null);
     }
 
     if (safeZoom <= 1) {
-      const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
-      const halfHardware = hardwareSpan / 2;
-      const visualCenter = Math.max(
-        minFreq + halfHardware,
-        Math.min(maxFreq - halfHardware, hardwareCenter),
-      );
-      return {
-        min: visualCenter - halfHardware,
-        max: visualCenter + halfHardware,
-      };
+      return frequencyRange.max - frequencyRange.min <= hardwareSpan + 1
+        ? clampFrequencyRangeToBounds(frequencyRange, {
+            min: minFreq,
+            max: maxFreq,
+          })
+        : resolveHardwareWindow(frequencyRange);
     }
 
     const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
@@ -163,6 +181,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     isCurrentActive,
     frequencyRange,
     rememberedRange,
+    resolveHardwareWindow,
     vizZoom,
     vizPanOffset,
     minFreq,
@@ -173,7 +192,14 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
   const visibleRange = calculateVisibleRange();
   const channelBounds = { min: minFreq, max: maxFreq };
-  const hardwareBounds = hardwareSpectrumBounds ?? channelBounds;
+  const isRtlSdr = isRtlSdrDevice({
+    deviceKind: websocketDeviceProfile?.kind,
+    backend: websocketBackend,
+    isRtlSdr: websocketDeviceProfile?.is_rtl_sdr,
+  });
+  const hardwareBounds = isRtlSdr
+    ? channelBounds
+    : (hardwareSpectrumBounds ?? channelBounds);
   const clampToChannelAndHardware = useCallback(
     (range: FrequencyRange): FrequencyRange => {
       const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
@@ -206,6 +232,16 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       wideHardwareRangeActive,
     ],
   );
+  const clampToHardwareOnly = useCallback(
+    (range: FrequencyRange): FrequencyRange =>
+      normalizeFrequencyRangeToHz(
+        clampFrequencyRangeToBounds(range, {
+          min: Math.max(0, hardwareBounds.min),
+          max: Math.max(0, hardwareBounds.max),
+        }),
+      ),
+    [hardwareBounds.max, hardwareBounds.min],
+  );
 
   // Handle frequency range change
   const handleRangeChange = useCallback(
@@ -236,7 +272,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         let newHardwareCenter = currentHardwareCenter + overflowPan;
         let newHardwareMin = newHardwareCenter - halfHardware;
         let newHardwareMax = newHardwareCenter + halfHardware;
-        const clampedHardwareRange = clampToChannelAndHardware({
+        const clampedHardwareRange = clampToHardwareOnly({
           min: newHardwareMin,
           max: newHardwareMax,
         });
@@ -281,6 +317,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       requestedHardwareSpan,
       span,
       clampToChannelAndHardware,
+      clampToHardwareOnly,
       channelClampZoomThreshold,
       wideHardwareRangeActive,
     ],
@@ -301,7 +338,6 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         isActive={isActive ?? isCurrentActive}
         onActivate={onActivate ?? (() => {})}
         onRangeChange={handleRangeChange}
-        externalFrequencyRange={externalFrequencyRange ?? undefined}
         readOnly={readOnly}
         disabled={disabled}
         scanProgress={scanProgress}

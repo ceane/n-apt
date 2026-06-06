@@ -1,6 +1,7 @@
 import {
   averageTemporalWaveforms,
   blendTemporalWaveform,
+  getTemporalResolutionLabel,
   getTemporalResolutionAlpha,
   getTemporalResolutionWindow,
 } from "../../src/ts/utils/temporalResolution";
@@ -51,6 +52,12 @@ describe("temporalResolution", () => {
       getTemporalResolutionWindow("medium"),
     );
     expect(getTemporalResolutionWindow("high")).toBe(1);
+  });
+
+  it("exposes user-facing labels for the reordered temporal resolution options", () => {
+    expect(getTemporalResolutionLabel("high")).toBe("Lossless");
+    expect(getTemporalResolutionLabel("medium")).toBe("Reduced");
+    expect(getTemporalResolutionLabel("low")).toBe("Slow");
   });
 
   it("averages multiple frames", () => {

@@ -10,6 +10,7 @@ import {
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
+import { fmtFreqTick } from "@n-apt/utils/rendering/formatters";
 import { renderHook, act } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
 
@@ -46,6 +47,16 @@ describe("fmtFreq", () => {
     const result = fmtFreq(-0.5e6);
     expect(result).toContain("kHz");
     expect(result).toContain("-500");
+  });
+});
+
+describe("fmtFreqTick", () => {
+  it("keeps three decimal places in GHz", () => {
+    expect(fmtFreqTick(1_001_000_000, 250_000)).toBe("1.001GHz");
+  });
+
+  it("keeps sub-MHz GHz ticks distinct", () => {
+    expect(fmtFreqTick(1_000_500_000, 250_000)).toBe("1.0005GHz");
   });
 });
 
@@ -513,7 +524,7 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines).toEqual([
-      "4.380.001MHz – 4.389.999MHz",
+      "4.38MHz – 4.39MHz",
       "2026-05-18 09:05:26 America/Los_Angeles",
       "Device Name: Mock APT SDR",
       "Onscreen / partial Channel A",
@@ -522,7 +533,7 @@ describe("buildSnapshotStatsLines", () => {
     ]);
   });
 
-  it("uses dot-grouped formatting for MHz snapshot ranges", () => {
+  it("uses trimmed MHz formatting for snapshot ranges", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 2_201_269, max: 2_206_731 },
       timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
@@ -535,7 +546,7 @@ describe("buildSnapshotStatsLines", () => {
       ppm: 1,
     });
 
-    expect(lines[0]).toBe("2.201.269MHz – 2.206.731MHz");
+    expect(lines[0]).toBe("2.2013MHz – 2.2067MHz");
   });
 
   it("uses whole-channel label when whole is true", () => {
@@ -587,6 +598,25 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines[3]).toBe("Whole Channel B");
+  });
+
+  it("does not infer whole-channel just because an RTL-SDR snapshot spans the hardware sample rate", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 100_000_000, max: 103_200_000 },
+      timestampLabel: "2026-06-03 12:00:00 America/Los_Angeles",
+      deviceName: "RTL-SDR Blog V4",
+      channelName: "A",
+      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+      hardwareSampleRateHz: 3_200_000,
+      whole: false,
+      modeLabel: "Onscreen",
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Onscreen / partial Channel A");
   });
 
   it("falls back to Onscreen when no channel name is present", () => {

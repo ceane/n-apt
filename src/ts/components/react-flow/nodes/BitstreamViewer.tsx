@@ -260,6 +260,9 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   frequencyRange,
 }) => {
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -292,6 +295,14 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
     }, 250); // 4fps — fast enough for readable table updates
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const current = Array.isArray(liveDataRef.current)
+      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
+      : liveDataRef.current;
+    lastIqRefRef.current = current?.iq_data;
+    setFrameIqData(current?.iq_data as Uint8Array | undefined);
+  }, [activeSourceId]);
 
   useEffect(() => {
     if (!gridRef.current) return;

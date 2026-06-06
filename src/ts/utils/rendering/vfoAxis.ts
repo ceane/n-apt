@@ -32,6 +32,7 @@ export type VfoAxisPrecision = {
   edgeKHz?: number;
   centerMinMHz?: number;
   centerMinKHz?: number;
+  centerMinGHz?: number;
 };
 
 export type VfoAxisContext = {
@@ -128,6 +129,7 @@ export function formatVfoAxisEdgeLabel(
     trimTrailingZeros: true,
     precisionMHz: 4,
     precisionKHz: 2,
+    precisionGHz: 3,
   });
 }
 
@@ -148,6 +150,7 @@ export function formatVfoAxisCenterLabel(
       Math.max(precision?.centerMinKHz ?? 0, precisionKHz),
       2,
     ),
+    precisionGHz: Math.min(Math.max(precision?.centerMinGHz ?? 3, 3), 3),
   });
 }
 
