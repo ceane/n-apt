@@ -1,5 +1,5 @@
 import React, { Suspense, useState, useCallback, useEffect } from "react";
-import styled, { useTheme, keyframes } from "styled-components";
+import styled, { useTheme, keyframes, createGlobalStyle } from "styled-components";
 import { Leva } from "leva";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
@@ -26,6 +26,7 @@ import {
   RadiationLobe3D,
   PolarRadioWaveWebGPU,
 } from "@n-apt/components/3D";
+import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
 import {
   BRAIN_GLB_URL,
   HUMAN_MODEL_AFRO_MALE_GLB_URL,
@@ -548,12 +549,14 @@ function FreeSpaceRadiationScene() {
 }
 
 function RoomTxScene() {
-  const { emissionRealism, power, frequency, animationSpeed } = useControls("Room TX Setup", {
+  const { emissionRealism, power, frequency: frequencyHz, animationSpeed } = useControls("Room TX Setup", {
     emissionRealism: { options: { "None": "none" } },
-    power: { value: 43, min: 0, max: 100 },
-    frequency: { value: 1500, min: 100, max: 6000 },
+    power: { value: 43, min: 0, max: 100, suffix: "dBm" },
+    frequency: levaFrequency(1500000000),
     animationSpeed: { value: 1.5, min: 0.1, max: 5 },
   });
+
+  const frequency = (frequencyHz as any) / 1e6;
 
   return (
     <>
@@ -662,6 +665,10 @@ function RoomTxScene() {
 }
 
 // ─── Styled components ────────────────────────────────────────────────────────
+
+const LevaGlobalStyles = createGlobalStyle`
+  /* Global styles for Leva, if any are still needed. Empty for now as we use theme object. */
+`;
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(6px); }
@@ -908,7 +915,7 @@ function BrainLights() {
 export const Model3DGalleryRoute: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeModel = MODELS[activeIndex];
-  const theme = useTheme();
+  const theme = useTheme() as any;
 
   const prev = useCallback(() => {
     setActiveIndex((i) => Math.max(0, i - 1));
@@ -927,11 +934,13 @@ export const Model3DGalleryRoute: React.FC = () => {
 
   return (
     <Wrapper>
+      <LevaGlobalStyles />
       <Leva
         theme={{
           sizes: {
-            rootWidth: "340px",
-            controlWidth: "160px",
+            rootWidth: "380px",
+            controlWidth: "200px",
+            numberInputMinWidth: "85px",
           },
           colors: {
             elevation1: theme.surface || "rgba(18, 18, 20, 0.8)",
@@ -943,7 +952,7 @@ export const Model3DGalleryRoute: React.FC = () => {
             highlight1: theme.textMuted || "#888",
             highlight2: theme.textSecondary || "#ccc",
             highlight3: theme.textPrimary || "#fff",
-            folderText: theme.textSecondary || "#ccc",
+            folderTextColor: theme.textSecondary || "#ccc",
             folderWidgetColor: theme.textMuted || "#888",
           },
           radii: {

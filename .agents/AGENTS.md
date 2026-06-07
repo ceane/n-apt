@@ -4,7 +4,10 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 
 ## Token Efficiency
 
-- DO NOT RERUN THE DEV SERVER!
+- I usually have it running so:
+  - DO NOT RERUN OR START THE DEV SERVER!
+  - DO NOT RUN `npm run build`, only build the markdown `npm run build:markdown` after article changes
+  - DO NOT USE BROWSER AUTOMATION TO TEST!
 - If testing the frontend app, the site is at http://localhost:5173 AND the password is in the .env.local
   - Prefer to inspect code and reason its mechanics versus code and test in the browser
 - If inspecting the Rust app, the rust log is at /tmp/rust_log.txt

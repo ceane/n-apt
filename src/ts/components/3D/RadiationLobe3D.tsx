@@ -248,8 +248,8 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     Parameters: folder({
       frequencyMHz: levaFrequency(1800000000),
       powerLevelDbm: { label: "Power Level", value: 43, min: -70, max: 64, step: 1, suffix: "dBm" },
-      apertureWidthM: { label: "Aperture Width (m)", value: 0.65, min: 0.1, max: 5.0 },
-      apertureHeightM: { label: "Aperture Height (m)", value: 1.56, min: 0.1, max: 5.0 },
+      apertureWidthM: { label: "Aperture Width", value: 0.65, min: 0.1, max: 5.0, suffix: "m" },
+      apertureHeightM: { label: "Aperture Height", value: 1.56, min: 0.1, max: 5.0, suffix: "m" },
     }),
     Effects: folder({
       showLabels: { label: "Show Labels", value: true },
@@ -273,7 +273,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     selectedTower === "none" ? height : towerConfig.antennaOrigin[1];
 
   const c = 3e8;
-  const safeFrequencyMHz = clamp(frequencyMHz / 1e6, 0.001, 100000);
+  const safeFrequencyMHz = clamp((frequencyMHz as any) / 1e6, 0.001, 100000);
   const safePowerDbm = clamp(powerLevelDbm, -70, 64);
   const effectiveApertureWidth = Math.max(0.1, apertureWidthM);
   const effectiveApertureHeight = Math.max(0.2, apertureHeightM);

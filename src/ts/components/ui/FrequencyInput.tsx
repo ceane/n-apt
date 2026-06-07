@@ -15,11 +15,13 @@ import {
   type FrequencyUnit,
 } from "@n-apt/utils/frequency";
 
-const OuterContainer = styled.div`
+const OuterContainer = styled.div<{ $isOpen?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
+  position: relative;
+  z-index: ${({ $isOpen }) => ($isOpen ? 1000 : "auto")};
 `;
 
 const Label = styled.label`
@@ -47,6 +49,7 @@ const StyledInput = styled.input`
   font-family: ${({ theme }) => theme.typography.mono};
   flex: 1;
   min-width: 0;
+  cursor: ew-resize;
 
   &::placeholder {
     color: ${({ theme }) => theme.colors.textMuted};
@@ -57,6 +60,7 @@ const StyledInput = styled.input`
     outline: none;
     border-color: ${({ theme }) => theme.colors.primary};
     box-shadow: 0 0 0 2px ${({ theme }) => theme.colors.primary}22;
+    cursor: text;
   }
 
   &:disabled {
@@ -71,9 +75,9 @@ const StyledInput = styled.input`
   }
 `;
 
-const UnitControl = styled.div`
+const UnitControl = styled.div<{ $isOpen?: boolean }>`
   position: relative;
-  z-index: 1;
+  z-index: ${({ $isOpen }) => ($isOpen ? 1000 : 1)};
 `;
 
 const UnitButton = styled.button`
@@ -169,6 +173,7 @@ interface FrequencyInputProps {
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   disabled?: boolean;
   className?: string;
+  onMenuOpenChange?: (isOpen: boolean) => void;
 }
 
 export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
@@ -187,6 +192,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     onKeyDown,
     disabled,
     className,
+    onMenuOpenChange,
   }) => {
     // Derive the initial display from the first rendered value.
     const initialScale = useMemo(
@@ -199,6 +205,10 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     const [displayUnit, setDisplayUnit] = useState<string>(initialScale.unit);
     const [isUnitMenuOpen, setIsUnitMenuOpen] = useState(false);
 
+    useEffect(() => {
+      onMenuOpenChange?.(isUnitMenuOpen);
+    }, [isUnitMenuOpen, onMenuOpenChange]);
+
     // Track focus state to prevent prop updates from clobbering user input
     const isFocusedRef = useRef(false);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +217,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     // Track current value in Hz for internal calculations
     const hzRef = useRef(valueHz);
     const prevValueHzRef = useRef(valueHz);
+
+
 
     useEffect(() => {
       const clamped = clampFrequencyHz(valueHz, minHz, maxHz);
@@ -248,6 +260,60 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       },
       [minHz, maxHz, onChangeHz],
     );
+
+    const dragStartRef = useRef<{ x: number; value: number } | null>(null);
+    const hasDraggedRef = useRef(false);
+
+    const handlePointerDown = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
+      if (disabled) return;
+      if (e.button !== 0) return; // Only left click
+      dragStartRef.current = { x: e.clientX, value: hzRef.current };
+      hasDraggedRef.current = false;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }, [disabled]);
+
+    const handlePointerMove = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
+      if (!dragStartRef.current) return;
+      const deltaX = e.clientX - dragStartRef.current.x;
+
+      if (!hasDraggedRef.current) {
+        if (Math.abs(deltaX) > 3) {
+          hasDraggedRef.current = true;
+          inputRef.current?.focus();
+        }
+      }
+
+      if (hasDraggedRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        let baseStep = 1;
+        if (displayUnit === "kHz") baseStep = 1_000;
+        else if (displayUnit === "MHz") baseStep = 1_000_000;
+        else if (displayUnit === "GHz") baseStep = 10_000_000;
+
+        let multiplier = 1;
+        if (e.shiftKey) multiplier = 10;
+        else if (e.altKey) multiplier = 0.1;
+
+        const deltaHz = deltaX * baseStep * multiplier;
+        const newHz = dragStartRef.current.value + deltaHz;
+        handleUpdate(newHz, true);
+      }
+    }, [displayUnit, handleUpdate]);
+
+    const handlePointerUp = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
+      if (!dragStartRef.current) return;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      dragStartRef.current = null;
+
+      if (hasDraggedRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        inputRef.current?.blur();
+        inputRef.current?.focus();
+      }
+    }, []);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (disabled) return;
@@ -374,8 +440,9 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     return (
       <OuterContainer
         ref={outerContainerRef}
-        className={className}
+        className={`${className || ""} ${isUnitMenuOpen ? "leva-unit-menu-open" : ""}`}
         onBlur={handleContainerBlur}
+        $isOpen={isUnitMenuOpen}
       >
         {label && <Label htmlFor={id}>{label}</Label>}
         <InputContainer>
@@ -392,13 +459,16 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
               }
             }}
             onChange={handleInputChange}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
             autoComplete="off"
             spellCheck={false}
             placeholder={placeholder}
             autoFocus={autoFocus}
             disabled={disabled}
           />
-          <UnitControl>
+          <UnitControl $isOpen={isUnitMenuOpen}>
             <UnitButton
               type="button"
               disabled={disabled}

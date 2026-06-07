@@ -5,6 +5,7 @@ import * as THREE from "three";
 import styled from "styled-components";
 import { useControls } from "leva";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
 
 interface PolarRadioWaveWebGPUProps {
   aperture?: number;
@@ -73,7 +74,7 @@ const PolarLobeLine: React.FC<{
 
     // Theoretical beamwidth estimation (Aperture vs Wavelength)
     // HPBW approx 51 * (λ / A)
-    const physicsBeamWidth = 51 * (wavelengthMm / aperture);
+    const physicsBeamWidth = 51 * (wavelengthMm / (aperture * 1000));
 
     // Merge prop with physics, biasing towards physics if it's broad
     const effectiveBeamWidth = Math.min(
@@ -100,7 +101,7 @@ const PolarLobeLine: React.FC<{
       }
 
       // If Aperture < Wavelength, diffraction dominates (leaks behind much more)
-      const diffractionRatio = Math.min(1.0, wavelengthMm / aperture);
+      const diffractionRatio = Math.min(1.0, wavelengthMm / (aperture * 1000));
       const diffractionFloor =
         0.05 + 0.4 * diffractionRatio * (0.5 + 0.5 * Math.cos(normTheta));
 
@@ -282,13 +283,17 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
   frequency: propFrequency = 1.5,
   gain: propGain = 43,
 }) => {
-  const { frequency, aperture, power, beamWidth, rotation } = useControls("Polar Radiation Setup", {
-    frequency: { value: propFrequency, min: 0.1, max: 6000, step: 0.1 },
-    aperture: { value: propAperture, min: 1, max: 200, step: 1 },
-    power: { value: propGain, min: -20, max: 60, step: 1 },
+  const { frequency: frequencyHz, aperture, power, beamWidth, rotation } = useControls("Polar Radiation Setup", {
+    frequency: levaFrequency(propFrequency ? propFrequency * 1e6 : 1_500_000),
+    aperture: { value: propAperture, min: 1, max: 200, step: 1, suffix: "m" },
+    power: { value: propGain, min: -20, max: 60, step: 1, suffix: "dBm" },
     beamWidth: { value: propBeamWidth, min: 1, max: 180, step: 1 },
     rotation: { value: propRotation, min: 0, max: 360, step: 1 },
   });
+
+  const frequency = (frequencyHz as any) / 1e6;
+  const numAperture = parseFloat(aperture as any) || 40;
+  const numPower = parseFloat(power as any) || 43;
 
   const wavelengthMm = 300000 / (frequency || 1.5);
 
@@ -308,13 +313,13 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
           style={{ aspectRatio: "4 / 3", width: "100%" }}
         >
           <ambientLight intensity={1.5} />
-          <PolarGrid3D aperture={aperture} />
+          <PolarGrid3D aperture={numAperture} />
           <PolarLobeLine
+            aperture={numAperture}
             beamWidth={beamWidth}
             rotation={rotation}
-            aperture={aperture}
             frequency={frequency}
-            power={power}
+            power={numPower}
           />
         </Canvas>
 
@@ -331,11 +336,11 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
           </MetricItem>
           <MetricItem>
             <MathText>A</MathText> (Aperture):{" "}
-            <MetricValue>{formatDistance(aperture)}</MetricValue>
+            <MetricValue>{formatDistance(numAperture * 1000)}</MetricValue>
           </MetricItem>
           <MetricItem>
             <MathText>P</MathText> (Power):{" "}
-            <MetricValue>{power} dBm</MetricValue>
+            <MetricValue>{typeof power === "string" && (power as any).includes("dBm") ? power : `${power} dBm`}</MetricValue>
           </MetricItem>
         </MetricsOverlay>
 
