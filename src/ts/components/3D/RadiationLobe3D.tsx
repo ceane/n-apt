@@ -1,6 +1,6 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import * as THREE from "three";
-import { useControls, folder } from "leva";
+import { useControls, folder, useCreateStore } from "leva";
 import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
 import { levaGainScale } from "@n-apt/components/ui/levaGainScalePlugin";
 import { levaPanelSelector } from "@n-apt/components/ui/levaPanelSelectorPlugin";
@@ -9,6 +9,7 @@ import styled from "styled-components";
 import {
   TOWER_CONFIGS,
   TowerType,
+  resolveTowerType,
   SectorTower,
   DiamondCell,
   PoleMountedSmallCell,
@@ -30,6 +31,11 @@ interface RadiationLobe3DProps {
   m?: number; // vertical beam shaping
   showNearFarField?: boolean;
   showGroundInterference?: boolean;
+  useLevaControls?: boolean;
+  selectedTowerProp?: string;
+  showLabels?: boolean;
+  forcedReach?: number;
+  resolution?: number;
 }
 
 const LobeLabel = styled.div`
@@ -38,98 +44,18 @@ const LobeLabel = styled.div`
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid #ac77ff;
-        theme={{
-          sizes: {
-            rootWidth: "340px",
-            controlWidth: "160px",
-          },
-          colors: {
-            elevation1: theme.colors?.surface || "rgba(18, 18, 20, 0.8)",
-            elevation2: "rgba(255, 255, 255, 0.05)",
-            elevation3: "rgba(255, 255, 255, 0.1)",
-            accent1: theme.colors?.primary || "#ac77ff",
-            accent2: theme.colors?.primary || "#ac77ff",
-            accent3: theme.colors?.primaryHover || "#c19cff",
-            highlight1: theme.colors?.textMuted || "#888",
-            highlight2: theme.colors?.textSecondary || "#ccc",
-            highlight3: theme.colors?.textPrimary || "#fff",
-            folderText: theme.colors?.textSecondary || "#ccc",
-            folderWidgetColor: theme.colors?.textMuted || "#888",
-          },
-          radii: {
-            xs: "4px",
-            sm: "6px",
-            lg: "12px",
-          },
-          space: {
-            sm: "8px",
-            md: "12px",
-            rowGap: "8px",
-            colGap: "8px",
-          },
-          fonts: {
-            mono: (theme.typography?.mono as string) || "'JetBrains Mono', monospace",
-            sans: (theme.typography?.sans as string) || "Inter, sans-serif",
-          },
-        }}t-size: 10px;
+  font-size: 10px;
   white-space: nowrap;
   pointer-events: none;
 `;
 
-const ControlPanel = styled.div`
-  background: rgba(10, 10, 12, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: auto;
-  color: white;
-  font-family: "Inter", sans-serif;
-  width: 200px;
-`;
-
-const TowerSelect = styled.select`
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
-  padding: 6px;
-  border-radius: 4px;
-  outline: none;
-  font-family: "Inter", sans-serif;
-  font-size: 12px;
-  cursor: pointer;
-
-  &:focus {
-    border-color: #ac77ff;
-  }
-`;
-
-const NumberInput = styled.input`
-  background: #111;
-  color: #eee;
-  border: 1px solid #333;
-  padding: 6px;
-  border-radius: 4px;
-  outline: none;
-  font-family: "Inter", sans-serif;
-  font-size: 12px;
-  width: 84px;
-  text-align: right;
-
-  &:focus {
-    border-color: #ac77ff;
-  }
-`;
-
-const ToggleInput = styled.input`
-  accent-color: #ac77ff;
-  cursor: pointer;
-`;
-
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+const finiteNumberOr = (value: unknown, fallback: number) => {
+  const parsed =
+    typeof value === "number" ? value : Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 const sinc = (value: number) =>
   Math.abs(value) < 1e-6 ? 1 : Math.sin(value) / value;
 const dbmToWatts = (value: number) => Math.pow(10, value / 10) / 1000;
@@ -148,8 +74,17 @@ const normalizedArrayFactor = (count: number, phaseDelta: number) => {
 
 const createMainLobeGroundReach = (
   powerWatts: number,
-  visibilityThreshold: number,
-) => Math.sqrt(powerWatts / (4 * Math.PI * visibilityThreshold));
+  wavelength: number,
+  apertureWidth: number,
+  apertureHeight: number,
+  powerDensityThreshold: number,
+) => {
+  const peakGain =
+    (4 * Math.PI * apertureWidth * apertureHeight) / (wavelength * wavelength);
+  return Math.sqrt(
+    (powerWatts * peakGain) / (4 * Math.PI * powerDensityThreshold),
+  );
+};
 
 const TOWER_RADIATION_PRESETS: Record<
   TowerType,
@@ -162,11 +97,11 @@ const TOWER_RADIATION_PRESETS: Record<
   }
 > = {
   none: {
-    horizontalElements: 6,
-    verticalElements: 10,
-    frontExponent: 1.5,
-    backFloor: 0.03,
-    sideLobeFloor: 0.02,
+    horizontalElements: 1,
+    verticalElements: 1,
+    frontExponent: 0,
+    backFloor: 1.0,
+    sideLobeFloor: 1.0,
   },
   sector: {
     horizontalElements: 8,
@@ -219,57 +154,102 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   m = 20,
   showNearFarField = true,
   showGroundInterference = true,
+  useLevaControls = true,
+  selectedTowerProp = "sector",
+  showLabels = true,
+  forcedReach,
+  resolution,
 }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  
-  const {
-    selectedTower,
-    frequencyMHz,
-    powerLevelDbm,
-    apertureWidthM,
-    apertureHeightM,
-    showMultipath,
-    showScattering,
-    secondaryStrength,
-    showFarField,
-    showLabels,
-  } = useControls("Radiation Lobe Setup", {
-    "Cell Tower / Site": folder({
-      selectedTower: {
-        label: "Model",
-        options: {
-          "Sector Tower": "sector",
-          "Diamond Cell": "diamond",
-          "Pole Mounted": "pole_small",
-          "Hexagonal Cell": "hexagonal",
-          "Single Panel": "single_panel",
+  const hiddenStore = useCreateStore();
+  const storeToUse = useLevaControls ? undefined : hiddenStore;
+
+  const levaValues = useControls(
+    "Radiation Lobe Setup",
+    {
+      "Cell Tower / Site": folder({
+        selectedTower: {
+          label: "Model",
+          options: {
+            "Sector Tower": "sector",
+            "Diamond Cell": "diamond",
+            "Pole Mounted": "pole_small",
+            "Hexagonal Cell": "hexagonal",
+            "Single Panel": "single_panel",
+          },
+          value: "sector",
         },
-        value: "sector",
-      },
-    }),
-    Parameters: folder({
-      frequencyMHz: levaFrequency(1800000000),
-      powerLevelDbm: { label: "Power Level", value: 43, min: -70, max: 64, step: 1, suffix: "dBm" },
-      apertureWidthM: { label: "Aperture Width", value: 0.65, min: 0.1, max: 5.0, suffix: "m" },
-      apertureHeightM: { label: "Aperture Height", value: 1.56, min: 0.1, max: 5.0, suffix: "m" },
-    }),
-    Visibility: folder({
-      showMultipath: { label: "Ray Paths", value: true },
-      showScattering: { label: "Scattering", value: true },
-      showFarField: { label: "Far Field Mesh", value: true },
-      secondaryStrength: {
-        label: "Secondary Strength",
-        value: 0.32,
-        min: 0,
-        max: 1,
-        step: 0.01,
-      },
-      showLabels: { label: "Labels", value: true },
-    }),
-    Reference: folder({
-      scale: levaGainScale(),
-    }),
-  });
+      }),
+      Parameters: folder({
+        frequencyMHz: levaFrequency(1800000000),
+        powerLevelDbm: {
+          label: "Power Level",
+          value: 43,
+          min: -70,
+          max: 64,
+          step: 1,
+          suffix: "dBm",
+        },
+        apertureWidthM: {
+          label: "Aperture Width",
+          value: 0.65,
+          min: 0.1,
+          max: 5.0,
+          suffix: "m",
+        },
+        apertureHeightM: {
+          label: "Aperture Height",
+          value: 1.56,
+          min: 0.1,
+          max: 5.0,
+          suffix: "m",
+        },
+      }),
+      Visibility: folder({
+        showMultipath: { label: "Ray Paths", value: true },
+        showScattering: { label: "Scattering", value: true },
+        showFarField: { label: "Far Field Mesh", value: true },
+        secondaryStrength: {
+          label: "Secondary Strength",
+          value: 0.32,
+          min: 0,
+          max: 1,
+          step: 0.01,
+        },
+        showLabels: { label: "Labels", value: true },
+      }),
+      Reference: folder({
+        scale: levaGainScale(),
+      }),
+    },
+    { store: storeToUse },
+  );
+
+  const selectedTower = resolveTowerType(
+    useLevaControls ? levaValues.selectedTower : selectedTowerProp,
+  );
+  const frequencyHz = useLevaControls
+    ? levaValues.frequencyMHz
+    : frequency * 1e6;
+  const powerLevelDbm = useLevaControls ? levaValues.powerLevelDbm : powerDbm;
+  const apertureWidthM = useLevaControls
+    ? levaValues.apertureWidthM
+    : apertureWidth || aperture;
+  const apertureHeightM = useLevaControls
+    ? levaValues.apertureHeightM
+    : apertureHeight || aperture;
+  const showMultipath = useLevaControls
+    ? levaValues.showMultipath
+    : showMultipathRays;
+  const showScattering = useLevaControls
+    ? levaValues.showScattering
+    : showScatteringCloud;
+  const secondaryStrength = useLevaControls
+    ? levaValues.secondaryStrength
+    : multipathStrength;
+  const showFarField = useLevaControls
+    ? levaValues.showFarField
+    : showNearFarField;
+  const showLabelsActive = useLevaControls ? levaValues.showLabels : showLabels;
 
   const towerConfig = TOWER_CONFIGS[selectedTower as TowerType];
   const towerPreset = TOWER_RADIATION_PRESETS[selectedTower as TowerType];
@@ -278,8 +258,11 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
 
   const panelLabels = React.useMemo(() => {
     if (towerConfig.id === "sector") return ["Left", "Center", "Right"];
-    if (towerConfig.id === "hexagonal") return ["North", "NW", "NE", "South", "SW", "SE"];
-    return Array(towerConfig.emitterFaces.length).fill(0).map((_, i) => `Panel ${i + 1}`);
+    if (towerConfig.id === "hexagonal")
+      return ["North", "NW", "NE", "South", "SW", "SE"];
+    return Array(towerConfig.emitterFaces.length)
+      .fill(0)
+      .map((_, i) => `Panel ${i + 1}`);
   }, [towerConfig.id, towerConfig.emitterFaces.length]);
 
   const [{ activePanels }] = useControls(
@@ -287,27 +270,42 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     () => ({
       "Cell Tower / Site": folder({
         activePanels: {
-          ...levaPanelSelector({ 
-            count: towerConfig.emitterFaces.length, 
+          ...levaPanelSelector({
+            count: towerConfig.emitterFaces.length,
             labels: panelLabels,
-            initialValue: towerConfig.id === "sector" 
-              ? [false, true, false] 
-              : towerConfig.id === "hexagonal"
-                ? [true, false, false, false, false, false]
-                : Array(towerConfig.emitterFaces.length).fill(true)
+            initialValue:
+              towerConfig.id === "sector"
+                ? [false, true, false]
+                : towerConfig.id === "hexagonal"
+                  ? [true, false, false, false, false, false]
+                  : Array(towerConfig.emitterFaces.length).fill(true),
           }),
-          render: () => towerConfig.emitterFaces.length > 1 || towerConfig.id === "hexagonal"
-        }
+          render: () =>
+            towerConfig.emitterFaces.length > 1 ||
+            towerConfig.id === "hexagonal",
+        },
       }),
     }),
-    [selectedTower, towerConfig.emitterFaces.length]
+    { store: storeToUse },
+    [selectedTower, towerConfig.emitterFaces.length],
   );
 
-  const c = 3e8;
-  const safeFrequencyMHz = clamp((frequencyMHz as any) / 1e6, 0.001, 100000);
-  const safePowerDbm = clamp(parseFloat(powerLevelDbm as any), -70, 64);
-  const effectiveApertureWidth = Math.max(0.1, parseFloat(apertureWidthM as any));
-  const effectiveApertureHeight = Math.max(0.2, parseFloat(apertureHeightM as any));
+  const c = 299_792_458;
+  const safeFrequencyHz = clamp(
+    finiteNumberOr(frequencyHz, 1.8e9),
+    1_000,
+    100_000_000_000,
+  );
+  const safeFrequencyMHz = safeFrequencyHz / 1e6;
+  const safePowerDbm = clamp(finiteNumberOr(powerLevelDbm, 43), -70, 64);
+  const effectiveApertureWidth = Math.max(
+    0.1,
+    finiteNumberOr(apertureWidthM, aperture),
+  );
+  const effectiveApertureHeight = Math.max(
+    0.2,
+    finiteNumberOr(apertureHeightM, aperture),
+  );
   const wavelength = c / (safeFrequencyMHz * 1e6);
   const powerWatts = dbmToWatts(safePowerDbm);
   const k = (2 * Math.PI) / wavelength;
@@ -333,11 +331,24 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   const horizontalTaper = clamp(n / 6, 0.6, 3);
   const verticalTaper = clamp(m / 20, 0.6, 3.5);
   const visualScale = clamp(Math.sqrt(powerWatts) * 1.6 + 3, 3, 12);
-  const visibilityThreshold = 0.008;
-  const mainLobeGroundReach = Math.min(
-    24,
-    createMainLobeGroundReach(powerWatts, visibilityThreshold) * 1.35,
+  const powerDensityThreshold = 2.0; // W/m^2 threshold for visualization extent
+  const calculatedReach = createMainLobeGroundReach(
+    powerWatts,
+    wavelength,
+    effectiveApertureWidth,
+    effectiveApertureHeight,
+    powerDensityThreshold,
   );
+
+  const wavelengthReferenceHz = 1.8e9;
+  const wavelengthReachScale = Math.pow(
+    wavelengthReferenceHz / safeFrequencyHz,
+    1.2,
+  );
+  const mainLobeGroundReach = useMemo(() => {
+    return forcedReach ?? Math.min(150, calculatedReach * wavelengthReachScale);
+  }, [calculatedReach, forcedReach, wavelengthReachScale]);
+
   const gridSpan = Math.max(
     60,
     Math.ceil((mainLobeGroundReach * 2.8) / 10) * 10,
@@ -345,9 +356,19 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   );
   const gridDivisions = Math.max(40, Math.ceil(gridSpan / 2));
   const safeSecondaryStrength = clamp(secondaryStrength, 0, 1);
+  const geometryResolution = clamp(
+    Math.round(finiteNumberOr(resolution, useLevaControls ? 72 : 40)),
+    24,
+    96,
+  );
+  const scatteringResolution = clamp(
+    Math.round(geometryResolution * 0.45),
+    16,
+    42,
+  );
 
   const geometry = useMemo(() => {
-    const size = 72;
+    const size = geometryResolution;
     const vertices: number[] = [];
     const indices: number[] = [];
     const colors: number[] = [];
@@ -360,7 +381,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         const dirY = Math.cos(phi) * Math.sin(theta);
         const dirZ = Math.sin(phi);
         const horizontalAngle = Math.atan2(dirY, dirX);
-        const verticalAngle = Math.atan2(dirZ, dirX);
+        const verticalAngle = Math.asin(dirZ);
         const apertureFactorH = Math.abs(
           sinc((k * effectiveApertureWidth * Math.sin(horizontalAngle)) / 2),
         );
@@ -380,25 +401,31 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
           Math.pow(apertureFactorV, 0.8 * verticalTaper);
         const arrayEnvelope =
           Math.pow(arrayFactorH, 0.75) * Math.pow(arrayFactorV, 0.75);
-        const frontWeight =
-          dirX > 0
-            ? Math.pow(clamp(dirX, 0, 1), towerPreset.frontExponent)
-            : towerPreset.backFloor;
-        let intensity = clamp(
-          apertureEnvelope * arrayEnvelope * frontWeight,
-          0,
-          1,
-        );
+        let intensity: number;
 
-        if (dirX > 0) {
-          intensity = Math.max(
-            intensity,
-            towerPreset.sideLobeFloor *
-              arrayEnvelope *
-              Math.pow(Math.max(apertureEnvelope, 0), 0.35),
-          );
+        if (selectedTower === "none") {
+          intensity = 1 - dirZ * dirZ;
         } else {
-          intensity = Math.max(intensity, towerPreset.backFloor * 0.7);
+          const frontWeight =
+            dirX > 0
+              ? Math.pow(clamp(dirX, 0, 1), towerPreset.frontExponent)
+              : towerPreset.backFloor;
+          intensity = clamp(
+            apertureEnvelope * arrayEnvelope * frontWeight,
+            0,
+            1,
+          );
+
+          if (dirX > 0) {
+            intensity = Math.max(
+              intensity,
+              towerPreset.sideLobeFloor *
+                arrayEnvelope *
+                Math.pow(Math.max(apertureEnvelope, 0), 0.35),
+            );
+          } else {
+            intensity = Math.max(intensity, towerPreset.backFloor * 0.7);
+          }
         }
 
         if (showGroundInterference) {
@@ -407,22 +434,19 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
           intensity *= groundFactor / 2;
         }
 
-        const range = Math.sqrt(
-          (powerWatts * Math.max(intensity, 1e-5)) /
-            (4 * Math.PI * visibilityThreshold),
-        );
-        const boundedRange = Math.min(24, range * 1.35);
+        // Apply a gamma curve to map the linear voltage to a more traditional dB-like bulbous shape
+        const shapeGamma = 0.45;
+        const visualIntensity = Math.pow(intensity, shapeGamma);
+        const boundedRange = mainLobeGroundReach * visualIntensity;
         const x = boundedRange * Math.cos(phi) * Math.cos(theta);
         const y = boundedRange * Math.cos(phi) * Math.sin(theta);
         const z = boundedRange * Math.sin(phi);
-        const heat = clamp(
-          (Math.log10(1 + powerWatts * intensity * 16) + 0.15) / 1.6,
-          0,
-          1,
-        );
+
+        // Heatmap colors
+        const heat = Math.pow(intensity, 0.5);
 
         vertices.push(x, z, -y);
-        colors.push(heat, 0.9 - Math.abs(heat - 0.45), 1 - heat * 0.35);
+        colors.push(0.3 + heat * 0.6, 0.1 + heat * 0.3, 0.6 + heat * 0.4);
       }
     }
 
@@ -444,11 +468,13 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   }, [
     effectiveApertureHeight,
     effectiveApertureWidth,
+    geometryResolution,
     horizontalSpacing,
     horizontalTaper,
     k,
     originHeight,
     powerWatts,
+    selectedTower,
     showGroundInterference,
     towerPreset.backFloor,
     towerPreset.frontExponent,
@@ -457,6 +483,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     towerPreset.verticalElements,
     verticalSpacing,
     verticalTaper,
+    mainLobeGroundReach,
   ]);
 
   const farFieldVisualRadius = clamp(farFieldDistance, 0.25, 25);
@@ -536,7 +563,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     wavelength,
   ]);
   const scatteringGeometry = useMemo(() => {
-    const size = 42;
+    const size = scatteringResolution;
     const vertices: number[] = [];
     const indices: number[] = [];
     const colors: number[] = [];
@@ -593,7 +620,12 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
-  }, [mainLobeGroundReach, safeSecondaryStrength, wavelength]);
+  }, [
+    mainLobeGroundReach,
+    safeSecondaryStrength,
+    scatteringResolution,
+    wavelength,
+  ]);
 
   return (
     <>
@@ -634,23 +666,25 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
 
       <group position={[0, 0, 0]}>
         {/* Ground Plane reference at y=0, relative to the shifted group */}
-        <gridHelper
-          args={[gridSpan, gridDivisions, 0x444444, 0x222222]}
-          position={[gridSpan / 2 - 2, -originHeight, 0]}
-        />
-
-        <line>
-          <bufferGeometry setFromPoints={distanceLinePoints} />
-          <lineBasicMaterial color="#ffd166" />
-        </line>
-
-        <mesh
-          position={[mainLobeGroundReach, -originHeight + 0.03, 0]}
-          rotation={[Math.PI / 2, 0, 0]}
-        >
-          <coneGeometry args={[0.12, 0.45, 12]} />
-          <meshBasicMaterial color="#ffd166" />
-        </mesh>
+        {showLabelsActive && (
+          <>
+            <gridHelper
+              args={[gridSpan, gridDivisions, 0x444444, 0x222222]}
+              position={[gridSpan / 2 - 2, -originHeight, 0]}
+            />
+            <line>
+              <bufferGeometry setFromPoints={distanceLinePoints} />
+              <lineBasicMaterial color="#ffd166" />
+            </line>
+            <mesh
+              position={[mainLobeGroundReach, -originHeight + 0.03, 0]}
+              rotation={[Math.PI / 2, 0, 0]}
+            >
+              <coneGeometry args={[0.12, 0.45, 12]} />
+              <meshBasicMaterial color="#ffd166" />
+            </mesh>
+          </>
+        )}
 
         {showLabels && (
           <Html position={distanceMarkerPosition} center zIndexRange={[100, 0]}>
@@ -661,9 +695,17 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         )}
 
         {showLabels && (
-          <Html position={distanceEndLabelPosition} center zIndexRange={[100, 0]}>
+          <Html
+            position={distanceEndLabelPosition}
+            center
+            zIndexRange={[100, 0]}
+          >
             <LobeLabel
-              style={{ borderColor: "#ffd166", color: "#ffd166", opacity: 0.85 }}
+              style={{
+                borderColor: "#ffd166",
+                color: "#ffd166",
+                opacity: 0.85,
+              }}
             >
               {mainLobeGroundReach.toFixed(1)}m
             </LobeLabel>
@@ -671,179 +713,207 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         )}
       </group>
 
-      {towerConfig.emitterFaces.map((facePos, index) => {
-        const originY = facePos[1] - originHeight;
-        const isPanelActive = towerConfig.emitterFaces.length === 1 
-          ? true 
-          : (Array.isArray(activePanels) ? (activePanels[index] ?? true) : true);
-        
-        if (!isPanelActive) return null;
+      {(() => {
+        const firstActiveIndex = towerConfig.emitterFaces.findIndex(
+          (_, index) => {
+            if (towerConfig.emitterFaces.length === 1) return true;
+            if (Array.isArray(activePanels)) return activePanels[index] ?? true;
+            return true;
+          },
+        );
 
-        let customRotation = towerConfig.antennaRotation;
-        if (towerConfig.id === "hexagonal") {
-          const hexRotations = [
-            0, // North
-            Math.PI / 3, // NW
-            -Math.PI / 3, // NE
-            Math.PI, // South
-            2 * Math.PI / 3, // SW
-            -2 * Math.PI / 3, // SE
-          ];
-          customRotation = [
-            towerConfig.antennaRotation[0],
-            towerConfig.antennaRotation[1] + hexRotations[index],
-            towerConfig.antennaRotation[2]
-          ] as [number, number, number];
-        }
+        return towerConfig.emitterFaces.map((facePos, index) => {
+          const originY = facePos[1] - originHeight;
+          const isPanelActive =
+            towerConfig.emitterFaces.length === 1
+              ? true
+              : Array.isArray(activePanels)
+                ? (activePanels[index] ?? true)
+                : true;
 
-        return (
-          <group
-            key={index}
-            position={[facePos[0], originY, facePos[2]]}
-            rotation={customRotation}
-          >
-            {/* Antenna Marker */}
-            <mesh>
-              <sphereGeometry args={[0.1, 16, 16]} />
-              <meshBasicMaterial color="#ac77ff" />
-              {showLabels && index === 0 && (
-                <Html position={[0, 0.2, 0]} center zIndexRange={[100, 0]}>
-                  <LobeLabel>Panel/Antenna</LobeLabel>
-                </Html>
+          if (!isPanelActive) return null;
+
+          let customRotation = towerConfig.antennaRotation;
+          if (towerConfig.id === "hexagonal") {
+            const hexRotations = [
+              0, // North
+              Math.PI / 3, // NW
+              -Math.PI / 3, // NE
+              Math.PI, // South
+              (2 * Math.PI) / 3, // SW
+              (-2 * Math.PI) / 3, // SE
+            ];
+            customRotation = [
+              towerConfig.antennaRotation[0],
+              towerConfig.antennaRotation[1] + hexRotations[index],
+              towerConfig.antennaRotation[2],
+            ] as [number, number, number];
+          }
+
+          return (
+            <group
+              key={index}
+              position={[facePos[0], originY, facePos[2]]}
+              rotation={customRotation}
+            >
+              {/* Antenna Marker */}
+              {showLabelsActive && (
+                <mesh>
+                  <sphereGeometry args={[0.1, 16, 16]} />
+                  <meshBasicMaterial color="#ac77ff" />
+                  {index === firstActiveIndex && (
+                    <Html position={[0, 0.2, 0]} center zIndexRange={[100, 0]}>
+                      <LobeLabel>Panel/Antenna</LobeLabel>
+                    </Html>
+                  )}
+                </mesh>
               )}
-            </mesh>
 
-            {/* Radiation Lobe Surface */}
-            <mesh geometry={geometry}>
-              <meshStandardMaterial
-                vertexColors
-                transparent
-                opacity={0.75}
-                side={THREE.DoubleSide}
-              />
-            </mesh>
-
-            {/* Secondary Lobe / Scattering Cloud */}
-            {showScattering && (
-              <mesh geometry={scatteringGeometry}>
+              {/* Radiation Lobe Surface (Glassy Volume) */}
+              <mesh geometry={geometry}>
                 <meshStandardMaterial
                   vertexColors
                   transparent
-                  opacity={0.22 + safeSecondaryStrength * 0.14}
+                  opacity={0.58}
                   side={THREE.DoubleSide}
+                  roughness={0.35}
+                  metalness={0}
+                  emissive="#3a1160"
+                  emissiveIntensity={0.08}
                   depthWrite={false}
                 />
               </mesh>
-            )}
 
-            {/* Multipath Rays */}
-            {showMultipath &&
-              multipathRays.map((ray, rayIdx) => (
-                <group key={rayIdx}>
-                  <line>
-                    <bufferGeometry setFromPoints={ray.points} />
-                    <lineBasicMaterial
-                      color={ray.color}
-                      transparent
-                      opacity={0.35 + safeSecondaryStrength * 0.28}
-                    />
-                  </line>
-                  <mesh
-                    position={
-                      ray.points[ray.points.length - 1].toArray() as [
-                        number,
-                        number,
-                        number,
-                      ]
-                    }
-                  >
-                    <sphereGeometry args={[0.06 + index * 0.01, 10, 10]} />
+              {/* Secondary Lobe / Scattering Cloud */}
+              {showScattering && (
+                <mesh geometry={scatteringGeometry}>
+                  <meshBasicMaterial
+                    vertexColors
+                    transparent
+                    opacity={0.15 + safeSecondaryStrength * 0.15}
+                    side={THREE.DoubleSide}
+                    blending={THREE.AdditiveBlending}
+                    depthWrite={false}
+                  />
+                </mesh>
+              )}
+
+              {/* Multipath Rays */}
+              {showMultipath &&
+                multipathRays.map((ray, rayIdx) => (
+                  <group key={rayIdx}>
+                    <line>
+                      <bufferGeometry setFromPoints={ray.points} />
+                      <lineBasicMaterial
+                        color={ray.color}
+                        transparent
+                        opacity={0.35 + safeSecondaryStrength * 0.28}
+                      />
+                    </line>
+                    <mesh
+                      position={
+                        ray.points[ray.points.length - 1].toArray() as [
+                          number,
+                          number,
+                          number,
+                        ]
+                      }
+                    >
+                      <sphereGeometry args={[0.06 + index * 0.01, 10, 10]} />
+                      <meshBasicMaterial
+                        color={ray.color}
+                        transparent
+                        opacity={0.65}
+                      />
+                    </mesh>
+                  </group>
+                ))}
+
+              {/* Near-Field / Far-Field Boundary */}
+              {showNearFarField &&
+                showFarField &&
+                index === firstActiveIndex && (
+                  <Sphere args={[farFieldVisualRadius, 32, 32]} renderOrder={2}>
                     <meshBasicMaterial
-                      color={ray.color}
+                      color="#ac77ff"
                       transparent
-                      opacity={0.65}
+                      opacity={0.35}
+                      wireframe
+                      depthWrite={false}
+                      depthTest={false}
+                      side={THREE.DoubleSide}
                     />
-                  </mesh>
-                </group>
-              ))}
+                    {showLabelsActive && (
+                      <Html
+                        position={[0, farFieldVisualRadius, 0]}
+                        center
+                        zIndexRange={[100, 0]}
+                      >
+                        <LobeLabel
+                          style={{ borderColor: "#aaa", color: "#aaa" }}
+                        >
+                          Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
+                        </LobeLabel>
+                      </Html>
+                    )}
+                  </Sphere>
+                )}
 
-            {/* Near-Field / Far-Field Boundary */}
-            {showNearFarField && showFarField && index === 0 && (
-              <Sphere args={[farFieldVisualRadius, 32, 32]}>
-                <meshBasicMaterial
-                  color="#ffffff"
-                  transparent
-                  opacity={0.05}
-                  wireframe
-                />
-                {showLabels && (
+              {/* Lobe Labels */}
+              {showLabelsActive && index === firstActiveIndex && (
+                <>
                   <Html
-                    position={[0, farFieldVisualRadius, 0]}
+                    position={[visualScale * 1.1, 0, 0]}
                     center
                     zIndexRange={[100, 0]}
                   >
-                    <LobeLabel style={{ borderColor: "#aaa", color: "#aaa" }}>
-                      Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
+                    <LobeLabel>
+                      Main Lobe (HPBW: H:{hpbwHorizontal.toFixed(1)}° V:
+                      {hpbwVertical.toFixed(1)}°)
                     </LobeLabel>
                   </Html>
-                )}
-              </Sphere>
-            )}
 
-            {/* Lobe Labels */}
-            {showLabels && index === 0 && (
-              <>
-                <Html
-                  position={[visualScale * 1.1, 0, 0]}
-                  center
-                  zIndexRange={[100, 0]}
-                >
-                  <LobeLabel>
-                    Main Lobe (HPBW: H:{hpbwHorizontal.toFixed(1)}° V:
-                    {hpbwVertical.toFixed(1)}°)
-                  </LobeLabel>
-                </Html>
+                  <Html
+                    position={[
+                      visualScale * 0.4,
+                      visualScale * 0.3,
+                      visualScale * 0.4,
+                    ]}
+                    center
+                    zIndexRange={[100, 0]}
+                  >
+                    <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
+                      Side Lobe
+                    </LobeLabel>
+                  </Html>
 
-                <Html
-                  position={[
-                    visualScale * 0.4,
-                    visualScale * 0.3,
-                    visualScale * 0.4,
-                  ]}
-                  center
-                  zIndexRange={[100, 0]}
-                >
-                  <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
-                    Side Lobe
-                  </LobeLabel>
-                </Html>
+                  <Html
+                    position={[
+                      visualScale * 0.4,
+                      -visualScale * 0.3,
+                      -visualScale * 0.4,
+                    ]}
+                    center
+                    zIndexRange={[100, 0]}
+                  >
+                    <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
+                      Minor Lobe
+                    </LobeLabel>
+                  </Html>
 
-                <Html
-                  position={[
-                    visualScale * 0.4,
-                    -visualScale * 0.3,
-                    -visualScale * 0.4,
-                  ]}
-                  center
-                  zIndexRange={[100, 0]}
-                >
-                  <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
-                    Minor Lobe
-                  </LobeLabel>
-                </Html>
-
-                <Html
-                  position={[-visualScale * 0.3, 0, 0]}
-                  center
-                  zIndexRange={[100, 0]}
-                >
-                  <LobeLabel style={{ opacity: 0.6 }}>Back Lobe</LobeLabel>
-                </Html>
-              </>
-            )}
-          </group>
-        );
-      })}
+                  <Html
+                    position={[-visualScale * 0.3, 0, 0]}
+                    center
+                    zIndexRange={[100, 0]}
+                  >
+                    <LobeLabel style={{ opacity: 0.6 }}>Back Lobe</LobeLabel>
+                  </Html>
+                </>
+              )}
+            </group>
+          );
+        });
+      })()}
     </>
   );
 };

@@ -202,7 +202,7 @@ export const roundDbValue = (value: number) => {
   return Object.is(rounded, -0) ? 0 : rounded;
 };
 
-const trimNumericString = (value: string): string =>
+export const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 
 const formatIntegerWithSeparators = (value: number): string =>

@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import { styled } from "styled-components";
 import {
   clampFrequencyHz,
@@ -12,6 +13,7 @@ import {
   getOptimalFrequencyScale,
   formatFrequencyHz,
   formatFrequencyValue,
+  trimNumericString,
   type FrequencyUnit,
 } from "@n-apt/utils/frequency";
 
@@ -200,7 +202,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       [valueHz],
     );
     const [displayValue, setDisplayValue] = useState<string>(
-      formatFrequencyValue(initialScale.value),
+      trimNumericString(formatFrequencyValue(initialScale.value)),
     );
     const [displayUnit, setDisplayUnit] = useState<string>(initialScale.unit);
     const [isUnitMenuOpen, setIsUnitMenuOpen] = useState(false);
@@ -236,7 +238,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
       if (!isFocusedRef.current) {
         const { value, unit } = getOptimalFrequencyScale(valueHz);
-        setDisplayValue(formatFrequencyValue(value));
+        setDisplayValue(trimNumericString(formatFrequencyValue(value)));
         setDisplayUnit(unit);
       }
     }, [valueHz]);
@@ -254,23 +256,23 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
           setDisplayValue(
             unit === "Hz"
               ? formatFrequencyHz(cappedHz)
-              : formatFrequencyValue(value),
+              : trimNumericString(formatFrequencyValue(value)),
           );
         }
       },
       [minHz, maxHz, onChangeHz],
     );
 
-    const dragStartRef = useRef<{ x: number; value: number } | null>(null);
+    const dragStartRef = useRef<{ x: number; value: number; unit: string } | null>(null);
     const hasDraggedRef = useRef(false);
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
       if (disabled) return;
       if (e.button !== 0) return; // Only left click
-      dragStartRef.current = { x: e.clientX, value: hzRef.current };
+      dragStartRef.current = { x: e.clientX, value: hzRef.current, unit: displayUnit };
       hasDraggedRef.current = false;
       e.currentTarget.setPointerCapture(e.pointerId);
-    }, [disabled]);
+    }, [disabled, displayUnit]);
 
     const handlePointerMove = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
       if (!dragStartRef.current) return;
@@ -288,16 +290,17 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
         e.stopPropagation();
 
         let baseStep = 1;
-        if (displayUnit === "kHz") baseStep = 1_000;
-        else if (displayUnit === "MHz") baseStep = 1_000_000;
-        else if (displayUnit === "GHz") baseStep = 10_000_000;
+        const dragUnit = dragStartRef.current.unit;
+        if (dragUnit === "kHz") baseStep = 1_000;
+        else if (dragUnit === "MHz") baseStep = 1_000_000;
+        else if (dragUnit === "GHz") baseStep = 10_000_000;
 
         let multiplier = 1;
         if (e.shiftKey) multiplier = 10;
         else if (e.altKey) multiplier = 0.1;
 
-        const deltaHz = deltaX * baseStep * multiplier;
-        const newHz = dragStartRef.current.value + deltaHz;
+        const deltaHz = e.movementX * baseStep * multiplier;
+        const newHz = hzRef.current + deltaHz;
         handleUpdate(newHz, true);
       }
     }, [displayUnit, handleUpdate]);
@@ -360,7 +363,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         // Don't refresh the UI string while typing unless it's clamped
         if (Math.abs(cappedHz - newHz) > 0.1) {
-          setDisplayValue(formatFrequencyValue(cappedHz / multiplier));
+          setDisplayValue(trimNumericString(formatFrequencyValue(cappedHz / multiplier)));
         }
 
         hzRef.current = cappedHz;
@@ -386,9 +389,9 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       setDisplayValue(
         newUnit === "Hz"
           ? formatFrequencyHz(hzRef.current)
-          : formatFrequencyValue(
+          : trimNumericString(formatFrequencyValue(
               hzRef.current / getFrequencyUnitScale(newUnit),
-            ),
+            )),
       );
     };
 
@@ -420,7 +423,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
           handleUpdate(newHz, true);
         } else {
           const { value, unit } = getOptimalFrequencyScale(hzRef.current);
-          setDisplayValue(formatFrequencyValue(value));
+          setDisplayValue(trimNumericString(formatFrequencyValue(value)));
           setDisplayUnit(unit);
         }
         onBlur?.();
@@ -432,10 +435,25 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       setDisplayValue(
         unit === "Hz"
           ? formatFrequencyHz(hzRef.current)
-          : formatFrequencyValue(value),
+          : trimNumericString(formatFrequencyValue(value)),
       );
       onBlur?.();
     };
+
+    const unitButtonRef = useRef<HTMLButtonElement>(null);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    
+    useEffect(() => {
+      if (isUnitMenuOpen && unitButtonRef.current) {
+        const rect = unitButtonRef.current.getBoundingClientRect();
+        setMenuStyle({
+          position: "fixed",
+          top: rect.bottom + 4,
+          right: window.innerWidth - rect.right,
+          zIndex: 100000,
+        });
+      }
+    }, [isUnitMenuOpen]);
 
     return (
       <OuterContainer
@@ -470,6 +488,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
           />
           <UnitControl $isOpen={isUnitMenuOpen}>
             <UnitButton
+              ref={unitButtonRef}
               type="button"
               disabled={disabled}
               aria-haspopup="listbox"
@@ -499,8 +518,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
             >
               {displayUnit}
             </UnitButton>
-            {isUnitMenuOpen && (
-              <UnitMenu role="listbox" aria-label="Frequency unit options">
+            {isUnitMenuOpen && createPortal(
+              <UnitMenu role="listbox" aria-label="Frequency unit options" style={menuStyle}>
                 {FREQUENCY_UNITS.map((unit) => (
                   <UnitOption
                     key={unit}
@@ -529,7 +548,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
                     {unit}
                   </UnitOption>
                 ))}
-              </UnitMenu>
+              </UnitMenu>,
+              document.body
             )}
           </UnitControl>
         </InputContainer>
