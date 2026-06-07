@@ -1,5 +1,6 @@
 import React, { Suspense, useState, useCallback, useEffect } from "react";
-import styled, { keyframes } from "styled-components";
+import styled, { useTheme, keyframes } from "styled-components";
+import { Leva } from "leva";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
 import { OrbitControls, useGLTF } from "@react-three/drei";
@@ -49,6 +50,9 @@ type ModelKey =
   | "afro-male"
   | "neutral"
   | "brain"
+  | "room_tx"
+  | "free_space_radiation"
+  | "polar_radiation"
   | "lna"
   | "synth"
   | "bbu"
@@ -64,10 +68,7 @@ type ModelKey =
   | "diamond"
   | "pole_small"
   | "hexagonal"
-  | "single_panel"
-  | "room_tx"
-  | "free_space_radiation"
-  | "polar_radiation";
+  | "single_panel";
 
 interface ModelDef {
   key: ModelKey;
@@ -94,6 +95,24 @@ const MODELS: ModelDef[] = [
     label: "Brain",
     description: "Detailed cerebral structure",
     category: "Biological",
+  },
+  {
+    key: "room_tx",
+    label: "Room Tx Scene",
+    description: "SDR Transmitter on a desk in a dark room",
+    category: "Scenes",
+  },
+  {
+    key: "free_space_radiation",
+    label: "Free Space Radiation Lobe",
+    description: "Interactive 3D radiation lobe visualization",
+    category: "Scenes",
+  },
+  {
+    key: "polar_radiation",
+    label: "Polar Radiation Coordinates",
+    description: "Interactive polar radiation chart",
+    category: "Charts",
   },
   {
     key: "lna",
@@ -190,24 +209,6 @@ const MODELS: ModelDef[] = [
     label: "Single Panel",
     description: "Directional Small Cell Panel",
     category: "Telecommunications Infrastructure / Cell Sites",
-  },
-  {
-    key: "room_tx",
-    label: "Room Tx Scene",
-    description: "SDR Transmitter on a desk in a dark room",
-    category: "Scenes",
-  },
-  {
-    key: "free_space_radiation",
-    label: "Free Space Radiation Lobe",
-    description: "Interactive 3D radiation lobe visualization",
-    category: "Scenes",
-  },
-  {
-    key: "polar_radiation",
-    label: "Polar Radiation Coordinates",
-    description: "Interactive polar radiation chart",
-    category: "Charts",
   },
 ];
 
@@ -907,6 +908,7 @@ function BrainLights() {
 export const Model3DGalleryRoute: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeModel = MODELS[activeIndex];
+  const theme = useTheme();
 
   const prev = useCallback(() => {
     setActiveIndex((i) => Math.max(0, i - 1));
@@ -925,6 +927,42 @@ export const Model3DGalleryRoute: React.FC = () => {
 
   return (
     <Wrapper>
+      <Leva
+        theme={{
+          sizes: {
+            rootWidth: "340px",
+            controlWidth: "160px",
+          },
+          colors: {
+            elevation1: theme.surface || "rgba(18, 18, 20, 0.8)",
+            elevation2: "rgba(255, 255, 255, 0.05)",
+            elevation3: "rgba(255, 255, 255, 0.1)",
+            accent1: theme.primary || "#ac77ff",
+            accent2: theme.primary || "#ac77ff",
+            accent3: theme.primaryHover || "#c19cff",
+            highlight1: theme.textMuted || "#888",
+            highlight2: theme.textSecondary || "#ccc",
+            highlight3: theme.textPrimary || "#fff",
+            folderText: theme.textSecondary || "#ccc",
+            folderWidgetColor: theme.textMuted || "#888",
+          },
+          radii: {
+            xs: "4px",
+            sm: "6px",
+            lg: "12px",
+          },
+          space: {
+            sm: "8px",
+            md: "12px",
+            rowGap: "8px",
+            colGap: "8px",
+          },
+          fonts: {
+            mono: theme.typography?.mono || "'JetBrains Mono', monospace",
+            sans: theme.typography?.sans || "Inter, sans-serif",
+          },
+        }}
+      />
       <ViewportArea>
         {activeModel.key === "polar_radiation" ? (
           <PolarRadioWaveWebGPU />

@@ -1,6 +1,8 @@
 import React, { useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useControls, folder, button } from "leva";
+import { useControls, folder } from "leva";
+import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
+import { levaGainScale } from "@n-apt/components/ui/levaGainScalePlugin";
 import { Html, Sphere } from "@react-three/drei";
 import styled from "styled-components";
 import {
@@ -35,8 +37,40 @@ const LobeLabel = styled.div`
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid #ac77ff;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 10px;
+        theme={{
+          sizes: {
+            rootWidth: "340px",
+            controlWidth: "160px",
+          },
+          colors: {
+            elevation1: theme.colors?.surface || "rgba(18, 18, 20, 0.8)",
+            elevation2: "rgba(255, 255, 255, 0.05)",
+            elevation3: "rgba(255, 255, 255, 0.1)",
+            accent1: theme.colors?.primary || "#ac77ff",
+            accent2: theme.colors?.primary || "#ac77ff",
+            accent3: theme.colors?.primaryHover || "#c19cff",
+            highlight1: theme.colors?.textMuted || "#888",
+            highlight2: theme.colors?.textSecondary || "#ccc",
+            highlight3: theme.colors?.textPrimary || "#fff",
+            folderText: theme.colors?.textSecondary || "#ccc",
+            folderWidgetColor: theme.colors?.textMuted || "#888",
+          },
+          radii: {
+            xs: "4px",
+            sm: "6px",
+            lg: "12px",
+          },
+          space: {
+            sm: "8px",
+            md: "12px",
+            rowGap: "8px",
+            colGap: "8px",
+          },
+          fonts: {
+            mono: (theme.typography?.mono as string) || "'JetBrains Mono', monospace",
+            sans: (theme.typography?.sans as string) || "Inter, sans-serif",
+          },
+        }}t-size: 10px;
   white-space: nowrap;
   pointer-events: none;
 `;
@@ -197,48 +231,39 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     showScattering,
     secondaryStrength,
     showLabels,
-    showGainScale,
   } = useControls("Radiation Lobe Setup", {
     "Cell Tower / Site": folder({
       selectedTower: {
+        label: "Model",
         options: {
-          None: "none",
           "Sector Tower": "sector",
           "Diamond Cell": "diamond",
-          "Pole-mounted": "pole_small",
-          Hexagonal: "hexagonal",
+          "Pole Mounted": "pole_small",
+          "Hexagonal Cell": "hexagonal",
           "Single Panel": "single_panel",
         },
-        value: "none",
+        value: "sector",
       },
     }),
     Parameters: folder({
-      frequencyMHz: { value: frequency, min: 1, max: 6000, step: 1 },
-      powerLevelDbm: { value: powerDbm, min: -20, max: 60, step: 1 },
-      apertureWidthM: {
-        value: apertureWidth ?? aperture,
-        min: 0.1,
-        max: 5,
-        step: 0.05,
-      },
-      apertureHeightM: {
-        value: apertureHeight ?? Math.max(aperture * 2.4, 0.8),
-        min: 0.2,
-        max: 8,
-        step: 0.05,
-      },
+      frequencyMHz: levaFrequency(1800000000),
+      powerLevelDbm: { label: "Power Level", value: 43, min: -70, max: 64, step: 1, suffix: "dBm" },
+      apertureWidthM: { label: "Aperture Width (m)", value: 0.65, min: 0.1, max: 5.0 },
+      apertureHeightM: { label: "Aperture Height (m)", value: 1.56, min: 0.1, max: 5.0 },
     }),
     Effects: folder({
-      showLabels: true,
-      showGainScale: true,
-      showMultipath: { value: showMultipathRays },
-      showScattering: { value: showScatteringCloud },
+      showLabels: { label: "Show Labels", value: true },
+      showMultipath: { label: "Show Multipath", value: showMultipathRays },
+      showScattering: { label: "Show Scattering", value: showScatteringCloud },
       secondaryStrength: {
-        value: multipathStrength,
+        label: "Secondary Strength",
+        value: 0.32,
         min: 0,
         max: 1,
-        step: 0.05,
       },
+    }),
+    Reference: folder({
+      scale: levaGainScale(),
     }),
   });
 
@@ -248,8 +273,8 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     selectedTower === "none" ? height : towerConfig.antennaOrigin[1];
 
   const c = 3e8;
-  const safeFrequencyMHz = clamp(frequencyMHz, 1, 6000);
-  const safePowerDbm = clamp(powerLevelDbm, -20, 60);
+  const safeFrequencyMHz = clamp(frequencyMHz / 1e6, 0.001, 100000);
+  const safePowerDbm = clamp(powerLevelDbm, -70, 64);
   const effectiveApertureWidth = Math.max(0.1, apertureWidthM);
   const effectiveApertureHeight = Math.max(0.2, apertureHeightM);
   const wavelength = c / (safeFrequencyMHz * 1e6);
@@ -550,65 +575,6 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         color="#ac77ff"
         distance={15}
       />
-
-      {/* Gain Scale HUD Overlay */}
-      {showGainScale && (
-        <Html zIndexRange={[100, 0]}>
-          <div
-            style={{
-              position: "fixed",
-              bottom: "30px",
-              right: "30px",
-              background: "rgba(18, 18, 20, 0.8)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              padding: "16px",
-              borderRadius: "12px",
-              width: "220px",
-              pointerEvents: "none",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "11px",
-                color: "#ccc",
-                marginBottom: "12px",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "1px",
-              }}
-            >
-              ANTENNA GAIN
-            </div>
-            <div
-              style={{
-                height: "12px",
-                width: "100%",
-                background: "linear-gradient(to right, rgb(0, 115, 255), rgb(115, 230, 215), rgb(255, 89, 166))",
-                borderRadius: "3px",
-                marginBottom: "8px",
-                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.5)",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: "10px",
-                color: "#888",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              <span>Weaker</span>
-              <span>Stronger</span>
-            </div>
-          </div>
-        </Html>
-      )}
-
       {selectedTower === "sector" && (
         <group position={[0, -originHeight, 0]}>
           <SectorTower />
