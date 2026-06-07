@@ -47,6 +47,16 @@ const Bar = styled.div`
   gap: 10px;
 `;
 
+const EditorTitle = styled.div`
+  margin-bottom: 8px;
+  text-align: center;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  font-family: ${({ theme }) => theme.typography.mono};
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+`;
+
 const CenterFrequencyField = styled(FrequencyInput)`
   width: 100%;
 
@@ -141,6 +151,7 @@ export const EditableCenterFrequency: React.FC<
   return (
     <Shell ref={shellRef} className={className}>
       <Card>
+        <EditorTitle>Center Frequency / Onscreen Canvas</EditorTitle>
         <Bar>
           <CenterFrequencyField
             valueHz={centerFrequencyHz}

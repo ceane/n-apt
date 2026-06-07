@@ -221,6 +221,23 @@ impl MockAptDevice {
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn resolve_metal_backend(
+    enabled: bool,
+  ) -> (Option<MockAptMetalBackend>, Option<String>) {
+    if !enabled {
+      return (None, None);
+    }
+
+    match Self::metal_backend_probe_result() {
+      Ok(()) => match MockAptMetalBackend::new() {
+        Ok(backend) => (Some(backend), None),
+        Err(error) => (None, Some(error.to_string())),
+      },
+      Err(error) => (None, Some(error.clone())),
+    }
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   fn device_type_label(&self) -> &'static str {
     if self.metal_backend.is_some() {
       "Mock APT SDR (Metal)"
@@ -245,42 +262,27 @@ impl MockAptDevice {
   }
 
   fn new_with_rng(rng: StdRng) -> Self {
-    Self::new_with_rng_and_backend(rng, false)
+    Self::new_with_rng_and_config(rng)
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   pub fn new_with_gpu_backend() -> Self {
-    Self::new_with_rng_and_backend(StdRng::from_rng(&mut ::rand::rng()), true)
+    Self::new_with_rng_and_config(StdRng::from_rng(&mut ::rand::rng()))
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   pub fn new_with_seed_and_gpu_backend(seed: u64) -> Self {
-    Self::new_with_rng_and_backend(StdRng::seed_from_u64(seed), true)
+    Self::new_with_rng_and_config(StdRng::seed_from_u64(seed))
   }
 
-  fn new_with_rng_and_backend(
-    mut rng: StdRng,
-    _enable_gpu_backend: bool,
-  ) -> Self {
+  fn new_with_rng_and_config(mut rng: StdRng) -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals_with_rng(&mock_settings, &mut rng);
     let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
     let realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-    let (metal_backend, metal_backend_error) = if _enable_gpu_backend {
-      match Self::metal_backend_probe_result() {
-        Ok(()) => match MockAptMetalBackend::new() {
-          Ok(backend) => (Some(backend), None),
-          Err(error) => (None, Some(error.to_string())),
-        },
-        Err(error) => (None, Some(error.clone())),
-      }
-    } else {
-      (None, None)
-    };
-
-    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    let _ = _enable_gpu_backend;
+    let (metal_backend, metal_backend_error) =
+      Self::resolve_metal_backend(mock_settings.gpu_gen_via_metal);
 
     #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
     let _metal_backend_error = None::<String>;
@@ -493,6 +495,18 @@ impl MockAptDevice {
     self.signals = Self::create_signals_with_rng(&mock_settings, &mut self.rng);
     self.noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
     self.realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      if !mock_settings.gpu_gen_via_metal {
+        self.metal_backend = None;
+        self.metal_backend_error = None;
+      } else if self.metal_backend.is_none() {
+        let (metal_backend, metal_backend_error) =
+          Self::resolve_metal_backend(true);
+        self.metal_backend = metal_backend;
+        self.metal_backend_error = metal_backend_error;
+      }
+    }
     self.last_config_modified =
       crate::server::utils::signals_config_modified_at().or(current_modified);
     self.last_config_checksum = current_checksum;
@@ -1178,6 +1192,7 @@ mod tests {
     path: &std::path::Path,
     spike_hz: u32,
     noise_floor_db: i32,
+    gpu_gen_via_metal: bool,
   ) {
     let yaml = format!(
       r#"
@@ -1212,6 +1227,7 @@ signals:
               freq_hz: !frequency 28.8MHz
               label: "high"
   mock_apt:
+    gpu_gen_via_metal: {gpu_gen_via_metal}
     channels:
       a:
         label: "A"
@@ -1249,13 +1265,13 @@ signals:
     std::env::set_current_dir(&temp_dir).expect("set current dir");
 
     let yaml_path = temp_dir.join("signals.yaml");
-    write_test_signals_yaml(&yaml_path, 500_000, -95);
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
     let mut device = MockAptDevice::new();
     assert_eq!(device.signals.len(), 9);
     assert_eq!(device.noise_floor_db, -95.0);
 
     sleep(Duration::from_millis(300));
-    write_test_signals_yaml(&yaml_path, 1_000_000, -70);
+    write_test_signals_yaml(&yaml_path, 1_000_000, -70, false);
     sleep(Duration::from_millis(300));
 
     device.reload_config_if_needed();
@@ -1264,6 +1280,54 @@ signals:
     assert_eq!(device.noise_floor_db, -70.0);
 
     std::env::set_current_dir(&original_dir).expect("restore dir");
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  #[test]
+  fn gpu_gen_via_metal_controls_mock_apt_backend() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    let original_dir = std::env::current_dir().expect("current dir");
+    let temp_dir = std::env::temp_dir().join(format!(
+      "napt-mock-metal-config-{}",
+      SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("time")
+        .as_nanos()
+    ));
+    fs::create_dir_all(&temp_dir).expect("create temp dir");
+    std::env::set_current_dir(&temp_dir).expect("set current dir");
+    crate::server::utils::clear_signals_config_cache();
+
+    let yaml_path = temp_dir.join("signals.yaml");
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
+    let mut device = MockAptDevice::new();
+    assert!(!device.gpu_backend_enabled());
+    assert_eq!(device.device_type(), "Mock APT SDR");
+
+    sleep(Duration::from_millis(300));
+    write_test_signals_yaml(&yaml_path, 500_000, -95, true);
+    crate::server::utils::clear_signals_config_cache();
+    let metal_device = MockAptDevice::new();
+
+    if MockAptDevice::metal_backend_available() {
+      assert!(metal_device.gpu_backend_enabled());
+      assert_eq!(metal_device.device_type(), "Mock APT SDR (Metal)");
+      assert_eq!(metal_device.generation_backend_label(), "Metal");
+    } else {
+      assert!(!metal_device.gpu_backend_enabled());
+      assert!(metal_device.gpu_backend_error().is_some());
+    }
+
+    sleep(Duration::from_millis(300));
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
+    crate::server::utils::clear_signals_config_cache();
+    device.reload_config_if_needed();
+    assert!(!device.gpu_backend_enabled());
+    assert_eq!(device.device_type(), "Mock APT SDR");
+
+    std::env::set_current_dir(&original_dir).expect("restore dir");
+    crate::server::utils::clear_signals_config_cache();
     let _ = fs::remove_dir_all(&temp_dir);
   }
 }

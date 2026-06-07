@@ -11,6 +11,9 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnFftDbLimitsChange = jest.fn();
   const mockOnSelectionChange = jest.fn();
   const mockOnPowerLineDbChange = jest.fn();
+  const mockOnTxCenterFrequencyChange = jest.fn();
+  const mockOnTxSampleRateChange = jest.fn();
+  const mockOnTxOptionsRequest = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
   const spectrumGpuCanvasRef = {
@@ -73,6 +76,9 @@ describe("useFrequencyDrag Hook", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockOnPowerLineDbChange.mockClear();
+    mockOnTxCenterFrequencyChange.mockClear();
+    mockOnTxSampleRateChange.mockClear();
+    mockOnTxOptionsRequest.mockClear();
     listeners = {};
     frequencyRangeRef.current = { min: 100, max: 110 };
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 1;
@@ -147,6 +153,25 @@ describe("useFrequencyDrag Hook", () => {
         deltaY: 0,
         ctrlKey: false,
         ...payload,
+      } as any);
+    });
+  };
+
+  const triggerDoubleClick = (
+    clientX: number,
+    clientY: number,
+  ) => {
+    const calls =
+      spectrumContainerRef.current.addEventListener.mock.calls.filter(
+        (c: any) => c[0] === "dblclick",
+      );
+    const handler = calls[calls.length - 1][1];
+    act(() => {
+      handler({
+        clientX,
+        clientY,
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
       } as any);
     });
   };
@@ -338,6 +363,70 @@ describe("useFrequencyDrag Hook", () => {
       ][0];
     expect(lastCall.max).toBe(110);
     expect(lastCall.min).toBe(100);
+  });
+
+  it("drags the canvas TX slider in the bottom stats row", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(414, 580);
+    triggerPointerMove(300, 580);
+    triggerPointerUp(300, 580);
+
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("routes wheel and double click to the canvas TX slider", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+            onOptionsRequest: mockOnTxOptionsRequest,
+          },
+        },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 580, deltaY: 120 } as any);
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 580,
+      deltaY: -120,
+      ctrlKey: true,
+    } as any);
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+
+    triggerDoubleClick(500, 580);
+    expect(mockOnTxOptionsRequest).toHaveBeenCalled();
   });
 
   it("should clamp VFO dragging to the active channel bounds", () => {

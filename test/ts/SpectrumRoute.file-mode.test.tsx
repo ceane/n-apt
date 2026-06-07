@@ -13,6 +13,11 @@ import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
+import {
+  setDeviceKind,
+  setTxCenterFrequencyHz,
+  setTxSampleRateHz,
+} from "../../src/ts/redux/slices/spectrumSlice";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { THEME_TOKENS } from "../../src/ts/consts";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
@@ -20,6 +25,9 @@ import { SpectrumRoute } from "../../src/ts/routes/SpectrumRoute";
 
 const fftPlaybackCanvasMock = jest.fn((_props: any) => (
   <div data-testid="fft-playback-canvas" />
+));
+const fftAndWaterfallMock = jest.fn((_props: any) => (
+  <div data-testid="fft-and-waterfall" />
 ));
 
 jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
@@ -40,7 +48,19 @@ jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
 }));
 
 jest.mock("@n-apt/components", () => ({
-  FFTAndWaterfall: () => <div data-testid="fft-and-waterfall" />,
+  FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
+    fftAndWaterfallMock(props);
+    React.useImperativeHandle(ref, () => ({
+      getSpectrumCanvas: () => null,
+      getWaterfallCanvas: () => null,
+      getSpectrumOverlayCanvas: () => null,
+      getWaterfallOverlayCanvas: () => null,
+      triggerSnapshotRender: jest.fn(),
+      getSnapshotData: () => null,
+      getCompositeSnapshot: () => null,
+    }));
+    return <div data-testid="fft-and-waterfall" />;
+  }),
   NoteCards: () => <div data-testid="note-cards" />,
 }));
 
@@ -113,6 +133,7 @@ const createStore = () =>
 describe("SpectrumRoute file mode", () => {
   beforeEach(() => {
     fftPlaybackCanvasMock.mockClear();
+    fftAndWaterfallMock.mockClear();
   });
 
   it("forwards zoom and temporal resolution state to file playback", async () => {
@@ -241,5 +262,131 @@ describe("SpectrumRoute file mode", () => {
     expect(typeof playbackProps?.onVizZoomFloorChange).toBe("function");
     expect(typeof playbackProps?.onVizZoomFloorPanChange).toBe("function");
     expect(typeof playbackProps?.onVizPanChange).toBe("function");
+  });
+
+  it("passes a canvas TX slider on first render for mock TX live sources", async () => {
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 16384,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 0, max: 4_372_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-tx",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: { id: "mock-tx" } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock TX Device",
+        deviceProfile: { kind: "mock_tx" },
+        deviceInfo: null,
+        backend: "mock",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+      },
+      effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
+      effectiveSdrSettings: { sample_rate: 4_372_000 },
+      sampleRateHzEffective: 4_372_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-tx",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock",
+        deviceInfo: null,
+        deviceName: "Mock TX Device",
+        deviceProfile: { kind: "mock_tx" },
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: [{ waveform: new Float32Array([0, 1]) }] },
+        spectrumFrames: [{ waveform: new Float32Array([0, 1]) }],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock TX Device",
+      deviceProfile: { kind: "mock_tx" },
+      sources: [],
+    } as any;
+
+    const store = createStore();
+    store.dispatch(setDeviceKind("mock_tx"));
+    store.dispatch(setTxCenterFrequencyHz(Number.NaN));
+    store.dispatch(setTxSampleRateHz(Number.NaN));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.txSlider).toMatchObject({
+      visible: true,
+      signalLabel: "APT",
+      visibleMinHz: 0,
+      visibleMaxHz: 4_372_000,
+      txCenterHz: 2_186_000,
+      txSampleRateHz: 2_400_000,
+    });
   });
 });

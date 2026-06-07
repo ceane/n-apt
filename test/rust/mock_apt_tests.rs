@@ -211,7 +211,7 @@ mod tests {
     let checksum: u64 = samples.data.iter().map(|&b| b as u64).sum();
     println!("MOCK APT IDENTITY:");
     println!("  Waveform checksum: {}", checksum);
-    assert_eq!(checksum, 66846751, "mock APT waveform checksum changed");
+    assert_eq!(checksum, 66846631, "mock APT waveform checksum changed");
 
     // Ensure determinism
     let mut device2 = new_perf_device(12345);

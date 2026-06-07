@@ -11,8 +11,8 @@ import { FFTAndWaterfall, NoteCards } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
-import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
 import { EditableCenterFrequency } from "@n-apt/components/ui/EditableCenterFrequency";
+import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Button } from "@n-apt/components/ui/Button";
 import {
   useSnapshot,
@@ -41,6 +41,7 @@ import {
   setNoteCardsCollapsed,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
+  setTxPowerDbm,
   setDeviceKind,
 } from "@n-apt/redux";
 import {
@@ -166,6 +167,69 @@ const HeaderActionSpacer = styled.span`
   min-width: 12px;
 `;
 
+const TxOptionsShell = styled.div`
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 150;
+  width: min(72vw, 460px);
+  pointer-events: none;
+`;
+
+const TxOptionsCard = styled.div`
+  pointer-events: auto;
+  border-radius: 18px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: 0 10px 30px
+    ${({ theme }) =>
+      theme.mode === "light"
+        ? "rgba(31, 37, 50, 0.12)"
+        : "rgba(0, 0, 0, 0.32)"};
+  padding: 12px;
+`;
+
+const TxOptionsTitle = styled.div`
+  margin-bottom: 10px;
+  text-align: center;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  font-family: ${({ theme }) => theme.typography.mono};
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+`;
+
+const TxOptionsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const TxPowerField = styled.label`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  input {
+    min-width: 0;
+    border: 1px solid ${({ theme }) => theme.colors.border};
+    border-radius: 4px;
+    background: ${({ theme }) => theme.colors.surface};
+    color: ${({ theme }) => theme.colors.textPrimary};
+    font: 11px ${({ theme }) => theme.typography.mono};
+    padding: 5px 6px;
+  }
+`;
+
 const FastRecordingDot = styled.span`
   width: 8px;
   height: 8px;
@@ -288,6 +352,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
   const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
     useState(false);
+  const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
+  const txOptionsRef = useRef<HTMLDivElement | null>(null);
   const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,
@@ -298,11 +364,30 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const canShowTxSlider =
-    deviceKind === "hackrf_one" ||
-    deviceKind === "tx_rx" ||
-    deviceKind === "tx" ||
-    false;
+  const getTxSliderDefaults = useCallback((range: FrequencyRange) => {
+    const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
+    const visibleMaxHz =
+      Number.isFinite(range.max) && range.max > visibleMinHz
+        ? range.max
+        : visibleMinHz + 1;
+    const visibleSpanHz = visibleMaxHz - visibleMinHz;
+    const centerHz =
+      Number.isFinite(txCenterFrequencyHz) &&
+      txCenterFrequencyHz >= visibleMinHz &&
+      txCenterFrequencyHz <= visibleMaxHz
+        ? txCenterFrequencyHz
+        : visibleMinHz + visibleSpanHz / 2;
+    const sampleRateHz = Number.isFinite(txSampleRateHz)
+      ? Math.max(1, Math.min(visibleSpanHz, txSampleRateHz))
+      : Math.max(1, Math.min(120_000, visibleSpanHz));
+
+    return {
+      visibleMinHz,
+      visibleMaxHz,
+      centerHz,
+      sampleRateHz,
+    };
+  }, [txCenterFrequencyHz, txSampleRateHz]);
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -334,6 +419,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     () => getSourceViewStorageKeyForSource(selectedSource),
     [selectedSource],
   );
+  const txCapableDeviceKind =
+    selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind;
+  const selectedSourceCapability = selectedSource?.capability;
+  const canShowTxSlider =
+    txCapableDeviceKind === "hackrf_one" ||
+    txCapableDeviceKind === "mock_tx" ||
+    txCapableDeviceKind === "tx_rx" ||
+    txCapableDeviceKind === "tx" ||
+    selectedSourceCapability === "tx" ||
+    selectedSourceCapability === "tx_rx";
 
   const effectiveTunerGainDb = useMemo(() => {
     const gainConfig = effectiveSdrSettings?.gain;
@@ -858,6 +953,30 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dispatch,
   ]);
 
+  const txSliderDefaults = state.frequencyRange
+    ? getTxSliderDefaults(state.frequencyRange)
+    : null;
+
+  useEffect(() => {
+    if (!isTxOptionsEditing) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const shell = txOptionsRef.current;
+      if (!shell || event.composedPath().includes(shell)) return;
+      setIsTxOptionsEditing(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTxOptionsEditing(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isTxOptionsEditing]);
+
   return (
     <SpectrumContainer>
       <SpectrumContent>
@@ -868,30 +987,97 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               <FFTAndWaterfall
                 key={visualizerSessionKey}
                 ref={fftCanvasRef}
+                txSlider={
+                  showTxSlider && canShowTxSlider
+                    ? {
+                        visible: true,
+                        signalLabel: String(txSignal).toUpperCase(),
+                        powerDbm: txPowerDbm,
+                        visibleMinHz:
+                          txSliderDefaults?.visibleMinHz ??
+                          state.frequencyRange.min,
+                        visibleMaxHz:
+                          txSliderDefaults?.visibleMaxHz ??
+                          state.frequencyRange.max,
+                        txCenterHz:
+                          txSliderDefaults?.centerHz ??
+                          (state.frequencyRange.min +
+                            state.frequencyRange.max) /
+                            2,
+                        txSampleRateHz:
+                          txSliderDefaults?.sampleRateHz ??
+                          Math.max(
+                            1,
+                            state.frequencyRange.max -
+                              state.frequencyRange.min,
+                          ),
+                        onCenterFrequencyChange: (value) =>
+                          reduxDispatch(setTxCenterFrequencyHz(value)),
+                        onSampleRateChange: (value) =>
+                          reduxDispatch(setTxSampleRateHz(value)),
+                        onOptionsRequest: () => setIsTxOptionsEditing(true),
+                      }
+                    : undefined
+                }
                 overlayContent={
                   <>
-                    {showTxSlider && canShowTxSlider ? (
-                      <TxSliderOverlay
-                        signalLabel={String(txSignal).toUpperCase()}
-                        powerDbm={txPowerDbm}
-                        visibleMinHz={state.frequencyRange.min}
-                        visibleMaxHz={state.frequencyRange.max}
-                        txCenterHz={txCenterFrequencyHz}
-                        txSampleRateHz={txSampleRateHz}
-                        onCenterFrequencyChange={(value) =>
-                          reduxDispatch(setTxCenterFrequencyHz(value))
-                        }
-                        onSampleRateChange={(value) =>
-                          reduxDispatch(setTxSampleRateHz(value))
-                        }
-                      />
-                    ) : null}
                     {isCenterFrequencyEditing ? (
                       <EditableCenterFrequency
                         centerFrequencyHz={centerFrequencyHz}
                         onCenterFrequencyChange={handleCenterFrequencyChange}
                         onClose={() => setIsCenterFrequencyEditing(false)}
                       />
+                    ) : null}
+                    {isTxOptionsEditing && txSliderDefaults ? (
+                      <TxOptionsShell ref={txOptionsRef}>
+                        <TxOptionsCard>
+                          <TxOptionsTitle>Tx Slider Options</TxOptionsTitle>
+                          <TxOptionsGrid>
+                            <FrequencyInput
+                              label="Center"
+                              valueHz={txSliderDefaults.centerHz}
+                              minHz={txSliderDefaults.visibleMinHz}
+                              maxHz={txSliderDefaults.visibleMaxHz}
+                              onChangeHz={(value) =>
+                                reduxDispatch(setTxCenterFrequencyHz(value))
+                              }
+                              commitOnBlur
+                              autoFocus
+                            />
+                            <FrequencyInput
+                              label="Bandwidth"
+                              valueHz={txSliderDefaults.sampleRateHz}
+                              minHz={1}
+                              maxHz={
+                                txSliderDefaults.visibleMaxHz -
+                                txSliderDefaults.visibleMinHz
+                              }
+                              onChangeHz={(value) =>
+                                reduxDispatch(setTxSampleRateHz(value))
+                              }
+                              commitOnBlur
+                            />
+                            <TxPowerField>
+                              Power dBm
+                              <input
+                                type="number"
+                                value={Number.isFinite(txPowerDbm) ? txPowerDbm : -18}
+                                onChange={(event) =>
+                                  reduxDispatch(
+                                    setTxPowerDbm(Number(event.target.value)),
+                                  )
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    setIsTxOptionsEditing(false);
+                                  }
+                                }}
+                              />
+                            </TxPowerField>
+                          </TxOptionsGrid>
+                        </TxOptionsCard>
+                      </TxOptionsShell>
                     ) : null}
                   </>
                 }

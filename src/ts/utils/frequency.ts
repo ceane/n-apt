@@ -231,36 +231,38 @@ export const formatFrequency = (
     return "---" + (showUnits ? "Hz" : "");
   }
 
-  const abs = Math.abs(freqHz);
+  const normalizedFreqHz = Object.is(freqHz, -0) ? 0 : freqHz;
+  const abs = Math.abs(normalizedFreqHz);
   let val: number;
   let unit: string;
   let precision: number;
 
-  if (freqHz === 0) {
+  if (normalizedFreqHz === 0) {
     val = 0;
     unit = "Hz";
     precision = 0;
   } else if (abs < 1000) {
-    val = freqHz;
+    val = normalizedFreqHz;
     unit = "Hz";
     precision = 0;
   } else if (abs < 1_000_000) {
-    val = freqHz / 1000;
+    val = normalizedFreqHz / 1000;
     unit = "kHz";
     precision = precisionKHz;
   } else if (abs < 1_000_000_000) {
-    val = freqHz / 1_000_000;
+    val = normalizedFreqHz / 1_000_000;
     unit = "MHz";
     precision = precisionMHz;
   } else {
-    val = freqHz / 1_000_000_000;
+    val = normalizedFreqHz / 1_000_000_000;
     unit = "GHz";
     precision = precisionGHz;
   }
 
+  const displayVal = Number(val.toFixed(precision)) === 0 ? 0 : val;
   const formattedNumber = trimTrailingZeros
-    ? trimNumericString(val.toFixed(precision))
-    : val.toFixed(precision);
+    ? trimNumericString(displayVal.toFixed(precision))
+    : displayVal.toFixed(precision);
   return formattedNumber + (showUnits ? unit : "");
 };
 

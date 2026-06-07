@@ -18,7 +18,10 @@ import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useWaterfallRetuneCompute } from "@n-apt/hooks/useWaterfallRetuneCompute";
-import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
+import {
+  useFrequencyDrag,
+  type CanvasTxSliderState,
+} from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
@@ -27,6 +30,7 @@ import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/components/ui/CanvasPlaceholder";
+import { Tooltip } from "@n-apt/components/ui/Tooltip";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
@@ -220,6 +224,31 @@ const HighlightOverlay = memo(styled.div`
   pointer-events: none;
 `);
 
+const TxSliderInfoLayer = memo(styled.div`
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 41px;
+  z-index: 135;
+  pointer-events: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+`);
+
+const TxInfoTrigger = styled.button`
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surface}cc;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font: 700 12px/1 ${({ theme }) => theme.typography.mono};
+  cursor: help;
+`;
+
 const SelectionTooltip = memo(styled.div`
   position: absolute;
   top: 12px;
@@ -392,6 +421,11 @@ export interface FFTCanvasProps {
   nodePreview?: boolean;
   /** Optional overlay rendered inside the FFT canvas wrapper */
   overlayContent?: ReactNode;
+  /** Optional TX slider drawn into the bottom FFT status band. */
+  txSlider?: CanvasTxSliderState & {
+    signalLabel?: string;
+    powerDbm?: number;
+  };
   /** Optional action content rendered beside the FFT section title */
   headerActionContent?: ReactNode;
   /** Optional label used to personalize loading / error placeholders. */
@@ -539,6 +573,7 @@ const FFTCanvas = memo(
       snapshotGridPreference,
       showSpikeOverlay = false,
       headerActionContent,
+      txSlider,
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
       placeholderErrorReason = null,
@@ -623,6 +658,7 @@ const FFTCanvas = memo(
     const {
       spectrumGpuCanvasNode,
       setSpectrumGpuCanvasNode,
+      spectrumOverlayCanvasNode,
       setSpectrumOverlayCanvasNode: _setSpectrumOverlayCanvasNode,
       waterfallGpuCanvasNode,
       waterfallOverlayCanvasNode,
@@ -645,6 +681,8 @@ const FFTCanvas = memo(
 
     const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
     const powerLineDbRef = useRef<number | null>(null);
+    const txSliderRef = useRef<CanvasTxSliderState | null>(null);
+    txSliderRef.current = txSlider?.visible ? txSlider : null;
     useEffect(() => {
       powerLineDbRef.current = powerLineDb;
     }, [powerLineDb]);
@@ -670,6 +708,185 @@ const FFTCanvas = memo(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
       [],
+    );
+
+    const drawTxSliderOnContext = useCallback(
+      (
+        ctx: CanvasRenderingContext2D,
+        width: number,
+        height: number,
+        visualRange: FrequencyRange,
+        slider: (CanvasTxSliderState & {
+          signalLabel?: string;
+          powerDbm?: number;
+        }) | null,
+      ) => {
+        if (
+          !slider?.visible ||
+          !Number.isFinite(slider.visibleMinHz) ||
+          !Number.isFinite(slider.visibleMaxHz) ||
+          slider.visibleMaxHz <= slider.visibleMinHz ||
+          !Number.isFinite(slider.txCenterHz) ||
+          !Number.isFinite(slider.txSampleRateHz)
+        ) {
+          return;
+        }
+
+        const plotLeft = Math.min(50, width);
+        const plotRight = Math.max(plotLeft, width - 40);
+        const left = 4;
+        const right = Math.max(left, width - 4);
+        const top = Math.max(0, height - 40);
+        const bottom = Math.max(top + 1, height - 4);
+        const trackLeft = plotLeft;
+        const trackRight = Math.max(trackLeft + 80, plotRight);
+        const trackWidth = Math.max(1, trackRight - trackLeft);
+        const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+        const bandwidth = Math.max(1, slider.txSampleRateHz);
+        const isCompactBandwidth = bandwidth < 200_000;
+        const bandMin = slider.txCenterHz - bandwidth / 2;
+        const bandMax = slider.txCenterHz + bandwidth / 2;
+        const toX = (hz: number) =>
+          trackLeft +
+          ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
+        const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
+        const bandRight = Math.max(
+          trackLeft,
+          Math.min(trackRight, toX(bandMax)),
+        );
+        const centerX = Math.max(
+          trackLeft,
+          Math.min(trackRight, toX(slider.txCenterHz)),
+        );
+        const midY = (top + bottom) / 2;
+        const tickStep = (() => {
+          const span = visualRange.max - visualRange.min;
+          if (!Number.isFinite(span) || span <= 0) return null;
+          const roughStep = span / 8;
+          const exponent = Math.floor(Math.log10(roughStep));
+          const base = Math.pow(10, exponent);
+          const normalized = roughStep / base;
+          const multiplier =
+            normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+          return multiplier * base;
+        })();
+        ctx.save();
+        ctx.clearRect(left - 2, top - 2, right - left + 4, bottom - top + 4);
+        ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle =
+          resolvedThemeMode === "dark"
+            ? "rgba(9, 15, 28, 0.86)"
+            : "rgba(247, 251, 255, 0.88)";
+        ctx.strokeStyle = "rgba(86, 201, 246, 0.58)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(left, top, right - left, bottom - top, 7);
+        ctx.fill();
+        ctx.stroke();
+
+        if (tickStep) {
+          const startTick = Math.ceil(visualRange.min / tickStep) * tickStep;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(left, top, right - left, bottom - top);
+          ctx.clip();
+          ctx.strokeStyle =
+            resolvedThemeMode === "dark"
+              ? "rgba(148, 163, 184, 0.24)"
+              : "rgba(100, 116, 139, 0.22)";
+          ctx.lineWidth = 1;
+          for (
+            let tick = startTick;
+            tick <= visualRange.max + tickStep * 0.5;
+            tick += tickStep
+          ) {
+            const x =
+              trackLeft +
+              ((tick - visualRange.min) /
+                (visualRange.max - visualRange.min)) *
+                trackWidth;
+            if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
+            ctx.beginPath();
+            ctx.moveTo(x, top);
+            ctx.lineTo(x, bottom);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        if (bandRight > bandLeft) {
+          const plotBottom = Math.max(0, height - 40 - 40);
+          const plotTop = Math.min(20, height);
+          ctx.save();
+          ctx.strokeStyle =
+            resolvedThemeMode === "dark"
+              ? "rgba(86, 201, 246, 0.52)"
+              : "rgba(36, 156, 208, 0.48)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 4]);
+          for (const x of [bandLeft, bandRight]) {
+            if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
+            ctx.beginPath();
+            ctx.moveTo(x, plotTop);
+            ctx.lineTo(x, plotBottom);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x, top);
+            ctx.lineTo(x, bottom);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        ctx.fillStyle =
+          resolvedThemeMode === "dark"
+            ? "rgba(219, 244, 255, 0.94)"
+            : "rgba(42, 54, 72, 0.92)";
+        ctx.textAlign = "left";
+        ctx.fillText("Tx", left + 14, midY);
+
+        ctx.strokeStyle = "rgba(122, 139, 166, 0.58)";
+        ctx.lineWidth = 4;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(trackLeft, midY);
+        ctx.lineTo(trackRight, midY);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(86, 201, 246, 0.98)";
+        ctx.lineWidth = isCompactBandwidth ? 4 : 6;
+        ctx.beginPath();
+        ctx.moveTo(bandLeft, midY);
+        ctx.lineTo(bandRight, midY);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(centerX, top + 4);
+        ctx.lineTo(centerX, bottom - 4);
+        ctx.stroke();
+
+        if (isCompactBandwidth) {
+          ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
+          ctx.beginPath();
+          ctx.moveTo(centerX - 6, top + 8);
+          ctx.lineTo(centerX + 6, top + 8);
+          ctx.lineTo(centerX, top + 16);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
+          ctx.beginPath();
+          ctx.arc(bandLeft, midY, 5, 0, Math.PI * 2);
+          ctx.arc(bandRight, midY, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      },
+      [resolvedThemeMode],
     );
 
     const drawLoadingPlaceholder = useCallback(
@@ -948,6 +1165,27 @@ const FFTCanvas = memo(
       };
     }, [selectionRange]);
 
+    const txSliderTooltipContent = useMemo(() => {
+      if (!txSlider?.visible) return null;
+      const formatHz = (hz: number) => {
+        if (!Number.isFinite(hz)) return "Unknown";
+        const abs = Math.abs(hz);
+        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(3)} MHz`;
+        if (abs >= 1_000) return `${(hz / 1_000).toFixed(0)} kHz`;
+        return `${Math.round(hz)} Hz`;
+      };
+      const power =
+        typeof txSlider.powerDbm === "number" && Number.isFinite(txSlider.powerDbm)
+          ? `${txSlider.powerDbm.toFixed(0)} dBm`
+          : "Unknown";
+      return [
+        `Signal: ${txSlider.signalLabel ?? "TX"}`,
+        `Center: ${formatHz(txSlider.txCenterHz)}`,
+        `Bandwidth: ${formatHz(txSlider.txSampleRateHz)}`,
+        `Power: ${power}`,
+      ].join("\n");
+    }, [txSlider]);
+
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
     // When zoom < 1: pads the waveform with minimum dB values (zoomed out view)
@@ -1159,6 +1397,11 @@ const FFTCanvas = memo(
 
     const forceRenderRef = useRef<(() => void) | null>(null);
 
+    useEffect(() => {
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [txSlider, spectrumOverlayCanvasNode, overlayDirtyRef]);
+
     const handleSpikeCount = useCallback(
       (count: number) => {
         dispatch(setGpuSpikeCount(count));
@@ -1273,6 +1516,8 @@ const FFTCanvas = memo(
       tooltipSpanRef,
       powerLineDbRef,
       onPowerLineDbChange: setPowerLineDb,
+      txSliderRef,
+      txSliderEnabled: !!txSlider?.visible,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -1997,6 +2242,19 @@ const FFTCanvas = memo(
                   effectivePowerScaleRef.current,
                 );
               }
+
+              drawTxSliderOnContext(
+                ctx,
+                logicalW,
+                logicalH,
+                visualRange,
+                txSliderRef.current as
+                  | (CanvasTxSliderState & {
+                      signalLabel?: string;
+                      powerDbm?: number;
+                    })
+                  | null,
+              );
             }
           }
 
@@ -3093,6 +3351,15 @@ const FFTCanvas = memo(
                         </span>
                       </SelectionTooltip>
                     )}
+                    {txSliderTooltipContent ? (
+                      <TxSliderInfoLayer>
+                        <Tooltip
+                          title="Tx Slider"
+                          content={txSliderTooltipContent}
+                          trigger={<TxInfoTrigger type="button">i</TxInfoTrigger>}
+                        />
+                      </TxSliderInfoLayer>
+                    ) : null}
                   </CanvasWrapper>
                 </SpectrumRow>
               </SpectrumSection>

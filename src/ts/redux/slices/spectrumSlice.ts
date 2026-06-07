@@ -184,7 +184,7 @@ const initialState: SpectrumState = {
   isWaterfallCleared: false,
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
-  showTxSlider: false,
+  showTxSlider: true,
   previewRange: null,
   previewAlignment: "centered",
 

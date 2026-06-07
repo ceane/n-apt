@@ -59,6 +59,24 @@ describe("ReduxVisualizerSliders", () => {
     ).toBeInTheDocument();
   });
 
+  test("shows the tx slider toggle for the mock tx device", () => {
+    const store = createStore();
+    store.dispatch(setDeviceKind("mock_tx"));
+    store.dispatch(setShowTxSlider(false));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <ReduxVisualizerSliders />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /show tx slider/i }),
+    ).toBeInTheDocument();
+  });
+
   test("does not show the tx slider toggle when the selected device is rx-only", () => {
     const store = createStore();
     store.dispatch(setDeviceKind(null));

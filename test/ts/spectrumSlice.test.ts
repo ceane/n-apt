@@ -13,9 +13,9 @@ describe("Spectrum Slice Power Clamping", () => {
     return spectrumReducer(undefined, { type: "@@INIT" });
   };
 
-  test("starts with the Tx slider hidden", () => {
+  test("starts with the Tx slider visible", () => {
     const state = getInitialState();
-    expect(state.showTxSlider).toBe(false);
+    expect(state.showTxSlider).toBe(true);
     expect(state.gain).toBe(49.6);
   });
 

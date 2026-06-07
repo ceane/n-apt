@@ -88,7 +88,6 @@ import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { parseFrequency } from "@n-apt/utils/frequency";
-import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
 import { resolveSampleRateSpec, SampleRateSpec } from "@n-apt/utils/signals";
 
 const SidebarContent = memo(styled.div`

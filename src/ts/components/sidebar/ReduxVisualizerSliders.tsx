@@ -53,6 +53,7 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
   const canShowTxSlider =
     deviceKind === "hackrf_one" ||
+    deviceKind === "mock_tx" ||
     deviceKind === "tx_rx" ||
     deviceKind === "tx";
 

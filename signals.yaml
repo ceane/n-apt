@@ -111,8 +111,9 @@ signals:
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated
   mock_apt:
+    gpu_gen_via_metal: false
     realistic_rf:
-      enabled: true
+      enabled: false
       aliasing: true
       passband: true
       retune_settling: true

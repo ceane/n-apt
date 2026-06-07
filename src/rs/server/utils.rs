@@ -90,7 +90,8 @@ pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
     )
     .to_string();
 
-  let re_floor_channel = Regex::new(r"sample_rate:\s*!floor\.\.\.!channel\b").unwrap();
+  let re_floor_channel =
+    Regex::new(r"sample_rate:\s*!floor\.\.\.!channel\b").unwrap();
   let content = re_floor_channel
     .replace_all(
       &content,
@@ -567,8 +568,12 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
   let config = signals_config();
   let mut sdr = config.signals.sdr.clone();
   apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
-  sdr.fft =
-    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size), Some(&sdr));
+  sdr.fft = resolve_fft_config(
+    "mock_apt",
+    sdr.sample_rate,
+    Some(sdr.fft.default_size),
+    Some(&sdr),
+  );
   sdr
 }
 
@@ -739,7 +744,7 @@ pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
 pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => "rtl_sdr",
-    "hackrf_one" => "hackrf_one",
+    "hackrf_one" | "mock_tx" => "hackrf_one",
     "mock_apt_metal" => "mock_apt",
     "mock_apt" => "mock_apt",
     kind => kind,
@@ -765,7 +770,7 @@ pub fn device_sample_rate_ceiling(
       .unwrap_or(sdr_settings.sample_rate);
   }
 
-  if matches!(device_profile.kind.as_str(), "hackrf_one") {
+  if matches!(device_profile.kind.as_str(), "hackrf_one" | "mock_tx") {
     return 20_000_000;
   }
 
@@ -828,6 +833,7 @@ pub fn status_device_backend_label(
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => "rtl-sdr".to_string(),
     "hackrf_one" => "hackrf_one".to_string(),
+    "mock_tx" => "mock_tx".to_string(),
     kind => kind.to_string(),
   }
 }
@@ -844,6 +850,7 @@ pub fn status_device_name(
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
     "hackrf_one" => "HackRF One".to_string(),
+    "mock_tx" => "Mock TX Device".to_string(),
     _ => device_info
       .split(" - ")
       .next()
@@ -2276,10 +2283,12 @@ mod save_tests {
     assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
     assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
 
-    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024), None);
+    let mock_fallback =
+      resolve_fft_config("mock_apt", 1_000_000, Some(1024), None);
     assert_eq!(mock_fallback.default_size, 2048);
 
-    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768), None);
+    let mock_high =
+      resolve_fft_config("mock_apt", 3_200_000, Some(32768), None);
     assert_eq!(mock_high.default_size, 32768);
     assert_eq!(mock_high.max_size, 262_144);
     assert_eq!(mock_high.default_frame_rate, 60);

@@ -114,6 +114,8 @@ const getCanvasThemeColors = () => ({
 });
 
 const LIVE_STATUS_ROW_HEIGHT = 40;
+const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
+const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
@@ -366,9 +368,9 @@ export function useOverlayRenderer() {
 
       if (shouldShowHWGrid) {
         ctx.save();
-        ctx.strokeStyle = canvasTheme.snapHwRateLine;
+        ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = canvasTheme.snapHwRateText;
+        ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -424,7 +426,7 @@ export function useOverlayRenderer() {
                 ? "Hardware Sample Rate"
                 : "Next Sample";
               const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, FFT_AREA_MIN.y + 20);
+              ctx.fillText(label, cx, FFT_AREA_MIN.y + 35);
               ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 32);
             }
           }
@@ -528,7 +530,42 @@ export function useOverlayRenderer() {
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
-      void _limitMarkers;
+      const limitMarkers = (_limitMarkers ?? []).filter(
+        (marker) =>
+          Number.isFinite(marker.freq) &&
+          marker.freq >= minFreq &&
+          marker.freq <= maxFreq,
+      );
+
+      if (limitMarkers.length > 0 && viewBandwidth > 0) {
+        ctx.save();
+        ctx.font = "11px JetBrains Mono, monospace";
+        ctx.textBaseline = "top";
+        ctx.lineWidth = Math.max(1, 1 / dpr);
+
+        for (const marker of limitMarkers) {
+          const x = freqToX(marker.freq);
+          const label = marker.label || formatFrequency(marker.freq);
+
+          ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.lineTo(x, fftAreaMax.y);
+          ctx.stroke();
+
+          ctx.setLineDash([]);
+          ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
+          ctx.textAlign = x > width - 160 ? "right" : "left";
+          ctx.fillText(
+            label,
+            x + (ctx.textAlign === "right" ? -6 : 6),
+            FFT_AREA_MIN.y + 45,
+          );
+        }
+
+        ctx.restore();
+      }
 
       void _fullCaptureRange;
     },
@@ -861,9 +898,15 @@ export function useOverlayRenderer() {
       const maxFreq = frequencyRange.max;
       const viewBandwidth = maxFreq - minFreq;
       const visualCenterFreq = (minFreq + maxFreq) / 2;
+      const isGhzRange =
+        Math.abs(visualCenterFreq) >= 1_000_000_000 ||
+        Math.abs(minFreq) >= 1_000_000_000 ||
+        Math.abs(maxFreq) >= 1_000_000_000;
 
       const centerTicksHz: number[] = [];
-      if (viewBandwidth <= 5_000_000) centerTicksHz.push(500_000);
+      if (viewBandwidth <= 5_000_000) {
+        centerTicksHz.push(isGhzRange ? 1_000_000 : 500_000);
+      }
       if (viewBandwidth <= 1_000_000) centerTicksHz.push(100_000);
       if (viewBandwidth <= 500_000) {
         centerTicksHz.push(50_000);

@@ -9,16 +9,18 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 
-const TX_INTERACTION_SELECTOR = "[data-tx-slider-overlay='true']";
 const LIVE_STATUS_ROW_HEIGHT = 40;
 const VFO_INTERACTION_HEIGHT = 60 + LIVE_STATUS_ROW_HEIGHT;
 
-const isTxOverlayEvent = (event: Event): boolean => {
-  const target = event.target;
-  return (
-    target instanceof Element &&
-    target.closest(TX_INTERACTION_SELECTOR) !== null
-  );
+export type CanvasTxSliderState = {
+  visible: boolean;
+  visibleMinHz: number;
+  visibleMaxHz: number;
+  txCenterHz: number;
+  txSampleRateHz: number;
+  onCenterFrequencyChange?: (valueHz: number) => void;
+  onSampleRateChange?: (valueHz: number) => void;
+  onOptionsRequest?: () => void;
 };
 
 export interface FrequencyDragOptions {
@@ -65,6 +67,8 @@ export interface FrequencyDragOptions {
   tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
   powerLineDbRef?: React.MutableRefObject<number | null>;
   onPowerLineDbChange?: (db: number | null) => void;
+  txSliderRef?: React.MutableRefObject<CanvasTxSliderState | null>;
+  txSliderEnabled?: boolean;
 }
 
 export function useFrequencyDrag({
@@ -101,10 +105,14 @@ export function useFrequencyDrag({
   tooltipSpanRef,
   powerLineDbRef,
   onPowerLineDbChange,
+  txSliderRef,
+  txSliderEnabled = false,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
   const isPowerDraggingRef = useRef(false);
+  const isTxSliderDraggingRef = useRef(false);
+  const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -153,6 +161,8 @@ export function useFrequencyDrag({
   const initialPinchZoomRef = useRef<number>(1);
   const initialPinchPanRef = useRef<number>(0);
   const initialPinchCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const txPinchInitialDistRef = useRef<number | null>(null);
+  const txPinchInitialBandwidthRef = useRef<number>(1);
   const PINCH_LOG_GAIN = 2.5;
   const PINCH_LOG_SPREAD = 5;
   const PINCH_VELOCITY_GAIN = 0.012;
@@ -209,6 +219,135 @@ export function useFrequencyDrag({
     const visualMin = visualCenter - visualSpan / 2;
 
     return visualMin + frac * visualSpan;
+  };
+
+  const getTxSliderGeometry = (rect: DOMRect) => {
+    const plot = getPlotBounds(rect);
+    const left = 4;
+    const right = Math.max(left, rect.width - 4);
+    const top = Math.max(plot.bottom - 5, rect.height - LIVE_STATUS_ROW_HEIGHT);
+    const bottom = rect.height - 4;
+    const trackLeft = plot.left;
+    const trackRight = Math.max(trackLeft + 80, plot.right);
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      trackLeft,
+      trackRight,
+      trackWidth: Math.max(1, trackRight - trackLeft),
+    };
+  };
+
+  const isTxSliderReady = (
+    slider: CanvasTxSliderState | null | undefined,
+  ): slider is CanvasTxSliderState =>
+    !!slider?.visible &&
+    Number.isFinite(slider.visibleMinHz) &&
+    Number.isFinite(slider.visibleMaxHz) &&
+    slider.visibleMaxHz > slider.visibleMinHz &&
+    Number.isFinite(slider.txCenterHz) &&
+    Number.isFinite(slider.txSampleRateHz);
+
+  const isPointInTxSlider = (clientX: number, clientY: number, rect: DOMRect) => {
+    const slider = txSliderRef?.current;
+    if (!isTxSliderReady(slider)) return false;
+    const geometry = getTxSliderGeometry(rect);
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    return (
+      x >= geometry.left &&
+      x <= geometry.right &&
+      y >= geometry.top &&
+      y <= geometry.bottom
+    );
+  };
+
+  const getTxSliderFrequencyForX = (x: number, rect: DOMRect) => {
+    const slider = txSliderRef?.current;
+    const geometry = getTxSliderGeometry(rect);
+    if (
+      !isTxSliderReady(slider)
+    ) {
+      return null;
+    }
+    const frac =
+      (Math.max(geometry.trackLeft, Math.min(geometry.trackRight, x)) -
+        geometry.trackLeft) /
+      geometry.trackWidth;
+    return slider.visibleMinHz + frac * (slider.visibleMaxHz - slider.visibleMinHz);
+  };
+
+  const updateTxSliderFromPointer = (clientX: number) => {
+    const slider = txSliderRef?.current;
+    const canvasRect = canvasDragRectRef.current;
+    const handle = txSliderHandleRef.current;
+    if (!slider || !canvasRect || !handle) return;
+    const pointerHz = getTxSliderFrequencyForX(clientX - canvasRect.left, canvasRect);
+    if (pointerHz === null) return;
+
+    const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+    if (!Number.isFinite(visibleSpan) || visibleSpan <= 0) return;
+
+    const currentBandwidth = Math.max(1, slider.txSampleRateHz);
+    const currentMin = slider.txCenterHz - currentBandwidth / 2;
+    const currentMax = slider.txCenterHz + currentBandwidth / 2;
+    const minBandwidth = Math.min(25_000, Math.max(1, visibleSpan * 0.01));
+    const maxBandwidth = Math.max(minBandwidth, visibleSpan);
+    let nextMin = currentMin;
+    let nextMax = currentMax;
+
+    if (handle === "left") {
+      nextMin = Math.min(pointerHz, currentMax - minBandwidth);
+    } else if (handle === "right") {
+      nextMax = Math.max(pointerHz, currentMin + minBandwidth);
+    } else {
+      const half = currentBandwidth / 2;
+      nextMin = pointerHz - half;
+      nextMax = pointerHz + half;
+    }
+
+    let nextBandwidth = Math.max(minBandwidth, Math.min(maxBandwidth, nextMax - nextMin));
+    let nextCenter = (nextMin + nextMax) / 2;
+    const half = nextBandwidth / 2;
+    if (nextCenter - half < slider.visibleMinHz) {
+      nextCenter = slider.visibleMinHz + half;
+    }
+    if (nextCenter + half > slider.visibleMaxHz) {
+      nextCenter = slider.visibleMaxHz - half;
+    }
+
+    slider.onSampleRateChange?.(nextBandwidth);
+    slider.onCenterFrequencyChange?.(nextCenter);
+    onDragRepaint?.();
+  };
+
+  const panTxSliderByHz = (deltaHz: number) => {
+    const slider = txSliderRef?.current;
+    if (!isTxSliderReady(slider)) return;
+    const bandwidth = Math.max(1, slider.txSampleRateHz);
+    const half = bandwidth / 2;
+    const minCenter = slider.visibleMinHz + half;
+    const maxCenter = slider.visibleMaxHz - half;
+    const nextCenter = Math.max(
+      minCenter,
+      Math.min(maxCenter, slider.txCenterHz + deltaHz),
+    );
+    slider.onCenterFrequencyChange?.(nextCenter);
+    onDragRepaint?.();
+  };
+
+  const zoomTxSliderBandwidth = (scale: number) => {
+    const slider = txSliderRef?.current;
+    if (!isTxSliderReady(slider) || !Number.isFinite(scale) || scale <= 0) return;
+    const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+    const nextBandwidth = Math.max(
+      1,
+      Math.min(visibleSpan, slider.txSampleRateHz * scale),
+    );
+    slider.onSampleRateChange?.(nextBandwidth);
+    onDragRepaint?.();
   };
 
   useEffect(() => {
@@ -490,7 +629,10 @@ export function useFrequencyDrag({
     };
 
     const handlePointerMove = (e: PointerEvent) => {
-      if (isTxOverlayEvent(e)) return;
+      if (isTxSliderDraggingRef.current) {
+        updateTxSliderFromPointer(e.clientX);
+        return;
+      }
 
       const container = getContainer();
       if (!container) return;
@@ -531,6 +673,26 @@ export function useFrequencyDrag({
       }
 
       // Handle multi-touch pinch-to-zoom (mobile)
+      if (activePointersRef.current.size === 2 && txPinchInitialDistRef.current) {
+        const pointers = Array.from(activePointersRef.current.values());
+        const p1 = pointers[0];
+        const p2 = pointers[1];
+        const currentDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        const scale = currentDist / txPinchInitialDistRef.current;
+        const slider = txSliderRef?.current;
+        if (isTxSliderReady(slider)) {
+          const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+          slider.onSampleRateChange?.(
+            Math.max(
+              1,
+              Math.min(visibleSpan, txPinchInitialBandwidthRef.current * scale),
+            ),
+          );
+          onDragRepaint?.();
+        }
+        return;
+      }
+
       if (
         activePointersRef.current.size === 2 &&
         initialPinchDistRef.current &&
@@ -895,8 +1057,6 @@ export function useFrequencyDrag({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
-      if (isTxOverlayEvent(e)) return;
-
       const container = getContainer();
       if (!container) return;
 
@@ -947,9 +1107,76 @@ export function useFrequencyDrag({
       }
 
       const canvasRect = canvasDragRectRef.current || rect;
+      if (activePointersRef.current.size === 2) {
+        const pointers = Array.from(activePointersRef.current.values());
+        const p1 = pointers[0];
+        const p2 = pointers[1];
+        if (
+          isPointInTxSlider(p1.x, p1.y, canvasRect) ||
+          isPointInTxSlider(p2.x, p2.y, canvasRect)
+        ) {
+          txPinchInitialDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+          txPinchInitialBandwidthRef.current =
+            txSliderRef?.current?.txSampleRateHz ?? 1;
+          initialPinchDistRef.current = null;
+          setPointerCaptureIfAvailable(container, e.pointerId);
+          return;
+        }
+      }
       const canvasX = e.clientX - canvasRect.left;
       const canvasY = e.clientY - canvasRect.top;
       const plot = getPlotBounds(canvasRect);
+
+      const slider = txSliderRef?.current;
+      if (
+        slider?.visible &&
+        slider.visibleMaxHz > slider.visibleMinHz &&
+        Number.isFinite(slider.txCenterHz) &&
+        Number.isFinite(slider.txSampleRateHz)
+      ) {
+        const geometry = getTxSliderGeometry(canvasRect);
+        if (canvasY >= geometry.top && canvasY <= geometry.bottom) {
+          const bandwidth = Math.max(1, slider.txSampleRateHz);
+          const isCompactBandwidth = bandwidth < 200_000;
+          const sliderMin = slider.txCenterHz - bandwidth / 2;
+          const sliderMax = slider.txCenterHz + bandwidth / 2;
+          const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+          const toX = (hz: number) =>
+            geometry.trackLeft +
+            ((hz - slider.visibleMinHz) / visibleSpan) * geometry.trackWidth;
+          const leftHandleX = toX(sliderMin);
+          const rightHandleX = toX(sliderMax);
+          const hitRadius = 14;
+
+          if (isCompactBandwidth) {
+            txSliderHandleRef.current = "body";
+          } else if (Math.abs(canvasX - leftHandleX) <= hitRadius) {
+            txSliderHandleRef.current = "left";
+          } else if (Math.abs(canvasX - rightHandleX) <= hitRadius) {
+            txSliderHandleRef.current = "right";
+          } else if (
+            canvasX >= Math.min(leftHandleX, rightHandleX) &&
+            canvasX <= Math.max(leftHandleX, rightHandleX)
+          ) {
+            txSliderHandleRef.current = "body";
+          } else if (
+            canvasX >= geometry.trackLeft &&
+            canvasX <= geometry.trackRight
+          ) {
+            txSliderHandleRef.current = "body";
+          } else {
+            txSliderHandleRef.current = null;
+          }
+
+          if (txSliderHandleRef.current) {
+            isTxSliderDraggingRef.current = true;
+            updateTxSliderFromPointer(e.clientX);
+            setPointerCaptureIfAvailable(container, e.pointerId);
+            addClassIfAvailable(container, "cursor-grabbing");
+            return;
+          }
+        }
+      }
 
       // Check if clicking inside the left margin (dB scale area)
       const isLeftMargin =
@@ -1103,6 +1330,17 @@ export function useFrequencyDrag({
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
 
+      if (isTxSliderDraggingRef.current) {
+        isTxSliderDraggingRef.current = false;
+        txSliderHandleRef.current = null;
+        if (container) {
+          releasePointerCaptureIfAvailable(container, e.pointerId);
+          removeClassIfAvailable(container, "cursor-grabbing");
+        }
+        onDragRepaint?.();
+        return;
+      }
+
       if (isPowerDraggingRef.current) {
         isPowerDraggingRef.current = false;
         if (container) {
@@ -1118,6 +1356,9 @@ export function useFrequencyDrag({
       }
 
       activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size < 2) {
+        txPinchInitialDistRef.current = null;
+      }
       if (activePointersRef.current.size < 2) {
         initialPinchDistRef.current = null;
         lastPinchDistRef.current = null;
@@ -1384,8 +1625,6 @@ export function useFrequencyDrag({
     };
 
     const handlePointerMoveForCursor = (e: PointerEvent) => {
-      if (isTxOverlayEvent(e)) return;
-
       const container = getContainer();
       if (!container || isDraggingRef.current) return;
 
@@ -1393,10 +1632,16 @@ export function useFrequencyDrag({
         containerRectRef.current || container.getBoundingClientRect();
       const y = e.clientY - rect.top;
       const vfoThreshold = VFO_INTERACTION_HEIGHT;
+      const slider = txSliderRef?.current;
+      const isOverTxSlider =
+        !!slider?.visible &&
+        slider.visibleMaxHz > slider.visibleMinHz &&
+        y >= getTxSliderGeometry(rect).top &&
+        y <= getTxSliderGeometry(rect).bottom;
 
       const isOverVfo = y >= rect.height - vfoThreshold;
 
-      if (isOverVfo) {
+      if (isOverTxSlider || isOverVfo) {
         if (
           !container.classList ||
           !container.classList.contains("cursor-grab")
@@ -1416,8 +1661,6 @@ export function useFrequencyDrag({
     };
 
     const handleWheel = (e: WheelEvent) => {
-      if (isTxOverlayEvent(e)) return;
-
       const container = getContainer();
       if (!container) return;
 
@@ -1425,6 +1668,24 @@ export function useFrequencyDrag({
         containerRectRef.current || container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      if (isPointInTxSlider(e.clientX, e.clientY, rect)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const slider = txSliderRef?.current;
+        if (!isTxSliderReady(slider)) return;
+        if (e.ctrlKey) {
+          const scale = Math.exp(-e.deltaY * 0.004);
+          zoomTxSliderBandwidth(scale);
+          return;
+        }
+        const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+        const scrollDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY)
+          ? e.deltaX
+          : e.deltaY;
+        panTxSliderByHz((scrollDelta / Math.max(1, rect.width)) * visibleSpan);
+        return;
+      }
 
       const plot = getPlotBounds(rect);
       if (x < 50 && y >= plot.top && y <= plot.bottom) {
@@ -1569,6 +1830,17 @@ export function useFrequencyDrag({
       }
     };
 
+    const handleDoubleClick = (e: MouseEvent) => {
+      const container = getContainer();
+      if (!container) return;
+      const rect =
+        containerRectRef.current || container.getBoundingClientRect();
+      if (!isPointInTxSlider(e.clientX, e.clientY, rect)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      txSliderRef?.current?.onOptionsRequest?.();
+    };
+
     const handlePointerLeave = () => {
       const container = getContainer();
       if (container && !isDraggingRef.current) {
@@ -1588,6 +1860,9 @@ export function useFrequencyDrag({
     container.addEventListener("pointermove", handlePointerMoveForCursor);
     container.addEventListener("pointerleave", handlePointerLeave);
     container.addEventListener("wheel", handleWheel, { passive: false });
+    if (txSliderEnabled) {
+      container.addEventListener("dblclick", handleDoubleClick);
+    }
 
     addClassIfAvailable(container, "cursor-crosshair");
 
@@ -1614,6 +1889,9 @@ export function useFrequencyDrag({
       container.removeEventListener("pointermove", handlePointerMoveForCursor);
       container.removeEventListener("pointerleave", handlePointerLeave);
       container.removeEventListener("wheel", handleWheel);
+      if (txSliderEnabled) {
+        container.removeEventListener("dblclick", handleDoubleClick);
+      }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("keydown", handleKeyDown);
@@ -1640,6 +1918,7 @@ export function useFrequencyDrag({
     signalAreaBounds,
     renderWaveformRef,
     selectionMode,
+    txSliderEnabled,
   ]);
 }
 

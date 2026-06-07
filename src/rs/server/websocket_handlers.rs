@@ -555,7 +555,32 @@ pub fn handle_message(
         .clone()
         .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
       let serial_number = shared.device_serial.lock().unwrap().clone();
-      let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+      let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+      if let Some(center_frequency) = message.center_frequency {
+        sdr_settings.center_frequency = center_frequency as u32;
+      }
+      if let Some(sample_rate) = message.sample_rate {
+        sdr_settings.sample_rate = sample_rate;
+      }
+      if let Some(vga_gain) = message.hackrf_vga_gain {
+        sdr_settings.gain.hackrf_vga_gain = Some(vga_gain);
+      }
+      if let Some(lna_gain) = message.hackrf_lna_gain {
+        sdr_settings.gain.hackrf_lna_gain = Some(lna_gain);
+      }
+      if let Some(amp_enabled) = message.hackrf_amp_enable {
+        sdr_settings.gain.hackrf_amp_enable = Some(amp_enabled);
+      }
+      if let Some(tuner_agc) = message.tuner_agc {
+        sdr_settings.gain.tuner_agc = tuner_agc;
+      }
+      if let Some(rtl_agc) = message.rtl_agc {
+        sdr_settings.gain.rtl_agc = rtl_agc;
+      }
+      if let Some(ppm) = message.ppm {
+        sdr_settings.ppm = ppm as f64;
+      }
+      *shared.sdr_settings.lock().unwrap() = sdr_settings.clone();
       let entry = if enabled {
         TxLogEntry::start(
           device,
@@ -587,6 +612,13 @@ pub fn handle_message(
         .end()
       };
       write_global(&entry);
+      if shared.device_profile.lock().unwrap().kind == "mock_tx" {
+        shared.set_device_state(
+          if enabled { "transmitting" } else { "connected" },
+          None,
+        );
+        super::websocket_server::broadcast_device_status(shared, broadcast_tx);
+      }
     }
     "restart_device" => {
       info!("Client requested device restart");
@@ -595,9 +627,8 @@ pub fn handle_message(
     "select_source" => {
       if let Some(source_id) = message.source_id.clone() {
         info!("Client requested source switch: {}", source_id);
-        let _ = cmd_tx.send(super::types::SdrCommand::SetActiveSource {
-          source_id,
-        });
+        let _ =
+          cmd_tx.send(super::types::SdrCommand::SetActiveSource { source_id });
       } else {
         debug!("Ignoring select_source message without source_id");
       }
@@ -954,6 +985,68 @@ mod tests {
       }
       other => panic!("unexpected command: {:?}", other),
     }
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_mode_updates_source_status_for_iq_preview() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      true,
+      "Mock TX Device".to_string(),
+      crate::server::websocket_server::build_device_profile("mock_tx"),
+    );
+    shared.update_device_usb_strings(
+      "mock-tx".to_string(),
+      "N-APT".to_string(),
+      "Mock TX Device".to_string(),
+    );
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let mut next_source_info = || -> serde_json::Value {
+      for _ in 0..4 {
+        let payload: serde_json::Value = serde_json::from_str(
+          &broadcast_rx.try_recv().expect("broadcast payload"),
+        )
+        .expect("valid broadcast payload");
+        if payload["type"] == "source_info" {
+          return payload;
+        }
+      }
+      panic!("expected source_info broadcast");
+    };
+
+    let enable: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"tx_mode",
+        "txMode":true,
+        "txDevice":"Mock TX Device",
+        "centerFrequencyHz":1600000,
+        "sampleRateHz":3200000,
+        "vgaGainDb":12
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, enable);
+
+    let payload = next_source_info();
+    assert_eq!(payload["active_source"], "mock-tx");
+    assert_eq!(payload["sources"][0]["status"], "transmitting");
+
+    let disable: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"tx_mode",
+        "txMode":false,
+        "txDevice":"Mock TX Device"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, disable);
+
+    let payload = next_source_info();
+    assert_eq!(payload["sources"][0]["status"], "connected");
   }
 
   #[test]

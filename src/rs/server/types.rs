@@ -266,10 +266,18 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0.0, max = 100.0))]
   pub gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfLnaGain")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfLnaGain",
+    alias = "lnaGainDb"
+  )]
   #[validate(range(min = 0.0, max = 49.6))]
   pub hackrf_lna_gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfVgaGain")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfVgaGain",
+    alias = "vgaGainDb"
+  )]
   #[validate(range(min = 0.0, max = 62.0))]
   pub hackrf_vga_gain: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
@@ -295,7 +303,11 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "sampleRate")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "sampleRate",
+    alias = "sampleRateHz"
+  )]
   #[validate(range(min = 1, max = 100000000))]
   pub sample_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
@@ -608,6 +620,8 @@ pub struct AvailableSpectrumConfig {
 pub struct MockAptSignalsConfig {
   #[serde(default)]
   pub global_settings: Option<MockAptGlobalSettings>,
+  #[serde(default)]
+  pub gpu_gen_via_metal: bool,
   #[serde(default)]
   pub realistic_rf: Option<MockAptRealisticRfConfig>,
   #[serde(default)]

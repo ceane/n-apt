@@ -53,17 +53,6 @@ const SpectrumStage = styled.div`
   width: 100%;
 `;
 
-const SpectrumOverlayLayer = styled.div`
-  position: absolute;
-  inset: 0;
-  z-index: 160;
-  pointer-events: none;
-
-  > * {
-    pointer-events: auto;
-  }
-`;
-
 const SlidersRail = styled.div`
   width: 64px;
   display: flex;
@@ -92,11 +81,24 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const showTxSlider = useAppSelector(
       (reduxState) => reduxState.spectrum.showTxSlider,
     );
+    const txSignal = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSignal || "apt",
+    );
+    const txCenterFrequencyHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txCenterFrequencyHz,
+    );
+    const txSampleRateHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSampleRateHz,
+    );
+    const txPowerDbm = useAppSelector(
+      (reduxState) => reduxState.spectrum.txPowerDbm,
+    );
     const deviceKind = useAppSelector(
       (reduxState) => reduxState.spectrum.deviceKind,
     );
     const canShowTxSlider =
       deviceKind === "hackrf_one" ||
+      deviceKind === "mock_tx" ||
       deviceKind === "tx_rx" ||
       deviceKind === "tx";
     const sourceMode = useAppSelector(
@@ -190,6 +192,50 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const powerScale = props.powerScale ?? "dB";
     const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
     const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
+    const effectiveTxSlider = useMemo(() => {
+      if (props.txSlider) return props.txSlider;
+      if (!showTxSlider) return undefined;
+      if (!canShowTxSlider) return undefined;
+      const range = props.frequencyRange;
+      if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) {
+        return undefined;
+      }
+      const visibleMinHz = range.min;
+      const visibleMaxHz = range.max > visibleMinHz ? range.max : visibleMinHz + 1;
+      const span = visibleMaxHz - visibleMinHz;
+      const centerHz =
+        Number.isFinite(txCenterFrequencyHz) &&
+        txCenterFrequencyHz >= visibleMinHz &&
+        txCenterFrequencyHz <= visibleMaxHz
+          ? txCenterFrequencyHz
+          : visibleMinHz + span / 2;
+      const sampleRateHz = Number.isFinite(txSampleRateHz)
+        ? Math.max(1, Math.min(span, txSampleRateHz))
+        : Math.max(1, Math.min(120_000, span));
+      return {
+        visible: true,
+        signalLabel: String(txSignal).toUpperCase(),
+        powerDbm: txPowerDbm,
+        visibleMinHz,
+        visibleMaxHz,
+        txCenterHz: centerHz,
+        txSampleRateHz: sampleRateHz,
+        onCenterFrequencyChange: (value: number) =>
+          dispatch(spectrumActions.setTxCenterFrequencyHz(value)),
+        onSampleRateChange: (value: number) =>
+          dispatch(spectrumActions.setTxSampleRateHz(value)),
+      };
+    }, [
+      props.txSlider,
+      props.frequencyRange,
+      showTxSlider,
+      canShowTxSlider,
+      txCenterFrequencyHz,
+      txSampleRateHz,
+      txSignal,
+      txPowerDbm,
+      dispatch,
+    ]);
     const handleZoomChange = useCallback(
       (nextZoom: number) => {
         const clampedZoom = clampVizZoom(nextZoom, zoomFloor);
@@ -243,6 +289,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             <FFTCanvas
               ref={ref}
               {...props}
+              txSlider={effectiveTxSlider}
               interactionDisabled={isGlobalLoading}
               awaitingDeviceData={
                 sourceMode === "live"
@@ -255,12 +302,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               onRenderableFrameChange={setHasRenderableFrame}
               onCanvasLoadingChange={setIsFftCanvasLoading}
               waterfallCanvasBindings={waterfallCanvasBindings}
-              overlayContent={undefined}
             />
             {props.overlayContent ? (
-              <SpectrumOverlayLayer>
-                {props.overlayContent}
-              </SpectrumOverlayLayer>
+              props.overlayContent
             ) : null}
           </SpectrumStage>
           <FIFOWaterfallCanvas

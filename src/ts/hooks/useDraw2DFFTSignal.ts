@@ -163,6 +163,9 @@ const getCanvasThemeColors = () => ({
   mutedTextColor: readCssColor("--color-text-muted", "#666"),
 });
 
+const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
+const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
+
 export interface Draw2DFFTSignalOptions {
   canvas: HTMLCanvasElement;
   waveform: Uint8Array | Float32Array | number[];
@@ -371,7 +374,48 @@ export function useDraw2DFFTSignal() {
       ctx.lineTo(leftPad, fftAreaMax.y - 1);
       ctx.stroke();
 
-      void limitMarkers;
+      const visibleLimitMarkers = limitMarkers.filter((marker) => {
+        if (!Number.isFinite(marker.freq)) return false;
+        const markerFreq =
+          Math.abs(marker.freq) > 1_000_000 && maxFreq < 1_000_000
+            ? marker.freq / 1_000_000
+            : marker.freq;
+        return markerFreq >= minFreq && markerFreq <= maxFreq;
+      });
+
+      if (visibleLimitMarkers.length > 0) {
+        ctx.save();
+        ctx.font = "11px JetBrains Mono, monospace";
+        ctx.textBaseline = "top";
+        ctx.lineWidth = Math.max(1, 1 / dpr);
+
+        for (const marker of visibleLimitMarkers) {
+          const markerFreq =
+            Math.abs(marker.freq) > 1_000_000 && maxFreq < 1_000_000
+              ? marker.freq / 1_000_000
+              : marker.freq;
+          const x = freqToX(markerFreq);
+          const label = marker.label || formatFreq(markerFreq);
+
+          ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, topPad);
+          ctx.lineTo(x, fftAreaMax.y);
+          ctx.stroke();
+
+          ctx.setLineDash([]);
+          ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
+          ctx.textAlign = x > width - 160 ? "right" : "left";
+          ctx.fillText(
+            label,
+            x + (ctx.textAlign === "right" ? -6 : 6),
+            topPad + 60,
+          );
+        }
+
+        ctx.restore();
+      }
 
       void fullCaptureRange;
 
@@ -383,9 +427,9 @@ export function useDraw2DFFTSignal() {
 
       if (shouldShowHWGrid) {
         ctx.save();
-        ctx.strokeStyle = "rgba(220, 220, 220, 0.54)"; // User specified color
+        ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = textColor ?? canvasTheme.textColor;
+        ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
         ctx.font = "10px JetBrains Mono";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
@@ -443,7 +487,7 @@ export function useDraw2DFFTSignal() {
                 ? "Hardware Sample Rate"
                 : "Next Sample";
               const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, topPad + 4);
+              ctx.fillText(label, cx, topPad + 19);
               ctx.fillText(subLabel, cx, topPad + 16);
             }
           }
@@ -572,8 +616,9 @@ export function useDraw2DFFTSignal() {
           if (m.freq < minFreq || m.freq > maxFreq) continue;
           const x = Math.round(freqToX(m.freq)) + 0.5;
           ctx.save();
-          ctx.strokeStyle = canvasTheme.boundaryLine;
+          ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
           ctx.lineWidth = 1 / dpr;
+          ctx.setLineDash([4, 4]);
           ctx.beginPath();
           ctx.moveTo(x, topPad);
           ctx.lineTo(x, fftAreaMax.y);
@@ -581,7 +626,7 @@ export function useDraw2DFFTSignal() {
           ctx.restore();
 
           ctx.save();
-          ctx.fillStyle = canvasTheme.boundaryText;
+          ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
           ctx.font = "11px JetBrains Mono";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
@@ -590,7 +635,7 @@ export function useDraw2DFFTSignal() {
             leftPad + tw / 2 + 4,
             Math.min(fftAreaMax.x - tw / 2 - 4, x),
           );
-          ctx.fillText(m.label, lx, topPad + 45);
+          ctx.fillText(m.label, lx, topPad + 60);
           ctx.restore();
         }
       }
