@@ -781,7 +781,11 @@ const FFTCanvas = memo(
         ctx.strokeStyle = "rgba(86, 201, 246, 0.58)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(left, top, right - left, bottom - top, 7);
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(left, top, right - left, bottom - top, 7);
+        } else {
+          ctx.rect(left, top, right - left, bottom - top);
+        }
         ctx.fill();
         ctx.stroke();
 
