@@ -77,9 +77,9 @@ export const TOWER_CONFIGS: Record<TowerType, TowerConfig> = {
     antennaRotation: [0, 0, 0],
     antennaSize: { width: 0.55, height: 2.5, depth: 0.1 },
     emitterFaces: [
-      [1.25, 9, -0.78],
+      [1.25, 9, -1.2],
       [1.25, 9, 0],
-      [1.25, 9, 0.78],
+      [1.25, 9, 1.2],
     ],
   },
   diamond: {
@@ -104,7 +104,14 @@ export const TOWER_CONFIGS: Record<TowerType, TowerConfig> = {
     antennaOrigin: [0.55, 10, 0], // Front face of the hex cylinder
     antennaRotation: [0, 0, 0],
     antennaSize: { width: 1.04, height: 2, depth: 1.2 },
-    emitterFaces: [[0.55, 10, 0]],
+    emitterFaces: [
+      [0.52, 10, 0], // North
+      [0.26, 10, -0.45], // NW
+      [0.26, 10, 0.45], // NE
+      [-0.52, 10, 0], // South
+      [-0.26, 10, -0.45], // SW
+      [-0.26, 10, 0.45], // SE
+    ],
   },
   single_panel: {
     id: "single_panel",
@@ -145,34 +152,54 @@ export const SectorTower = forwardRef<Group, GroupProps>((props, ref) => (
       {MAT_BOX}
     </mesh>
 
-    <Wire start={[-0.15, 4.75, 0]} end={[0, 8.1, 0]} />
-
-    {/* Single unified triangle frame */}
-    {[0, (Math.PI * 2) / 3, (Math.PI * 4) / 3].map((angle, i) => (
-      <group key={`frame-${i}`} rotation={[0, angle, 0]}>
-        {/* Main crossbar of the triangle face */}
-        <mesh position={[0.52, 8.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 1.96, 8]} />
-          {MAT_POLE}
-        </mesh>
-        {/* Strut connecting pole to center of crossbar */}
-        <mesh position={[0.26, 8.1, 0]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.04, 0.04, 0.52, 8]} />
-          {MAT_POLE}
-        </mesh>
+    {/* Upper and lower triangle frames */}
+    {[8.2, 9.8].map((yHeight, idx) => (
+      <group key={`frame-height-${idx}`}>
+        {/* 3 Faces of the triangle (crossbars) */}
+        {[0, (Math.PI * 2) / 3, (Math.PI * 4) / 3].map((angle, i) => (
+          <group key={`face-${i}`} rotation={[0, angle, 0]}>
+            <mesh position={[1.15, yHeight, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.04, 0.04, 4.0, 8]} />
+              {MAT_POLE}
+            </mesh>
+          </group>
+        ))}
+        {/* 3 Corner Struts connecting to the pole */}
+        {[Math.PI / 3, Math.PI, (Math.PI * 5) / 3].map((angle, i) => (
+          <group key={`strut-${i}`} rotation={[0, angle, 0]}>
+            <mesh position={[1.15, yHeight, 0]} rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[0.04, 0.04, 2.3, 8]} />
+              {MAT_POLE}
+            </mesh>
+          </group>
+        ))}
       </group>
     ))}
 
+    {/* 3 Faces * 3 Panels = 9 Panels Total */}
     {[0, (Math.PI * 2) / 3, (Math.PI * 4) / 3].map((angle, i) => (
       <group key={i} rotation={[0, angle, 0]}>
-        {[-0.78, 0, 0.78].map((zOffset) => (
+        {[-1.2, 0, 1.2].map((zOffset) => (
           <group key={zOffset} position={[0, 0, zOffset]}>
+            {/* Panel */}
             <mesh position={[1.2, 9, 0]}>
               <boxGeometry args={[0.1, 2.5, 0.55]} />
               {MAT_PANEL}
             </mesh>
-            {/* Short wire from triangle frame to back of panel */}
-            <Wire start={[0.52, 8.1, 0]} end={[1.15, 8.1, 0]} />
+            {/* Vertical mounting pipe behind the panel */}
+            <mesh position={[1.15, 9, 0]}>
+              <cylinderGeometry args={[0.03, 0.03, 2.0, 8]} />
+              {MAT_POLE}
+            </mesh>
+            {/* Panel mounting brackets (top/bottom) attaching panel to vertical pipe */}
+            <mesh position={[1.175, 9.8, 0]} rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[0.02, 0.02, 0.05, 8]} />
+              {MAT_POLE}
+            </mesh>
+            <mesh position={[1.175, 8.2, 0]} rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[0.02, 0.02, 0.05, 8]} />
+              {MAT_POLE}
+            </mesh>
           </group>
         ))}
       </group>
@@ -290,7 +317,7 @@ export const HexagonalSmallCell = forwardRef<Group, GroupProps>(
       </mesh>
 
       {/* Hexagonal Antenna pointing exactly +X */}
-      <mesh position={[0, 10, 0]} rotation={[0, Math.PI / 6, 0]}>
+      <mesh position={[0, 10, 0]} rotation={[0, 0, 0]}>
         {/*
         To make the hexagonal faces well-defined, we're doing two things:
         1. Using a slightly darker material so lights interact better.

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { useControls, folder } from "leva";
 import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
 import { levaGainScale } from "@n-apt/components/ui/levaGainScalePlugin";
+import { levaPanelSelector } from "@n-apt/components/ui/levaPanelSelectorPlugin";
 import { Html, Sphere } from "@react-three/drei";
 import styled from "styled-components";
 import {
@@ -230,6 +231,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
     showMultipath,
     showScattering,
     secondaryStrength,
+    showFarField,
     showLabels,
   } = useControls("Radiation Lobe Setup", {
     "Cell Tower / Site": folder({
@@ -251,16 +253,18 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
       apertureWidthM: { label: "Aperture Width", value: 0.65, min: 0.1, max: 5.0, suffix: "m" },
       apertureHeightM: { label: "Aperture Height", value: 1.56, min: 0.1, max: 5.0, suffix: "m" },
     }),
-    Effects: folder({
-      showLabels: { label: "Show Labels", value: true },
-      showMultipath: { label: "Show Multipath", value: showMultipathRays },
-      showScattering: { label: "Show Scattering", value: showScatteringCloud },
+    Visibility: folder({
+      showMultipath: { label: "Ray Paths", value: true },
+      showScattering: { label: "Scattering", value: true },
+      showFarField: { label: "Far Field Mesh", value: true },
       secondaryStrength: {
         label: "Secondary Strength",
         value: 0.32,
         min: 0,
         max: 1,
+        step: 0.01,
       },
+      showLabels: { label: "Labels", value: true },
     }),
     Reference: folder({
       scale: levaGainScale(),
@@ -272,11 +276,38 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   const originHeight =
     selectedTower === "none" ? height : towerConfig.antennaOrigin[1];
 
+  const panelLabels = React.useMemo(() => {
+    if (towerConfig.id === "sector") return ["Left", "Center", "Right"];
+    if (towerConfig.id === "hexagonal") return ["North", "NW", "NE", "South", "SW", "SE"];
+    return Array(towerConfig.emitterFaces.length).fill(0).map((_, i) => `Panel ${i + 1}`);
+  }, [towerConfig.id, towerConfig.emitterFaces.length]);
+
+  const [{ activePanels }] = useControls(
+    "Radiation Lobe Setup",
+    () => ({
+      "Cell Tower / Site": folder({
+        activePanels: {
+          ...levaPanelSelector({ 
+            count: towerConfig.emitterFaces.length, 
+            labels: panelLabels,
+            initialValue: towerConfig.id === "sector" 
+              ? [false, true, false] 
+              : towerConfig.id === "hexagonal"
+                ? [true, false, false, false, false, false]
+                : Array(towerConfig.emitterFaces.length).fill(true)
+          }),
+          render: () => towerConfig.emitterFaces.length > 1 || towerConfig.id === "hexagonal"
+        }
+      }),
+    }),
+    [selectedTower, towerConfig.emitterFaces.length]
+  );
+
   const c = 3e8;
   const safeFrequencyMHz = clamp((frequencyMHz as any) / 1e6, 0.001, 100000);
-  const safePowerDbm = clamp(powerLevelDbm, -70, 64);
-  const effectiveApertureWidth = Math.max(0.1, apertureWidthM);
-  const effectiveApertureHeight = Math.max(0.2, apertureHeightM);
+  const safePowerDbm = clamp(parseFloat(powerLevelDbm as any), -70, 64);
+  const effectiveApertureWidth = Math.max(0.1, parseFloat(apertureWidthM as any));
+  const effectiveApertureHeight = Math.max(0.2, parseFloat(apertureHeightM as any));
   const wavelength = c / (safeFrequencyMHz * 1e6);
   const powerWatts = dbmToWatts(safePowerDbm);
   const k = (2 * Math.PI) / wavelength;
@@ -642,11 +673,34 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
 
       {towerConfig.emitterFaces.map((facePos, index) => {
         const originY = facePos[1] - originHeight;
+        const isPanelActive = towerConfig.emitterFaces.length === 1 
+          ? true 
+          : (Array.isArray(activePanels) ? (activePanels[index] ?? true) : true);
+        
+        if (!isPanelActive) return null;
+
+        let customRotation = towerConfig.antennaRotation;
+        if (towerConfig.id === "hexagonal") {
+          const hexRotations = [
+            0, // North
+            Math.PI / 3, // NW
+            -Math.PI / 3, // NE
+            Math.PI, // South
+            2 * Math.PI / 3, // SW
+            -2 * Math.PI / 3, // SE
+          ];
+          customRotation = [
+            towerConfig.antennaRotation[0],
+            towerConfig.antennaRotation[1] + hexRotations[index],
+            towerConfig.antennaRotation[2]
+          ] as [number, number, number];
+        }
+
         return (
           <group
             key={index}
             position={[facePos[0], originY, facePos[2]]}
-            rotation={towerConfig.antennaRotation}
+            rotation={customRotation}
           >
             {/* Antenna Marker */}
             <mesh>
@@ -714,7 +768,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
               ))}
 
             {/* Near-Field / Far-Field Boundary */}
-            {showNearFarField && showLabels && index === 0 && (
+            {showNearFarField && showFarField && index === 0 && (
               <Sphere args={[farFieldVisualRadius, 32, 32]}>
                 <meshBasicMaterial
                   color="#ffffff"
@@ -722,15 +776,17 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
                   opacity={0.05}
                   wireframe
                 />
-                <Html
-                  position={[0, farFieldVisualRadius, 0]}
-                  center
-                  zIndexRange={[100, 0]}
-                >
-                  <LobeLabel style={{ borderColor: "#aaa", color: "#aaa" }}>
-                    Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
-                  </LobeLabel>
-                </Html>
+                {showLabels && (
+                  <Html
+                    position={[0, farFieldVisualRadius, 0]}
+                    center
+                    zIndexRange={[100, 0]}
+                  >
+                    <LobeLabel style={{ borderColor: "#aaa", color: "#aaa" }}>
+                      Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
+                    </LobeLabel>
+                  </Html>
+                )}
               </Sphere>
             )}
 
