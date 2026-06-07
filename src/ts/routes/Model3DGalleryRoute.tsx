@@ -1,6 +1,7 @@
 import React, { Suspense, useState, useCallback, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
+import { useControls } from "leva";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { ChevronLeft, ChevronRight, Box } from "lucide-react";
 import Brain from "@n-apt/components/3D/Brain";
@@ -21,6 +22,8 @@ import {
   PoleMountedSmallCell,
   HexagonalSmallCell,
   SinglePanelSmallCell,
+  RadiationLobe3D,
+  PolarRadioWaveWebGPU,
 } from "@n-apt/components/3D";
 import {
   BRAIN_GLB_URL,
@@ -61,7 +64,10 @@ type ModelKey =
   | "diamond"
   | "pole_small"
   | "hexagonal"
-  | "single_panel";
+  | "single_panel"
+  | "room_tx"
+  | "free_space_radiation"
+  | "polar_radiation";
 
 interface ModelDef {
   key: ModelKey;
@@ -184,6 +190,24 @@ const MODELS: ModelDef[] = [
     label: "Single Panel",
     description: "Directional Small Cell Panel",
     category: "Telecommunications Infrastructure / Cell Sites",
+  },
+  {
+    key: "room_tx",
+    label: "Room Tx Scene",
+    description: "SDR Transmitter on a desk in a dark room",
+    category: "Scenes",
+  },
+  {
+    key: "free_space_radiation",
+    label: "Free Space Radiation Lobe",
+    description: "Interactive 3D radiation lobe visualization",
+    category: "Scenes",
+  },
+  {
+    key: "polar_radiation",
+    label: "Polar Radiation Coordinates",
+    description: "Interactive polar radiation chart",
+    category: "Charts",
   },
 ];
 
@@ -486,6 +510,156 @@ function SinglePanelSmallCellScene() {
   );
 }
 
+function AnimatedRadioWaves({ speed = 1.5 }: { speed?: number }) {
+  const wavesRef = React.useRef<any>(null);
+  useFrame(({ clock }) => {
+    if (!wavesRef.current) return;
+    const t = clock.getElapsedTime() * speed;
+    wavesRef.current.children.forEach((mesh: any, i: number) => {
+      const offset = i * (1 / 3);
+      const progress = (t + offset) % 1; // 0 to 1
+      mesh.scale.setScalar(progress * 6 + 0.1);
+      mesh.material.opacity = (1 - progress) * 0.4;
+    });
+  });
+
+  return (
+    <group ref={wavesRef} position={[-0.75, 1, 0.5]}>
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[1, 0.05, 16, 64]} />
+          <meshBasicMaterial color="#ac77ff" transparent opacity={0} depthWrite={false} side={2} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function FreeSpaceRadiationScene() {
+  return (
+    <>
+      <group position={[0, -0.5, 0]}>
+        <RadiationLobe3D />
+      </group>
+      <OrbitControls makeDefault enableDamping target={[0, 0, 0]} />
+    </>
+  );
+}
+
+function RoomTxScene() {
+  const { emissionRealism, power, frequency, animationSpeed } = useControls("Room TX Setup", {
+    emissionRealism: { options: { "None": "none" } },
+    power: { value: 43, min: 0, max: 100 },
+    frequency: { value: 1500, min: 100, max: 6000 },
+    animationSpeed: { value: 1.5, min: 0.1, max: 5 },
+  });
+
+  return (
+    <>
+      <ambientLight intensity={0.1} />
+      <pointLight position={[0, 4, -8]} intensity={10} color="#ffffff" distance={20} decay={1.5} />
+      <directionalLight position={[0, 4, -8]} intensity={2} color="#ffffff" />
+      
+      <group position={[0, -2, 0]}>
+        {/* Floor */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+          <planeGeometry args={[20, 20]} />
+          <meshStandardMaterial color="#2a221b" roughness={0.8} />
+        </mesh>
+        
+        {/* Back Wall */}
+        <mesh position={[0, 5, -10]} receiveShadow>
+          <planeGeometry args={[20, 10]} />
+          <meshStandardMaterial color="#1a1a1e" roughness={0.9} />
+        </mesh>
+
+        {/* Side Walls */}
+        <mesh position={[-10, 5, 0]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
+          <planeGeometry args={[20, 10]} />
+          <meshStandardMaterial color="#1a1a1e" roughness={0.9} />
+        </mesh>
+        <mesh position={[10, 5, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
+          <planeGeometry args={[20, 10]} />
+          <meshStandardMaterial color="#1a1a1e" roughness={0.9} />
+        </mesh>
+        
+        {/* Ceiling */}
+        <mesh position={[0, 10, 0]} rotation={[Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[20, 20]} />
+          <meshStandardMaterial color="#151518" roughness={1} />
+        </mesh>
+
+        {/* Window - acts as light source */}
+        <mesh position={[0, 5, -9.9]}>
+          <planeGeometry args={[6, 6]} />
+          <meshBasicMaterial color="#ffffff" />
+        </mesh>
+
+        {/* Desk */}
+        <group position={[0, 2, -3]}>
+          {/* Tabletop */}
+          <mesh position={[0, 0, 0]} castShadow receiveShadow>
+            <boxGeometry args={[6, 0.2, 3]} />
+            <meshStandardMaterial color="#4a3018" roughness={0.7} />
+          </mesh>
+          {/* Legs */}
+          <mesh position={[-2.8, -1, -1.3]} castShadow>
+            <boxGeometry args={[0.2, 2, 0.2]} />
+            <meshStandardMaterial color="#3a2010" />
+          </mesh>
+          <mesh position={[2.8, -1, -1.3]} castShadow>
+            <boxGeometry args={[0.2, 2, 0.2]} />
+            <meshStandardMaterial color="#3a2010" />
+          </mesh>
+          <mesh position={[-2.8, -1, 1.3]} castShadow>
+            <boxGeometry args={[0.2, 2, 0.2]} />
+            <meshStandardMaterial color="#3a2010" />
+          </mesh>
+          <mesh position={[2.8, -1, 1.3]} castShadow>
+            <boxGeometry args={[0.2, 2, 0.2]} />
+            <meshStandardMaterial color="#3a2010" />
+          </mesh>
+          
+          {/* Transmitter on Desk */}
+          <group position={[0, 0.2, 0]}>
+            {/* Box */}
+            <mesh position={[0, 0, 0]} castShadow>
+              <boxGeometry args={[1, 0.25, 1.5]} />
+              <meshStandardMaterial color="#111111" roughness={0.5} />
+            </mesh>
+            {/* Antenna connector */}
+            <mesh position={[-0.6, 0, 0.5]} rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[0.05, 0.05, 0.2]} />
+              <meshStandardMaterial color="#c0c0c0" metalness={0.8} />
+            </mesh>
+            {/* Antenna joint */}
+            <mesh position={[-0.75, 0, 0.5]}>
+              <sphereGeometry args={[0.06]} />
+              <meshStandardMaterial color="#222222" />
+            </mesh>
+            {/* Antenna */}
+            <mesh position={[-0.75, 1, 0.5]}>
+              <cylinderGeometry args={[0.03, 0.03, 2]} />
+              <meshStandardMaterial color="#222222" />
+            </mesh>
+            <AnimatedRadioWaves speed={animationSpeed} />
+            {/* Red Knobs/Connectors */}
+            <mesh position={[0.55, 0, -0.4]} rotation={[0, 0, -Math.PI / 2]}>
+              <cylinderGeometry args={[0.08, 0.08, 0.1]} />
+              <meshStandardMaterial color="#dd0000" />
+            </mesh>
+            <mesh position={[0.55, 0, 0.4]} rotation={[0, 0, -Math.PI / 2]}>
+              <cylinderGeometry args={[0.08, 0.08, 0.1]} />
+              <meshStandardMaterial color="#dd0000" />
+            </mesh>
+          </group>
+        </group>
+      </group>
+      <OrbitControls makeDefault enableDamping target={[0, 0, -3]} maxPolarAngle={Math.PI / 2 - 0.05} />
+    </>
+  );
+}
+
 // ─── Styled components ────────────────────────────────────────────────────────
 
 const fadeIn = keyframes`
@@ -745,42 +919,50 @@ export const Model3DGalleryRoute: React.FC = () => {
   const isBrain = activeModel.key === "brain";
   const cameraPos: [number, number, number] = isBrain
     ? [0, 0, 1.4]
-    : [...MODEL_CAMERA_POSITION];
+    : activeModel.key === "free_space_radiation"
+      ? [15, 10, 15]
+      : [...MODEL_CAMERA_POSITION];
 
   return (
     <Wrapper>
       <ViewportArea>
-        <Canvas
-          key={activeModel.key}
-          style={{ width: "100%", height: "100%" }}
-          camera={{ position: cameraPos, fov: MODEL_FOV }}
-        >
-          <RendererSizeSync />
-          <Suspense fallback={null}>
-            {isBrain ? <BrainLights /> : <StandardLights />}
-            {activeModel.key === "afro-male" && <HumanAfroMaleScene />}
-            {activeModel.key === "neutral" && <HumanNeutralScene />}
-            {activeModel.key === "brain" && <BrainScene />}
-            {activeModel.key === "lna" && <LNAScene />}
-            {activeModel.key === "synth" && <SynthScene />}
-            {activeModel.key === "bbu" && <BbuScene />}
-            {activeModel.key === "dds" && <DDSScene />}
-            {activeModel.key === "bpf" && <BandpassFilterScene />}
-            {activeModel.key === "hpf" && <HighPassFilterScene />}
-            {activeModel.key === "lo" && <LocalOscillatorScene />}
-            {activeModel.key === "mixer" && <RFMixerScene />}
-            {activeModel.key === "bb_amp" && <BasebandAmplifierScene />}
-            {activeModel.key === "adc" && <AnalogDigitalConverterScene />}
-            {activeModel.key === "dsp" && <DSPScene />}
-            {activeModel.key === "sector" && <SectorTowerScene />}
-            {activeModel.key === "diamond" && <DiamondCellScene />}
-            {activeModel.key === "pole_small" && <PoleMountedSmallCellScene />}
-            {activeModel.key === "hexagonal" && <HexagonalSmallCellScene />}
-            {activeModel.key === "single_panel" && (
-              <SinglePanelSmallCellScene />
-            )}
-          </Suspense>
-        </Canvas>
+        {activeModel.key === "polar_radiation" ? (
+          <PolarRadioWaveWebGPU />
+        ) : (
+          <Canvas
+            key={activeModel.key}
+            style={{ width: "100%", height: "100%" }}
+            camera={{ position: cameraPos, fov: MODEL_FOV }}
+          >
+            <RendererSizeSync />
+            <Suspense fallback={null}>
+              {isBrain ? <BrainLights /> : (!["room_tx", "free_space_radiation"].includes(activeModel.key) && <StandardLights />)}
+              {activeModel.key === "afro-male" && <HumanAfroMaleScene />}
+              {activeModel.key === "neutral" && <HumanNeutralScene />}
+              {activeModel.key === "brain" && <BrainScene />}
+              {activeModel.key === "lna" && <LNAScene />}
+              {activeModel.key === "synth" && <SynthScene />}
+              {activeModel.key === "bbu" && <BbuScene />}
+              {activeModel.key === "dds" && <DDSScene />}
+              {activeModel.key === "bpf" && <BandpassFilterScene />}
+              {activeModel.key === "hpf" && <HighPassFilterScene />}
+              {activeModel.key === "lo" && <LocalOscillatorScene />}
+              {activeModel.key === "mixer" && <RFMixerScene />}
+              {activeModel.key === "bb_amp" && <BasebandAmplifierScene />}
+              {activeModel.key === "adc" && <AnalogDigitalConverterScene />}
+              {activeModel.key === "dsp" && <DSPScene />}
+              {activeModel.key === "sector" && <SectorTowerScene />}
+              {activeModel.key === "diamond" && <DiamondCellScene />}
+              {activeModel.key === "pole_small" && <PoleMountedSmallCellScene />}
+              {activeModel.key === "hexagonal" && <HexagonalSmallCellScene />}
+              {activeModel.key === "single_panel" && (
+                <SinglePanelSmallCellScene />
+              )}
+              {activeModel.key === "room_tx" && <RoomTxScene />}
+              {activeModel.key === "free_space_radiation" && <FreeSpaceRadiationScene />}
+            </Suspense>
+          </Canvas>
+        )}
 
         <ModelLabel>
           <Box size={13} />

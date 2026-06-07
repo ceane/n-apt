@@ -1645,6 +1645,28 @@ const FFTCanvas = memo(
         if (showLoadingPlaceholder || showErrorPlaceholder) {
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
+
+          if (spectrumOverlayCanvas) {
+            const ctx = spectrumOverlayCanvas.getContext("2d");
+            if (ctx) {
+              const dpr = window.devicePixelRatio || 1;
+              const logicalW = spectrumOverlayCanvas.width / dpr;
+              const logicalH = spectrumOverlayCanvas.height / dpr;
+              const visualRange = frequencyRangeRef.current || { min: 0, max: 0 };
+              drawTxSliderOnContext(
+                ctx,
+                logicalW,
+                logicalH,
+                visualRange,
+                txSliderRef.current as
+                  | (CanvasTxSliderState & {
+                      signalLabel?: string;
+                      powerDbm?: number;
+                    })
+                  | null,
+              );
+            }
+          }
           return;
         }
 
@@ -3011,6 +3033,9 @@ const FFTCanvas = memo(
       isPaused,
       ensurePausedFrame,
       spectrumGpuCanvasNode,
+      spectrumOverlayCanvasNode,
+      waterfallGpuCanvasNode,
+      waterfallOverlayCanvasNode,
     ]);
 
     // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool

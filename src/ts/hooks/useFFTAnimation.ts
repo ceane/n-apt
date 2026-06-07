@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect } from "react";
 
 export interface AnimationOptions {
   isPaused: boolean;
-  onRenderFrame: (runId: number) => void;
+  onRenderFrame: (runId: number, force?: boolean) => void;
   onBecomeVisible?: () => void;
   targetFPS?: number;
 }
@@ -51,7 +51,7 @@ export function useFFTAnimation({
         } else {
           lastFrameTimeRef.current += frameRateLimiterRef.current;
         }
-        onRenderFrame(runId);
+        onRenderFrame(runId, force);
       }
 
       // Keep the animation loop running even when paused to prevent blank canvases

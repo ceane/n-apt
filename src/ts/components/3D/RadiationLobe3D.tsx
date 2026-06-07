@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef } from "react";
 import * as THREE from "three";
+import { useControls, folder, button } from "leva";
 import { Html, Sphere } from "@react-three/drei";
 import styled from "styled-components";
 import {
@@ -185,51 +186,66 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   showGroundInterference = true,
 }) => {
   const meshRef = useRef<THREE.Mesh>(null);
-  const [selectedTower, setSelectedTower] = useState<TowerType>("none");
-  const [frequencyMHz, setFrequencyMHz] = useState(frequency);
-  const [powerLevelDbm, setPowerLevelDbm] = useState(powerDbm);
-  const [apertureWidthM, setApertureWidthM] = useState(
-    apertureWidth ?? aperture,
-  );
-  const [apertureHeightM, setApertureHeightM] = useState(
-    apertureHeight ?? Math.max(aperture * 2.4, 0.8),
-  );
-  const [showMultipath, setShowMultipath] = useState(showMultipathRays);
-  const [showScattering, setShowScattering] = useState(showScatteringCloud);
-  const [secondaryStrength, setSecondaryStrength] = useState(multipathStrength);
+  
+  const {
+    selectedTower,
+    frequencyMHz,
+    powerLevelDbm,
+    apertureWidthM,
+    apertureHeightM,
+    showMultipath,
+    showScattering,
+    secondaryStrength,
+    showLabels,
+    showGainScale,
+  } = useControls("Radiation Lobe Setup", {
+    "Cell Tower / Site": folder({
+      selectedTower: {
+        options: {
+          None: "none",
+          "Sector Tower": "sector",
+          "Diamond Cell": "diamond",
+          "Pole-mounted": "pole_small",
+          Hexagonal: "hexagonal",
+          "Single Panel": "single_panel",
+        },
+        value: "none",
+      },
+    }),
+    Parameters: folder({
+      frequencyMHz: { value: frequency, min: 1, max: 6000, step: 1 },
+      powerLevelDbm: { value: powerDbm, min: -20, max: 60, step: 1 },
+      apertureWidthM: {
+        value: apertureWidth ?? aperture,
+        min: 0.1,
+        max: 5,
+        step: 0.05,
+      },
+      apertureHeightM: {
+        value: apertureHeight ?? Math.max(aperture * 2.4, 0.8),
+        min: 0.2,
+        max: 8,
+        step: 0.05,
+      },
+    }),
+    Effects: folder({
+      showLabels: true,
+      showGainScale: true,
+      showMultipath: { value: showMultipathRays },
+      showScattering: { value: showScatteringCloud },
+      secondaryStrength: {
+        value: multipathStrength,
+        min: 0,
+        max: 1,
+        step: 0.05,
+      },
+    }),
+  });
 
-  const towerConfig = TOWER_CONFIGS[selectedTower];
-  const towerPreset = TOWER_RADIATION_PRESETS[selectedTower];
+  const towerConfig = TOWER_CONFIGS[selectedTower as TowerType];
+  const towerPreset = TOWER_RADIATION_PRESETS[selectedTower as TowerType];
   const originHeight =
     selectedTower === "none" ? height : towerConfig.antennaOrigin[1];
-
-  useEffect(() => {
-    setFrequencyMHz(frequency);
-  }, [frequency]);
-
-  useEffect(() => {
-    setPowerLevelDbm(powerDbm);
-  }, [powerDbm]);
-
-  useEffect(() => {
-    setApertureWidthM(apertureWidth ?? aperture);
-  }, [apertureWidth, aperture]);
-
-  useEffect(() => {
-    setApertureHeightM(apertureHeight ?? Math.max(aperture * 2.4, 0.8));
-  }, [apertureHeight, aperture]);
-
-  useEffect(() => {
-    setShowMultipath(showMultipathRays);
-  }, [showMultipathRays]);
-
-  useEffect(() => {
-    setShowScattering(showScatteringCloud);
-  }, [showScatteringCloud]);
-
-  useEffect(() => {
-    setSecondaryStrength(multipathStrength);
-  }, [multipathStrength]);
 
   const c = 3e8;
   const safeFrequencyMHz = clamp(frequencyMHz, 1, 6000);
@@ -535,215 +551,63 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         distance={15}
       />
 
-      <Html fullscreen zIndexRange={[5000, 4000]}>
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            zIndex: 5000,
-          }}
-        >
+      {/* Gain Scale HUD Overlay */}
+      {showGainScale && (
+        <Html zIndexRange={[100, 0]}>
           <div
-            onWheel={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerMove={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            onTouchMove={(e) => e.stopPropagation()}
             style={{
-              position: "absolute",
-              top: "20px",
-              right: "20px",
-              bottom: "20px",
-              width: "248px",
-              height: "100%",
-              overflowY: "auto",
-              overflowX: "hidden",
-              paddingRight: "8px",
-              pointerEvents: "auto",
-              overscrollBehavior: "contain",
-              touchAction: "pan-y",
-              display: "flex",
-              flexDirection: "column",
-              gap: "20px",
-              alignItems: "flex-end",
+              position: "fixed",
+              bottom: "30px",
+              right: "30px",
+              background: "rgba(18, 18, 20, 0.8)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              padding: "16px",
+              borderRadius: "12px",
+              width: "220px",
+              pointerEvents: "none",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
             }}
           >
             <div
               style={{
-                background: "rgba(0,0,0,0.8)",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid #444",
-                width: "100px",
+                fontSize: "11px",
+                color: "#ccc",
+                marginBottom: "12px",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "1px",
               }}
             >
-              <div
-                style={{
-                  fontSize: "10px",
-                  color: "#888",
-                  marginBottom: "8px",
-                  fontWeight: 600,
-                  textAlign: "center",
-                }}
-              >
-                GAIN SCALE
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "16px",
-                  justifyContent: "center",
-                }}
-              >
-                <div
-                  style={{
-                    height: "120px",
-                    width: "12px",
-                    background:
-                      "linear-gradient(to top, #7f00ff, #00ff00, #ff0000)",
-                    borderRadius: "2px",
-                  }}
-                />
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    height: "120px",
-                    fontSize: "10px",
-                    color: "#ccc",
-                  }}
-                >
-                  <span>1.0</span>
-                  <span>0.5</span>
-                  <span>0.0</span>
-                </div>
-              </div>
+              ANTENNA GAIN
             </div>
-
-            <ControlPanel style={{ width: "200px" }}>
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  color: "#aaa",
-                  marginBottom: "4px",
-                }}
-              >
-                CELL TOWER / SITE
-              </div>
-              <TowerSelect
-                value={selectedTower}
-                onChange={(e) => setSelectedTower(e.target.value as TowerType)}
-              >
-                {Object.values(TOWER_CONFIGS).map((cfg) => (
-                  <option key={cfg.id} value={cfg.id}>
-                    {cfg.name}
-                  </option>
-                ))}
-              </TowerSelect>
-            </ControlPanel>
-
-            <ControlPanel style={{ width: "220px" }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  gap: "8px",
-                  alignItems: "center",
-                  fontSize: "11px",
-                }}
-              >
-                <span style={{ color: "#aaa" }}>Frequency (MHz)</span>
-                <NumberInput
-                  type="number"
-                  min={1}
-                  max={6000}
-                  step={1}
-                  value={frequencyMHz}
-                  onChange={(e) => setFrequencyMHz(Number(e.target.value))}
-                />
-                <span style={{ color: "#aaa" }}>Power (dBm)</span>
-                <NumberInput
-                  type="number"
-                  min={-20}
-                  max={60}
-                  step={1}
-                  value={powerLevelDbm}
-                  onChange={(e) => setPowerLevelDbm(Number(e.target.value))}
-                />
-                <span style={{ color: "#aaa" }}>Aperture W (m)</span>
-                <NumberInput
-                  type="number"
-                  min={0.1}
-                  max={5}
-                  step={0.05}
-                  value={apertureWidthM}
-                  onChange={(e) => setApertureWidthM(Number(e.target.value))}
-                />
-                <span style={{ color: "#aaa" }}>Aperture H (m)</span>
-                <NumberInput
-                  type="number"
-                  min={0.2}
-                  max={8}
-                  step={0.05}
-                  value={apertureHeightM}
-                  onChange={(e) => setApertureHeightM(Number(e.target.value))}
-                />
-              </div>
-              <div
-                style={{ fontSize: "10px", color: "#8f8f8f", lineHeight: 1.5 }}
-              >
-                <div>λ {wavelength.toFixed(3)} m</div>
-                <div>{powerWatts.toFixed(2)} W</div>
-                <div>HPBW H {hpbwHorizontal.toFixed(1)}°</div>
-                <div>HPBW V {hpbwVertical.toFixed(1)}°</div>
-              </div>
-            </ControlPanel>
-
-            <ControlPanel style={{ width: "220px" }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  gap: "8px",
-                  alignItems: "center",
-                  fontSize: "11px",
-                }}
-              >
-                <span style={{ color: "#aaa" }}>Multipath Rays</span>
-                <ToggleInput
-                  type="checkbox"
-                  checked={showMultipath}
-                  onChange={(e) => setShowMultipath(e.target.checked)}
-                />
-                <span style={{ color: "#aaa" }}>Scatter Cloud</span>
-                <ToggleInput
-                  type="checkbox"
-                  checked={showScattering}
-                  onChange={(e) => setShowScattering(e.target.checked)}
-                />
-                <span style={{ color: "#aaa" }}>Secondary Strength</span>
-                <NumberInput
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={secondaryStrength}
-                  onChange={(e) => setSecondaryStrength(Number(e.target.value))}
-                />
-              </div>
-              <div
-                style={{ fontSize: "10px", color: "#8f8f8f", lineHeight: 1.5 }}
-              >
-                <div>Main lobe is primary coverage only</div>
-                <div>Secondary layers show reflected/scattered energy</div>
-              </div>
-            </ControlPanel>
+            <div
+              style={{
+                height: "12px",
+                width: "100%",
+                background: "linear-gradient(to right, rgb(0, 115, 255), rgb(115, 230, 215), rgb(255, 89, 166))",
+                borderRadius: "3px",
+                marginBottom: "8px",
+                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.5)",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: "10px",
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
+              <span>Weaker</span>
+              <span>Stronger</span>
+            </div>
           </div>
-        </div>
-      </Html>
+        </Html>
+      )}
 
       {selectedTower === "sector" && (
         <group position={[0, -originHeight, 0]}>
@@ -771,131 +635,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
         </group>
       )}
 
-      <group position={[0, 0, 0]} rotation={towerConfig.antennaRotation}>
-        {/* Antenna Marker */}
-        <mesh>
-          <sphereGeometry args={[0.1, 16, 16]} />
-          <meshBasicMaterial color="#ac77ff" />
-          <Html position={[0, 0.2, 0]} center zIndexRange={[100, 0]}>
-            <LobeLabel>Antenna (h={originHeight.toFixed(1)}m)</LobeLabel>
-          </Html>
-        </mesh>
-
-        {/* Radiation Lobe Surface */}
-        <mesh geometry={geometry} ref={meshRef}>
-          <meshStandardMaterial
-            vertexColors
-            transparent
-            opacity={0.75}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-
-        {showScattering && (
-          <mesh geometry={scatteringGeometry}>
-            <meshStandardMaterial
-              vertexColors
-              transparent
-              opacity={0.22 + safeSecondaryStrength * 0.14}
-              side={THREE.DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-        )}
-
-        {showMultipath &&
-          multipathRays.map((ray, index) => (
-            <group key={ray.color}>
-              <line>
-                <bufferGeometry attach="geometry" setFromPoints={ray.points} />
-                <lineBasicMaterial
-                  attach="material"
-                  color={ray.color}
-                  transparent
-                  opacity={0.35 + safeSecondaryStrength * 0.28}
-                />
-              </line>
-              <mesh
-                position={
-                  ray.points[ray.points.length - 1].toArray() as [
-                    number,
-                    number,
-                    number,
-                  ]
-                }
-              >
-                <sphereGeometry args={[0.06 + index * 0.01, 10, 10]} />
-                <meshBasicMaterial
-                  color={ray.color}
-                  transparent
-                  opacity={0.65}
-                />
-              </mesh>
-            </group>
-          ))}
-
-        {/* Near-Field / Far-Field Boundary */}
-        {showNearFarField && (
-          <Sphere args={[farFieldVisualRadius, 32, 32]}>
-            <meshBasicMaterial
-              color="#ffffff"
-              transparent
-              opacity={0.05}
-              wireframe
-            />
-            <Html
-              position={[0, farFieldVisualRadius, 0]}
-              center
-              zIndexRange={[100, 0]}
-            >
-              <LobeLabel style={{ borderColor: "#aaa", color: "#aaa" }}>
-                Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
-              </LobeLabel>
-            </Html>
-          </Sphere>
-        )}
-
-        {/* Lobe Labels */}
-        <Html
-          position={[visualScale * 1.1, 0, 0]}
-          center
-          zIndexRange={[100, 0]}
-        >
-          <LobeLabel>
-            Main Lobe (HPBW: H:{hpbwHorizontal.toFixed(1)}° V:
-            {hpbwVertical.toFixed(1)}°)
-          </LobeLabel>
-        </Html>
-
-        <Html
-          position={[visualScale * 0.4, visualScale * 0.3, visualScale * 0.4]}
-          center
-          zIndexRange={[100, 0]}
-        >
-          <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
-            Side Lobe
-          </LobeLabel>
-        </Html>
-
-        <Html
-          position={[visualScale * 0.4, -visualScale * 0.3, -visualScale * 0.4]}
-          center
-          zIndexRange={[100, 0]}
-        >
-          <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
-            Minor Lobe
-          </LobeLabel>
-        </Html>
-
-        {/* Back Lobe detection area */}
-        <Html
-          position={[-visualScale * 0.3, 0, 0]}
-          center
-          zIndexRange={[100, 0]}
-        >
-          <LobeLabel style={{ opacity: 0.6 }}>Back Lobe</LobeLabel>
-        </Html>
-
+      <group position={[0, 0, 0]}>
         {/* Ground Plane reference at y=0, relative to the shifted group */}
         <gridHelper
           args={[gridSpan, gridDivisions, 0x444444, 0x222222]}
@@ -915,20 +655,173 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
           <meshBasicMaterial color="#ffd166" />
         </mesh>
 
-        <Html position={distanceMarkerPosition} center zIndexRange={[100, 0]}>
-          <LobeLabel style={{ borderColor: "#ffd166", color: "#ffd166" }}>
-            Ground Reach {mainLobeGroundReach.toFixed(1)}m
-          </LobeLabel>
-        </Html>
+        {showLabels && (
+          <Html position={distanceMarkerPosition} center zIndexRange={[100, 0]}>
+            <LobeLabel style={{ borderColor: "#ffd166", color: "#ffd166" }}>
+              Ground Reach {mainLobeGroundReach.toFixed(1)}m
+            </LobeLabel>
+          </Html>
+        )}
 
-        <Html position={distanceEndLabelPosition} center zIndexRange={[100, 0]}>
-          <LobeLabel
-            style={{ borderColor: "#ffd166", color: "#ffd166", opacity: 0.85 }}
-          >
-            {mainLobeGroundReach.toFixed(1)}m
-          </LobeLabel>
-        </Html>
+        {showLabels && (
+          <Html position={distanceEndLabelPosition} center zIndexRange={[100, 0]}>
+            <LobeLabel
+              style={{ borderColor: "#ffd166", color: "#ffd166", opacity: 0.85 }}
+            >
+              {mainLobeGroundReach.toFixed(1)}m
+            </LobeLabel>
+          </Html>
+        )}
       </group>
+
+      {towerConfig.emitterFaces.map((facePos, index) => {
+        const originY = facePos[1] - originHeight;
+        return (
+          <group
+            key={index}
+            position={[facePos[0], originY, facePos[2]]}
+            rotation={towerConfig.antennaRotation}
+          >
+            {/* Antenna Marker */}
+            <mesh>
+              <sphereGeometry args={[0.1, 16, 16]} />
+              <meshBasicMaterial color="#ac77ff" />
+              {showLabels && index === 0 && (
+                <Html position={[0, 0.2, 0]} center zIndexRange={[100, 0]}>
+                  <LobeLabel>Panel/Antenna</LobeLabel>
+                </Html>
+              )}
+            </mesh>
+
+            {/* Radiation Lobe Surface */}
+            <mesh geometry={geometry}>
+              <meshStandardMaterial
+                vertexColors
+                transparent
+                opacity={0.75}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+
+            {/* Secondary Lobe / Scattering Cloud */}
+            {showScattering && (
+              <mesh geometry={scatteringGeometry}>
+                <meshStandardMaterial
+                  vertexColors
+                  transparent
+                  opacity={0.22 + safeSecondaryStrength * 0.14}
+                  side={THREE.DoubleSide}
+                  depthWrite={false}
+                />
+              </mesh>
+            )}
+
+            {/* Multipath Rays */}
+            {showMultipath &&
+              multipathRays.map((ray, rayIdx) => (
+                <group key={rayIdx}>
+                  <line>
+                    <bufferGeometry setFromPoints={ray.points} />
+                    <lineBasicMaterial
+                      color={ray.color}
+                      transparent
+                      opacity={0.35 + safeSecondaryStrength * 0.28}
+                    />
+                  </line>
+                  <mesh
+                    position={
+                      ray.points[ray.points.length - 1].toArray() as [
+                        number,
+                        number,
+                        number,
+                      ]
+                    }
+                  >
+                    <sphereGeometry args={[0.06 + index * 0.01, 10, 10]} />
+                    <meshBasicMaterial
+                      color={ray.color}
+                      transparent
+                      opacity={0.65}
+                    />
+                  </mesh>
+                </group>
+              ))}
+
+            {/* Near-Field / Far-Field Boundary */}
+            {showNearFarField && showLabels && index === 0 && (
+              <Sphere args={[farFieldVisualRadius, 32, 32]}>
+                <meshBasicMaterial
+                  color="#ffffff"
+                  transparent
+                  opacity={0.05}
+                  wireframe
+                />
+                <Html
+                  position={[0, farFieldVisualRadius, 0]}
+                  center
+                  zIndexRange={[100, 0]}
+                >
+                  <LobeLabel style={{ borderColor: "#aaa", color: "#aaa" }}>
+                    Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
+                  </LobeLabel>
+                </Html>
+              </Sphere>
+            )}
+
+            {/* Lobe Labels */}
+            {showLabels && index === 0 && (
+              <>
+                <Html
+                  position={[visualScale * 1.1, 0, 0]}
+                  center
+                  zIndexRange={[100, 0]}
+                >
+                  <LobeLabel>
+                    Main Lobe (HPBW: H:{hpbwHorizontal.toFixed(1)}° V:
+                    {hpbwVertical.toFixed(1)}°)
+                  </LobeLabel>
+                </Html>
+
+                <Html
+                  position={[
+                    visualScale * 0.4,
+                    visualScale * 0.3,
+                    visualScale * 0.4,
+                  ]}
+                  center
+                  zIndexRange={[100, 0]}
+                >
+                  <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
+                    Side Lobe
+                  </LobeLabel>
+                </Html>
+
+                <Html
+                  position={[
+                    visualScale * 0.4,
+                    -visualScale * 0.3,
+                    -visualScale * 0.4,
+                  ]}
+                  center
+                  zIndexRange={[100, 0]}
+                >
+                  <LobeLabel style={{ opacity: 0.7, fontSize: "8px" }}>
+                    Minor Lobe
+                  </LobeLabel>
+                </Html>
+
+                <Html
+                  position={[-visualScale * 0.3, 0, 0]}
+                  center
+                  zIndexRange={[100, 0]}
+                >
+                  <LobeLabel style={{ opacity: 0.6 }}>Back Lobe</LobeLabel>
+                </Html>
+              </>
+            )}
+          </group>
+        );
+      })}
     </>
   );
 };
