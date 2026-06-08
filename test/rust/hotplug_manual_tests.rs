@@ -1,6 +1,6 @@
 use n_apt_backend::sdr::hotplug::{
-  scan_supported_usb_device_snapshots, scan_usb_device_snapshots,
-  HotplugEvent, HotplugEventKind, HotplugMonitor, UsbDeviceSnapshot,
+  scan_supported_usb_device_snapshots, scan_usb_device_snapshots, HotplugEvent,
+  HotplugEventKind, HotplugMonitor, UsbDeviceSnapshot,
 };
 use n_apt_backend::sdr::{SdrDevice, SdrDeviceFactory};
 use serial_test::serial;
@@ -216,11 +216,7 @@ fn report_supported_devices(
     return;
   }
 
-  eprintln!(
-    "{}: supported devices ({})",
-    label,
-    devices.len()
-  );
+  eprintln!("{}: supported devices ({})", label, devices.len());
   for device in devices {
     eprintln!("  {}", format_usb_snapshot(device));
   }

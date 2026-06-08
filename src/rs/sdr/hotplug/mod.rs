@@ -159,7 +159,9 @@ fn filter_supported_usb_device_snapshots(
 }
 
 pub fn scan_supported_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
-  Ok(filter_supported_usb_device_snapshots(scan_usb_device_snapshots()?))
+  Ok(filter_supported_usb_device_snapshots(
+    scan_usb_device_snapshots()?,
+  ))
 }
 
 pub fn supported_usb_device_count() -> Result<u32> {

@@ -14,6 +14,7 @@ const waterfallCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fifo-waterfall-canvas" />
 ));
 let mockedSourceMode: "live" | "file" = "live";
+let mockedSpectrumState: Record<string, unknown> = {};
 
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -49,6 +50,13 @@ jest.mock("@n-apt/redux", () => ({
         fftAvgEnabled: false,
         fftSmoothEnabled: false,
         wfSmoothEnabled: false,
+        showTxSlider: true,
+        txSignal: "apt",
+        txCenterFrequencyHz: 2_186_000,
+        txSampleRateHz: 1_000_000,
+        txPowerDbm: -18,
+        deviceKind: null,
+        ...mockedSpectrumState,
       },
       theme: {
         fftColor: "#00d4ff",
@@ -78,6 +86,7 @@ jest.mock("@n-apt/redux", () => ({
 describe("FFTAndWaterfall", () => {
   beforeEach(() => {
     mockedSourceMode = "live";
+    mockedSpectrumState = {};
     fftCanvasMock.mockClear();
     fftCanvasMountSpy.mockClear();
     fftCanvasUnmountSpy.mockClear();
@@ -174,6 +183,109 @@ describe("FFTAndWaterfall", () => {
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("passes Tx slider props on the first render when Redux says Tx is visible", () => {
+    mockedSpectrumState = {
+      deviceKind: "mock_tx",
+      showTxSlider: true,
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(sliderProps).toMatchObject({
+      showTxSlider: true,
+      canShowTxSlider: true,
+    });
+    expect(fftProps?.txSlider).toMatchObject({
+      visible: true,
+      signalLabel: "APT",
+      powerDbm: -18,
+      visibleMinHz: 0,
+      visibleMaxHz: 4_372_000,
+      txCenterHz: 2_186_000,
+      txSampleRateHz: 1_000_000,
+    });
+  });
+
+  it("defaults to true if Redux persist restores an undefined showTxSlider state", () => {
+    mockedSpectrumState = {
+      deviceKind: "mock_tx",
+      showTxSlider: undefined,
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(sliderProps).toMatchObject({
+      showTxSlider: true,
+      canShowTxSlider: true,
+    });
+    expect(fftProps?.txSlider).toMatchObject({
+      visible: true,
+    });
+  });
+
+  it("hides Tx slider props on the first render when Redux says device is mock (RX only)", () => {
+    mockedSpectrumState = {
+      deviceKind: "mock",
+      showTxSlider: true,
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(sliderProps).toMatchObject({
+      showTxSlider: true,
+      canShowTxSlider: false,
+    });
+    expect(fftProps?.txSlider).toBeUndefined();
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

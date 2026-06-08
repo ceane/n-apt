@@ -66,6 +66,30 @@ const IconLabel = ({
   </span>
 );
 
+const TxButton = styled.button<{ $isTransmitting?: boolean }>`
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.danger + "33" : theme.colors.primary + "26"};
+  border: 1px solid
+    ${({ theme, $isTransmitting }) =>
+      $isTransmitting ? theme.colors.danger + "80" : theme.colors.primary + "80"};
+  border-radius: 4px;
+  color: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.danger : theme.colors.primary};
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: ${({ theme, $isTransmitting }) =>
+      $isTransmitting ? theme.colors.danger + "4d" : theme.colors.primary + "40"};
+  }
+`;
+
 export interface TxSettingsSectionProps {
   signal: string;
   sampleRateHz: number;
@@ -78,6 +102,8 @@ export interface TxSettingsSectionProps {
   onCenterFrequencyChange: (value: number) => void;
   onPowerDbmChange: (value: number) => void;
   onVgaGainChange: (value: number) => void;
+  isTransmitting?: boolean;
+  onToggleTransmit?: () => void;
 }
 
 export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
@@ -92,6 +118,8 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   onCenterFrequencyChange,
   onPowerDbmChange,
   onVgaGainChange,
+  isTransmitting,
+  onToggleTransmit,
 }) => {
   const [localPower, setLocalPower] = React.useState(
     Number.isFinite(powerDbm) ? powerDbm.toString() : "0",
@@ -203,6 +231,15 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           <UnitSuffix>dB</UnitSuffix>
         </InlineField>
       </Row>
+      {onToggleTransmit && (
+        <TxButton
+          type="button"
+          onClick={onToggleTransmit}
+          $isTransmitting={isTransmitting}
+        >
+          {isTransmitting ? "Stop Tx" : "Start Tx"}
+        </TxButton>
+      )}
     </Section>
   );
 };

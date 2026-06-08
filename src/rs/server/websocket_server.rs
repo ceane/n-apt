@@ -382,7 +382,14 @@ fn build_mock_tx_source_payload(
     "mock-tx".to_string(),
     "Mock TX Device".to_string(),
     "mock_tx",
-    "connected",
+    if shared
+      .mock_tx_transmitting
+      .load(std::sync::atomic::Ordering::Relaxed)
+    {
+      "transmitting"
+    } else {
+      "connected"
+    },
     0,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "mock-tx".to_string(),

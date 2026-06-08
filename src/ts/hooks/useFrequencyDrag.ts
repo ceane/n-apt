@@ -9,8 +9,7 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 
-const LIVE_STATUS_ROW_HEIGHT = 40;
-const VFO_INTERACTION_HEIGHT = 60 + LIVE_STATUS_ROW_HEIGHT;
+const LIVE_STATUS_ROW_HEIGHT = 56;
 
 export type CanvasTxSliderState = {
   visible: boolean;
@@ -169,6 +168,8 @@ export function useFrequencyDrag({
 
   const containerRefCacheRef = useRef<HTMLElement | null>(null);
   const containerRectRef = useRef<DOMRect | null>(null);
+  const getReservedBottomHeight = () => LIVE_STATUS_ROW_HEIGHT;
+  const getVfoInteractionHeight = () => 60 + getReservedBottomHeight();
 
   const getPlotBounds = (rect: DOMRect) => {
     if (fullPlotSelection) {
@@ -185,7 +186,7 @@ export function useFrequencyDrag({
     const left = Math.min(50, rect.width);
     const right = Math.max(left, rect.width - 40);
     const top = Math.min(20, rect.height);
-    const bottom = Math.max(top, rect.height - 40 - LIVE_STATUS_ROW_HEIGHT);
+    const bottom = Math.max(top, rect.height - 40 - getReservedBottomHeight());
     return {
       left,
       right,
@@ -225,7 +226,10 @@ export function useFrequencyDrag({
     const plot = getPlotBounds(rect);
     const left = 4;
     const right = Math.max(left, rect.width - 4);
-    const top = Math.max(plot.bottom - 5, rect.height - LIVE_STATUS_ROW_HEIGHT);
+    const top = Math.max(
+      plot.bottom - 5,
+      rect.height - getReservedBottomHeight(),
+    );
     const bottom = rect.height - 4;
     const trackLeft = plot.left;
     const trackRight = Math.max(trackLeft + 80, plot.right);
@@ -1195,7 +1199,7 @@ export function useFrequencyDrag({
 
       const height = rect.height;
       const y = e.clientY - rect.top;
-      const vfoThreshold = VFO_INTERACTION_HEIGHT;
+      const vfoThreshold = getVfoInteractionHeight();
 
       if (
         selectionMode === "range" &&
@@ -1412,7 +1416,7 @@ export function useFrequencyDrag({
             const plotLeftCSS = 50;
             const plotRightCSS = rect.width - 40;
             const plotTopCSS = 20;
-            const plotBottomCSS = rect.height - 40 - LIVE_STATUS_ROW_HEIGHT;
+            const plotBottomCSS = rect.height - 40 - getReservedBottomHeight();
             const plotWidthCSS = plotRightCSS - plotLeftCSS;
             const plotHeightCSS = plotBottomCSS - plotTopCSS;
 
@@ -1522,7 +1526,7 @@ export function useFrequencyDrag({
         container.releasePointerCapture(e.pointerId);
         const rect = container.getBoundingClientRect();
         const y = e.clientY - rect.top;
-        const vfoThreshold = VFO_INTERACTION_HEIGHT;
+        const vfoThreshold = getVfoInteractionHeight();
         if (y >= rect.height - vfoThreshold) {
           addClassIfAvailable(container, "cursor-grab");
           removeClassIfAvailable(container, "cursor-crosshair");
@@ -1631,7 +1635,7 @@ export function useFrequencyDrag({
       const rect =
         containerRectRef.current || container.getBoundingClientRect();
       const y = e.clientY - rect.top;
-      const vfoThreshold = VFO_INTERACTION_HEIGHT;
+      const vfoThreshold = getVfoInteractionHeight();
       const slider = txSliderRef?.current;
       const isOverTxSlider =
         !!slider?.visible &&
@@ -1768,7 +1772,7 @@ export function useFrequencyDrag({
         x < 50 ||
         x > rect.width - 40 ||
         y < 20 ||
-        y > rect.height - 40 - LIVE_STATUS_ROW_HEIGHT;
+        y > rect.height - 40 - getReservedBottomHeight();
 
       if (isOverMargin) {
         // Move laterally on scroll

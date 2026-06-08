@@ -79,7 +79,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
     );
     const showTxSlider = useAppSelector(
-      (reduxState) => reduxState.spectrum.showTxSlider,
+      (reduxState) => reduxState.spectrum.showTxSlider ?? true,
     );
     const txSignal = useAppSelector(
       (reduxState) => reduxState.spectrum.txSignal || "apt",
@@ -200,8 +200,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) {
         return undefined;
       }
-      const visibleMinHz = range.min;
-      const visibleMaxHz = range.max > visibleMinHz ? range.max : visibleMinHz + 1;
+      const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
+      const visibleMaxHz =
+        Number.isFinite(range.max) && range.max > visibleMinHz
+          ? range.max
+          : visibleMinHz + 1;
       const span = visibleMaxHz - visibleMinHz;
       const centerHz =
         Number.isFinite(txCenterFrequencyHz) &&

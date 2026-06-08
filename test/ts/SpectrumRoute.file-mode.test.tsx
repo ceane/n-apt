@@ -264,7 +264,7 @@ describe("SpectrumRoute file mode", () => {
     expect(typeof playbackProps?.onVizPanChange).toBe("function");
   });
 
-  it("passes a canvas TX slider on first render for mock TX live sources", async () => {
+  it("passes a canvas TX slider on first render while the active source profile is still loading", async () => {
     const mockValue = {
       state: {
         sourceMode: "live",
@@ -303,10 +303,10 @@ describe("SpectrumRoute file mode", () => {
       selectedSource: { id: "mock-tx" } as any,
       selectedSourceDerived: {
         deviceState: "connected",
-        deviceName: "Mock TX Device",
-        deviceProfile: { kind: "mock_tx" },
+        deviceName: null,
+        deviceProfile: null,
         deviceInfo: null,
-        backend: "mock",
+        backend: null,
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [],
         sampleRateHz: 4_372_000,
@@ -324,10 +324,10 @@ describe("SpectrumRoute file mode", () => {
         deviceLoadingReason: null,
         isPaused: false,
         serverPaused: false,
-        backend: "mock",
+        backend: null,
         deviceInfo: null,
-        deviceName: "Mock TX Device",
-        deviceProfile: { kind: "mock_tx" },
+        deviceName: null,
+        deviceProfile: null,
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [],
         sampleRateHz: 4_372_000,
@@ -352,8 +352,8 @@ describe("SpectrumRoute file mode", () => {
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
-      deviceName: "Mock TX Device",
-      deviceProfile: { kind: "mock_tx" },
+      deviceName: null,
+      deviceProfile: null,
       sources: [],
     } as any;
 

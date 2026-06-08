@@ -14,8 +14,17 @@ describe("useOverlayRenderer Hook", () => {
     setLineDash: jest.fn(),
     clearRect: jest.fn(),
     rect: jest.fn(),
+    roundRect: jest.fn(),
     clip: jest.fn(),
+    fill: jest.fn(),
+    strokeRect: jest.fn(),
+    fillRect: jest.fn(),
+    arc: jest.fn(),
   } as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it("should draw hardware sample rate lines when appropriate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
@@ -117,5 +126,56 @@ describe("useOverlayRenderer Hook", () => {
     expect(labels).toContain("90.25MHz");
     expect(labels).toContain("90.75MHz");
     expect(labels).not.toContain("91MHz"); // Collides with center
+  });
+
+  it("draws the Tx slider through the overlay renderer", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawTxSliderOnContext(mockCtx, 1000, 600, {
+      visible: true,
+      signalLabel: "APT",
+      powerDbm: -18,
+      visibleMinHz: 136_000_000,
+      visibleMaxHz: 138_000_000,
+      txCenterHz: 137_100_000,
+      txSampleRateHz: 240_000,
+    });
+
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "Tx",
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "APT",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("can suppress the live status row when another overlay owns the bottom band", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 136_000_000, max: 138_000_000 },
+      137_000_000,
+      true,
+      2_400_000,
+      { min: 136_000_000, max: 138_000_000 },
+      false,
+      [],
+      16_384,
+      "Rectangular",
+      "medium",
+      false,
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
+    expect(labels).not.toContain("FFT Size: 16,384");
+    expect(labels).not.toContain("FFT Window: Rectangular");
+    expect(labels).not.toContain("Timing: Lossless");
   });
 });

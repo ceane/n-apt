@@ -93,6 +93,7 @@ pub struct SharedState {
   /// the slow device read. This lets FFT size changes take effect
   /// immediately instead of waiting for the current frame to finish.
   pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
+  pub mock_tx_transmitting: AtomicBool,
   /// Last broadcast status payload, used to suppress duplicate snapshots.
   pub last_broadcast_status: Mutex<Option<String>>,
 }
@@ -141,6 +142,7 @@ impl SharedState {
       last_successful_read: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
+      mock_tx_transmitting: AtomicBool::new(false),
     })
   }
 

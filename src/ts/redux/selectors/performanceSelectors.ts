@@ -166,6 +166,17 @@ export const selectActiveSource = createSelector(
   },
 );
 
+const getDeviceKindFromSource = (source: SourceInfo): string => {
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  if (kind === "hackrf_one" || kind === "mock_tx" || kind === "tx_rx" || kind === "tx") {
+    return kind;
+  }
+  if (capability === "mock" || kind.includes("mock")) return "mock_tx";
+  if (capability.includes("tx")) return "tx";
+  return source.kind;
+};
+
 export const deriveSourceDerivedState = (source: SourceInfo | null) => {
   if (!source) {
     return {
@@ -185,7 +196,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
     deviceState: source.status === "streaming" ? "connected" : source.status,
     deviceName: source.name,
     deviceProfile: {
-      kind: source.kind,
+      kind: getDeviceKindFromSource(source),
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
       supports_raw_iq_stream: source.supports_raw_iq_stream,

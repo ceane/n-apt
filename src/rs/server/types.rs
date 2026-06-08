@@ -257,7 +257,8 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "centerFrequency",
-    alias = "center_frequency_hz"
+    alias = "center_frequency_hz",
+    alias = "centerFrequencyHz"
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
@@ -280,14 +281,26 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 62.0))]
   pub hackrf_vga_gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfAmpEnabled",
+    alias = "ampEnabled"
+  )]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0, max = 1000))]
   pub ppm: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "tunerAGC",
+    alias = "tunerAgc"
+  )]
   pub tuner_agc: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "rtlAGC",
+    alias = "rtlAgc"
+  )]
   pub rtl_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "offsetTuning")]
   pub offset_tuning: Option<bool>,

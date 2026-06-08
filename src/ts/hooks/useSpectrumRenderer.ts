@@ -4,12 +4,105 @@ import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal"
 import {
   type DemodFocusOverlay,
   type SelectionOverlay,
+  type TxSliderOverlayState,
   useOverlayRenderer,
 } from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 const OVERLAY_MIN_INTERVAL_MS = 50;
+
+const finiteOrEmpty = (value: number | undefined | null) =>
+  typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+
+const getMarkersOverlaySignature = ({
+  width,
+  height,
+  dpr,
+  nodePreview,
+  centerFrequencyHz,
+  isDeviceConnected,
+  hardwareSampleRateHz,
+  fullCaptureRange,
+  isIqRecordingActive,
+  limitMarkers = [],
+  fftSize,
+  fftWindow,
+  temporalResolution,
+  reservedBottomPx,
+  demodFocusOverlay,
+  selectionOverlay,
+  txSlider,
+}: Pick<
+  SpectrumRendererOptions,
+  | "centerFrequencyHz"
+  | "isDeviceConnected"
+  | "hardwareSampleRateHz"
+  | "fullCaptureRange"
+  | "isIqRecordingActive"
+  | "limitMarkers"
+  | "fftSize"
+  | "fftWindow"
+  | "temporalResolution"
+  | "reservedBottomPx"
+  | "demodFocusOverlay"
+  | "selectionOverlay"
+  | "txSlider"
+  | "nodePreview"
+> & {
+  width: number;
+  height: number;
+  dpr: number;
+}) => {
+  const markerSignature = limitMarkers
+    .map((marker) => `${marker.freq}:${marker.kind ?? ""}:${marker.label}`)
+    .join(",");
+  const demodSignature = demodFocusOverlay
+    ? [
+        finiteOrEmpty(demodFocusOverlay.centerFrequencyHz),
+        finiteOrEmpty(demodFocusOverlay.halfBandwidthHz),
+        demodFocusOverlay.alignment,
+      ].join(":")
+    : "";
+  const selectionSignature = selectionOverlay
+    ? [
+        finiteOrEmpty(selectionOverlay.minFrequencyHz),
+        finiteOrEmpty(selectionOverlay.maxFrequencyHz),
+      ].join(":")
+    : "";
+  const txSignature = txSlider?.visible
+    ? [
+        "visible",
+        finiteOrEmpty(txSlider.visibleMinHz),
+        finiteOrEmpty(txSlider.visibleMaxHz),
+        finiteOrEmpty(txSlider.txCenterHz),
+        finiteOrEmpty(txSlider.txSampleRateHz),
+        txSlider.signalLabel ?? "",
+        finiteOrEmpty(txSlider.powerDbm),
+      ].join(":")
+    : "hidden";
+
+  return [
+    width,
+    height,
+    dpr,
+    nodePreview ? "preview" : "full",
+    finiteOrEmpty(centerFrequencyHz),
+    isDeviceConnected ? "connected" : "disconnected",
+    finiteOrEmpty(hardwareSampleRateHz),
+    finiteOrEmpty(fullCaptureRange?.min),
+    finiteOrEmpty(fullCaptureRange?.max),
+    isIqRecordingActive ? "recording" : "idle",
+    markerSignature,
+    finiteOrEmpty(fftSize),
+    fftWindow ?? "",
+    temporalResolution ?? "",
+    reservedBottomPx,
+    demodSignature,
+    selectionSignature,
+    txSignature,
+  ].join("|");
+};
 
 export interface SpectrumRendererOptions {
   /** The target canvas element (WebGPU) */
@@ -72,6 +165,8 @@ export interface SpectrumRendererOptions {
   demodFocusOverlay?: DemodFocusOverlay | null;
   /** Live span selection rendered as a sliding range */
   selectionOverlay?: SelectionOverlay | null;
+  /** Tx slider rendered into the marker overlay texture */
+  txSlider?: TxSliderOverlayState | null;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -102,9 +197,11 @@ export function useSpectrumRenderer() {
     drawMarkersOnContext,
     drawDemodFocusOnContext,
     drawSelectionOverlayOnContext,
+    drawTxSliderOnContext,
   } = useOverlayRenderer();
 
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
+  const lastMarkersOverlaySignatureRef = useRef<string | null>(null);
 
   const drawSpectrum = useCallback(
     (options: SpectrumRendererOptions) => {
@@ -137,6 +234,7 @@ export function useSpectrumRenderer() {
         onSpikeCount,
         demodFocusOverlay,
         selectionOverlay,
+        txSlider,
 
         lineColor,
         fillColor,
@@ -189,6 +287,7 @@ export function useSpectrumRenderer() {
             hardwareSampleRateHz,
             fullCaptureRange,
             isIqRecordingActive,
+            reservedBottomPx,
           );
           gridOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.grid = false;
@@ -196,9 +295,31 @@ export function useSpectrumRenderer() {
         }
 
         // Update center markers and hotspot labels
+        const markersOverlaySignature = getMarkersOverlaySignature({
+          width,
+          height,
+          dpr,
+          nodePreview,
+          centerFrequencyHz,
+          isDeviceConnected,
+          hardwareSampleRateHz,
+          fullCaptureRange,
+          isIqRecordingActive,
+          limitMarkers,
+          fftSize,
+          fftWindow,
+          temporalResolution,
+          reservedBottomPx,
+          demodFocusOverlay,
+          selectionOverlay,
+          txSlider,
+        });
+        const markersOverlayInputsChanged =
+          markersOverlaySignature !== lastMarkersOverlaySignatureRef.current;
         if (
           markersOverlayRenderer &&
-          (overlayDirty?.markers ||
+          (markersOverlayInputsChanged ||
+            overlayDirty?.markers ||
             now - lastOverlayUploadMsRef.current.markers >=
               OVERLAY_MIN_INTERVAL_MS)
         ) {
@@ -219,6 +340,8 @@ export function useSpectrumRenderer() {
               fftSize,
               fftWindow,
               temporalResolution,
+              !txSlider?.visible,
+              reservedBottomPx,
             );
           }
           drawDemodFocusOnContext(
@@ -228,6 +351,7 @@ export function useSpectrumRenderer() {
             frequencyRange,
             demodFocusOverlay,
             nodePreview,
+            reservedBottomPx,
           );
           drawSelectionOverlayOnContext(
             ctx,
@@ -236,9 +360,12 @@ export function useSpectrumRenderer() {
             frequencyRange,
             selectionOverlay,
             nodePreview,
+            reservedBottomPx,
           );
+          drawTxSliderOnContext(ctx, width, height, txSlider);
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
+          lastMarkersOverlaySignatureRef.current = markersOverlaySignature;
           lastOverlayUploadMsRef.current.markers = now;
         }
 
@@ -275,6 +402,7 @@ export function useSpectrumRenderer() {
       drawMarkersOnContext,
       drawDemodFocusOnContext,
       drawSelectionOverlayOnContext,
+      drawTxSliderOnContext,
     ],
   );
 
@@ -282,6 +410,7 @@ export function useSpectrumRenderer() {
     cleanupGPU();
     cleanup3D();
     lastOverlayUploadMsRef.current = { grid: 0, markers: 0, spikes: 0 };
+    lastMarkersOverlaySignatureRef.current = null;
   }, [cleanupGPU, cleanup3D]);
 
   return {

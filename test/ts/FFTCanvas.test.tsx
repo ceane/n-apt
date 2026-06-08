@@ -119,6 +119,22 @@ describe("FFTCanvas Component", () => {
     expect(screen.getByText(/FFT Signal Display/i)).toBeInTheDocument();
   });
 
+  it("renders the Tx row from Redux state even when no parent slider prop is passed", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas {...defaultProps} frequencyRange={{ min: 0, max: 4_372_000 }} />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByTestId("tx-slider-visual-row")).toBeInTheDocument();
+    expect(screen.getByText("APT")).toBeInTheDocument();
+    expect(screen.getByText("-18 dBm")).toBeInTheDocument();
+  });
+
   it("shows a loading placeholder with the source label while awaiting data", async () => {
     render(
       <TestWrapper>

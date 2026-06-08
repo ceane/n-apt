@@ -684,8 +684,8 @@ describe("useFrequencyDrag Hook", () => {
     triggerPointerDown(20, 300);
     expect(mockOnPowerLineDbChange).toHaveBeenCalled();
     const firstCall = mockOnPowerLineDbChange.mock.calls[0][0];
-    // y=300 is 280px down from the plot top on a 500px plot area.
-    expect(firstCall).toBeCloseTo(-67.2, 1);
+    // y=300 is 280px down from the plot top on the stable bottom-row layout.
+    expect(firstCall).toBeCloseTo(-69.4, 1);
 
     // Pointer move to y=200
     triggerPointerMove(20, 200);
@@ -693,8 +693,8 @@ describe("useFrequencyDrag Hook", () => {
       mockOnPowerLineDbChange.mock.calls[
         mockOnPowerLineDbChange.mock.calls.length - 1
       ][0];
-    // y=200 is 180px down from the plot top on a 500px plot area.
-    expect(lastCall).toBeCloseTo(-43.2, 1);
+    // y=200 is 180px down from the plot top on the stable bottom-row layout.
+    expect(lastCall).toBeCloseTo(-44.6, 1);
 
     // Pointer up should set power line to null to hide it
     triggerPointerUp(20, 200);

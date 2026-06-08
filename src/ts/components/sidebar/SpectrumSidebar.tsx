@@ -425,6 +425,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useSpectrumStore();
   const lastSampleRateRef = useRef<number | null>(null);
   const mockManualSampleRateRef = useRef(false);
+  const lastTxToggleTimeRef = useRef(0);
 
   // Get state from Redux
   const {
@@ -573,7 +574,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     );
 
   useEffect(() => {
-    dispatch(setDeviceKind(liveDeviceProfileToUse?.kind ?? null));
+    if (!liveDeviceProfileToUse?.kind) return;
+    dispatch(setDeviceKind(liveDeviceProfileToUse.kind));
   }, [liveDeviceProfileToUse?.kind, dispatch]);
   const mockResolved = useMemo(() => {
     if (!isMockLiveSource) return null;
@@ -1019,11 +1021,49 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const txVgaGain = useAppSelector((state) => state.spectrum.txVgaGain);
   const [livePreviewStage, setLivePreviewStage] = useState(0);
+  
+  const isTransmittingGlobal = useMemo(() => {
+    if (selectedSource && selectedSource.status === "transmitting") {
+      return true;
+    }
+    return websocketSources.some(
+      (source) => source.status === "transmitting"
+    );
+  }, [websocketSources, selectedSource]);
+  
+  const txTargetDeviceId = useMemo(() => {
+    if (
+      selectedSource &&
+      (selectedSource.capability === "tx" ||
+        selectedSource.capability === "tx_rx" ||
+        selectedSource.kind === "mock_tx" ||
+        selectedSource.kind === "mock-tx")
+    ) {
+      return selectedSource.id;
+    }
+    return websocketSources.find(
+      (s) =>
+        s.capability === "tx" ||
+        s.capability === "tx_rx" ||
+        s.kind === "mock_tx" ||
+        s.kind === "mock-tx"
+    )?.id;
+  }, [websocketSources, selectedSource]);
+
   const handleToggleTransmitMode = useCallback(
     (sourceId: string, nextEnabled: boolean) => {
+      const now = Date.now();
+      if (now - lastTxToggleTimeRef.current < 800) {
+        console.warn("Throttling rapid transmit mode toggle request");
+        return;
+      }
+      lastTxToggleTimeRef.current = now;
+
       const source =
-        sourcesToUse.find((entry) => entry.id === sourceId) ??
-        (sourcesToUse.length === 1 ? sourcesToUse[0] : null);
+        selectedSource?.id === sourceId
+          ? selectedSource
+          : sourcesToUse.find((entry) => entry.id === sourceId) ??
+            (sourcesToUse.length === 1 ? sourcesToUse[0] : null);
       if (!source) {
         return;
       }
@@ -1033,25 +1073,25 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           serialNumber: source.serial_number?.trim() || sourceId,
           centerFrequencyHz:
             txCenterFrequencyHz ??
-            source.sdr.settings.center_frequency ??
+            source.sdr?.settings?.center_frequency ??
             undefined,
           sampleRateHz:
-            txSampleRateHz ?? source.sdr.settings.sample_rate ?? undefined,
+            txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
           powerDbm: txPowerDbm ?? undefined,
           vgaGainDb:
-            txVgaGain ?? source.sdr.settings.hackrf_vga_gain ?? undefined,
+            txVgaGain ?? source.sdr?.settings?.hackrf_vga_gain ?? undefined,
           lnaGainDb:
-            source.sdr.settings.hackrf_lna_gain ??
-            liveState.hackrfLnaGain ??
+            source.sdr?.settings?.hackrf_lna_gain ??
+            liveState?.hackrfLnaGain ??
             undefined,
           ampEnabled:
-            source.sdr.settings.hackrf_amp_enable ??
-            liveState.hackrfAmpEnabled ??
+            source.sdr?.settings?.hackrf_amp_enable ??
+            liveState?.hackrfAmpEnabled ??
             undefined,
           tunerAgc:
-            source.sdr.settings.tuner_agc ?? liveState.tunerAGC ?? undefined,
-          rtlAgc: source.sdr.settings.rtl_agc ?? liveState.rtlAGC ?? undefined,
-          ppm: source.sdr.settings.ppm ?? liveState.ppm ?? undefined,
+            source.sdr?.settings?.tuner_agc ?? liveState?.tunerAGC ?? undefined,
+          rtlAgc: source.sdr?.settings?.rtl_agc ?? liveState?.rtlAGC ?? undefined,
+          ppm: source.sdr?.settings?.ppm ?? liveState?.ppm ?? undefined,
         });
       };
 
@@ -1074,6 +1114,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveState.ppm,
       liveState.rtlAGC,
       liveState.tunerAGC,
+      selectedSource,
       showPrompt,
       sourcesToUse,
       txCenterFrequencyHz,
@@ -2005,6 +2046,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               }
               onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
               onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+              isTransmitting={isTransmittingGlobal}
+              onToggleTransmit={
+                txTargetDeviceId
+                  ? () =>
+                      handleToggleTransmitMode(
+                        txTargetDeviceId,
+                        !isTransmittingGlobal
+                      )
+                  : undefined
+              }
             />
           </Collapsible>
 

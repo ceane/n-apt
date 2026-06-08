@@ -61,6 +61,7 @@ export function drawLiveCanvasStatusRow(
     temporalResolution: "low" | "medium" | "high";
     textColor?: string;
     backgroundColor?: string;
+    rowHeight?: number;
   },
 ) {
   const canvasTheme = getCanvasThemeColors();
@@ -72,7 +73,7 @@ export function drawLiveCanvasStatusRow(
   });
 
   const dpr = window.devicePixelRatio || 1;
-  const rowHeight = 40;
+  const rowHeight = options.rowHeight ?? 56;
   const rowTop = height - rowHeight;
   const leftX = FFT_AREA_MIN.x;
   const rightX = width - 40;
@@ -96,13 +97,13 @@ export function drawLiveCanvasStatusRow(
   ctx.textBaseline = "middle";
 
   ctx.textAlign = "center";
-  ctx.fillText(`⌞ ${status.sampleRateLabel} ⌟`, centerX, rowTop + 12);
+  ctx.fillText(`⌞ ${status.sampleRateLabel} ⌟`, centerX, rowTop + 18);
   ctx.textAlign = "left";
-  ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 28);
+  ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
   ctx.textAlign = "center";
-  ctx.fillText(status.fftWindowLabel, centerX, rowTop + 28);
+  ctx.fillText(status.fftWindowLabel, centerX, rowTop + 40);
   ctx.textAlign = "right";
-  ctx.fillText(status.timingLabel, rightX - 4, rowTop + 28);
+  ctx.fillText(status.timingLabel, rightX - 4, rowTop + 40);
   ctx.restore();
 
   return status;
@@ -188,7 +189,32 @@ export interface Draw2DFFTSignalOptions {
   displayMode?: "fft" | "iq";
   textColor?: string;
   backgroundColor?: string;
+  reservedBottomPx?: number;
+  txSlider?: {
+    visible: boolean;
+    visibleMinHz: number;
+    visibleMaxHz: number;
+    txCenterHz: number;
+    txSampleRateHz: number;
+    signalLabel?: string;
+    powerDbm?: number;
+  } | null;
 }
+
+const TX_SLIDER_ROW_HEIGHT = 56;
+const VFO_AXIS_ROW_HEIGHT = 40;
+
+const getReservedBottomPx = (
+  nodePreview: boolean,
+  txSlider: Draw2DFFTSignalOptions["txSlider"],
+  reservedBottomPx?: number,
+) => {
+  if (nodePreview) return 0;
+  if (typeof reservedBottomPx === "number" && Number.isFinite(reservedBottomPx)) {
+    return Math.max(0, reservedBottomPx);
+  }
+  return txSlider?.visible ? TX_SLIDER_ROW_HEIGHT : 0;
+};
 
 export function useDraw2DFFTSignal() {
   const lastRenderRef = useRef<{
@@ -222,6 +248,7 @@ export function useDraw2DFFTSignal() {
       limitMarkers: SdrLimitMarker[] = [],
       textColor?: string,
       backgroundColor?: string,
+      reservedBottomPx = 0,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -234,7 +261,7 @@ export function useDraw2DFFTSignal() {
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const fftHeight = fftAreaMax.y - topPad;
       const plotWidth = fftAreaMax.x - leftPad;
@@ -509,6 +536,7 @@ export function useDraw2DFFTSignal() {
       fftMax: number,
       displayMode: "fft" | "iq" = "fft",
       nodePreview = false,
+      reservedBottomPx = 0,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const waveformArray = toFloat32Waveform(waveform);
@@ -517,7 +545,7 @@ export function useDraw2DFFTSignal() {
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const fftHeight = fftAreaMax.y - topPad;
       const plotWidth = fftAreaMax.x - leftPad;
@@ -578,13 +606,14 @@ export function useDraw2DFFTSignal() {
       isDeviceConnected: boolean,
       nodePreview: boolean,
       fullCaptureRange?: { min: number; max: number },
+      reservedBottomPx = 0,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : 40;
+      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const plotWidth = fftAreaMax.x - leftPad;
       const minFreq = frequencyRange?.min ?? 0;
@@ -683,6 +712,106 @@ export function useDraw2DFFTSignal() {
     [],
   );
 
+  const drawTxSliderRow = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      width: number,
+      height: number,
+      slider: NonNullable<Draw2DFFTSignalOptions["txSlider"]>,
+    ) => {
+      if (
+        !slider.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return;
+      }
+
+      const canvasTheme = getCanvasThemeColors();
+      const left = 4;
+      const right = Math.max(left, width - 4);
+      const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
+      const bottom = Math.max(top + 1, height - 4);
+      const trackLeft = FFT_AREA_MIN.x;
+      const trackRight = Math.max(trackLeft + 80, width - 40);
+      const trackWidth = Math.max(1, trackRight - trackLeft);
+      const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+      const bandwidth = Math.max(1, Math.min(visibleSpan, slider.txSampleRateHz));
+      const bandMin = slider.txCenterHz - bandwidth / 2;
+      const bandMax = slider.txCenterHz + bandwidth / 2;
+      const toX = (hz: number) =>
+        trackLeft + ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
+      const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
+      const bandRight = Math.max(trackLeft, Math.min(trackRight, toX(bandMax)));
+      const centerX = Math.max(
+        trackLeft,
+        Math.min(trackRight, toX(slider.txCenterHz)),
+      );
+      const trackY = top + 30;
+      const labelY = top + 14;
+      const powerY = bottom - 10;
+
+      ctx.save();
+      ctx.clearRect(left, top, right - left, TX_SLIDER_ROW_HEIGHT);
+      ctx.fillStyle = "rgba(4, 10, 22, 0.94)";
+      ctx.strokeStyle = "rgba(86, 201, 246, 0.78)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(left, top, right - left, bottom - top, 8);
+      } else {
+        ctx.rect(left, top, right - left, bottom - top);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = canvasTheme.textColor;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.font = "12px JetBrains Mono, monospace";
+      ctx.fillText("Tx", left + 14, trackY);
+
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.68)";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(trackLeft, trackY);
+      ctx.lineTo(trackRight, trackY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(96, 211, 246, 1)";
+      ctx.lineWidth = bandwidth < 200_000 ? 5 : 7;
+      ctx.beginPath();
+      ctx.moveTo(bandLeft, trackY);
+      ctx.lineTo(bandRight, trackY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX, top + 7);
+      ctx.lineTo(centerX, bottom - 7);
+      ctx.stroke();
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(255, 218, 92, 1)";
+      ctx.font = "700 12px JetBrains Mono, monospace";
+      ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+
+      if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
+        ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
+        ctx.font = "10px JetBrains Mono, monospace";
+        ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+      }
+
+      ctx.restore();
+    },
+    [],
+  );
+
   const draw2DFFTSignal = useCallback(
     (options: Draw2DFFTSignalOptions) => {
       const {
@@ -700,7 +829,14 @@ export function useDraw2DFFTSignal() {
         hardwareSampleRateHz,
         fullCaptureRange,
         limitMarkers = [],
+        fftSize,
+        fftWindow,
+        temporalResolution,
         displayMode = "fft",
+        textColor,
+        backgroundColor,
+        reservedBottomPx,
+        txSlider,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -711,6 +847,11 @@ export function useDraw2DFFTSignal() {
       const rect = canvas.parentElement?.getBoundingClientRect();
       const cssWidth = rect?.width || canvas.clientWidth || 800;
       const cssHeight = rect?.height || canvas.clientHeight || 400;
+      const bottomReservedPx = getReservedBottomPx(
+        nodePreview,
+        txSlider,
+        reservedBottomPx,
+      );
 
       // Update internal resolution for High-DPI displays
       if (
@@ -743,6 +884,9 @@ export function useDraw2DFFTSignal() {
               hardwareSampleRateHz,
               fullCaptureRange,
               limitMarkers,
+              textColor,
+              backgroundColor,
+              bottomReservedPx,
             );
           } else {
             ctx.fillStyle = "#000000";
@@ -759,6 +903,7 @@ export function useDraw2DFFTSignal() {
             fftMax,
             displayMode,
             nodePreview,
+            bottomReservedPx,
           );
         } else {
           // Full quality mode: complete spectrum rendering
@@ -775,6 +920,10 @@ export function useDraw2DFFTSignal() {
               nodePreview,
               hardwareSampleRateHz,
               fullCaptureRange,
+              limitMarkers,
+              textColor,
+              backgroundColor,
+              bottomReservedPx,
             );
           } else {
             ctx.fillStyle = "#000000";
@@ -789,6 +938,7 @@ export function useDraw2DFFTSignal() {
             fftMax,
             displayMode,
             nodePreview,
+            bottomReservedPx,
           );
         }
 
@@ -803,7 +953,31 @@ export function useDraw2DFFTSignal() {
             isDeviceConnected,
             nodePreview,
             fullCaptureRange,
+            bottomReservedPx,
           );
+        }
+
+        if (
+          !nodePreview &&
+          !txSlider?.visible &&
+          typeof hardwareSampleRateHz === "number" &&
+          typeof fftSize === "number" &&
+          fftWindow &&
+          temporalResolution
+        ) {
+          drawLiveCanvasStatusRow(ctx, cssWidth, cssHeight, {
+            sampleRateHz: hardwareSampleRateHz,
+            fftSize,
+            fftWindow,
+            temporalResolution,
+            textColor,
+            backgroundColor,
+            rowHeight: TX_SLIDER_ROW_HEIGHT,
+          });
+        }
+
+        if (!nodePreview && txSlider?.visible) {
+          drawTxSliderRow(ctx, cssWidth, cssHeight, txSlider);
         }
 
         return true;
@@ -812,7 +986,12 @@ export function useDraw2DFFTSignal() {
         return false;
       }
     },
-    [drawSpectrumGrid, drawSpectrumTrace, drawSpectrumMarkers],
+    [
+      drawSpectrumGrid,
+      drawSpectrumTrace,
+      drawSpectrumMarkers,
+      drawTxSliderRow,
+    ],
   );
 
   const cleanup = useCallback(() => {

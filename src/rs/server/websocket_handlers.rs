@@ -583,7 +583,7 @@ pub fn handle_message(
       *shared.sdr_settings.lock().unwrap() = sdr_settings.clone();
       let entry = if enabled {
         TxLogEntry::start(
-          device,
+          device.clone(),
           serial_number,
           Some(sdr_settings.center_frequency as u64),
           Some(sdr_settings.sample_rate as u64),
@@ -597,7 +597,7 @@ pub fn handle_message(
         )
       } else {
         TxLogEntry::start(
-          device,
+          device.clone(),
           serial_number,
           Some(sdr_settings.center_frequency as u64),
           Some(sdr_settings.sample_rate as u64),
@@ -612,11 +612,20 @@ pub fn handle_message(
         .end()
       };
       write_global(&entry);
-      if shared.device_profile.lock().unwrap().kind == "mock_tx" {
-        shared.set_device_state(
-          if enabled { "transmitting" } else { "connected" },
-          None,
-        );
+      if device == "mock-tx"
+        || device == "mock_tx"
+        || device.to_lowercase().contains("mock")
+        || shared.device_profile.lock().unwrap().kind == "mock_tx"
+      {
+        shared
+          .mock_tx_transmitting
+          .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        if shared.device_profile.lock().unwrap().kind == "mock_tx" {
+          shared.set_device_state(
+            if enabled { "transmitting" } else { "connected" },
+            None,
+          );
+        }
         super::websocket_server::broadcast_device_status(shared, broadcast_tx);
       }
     }

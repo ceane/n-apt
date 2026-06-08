@@ -362,7 +362,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.txCenterFrequencyHz,
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
-  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider);
+  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider ?? true);
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
   const getTxSliderDefaults = useCallback((range: FrequencyRange) => {
     const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
@@ -421,14 +421,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
   const txCapableDeviceKind =
     selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind;
-  const selectedSourceCapability = selectedSource?.capability;
+  const selectedSourceCapability = selectedSource?.capability?.toLowerCase?.();
+  const reduxDeviceKindSupportsTx =
+    deviceKind === "hackrf_one" ||
+    deviceKind === "mock_tx" ||
+    deviceKind === "tx_rx" ||
+    deviceKind === "tx";
   const canShowTxSlider =
+    reduxDeviceKindSupportsTx ||
     txCapableDeviceKind === "hackrf_one" ||
     txCapableDeviceKind === "mock_tx" ||
     txCapableDeviceKind === "tx_rx" ||
     txCapableDeviceKind === "tx" ||
     selectedSourceCapability === "tx" ||
-    selectedSourceCapability === "tx_rx";
+    selectedSourceCapability === "tx_rx" ||
+    selectedSourceCapability === "mock";
 
   const effectiveTunerGainDb = useMemo(() => {
     const gainConfig = effectiveSdrSettings?.gain;
@@ -488,10 +495,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [activeTab]);
 
   useEffect(() => {
-    reduxDispatch(
-      setDeviceKind(selectedSourceDerived.deviceProfile?.kind ?? null),
-    );
-  }, [reduxDispatch, selectedSourceDerived.deviceProfile?.kind]);
+    const nextDeviceKind =
+      selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? null;
+    if (!nextDeviceKind) return;
+    reduxDispatch(setDeviceKind(nextDeviceKind));
+  }, [
+    reduxDispatch,
+    selectedSourceDerived.deviceProfile?.kind,
+    deviceProfile?.kind,
+  ]);
 
   // Device connection state management
   useDeviceConnectionState({

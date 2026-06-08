@@ -36,6 +36,16 @@ export interface SelectionOverlay {
   maxFrequencyHz: number;
 }
 
+export interface TxSliderOverlayState {
+  visible: boolean;
+  visibleMinHz: number;
+  visibleMaxHz: number;
+  txCenterHz: number;
+  txSampleRateHz: number;
+  signalLabel?: string;
+  powerDbm?: number;
+}
+
 const readCssColor = (name: string, fallback: string) => {
   if (typeof window === "undefined" || typeof document === "undefined")
     return fallback;
@@ -113,7 +123,9 @@ const getCanvasThemeColors = () => ({
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
 
-const LIVE_STATUS_ROW_HEIGHT = 40;
+const VFO_AXIS_ROW_HEIGHT = 40;
+const LIVE_STATUS_ROW_HEIGHT = 56;
+export const TX_SLIDER_ROW_HEIGHT = LIVE_STATUS_ROW_HEIGHT;
 const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
 const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
 
@@ -136,12 +148,13 @@ export function useOverlayRenderer() {
       _hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,
-        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
       };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
@@ -454,12 +467,14 @@ export function useOverlayRenderer() {
       _fftSize?: number,
       _fftWindow?: string,
       _temporalResolution?: "low" | "medium" | "high",
+      showStatusRow = true,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,
-        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
       };
       if (!_frequencyRange) return;
       const minFreq = _frequencyRange.min;
@@ -510,7 +525,8 @@ export function useOverlayRenderer() {
         typeof _hardwareSampleRateHz === "number" &&
         typeof _fftSize === "number" &&
         _fftWindow &&
-        _temporalResolution
+        _temporalResolution &&
+        showStatusRow
       ) {
         drawLiveCanvasStatusRow(
           ctx as CanvasRenderingContext2D,
@@ -580,6 +596,7 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       demodFocus: DemodFocusOverlay | null | undefined,
       nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       if (!demodFocus) return;
 
@@ -614,7 +631,7 @@ export function useOverlayRenderer() {
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
       const plotBottom = nodePreview
         ? height
-        : height - 40 - LIVE_STATUS_ROW_HEIGHT;
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -742,6 +759,7 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       selectionRange: SelectionOverlay | null | undefined,
       nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       if (!selectionRange) return;
 
@@ -774,7 +792,7 @@ export function useOverlayRenderer() {
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
       const plotBottom = nodePreview
         ? height
-        : height - 40 - LIVE_STATUS_ROW_HEIGHT;
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -809,6 +827,135 @@ export function useOverlayRenderer() {
       ctx.moveTo(centerX, plotTop);
       ctx.lineTo(centerX, plotBottom);
       ctx.stroke();
+
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawTxSliderOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      slider: TxSliderOverlayState | null | undefined,
+    ) => {
+      if (
+        !slider?.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return;
+      }
+
+      const canvasTheme = getCanvasThemeColors();
+      const plotLeft = Math.min(50, width);
+      const plotRight = Math.max(plotLeft, width - 40);
+      const left = 4;
+      const right = Math.max(left, width - 4);
+      const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
+      const bottom = Math.max(top + 1, height - 4);
+      const trackLeft = plotLeft;
+      const trackRight = Math.max(trackLeft + 80, plotRight);
+      const trackWidth = Math.max(1, trackRight - trackLeft);
+      const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const isCompactBandwidth = bandwidth < 200_000;
+      const bandMin = slider.txCenterHz - bandwidth / 2;
+      const bandMax = slider.txCenterHz + bandwidth / 2;
+      const toX = (hz: number) =>
+        trackLeft + ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
+      const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
+      const bandRight = Math.max(
+        trackLeft,
+        Math.min(trackRight, toX(bandMax)),
+      );
+      const centerX = Math.max(
+        trackLeft,
+        Math.min(trackRight, toX(slider.txCenterHz)),
+      );
+      const trackY = top + 30;
+      const labelY = top + 14;
+      const powerY = bottom - 10;
+
+      ctx.save();
+      ctx.clearRect(left - 2, top - 2, right - left + 4, bottom - top + 4);
+      ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(4, 10, 22, 0.94)";
+      ctx.strokeStyle = "rgba(86, 201, 246, 0.78)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(left, top, right - left, bottom - top, 7);
+      } else {
+        ctx.rect(left, top, right - left, bottom - top);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      if (bandRight > bandLeft) {
+        const plotBottom = Math.max(0, top - VFO_AXIS_ROW_HEIGHT);
+        const plotTop = Math.min(20, height);
+        ctx.save();
+        ctx.strokeStyle = "rgba(86, 201, 246, 0.64)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 4]);
+        for (const x of [bandLeft, bandRight]) {
+          if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, plotTop);
+          ctx.lineTo(x, plotBottom);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      ctx.fillStyle = canvasTheme.textPrimary;
+      ctx.textAlign = "left";
+      ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.fillText("Tx", left + 14, trackY);
+
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.68)";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(trackLeft, trackY);
+      ctx.lineTo(trackRight, trackY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(96, 211, 246, 1)";
+      ctx.lineWidth = isCompactBandwidth ? 5 : 7;
+      ctx.beginPath();
+      ctx.moveTo(bandLeft, trackY);
+      ctx.lineTo(bandRight, trackY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX, top + 7);
+      ctx.lineTo(centerX, bottom - 7);
+      ctx.stroke();
+
+      ctx.textAlign = "center";
+      ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.fillStyle = "rgba(255, 218, 92, 1)";
+      ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+
+      if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
+        ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
+        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+      }
 
       ctx.restore();
     },
@@ -884,12 +1031,13 @@ export function useOverlayRenderer() {
       height: number,
       frequencyRange: { min: number; max: number },
       fullCaptureRange?: { min: number; max: number },
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,
-        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
       };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
@@ -969,6 +1117,7 @@ export function useOverlayRenderer() {
       fftMin: number,
       fftMax: number,
       powerScale: "dB" | "dBm" = "dB",
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
 
@@ -976,7 +1125,7 @@ export function useOverlayRenderer() {
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,
-        y: height - 40 - LIVE_STATUS_ROW_HEIGHT,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
       };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
 
@@ -1054,6 +1203,7 @@ export function useOverlayRenderer() {
     drawMarkersOnContext,
     drawDemodFocusOnContext,
     drawSelectionOverlayOnContext,
+    drawTxSliderOnContext,
     drawSpikeMarkersOnContext,
     drawZoomMarkersOnContext,
     drawPowerLineOnContext,

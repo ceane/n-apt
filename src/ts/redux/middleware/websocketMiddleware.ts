@@ -104,6 +104,17 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   return false;
 };
 
+const getDeviceKindFromSource = (source: SourceInfo): string => {
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  if (kind === "hackrf_one" || kind === "mock_tx" || kind === "tx_rx" || kind === "tx") {
+    return kind;
+  }
+  if (capability === "mock" || kind.includes("mock")) return "mock_tx";
+  if (capability.includes("tx")) return "tx";
+  return source.kind;
+};
+
 const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const sourceStatus = source.status ?? "disconnected";
   const sourceGain = source.sdr.settings.gain;
@@ -116,7 +127,7 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
     deviceInfo: source.name,
     deviceName: source.name,
     deviceProfile: {
-      kind: source.kind,
+      kind: getDeviceKindFromSource(source),
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
       supports_raw_iq_stream: source.supports_raw_iq_stream,

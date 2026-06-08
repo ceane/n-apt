@@ -10,7 +10,7 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
-import { styled } from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
@@ -25,7 +25,11 @@ import {
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { setGpuSpikeCount } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  setGpuSpikeCount,
+  setTxCenterFrequencyHz,
+  setTxSampleRateHz,
+} from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -72,6 +76,7 @@ import {
 import { roundDbValue } from "@n-apt/utils/frequency";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import {
+  TX_SLIDER_ROW_HEIGHT,
   useOverlayRenderer,
   type DemodFocusOverlay,
 } from "@n-apt/hooks/useOverlayRenderer";
@@ -247,6 +252,117 @@ const TxInfoTrigger = styled.button`
   color: ${({ theme }) => theme.colors.textSecondary};
   font: 700 12px/1 ${({ theme }) => theme.typography.mono};
   cursor: help;
+`;
+
+const TxSliderVisualRow = memo(styled.div`
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: ${TX_SLIDER_ROW_HEIGHT - 6}px;
+  z-index: 130;
+  border-radius: 6px;
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: 0 0 0 1px ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  display: flex;
+  align-items: center;
+`);
+
+const blink = keyframes`
+  0% { opacity: 0.1; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 0.1; transform: scale(0.6); }
+`;
+
+const TxSliderVisualLabel = styled.div`
+  padding-left: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  position: relative;
+  display: flex;
+  align-items: center;
+`;
+
+const TxBlinkingDot = styled.div`
+  position: absolute;
+  left: 11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.colors.danger}73;
+  box-shadow: 0 0 8px ${({ theme }) => theme.colors.danger}99;
+  z-index: -1;
+  animation: ${blink} 1.5s infinite ease-in-out;
+`;
+
+const TxSliderVisualTrack = styled.div`
+  position: relative;
+  height: 100%;
+  flex: 1;
+  padding: 0 3px; /* 3px padding away from the borders of the TxSlider */
+`;
+
+const TxSliderVisualBase = styled.div`
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 999px;
+  background: ${({ theme }) => theme.colors.border};
+`;
+
+const TxSliderVisualBand = styled.div<{ $left: number; $width: number; $isTransmitting: boolean }>`
+  position: absolute;
+  left: ${({ $left }) => `calc(${$left}% + 3px)`};
+  width: ${({ $width }) => `calc(${$width}% - 6px)`};
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  min-width: 6px;
+  border-radius: 999px;
+  background: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  transition: background 0.3s ease;
+`;
+
+const TxSliderVisualCenter = styled.div<{ $left: number; $isTransmitting: boolean }>`
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: ${({ $left }) => `calc(${$left}% + 3px)`};
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.secondary : theme.colors.textSecondary};
+  transition: background 0.3s ease;
+`;
+
+const TxSliderVisualText = styled.div<{ $left: number; $isTransmitting: boolean }>`
+  position: absolute;
+  left: ${({ $left }) => `calc(${$left}% + 3px)`};
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  color: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.primary : theme.colors.textMuted};
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  transition: color 0.3s ease;
+`;
+
+const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
+  color: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.textPrimary : theme.colors.textDisabled};
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
 `;
 
 const SelectionTooltip = memo(styled.div`
@@ -631,6 +747,83 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.theme.appMode,
     );
     const resolvedThemeMode = useResolvedThemeMode(themeAppMode);
+    const reduxShowTxSlider = useAppSelector(
+      (reduxState) => reduxState.spectrum.showTxSlider ?? true,
+    );
+    const reduxTxSignal = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSignal || "apt",
+    );
+    const reduxTxCenterFrequencyHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txCenterFrequencyHz,
+    );
+    const reduxTxSampleRateHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSampleRateHz,
+    );
+    const reduxTxPowerDbm = useAppSelector(
+      (reduxState) => reduxState.spectrum.txPowerDbm,
+    );
+    const reduxDeviceKind = useAppSelector(
+      (reduxState) => reduxState.spectrum.deviceKind,
+    );
+    const reduxWebsocketSources = useAppSelector(
+      (reduxState) => reduxState.websocket.sources,
+    );
+    const isTransmittingGlobal = useMemo(() => {
+      return reduxWebsocketSources.some((source) => source.status === "transmitting");
+    }, [reduxWebsocketSources]);
+    const effectiveTxSlider = useMemo(() => {
+      if (txSlider?.visible) return txSlider;
+      const canTransmit =
+        reduxDeviceKind === "hackrf_one" ||
+        reduxDeviceKind === "mock_tx" ||
+        reduxDeviceKind === "tx_rx" ||
+        reduxDeviceKind === "tx" ||
+        reduxDeviceKind === "mock";
+      if (!reduxShowTxSlider || !canTransmit) return null;
+      if (
+        !frequencyRange ||
+        !Number.isFinite(frequencyRange.min) ||
+        !Number.isFinite(frequencyRange.max)
+      ) {
+        return null;
+      }
+      const visibleMinHz = frequencyRange.min;
+      const visibleMaxHz =
+        frequencyRange.max > visibleMinHz ? frequencyRange.max : visibleMinHz + 1;
+      const visibleSpanHz = visibleMaxHz - visibleMinHz;
+      const centerHz =
+        Number.isFinite(reduxTxCenterFrequencyHz) &&
+        reduxTxCenterFrequencyHz >= visibleMinHz &&
+        reduxTxCenterFrequencyHz <= visibleMaxHz
+          ? reduxTxCenterFrequencyHz
+          : visibleMinHz + visibleSpanHz / 2;
+      const sampleRateHz = Number.isFinite(reduxTxSampleRateHz)
+        ? Math.max(1, Math.min(visibleSpanHz, reduxTxSampleRateHz))
+        : Math.max(1, Math.min(120_000, visibleSpanHz));
+      return {
+        visible: true,
+        signalLabel: String(reduxTxSignal).toUpperCase(),
+        powerDbm: reduxTxPowerDbm,
+        visibleMinHz,
+        visibleMaxHz,
+        txCenterHz: centerHz,
+        txSampleRateHz: sampleRateHz,
+        onCenterFrequencyChange: (value: number) =>
+          dispatch(setTxCenterFrequencyHz(value)),
+        onSampleRateChange: (value: number) =>
+          dispatch(setTxSampleRateHz(value)),
+      };
+    }, [
+      dispatch,
+      frequencyRange,
+      reduxDeviceKind,
+      reduxShowTxSlider,
+      reduxTxCenterFrequencyHz,
+      reduxTxPowerDbm,
+      reduxTxSampleRateHz,
+      reduxTxSignal,
+      txSlider,
+    ]);
 
     const autoZoomStabilityRef = useRef(autoZoomStability);
     useEffect(() => {
@@ -682,7 +875,7 @@ const FFTCanvas = memo(
     const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
     const powerLineDbRef = useRef<number | null>(null);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
-    txSliderRef.current = txSlider?.visible ? txSlider : null;
+    txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
     useEffect(() => {
       powerLineDbRef.current = powerLineDb;
     }, [powerLineDb]);
@@ -736,7 +929,7 @@ const FFTCanvas = memo(
         const plotRight = Math.max(plotLeft, width - 40);
         const left = 4;
         const right = Math.max(left, width - 4);
-        const top = Math.max(0, height - 40);
+        const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
         const bottom = Math.max(top + 1, height - 4);
         const trackLeft = plotLeft;
         const trackRight = Math.max(trackLeft + 80, plotRight);
@@ -758,7 +951,9 @@ const FFTCanvas = memo(
           trackLeft,
           Math.min(trackRight, toX(slider.txCenterHz)),
         );
-        const midY = (top + bottom) / 2;
+        const trackY = top + 30;
+        const labelY = top + 14;
+        const powerY = bottom - 10;
         const tickStep = (() => {
           const span = visualRange.max - visualRange.min;
           if (!Number.isFinite(span) || span <= 0) return null;
@@ -776,9 +971,9 @@ const FFTCanvas = memo(
         ctx.textBaseline = "middle";
         ctx.fillStyle =
           resolvedThemeMode === "dark"
-            ? "rgba(9, 15, 28, 0.86)"
+            ? "rgba(4, 10, 22, 0.94)"
             : "rgba(247, 251, 255, 0.88)";
-        ctx.strokeStyle = "rgba(86, 201, 246, 0.58)";
+        ctx.strokeStyle = "rgba(86, 201, 246, 0.78)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         if (typeof ctx.roundRect === "function") {
@@ -820,12 +1015,12 @@ const FFTCanvas = memo(
         }
 
         if (bandRight > bandLeft) {
-          const plotBottom = Math.max(0, height - 40 - 40);
+          const plotBottom = Math.max(0, top - 40);
           const plotTop = Math.min(20, height);
           ctx.save();
           ctx.strokeStyle =
             resolvedThemeMode === "dark"
-              ? "rgba(86, 201, 246, 0.52)"
+              ? "rgba(86, 201, 246, 0.64)"
               : "rgba(36, 156, 208, 0.48)";
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 4]);
@@ -849,28 +1044,29 @@ const FFTCanvas = memo(
             ? "rgba(219, 244, 255, 0.94)"
             : "rgba(42, 54, 72, 0.92)";
         ctx.textAlign = "left";
-        ctx.fillText("Tx", left + 14, midY);
+        ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillText("Tx", left + 14, trackY);
 
-        ctx.strokeStyle = "rgba(122, 139, 166, 0.58)";
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.68)";
         ctx.lineWidth = 4;
         ctx.lineCap = "round";
         ctx.beginPath();
-        ctx.moveTo(trackLeft, midY);
-        ctx.lineTo(trackRight, midY);
+        ctx.moveTo(trackLeft, trackY);
+        ctx.lineTo(trackRight, trackY);
         ctx.stroke();
 
-        ctx.strokeStyle = "rgba(86, 201, 246, 0.98)";
-        ctx.lineWidth = isCompactBandwidth ? 4 : 6;
+        ctx.strokeStyle = "rgba(96, 211, 246, 1)";
+        ctx.lineWidth = isCompactBandwidth ? 5 : 7;
         ctx.beginPath();
-        ctx.moveTo(bandLeft, midY);
-        ctx.lineTo(bandRight, midY);
+        ctx.moveTo(bandLeft, trackY);
+        ctx.lineTo(bandRight, trackY);
         ctx.stroke();
 
         ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(centerX, top + 4);
-        ctx.lineTo(centerX, bottom - 4);
+        ctx.moveTo(centerX, top + 7);
+        ctx.lineTo(centerX, bottom - 7);
         ctx.stroke();
 
         if (isCompactBandwidth) {
@@ -884,9 +1080,22 @@ const FFTCanvas = memo(
         } else {
           ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
           ctx.beginPath();
-          ctx.arc(bandLeft, midY, 5, 0, Math.PI * 2);
-          ctx.arc(bandRight, midY, 5, 0, Math.PI * 2);
+          ctx.arc(bandLeft, trackY, 5, 0, Math.PI * 2);
+          ctx.arc(bandRight, trackY, 5, 0, Math.PI * 2);
           ctx.fill();
+        }
+        ctx.textAlign = "center";
+        ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillStyle = "rgba(255, 218, 92, 1)";
+        ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+
+        if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
+          ctx.fillStyle =
+            resolvedThemeMode === "dark"
+              ? "rgba(226, 232, 240, 0.86)"
+              : "rgba(71, 85, 105, 0.86)";
+          ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
         }
         ctx.restore();
       },
@@ -1170,7 +1379,7 @@ const FFTCanvas = memo(
     }, [selectionRange]);
 
     const txSliderTooltipContent = useMemo(() => {
-      if (!txSlider?.visible) return null;
+      if (!effectiveTxSlider?.visible) return null;
       const formatHz = (hz: number) => {
         if (!Number.isFinite(hz)) return "Unknown";
         const abs = Math.abs(hz);
@@ -1179,16 +1388,55 @@ const FFTCanvas = memo(
         return `${Math.round(hz)} Hz`;
       };
       const power =
-        typeof txSlider.powerDbm === "number" && Number.isFinite(txSlider.powerDbm)
-          ? `${txSlider.powerDbm.toFixed(0)} dBm`
+        typeof effectiveTxSlider.powerDbm === "number" &&
+        Number.isFinite(effectiveTxSlider.powerDbm)
+          ? `${effectiveTxSlider.powerDbm.toFixed(0)} dBm`
           : "Unknown";
       return [
-        `Signal: ${txSlider.signalLabel ?? "TX"}`,
-        `Center: ${formatHz(txSlider.txCenterHz)}`,
-        `Bandwidth: ${formatHz(txSlider.txSampleRateHz)}`,
+        `Signal: ${effectiveTxSlider.signalLabel ?? "TX"}`,
+        `Center: ${formatHz(effectiveTxSlider.txCenterHz)}`,
+        `Bandwidth: ${formatHz(effectiveTxSlider.txSampleRateHz)}`,
         `Power: ${power}`,
       ].join("\n");
-    }, [txSlider]);
+    }, [effectiveTxSlider]);
+
+    const txSliderVisualMetrics = useMemo(() => {
+      const slider = effectiveTxSlider;
+      if (
+        !slider?.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return null;
+      }
+
+      const span = slider.visibleMaxHz - slider.visibleMinHz;
+      const bandwidth = Math.max(1, Math.min(span, slider.txSampleRateHz));
+      const center = Math.max(
+        slider.visibleMinHz,
+        Math.min(slider.visibleMaxHz, slider.txCenterHz),
+      );
+      const bandStart = Math.max(slider.visibleMinHz, center - bandwidth / 2);
+      const bandEnd = Math.min(slider.visibleMaxHz, center + bandwidth / 2);
+      const left = ((bandStart - slider.visibleMinHz) / span) * 100;
+      const width = ((bandEnd - bandStart) / span) * 100;
+      const centerLeft = ((center - slider.visibleMinHz) / span) * 100;
+      const powerLabel =
+        typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)
+          ? `${slider.powerDbm.toFixed(0)} dBm`
+          : null;
+
+      return {
+        left: Math.max(0, Math.min(100, left)),
+        width: Math.max(0, Math.min(100, width)),
+        centerLeft: Math.max(0, Math.min(100, centerLeft)),
+        signalLabel: slider.signalLabel ?? "TX",
+        powerLabel,
+      };
+    }, [effectiveTxSlider]);
 
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
@@ -1404,7 +1652,13 @@ const FFTCanvas = memo(
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
       forceRenderRef.current?.();
-    }, [txSlider, spectrumOverlayCanvasNode, overlayDirtyRef]);
+    }, [
+      effectiveTxSlider,
+      spectrumOverlayCanvasNode,
+      overlayDirtyRef,
+      isInitializingWebGPU,
+      webgpuEnabled,
+    ]);
 
     const handleSpikeCount = useCallback(
       (count: number) => {
@@ -1521,7 +1775,7 @@ const FFTCanvas = memo(
       powerLineDbRef,
       onPowerLineDbChange: setPowerLineDb,
       txSliderRef,
-      txSliderEnabled: !!txSlider?.visible,
+      txSliderEnabled: !!effectiveTxSlider?.visible,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -2115,6 +2369,13 @@ const FFTCanvas = memo(
             //   slicedWaveform = smoothed;
             // }
           }
+          const currentTxSlider = txSliderRef.current as
+            | (CanvasTxSliderState & {
+                signalLabel?: string;
+                powerDbm?: number;
+              })
+            | null;
+          const bottomReservedPx = TX_SLIDER_ROW_HEIGHT;
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
             drawSpectrum({
@@ -2132,7 +2393,9 @@ const FFTCanvas = memo(
               gridOverlayRenderer: compact
                 ? undefined
                 : gridOverlayRendererRef.current,
-              markersOverlayRenderer: undefined,
+              markersOverlayRenderer: compact
+                ? undefined
+                : markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: centerFreqRef.current,
@@ -2141,7 +2404,7 @@ const FFTCanvas = memo(
               fftSize: effectiveFftSize,
               fftWindow,
               temporalResolution: displayTemporalResolution,
-              reservedBottomPx: 40,
+              reservedBottomPx: bottomReservedPx,
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
@@ -2165,6 +2428,7 @@ const FFTCanvas = memo(
                     maxFrequencyHz: liveDragSelectionRef.current.max,
                   }
                 : selectionOverlayRef.current,
+              txSlider: compact ? null : currentTxSlider,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
@@ -2206,8 +2470,14 @@ const FFTCanvas = memo(
                     maxFrequencyHz: liveDragSelectionRef.current.max,
                   }
                 : selectionOverlayRef.current;
+              const rendersMarkersInWebGpuOverlay =
+                !compact && !!markersOverlayRendererRef.current;
 
-              if (!nodePreview && centerFreqRef.current !== undefined) {
+              if (
+                !rendersMarkersInWebGpuOverlay &&
+                !nodePreview &&
+                centerFreqRef.current !== undefined
+              ) {
                 drawMarkersOnContext(
                   ctx,
                   logicalW,
@@ -2222,10 +2492,12 @@ const FFTCanvas = memo(
                   effectiveFftSize,
                   fftWindow,
                   displayTemporalResolution,
+                  !currentTxSlider?.visible,
+                  bottomReservedPx,
                 );
               }
 
-              if (activeDemodFocus) {
+              if (!rendersMarkersInWebGpuOverlay && activeDemodFocus) {
                 drawDemodFocusOnContext(
                   ctx,
                   logicalW,
@@ -2233,10 +2505,11 @@ const FFTCanvas = memo(
                   visualRange,
                   activeDemodFocus,
                   nodePreview,
+                  bottomReservedPx,
                 );
               }
 
-              if (activeSelection) {
+              if (!rendersMarkersInWebGpuOverlay && activeSelection) {
                 drawSelectionOverlayOnContext(
                   ctx,
                   logicalW,
@@ -2244,6 +2517,7 @@ const FFTCanvas = memo(
                   visualRange,
                   activeSelection,
                   nodePreview,
+                  bottomReservedPx,
                 );
               }
 
@@ -2254,6 +2528,7 @@ const FFTCanvas = memo(
                 logicalH,
                 visualRange,
                 frequencyRangeRef.current,
+                bottomReservedPx,
               );
 
               // Draw draggable horizontal power line
@@ -2266,21 +2541,24 @@ const FFTCanvas = memo(
                   activeScaleDbMinRef.current,
                   activeScaleDbMaxRef.current,
                   effectivePowerScaleRef.current,
+                  bottomReservedPx,
                 );
               }
 
-              drawTxSliderOnContext(
-                ctx,
-                logicalW,
-                logicalH,
-                visualRange,
-                txSliderRef.current as
-                  | (CanvasTxSliderState & {
-                      signalLabel?: string;
-                      powerDbm?: number;
-                    })
-                  | null,
-              );
+              if (!rendersMarkersInWebGpuOverlay) {
+                drawTxSliderOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  visualRange,
+                  txSliderRef.current as
+                    | (CanvasTxSliderState & {
+                        signalLabel?: string;
+                        powerDbm?: number;
+                      })
+                    | null,
+                );
+              }
             }
           }
 
@@ -3380,6 +3658,38 @@ const FFTCanvas = memo(
                         </span>
                       </SelectionTooltip>
                     )}
+                    {txSliderVisualMetrics && !compact ? (
+                      <TxSliderVisualRow data-testid="tx-slider-visual-row">
+                        <TxSliderVisualLabel>
+                          {isTransmittingGlobal && <TxBlinkingDot />}
+                          Tx
+                        </TxSliderVisualLabel>
+                        <TxSliderVisualTrack>
+                          <TxSliderVisualBase />
+                          <TxSliderVisualBand
+                            $left={txSliderVisualMetrics.left}
+                            $width={txSliderVisualMetrics.width}
+                            $isTransmitting={isTransmittingGlobal}
+                          />
+                          <TxSliderVisualCenter
+                            $left={txSliderVisualMetrics.centerLeft}
+                            $isTransmitting={isTransmittingGlobal}
+                          />
+                          <TxSliderVisualText
+                            $left={txSliderVisualMetrics.centerLeft}
+                            $isTransmitting={isTransmittingGlobal}
+                          >
+                            <span>{txSliderVisualMetrics.signalLabel}</span>
+                            {txSliderVisualMetrics.powerLabel ? (
+                              <TxSliderVisualPower $isTransmitting={isTransmittingGlobal}>
+                                {txSliderVisualMetrics.powerLabel}
+                              </TxSliderVisualPower>
+                            ) : null}
+                          </TxSliderVisualText>
+                        </TxSliderVisualTrack>
+                        <span aria-hidden="true" />
+                      </TxSliderVisualRow>
+                    ) : null}
                     {txSliderTooltipContent ? (
                       <TxSliderInfoLayer>
                         <Tooltip
