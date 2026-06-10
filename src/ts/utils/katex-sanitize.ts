@@ -6,8 +6,9 @@ export function sanitizeLatex(input: string): string {
     // Use Unicode property escapes to strip format and mark characters
     return input.replace(/\p{Cf}|\p{M}/gu, '');
   } catch (e) {
-    // Fallback: remove common problematic codepoints if Unicode property escapes not supported
-    return input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, '');
+    // Fallback: remove common problematic codepoints and known combining ranges
+    // if Unicode property escapes are not supported in the runtime RegExp engine.
+    return input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u0300-\u036F\u1AB0-\u1AFF\u1DC0-\u1DFF\u20D0-\u20FF\uFE20-\uFE2F]/g, '');
   }
 }
 
