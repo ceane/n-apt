@@ -21,15 +21,17 @@ const MathFallback = styled.div`
 
 const loadDemodMath = async () => {
   try {
-    const modulePath = [
-      "@n-apt",
-      "encrypted-modules",
-      "tmp",
-      "ts",
-      "components",
-      "math",
-      "DemodMath",
-    ].join("/");
+    const modulePath =
+      "/" +
+      [
+        "@n-apt",
+        "encrypted-modules",
+        "tmp",
+        "ts",
+        "components",
+        "math",
+        "DemodMath",
+      ].join("/");
 
     return await import(/* @vite-ignore */ modulePath);
   } catch {

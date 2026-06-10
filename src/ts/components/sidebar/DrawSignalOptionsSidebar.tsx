@@ -137,6 +137,8 @@ interface DrawParams {
   peakAmplitude: number;
   simulatedNoise: number;
   beats: BeatParams[];
+  baseSignalType?: "none" | "gaussian" | "bpsk";
+  baseSignalAmplitude?: number;
 }
 
 export const DrawSignalOptionsSidebar: React.FC = () => {
@@ -144,7 +146,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
   const { drawParams, activeClumpIndex, globalNoiseFloor } = state;
   const activeParams = drawParams[activeClumpIndex] || drawParams[0];
 
-  const handleParamChange = (key: keyof DrawParams, value: number) => {
+  const handleParamChange = (key: keyof DrawParams, value: any) => {
     const newParams = [...drawParams];
     newParams[activeClumpIndex] = { ...activeParams, [key]: value };
     dispatch({ type: "SET_DRAW_PARAMS", params: newParams });
@@ -154,7 +156,10 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
     let newParams = [...drawParams];
     if (count > drawParams.length) {
       for (let i = drawParams.length; i < count; i++) {
-        newParams.push({ ...drawParams[0], centerOffset: i * 0.4 - 0.2 });
+        newParams.push({
+          ...drawParams[0],
+          centerOffset: (i * 0.4 - 0.2) * 1_000_000,
+        });
       }
     } else {
       newParams = drawParams.slice(0, count);
@@ -246,6 +251,28 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
           </ClumpTab>
         ))}
       </ClumpSelector>
+      <Row label="Base Modulation">
+        <SettingSelect
+          value={activeParams.baseSignalType || "none"}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+            handleParamChange("baseSignalType", e.target.value as any)
+          }
+        >
+          <option value="none">Flat Noise Floor</option>
+          <option value="gaussian">Gaussian Pedestal</option>
+          <option value="bpsk">Wideband BPSK Telemetry</option>
+        </SettingSelect>
+      </Row>
+      {activeParams.baseSignalType && activeParams.baseSignalType !== "none" && (
+        <Slider
+          label="Base Pedestal Amplitude"
+          value={activeParams.baseSignalAmplitude ?? -55}
+          min={-80}
+          max={-20}
+          step={1}
+          onChange={(v) => handleParamChange("baseSignalAmplitude", v)}
+        />
+      )}
       <Slider
         label="Peak Amplitude"
         value={activeParams.peakAmplitude}
@@ -263,17 +290,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
         onChange={(v) => handleParamChange("spikesAmplitude", v)}
       />
       <Slider
-        label="Global Noise Floor"
-        value={globalNoiseFloor}
-        min={-140}
-        max={-40}
-        step={1}
-        onChange={(noise) =>
-          dispatch({ type: "SET_GLOBAL_NOISE_FLOOR", noise })
-        }
-      />
-      <Slider
-        label="Simulated Noise (Data)"
+        label="Data Band Variance"
         value={activeParams.simulatedNoise}
         min={0.0}
         max={1.0}
@@ -300,9 +317,10 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
       <Slider
         label="Center Offset"
         value={activeParams.centerOffset}
-        min={0.0}
-        max={3.0}
-        step={0.01}
+        min={0}
+        max={3_000_000}
+        step={10_000}
+        formatValue={(v) => `${(v / 1_000_000).toFixed(2)} MHz`}
         onChange={(v) => handleParamChange("centerOffset", v)}
       />
       <Slider
@@ -363,17 +381,19 @@ const BEAT_SNAP_RANGES = [
 
 const DrawMath = React.lazy(async () => {
   try {
-    const modulePath = [
-      "@n-apt",
-      "encrypted-modules",
-      "tmp",
-      "ts",
-      "components",
-      "math",
-      "DrawMath",
-    ].join("/");
+    const modulePath =
+      "/" +
+      [
+        "@n-apt",
+        "encrypted-modules",
+        "tmp",
+        "ts",
+        "components",
+        "math",
+        "DrawMath",
+      ].join("/");
 
-    return await import(/* @vite-ignore */ modulePath);
+    return await import(/* @vite-ignore */ modulePath + "?v=3");
   } catch {
     return {
       default: () => (

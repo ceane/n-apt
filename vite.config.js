@@ -87,19 +87,19 @@ export default defineConfig(({ mode }) => {
   },
   resolve: {
     alias: [{
-      find: /^@n-apt\/encrypted-modules\/(.*)$/,
+      find: /^\/?@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
-      find:  /^@n-apt\/public\/(.*)$/,
+      find: /^\/?@n-apt\/public\/(.*)$/,
       replacement: path.resolve(dirname, "public/$1")
     }, {
-      find: /^@n-apt\/webmcp\/(.*)$/,
+      find: /^\/?@n-apt\/webmcp\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/agents/webmcp/$1")
     }, {
-      find: /^@n-apt\/(.*)$/,
+      find: /^\/?@n-apt\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/$1")
     }, {
-      find: "@n-apt",
+      find: /^\/?@n-apt$/,
       replacement: path.resolve(dirname, "src/ts")
     }]
   },

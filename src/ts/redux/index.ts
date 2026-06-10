@@ -250,6 +250,9 @@ export {
   setGlobalNoiseFloor,
   clearWaterfall,
   resetWaterfallCleared,
+  setDrawParams,
+  setClumpParams,
+  setActiveClumpIndex,
 } from "./slices/waterfallSlice";
 
 export {

@@ -49,6 +49,10 @@ import {
   resetLiveControls as resetLiveControlsAction,
   resetZoomAndDb as resetZoomAndDbAction,
   setShowSpikeOverlay as setShowSpikeOverlayAction,
+  setDrawParams as setWaterfallDrawParams,
+  setClumpParams as setWaterfallClumpParams,
+  setActiveClumpIndex as setWaterfallActiveClumpIndex,
+  resetDrawParams as resetWaterfallDrawParams,
   websocketActions,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -212,6 +216,8 @@ export type DrawParams = {
   peakAmplitude: number; // Unit: dB (max 0)
   simulatedNoise: number;
   beats: BeatParams[]; // Up to 2 beats
+  baseSignalType?: "none" | "gaussian" | "bpsk";
+  baseSignalAmplitude?: number; // dB
 };
 
 export type SpectrumState = {
@@ -443,6 +449,8 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
       peakAmplitude: -40, // -40 dB
       simulatedNoise: 0.05,
       beats: [],
+      baseSignalType: "none",
+      baseSignalAmplitude: -55,
     },
   ],
   activeClumpIndex: 0,
@@ -1274,6 +1282,27 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             return;
           case "TRAINING_STOP":
             reduxDispatch(resetTrainingCapture());
+            return;
+          case "SET_DRAW_PARAMS":
+            reduxDispatch(setWaterfallDrawParams(action.params));
+            dispatch(action);
+            return;
+          case "SET_CLUMP_PARAMS":
+            reduxDispatch(
+              setWaterfallClumpParams({
+                index: action.index,
+                params: action.params,
+              }),
+            );
+            dispatch(action);
+            return;
+          case "SET_ACTIVE_CLUMP_INDEX":
+            reduxDispatch(setWaterfallActiveClumpIndex(action.index));
+            dispatch(action);
+            return;
+          case "RESET_DRAW_PARAMS":
+            reduxDispatch(resetWaterfallDrawParams());
+            dispatch(action);
             return;
           case "SET_SHOW_SPIKE_OVERLAY":
             reduxDispatch(setShowSpikeOverlayAction(action.enabled));

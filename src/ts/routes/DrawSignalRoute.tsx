@@ -288,7 +288,7 @@ export const DrawSignalRoute: React.FC = () => {
   // Generate data based on params
   const data = useMemo(() => {
     return generateMockNAPTData(drawParams, state.globalNoiseFloor);
-  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData]);
+  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData, mathLoaded]);
 
   const waveformArray = useMemo(() => data.map((p) => p.x), [data]);
   const floatWaveform = useMemo(
@@ -327,7 +327,7 @@ export const DrawSignalRoute: React.FC = () => {
       device: webgpuDeviceRef.current,
       format: webgpuFormatRef.current,
       waveform: floatWaveform,
-      frequencyRange: { min: 0, max: 3 },
+      frequencyRange: { min: 0, max: 3_000_000 },
       fftMin: -120,
       fftMax: 0,
       isIqRecordingActive: true,
