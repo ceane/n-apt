@@ -73,6 +73,15 @@ for (const file of files) {
     if (!val || val.length < 2) continue;
     // only consider strings with backslashes (likely LaTeX)
     if (!/[\\]\\w|\\\\/.test(val) && !val.includes('\\')) continue;
+    // If the source string contains combining diacritics or zero-widths, flag immediately
+    for (let i = 0; i < val.length; i++) {
+      const cp = val.codePointAt(i);
+      if (!cp) continue;
+      if ((cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x200b && cp <= 0x200d) || cp === 0xfeff) {
+        warnings.push({ file: rel, name, reason: `Source string contains suspicious codepoint U+${cp.toString(16)}` });
+        break;
+      }
+    }
     const s = sanitize(val);
     try {
       const html = katex.renderToString(s, { throwOnError: false, displayMode: true, strict: 'warn' });
@@ -92,6 +101,20 @@ for (const file of files) {
       if (visibleBackslash) {
         warnings.push({ file: rel, name, reason: 'Rendered HTML contains visible backslash sequences (likely unparsed TeX)', sample: withoutMathML.slice(0, 300) });
       }
+
+      // Detect suspicious combining diacritics or zero-width characters that
+      // would cause KaTeX to split macros into backslash + following combining
+      // char sequences. We look for common combining accents in the BMP (U+0300–U+036F)
+      // and common zero-widths (U+200B..U+200D, U+FEFF).
+      const rawCodepoints = Array.from(s).map((c) => c.codePointAt(0));
+      for (let i = 0; i < rawCodepoints.length; i++) {
+        const cp = rawCodepoints[i];
+        if (!cp) continue;
+        if ((cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x200b && cp <= 0x200d) || cp === 0xfeff) {
+          warnings.push({ file: rel, name, reason: `Contains suspicious codepoint U+${cp.toString(16)}` });
+          break;
+        }
+      }
     } catch (err) {
       errors.push({ file: rel, name, error: String(err), raw: s.slice(0, 500) });
     }
@@ -103,6 +126,24 @@ for (const file of files) {
         warnings.push({ file: rel, name, reason: `Contains zero-width character U+${cp.toString(16)}` });
       }
     }
+  }
+}
+
+// Additional repository-wide scan: find any occurrences of suspicious
+// combining diacritics or zero-width characters outside of the simple const
+// string extraction. This helps catch strings embedded in JSX, template
+// expressions, or generated assets that the earlier extractor may miss.
+const suspiciousRe = /[\u0300-\u036F\u00B8\u02DA\u200B-\u200D\uFEFF]/g;
+for (const file of files) {
+  const rel = path.relative(ROOT, file);
+  const content = fs.readFileSync(file, 'utf8');
+  let m;
+  while ((m = suspiciousRe.exec(content)) !== null) {
+    // compute line number
+    const upto = content.slice(0, m.index);
+    const line = upto.split('\n').length;
+    const snippet = content.slice(Math.max(0, m.index - 40), Math.min(content.length, m.index + 40)).replace(/\n/g, ' ');
+    warnings.push({ file: rel, name: `suspicious-char-line-${line}`, reason: `Suspicious character U+${m[0].codePointAt(0).toString(16)}`, sample: `line ${line}: ...${snippet}...` });
   }
 }
 

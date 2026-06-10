@@ -11,17 +11,9 @@ export function sanitizeLatex(input: string): string {
   }
 }
 
-export function sanitizeLatexWithDebug(label: string, input: string): string {
-  const before = input;
-  const after = sanitizeLatex(input);
-  if (process.env.NODE_ENV === 'development' && before !== after) {
-    // eslint-disable-next-line no-console
-    console.debug(`[katex-sanitize] ${label}: removed characters`, {
-      beforeCodepoints: Array.from(before).map((c) => c.codePointAt(0)?.toString(16).padStart(4, '0')).join(' '),
-      afterCodepoints: Array.from(after).map((c) => c.codePointAt(0)?.toString(16).padStart(4, '0')).join(' '),
-      before,
-      after,
-    });
-  }
-  return after;
-}
+// Development helper: logs removed codepoints when sanitizer changed the string.
+// Kept here for the linter and any targeted debug usage, but not imported by components.
+// Development helper removed — prefer static linter to detect invisible/combining
+// characters and fix them at the source (encrypted module pipeline).
+// If you need the debugging helper temporarily, reintroduce a targeted
+// sanitizeLatexWithDebug that logs only in development.
