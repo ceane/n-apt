@@ -49,7 +49,9 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const vizZoomFloorPan = useAppSelector(
     (state) => state.spectrum.vizZoomFloorPan,
   );
-  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider ?? true);
+  const showTxSlider = useAppSelector(
+    (state) => state.spectrum.showTxSlider ?? true,
+  );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
   const canShowTxSlider =
     deviceKind === "hackrf_one" ||

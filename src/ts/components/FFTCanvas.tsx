@@ -315,7 +315,11 @@ const TxSliderVisualBase = styled.div`
   background: ${({ theme }) => theme.colors.border};
 `;
 
-const TxSliderVisualBand = styled.div<{ $left: number; $width: number; $isTransmitting: boolean }>`
+const TxSliderVisualBand = styled.div<{
+  $left: number;
+  $width: number;
+  $isTransmitting: boolean;
+}>`
   position: absolute;
   left: ${({ $left }) => `calc(${$left}% + 3px)`};
   width: ${({ $width }) => `calc(${$width}% - 6px)`};
@@ -324,11 +328,15 @@ const TxSliderVisualBand = styled.div<{ $left: number; $width: number; $isTransm
   height: 8px;
   min-width: 6px;
   border-radius: 999px;
-  background: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  background: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
   transition: background 0.3s ease;
 `;
 
-const TxSliderVisualCenter = styled.div<{ $left: number; $isTransmitting: boolean }>`
+const TxSliderVisualCenter = styled.div<{
+  $left: number;
+  $isTransmitting: boolean;
+}>`
   position: absolute;
   top: 7px;
   bottom: 7px;
@@ -336,11 +344,15 @@ const TxSliderVisualCenter = styled.div<{ $left: number; $isTransmitting: boolea
   width: 2px;
   transform: translateX(-50%);
   border-radius: 999px;
-  background: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.secondary : theme.colors.textSecondary};
+  background: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.secondary : theme.colors.textSecondary};
   transition: background 0.3s ease;
 `;
 
-const TxSliderVisualText = styled.div<{ $left: number; $isTransmitting: boolean }>`
+const TxSliderVisualText = styled.div<{
+  $left: number;
+  $isTransmitting: boolean;
+}>`
   position: absolute;
   left: ${({ $left }) => `calc(${$left}% + 3px)`};
   top: 50%;
@@ -350,7 +362,8 @@ const TxSliderVisualText = styled.div<{ $left: number; $isTransmitting: boolean 
   align-items: center;
   justify-content: center;
   height: 44px;
-  color: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.primary : theme.colors.textMuted};
+  color: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.textMuted};
   font-size: 12px;
   font-weight: 800;
   line-height: 1;
@@ -359,7 +372,8 @@ const TxSliderVisualText = styled.div<{ $left: number; $isTransmitting: boolean 
 `;
 
 const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
-  color: ${({ theme, $isTransmitting }) => $isTransmitting ? theme.colors.textPrimary : theme.colors.textDisabled};
+  color: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.textPrimary : theme.colors.textDisabled};
   font-size: 10px;
   font-weight: 600;
   margin-top: 2px;
@@ -769,7 +783,9 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.websocket.sources,
     );
     const isTransmittingGlobal = useMemo(() => {
-      return reduxWebsocketSources.some((source) => source.status === "transmitting");
+      return reduxWebsocketSources.some(
+        (source) => source.status === "transmitting",
+      );
     }, [reduxWebsocketSources]);
     const effectiveTxSlider = useMemo(() => {
       if (txSlider?.visible) return txSlider;
@@ -789,7 +805,9 @@ const FFTCanvas = memo(
       }
       const visibleMinHz = frequencyRange.min;
       const visibleMaxHz =
-        frequencyRange.max > visibleMinHz ? frequencyRange.max : visibleMinHz + 1;
+        frequencyRange.max > visibleMinHz
+          ? frequencyRange.max
+          : visibleMinHz + 1;
       const visibleSpanHz = visibleMaxHz - visibleMinHz;
       const centerHz =
         Number.isFinite(reduxTxCenterFrequencyHz) &&
@@ -909,10 +927,12 @@ const FFTCanvas = memo(
         width: number,
         height: number,
         visualRange: FrequencyRange,
-        slider: (CanvasTxSliderState & {
-          signalLabel?: string;
-          powerDbm?: number;
-        }) | null,
+        slider:
+          | (CanvasTxSliderState & {
+              signalLabel?: string;
+              powerDbm?: number;
+            })
+          | null,
       ) => {
         if (
           !slider?.visible ||
@@ -934,15 +954,17 @@ const FFTCanvas = memo(
         const trackLeft = plotLeft;
         const trackRight = Math.max(trackLeft + 80, plotRight);
         const trackWidth = Math.max(1, trackRight - trackLeft);
-        const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+        const visibleSpan = visualRange.max - visualRange.min;
         const bandwidth = Math.max(1, slider.txSampleRateHz);
         const isCompactBandwidth = bandwidth < 200_000;
         const bandMin = slider.txCenterHz - bandwidth / 2;
         const bandMax = slider.txCenterHz + bandwidth / 2;
         const toX = (hz: number) =>
-          trackLeft +
-          ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
-        const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
+          trackLeft + ((hz - visualRange.min) / visibleSpan) * trackWidth;
+        const bandLeft = Math.max(
+          trackLeft,
+          Math.min(trackRight, toX(bandMin)),
+        );
         const bandRight = Math.max(
           trackLeft,
           Math.min(trackRight, toX(bandMax)),
@@ -962,7 +984,13 @@ const FFTCanvas = memo(
           const base = Math.pow(10, exponent);
           const normalized = roughStep / base;
           const multiplier =
-            normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+            normalized <= 1
+              ? 1
+              : normalized <= 2
+                ? 2
+                : normalized <= 5
+                  ? 5
+                  : 10;
           return multiplier * base;
         })();
         ctx.save();
@@ -1002,8 +1030,7 @@ const FFTCanvas = memo(
           ) {
             const x =
               trackLeft +
-              ((tick - visualRange.min) /
-                (visualRange.max - visualRange.min)) *
+              ((tick - visualRange.min) / (visualRange.max - visualRange.min)) *
                 trackWidth;
             if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
             ctx.beginPath();
@@ -1062,40 +1089,59 @@ const FFTCanvas = memo(
         ctx.lineTo(bandRight, trackY);
         ctx.stroke();
 
-        ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX, top + 7);
-        ctx.lineTo(centerX, bottom - 7);
-        ctx.stroke();
+        const isCenterVisible =
+          slider.txCenterHz >= visualRange.min &&
+          slider.txCenterHz <= visualRange.max;
+        if (isCenterVisible) {
+          ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(centerX, top + 7);
+          ctx.lineTo(centerX, bottom - 7);
+          ctx.stroke();
 
-        if (isCompactBandwidth) {
-          ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
-          ctx.beginPath();
-          ctx.moveTo(centerX - 6, top + 8);
-          ctx.lineTo(centerX + 6, top + 8);
-          ctx.lineTo(centerX, top + 16);
-          ctx.closePath();
-          ctx.fill();
-        } else {
-          ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
-          ctx.beginPath();
-          ctx.arc(bandLeft, trackY, 5, 0, Math.PI * 2);
-          ctx.arc(bandRight, trackY, 5, 0, Math.PI * 2);
-          ctx.fill();
+          if (isCompactBandwidth) {
+            ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
+            ctx.beginPath();
+            ctx.moveTo(centerX - 6, top + 8);
+            ctx.lineTo(centerX + 6, top + 8);
+            ctx.lineTo(centerX, top + 16);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
-        ctx.textAlign = "center";
-        ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
-        ctx.fillStyle = "rgba(255, 218, 92, 1)";
-        ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
 
-        if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
-          ctx.fillStyle =
-            resolvedThemeMode === "dark"
-              ? "rgba(226, 232, 240, 0.86)"
-              : "rgba(71, 85, 105, 0.86)";
-          ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-          ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+        if (!isCompactBandwidth) {
+          ctx.fillStyle = "rgba(86, 201, 246, 0.98)";
+          if (bandMin >= visualRange.min && bandMin <= visualRange.max) {
+            ctx.beginPath();
+            ctx.arc(bandLeft, trackY, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (bandMax >= visualRange.min && bandMax <= visualRange.max) {
+            ctx.beginPath();
+            ctx.arc(bandRight, trackY, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        if (isCenterVisible) {
+          ctx.textAlign = "center";
+          ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillStyle = "rgba(255, 218, 92, 1)";
+          ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+
+          if (
+            typeof slider.powerDbm === "number" &&
+            Number.isFinite(slider.powerDbm)
+          ) {
+            ctx.fillStyle =
+              resolvedThemeMode === "dark"
+                ? "rgba(226, 232, 240, 0.86)"
+                : "rgba(71, 85, 105, 0.86)";
+            ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+          }
         }
         ctx.restore();
       },
@@ -1241,6 +1287,24 @@ const FFTCanvas = memo(
     }, [baseDbMin, baseDbMax, vizDbMin, vizDbMax, onFftDbLimitsChange]);
 
     const currentVizZoom = vizZoom ?? 1;
+
+    const currentVisualRange = useMemo(() => {
+      const minFreq = frequencyRange?.min ?? 0;
+      const maxFreq = frequencyRange?.max ?? 0;
+      const fullSpan = maxFreq - minFreq;
+      if (fullSpan <= 0) return { min: minFreq, max: maxFreq };
+
+      const halfSpan = fullSpan / (2 * currentVizZoom);
+      const centerFreq = (minFreq + maxFreq) / 2;
+      const visualCenter = centerFreq + vizPanOffset;
+      return {
+        min: visualCenter - halfSpan,
+        max: visualCenter + halfSpan,
+      };
+    }, [frequencyRange, currentVizZoom, vizPanOffset]);
+
+    const clampedVizRangeRef = useRef<FrequencyRange>(currentVisualRange);
+    clampedVizRangeRef.current = currentVisualRange;
 
     const fftAvgEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftAvgEnabled,
@@ -1413,17 +1477,19 @@ const FFTCanvas = memo(
         return null;
       }
 
-      const span = slider.visibleMaxHz - slider.visibleMinHz;
-      const bandwidth = Math.max(1, Math.min(span, slider.txSampleRateHz));
-      const center = Math.max(
-        slider.visibleMinHz,
-        Math.min(slider.visibleMaxHz, slider.txCenterHz),
-      );
-      const bandStart = Math.max(slider.visibleMinHz, center - bandwidth / 2);
-      const bandEnd = Math.min(slider.visibleMaxHz, center + bandwidth / 2);
-      const left = ((bandStart - slider.visibleMinHz) / span) * 100;
-      const width = ((bandEnd - bandStart) / span) * 100;
-      const centerLeft = ((center - slider.visibleMinHz) / span) * 100;
+      const visualMin = currentVisualRange.min;
+      const visualMax = currentVisualRange.max;
+      const span = visualMax - visualMin;
+      if (span <= 0) return null;
+
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const center = slider.txCenterHz;
+      const bandStart = Math.max(visualMin, center - bandwidth / 2);
+      const bandEnd = Math.min(visualMax, center + bandwidth / 2);
+      const left = ((bandStart - visualMin) / span) * 100;
+      const width =
+        bandEnd > bandStart ? ((bandEnd - bandStart) / span) * 100 : 0;
+      const centerLeft = ((center - visualMin) / span) * 100;
       const powerLabel =
         typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)
           ? `${slider.powerDbm.toFixed(0)} dBm`
@@ -1435,8 +1501,9 @@ const FFTCanvas = memo(
         centerLeft: Math.max(0, Math.min(100, centerLeft)),
         signalLabel: slider.signalLabel ?? "TX",
         powerLabel,
+        isOffScreen: center < visualMin || center > visualMax,
       };
-    }, [effectiveTxSlider]);
+    }, [effectiveTxSlider, currentVisualRange]);
 
     // Compute zoomed visual frequency range and waveform slice
     // When zoom > 1: shows a subset of bins (magnified view)
@@ -1756,6 +1823,7 @@ const FFTCanvas = memo(
       vizZoomRef,
       vizZoomFloorRef,
       vizPanOffsetRef,
+      clampedVizRangeRef,
       onVizPanChange: handleVizPanChange,
       vizDbMinRef,
       vizDbMaxRef,
@@ -1910,7 +1978,10 @@ const FFTCanvas = memo(
               const dpr = window.devicePixelRatio || 1;
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
-              const visualRange = frequencyRangeRef.current || { min: 0, max: 0 };
+              const visualRange = frequencyRangeRef.current || {
+                min: 0,
+                max: 0,
+              };
               drawTxSliderOnContext(
                 ctx,
                 logicalW,
@@ -3671,21 +3742,27 @@ const FFTCanvas = memo(
                             $width={txSliderVisualMetrics.width}
                             $isTransmitting={isTransmittingGlobal}
                           />
-                          <TxSliderVisualCenter
-                            $left={txSliderVisualMetrics.centerLeft}
-                            $isTransmitting={isTransmittingGlobal}
-                          />
-                          <TxSliderVisualText
-                            $left={txSliderVisualMetrics.centerLeft}
-                            $isTransmitting={isTransmittingGlobal}
-                          >
-                            <span>{txSliderVisualMetrics.signalLabel}</span>
-                            {txSliderVisualMetrics.powerLabel ? (
-                              <TxSliderVisualPower $isTransmitting={isTransmittingGlobal}>
-                                {txSliderVisualMetrics.powerLabel}
-                              </TxSliderVisualPower>
-                            ) : null}
-                          </TxSliderVisualText>
+                          {!txSliderVisualMetrics.isOffScreen && (
+                            <TxSliderVisualCenter
+                              $left={txSliderVisualMetrics.centerLeft}
+                              $isTransmitting={isTransmittingGlobal}
+                            />
+                          )}
+                          {!txSliderVisualMetrics.isOffScreen && (
+                            <TxSliderVisualText
+                              $left={txSliderVisualMetrics.centerLeft}
+                              $isTransmitting={isTransmittingGlobal}
+                            >
+                              <span>{txSliderVisualMetrics.signalLabel}</span>
+                              {txSliderVisualMetrics.powerLabel ? (
+                                <TxSliderVisualPower
+                                  $isTransmitting={isTransmittingGlobal}
+                                >
+                                  {txSliderVisualMetrics.powerLabel}
+                                </TxSliderVisualPower>
+                              ) : null}
+                            </TxSliderVisualText>
+                          )}
                         </TxSliderVisualTrack>
                         <span aria-hidden="true" />
                       </TxSliderVisualRow>
@@ -3695,7 +3772,9 @@ const FFTCanvas = memo(
                         <Tooltip
                           title="Tx Slider"
                           content={txSliderTooltipContent}
-                          trigger={<TxInfoTrigger type="button">i</TxInfoTrigger>}
+                          trigger={
+                            <TxInfoTrigger type="button">i</TxInfoTrigger>
+                          }
                         />
                       </TxSliderInfoLayer>
                     ) : null}

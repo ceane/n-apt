@@ -839,6 +839,7 @@ export function useOverlayRenderer() {
       width: number,
       height: number,
       slider: TxSliderOverlayState | null | undefined,
+      visualRange?: FrequencyRange,
     ) => {
       if (
         !slider?.visible ||
@@ -861,18 +862,19 @@ export function useOverlayRenderer() {
       const trackLeft = plotLeft;
       const trackRight = Math.max(trackLeft + 80, plotRight);
       const trackWidth = Math.max(1, trackRight - trackLeft);
-      const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+      const visRange = visualRange || {
+        min: slider.visibleMinHz,
+        max: slider.visibleMaxHz,
+      };
+      const visibleSpan = visRange.max - visRange.min;
       const bandwidth = Math.max(1, slider.txSampleRateHz);
       const isCompactBandwidth = bandwidth < 200_000;
       const bandMin = slider.txCenterHz - bandwidth / 2;
       const bandMax = slider.txCenterHz + bandwidth / 2;
       const toX = (hz: number) =>
-        trackLeft + ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
+        trackLeft + ((hz - visRange.min) / visibleSpan) * trackWidth;
       const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
-      const bandRight = Math.max(
-        trackLeft,
-        Math.min(trackRight, toX(bandMax)),
-      );
+      const bandRight = Math.max(trackLeft, Math.min(trackRight, toX(bandMax)));
       const centerX = Math.max(
         trackLeft,
         Math.min(trackRight, toX(slider.txCenterHz)),
@@ -939,22 +941,29 @@ export function useOverlayRenderer() {
       ctx.lineTo(bandRight, trackY);
       ctx.stroke();
 
-      ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(centerX, top + 7);
-      ctx.lineTo(centerX, bottom - 7);
-      ctx.stroke();
+      const isCenterVisible =
+        slider.txCenterHz >= visRange.min && slider.txCenterHz <= visRange.max;
+      if (isCenterVisible) {
+        ctx.strokeStyle = "rgba(255, 206, 84, 0.96)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, top + 7);
+        ctx.lineTo(centerX, bottom - 7);
+        ctx.stroke();
 
-      ctx.textAlign = "center";
-      ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
-      ctx.fillStyle = "rgba(255, 218, 92, 1)";
-      ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+        ctx.textAlign = "center";
+        ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillStyle = "rgba(255, 218, 92, 1)";
+        ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
 
-      if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
-        ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
-        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-        ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+        if (
+          typeof slider.powerDbm === "number" &&
+          Number.isFinite(slider.powerDbm)
+        ) {
+          ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
+          ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+        }
       }
 
       ctx.restore();

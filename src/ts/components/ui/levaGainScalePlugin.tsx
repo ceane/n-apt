@@ -20,7 +20,15 @@ const GainScaleComponent = () => {
       >
         ANTENNA GAIN
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", justifyContent: "center" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          width: "100%",
+          justifyContent: "center",
+        }}
+      >
         <div
           style={{
             height: "12px",

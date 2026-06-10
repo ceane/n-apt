@@ -94,6 +94,14 @@ pub struct SharedState {
   /// immediately instead of waiting for the current frame to finish.
   pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
   pub mock_tx_transmitting: AtomicBool,
+  pub tx_safety_enabled: AtomicBool,
+  pub tx_safety_limit: Mutex<String>,
+  pub tx_hop_enabled: AtomicBool,
+  pub tx_hop_type: Mutex<String>,
+  pub tx_hop_start_frequency_hz: Mutex<f64>,
+  pub tx_hop_end_frequency_hz: Mutex<f64>,
+  pub tx_hop_channels: Mutex<Vec<String>>,
+  pub tx_hop_rate_hz: Mutex<f64>,
   /// Last broadcast status payload, used to suppress duplicate snapshots.
   pub last_broadcast_status: Mutex<Option<String>>,
 }
@@ -143,6 +151,14 @@ impl SharedState {
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
       mock_tx_transmitting: AtomicBool::new(false),
+      tx_safety_enabled: AtomicBool::new(false),
+      tx_safety_limit: Mutex::new("room".to_string()),
+      tx_hop_enabled: AtomicBool::new(false),
+      tx_hop_type: Mutex::new("range".to_string()),
+      tx_hop_start_frequency_hz: Mutex::new(0.0),
+      tx_hop_end_frequency_hz: Mutex::new(0.0),
+      tx_hop_channels: Mutex::new(Vec::new()),
+      tx_hop_rate_hz: Mutex::new(1.0),
     })
   }
 
@@ -212,7 +228,7 @@ impl SharedState {
     *self.device_loading_reason.lock().unwrap() =
       loading_reason.map(|s| s.to_string());
     self.device_connected.store(
-      state == "connected" || state == "loading",
+      state == "connected" || state == "loading" || state == "transmitting",
       Ordering::Relaxed,
     );
     *self.last_broadcast_status.lock().unwrap() = None;

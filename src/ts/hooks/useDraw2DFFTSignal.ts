@@ -210,7 +210,10 @@ const getReservedBottomPx = (
   reservedBottomPx?: number,
 ) => {
   if (nodePreview) return 0;
-  if (typeof reservedBottomPx === "number" && Number.isFinite(reservedBottomPx)) {
+  if (
+    typeof reservedBottomPx === "number" &&
+    Number.isFinite(reservedBottomPx)
+  ) {
     return Math.max(0, reservedBottomPx);
   }
   return txSlider?.visible ? TX_SLIDER_ROW_HEIGHT : 0;
@@ -261,7 +264,9 @@ export function useDraw2DFFTSignal() {
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
+      const bottomPad = nodePreview
+        ? 0
+        : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const fftHeight = fftAreaMax.y - topPad;
       const plotWidth = fftAreaMax.x - leftPad;
@@ -545,7 +550,9 @@ export function useDraw2DFFTSignal() {
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
+      const bottomPad = nodePreview
+        ? 0
+        : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const fftHeight = fftAreaMax.y - topPad;
       const plotWidth = fftAreaMax.x - leftPad;
@@ -613,7 +620,9 @@ export function useDraw2DFFTSignal() {
       const leftPad = nodePreview ? 0 : FFT_AREA_MIN.x;
       const topPad = nodePreview ? 0 : FFT_AREA_MIN.y;
       const rightPad = nodePreview ? 0 : 40;
-      const bottomPad = nodePreview ? 0 : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
+      const bottomPad = nodePreview
+        ? 0
+        : VFO_AXIS_ROW_HEIGHT + reservedBottomPx;
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const plotWidth = fftAreaMax.x - leftPad;
       const minFreq = frequencyRange?.min ?? 0;
@@ -739,7 +748,10 @@ export function useDraw2DFFTSignal() {
       const trackRight = Math.max(trackLeft + 80, width - 40);
       const trackWidth = Math.max(1, trackRight - trackLeft);
       const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
-      const bandwidth = Math.max(1, Math.min(visibleSpan, slider.txSampleRateHz));
+      const bandwidth = Math.max(
+        1,
+        Math.min(visibleSpan, slider.txSampleRateHz),
+      );
       const bandMin = slider.txCenterHz - bandwidth / 2;
       const bandMax = slider.txCenterHz + bandwidth / 2;
       const toX = (hz: number) =>
@@ -801,7 +813,10 @@ export function useDraw2DFFTSignal() {
       ctx.font = "700 12px JetBrains Mono, monospace";
       ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
 
-      if (typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)) {
+      if (
+        typeof slider.powerDbm === "number" &&
+        Number.isFinite(slider.powerDbm)
+      ) {
         ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
         ctx.font = "10px JetBrains Mono, monospace";
         ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
@@ -986,12 +1001,7 @@ export function useDraw2DFFTSignal() {
         return false;
       }
     },
-    [
-      drawSpectrumGrid,
-      drawSpectrumTrace,
-      drawSpectrumMarkers,
-      drawTxSliderRow,
-    ],
+    [drawSpectrumGrid, drawSpectrumTrace, drawSpectrumMarkers, drawTxSliderRow],
   );
 
   const cleanup = useCallback(() => {

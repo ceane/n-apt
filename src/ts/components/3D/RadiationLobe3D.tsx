@@ -1,4 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import {
+  calculateRadiationLobeReach,
+  calculateRadiationLobeReachJS,
+} from "@n-apt/utils/safetyWasm";
 import * as THREE from "three";
 import { useControls, folder, useCreateStore } from "leva";
 import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
@@ -331,23 +335,46 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
   const horizontalTaper = clamp(n / 6, 0.6, 3);
   const verticalTaper = clamp(m / 20, 0.6, 3.5);
   const visualScale = clamp(Math.sqrt(powerWatts) * 1.6 + 3, 3, 12);
-  const powerDensityThreshold = 2.0; // W/m^2 threshold for visualization extent
-  const calculatedReach = createMainLobeGroundReach(
-    powerWatts,
-    wavelength,
+  const [mainLobeGroundReach, setMainLobeGroundReach] = useState<number>(() => {
+    return (
+      forcedReach ??
+      calculateRadiationLobeReachJS(
+        safeFrequencyHz,
+        safePowerDbm,
+        effectiveApertureWidth,
+        effectiveApertureHeight,
+      )
+    );
+  });
+
+  useEffect(() => {
+    let active = true;
+    if (forcedReach !== undefined) {
+      setMainLobeGroundReach(forcedReach);
+      return;
+    }
+
+    calculateRadiationLobeReach(
+      safeFrequencyHz,
+      safePowerDbm,
+      effectiveApertureWidth,
+      effectiveApertureHeight,
+    ).then((val) => {
+      if (active) {
+        setMainLobeGroundReach(val);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    forcedReach,
+    safeFrequencyHz,
+    safePowerDbm,
     effectiveApertureWidth,
     effectiveApertureHeight,
-    powerDensityThreshold,
-  );
-
-  const wavelengthReferenceHz = 1.8e9;
-  const wavelengthReachScale = Math.pow(
-    wavelengthReferenceHz / safeFrequencyHz,
-    1.2,
-  );
-  const mainLobeGroundReach = useMemo(() => {
-    return forcedReach ?? Math.min(150, calculatedReach * wavelengthReachScale);
-  }, [calculatedReach, forcedReach, wavelengthReachScale]);
+  ]);
 
   const gridSpan = Math.max(
     60,

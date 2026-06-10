@@ -1492,6 +1492,31 @@ n_apt:
     assert_eq!(start, 18000.0, "start should be 18kHz = 18000.0 Hz");
     assert_eq!(end, 4390000.0, "end should be 4.39MHz = 4390000.0 Hz");
   }
+
+  #[test]
+  fn test_hackrf_one_tx_power_mapping_parses() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let sdr_settings = load_sdr_settings();
+    let hackrf_cfg = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .expect("hackrf_one should exist");
+    let tx_mapping = hackrf_cfg
+      .tx_power_mapping
+      .as_ref()
+      .expect("tx_power_mapping should exist");
+
+    // Validate some points in the mapping
+    assert_eq!(tx_mapping.amp_off.len(), 10);
+    assert_eq!(tx_mapping.amp_on.len(), 7);
+
+    assert_eq!(tx_mapping.amp_off[0].vga, 0);
+    assert_eq!(tx_mapping.amp_off[0].dbm, -7.5);
+
+    assert_eq!(tx_mapping.amp_on[6].vga, 47);
+    assert_eq!(tx_mapping.amp_on[6].dbm, 15.0);
+  }
 }
 
 /// A writer wrapper that calculates SHA256 checksum and tracks size on the fly.

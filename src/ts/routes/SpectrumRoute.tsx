@@ -362,32 +362,37 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.txCenterFrequencyHz,
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
-  const showTxSlider = useAppSelector((state) => state.spectrum.showTxSlider ?? true);
+  const showTxSlider = useAppSelector(
+    (state) => state.spectrum.showTxSlider ?? true,
+  );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const getTxSliderDefaults = useCallback((range: FrequencyRange) => {
-    const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
-    const visibleMaxHz =
-      Number.isFinite(range.max) && range.max > visibleMinHz
-        ? range.max
-        : visibleMinHz + 1;
-    const visibleSpanHz = visibleMaxHz - visibleMinHz;
-    const centerHz =
-      Number.isFinite(txCenterFrequencyHz) &&
-      txCenterFrequencyHz >= visibleMinHz &&
-      txCenterFrequencyHz <= visibleMaxHz
-        ? txCenterFrequencyHz
-        : visibleMinHz + visibleSpanHz / 2;
-    const sampleRateHz = Number.isFinite(txSampleRateHz)
-      ? Math.max(1, Math.min(visibleSpanHz, txSampleRateHz))
-      : Math.max(1, Math.min(120_000, visibleSpanHz));
+  const getTxSliderDefaults = useCallback(
+    (range: FrequencyRange) => {
+      const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
+      const visibleMaxHz =
+        Number.isFinite(range.max) && range.max > visibleMinHz
+          ? range.max
+          : visibleMinHz + 1;
+      const visibleSpanHz = visibleMaxHz - visibleMinHz;
+      const centerHz =
+        Number.isFinite(txCenterFrequencyHz) &&
+        txCenterFrequencyHz >= visibleMinHz &&
+        txCenterFrequencyHz <= visibleMaxHz
+          ? txCenterFrequencyHz
+          : visibleMinHz + visibleSpanHz / 2;
+      const sampleRateHz = Number.isFinite(txSampleRateHz)
+        ? Math.max(1, Math.min(visibleSpanHz, txSampleRateHz))
+        : Math.max(1, Math.min(120_000, visibleSpanHz));
 
-    return {
-      visibleMinHz,
-      visibleMaxHz,
-      centerHz,
-      sampleRateHz,
-    };
-  }, [txCenterFrequencyHz, txSampleRateHz]);
+      return {
+        visibleMinHz,
+        visibleMaxHz,
+        centerHz,
+        sampleRateHz,
+      };
+    },
+    [txCenterFrequencyHz, txSampleRateHz],
+  );
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -420,7 +425,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [selectedSource],
   );
   const txCapableDeviceKind =
-    selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind;
+    selectedSourceDerived.deviceProfile?.kind ??
+    deviceProfile?.kind ??
+    deviceKind;
   const selectedSourceCapability = selectedSource?.capability?.toLowerCase?.();
   const reduxDeviceKindSupportsTx =
     deviceKind === "hackrf_one" ||
@@ -1020,8 +1027,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                           txSliderDefaults?.sampleRateHz ??
                           Math.max(
                             1,
-                            state.frequencyRange.max -
-                              state.frequencyRange.min,
+                            state.frequencyRange.max - state.frequencyRange.min,
                           ),
                         onCenterFrequencyChange: (value) =>
                           reduxDispatch(setTxCenterFrequencyHz(value)),
@@ -1073,7 +1079,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                               Power dBm
                               <input
                                 type="number"
-                                value={Number.isFinite(txPowerDbm) ? txPowerDbm : -18}
+                                value={
+                                  Number.isFinite(txPowerDbm) ? txPowerDbm : -18
+                                }
                                 onChange={(event) =>
                                   reduxDispatch(
                                     setTxPowerDbm(Number(event.target.value)),

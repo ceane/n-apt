@@ -367,6 +367,28 @@ pub struct WebSocketMessage {
   pub source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub channels: Option<Vec<ChannelSpec>>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSafetyEnabled")]
+  pub tx_safety_enabled: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSignal")]
+  pub tx_signal: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSafetyLimit")]
+  pub tx_safety_limit: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopType")]
+  pub tx_hop_type: Option<String>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "txHopStartFrequencyHz"
+  )]
+  pub tx_hop_start_frequency_hz: Option<f64>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "txHopEndFrequencyHz"
+  )]
+  pub tx_hop_end_frequency_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopChannels")]
+  pub tx_hop_channels: Option<Vec<String>>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopRateHz")]
+  pub tx_hop_rate_hz: Option<f64>,
   /// Hardware frequency range info (get_hardware_info)
   #[serde(
     skip_serializing_if = "Option::is_none",
@@ -718,6 +740,18 @@ pub struct DeviceGainLimits {
   pub vga_step: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VgaPowerPoint {
+  pub vga: u32,
+  pub dbm: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TxPowerMapping {
+  pub amp_off: Vec<VgaPowerPoint>,
+  pub amp_on: Vec<VgaPowerPoint>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDeviceConfig {
   pub sample_rate: SdrSampleRateSpec,
@@ -727,6 +761,12 @@ pub struct SdrDeviceConfig {
   pub gain_limits: Option<DeviceGainLimits>,
   #[serde(default)]
   pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
+  #[serde(
+    rename = "_tx_power_mapping",
+    default,
+    skip_serializing_if = "Option::is_none"
+  )]
+  pub tx_power_mapping: Option<TxPowerMapping>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

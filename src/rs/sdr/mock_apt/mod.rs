@@ -953,6 +953,83 @@ impl MockAptDevice {
       }
     }
 
+    // Simulate transmit leakage (loopback) into the receiver's spectrum
+    if crate::safety::TX_TRANSMITTING.load(std::sync::atomic::Ordering::Relaxed)
+    {
+      use rand::SeedableRng;
+      let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
+      // Assume a nominal path/coupling loss of 50 dB from TX antenna to RX path
+      let received_strength_db = tx_power_dbm - 50.0;
+      let rx_gain = self.gain;
+      // Calculate amplitude of the received signal
+      let amp = ((received_strength_db + rx_gain) / 20.0
+        * std::f64::consts::LN_10)
+        .exp();
+
+      let hop_enabled = crate::safety::TX_HOP_ENABLED
+        .load(std::sync::atomic::Ordering::Relaxed);
+      if hop_enabled {
+        let hop_rate = *crate::safety::TX_HOP_RATE_HZ.lock().unwrap();
+        let elapsed_time_sec = self.total_samples as f64 / sample_rate;
+        let hop_idx = (elapsed_time_sec * hop_rate) as usize;
+
+        let current_freq = if crate::safety::TX_HOP_TYPE_IS_RANGE
+          .load(std::sync::atomic::Ordering::Relaxed)
+        {
+          let start_hz = *crate::safety::TX_HOP_START_HZ.lock().unwrap();
+          let end_hz = *crate::safety::TX_HOP_END_HZ.lock().unwrap();
+          if start_hz >= end_hz {
+            start_hz
+          } else {
+            let mut hop_rng = rand::rngs::StdRng::seed_from_u64(hop_idx as u64);
+            hop_rng.random_range(start_hz..=end_hz)
+          }
+        } else {
+          let mask = crate::safety::TX_HOP_CHANNELS_MASK
+            .load(std::sync::atomic::Ordering::Relaxed);
+          let mut target_freqs = Vec::new();
+          if mask & 1 != 0 {
+            target_freqs.push(2_204_000.0);
+          }
+          if mask & 2 != 0 {
+            target_freqs.push(27_235_000.0);
+          }
+          if mask & 4 != 0 {
+            target_freqs.push(13_875_000.0);
+          }
+
+          if target_freqs.is_empty() {
+            2_204_000.0
+          } else {
+            let ch_idx = hop_idx % target_freqs.len();
+            target_freqs[ch_idx]
+          }
+        };
+
+        // Add band-limited noise spike at current_freq
+        let rel_freq = current_freq - center_freq;
+        // Check if the signal is within the displayable passband
+        if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
+          let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
+          for j in 0..fft_size {
+            let t = self.total_samples + j as u64;
+            let phase = phase_step * t as f64;
+            let noise_val = self.rng.random_range(-1.0..1.0);
+            let (p_im, p_re) = phase.sin_cos();
+            self.i_accumulator[j] += noise_val * p_re * amp;
+            self.q_accumulator[j] += noise_val * p_im * amp;
+          }
+        }
+      } else {
+        // Hopping is disabled: play noise/tone at the center frequency
+        for j in 0..fft_size {
+          let noise_val = self.rng.random_range(-1.0..1.0);
+          self.i_accumulator[j] += noise_val * amp;
+          self.q_accumulator[j] += 0.0;
+        }
+      }
+    }
+
     // Apply noise, clip and quantize (Sequential to keep RNG identical).
     // If Metal is enabled, we only offload the final conversion stage and
     // keep the RNG on CPU so the seeded stream stays stable.

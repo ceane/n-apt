@@ -283,7 +283,13 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
   frequency: propFrequency = 1.5,
   gain: propGain = 43,
 }) => {
-  const { frequency: frequencyHz, aperture, power, beamWidth, rotation } = useControls("Polar Radiation Setup", {
+  const {
+    frequency: frequencyHz,
+    aperture,
+    power,
+    beamWidth,
+    rotation,
+  } = useControls("Polar Radiation Setup", {
     frequency: levaFrequency(propFrequency ? propFrequency * 1e6 : 1_500_000),
     aperture: { value: propAperture, min: 1, max: 200, step: 1, suffix: "m" },
     power: { value: propGain, min: -20, max: 60, step: 1, suffix: "dBm" },
@@ -340,7 +346,11 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
           </MetricItem>
           <MetricItem>
             <MathText>P</MathText> (Power):{" "}
-            <MetricValue>{typeof power === "string" && (power as any).includes("dBm") ? power : `${power} dBm`}</MetricValue>
+            <MetricValue>
+              {typeof power === "string" && (power as any).includes("dBm")
+                ? power
+                : `${power} dBm`}
+            </MetricValue>
           </MetricItem>
         </MetricsOverlay>
 

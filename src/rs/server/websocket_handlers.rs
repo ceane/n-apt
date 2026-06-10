@@ -580,7 +580,102 @@ pub fn handle_message(
       if let Some(ppm) = message.ppm {
         sdr_settings.ppm = ppm as f64;
       }
+
+      // safety and hopping configuration updates
+      let safety_enabled = message.tx_safety_enabled.unwrap_or(
+        shared
+          .tx_safety_enabled
+          .load(std::sync::atomic::Ordering::Relaxed),
+      );
+      let safety_limit = message
+        .tx_safety_limit
+        .clone()
+        .unwrap_or_else(|| shared.tx_safety_limit.lock().unwrap().clone());
+
+      shared
+        .tx_safety_enabled
+        .store(safety_enabled, std::sync::atomic::Ordering::Relaxed);
+      *shared.tx_safety_limit.lock().unwrap() = safety_limit.clone();
+
+      crate::safety::TX_SAFETY_ENABLED
+        .store(safety_enabled, std::sync::atomic::Ordering::Relaxed);
+      crate::safety::TX_SAFETY_LIMIT_IS_PERSON.store(
+        safety_limit == "person",
+        std::sync::atomic::Ordering::Relaxed,
+      );
+
+      if let Some(hop_type) = &message.tx_hop_type {
+        *shared.tx_hop_type.lock().unwrap() = hop_type.clone();
+        crate::safety::TX_HOP_TYPE_IS_RANGE
+          .store(hop_type == "range", std::sync::atomic::Ordering::Relaxed);
+      }
+      if let Some(hop_start) = message.tx_hop_start_frequency_hz {
+        *shared.tx_hop_start_frequency_hz.lock().unwrap() = hop_start;
+        *crate::safety::TX_HOP_START_HZ.lock().unwrap() = hop_start;
+      }
+      if let Some(hop_end) = message.tx_hop_end_frequency_hz {
+        *shared.tx_hop_end_frequency_hz.lock().unwrap() = hop_end;
+        *crate::safety::TX_HOP_END_HZ.lock().unwrap() = hop_end;
+      }
+      if let Some(hop_channels) = &message.tx_hop_channels {
+        *shared.tx_hop_channels.lock().unwrap() = hop_channels.clone();
+        let mut mask: u32 = 0;
+        for ch in hop_channels {
+          if ch.eq_ignore_ascii_case("a") {
+            mask |= 1;
+          } else if ch.eq_ignore_ascii_case("b") {
+            mask |= 2;
+          } else if ch.eq_ignore_ascii_case("c") {
+            mask |= 4;
+          }
+        }
+        crate::safety::TX_HOP_CHANNELS_MASK
+          .store(mask, std::sync::atomic::Ordering::Relaxed);
+      }
+      if let Some(hop_rate) = message.tx_hop_rate_hz {
+        *shared.tx_hop_rate_hz.lock().unwrap() = hop_rate;
+        *crate::safety::TX_HOP_RATE_HZ.lock().unwrap() = hop_rate;
+      }
+
+      let tx_signal = message
+        .tx_signal
+        .clone()
+        .unwrap_or_else(|| "apt".to_string());
+      let hop_active = tx_signal == "hop";
+      shared
+        .tx_hop_enabled
+        .store(hop_active, std::sync::atomic::Ordering::Relaxed);
+      crate::safety::TX_HOP_ENABLED
+        .store(hop_active, std::sync::atomic::Ordering::Relaxed);
+
+      // Enforce safety clamps on VGA gain and AMP enabled
+      if safety_enabled {
+        let max_dist = if safety_limit == "person" { 1.0 } else { 3.0 };
+        let freq = sdr_settings.center_frequency as f64;
+        let limit_dbm =
+          crate::safety::calculate_room_power_limit(freq, max_dist);
+        let safe_gains = crate::safety::get_max_safe_vga_and_amp(limit_dbm);
+
+        if let Some(vga) = sdr_settings.gain.hackrf_vga_gain {
+          sdr_settings.gain.hackrf_vga_gain = Some(vga.min(safe_gains.vga));
+        } else {
+          sdr_settings.gain.hackrf_vga_gain = Some(0.0f64.min(safe_gains.vga));
+        }
+        if !safe_gains.amp {
+          sdr_settings.gain.hackrf_amp_enable = Some(false);
+        }
+      }
+
       *shared.sdr_settings.lock().unwrap() = sdr_settings.clone();
+
+      let tx_power = crate::safety::get_approx_output_power(
+        sdr_settings.gain.hackrf_vga_gain.unwrap_or(0.0),
+        sdr_settings.gain.hackrf_amp_enable.unwrap_or(false),
+      );
+      *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
+      crate::safety::TX_TRANSMITTING
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
+
       let entry = if enabled {
         TxLogEntry::start(
           device.clone(),

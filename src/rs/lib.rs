@@ -25,3 +25,5 @@ pub mod stitching;
 pub use server::main::run_server;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
+
+pub mod safety;

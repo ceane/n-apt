@@ -213,7 +213,7 @@ fn source_status_for_entry(
   if kind.starts_with("mock_apt") {
     "streaming"
   } else if kind == "mock_tx" {
-    if is_active_source && device_state == "transmitting" {
+    if device_state == "transmitting" {
       "transmitting"
     } else {
       "connected"

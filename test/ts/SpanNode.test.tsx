@@ -161,7 +161,7 @@ describe("SpanNode Integration", () => {
     );
 
     const startInput = screen.getByLabelText("Bandwidth Start");
-    expect(startInput).toHaveValue("15.900");
+    expect(startInput).toHaveValue("15.9");
   });
 
   it("enforces the floor and displays correct labels", async () => {
@@ -180,9 +180,9 @@ describe("SpanNode Integration", () => {
       </Provider>,
     );
 
-    expect(screen.getByLabelText("Center Frequency")).toHaveValue("500.000");
-    expect(screen.getByLabelText("Sample Rate")).toHaveValue("1.000");
-    expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("400.000");
+    expect(screen.getByLabelText("Center Frequency")).toHaveValue("500");
+    expect(screen.getByLabelText("Sample Rate")).toHaveValue("1");
+    expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("400");
   });
 
   it("updates hardware range on center/span change", async () => {
@@ -343,8 +343,8 @@ describe("SpanNode Integration", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("26.000");
-      expect(screen.getByLabelText("Bandwidth")).toHaveValue("1.000");
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("26");
+      expect(screen.getByLabelText("Bandwidth")).toHaveValue("1");
     });
   });
 
@@ -380,10 +380,9 @@ describe("SpanNode Integration", () => {
     );
 
     await waitFor(() => {
-      // The bandwidth start should update to 0.5MHz (from the preview sync)
-      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("500.000");
+      expect(screen.getByLabelText("Bandwidth Start")).toHaveValue("500");
       // The hardware center should remain safely at 1.6MHz, not forced out of bounds
-      expect(screen.getByLabelText("Center Frequency")).toHaveValue("1.600");
+      expect(screen.getByLabelText("Center Frequency")).toHaveValue("1.6");
     });
   });
 });

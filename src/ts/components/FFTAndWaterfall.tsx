@@ -197,7 +197,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       if (!showTxSlider) return undefined;
       if (!canShowTxSlider) return undefined;
       const range = props.frequencyRange;
-      if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) {
+      if (
+        !range ||
+        !Number.isFinite(range.min) ||
+        !Number.isFinite(range.max)
+      ) {
         return undefined;
       }
       const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
@@ -306,9 +310,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               onCanvasLoadingChange={setIsFftCanvasLoading}
               waterfallCanvasBindings={waterfallCanvasBindings}
             />
-            {props.overlayContent ? (
-              props.overlayContent
-            ) : null}
+            {props.overlayContent ? props.overlayContent : null}
           </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}

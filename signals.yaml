@@ -107,6 +107,43 @@ signals:
             - kind: max_hardware_frequency
               freq_hz: !frequency 6GHz
               label: "HackRF One, max upper limit"
+        _tx_power_mapping:
+          amp_off:
+            - vga: 0
+              dbm: -7.5
+            - vga: 5
+              dbm: -2.5
+            - vga: 10
+              dbm: 1.5
+            - vga: 15
+              dbm: 4.0
+            - vga: 20
+              dbm: 6.0
+            - vga: 25
+              dbm: 8.0
+            - vga: 30
+              dbm: 10.0
+            - vga: 35
+              dbm: 11.5
+            - vga: 40
+              dbm: 13.0
+            - vga: 47
+              dbm: 14.5
+          amp_on:
+            - vga: 0
+              dbm: 1.0
+            - vga: 10
+              dbm: 6.0
+            - vga: 20
+              dbm: 9.0
+            - vga: 30
+              dbm: 12.0
+            - vga: 35
+              dbm: 13.5
+            - vga: 40
+              dbm: 14.5
+            - vga: 47
+              dbm: 15.0
 
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated

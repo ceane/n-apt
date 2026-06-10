@@ -1415,12 +1415,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             data: {
               txMode: enabled,
               txDevice: device,
+              txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,
+              txSafetyLimit: reduxSpectrumState.txSafetyLimit,
+              txSignal: reduxSpectrumState.txSignal,
+              txHopType: reduxSpectrumState.txHopType,
+              txHopStartFrequencyHz: reduxSpectrumState.txHopStartFrequencyHz,
+              txHopEndFrequencyHz: reduxSpectrumState.txHopEndFrequencyHz,
+              txHopChannels: reduxSpectrumState.txHopChannels,
+              txHopRateHz: reduxSpectrumState.txHopRateHz,
               ...txSettings,
             },
           },
         });
       },
-      [reduxDispatch],
+      [reduxDispatch, reduxSpectrumState],
     );
 
     const wsConnection = useMemo(

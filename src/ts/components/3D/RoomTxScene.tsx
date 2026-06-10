@@ -1,9 +1,15 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { useControls, folder } from "leva";
 import { OrbitControls, Text, Line } from "@react-three/drei";
 import { levaFrequency } from "@n-apt/components/ui/levaFrequencyPlugin";
+import {
+  calculateRoomReach,
+  calculateRoomReachJS,
+  calculateRoomPowerLimit,
+  calculateRoomPowerLimitJS,
+} from "@n-apt/utils/safetyWasm";
 
 export function AnimatedRadioWaves({
   speed = 1.5,
@@ -352,48 +358,56 @@ export function RoomTxScene() {
 
   const parsedPower = parseFloat(String(power));
   let safePower = Number.isFinite(parsedPower) ? parsedPower : -70;
-  
+
   const wavelength = 299_792_458 / frequencyHzSafe;
   const receiverSensitivityWatts = 4.6e-7;
   const transmitterGain = 1.64; // half-wave dipole, 2.15 dBi
   const receiverGain = 1;
 
   if (calcEnabled) {
-    const requiredPowerWatts =
-      Math.pow((calcDistance * 4 * Math.PI) / wavelength, 2) *
-      (receiverSensitivityWatts / (transmitterGain * receiverGain));
-    const requiredPowerDbm = 10 * Math.log10(requiredPowerWatts * 1000);
+    const requiredPowerDbm = calculateRoomPowerLimitJS(
+      frequencyHzSafe,
+      calcDistance,
+    );
     if (Number.isFinite(requiredPowerDbm)) {
       safePower = requiredPowerDbm;
     }
   }
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (calcEnabled) {
-      const requiredPowerWatts =
-        Math.pow((calcDistance * 4 * Math.PI) / wavelength, 2) *
-        (receiverSensitivityWatts / (transmitterGain * receiverGain));
-      const requiredPowerDbm = 10 * Math.log10(requiredPowerWatts * 1000);
-      if (Number.isFinite(requiredPowerDbm)) {
-        // Format to 2 decimals to prevent noisy looping
-        setLeva({ power: Number(requiredPowerDbm.toFixed(2)) });
-      }
+      let active = true;
+      calculateRoomPowerLimit(frequencyHzSafe, calcDistance).then((val) => {
+        if (active && Number.isFinite(val)) {
+          // Format to 2 decimals to prevent noisy looping
+          setLeva({ power: Number(val.toFixed(2)) });
+        }
+      });
+      return () => {
+        active = false;
+      };
     }
-  }, [calcEnabled, calcDistance, frequencyHzSafe, wavelength, setLeva]);
+  }, [calcEnabled, calcDistance, frequencyHzSafe, setLeva]);
 
-  const powerWatts = Math.pow(10, safePower / 10) / 1000;
+  const [reach, setReach] = useState<number>(() => {
+    return calculateRoomReachJS(frequencyHzSafe, safePower);
+  });
+
+  useEffect(() => {
+    let active = true;
+    calculateRoomReach(frequencyHzSafe, safePower).then((val) => {
+      if (active) {
+        setReach(val);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [frequencyHzSafe, safePower]);
   const transmitterBoxHeight = 0.6;
   const transmitterBoxY = -0.14;
   const transmitterAntennaY = 1;
-  // Friis link budget: Pr = Pt * Gt * Gr * (lambda / 4piR)^2.
-  const reach = Math.max(
-    0.2,
-    (wavelength / (4 * Math.PI)) *
-    Math.sqrt(
-      (powerWatts * transmitterGain * receiverGain) /
-      receiverSensitivityWatts,
-    ),
-  );
+
   const numRings = Math.max(1, Math.floor(reach / wavelength));
   const displayRings = Math.min(8, numRings);
 

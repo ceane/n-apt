@@ -62,7 +62,10 @@ const PanelComponent = () => {
       <PanelContainer>
         {Array.from({ length: count }).map((_, i) => {
           const isActive = activeState[i] ?? true;
-          const buttonLabel = settings.labels && settings.labels[i] ? settings.labels[i] : `Panel ${i + 1}`;
+          const buttonLabel =
+            settings.labels && settings.labels[i]
+              ? settings.labels[i]
+              : `Panel ${i + 1}`;
           return (
             <PanelButton
               key={i}
@@ -90,7 +93,10 @@ export const levaPanelSelector: any =
             const count = input.count || 1;
             const initialValue = input.initialValue || Array(count).fill(true);
             const value = input.value || initialValue;
-            return { value, settings: { count, labels: input.labels, initialValue } };
+            return {
+              value,
+              settings: { count, labels: input.labels, initialValue },
+            };
           },
         });
         if (isDev) {

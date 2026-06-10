@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useCallback, type DragEvent } from "react";
 import styled from "styled-components";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
@@ -124,6 +124,27 @@ const FileBrowseLink = styled.button`
 const HiddenFileInput = styled.input`
   display: none;
 `;
+
+const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
+
+const isFileTypeAccepted = (file: File): boolean => {
+  const fileName = file.name.toLowerCase();
+  const fileType = file.type.toLowerCase();
+
+  return ACCEPTED_TYPES.some((acceptedType) => {
+    if (acceptedType.startsWith(".")) {
+      return fileName.endsWith(acceptedType.toLowerCase());
+    }
+    if (acceptedType.endsWith("/*")) {
+      const baseType = acceptedType.slice(0, -1);
+      return fileType.startsWith(baseType);
+    }
+    return (
+      fileType === acceptedType.toLowerCase() ||
+      fileName.endsWith(`.${acceptedType.toLowerCase()}`)
+    );
+  });
+};
 
 const DevicePillMain = styled.div<{ $opacity?: number }>`
   display: grid;
@@ -277,6 +298,59 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 }) => {
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const handleFiles = useCallback(
+    (files: File[]) => {
+      const validFiles = files.filter(isFileTypeAccepted);
+      if (validFiles.length > 0) {
+        onFilesSelected?.(validFiles);
+      }
+    },
+    [onFilesSelected],
+  );
+
+  const onDragEnter = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const onDragOver = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const onDragLeave = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const onDrop = useCallback(
+    (event: DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsDragging(false);
+
+      const items = event.dataTransfer?.items;
+      const droppedFiles: File[] = [];
+
+      if (items) {
+        Array.from(items).forEach((item) => {
+          if (item.kind === "file") {
+            const file = item.getAsFile();
+            if (file) droppedFiles.push(file);
+          }
+        });
+      }
+
+      handleFiles(droppedFiles);
+    },
+    [handleFiles],
+  );
+
   const fileButtonLabel =
     fileActionLabel || (fileSelectionActive ? "Browse" : "File");
   const showFileSpaceHint =

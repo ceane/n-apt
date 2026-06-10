@@ -107,7 +107,12 @@ const equalValue = (current: unknown, next: unknown): boolean => {
 const getDeviceKindFromSource = (source: SourceInfo): string => {
   const kind = source.kind?.toLowerCase?.() ?? "";
   const capability = source.capability?.toLowerCase?.() ?? "";
-  if (kind === "hackrf_one" || kind === "mock_tx" || kind === "tx_rx" || kind === "tx") {
+  if (
+    kind === "hackrf_one" ||
+    kind === "mock_tx" ||
+    kind === "tx_rx" ||
+    kind === "tx"
+  ) {
     return kind;
   }
   if (capability === "mock" || kind.includes("mock")) return "mock_tx";

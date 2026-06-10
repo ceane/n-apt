@@ -124,13 +124,18 @@ describe("FFTCanvas Component", () => {
       <TestWrapper>
         <MemoryRouter>
           <SpectrumProvider>
-            <FFTCanvas {...defaultProps} frequencyRange={{ min: 0, max: 4_372_000 }} />
+            <FFTCanvas
+              {...defaultProps}
+              frequencyRange={{ min: 0, max: 4_372_000 }}
+            />
           </SpectrumProvider>
         </MemoryRouter>
       </TestWrapper>,
     );
 
-    expect(await screen.findByTestId("tx-slider-visual-row")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("tx-slider-visual-row"),
+    ).toBeInTheDocument();
     expect(screen.getByText("APT")).toBeInTheDocument();
     expect(screen.getByText("-18 dBm")).toBeInTheDocument();
   });

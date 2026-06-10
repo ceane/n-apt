@@ -254,7 +254,11 @@ export function useFrequencyDrag({
     Number.isFinite(slider.txCenterHz) &&
     Number.isFinite(slider.txSampleRateHz);
 
-  const isPointInTxSlider = (clientX: number, clientY: number, rect: DOMRect) => {
+  const isPointInTxSlider = (
+    clientX: number,
+    clientY: number,
+    rect: DOMRect,
+  ) => {
     const slider = txSliderRef?.current;
     if (!isTxSliderReady(slider)) return false;
     const geometry = getTxSliderGeometry(rect);
@@ -271,16 +275,18 @@ export function useFrequencyDrag({
   const getTxSliderFrequencyForX = (x: number, rect: DOMRect) => {
     const slider = txSliderRef?.current;
     const geometry = getTxSliderGeometry(rect);
-    if (
-      !isTxSliderReady(slider)
-    ) {
+    if (!isTxSliderReady(slider)) {
       return null;
     }
     const frac =
       (Math.max(geometry.trackLeft, Math.min(geometry.trackRight, x)) -
         geometry.trackLeft) /
       geometry.trackWidth;
-    return slider.visibleMinHz + frac * (slider.visibleMaxHz - slider.visibleMinHz);
+    const visualRange = clampedVizRangeRef?.current || {
+      min: slider.visibleMinHz,
+      max: slider.visibleMaxHz,
+    };
+    return visualRange.min + frac * (visualRange.max - visualRange.min);
   };
 
   const updateTxSliderFromPointer = (clientX: number) => {
@@ -288,7 +294,10 @@ export function useFrequencyDrag({
     const canvasRect = canvasDragRectRef.current;
     const handle = txSliderHandleRef.current;
     if (!slider || !canvasRect || !handle) return;
-    const pointerHz = getTxSliderFrequencyForX(clientX - canvasRect.left, canvasRect);
+    const pointerHz = getTxSliderFrequencyForX(
+      clientX - canvasRect.left,
+      canvasRect,
+    );
     if (pointerHz === null) return;
 
     const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
@@ -312,7 +321,10 @@ export function useFrequencyDrag({
       nextMax = pointerHz + half;
     }
 
-    let nextBandwidth = Math.max(minBandwidth, Math.min(maxBandwidth, nextMax - nextMin));
+    let nextBandwidth = Math.max(
+      minBandwidth,
+      Math.min(maxBandwidth, nextMax - nextMin),
+    );
     let nextCenter = (nextMin + nextMax) / 2;
     const half = nextBandwidth / 2;
     if (nextCenter - half < slider.visibleMinHz) {
@@ -344,7 +356,8 @@ export function useFrequencyDrag({
 
   const zoomTxSliderBandwidth = (scale: number) => {
     const slider = txSliderRef?.current;
-    if (!isTxSliderReady(slider) || !Number.isFinite(scale) || scale <= 0) return;
+    if (!isTxSliderReady(slider) || !Number.isFinite(scale) || scale <= 0)
+      return;
     const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
     const nextBandwidth = Math.max(
       1,
@@ -677,7 +690,10 @@ export function useFrequencyDrag({
       }
 
       // Handle multi-touch pinch-to-zoom (mobile)
-      if (activePointersRef.current.size === 2 && txPinchInitialDistRef.current) {
+      if (
+        activePointersRef.current.size === 2 &&
+        txPinchInitialDistRef.current
+      ) {
         const pointers = Array.from(activePointersRef.current.values());
         const p1 = pointers[0];
         const p2 = pointers[1];
@@ -1684,9 +1700,8 @@ export function useFrequencyDrag({
           return;
         }
         const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
-        const scrollDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY)
-          ? e.deltaX
-          : e.deltaY;
+        const scrollDelta =
+          Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         panTxSliderByHz((scrollDelta / Math.max(1, rect.width)) * visibleSpan);
         return;
       }

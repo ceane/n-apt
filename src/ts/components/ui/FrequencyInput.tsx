@@ -220,8 +220,6 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     const hzRef = useRef(valueHz);
     const prevValueHzRef = useRef(valueHz);
 
-
-
     useEffect(() => {
       const clamped = clampFrequencyHz(valueHz, minHz, maxHz);
       if (Math.abs(clamped - valueHz) > 0.001) {
@@ -263,60 +261,77 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       [minHz, maxHz, onChangeHz],
     );
 
-    const dragStartRef = useRef<{ x: number; value: number; unit: string } | null>(null);
+    const dragStartRef = useRef<{
+      x: number;
+      value: number;
+      unit: string;
+    } | null>(null);
     const hasDraggedRef = useRef(false);
 
-    const handlePointerDown = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
-      if (disabled) return;
-      if (e.button !== 0) return; // Only left click
-      dragStartRef.current = { x: e.clientX, value: hzRef.current, unit: displayUnit };
-      hasDraggedRef.current = false;
-      e.currentTarget.setPointerCapture(e.pointerId);
-    }, [disabled, displayUnit]);
+    const handlePointerDown = useCallback(
+      (e: React.PointerEvent<HTMLInputElement>) => {
+        if (disabled) return;
+        if (e.button !== 0) return; // Only left click
+        dragStartRef.current = {
+          x: e.clientX,
+          value: hzRef.current,
+          unit: displayUnit,
+        };
+        hasDraggedRef.current = false;
+        e.currentTarget.setPointerCapture(e.pointerId);
+      },
+      [disabled, displayUnit],
+    );
 
-    const handlePointerMove = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
-      if (!dragStartRef.current) return;
-      const deltaX = e.clientX - dragStartRef.current.x;
+    const handlePointerMove = useCallback(
+      (e: React.PointerEvent<HTMLInputElement>) => {
+        if (!dragStartRef.current) return;
+        const deltaX = e.clientX - dragStartRef.current.x;
 
-      if (!hasDraggedRef.current) {
-        if (Math.abs(deltaX) > 3) {
-          hasDraggedRef.current = true;
+        if (!hasDraggedRef.current) {
+          if (Math.abs(deltaX) > 3) {
+            hasDraggedRef.current = true;
+            inputRef.current?.focus();
+          }
+        }
+
+        if (hasDraggedRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          let baseStep = 1;
+          const dragUnit = dragStartRef.current.unit;
+          if (dragUnit === "kHz") baseStep = 1_000;
+          else if (dragUnit === "MHz") baseStep = 1_000_000;
+          else if (dragUnit === "GHz") baseStep = 10_000_000;
+
+          let multiplier = 1;
+          if (e.shiftKey) multiplier = 10;
+          else if (e.altKey) multiplier = 0.1;
+
+          const deltaHz = e.movementX * baseStep * multiplier;
+          const newHz = hzRef.current + deltaHz;
+          handleUpdate(newHz, true);
+        }
+      },
+      [displayUnit, handleUpdate],
+    );
+
+    const handlePointerUp = useCallback(
+      (e: React.PointerEvent<HTMLInputElement>) => {
+        if (!dragStartRef.current) return;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        dragStartRef.current = null;
+
+        if (hasDraggedRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          inputRef.current?.blur();
           inputRef.current?.focus();
         }
-      }
-
-      if (hasDraggedRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        let baseStep = 1;
-        const dragUnit = dragStartRef.current.unit;
-        if (dragUnit === "kHz") baseStep = 1_000;
-        else if (dragUnit === "MHz") baseStep = 1_000_000;
-        else if (dragUnit === "GHz") baseStep = 10_000_000;
-
-        let multiplier = 1;
-        if (e.shiftKey) multiplier = 10;
-        else if (e.altKey) multiplier = 0.1;
-
-        const deltaHz = e.movementX * baseStep * multiplier;
-        const newHz = hzRef.current + deltaHz;
-        handleUpdate(newHz, true);
-      }
-    }, [displayUnit, handleUpdate]);
-
-    const handlePointerUp = useCallback((e: React.PointerEvent<HTMLInputElement>) => {
-      if (!dragStartRef.current) return;
-      e.currentTarget.releasePointerCapture(e.pointerId);
-      dragStartRef.current = null;
-
-      if (hasDraggedRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        inputRef.current?.blur();
-        inputRef.current?.focus();
-      }
-    }, []);
+      },
+      [],
+    );
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (disabled) return;
@@ -363,7 +378,9 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         // Don't refresh the UI string while typing unless it's clamped
         if (Math.abs(cappedHz - newHz) > 0.1) {
-          setDisplayValue(trimNumericString(formatFrequencyValue(cappedHz / multiplier)));
+          setDisplayValue(
+            trimNumericString(formatFrequencyValue(cappedHz / multiplier)),
+          );
         }
 
         hzRef.current = cappedHz;
@@ -389,9 +406,11 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       setDisplayValue(
         newUnit === "Hz"
           ? formatFrequencyHz(hzRef.current)
-          : trimNumericString(formatFrequencyValue(
-              hzRef.current / getFrequencyUnitScale(newUnit),
-            )),
+          : trimNumericString(
+              formatFrequencyValue(
+                hzRef.current / getFrequencyUnitScale(newUnit),
+              ),
+            ),
       );
     };
 
@@ -442,7 +461,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
     const unitButtonRef = useRef<HTMLButtonElement>(null);
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
-    
+
     useEffect(() => {
       if (isUnitMenuOpen && unitButtonRef.current) {
         const rect = unitButtonRef.current.getBoundingClientRect();
@@ -518,39 +537,44 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
             >
               {displayUnit}
             </UnitButton>
-            {isUnitMenuOpen && createPortal(
-              <UnitMenu role="listbox" aria-label="Frequency unit options" style={menuStyle}>
-                {FREQUENCY_UNITS.map((unit) => (
-                  <UnitOption
-                    key={unit}
-                    type="button"
-                    role="option"
-                    aria-selected={unit === displayUnit}
-                    $active={unit === displayUnit}
-                    onPointerDown={(event) => {
-                      logFrequencyInputUnitEvent("option-pointerdown", {
-                        displayUnit,
-                        unit,
-                      });
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleUnitChange(unit);
-                    }}
-                    onClick={(event) => {
-                      logFrequencyInputUnitEvent("option-click", {
-                        displayUnit,
-                        unit,
-                      });
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    {unit}
-                  </UnitOption>
-                ))}
-              </UnitMenu>,
-              document.body
-            )}
+            {isUnitMenuOpen &&
+              createPortal(
+                <UnitMenu
+                  role="listbox"
+                  aria-label="Frequency unit options"
+                  style={menuStyle}
+                >
+                  {FREQUENCY_UNITS.map((unit) => (
+                    <UnitOption
+                      key={unit}
+                      type="button"
+                      role="option"
+                      aria-selected={unit === displayUnit}
+                      $active={unit === displayUnit}
+                      onPointerDown={(event) => {
+                        logFrequencyInputUnitEvent("option-pointerdown", {
+                          displayUnit,
+                          unit,
+                        });
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleUnitChange(unit);
+                      }}
+                      onClick={(event) => {
+                        logFrequencyInputUnitEvent("option-click", {
+                          displayUnit,
+                          unit,
+                        });
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                    >
+                      {unit}
+                    </UnitOption>
+                  ))}
+                </UnitMenu>,
+                document.body,
+              )}
           </UnitControl>
         </InputContainer>
       </OuterContainer>

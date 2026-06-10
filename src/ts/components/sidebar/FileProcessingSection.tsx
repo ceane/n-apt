@@ -1,5 +1,5 @@
 import React from "react";
-import styled from "styled-components";
+import styled, { keyframes, css } from "styled-components";
 import FileMetadata from "./FileMetadata";
 import FileSelection from "./FileSelection";
 import SelectedFiles from "./SelectedFiles";
@@ -18,7 +18,12 @@ const Section = styled.div<{ $marginTop?: string }>`
   margin-top: ${(props) => props.$marginTop || "0"};
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
+const glowPulse = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 ${(props) => props.theme.primary}80; }
+  50% { box-shadow: 0 0 0 12px ${(props) => props.theme.primary}00; }
+`;
+
+const DropZone = styled.div<{ $isDragging: boolean; $showGlow: boolean }>`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
@@ -33,6 +38,13 @@ const DropZone = styled.div<{ $isDragging: boolean }>`
   min-height: 40px;
   z-index: 5;
   box-sizing: border-box;
+  ${(props) =>
+    props.$showGlow &&
+    css`
+      animation: ${glowPulse} 800ms ease-out;
+      border-color: ${props.theme.primary};
+      box-shadow: 0 0 0 4px ${props.theme.primary}40;
+    `}
 `;
 
 const DropOverlay = styled.div`
@@ -55,6 +67,23 @@ const DropOverlay = styled.div`
   font-weight: 600;
   font-size: 14px;
   backdrop-filter: blur(2px);
+`;
+
+const ErrorMessage = styled.div`
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  background-color: ${(props) => `${props.theme.error}1a`};
+  border: 1px solid ${(props) => props.theme.error};
+  border-radius: 6px;
+  color: ${(props) => props.theme.error};
+  font-size: 12px;
+  font-weight: 500;
+  animation: slideIn 200ms ease-out;
+`;
+
+const _slideIn = keyframes`
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 `;
 
 interface FileProcessingSectionProps {
@@ -98,10 +127,21 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     onSelectedFilesChange(registeredFiles);
   };
 
-  const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } =
-    useDragAndDropFiles({
-      onFilesDropped: processFiles,
-    });
+  const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
+
+  const {
+    isDragging,
+    dragError,
+    showGlow,
+    onDragEnter,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    clearError,
+  } = useDragAndDropFiles({
+    onFilesDropped: processFiles,
+    acceptedTypes: ACCEPTED_TYPES,
+  });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -122,14 +162,24 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     <DropZone
       data-testid="file-drop-zone"
       $isDragging={isDragging}
+      $showGlow={showGlow}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       {isDragging && <DropOverlay>Drop files here</DropOverlay>}
+      {dragError && (
+        <ErrorMessage onClick={clearError}>{dragError}</ErrorMessage>
+      )}
       <Section>
-        <FileSelection onFileChange={handleFileChange} />
+        <FileSelection
+          onFileChange={handleFileChange}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        />
       </Section>
 
       {selectedFiles.length > 0 && (

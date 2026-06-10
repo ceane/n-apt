@@ -157,10 +157,7 @@ describe("useFrequencyDrag Hook", () => {
     });
   };
 
-  const triggerDoubleClick = (
-    clientX: number,
-    clientY: number,
-  ) => {
+  const triggerDoubleClick = (clientX: number, clientY: number) => {
     const calls =
       spectrumContainerRef.current.addEventListener.mock.calls.filter(
         (c: any) => c[0] === "dblclick",
@@ -385,6 +382,36 @@ describe("useFrequencyDrag Hook", () => {
     );
 
     triggerPointerDown(414, 580);
+    triggerPointerMove(300, 580);
+    triggerPointerUp(300, 580);
+
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("drags the canvas TX slider when zoomed in", () => {
+    const clampedVizRangeRef = { current: { min: 102, max: 108 } };
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        clampedVizRangeRef,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
     triggerPointerMove(300, 580);
     triggerPointerUp(300, 580);
 

@@ -48,6 +48,8 @@ export interface ToggleProps {
   disabled?: boolean;
   children?: React.ReactNode;
   title?: string;
+  activeLabel?: string;
+  inactiveLabel?: string;
 }
 
 export const Toggle: React.FC<ToggleProps> = ({
@@ -56,6 +58,8 @@ export const Toggle: React.FC<ToggleProps> = ({
   disabled,
   children,
   title,
+  activeLabel,
+  inactiveLabel,
 }) => {
   const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
@@ -87,6 +91,9 @@ export const Toggle: React.FC<ToggleProps> = ({
       tabIndex={disabled ? -1 : 0}
     >
       <Switch $active={$active} />
+      {(activeLabel || inactiveLabel) && (
+        <Label>{$active ? (activeLabel ?? "") : (inactiveLabel ?? "")}</Label>
+      )}
       {children && <Label>{children}</Label>}
     </ToggleContainer>
   );

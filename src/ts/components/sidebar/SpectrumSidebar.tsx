@@ -20,6 +20,14 @@ import {
   setTxCenterFrequencyHz,
   setTxPowerDbm,
   setTxVgaGain,
+  setTxSafetyEnabled,
+  setTxSafetyLimit,
+  setTxHopType,
+  setTxHopStartFrequencyHz,
+  setTxHopEndFrequencyHz,
+  setTxHopChannels,
+  setTxHopRateHz,
+  setHackrfAmpEnabled,
   setDeviceKind,
   setShowTxSlider,
 } from "@n-apt/redux";
@@ -1020,17 +1028,28 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const txVgaGain = useAppSelector((state) => state.spectrum.txVgaGain);
+  const txSafetyEnabled = useAppSelector(
+    (state) => state.spectrum.txSafetyEnabled,
+  );
+  const txSafetyLimit = useAppSelector((state) => state.spectrum.txSafetyLimit);
+  const txHopType = useAppSelector((state) => state.spectrum.txHopType);
+  const txHopStartFrequencyHz = useAppSelector(
+    (state) => state.spectrum.txHopStartFrequencyHz,
+  );
+  const txHopEndFrequencyHz = useAppSelector(
+    (state) => state.spectrum.txHopEndFrequencyHz,
+  );
+  const txHopChannels = useAppSelector((state) => state.spectrum.txHopChannels);
+  const txHopRateHz = useAppSelector((state) => state.spectrum.txHopRateHz);
   const [livePreviewStage, setLivePreviewStage] = useState(0);
-  
+
   const isTransmittingGlobal = useMemo(() => {
     if (selectedSource && selectedSource.status === "transmitting") {
       return true;
     }
-    return websocketSources.some(
-      (source) => source.status === "transmitting"
-    );
+    return websocketSources.some((source) => source.status === "transmitting");
   }, [websocketSources, selectedSource]);
-  
+
   const txTargetDeviceId = useMemo(() => {
     if (
       selectedSource &&
@@ -1046,7 +1065,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         s.capability === "tx" ||
         s.capability === "tx_rx" ||
         s.kind === "mock_tx" ||
-        s.kind === "mock-tx"
+        s.kind === "mock-tx",
     )?.id;
   }, [websocketSources, selectedSource]);
 
@@ -1062,8 +1081,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const source =
         selectedSource?.id === sourceId
           ? selectedSource
-          : sourcesToUse.find((entry) => entry.id === sourceId) ??
-            (sourcesToUse.length === 1 ? sourcesToUse[0] : null);
+          : (sourcesToUse.find((entry) => entry.id === sourceId) ??
+            (sourcesToUse.length === 1 ? sourcesToUse[0] : null));
       if (!source) {
         return;
       }
@@ -1090,7 +1109,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             undefined,
           tunerAgc:
             source.sdr?.settings?.tuner_agc ?? liveState?.tunerAGC ?? undefined,
-          rtlAgc: source.sdr?.settings?.rtl_agc ?? liveState?.rtlAGC ?? undefined,
+          rtlAgc:
+            source.sdr?.settings?.rtl_agc ?? liveState?.rtlAGC ?? undefined,
           ppm: source.sdr?.settings?.ppm ?? liveState?.ppm ?? undefined,
         });
       };
@@ -2039,6 +2059,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               centerFrequencyHz={txCenterFrequencyHz}
               powerDbm={txPowerDbm}
               vgaGainDb={txVgaGain}
+              ampEnabled={hackrfAmpEnabled}
               onSignalChange={(value) => dispatch(setTxSignal(value))}
               onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
               onCenterFrequencyChange={(value) =>
@@ -2046,16 +2067,37 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               }
               onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
               onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+              onAmpEnabledChange={(value) => setHackrfAmpEnabled(value)}
               isTransmitting={isTransmittingGlobal}
               onToggleTransmit={
                 txTargetDeviceId
                   ? () =>
                       handleToggleTransmitMode(
                         txTargetDeviceId,
-                        !isTransmittingGlobal
+                        !isTransmittingGlobal,
                       )
                   : undefined
               }
+              safetyEnabled={txSafetyEnabled}
+              onSafetyEnabledChange={(value) =>
+                dispatch(setTxSafetyEnabled(value))
+              }
+              safetyLimit={txSafetyLimit}
+              onSafetyLimitChange={(value) => dispatch(setTxSafetyLimit(value))}
+              hopType={txHopType}
+              onHopTypeChange={(value) => dispatch(setTxHopType(value))}
+              hopStartFrequencyHz={txHopStartFrequencyHz}
+              onHopStartFrequencyHzChange={(value) =>
+                dispatch(setTxHopStartFrequencyHz(value))
+              }
+              hopEndFrequencyHz={txHopEndFrequencyHz}
+              onHopEndFrequencyHzChange={(value) =>
+                dispatch(setTxHopEndFrequencyHz(value))
+              }
+              hopChannels={txHopChannels}
+              onHopChannelsChange={(value) => dispatch(setTxHopChannels(value))}
+              hopRateHz={txHopRateHz}
+              onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
             />
           </Collapsible>
 

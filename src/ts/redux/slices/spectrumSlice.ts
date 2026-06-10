@@ -79,6 +79,13 @@ export interface SpectrumState {
   txCenterFrequencyHz: number;
   txPowerDbm: number;
   txVgaGain: number;
+  txSafetyEnabled: boolean;
+  txSafetyLimit: "person" | "room";
+  txHopType: "range" | "channels";
+  txHopStartFrequencyHz: number;
+  txHopEndFrequencyHz: number;
+  txHopChannels: string[];
+  txHopRateHz: number;
   gain: number;
   hackrfLnaGain: number;
   hackrfVgaGain: number;
@@ -130,6 +137,13 @@ const LIVE_CONTROL_DEFAULTS = {
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
   txVgaGain: 16,
+  txSafetyEnabled: false,
+  txSafetyLimit: "room" as const,
+  txHopType: "range" as const,
+  txHopStartFrequencyHz: 10_000_000,
+  txHopEndFrequencyHz: 20_000_000,
+  txHopChannels: ["a"],
+  txHopRateHz: 10,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
@@ -169,6 +183,13 @@ const initialState: SpectrumState = {
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
   txVgaGain: 16,
+  txSafetyEnabled: false,
+  txSafetyLimit: "room",
+  txHopType: "range",
+  txHopStartFrequencyHz: 10_000_000,
+  txHopEndFrequencyHz: 20_000_000,
+  txHopChannels: ["a"],
+  txHopRateHz: 10,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
@@ -381,6 +402,37 @@ const spectrumSlice = createSlice({
       state.txVgaGain = action.payload;
     },
 
+    setTxSafetyEnabled: (state, action: PayloadAction<boolean>) => {
+      state.txSafetyEnabled = action.payload;
+    },
+
+    setTxSafetyLimit: (state, action: PayloadAction<"person" | "room">) => {
+      state.txSafetyLimit = action.payload;
+    },
+
+    setTxHopType: (state, action: PayloadAction<"range" | "channels">) => {
+      state.txHopType = action.payload;
+    },
+
+    setTxHopStartFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopStartFrequencyHz = action.payload;
+    },
+
+    setTxHopEndFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopEndFrequencyHz = action.payload;
+    },
+
+    setTxHopChannels: (state, action: PayloadAction<string[]>) => {
+      state.txHopChannels = action.payload;
+    },
+
+    setTxHopRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopRateHz = action.payload;
+    },
+
     setGain: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.gain = action.payload;
@@ -590,6 +642,13 @@ export const {
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
+  setTxSafetyEnabled,
+  setTxSafetyLimit,
+  setTxHopType,
+  setTxHopStartFrequencyHz,
+  setTxHopEndFrequencyHz,
+  setTxHopChannels,
+  setTxHopRateHz,
   setGain,
   setHackrfLnaGain,
   setHackrfVgaGain,
