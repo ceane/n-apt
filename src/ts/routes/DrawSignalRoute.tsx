@@ -372,12 +372,26 @@ export const DrawSignalRoute: React.FC = () => {
     });
 
     return () => observer.disconnect();
-  }, []);
+  }, [pageIndex]);
 
   // Sync render with dimensions and data
   useEffect(() => {
-    renderFrame();
-  }, [renderFrame]);
+    let frameCount = 0;
+    let rafId: number;
+
+    const loop = () => {
+      renderFrame();
+      frameCount++;
+      // Draw for several consecutive frames to ensure WebGPU 
+      // swap chain and DOM layout have fully settled after remount
+      if (frameCount < 10) {
+        rafId = requestAnimationFrame(loop);
+      }
+    };
+
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [renderFrame, pageIndex]);
 
   // Cleanup on unmount
   useEffect(() => {

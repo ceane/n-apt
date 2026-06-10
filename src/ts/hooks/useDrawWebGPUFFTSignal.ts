@@ -644,6 +644,14 @@ export function useDrawWebGPUFFTSignal() {
       const state = rendererRef.current;
       if (!state) return false;
 
+      // Handle canvas remounts (e.g. when paginating away and back)
+      if (state.canvas !== canvas) {
+        const newCtx = configureWebGPUCanvas(canvas, device, format);
+        if (!newCtx) return false;
+        state.canvas = canvas;
+        state.ctx = newCtx;
+      }
+
       const waveformData =
         waveform instanceof Uint8Array ? Float32Array.from(waveform) : waveform;
 

@@ -63,6 +63,16 @@ const injectBrowserEnv = (browserEnv) => ({
   },
 });
 
+const styledComponentsFixPlugin = () => ({
+  name: 'styled-components-fix',
+  async resolveId(id) {
+    if (id === 'styled-components') {
+      // Force resolution to the node_modules version only
+      return { id: require.resolve('styled-components'), external: false };
+    }
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
@@ -75,15 +85,42 @@ export default defineConfig(({ mode }) => {
 
   return {
   plugins: [
-    injectBrowserEnv(browserEnv), /* reactDevtools(), */ react(), glsl({
-    defaultExtension: 'wgsl',
-    compress: false,
-  })],
+    injectBrowserEnv(browserEnv),
+    styledComponentsFixPlugin(),
+    react({
+      // Configure React Fast Refresh to handle styled-components better
+      jsxRuntime: 'automatic',
+      // Ensure JSX is parsed correctly
+    }),
+    glsl({
+      defaultExtension: 'wgsl',
+      compress: false,
+    })
+  ],
+  optimizeDeps: {
+    include: ['styled-components', 'react', 'react-dom'],
+    exclude: [],
+  },
+  ssr: {
+    noExternal: ['styled-components'],
+  },
   root: "./src/ts",
   envDir: "../../",
   publicDir: path.resolve(dirname, "public"),
   build: {
-    outDir: "./dist"
+    outDir: "./dist",
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/styled-components')) {
+            return 'vendor-styled';
+          }
+        },
+      },
+    },
   },
   resolve: {
     alias: [{
@@ -105,6 +142,11 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5173,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5173,
+    },
     fs: {
       allow: fsAllow,
     },

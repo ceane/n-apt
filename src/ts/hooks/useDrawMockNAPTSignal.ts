@@ -93,7 +93,7 @@ export function useDrawMockNAPTSignal() {
           // Add base signal pedestal if configured
           const baseType = clump.baseSignalType || "none";
           if (baseType !== "none") {
-            const baseAmpLinear = ((clump.baseSignalAmplitude ?? -55) + 100) / 100;
+            const baseAmpLinear = ((clump.baseSignalAmplitude ?? -55) - 20 + 100) / 100;
             const t_eff = (freq - clump.centerOffset) / 1_500_000;
             let shape = 0;
             if (baseType === "gaussian") {

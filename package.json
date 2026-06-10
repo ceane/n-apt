@@ -66,6 +66,7 @@
     "test:coverage": "jest --coverage",
     "test:wasm": "bash ./test/wasm/test_runner.sh",
     "lint:wgsl": "npx naga-wasi-cli --bulk-validate src/ts/shaders/*.wgsl",
+    "lint:katex": "node scripts/lint/katex-lint.cjs",
     "test:shader": "npm run test:shader:fixtures && npx vitest run --globals --root . test/ts/shaders/*.test.ts",
     "test:shader:fixtures": "node scripts/shaders/generate-test-fixtures.mjs",
     "test:rust": "cargo test",

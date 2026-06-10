@@ -5,7 +5,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
 ## Token Efficiency
 
 - I usually have it running so:
-  - DO NOT RERUN OR START THE DEV SERVER!
+  - DO NOT RERUN OR START THE DEV SERVER FOR FRONTEND CHANGES (I usually have it running and there's hotreload)!
   - DO NOT RUN `npm run build`, only build the markdown `npm run build:markdown` after article changes
   - DO NOT USE BROWSER AUTOMATION TO TEST!
 - If testing the frontend app, the site is at http://localhost:5173 AND the password is in the .env.local

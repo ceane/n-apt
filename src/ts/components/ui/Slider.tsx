@@ -2,11 +2,11 @@ import React, { useCallback } from "react";
 import styled from "styled-components";
 import { COLORS } from "@n-apt/consts/components";
 
-const MIN_THUMB_RATIO = 0.2;
 
 export const SliderContainer = styled.div<{
   $orientation: "vertical" | "horizontal";
   $disabled?: boolean;
+  $hasSnapRanges?: boolean;
 }>`
   display: flex;
   flex-direction: column;
@@ -16,6 +16,8 @@ export const SliderContainer = styled.div<{
   flex: 1;
   width: 100%;
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
+  ${({ $hasSnapRanges, $orientation }) =>
+    $hasSnapRanges && $orientation === "horizontal" ? "padding-top: 24px;" : ""}
 `;
 
 export const SliderLabel = styled.span<{
@@ -224,6 +226,42 @@ export const SliderValue = styled.span<{
     $orientation === "vertical" ? `top: 13px;` : `right: 13px;`}
 `;
 
+const SelectedMarker = styled.div<{ $pos: number }>`
+  position: absolute;
+  top: -30px;
+  left: ${({ $pos }) => $pos}%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 30;
+  transition: left 0.15s cubic-bezier(0.2, 0, 0, 1);
+`;
+
+const MarkerBubble = styled.div`
+  background: ${(props) => props.theme.primary};
+  color: ${(props) => props.theme.background || "#000"};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  border: 1px solid ${(props) => props.theme.borderHover || "rgba(255, 255, 255, 0.1)"};
+  text-transform: uppercase;
+`;
+
+const MarkerArrow = styled.div`
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid ${(props) => props.theme.primary};
+`;
+
 export interface SliderProps {
   label?: string;
   value: number;
@@ -294,7 +332,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
             ? Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
             : Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
 
-        const maxScrollPct = 1 - MIN_THUMB_RATIO;
+        const maxScrollPct = 1 - minThumbRatio;
         const adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
 
         const rawFillRatio =
@@ -350,6 +388,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
         orientation,
         snapRanges,
         getNormFromVal,
+        minThumbRatio,
       ],
     );
 
@@ -407,9 +446,19 @@ export const Slider: React.FC<SliderProps> = React.memo(
           $isDragging={isDragging}
           $disabled={disabled}
         />
-        {!hideThumbValue && (
+        
+        {snapRanges.length > 0 && orientation === "horizontal" && (
+          <SelectedMarker $pos={percent}>
+            <MarkerBubble>
+              {currentRange ? `${currentRange.label} ` : ""}
+              {formatValue ? formatValue(value) : value}
+            </MarkerBubble>
+            <MarkerArrow />
+          </SelectedMarker>
+        )}
+
+        {!hideThumbValue && snapRanges.length === 0 && (
           <SliderValue $orientation={orientation}>
-            {currentRange ? `${currentRange.label} ` : ""}
             {formatValue ? formatValue(value) : value}
           </SliderValue>
         )}
@@ -426,6 +475,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
       <SliderContainer
         $orientation={orientation}
         $disabled={disabled}
+        $hasSnapRanges={snapRanges.length > 0}
         className={className}
       >
         {!isAfter && (
