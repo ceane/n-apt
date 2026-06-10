@@ -49,7 +49,7 @@ const rustBackendFeatureArgs =
 // Types
 interface ProcessStatus {
   name: string;
-  status: 'pending' | 'running' | 'success' | 'error';
+  status: 'pending' | 'running' | 'success' | 'warning' | 'error';
   message?: string;
   label?: string;
   pid?: number;
@@ -139,6 +139,7 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
       case 'pending': return chalk.gray('○');
       case 'running': return chalk.blue(spinnerFrames[spinnerFrame % spinnerFrames.length]);
       case 'success': return chalk.green('✓');
+      case 'warning': return chalk.yellow('⚠');
       case 'error': return chalk.red('✗');
       default: return '○';
     }
@@ -149,6 +150,7 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
       case 'pending': return process.name;
       case 'running': return `${process.name}...`;
       case 'success': return process.name;
+      case 'warning': return process.name;
       case 'error': return process.name;
       default: return process.name;
     }
@@ -159,6 +161,7 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
       case 'pending': return 'gray';
       case 'running': return 'blue';
       case 'success': return 'white';
+      case 'warning': return 'yellow';
       case 'error': return 'white';
       default: return 'gray';
     }
@@ -1008,6 +1011,7 @@ exit 1
       updateProcessStatus(step.index, 'running', undefined, runningLabel);
 
       let success: boolean;
+      let commandOutput = '';
       if (step.isCompositeRustStep) {
         // Execute composite Rust build → start → wait sequence
         success = await executeCompositeRustStep(step.index);
@@ -1019,6 +1023,7 @@ exit 1
         const _stepIndex = step.index;
         const result = await executeCommand(step.command, stepLabel);
         success = result.success;
+        commandOutput = result.output;
       }
 
       if (success) {
@@ -1032,6 +1037,9 @@ exit 1
             metalBackendStatusRef.current ?? undefined,
             'Rust backend running...',
           );
+        } else if (step.index === 6 && commandOutput.includes(encryptedModulesStatus.warning)) {
+          updateProcessStatus(step.index, 'warning', encryptedModulesStatus.warning, stepLabel);
+          appendWarningDetail('N-APT Encrypted Modules not available');
         } else {
           updateProcessStatus(step.index, 'success', undefined, stepLabel);
         }
@@ -1331,14 +1339,281 @@ exit 1
   );
 };
 
+const getFailedComponentName = (stepIndex: number): string => {
+  switch (stepIndex) {
+    case 1:
+    case 7:
+      return 'Rust';
+    case 2:
+      return 'signals.yaml';
+    case 3:
+    case 4:
+      return 'Redis';
+    case 5:
+      return 'WASM';
+    case 6:
+      return 'N-APT Encrypted Modules';
+    case 8:
+      return 'Typescript';
+    default:
+      return 'Unknown Step';
+  }
+};
+
+async function runNonTtyBuild() {
+  const activeChildren: Array<ReturnType<typeof spawn>> = [];
+  const errorDetails: string[] = [];
+  const appendErrorDetail = (msg: string) => {
+    errorDetails.push(msg);
+  };
+
+  const executeCommandNonTty = (command: string, description: string): Promise<{ success: boolean; output: string }> => {
+    return new Promise((resolve) => {
+      try {
+        const child = spawn(command, [], {
+          shell: true,
+          cwd: './',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
+        activeChildren.push(child);
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (data) => { stdout += data.toString(); });
+        child.stderr?.on('data', (data) => { stderr += data.toString(); });
+        child.on('close', (code) => {
+          const index = activeChildren.indexOf(child);
+          if (index > -1) activeChildren.splice(index, 1);
+          if (code === 0) {
+            resolve({ success: true, output: stdout });
+          } else {
+            const errMsg = stderr.trim() || stdout.trim() || `Exit code ${code}`;
+            appendErrorDetail(`${description}: ${errMsg}`);
+            resolve({ success: false, output: stdout });
+          }
+        });
+        child.on('error', (err) => {
+          const index = activeChildren.indexOf(child);
+          if (index > -1) activeChildren.splice(index, 1);
+          appendErrorDetail(`${description}: ${err.message}`);
+          resolve({ success: false, output: '' });
+        });
+      } catch (err: any) {
+        appendErrorDetail(`${description}: ${err.message}`);
+        resolve({ success: false, output: '' });
+      }
+    });
+  };
+
+  const startBackgroundProcessNonTty = (command: string, description: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      try {
+        const child = spawn(command, [], {
+          shell: true,
+          stdio: 'pipe',
+          detached: true,
+          cwd: './',
+        });
+        activeChildren.push(child);
+        child.on('error', (err) => {
+          appendErrorDetail(`${description}: ${err.message}`);
+          resolve(false);
+        });
+        setTimeout(() => {
+          if (child.pid && child.exitCode === null) {
+            child.unref();
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        }, 2000);
+      } catch (err: any) {
+        appendErrorDetail(`${description}: ${err.message}`);
+        resolve(false);
+      }
+    });
+  };
+
+  // Notify build started
+  notifier.notify({
+    title: 'N-APT',
+    message: 'Staring build...',
+    icon: path.join(__dirname, 'public/icon-5112.png'),
+  });
+
+  console.log('N-APT / Staring build...');
+
+  const steps = [
+    {
+      index: 0,
+      description: 'Cleaning up existing processes',
+      run: () => executeCommandNonTty(
+        isNativeWindows ? 'echo Windows cleanup is skipped' : `
+          pkill -9 -f 'n-apt-backend' || true
+          pkill -9 -f 'vite' || true
+          for port in 5173 8765 6379; do
+            pids=$(lsof -ti :$port)
+            if [ ! -z "$pids" ]; then
+              kill -9 $pids 2>/dev/null || true
+            fi
+          done
+          sleep 0.5
+        `,
+        'Cleaning up existing processes'
+      )
+    },
+    {
+      index: 1,
+      description: 'Validating Rust backend code',
+      run: () => executeCommandNonTty(
+        isNativeWindows ? 'echo Config validation skipped' : `cargo check --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
+        'Validating Rust backend code'
+      )
+    },
+    {
+      index: 2,
+      description: 'Validating signals.yaml',
+      run: () => executeCommandNonTty(
+        isNativeWindows ? 'echo Validation skipped' : `
+          if [ -f "./target/debug/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+            ./target/debug/n-apt-backend --validate-config 2>&1
+          else
+            cargo run --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+          fi
+        `,
+        'Validating signals.yaml'
+      )
+    },
+    {
+      index: 3,
+      description: 'Starting Redis database server',
+      run: () => startBackgroundProcessNonTty(
+        `redis-server --port 6379 --dir .redis_data --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb`,
+        'Starting Redis database server'
+      )
+    },
+    {
+      index: 4,
+      description: 'Swapping Redis Database',
+      run: () => executeCommandNonTty(
+        isNativeWindows ? 'echo Swap skipped' : `npm run towers:download:cached`,
+        'Swapping Redis Database'
+      )
+    },
+    {
+      index: 5,
+      description: 'Building WASM SIMD module',
+      run: () => executeCommandNonTty('npm run build:wasm -- --force', 'Building WASM SIMD module')
+    },
+    {
+      index: 6,
+      description: 'Building N-APT Encrypted Modules',
+      run: () => executeCommandNonTty(
+        isNativeWindows ? 'echo Encrypted modules skipped' : `
+          if npm run decrypt-modules >/dev/null 2>&1; then
+            if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
+              exit 0
+            fi
+            exit 0
+          fi
+          exit 1
+        `,
+        'Building N-APT Encrypted Modules'
+      )
+    },
+    {
+      index: 7,
+      description: 'Building and starting Rust backend',
+      run: async () => {
+        notifier.notify({
+          title: 'N-APT',
+          message: 'Almost done building...',
+          icon: path.join(__dirname, 'public/icon-5112.png'),
+        });
+        console.log('N-APT, Almost done building...');
+
+        const buildRes = await executeCommandNonTty(
+          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          'Building Rust backend'
+        );
+        if (!buildRes.success) return { success: false, output: buildRes.output };
+
+        const startCommand = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : './target/dev-fast/n-apt-backend';
+        const startRes = await startBackgroundProcessNonTty(startCommand, 'Rust backend');
+        if (!startRes) return { success: false, output: '' };
+
+        await new Promise((r) => setTimeout(r, 1000));
+
+        const waitCommand = isNativeWindows ? 'echo skipped' : `bash -lc '
+          MAX_RETRIES=30
+          RETRY_DELAY=1
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/status 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              exit 0
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            sleep $RETRY_DELAY
+          done
+          exit 1
+        '`;
+        return executeCommandNonTty(waitCommand, 'Waiting for backend');
+      }
+    },
+    {
+      index: 8,
+      description: 'Starting frontend server',
+      run: () => startBackgroundProcessNonTty(
+        isNativeWindows ? 'npx vite dev --host --force' : 'node_modules/.bin/vite dev --host --force',
+        'Starting frontend server'
+      )
+    }
+  ];
+
+  let failedComponents: string[] = [];
+
+  for (const step of steps) {
+    console.log(`[Build] ${step.description}...`);
+    const res = await step.run();
+    if (!res || (typeof res === 'object' && !res.success)) {
+      const component = getFailedComponentName(step.index);
+      failedComponents.push(component);
+      console.error(`[Build] Error: ${step.description} failed.`);
+      
+      const errorMsg = failedComponents.length === 1
+        ? `Failed to build, error with ${failedComponents[0]}`
+        : `Failed to build, errors with ${failedComponents.slice(0, -1).join(', ')} and ${failedComponents[failedComponents.length - 1]}`;
+      
+      notifier.notify({
+        title: 'N-APT',
+        message: errorMsg,
+        icon: path.join(__dirname, 'public/icon-5112.png'),
+      });
+      process.exit(1);
+    }
+  }
+
+  notifier.notify({
+    title: 'N-APT  🧠',
+    message: '✓ Finished building and running at http://localhost:5173',
+    icon: path.join(__dirname, 'public/icon-5112.png'),
+    open: 'http://localhost:5173',
+  });
+  console.log('✓ Finished building and running at http://localhost:5173');
+  process.exit(0);
+}
+
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
   const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if (!hasTty) {
-    console.log('Build orchestrator requires an interactive TTY; skipping Ink UI startup.');
-    process.exit(0);
-  }
+    runNonTtyBuild().catch((err) => {
+      console.error('Non-TTY Build Error:', err);
+      process.exit(1);
+    });
+  } else {
 
   // Enter alternate screen buffer to prevent scrolling/jumping bugs in terminal
   process.stdout.write('\x1b[?1049h');
@@ -1363,6 +1638,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 
   render(<BuildOrchestrator />);
+  }
 }
 
 export default BuildOrchestrator;
+
