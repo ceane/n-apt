@@ -115,7 +115,24 @@ function unbundle(bundle: FileBundle, targetDir: string) {
     const normalizedPath = file.path.split('/').join(path.sep);
     const fullPath = path.join(targetDir, normalizedPath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+    // Write file content. For text-like files, run a sanitizer to remove
+    // zero-width / combining characters that can corrupt KaTeX and other
+    // sensitive text pipelines. Binary files are written verbatim.
+    const textExt = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md', '.txt']);
+    const ext = path.extname(fullPath).toLowerCase();
+    if (textExt.has(ext)) {
+      try {
+        const decoded = Buffer.from(file.content, 'base64').toString('utf8');
+        // Strip zero-width and common combining ranges (U+200B..U+200D, U+FEFF, U+0300..U+036F)
+        const cleaned = decoded.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u0300-\u036F]/g, '');
+        fs.writeFileSync(fullPath, cleaned, { encoding: 'utf8' });
+      } catch (e) {
+        // If decoding fails, fall back to writing raw buffer
+        fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+      }
+    } else {
+      fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+    }
   }
 }
 
