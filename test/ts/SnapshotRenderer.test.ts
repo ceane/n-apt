@@ -1,3 +1,11 @@
+// Compatibility layer for running Jest tests under Vitest
+if (
+  typeof jest === "undefined" &&
+  typeof (globalThis as any).vi !== "undefined"
+) {
+  (globalThis as any).jest = (globalThis as any).vi;
+}
+
 import { CoordinateMapper } from "../../src/ts/utils/rendering/CoordinateMapper";
 import { SnapshotRenderer } from "../../src/ts/utils/rendering/SnapshotRenderer";
 

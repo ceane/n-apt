@@ -23,7 +23,7 @@ const loadMath = async () => {
     if (mod?.default) {
       calculateX = mod.default as CalculateXFn;
       mathLoadedGlobal = true;
-      mathLoadedListeners.forEach(l => l(true));
+      mathLoadedListeners.forEach((l) => l(true));
     }
   } catch {
     console.warn("LaTeX math module not decrypted, fallback to zero signal");
@@ -72,9 +72,13 @@ export function useDrawMockNAPTSignal() {
       let minSignal = Number.POSITIVE_INFINITY;
       const steps = 16384; // Reduced from 32768 for performance
 
-      // Convert global noise floor (dB) to linear (Visual Mapping)
-      // -100dB = 0.0, 0dB = 1.0
-      const signalFloor = (globalNoiseFloor + 100) / 100;
+      const globalNoiseFloorPower = Math.pow(10, globalNoiseFloor / 10);
+
+      // Precompute base signal amplitude power to avoid Math.pow in the inner loop
+      const clumpsWithPower = clumps.map((clump) => ({
+        ...clump,
+        baseAmpPower: Math.pow(10, (clump.baseSignalAmplitude ?? -55) / 10),
+      }));
 
       // Noise filter state
       let v = 0;
@@ -85,61 +89,73 @@ export function useDrawMockNAPTSignal() {
         const t = -1 + (2 * i) / steps;
         const freq = ((t + 1) / 2) * 3_000_000;
 
-        let maxClumpSignal = 0;
-        for (const clump of clumps) {
-          // Base signal for this clump
-          let clumpSum = calculateX ? calculateX(t, clump) : 0;
+        let maxClumpPower = 0;
+        for (const clump of clumpsWithPower) {
+          // Spikes signal power
+          let spikesPower = 0;
+          if (calculateX) {
+            const spikesLinearVal = calculateX(t, clump);
+            const spikesDb = -100 + spikesLinearVal * 100;
+            spikesPower = Math.pow(10, spikesDb / 10);
+          }
 
-          // Add base signal pedestal if configured
+          // Pedestal signal power (computed directly in physical power space)
+          let pedestalPower = 0;
           const baseType = clump.baseSignalType || "none";
           if (baseType !== "none") {
-            const baseAmpLinear = ((clump.baseSignalAmplitude ?? -55) - 20 + 100) / 100;
             const t_eff = (freq - clump.centerOffset) / 1_500_000;
             let shape = 0;
             if (baseType === "gaussian") {
-              shape = Math.exp(-Math.pow(t_eff / (clump.envelopeWidth * 0.8), 2));
+              shape = Math.exp(
+                -Math.pow(t_eff / (clump.envelopeWidth * 0.8), 2),
+              );
             } else if (baseType === "bpsk") {
               const x = t_eff * Math.PI * 2.5;
               const sinc = x === 0 ? 1 : Math.sin(x) / x;
               shape = sinc * sinc;
             }
             // Add pseudo-random data modulation to the base carrier
-            // This gives it the "noise/data between the spikes" look
-            // Made variance more dramatic: 50% to 200% of base amplitude
             const dataModulation = 0.5 + Math.random() * 1.5;
-            clumpSum += shape * baseAmpLinear * dataModulation;
+            pedestalPower = shape * clump.baseAmpPower * dataModulation;
           }
 
           // Add beats (heterodyne)
           if (clump.beats && clump.beats.length > 0) {
+            let beatsPowerSum = 0;
             for (const beat of clump.beats) {
-              // Shift centerOffset by offsetHz
               const beatClump = {
                 ...clump,
                 centerOffset: clump.centerOffset + beat.offsetHz,
               };
-              clumpSum += calculateX ? calculateX(t, beatClump) : 0;
+              if (calculateX) {
+                const beatLinearVal = calculateX(t, beatClump);
+                const beatDb = -100 + beatLinearVal * 100;
+                beatsPowerSum += Math.pow(10, beatDb / 10);
+              }
             }
             // Normalize power: total sum / (1 original + N beats)
-            clumpSum /= 1 + clump.beats.length;
+            spikesPower =
+              (spikesPower + beatsPowerSum) / (1 + clump.beats.length);
           }
 
-          maxClumpSignal = Math.max(maxClumpSignal, clumpSum);
+          const clumpPower = spikesPower + pedestalPower;
+          if (clumpPower > maxClumpPower) {
+            maxClumpPower = clumpPower;
+          }
         }
 
-        // Noise parameters:
-        // Increased variance and jumpiness for "Data Band Variance"
-        const target = Math.random() * 100; // was 10
+        // Noise parameters
+        const target = Math.random() * 100;
         v = v * 0.5 + target * 0.5;
 
-        // Multiply by 0.015 to give a substantial visual jump
-        // Max v ~ 100, so noiseValue can swing up to 1.5 * noiseFactor
         const noiseValue = v * 0.015 * noiseFactor;
-        const expectedNoiseAvg = 50 * 0.015 * noiseFactor; // target avg is 50
+        const expectedNoiseAvg = 50 * 0.015 * noiseFactor;
 
-        // Zero-mean noise: subtract the expected average so the noise oscillates around the signal
+        // Combine powers in linear space, convert back to dB, and add fuzzy noise
+        const combinedPower = maxClumpPower + globalNoiseFloorPower;
+        const combinedDb = 10 * Math.log10(Math.max(combinedPower, 1e-15));
         const combinedSignal =
-          maxClumpSignal + signalFloor + (noiseValue - expectedNoiseAvg);
+          (combinedDb + 100) / 100 + (noiseValue - expectedNoiseAvg);
 
         rawSamples.push({ t: i / steps, freq, signal: combinedSignal });
         if (combinedSignal > maxSignal) {
@@ -151,10 +167,7 @@ export function useDrawMockNAPTSignal() {
       }
 
       return rawSamples.map(({ t, freq, signal }) => {
-        // Visual dB Mapping: -100dB = 0.0, 0dB = 1.0 linear
         const visualDb = -100 + signal * 100;
-
-        // Clamp for visual range
         const dbValue = Math.min(Math.max(-120, visualDb), 0.5);
 
         return {

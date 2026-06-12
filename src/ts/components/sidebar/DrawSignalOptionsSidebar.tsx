@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { Slider, Row } from "@n-apt/components/ui";
+import { Slider, Row, Button } from "@n-apt/components/ui";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 
@@ -27,10 +27,15 @@ const Wrap = styled.div`
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   box-sizing: border-box;
   display: grid;
   gap: 16px;
+
+  & > * {
+    min-width: 0;
+  }
 `;
 
 const ClumpSelector = styled.div`
@@ -83,9 +88,20 @@ const InfoParagraph = styled.p`
 
 const BeatBox = styled.div`
   background: ${(props) => props.theme.surface};
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 16px;
   border: 1px solid ${(props) => props.theme.border};
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+`;
+
+const RemoveButton = styled(Button)`
+  font-size: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  width: 100%;
 `;
 
 const BeatsHeader = styled.div`
@@ -190,7 +206,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
       <React.Suspense
         fallback={<LoadingFallback>Loading Math…</LoadingFallback>}
       >
-        <DrawMath />
+        <MockNAPTMath />
       </React.Suspense>
       <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>
         Reset Defaults
@@ -221,7 +237,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
             formatValue={(v) => `${v % 1 === 0 ? v : v.toFixed(1)} Hz`}
             orientation="horizontal"
           />
-          <button onClick={() => handleRemoveBeat(i)}>Remove</button>
+          <RemoveButton $variant="danger" onClick={() => handleRemoveBeat(i)}>
+            Remove
+          </RemoveButton>
         </BeatBox>
       ))}
       <Row label="Clumps">
@@ -263,16 +281,17 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
           <option value="bpsk">Wideband BPSK Telemetry</option>
         </SettingSelect>
       </Row>
-      {activeParams.baseSignalType && activeParams.baseSignalType !== "none" && (
-        <Slider
-          label="Base Pedestal Amplitude"
-          value={activeParams.baseSignalAmplitude ?? -55}
-          min={-80}
-          max={-20}
-          step={1}
-          onChange={(v) => handleParamChange("baseSignalAmplitude", v)}
-        />
-      )}
+      {activeParams.baseSignalType &&
+        activeParams.baseSignalType !== "none" && (
+          <Slider
+            label="Base Pedal Amplitude"
+            value={activeParams.baseSignalAmplitude ?? -55}
+            min={-80}
+            max={-20}
+            step={1}
+            onChange={(v) => handleParamChange("baseSignalAmplitude", v)}
+          />
+        )}
       <Slider
         label="Peak Amplitude"
         value={activeParams.peakAmplitude}
@@ -371,15 +390,15 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
 };
 
 const BEAT_SNAP_RANGES = [
-  { label: "Delta", min: 0.5, max: 4, color: "rgba(255, 100, 100, 0.1)" },
-  { label: "Theta", min: 4, max: 8, color: "rgba(100, 255, 100, 0.1)" },
-  { label: "Alpha", min: 8, max: 12, color: "rgba(100, 100, 255, 0.1)" },
-  { label: "Beta", min: 12, max: 30, color: "rgba(255, 255, 100, 0.1)" },
-  { label: "Gamma", min: 30, max: 100, color: "rgba(255, 100, 255, 0.1)" },
+  { label: "δ", longLabel: "Delta", min: 0.5, max: 4, color: "rgba(255, 100, 100, 0.1)" },
+  { label: "θ", longLabel: "Theta", min: 4, max: 8, color: "rgba(100, 255, 100, 0.1)" },
+  { label: "α", longLabel: "Alpha", min: 8, max: 12, color: "rgba(100, 100, 255, 0.1)" },
+  { label: "β", longLabel: "Beta", min: 12, max: 30, color: "rgba(255, 255, 100, 0.1)" },
+  { label: "γ", longLabel: "Gamma", min: 30, max: 100, color: "rgba(255, 100, 255, 0.1)" },
   { label: "Voice", min: 120, max: 180, color: "rgba(100, 255, 255, 0.1)" },
 ];
 
-const DrawMath = React.lazy(async () => {
+const MockNAPTMath = React.lazy(async () => {
   try {
     const modulePath =
       "/" +
@@ -390,14 +409,14 @@ const DrawMath = React.lazy(async () => {
         "ts",
         "components",
         "math",
-        "DrawMath",
+        "MockNAPTMath",
       ].join("/");
 
-    return await import(/* @vite-ignore */ modulePath + "?v=3");
+    return await import(/* @vite-ignore */ modulePath + "?v=" + Date.now());
   } catch {
     return {
       default: () => (
-        <DecryptionFallback moduleName="Draw Math" errorType="latex" />
+        <DecryptionFallback moduleName="Mock NAPT Math" errorType="latex" />
       ),
     };
   }

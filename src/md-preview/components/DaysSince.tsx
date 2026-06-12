@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import styled from 'styled-components';
-import { motion, animate } from 'framer-motion';
+import { motion, animate, useInView } from 'framer-motion';
 
 const START_DATE = new Date('2018-09-30T00:00:00Z');
 const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
@@ -134,7 +134,7 @@ const CounterWrapper = styled.span`
   font-variant-numeric: tabular-nums;
 `;
 
-const RollingCounter: React.FC<{ value: string | number }> = ({ value }) => {
+const RollingCounter: React.FC<{ value: string | number; animateActive: boolean }> = ({ value, animateActive }) => {
   const str = String(value);
 
   return (
@@ -147,7 +147,7 @@ const RollingCounter: React.FC<{ value: string | number }> = ({ value }) => {
               <PlaceholderDigit>{digit}</PlaceholderDigit>
               <DigitList
                 initial={{ y: '0%' }}
-                animate={{ y: `-${digit * 10}%` }}
+                animate={{ y: animateActive ? `-${digit * 10}%` : '0%' }}
                 transition={{
                   duration: 2,
                   delay: 0.1, // brief delay to start rolling after fade-in starts
@@ -207,12 +207,16 @@ const parseValueWithUnit = (text: string, type: 'rate' | 'total'): number | null
 };
 
 export const DaysSince: React.FC = () => {
-  const [now, setNow] = useState(new Date());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { once: true, amount: 0.1 });
+
+  const [now, setNow] = useState(() => new Date());
   const [rateMbs, setRateMbs] = useState(DEFAULT_RATE_MBS);
   const [rateDayGb, setRateDayGb] = useState(DEFAULT_RATE_DAY_GB);
 
   // Derive rates from the markdown table by parsing text directly
   useEffect(() => {
+    if (!isInView) return;
     const findRates = () => {
       const container = document.querySelector('[data-data-estimate="network"]');
       if (!container) return;
@@ -247,14 +251,15 @@ export const DaysSince: React.FC = () => {
     findRates();
     const timeout = setTimeout(findRates, 1000);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [isInView]);
 
   useEffect(() => {
+    if (!isInView) return;
     const timer = setInterval(() => {
       setNow(new Date());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isInView]);
 
   const stats = useMemo(() => {
     const totalMs = now.getTime() - START_DATE.getTime();
@@ -353,40 +358,40 @@ export const DaysSince: React.FC = () => {
   }, [now, rateMbs]);
 
   return (
-    <Container>
+    <Container ref={containerRef}>
       <TopRow>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5 }}
         >
           <Label>Hours Total</Label>
           <Value>
-            <RollingCounter value={formatNumber(stats.totalHours)} />
+            <RollingCounter value={formatNumber(stats.totalHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <Label>Since Escalation</Label>
           <Value>
-            <RollingCounter value={formatNumber(stats.escalationHours)} />
+            <RollingCounter value={formatNumber(stats.escalationHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <Label>Days Total</Label>
           <Value>
-            <RollingCounter value={formatNumber(stats.totalDays)} />
+            <RollingCounter value={formatNumber(stats.totalDays)} animateActive={isInView} />
             <span className="unit">days</span>
           </Value>
         </StatBox>
@@ -395,12 +400,12 @@ export const DaysSince: React.FC = () => {
       <DataContainer>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.3 }}
         >
           <Label>Data Intercepted Total</Label>
           <Value>
-            <RollingCounter value={data.val} />
+            <RollingCounter value={data.val} animateActive={isInView} />
             <span className="unit">{data.unit}</span>
           </Value>
           {approxGB && <SubValue>{approxGB}</SubValue>}
@@ -409,12 +414,12 @@ export const DaysSince: React.FC = () => {
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.4 }}
         >
           <Label>Data Intercepted in 24HRS</Label>
           <Value>
-            <RollingCounter value={Math.round(rateDayGb)} />
+            <RollingCounter value={Math.round(rateDayGb)} animateActive={isInView} />
             <span className="unit">GB</span>
           </Value>
           <SubValue>{dailyComparisonText}</SubValue>
@@ -424,23 +429,23 @@ export const DaysSince: React.FC = () => {
       <CostContainer>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.5 }}
         >
           <Label>Data total Cost (to present)</Label>
           <Value>
-            <RollingCounter value={costs.total} />
+            <RollingCounter value={costs.total} animateActive={isInView} />
           </Value>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.6 }}
         >
           <Label>Data cost per Day</Label>
           <Value>
-            <RollingCounter value={costs.daily} />
+            <RollingCounter value={costs.daily} animateActive={isInView} />
             <span className="unit">/day</span>
           </Value>
         </StatBox>

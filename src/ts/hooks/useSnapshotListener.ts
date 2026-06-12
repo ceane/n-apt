@@ -13,6 +13,7 @@ import { canUseWholeChannelSnapshot } from "@n-apt/utils/sdrSampleRateGuards";
 export const buildSnapshotSettingsLabel = (params: {
   effectiveSdrSettings?: any;
   gain?: number | null;
+  ppm?: number | null;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;
@@ -22,6 +23,7 @@ export const buildSnapshotSettingsLabel = (params: {
   const {
     effectiveSdrSettings,
     gain,
+    ppm,
     hackrfLnaGain,
     hackrfVgaGain,
     hackrfAmpEnabled,
@@ -72,9 +74,11 @@ export const buildSnapshotSettingsLabel = (params: {
   }
 
   const ppmStr =
-    effectiveSdrSettings.ppm !== undefined
-      ? effectiveSdrSettings.ppm.toString()
-      : "0";
+    ppm != null
+      ? ppm.toString()
+      : effectiveSdrSettings?.ppm !== undefined
+        ? effectiveSdrSettings.ppm.toString()
+        : "0";
   parts.push(`PPM: ${ppmStr}`);
   return parts.join(" | ");
 };
@@ -90,6 +94,7 @@ interface UseSnapshotListenerOptions {
   deviceInfo?: string;
   effectiveSdrSettings?: any;
   gain?: number | null;
+  ppm?: number | null;
   hackrfLnaGain?: number | null;
   hackrfVgaGain?: number | null;
   hackrfAmpEnabled?: boolean | null;
@@ -123,6 +128,7 @@ export const useSnapshotListener = ({
   deviceInfo,
   effectiveSdrSettings,
   gain,
+  ppm,
   hackrfLnaGain,
   hackrfVgaGain,
   hackrfAmpEnabled,
@@ -152,6 +158,7 @@ export const useSnapshotListener = ({
       const sdrSettingsLabel = buildSnapshotSettingsLabel({
         effectiveSdrSettings,
         gain,
+        ppm,
         hackrfLnaGain,
         hackrfVgaGain,
         hackrfAmpEnabled,
@@ -191,6 +198,7 @@ export const useSnapshotListener = ({
         activeSignalArea,
         sourceName: deviceName || backend || deviceInfo || undefined,
         sdrSettingsLabel,
+        ppm: ppm ?? options.ppm ?? undefined,
         showGeolocation: options.showGeolocation,
         geolocation: options.geolocation,
         videoFrameRate: isVideo ? 30 : fftFrameRate,
@@ -217,6 +225,8 @@ export const useSnapshotListener = ({
     backend,
     deviceInfo,
     effectiveSdrSettings,
+    gain,
+    ppm,
     hackrfLnaGain,
     hackrfVgaGain,
     hackrfAmpEnabled,

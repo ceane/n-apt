@@ -714,6 +714,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     deviceInfo: selectedSourceDerived.deviceInfo ?? deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
     gain: state.gain,
+    ppm: state.ppm,
     hackrfLnaGain: state.hackrfLnaGain,
     hackrfVgaGain: state.hackrfVgaGain,
     hackrfAmpEnabled: state.hackrfAmpEnabled,

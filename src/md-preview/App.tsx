@@ -35,6 +35,7 @@ import { DaysSince } from "@n-apt/md-preview/components/DaysSince";
 import { assetUrl, assetPageUrl } from "@n-apt/md-preview/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/md-preview/utils/hmr";
 import { CanvasHarness } from "@n-apt/md-preview/components/canvas/CanvasHarness";
+import { ResponsiveKatex, desktopOnlyStyles, mobileOnlyStyles, DesktopOnly, MobileOnly } from "@n-apt/components/math/ResponsiveKatex";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -104,18 +105,6 @@ type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
 };
 
-const DesktopOnly = styled.div`
-  @media (max-width: 768px) {
-    display: none;
-  }
-`;
-
-const MobileOnly = styled.div`
-  display: none;
-  @media (max-width: 768px) {
-    display: block;
-  }
-`;
 
 const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "" }) => {
   const expressions = useMemo(() => decodeExpressions(serializedExpressions), [serializedExpressions]);
@@ -123,125 +112,13 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
     () => expressions.map((expression) => renderDisplayExpression(expression)),
     [expressions],
   );
-  const blockRef = useRef<HTMLDivElement | null>(null);
-  const expressionRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          setHasLoaded(true);
-        } else {
-          setIsVisible(false);
-        }
-      });
-    }, { rootMargin: '200px 0px 200px 0px', threshold: 0 });
-
-    if (blockRef.current) observer.observe(blockRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  useLayoutEffect(() => {
-    const resizeExpressions = () => {
-      expressionRefs.current.forEach((expressionNode) => {
-        if (!expressionNode) return;
-        
-        const katexNode = expressionNode.querySelector(".katex-display") as HTMLElement;
-        if (!katexNode) return;
-
-        const displayNode = katexNode.querySelector(".katex") as HTMLElement;
-        if (!displayNode) return;
-
-        // Reset styles for measurement
-        katexNode.style.transform = "none";
-        katexNode.style.width = "auto";
-        displayNode.style.height = "auto";
-        displayNode.style.width = "auto";
-        expressionNode.style.height = "auto";
-
-        const availableWidth = expressionNode.getBoundingClientRect().width - 4; 
-        const requiredWidth = displayNode.scrollWidth;
-        const naturalHeight = displayNode.scrollHeight;
-
-        if (availableWidth > 0 && requiredWidth > availableWidth) {
-          // Snap to precise scale factors to avoid jitter
-          let scale = availableWidth / requiredWidth;
-          if (scale < 0.95 && scale >= 0.85) scale = 0.85;
-          else if (scale < 0.85 && scale >= 0.75) scale = 0.75;
-          else if (scale < 0.75 && scale >= 0.65) scale = 0.65;
-          else if (scale < 0.65) scale = Math.max(scale, 0.5);
-          
-          scale = Math.min(scale, 0.99); // Safety margin
-
-          // Apply scale to the inner .katex element
-          displayNode.style.transform = `scale(${scale})`;
-          displayNode.style.transformOrigin = "center top";
-          displayNode.style.display = "inline-block";
-          
-          const scaledHeight = naturalHeight * scale;
-          
-          // Adjust containers to match the scaled dimensions
-          displayNode.style.height = `${naturalHeight}px`; 
-          katexNode.style.height = `${scaledHeight}px`;
-          expressionNode.style.height = `${scaledHeight}px`;
-          
-          // Force the container to match the visual width to prevent overflow
-          katexNode.style.width = "100%";
-          katexNode.style.overflow = "hidden";
-        } else {
-          displayNode.style.transform = "none";
-          displayNode.style.height = "auto";
-          displayNode.style.width = "auto";
-          katexNode.style.height = "auto";
-          expressionNode.style.height = "auto";
-          katexNode.style.width = "auto";
-          katexNode.style.overflow = "visible";
-        }
-      });
-    };
-
-    resizeExpressions();
-
-    const resizeObserver = new ResizeObserver(() => {
-      resizeExpressions();
-    });
-
-    if (blockRef.current) {
-      resizeObserver.observe(blockRef.current);
-    }
-
-    window.addEventListener("resize", resizeExpressions);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", resizeExpressions);
-    };
-  }, [renderedExpressions]);
 
   return (
-    <LatexBlockContainer ref={blockRef}>
-      {hasLoaded && (
-        <div style={{
-          width: '100%',
-          opacity: isVisible ? 1 : 0,
-          pointerEvents: isVisible ? 'auto' : 'none',
-          transition: 'opacity 0.3s ease'
-        }}>
-          {renderedExpressions.map((html, index) => (
-            <LatexExpressionRow
-              key={`${index}-${expressions[index] ?? ""}`}
-              ref={(node: HTMLDivElement | null) => {
-                expressionRefs.current[index] = node;
-              }}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          ))}
-        </div>
-      )}
-    </LatexBlockContainer>
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", margin: "1.5em 0" }}>
+      {renderedExpressions.map((html, index) => (
+        <ResponsiveKatex key={`${index}-${expressions[index] ?? ""}`} html={html} />
+      ))}
+    </div>
   );
 };
 
@@ -437,6 +314,12 @@ const GlobalStyle = createGlobalStyle`
     color: #f3f6ff;
     min-height: 100vh;
     scroll-behavior: auto !important;
+  }
+  .desktop-only {
+    ${desktopOnlyStyles}
+  }
+  .mobile-only {
+    ${mobileOnlyStyles}
   }
 `;
 
@@ -737,50 +620,9 @@ const ArticleContent = styled.article`
     word-break: break-all;
   }
 
-  /* Global KaTeX responsiveness */
   .katex-display {
-    width: 100%;
-    max-width: 100%;
-    margin: 1.5em 0;
-    text-align: center;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 1em 0;
-    transition: font-size 0.2s ease;
-    min-height: 2em;
-    position: relative;
-    
-    /* Precise breakpoints for LaTeX font scaling */
-    font-size: 1.1em;
-    @media (max-width: 1024px) { font-size: 1.0em; }
-    @media (max-width: 768px) { font-size: 0.9em; }
-    @media (max-width: 480px) { font-size: 0.8em; }
-
-    /* Custom scrollbar for wide equations */
-    &::-webkit-scrollbar {
-      height: 4px;
-    }
-    &::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-    }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-    }
-  }
-
-  .katex-display > .katex {
-    display: inline-block;
-    max-width: none;
-    white-space: nowrap;
-    vertical-align: middle;
-    width: auto !important;
-  }
-
-  /* Inline math should also be careful */
-  .katex {
-    font-size: 1.05em;
-    text-rendering: optimizeLegibility;
+    margin: 0.8em 0;
+    padding: 0.2em 0;
   }
 `;
 
@@ -870,39 +712,6 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
     )
   );
 };
-
-const LatexBlockContainer = styled.div`
-  display: grid;
-
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  overflow: visible;
-  margin: 1.5em 0;
-  will-change: transform, opacity;
-  isolation: isolate;
-`;
-
-const LatexExpressionRow = styled.div`
-  width: 100%;
-  margin: 0 auto 1.25em;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: visible;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
-
-  /* Specific overrides for rows if needed, but primary styles are in ArticleContent */
-  & > .katex-display {
-    margin: 0;
-    padding: 0.5em 0;
-  }
-`;
 
 const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean }>`
   margin: 1.5em 0;

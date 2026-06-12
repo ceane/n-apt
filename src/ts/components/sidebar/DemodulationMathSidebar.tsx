@@ -33,7 +33,7 @@ const loadDemodMath = async () => {
         "DemodMath",
       ].join("/");
 
-    return await import(/* @vite-ignore */ modulePath);
+    return await import(/* @vite-ignore */ modulePath + "?v=" + Date.now());
   } catch {
     return {
       default: () => (

@@ -382,7 +382,7 @@ export const DrawSignalRoute: React.FC = () => {
     const loop = () => {
       renderFrame();
       frameCount++;
-      // Draw for several consecutive frames to ensure WebGPU 
+      // Draw for several consecutive frames to ensure WebGPU
       // swap chain and DOM layout have fully settled after remount
       if (frameCount < 10) {
         rafId = requestAnimationFrame(loop);

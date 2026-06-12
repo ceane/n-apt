@@ -1,12 +1,5 @@
 *(This is a clear work in progress, expect updates.)*
 
-> "And it's not safe, no, it's not safe
-> Baby, this a dangerous game for you
-> But, baby, this is all child's play to me
-> And I don't need you blaming me like"
-
-*Tyla - SHE DID IT AGAIN ft. Zara Larsson*
-
 <!-- ```Canvas::TriangulationMap
 ```
 

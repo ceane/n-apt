@@ -124,7 +124,7 @@ function unbundle(bundle: FileBundle, targetDir: string) {
       try {
         const decoded = Buffer.from(file.content, 'base64').toString('utf8');
         // Strip zero-width and common combining ranges (U+200B..U+200D, U+FEFF, U+0300..U+036F)
-        const cleaned = decoded.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u0300-\u036F]/g, '');
+        const cleaned = decoded.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F]/g, '');
         fs.writeFileSync(fullPath, cleaned, { encoding: 'utf8' });
       } catch (e) {
         // If decoding fails, fall back to writing raw buffer

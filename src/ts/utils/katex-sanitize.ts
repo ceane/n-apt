@@ -1,14 +1,17 @@
 export function sanitizeLatex(input: string): string {
   if (!input) return input;
-  // Remove Unicode format characters (Cf) and combining marks (M)
+  // Remove Unicode format characters (Cf), combining marks (M), and custom modifier symbols like cedilla/ring above (U+00B8, U+02DA)
   // These can appear invisibly and break KaTeX macro parsing (e.g. turn \cdot into \c + dot)
   try {
-    // Use Unicode property escapes to strip format and mark characters
-    return input.replace(/\p{Cf}|\p{M}/gu, '');
+    // Use Unicode property escapes to strip format and mark characters, plus explicitly U+00B8 and U+02DA
+    return input.replace(/\p{Cf}|\p{M}|[\u00B8\u02DA]/gu, "");
   } catch (e) {
     // Fallback: remove common problematic codepoints and known combining ranges
     // if Unicode property escapes are not supported in the runtime RegExp engine.
-    return input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u0300-\u036F\u1AB0-\u1AFF\u1DC0-\u1DFF\u20D0-\u20FF\uFE20-\uFE2F]/g, '');
+    return input.replace(
+      /[\u200B\u200C\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F\u1AB0-\u1AFF\u1DC0-\u1DFF\u20D0-\u20FF\uFE20-\uFE2F]/g,
+      "",
+    );
   }
 }
 
@@ -17,14 +20,21 @@ export function sanitizeLatexWithDebug(label: string, input: string): string {
   if (!input) return input;
   const before = input;
   const after = sanitizeLatex(input);
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === "development") {
     // eslint-disable-next-line no-console
-    console.debug(`[katex-sanitize] ${label} before len=${before.length} after len=${after.length}`, {
-      beforeCodepoints: Array.from(before).map((c) => c.codePointAt(0)?.toString(16).padStart(4, '0')).join(' '),
-      afterCodepoints: Array.from(after).map((c) => c.codePointAt(0)?.toString(16).padStart(4, '0')).join(' '),
-      before,
-      after,
-    });
+    console.debug(
+      `[katex-sanitize] ${label} before len=${before.length} after len=${after.length}`,
+      {
+        beforeCodepoints: Array.from(before)
+          .map((c) => c.codePointAt(0)?.toString(16).padStart(4, "0"))
+          .join(" "),
+        afterCodepoints: Array.from(after)
+          .map((c) => c.codePointAt(0)?.toString(16).padStart(4, "0"))
+          .join(" "),
+        before,
+        after,
+      },
+    );
   }
   return after;
 }

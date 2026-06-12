@@ -2,7 +2,6 @@ import React, { useCallback } from "react";
 import styled from "styled-components";
 import { COLORS } from "@n-apt/consts/components";
 
-
 export const SliderContainer = styled.div<{
   $orientation: "vertical" | "horizontal";
   $disabled?: boolean;
@@ -17,7 +16,7 @@ export const SliderContainer = styled.div<{
   width: 100%;
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
   ${({ $hasSnapRanges, $orientation }) =>
-    $hasSnapRanges && $orientation === "horizontal" ? "padding-top: 24px;" : ""}
+    $hasSnapRanges && $orientation === "horizontal" ? "padding-top: 36px;" : ""}
 `;
 
 export const SliderLabel = styled.span<{
@@ -38,6 +37,7 @@ export interface SnapRange {
   min: number;
   max: number;
   color?: string;
+  longLabel?: string;
 }
 
 export const SliderTrack = styled.div<{
@@ -99,14 +99,14 @@ const RangeMarker = styled.div<{
       theme.mode === "light" ? COLORS.borderHover : "rgba(255, 255, 255, 0.1)"};
 `;
 
-const RangeLabel = styled.div<{ $pos: number }>`
+const RangeLabel = styled.div<{ $pos: number; $isGreek?: boolean }>`
   position: absolute;
-  bottom: 2px;
+  bottom: ${({ $isGreek }) => ($isGreek ? "11px" : "2px")};
   left: ${({ $pos }) => $pos}%;
   transform: translateX(-50%);
-  font-size: 7px;
+  font-size: ${({ $isGreek }) => ($isGreek ? "14px" : "7px")};
   color: ${(props) => props.theme.textMuted};
-  text-transform: uppercase;
+  text-transform: ${({ $isGreek }) => ($isGreek ? "none" : "uppercase")};
   font-weight: 800;
   pointer-events: none;
   white-space: nowrap;
@@ -228,7 +228,7 @@ export const SliderValue = styled.span<{
 
 const SelectedMarker = styled.div<{ $pos: number }>`
   position: absolute;
-  top: -30px;
+  top: -34px;
   left: ${({ $pos }) => $pos}%;
   transform: translateX(-50%);
   display: flex;
@@ -250,16 +250,18 @@ const MarkerBubble = styled.div`
   border-radius: 4px;
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  border: 1px solid ${(props) => props.theme.borderHover || "rgba(255, 255, 255, 0.1)"};
+  border: 1px solid
+    ${(props) => props.theme.borderHover || "rgba(255, 255, 255, 0.1)"};
   text-transform: uppercase;
 `;
 
 const MarkerArrow = styled.div`
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 4px solid ${(props) => props.theme.primary};
+  width: 6px;
+  height: 6px;
+  border-bottom: 2px solid ${(props) => props.theme.primary};
+  border-right: 2px solid ${(props) => props.theme.primary};
+  transform: rotate(45deg);
+  margin-top: -2px;
 `;
 
 export interface SliderProps {
@@ -317,9 +319,10 @@ export const Slider: React.FC<SliderProps> = React.memo(
       [min, max, logarithmic],
     );
 
+    const minRatio = snapRanges.length > 0 ? 0 : minThumbRatio;
     const rangeNorm = getNormFromVal(value);
     const fillRatio = invertFill ? 1 - rangeNorm : rangeNorm;
-    const percent = (minThumbRatio + fillRatio * (1 - minThumbRatio)) * 100;
+    const percent = (minRatio + fillRatio * (1 - minRatio)) * 100;
 
     const currentRange = snapRanges.find(
       (r) => value >= r.min && value <= r.max,
@@ -332,7 +335,8 @@ export const Slider: React.FC<SliderProps> = React.memo(
             ? Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
             : Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
 
-        const maxScrollPct = 1 - minThumbRatio;
+        const minRatio = snapRanges.length > 0 ? 0 : minThumbRatio;
+        const maxScrollPct = 1 - minRatio;
         const adjustedPct = Math.max(0, Math.min(maxScrollPct, pct));
 
         const rawFillRatio =
@@ -429,10 +433,13 @@ export const Slider: React.FC<SliderProps> = React.memo(
           {snapRanges.map((r, i) => {
             const start = getNormFromVal(r.min) * 100;
             const end = getNormFromVal(r.max) * 100;
+            const isGreek = /[\u0370-\u03ff]/.test(r.label);
             return (
               <React.Fragment key={i}>
                 <RangeMarker $start={start} $end={end} $color={r.color} />
-                <RangeLabel $pos={(start + end) / 2}>{r.label}</RangeLabel>
+                <RangeLabel $pos={(start + end) / 2} $isGreek={isGreek}>
+                  {r.label}
+                </RangeLabel>
                 {start > 0.1 && start < 99.9 && <RangeTick $pos={start} />}
                 {end > 0.1 && end < 99.9 && <RangeTick $pos={end} />}
               </React.Fragment>
@@ -446,11 +453,11 @@ export const Slider: React.FC<SliderProps> = React.memo(
           $isDragging={isDragging}
           $disabled={disabled}
         />
-        
+
         {snapRanges.length > 0 && orientation === "horizontal" && (
           <SelectedMarker $pos={percent}>
             <MarkerBubble>
-              {currentRange ? `${currentRange.label} ` : ""}
+              {currentRange ? `${currentRange.longLabel || currentRange.label} ` : ""}
               {formatValue ? formatValue(value) : value}
             </MarkerBubble>
             <MarkerArrow />

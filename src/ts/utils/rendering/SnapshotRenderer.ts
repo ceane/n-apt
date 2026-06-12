@@ -927,6 +927,15 @@ export class SnapshotRenderer {
 
     const area = this.mapper.getPlotArea();
 
+    let sumY = 0;
+    const dataLen = waveform?.length ?? 0;
+    if (dataLen > 0) {
+      for (let i = 0; i < dataLen; i++) {
+        sumY += this.mapper.clampY(waveform[i]);
+      }
+    }
+    const avgWaveY = dataLen > 0 ? sumY / dataLen : area.y + area.height;
+
     // Try the primary font scale and a compact fallback to find the best fit
     const scales = [fontScale, fontScale * 0.82];
     type StatsBoxCandidate = {
@@ -987,6 +996,7 @@ export class SnapshotRenderer {
           layout.boxW,
           layout.boxH,
           waveform,
+          avgWaveY,
         );
 
         for (const pos of candidates) {
@@ -997,6 +1007,7 @@ export class SnapshotRenderer {
             layout.boxH,
             waveform,
             obstacles,
+            avgWaveY,
           );
           const candidate = {
             pos,
@@ -1205,6 +1216,7 @@ export class SnapshotRenderer {
     boxW: number,
     boxH: number,
     waveform: number[] | Float32Array,
+    avgWaveY: number,
   ): { x: number; y: number }[] {
     const area = this.mapper.getPlotArea();
     const pad = 8;
@@ -1231,7 +1243,7 @@ export class SnapshotRenderer {
     ];
 
     for (const x of xSlots) {
-      const envelope = this.getWaveformEnvelope(x, boxW, waveform);
+      const envelope = this.getWaveformEnvelope(x, boxW, waveform, avgWaveY);
       add(x, area.y + pad);
       add(x, area.y + area.height - boxH - pad);
       add(x, envelope.top - boxH - pad);
@@ -1257,6 +1269,7 @@ export class SnapshotRenderer {
     boxX: number,
     boxW: number,
     waveform: number[] | Float32Array,
+    avgWaveY: number,
   ): { top: number; bottom: number } {
     const area = this.mapper.getPlotArea();
     const dataLen = waveform?.length ?? 0;
@@ -1298,6 +1311,9 @@ export class SnapshotRenderer {
       return { top: area.y, bottom: area.y + area.height };
     }
 
+    // Cap bottom Y to avoid edge roll-off / noise floor pulling it down
+    bottom = Math.min(bottom, avgWaveY - 10);
+
     return { top, bottom };
   }
 
@@ -1314,6 +1330,7 @@ export class SnapshotRenderer {
     bh: number,
     waveform: number[] | Float32Array,
     avoidBoxes: { x: number; y: number; w: number; h: number }[] = [],
+    avgWaveY: number,
   ): { score: number; overlapRatio: number; safe: boolean } {
     const area = this.mapper.getPlotArea();
     const dataLen = waveform?.length ?? 0;
@@ -1335,7 +1352,7 @@ export class SnapshotRenderer {
     const boxTop = by;
     const boxBottom = by + bh;
     const boxCenterY = (boxTop + boxBottom) / 2;
-    const envelope = this.getWaveformEnvelope(bx, bw, waveform);
+    const envelope = this.getWaveformEnvelope(bx, bw, waveform, avgWaveY);
     const boxAbove = boxBottom <= envelope.top - pad;
     const boxBelow = boxTop >= envelope.bottom + pad;
     const numSamples = Math.min(60, Math.max(8, Math.ceil(boxRight - boxLeft)));
@@ -1362,8 +1379,8 @@ export class SnapshotRenderer {
       const waveY = this.mapper.clampY(waveform[idx]);
       validSamples++;
 
-      // Trace passes through the box
-      if (waveY >= boxTop && waveY <= boxBottom) {
+      // Trace passes through the box and is a significant signal (above noise/roll-off)
+      if (waveY >= boxTop && waveY <= boxBottom && waveY < avgWaveY - 10) {
         traceOverlapCount++;
       }
 
@@ -1420,6 +1437,15 @@ export class SnapshotRenderer {
     bh: number,
     waveform: number[] | Float32Array,
   ): number {
-    return this.measureBoxPlacement(bx, by, bw, bh, waveform).score;
+    let sumY = 0;
+    const dataLen = waveform?.length ?? 0;
+    if (dataLen > 0) {
+      for (let i = 0; i < dataLen; i++) {
+        sumY += this.mapper.clampY(waveform[i]);
+      }
+    }
+    const avgWaveY = dataLen > 0 ? sumY / dataLen : 0;
+    return this.measureBoxPlacement(bx, by, bw, bh, waveform, [], avgWaveY)
+      .score;
   }
 }
