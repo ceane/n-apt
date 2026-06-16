@@ -389,6 +389,8 @@ pub struct WebSocketMessage {
   pub tx_hop_channels: Option<Vec<String>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txHopRateHz")]
   pub tx_hop_rate_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopEnabled")]
+  pub tx_hop_enabled: Option<bool>,
   /// Hardware frequency range info (get_hardware_info)
   #[serde(
     skip_serializing_if = "Option::is_none",

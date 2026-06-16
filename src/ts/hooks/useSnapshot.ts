@@ -435,7 +435,7 @@ export function buildSnapshotStatsLines({
   timestampLabel: string;
   deviceName?: string;
   channelName?: string;
-  fftSize?: number;
+  fftSize?: number | string;
   fftWindow?: string;
   gain?: number;
   ppm?: number;
@@ -1630,6 +1630,11 @@ export function buildFastSpectrumCanvas(
     showStats?: boolean;
     activeSignalArea?: string;
     activeSignalAreaBounds?: { min: number; max: number } | null;
+    sourceName?: string;
+    sdrSettingsLabel?: string;
+    gain?: number;
+    ppm?: number;
+    fftSize?: number | string;
   },
 ): HTMLCanvasElement | null {
   if (
@@ -1657,15 +1662,16 @@ export function buildFastSpectrumCanvas(
     ? buildSnapshotStatsLines({
         range: visualRange,
         timestampLabel: fmtTimestamp(),
-        deviceName: snapshotData.isDeviceConnected ? "SDR" : "Offline",
+        deviceName: options?.sourceName || (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
-        fftSize: snapshotData.fftSize,
+        fftSize: options?.fftSize !== undefined ? options.fftSize : snapshotData.fftSize,
         fftWindow: snapshotData.fftWindow,
-        gain: undefined,
-        ppm: undefined,
+        gain: options?.gain,
+        ppm: options?.ppm,
+        gainLabel: options?.sdrSettingsLabel,
         showGeolocation: false,
       })
     : [];
@@ -1894,6 +1900,11 @@ export function buildFastWaterfallCanvas(
     showStats?: boolean;
     activeSignalArea?: string;
     activeSignalAreaBounds?: { min: number; max: number } | null;
+    sourceName?: string;
+    sdrSettingsLabel?: string;
+    gain?: number;
+    ppm?: number;
+    fftSize?: number | string;
   },
   themeOption?: SnapshotTheme,
 ): HTMLCanvasElement | null {
@@ -2006,15 +2017,16 @@ export function buildFastWaterfallCanvas(
       const statsLines = buildSnapshotStatsLines({
         range: effectiveRange || { min: 0, max: 1 },
         timestampLabel: fmtTimestamp(),
-        deviceName: snapshotData?.isDeviceConnected ? "SDR" : "Offline",
+        deviceName: options?.sourceName || (snapshotData?.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData?.hardwareSampleRateHz,
-        fftSize: snapshotData?.fftSize,
+        fftSize: options?.fftSize !== undefined ? options.fftSize : snapshotData?.fftSize,
         fftWindow: snapshotData?.fftWindow,
-        gain: undefined,
-        ppm: undefined,
+        gain: options?.gain,
+        ppm: options?.ppm,
+        gainLabel: options?.sdrSettingsLabel,
         showGeolocation: false,
       });
 
@@ -2032,12 +2044,7 @@ export function buildFastWaterfallCanvas(
       const dc = new CanvasDrawingContext(ctx);
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      renderer.drawStatsBox(
-        dc,
-        statsLines,
-        new Float32Array(0),
-        1.0,
-      );
+      renderer.drawStatsBox(dc, statsLines, new Float32Array(0), 1.0);
       ctx.restore();
     }
   }
@@ -2148,6 +2155,11 @@ export function useSnapshot(
         showStats?: boolean;
         activeSignalArea?: string;
         activeSignalAreaBounds?: { min: number; max: number } | null;
+        sourceName?: string;
+        sdrSettingsLabel?: string;
+        gain?: number;
+        ppm?: number;
+        fftSize?: number | string;
       },
     ): HTMLCanvasElement | null => {
       if (!snapshotData) {
@@ -3423,6 +3435,12 @@ export function useSnapshot(
         activeSignalAreaBounds?: { min: number; max: number } | null;
         getActiveSignalArea?: () => string;
         getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
+        sourceName?: string;
+        sdrSettingsLabel?: string;
+        gain?: number;
+        ppm?: number;
+        getSdrSettingsLabel?: () => string | undefined;
+        getSourceName?: () => string | undefined;
       },
     ) => {
       if (fastRecordingSessionRef.current) {
@@ -3439,6 +3457,15 @@ export function useSnapshot(
       const theme = buildSnapshotTheme(false);
       const dimensions = getCanvasDimensions();
       const initialCanvases = getCanvases();
+
+      const initialFrequencyRange = snapshotData.frequencyRange ? { ...snapshotData.frequencyRange } : null;
+      if (initialFrequencyRange) {
+        snapshotData.frequencyRange = initialFrequencyRange;
+      }
+
+      let minFftSize = snapshotData.fftSize ?? 0;
+      let fftSizeChanged = false;
+
       const initialFrame = renderFastRecordingFrame(
         target,
         snapshotData,
@@ -3448,8 +3475,17 @@ export function useSnapshot(
         initialCanvases,
         {
           showStats: options?.showStats,
-          activeSignalArea: options?.getActiveSignalArea ? options.getActiveSignalArea() : options?.activeSignalArea,
-          activeSignalAreaBounds: options?.getActiveSignalAreaBounds ? options.getActiveSignalAreaBounds() : options?.activeSignalAreaBounds,
+          activeSignalArea: options?.getActiveSignalArea
+            ? options.getActiveSignalArea()
+            : options?.activeSignalArea,
+          activeSignalAreaBounds: options?.getActiveSignalAreaBounds
+            ? options.getActiveSignalAreaBounds()
+            : options?.activeSignalAreaBounds,
+          sourceName: options?.sourceName,
+          sdrSettingsLabel: options?.sdrSettingsLabel,
+          gain: options?.gain,
+          ppm: options?.ppm,
+          fftSize: minFftSize || undefined,
         },
       );
       if (!initialFrame) return;
@@ -3520,6 +3556,23 @@ export function useSnapshot(
         const currentSnapshotData = getSnapshotData();
         const currentCanvases = getCanvases();
         if (currentSnapshotData) {
+          if (initialFrequencyRange) {
+            currentSnapshotData.frequencyRange = initialFrequencyRange;
+          }
+
+          const currentFftSize = currentSnapshotData.fftSize ?? 0;
+          if (currentFftSize > 0) {
+            if (minFftSize === 0) {
+              minFftSize = currentFftSize;
+            } else if (currentFftSize !== minFftSize) {
+              fftSizeChanged = true;
+              if (currentFftSize < minFftSize) {
+                minFftSize = currentFftSize;
+              }
+            }
+          }
+          const fftSizeToReport = fftSizeChanged ? `${minFftSize} (Varying)` : (currentFftSize || undefined);
+
           const currentTheme = buildSnapshotTheme(false);
           const frameCanvas = renderFastRecordingFrame(
             target,
@@ -3530,8 +3583,17 @@ export function useSnapshot(
             currentCanvases,
             {
               showStats: options?.showStats,
-              activeSignalArea: options?.getActiveSignalArea ? options.getActiveSignalArea() : options?.activeSignalArea,
-              activeSignalAreaBounds: options?.getActiveSignalAreaBounds ? options.getActiveSignalAreaBounds() : options?.activeSignalAreaBounds,
+              activeSignalArea: options?.getActiveSignalArea
+                ? options.getActiveSignalArea()
+                : options?.activeSignalArea,
+              activeSignalAreaBounds: options?.getActiveSignalAreaBounds
+                ? options.getActiveSignalAreaBounds()
+                : options?.activeSignalAreaBounds,
+              sdrSettingsLabel: options?.getSdrSettingsLabel ? options.getSdrSettingsLabel() : options?.sdrSettingsLabel,
+              sourceName: options?.getSourceName ? options.getSourceName() : options?.sourceName,
+              gain: options?.gain,
+              ppm: options?.ppm,
+              fftSize: fftSizeToReport,
             },
           );
           if (frameCanvas) {
@@ -3624,6 +3686,10 @@ export function useSnapshot(
         showStats?: boolean;
         activeSignalArea?: string;
         activeSignalAreaBounds?: { min: number; max: number } | null;
+        sourceName?: string;
+        sdrSettingsLabel?: string;
+        gain?: number;
+        ppm?: number;
       },
     ) => {
       dispatch(bumpSnapshotSectionPulse());
@@ -3684,7 +3750,13 @@ export function useSnapshot(
         },
       });
     },
-    [dispatch, buildSnapshotTheme, frequencyRange, handleSnapshot, staticThemeColors],
+    [
+      dispatch,
+      buildSnapshotTheme,
+      frequencyRange,
+      handleSnapshot,
+      staticThemeColors,
+    ],
   );
 
   return {

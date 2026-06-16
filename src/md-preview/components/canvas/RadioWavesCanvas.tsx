@@ -81,14 +81,18 @@ const RadioWavesScene: React.FC<{
     }
   });
   
+  const { baseCycles, samples, segments } = useMemo(() => {
+    const cycles = frequency / 10_000_000;
+    // Dramatically increase resolution scaling so high frequencies don't get sharp edges
+    const dynamicSamples = Math.max(400, Math.min(10000, Math.floor(cycles * 150)));
+    const dynamicSegments = Math.max(300, Math.min(10000, Math.floor(cycles * 150)));
+    return { baseCycles: cycles, samples: dynamicSamples, segments: dynamicSegments };
+  }, [frequency]);
+
   const wavePoints = useMemo(() => {
-    const samples = 400; 
     const xMin = -viewport.width * 0.56;
     const xMax = viewport.width * 0.56;
     const pts: THREE.Vector3[] = [];
-    
-    // Map frequency input (Hz) to cycle count across viewport. Default 30 MHz = 3 cycles.
-    const baseCycles = frequency / 10_000_000;
 
     for (let i = 0; i <= samples; i += 1) {
       const t = i / samples;
@@ -96,17 +100,20 @@ const RadioWavesScene: React.FC<{
       
       const angle = (t * Math.PI * 2 * baseCycles) - phase;
       
-      // Variance now modulates the amplitude of each cycle across the wave
-      const amplitudeMod = 1 + Math.sin(t * Math.PI * baseCycles * 0.5) * variance * 0.5;
+      // Combine a few non-harmonic sines based on `angle` so the variance travels with the wave 
+      // and alters the amplitude from cycle to cycle
+      const envelope = Math.sin(angle * 0.41) + Math.sin(angle * 0.73) + Math.cos(angle * 1.19);
+      const amplitudeMod = 1 + (envelope / 3) * variance;
+      
       const y = Math.sin(angle) * amplitude * amplitudeMod;
       
       pts.push(new THREE.Vector3(x, y, 0));
     }
     return pts;
-  }, [viewport.width, phase, frequency, amplitude, variance]);
+  }, [viewport.width, phase, baseCycles, samples, amplitude, variance]);
 
   return (
-    <SmoothWaveTube points={wavePoints} color={theme.colors.accent} thickness={0.032} z={0.12} segments={300} />
+    <SmoothWaveTube points={wavePoints} color={theme.colors.accent} thickness={0.032} z={0.12} segments={segments} />
   );
 };
 

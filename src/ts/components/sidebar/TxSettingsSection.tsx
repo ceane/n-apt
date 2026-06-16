@@ -1,8 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import { Row } from "@n-apt/components/ui";
+import { Row, ChannelsGrid } from "@n-apt/components/ui";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Toggle } from "@n-apt/components/ui/Toggle";
+import { useAppSelector } from "@n-apt/redux/store";
 import {
   Radio,
   SlidersHorizontal,
@@ -66,29 +67,89 @@ const UnitSuffix = styled.span`
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
-const ChannelContainer = styled.div`
+const HopSectionContainer = styled.div`
   display: flex;
-  gap: 6px;
-`;
-
-const ChannelButton = styled.button<{ $selected: boolean }>`
-  background: ${(props) =>
-    props.$selected ? props.theme.primary + "26" : "transparent"};
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  grid-column: 1 / -1;
+  padding: 14px;
+  box-sizing: border-box;
+  background-color: ${(props) =>
+    props.theme.mode === "light"
+      ? props.theme.primaryAnchor
+      : props.theme.surface};
+  border-radius: 6px;
   border: 1px solid
     ${(props) =>
-      props.$selected ? props.theme.primary : props.theme.borderHover};
-  color: ${(props) =>
-    props.$selected ? props.theme.primary : props.theme.textSecondary};
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-family: ${(props) => props.theme.typography.mono};
+      props.theme.mode === "light"
+        ? props.theme.borderHover
+        : props.theme.border};
+`;
+
+const HopHeaderRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+`;
+
+const HopHeaderLabel = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  &:hover {
-    border-color: ${(props) => props.theme.primary};
+  font-weight: 500;
+  color: ${(props) => props.theme.textSecondary};
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
   }
+`;
+
+const HopOptionsContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  border-top: 1px solid ${(props) => props.theme.border};
+  padding-top: 12px;
+`;
+
+const HopFieldRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+`;
+
+const HopFieldLabel = styled.span`
+  font-size: 11px;
+  color: ${(props) => props.theme.textSecondary};
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: ${(props) => props.theme.textSecondary};
+    opacity: 0.5;
+  }
+`;
+
+const HopFieldControl = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 8px;
 `;
 
 const IconLabel = ({
@@ -154,6 +215,8 @@ export interface TxSettingsSectionProps {
   onSafetyEnabledChange: (value: boolean) => void;
   safetyLimit: "person" | "room" | "min";
   onSafetyLimitChange: (value: "person" | "room" | "min") => void;
+  hopEnabled: boolean;
+  onHopEnabledChange: (value: boolean) => void;
   hopType: "range" | "channels";
   onHopTypeChange: (value: "range" | "channels") => void;
   hopStartFrequencyHz: number;
@@ -186,15 +249,17 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   onSafetyEnabledChange,
   safetyLimit,
   onSafetyLimitChange,
-  hopType,
+  hopEnabled = false,
+  onHopEnabledChange,
+  hopType = "range",
   onHopTypeChange,
-  hopStartFrequencyHz,
+  hopStartFrequencyHz = 10_000_000,
   onHopStartFrequencyHzChange,
-  hopEndFrequencyHz,
+  hopEndFrequencyHz = 20_000_000,
   onHopEndFrequencyHzChange,
-  hopChannels,
+  hopChannels = [],
   onHopChannelsChange,
-  hopRateHz,
+  hopRateHz = 10,
   onHopRateHzChange,
 }) => {
   const [localPower, setLocalPower] = React.useState(
@@ -209,6 +274,32 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
 
   const powerInputRef = React.useRef<HTMLInputElement>(null);
   const vgaGainInputRef = React.useRef<HTMLInputElement>(null);
+
+  const websocketChannels = useAppSelector((s) => s.websocket.channels);
+
+  const channelsList = React.useMemo(() => {
+    const defaultChannels = [
+      { label: "A", min: 18_000, max: 4_390_000 },
+      { label: "B", min: 24_100_000, max: 30_370_000 },
+      { label: "C", min: 4_750_000, max: 23_000_000 },
+    ];
+    if (websocketChannels && websocketChannels.length > 0) {
+      return websocketChannels.map((ch) => ({
+        label: ch.label,
+        min: ch.min_hz,
+        max: ch.max_hz,
+      }));
+    }
+    return defaultChannels;
+  }, [websocketChannels]);
+
+  const selectedLabels = React.useMemo(() => {
+    return (hopChannels || []).map((ch) => ch.toUpperCase());
+  }, [hopChannels]);
+
+  const handleChannelsChange = (nextLabels: string[]) => {
+    onHopChannelsChange(nextLabels.map((l) => l.toLowerCase()));
+  };
 
   React.useEffect(() => {
     if (document.activeElement !== powerInputRef.current) {
@@ -411,83 +502,110 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           <option value="apt">APT</option>
           <option value="tone">Tone</option>
           <option value="noise">Noise</option>
-          <option value="hop">Hop</option>
           <option value="custom">Custom I/Q</option>
         </Select>
       </Row>
 
-      {signal === "hop" && (
-        <>
-          <Row label={<IconLabel icon={GitFork} text="Hop type" />}>
-            <Select
-              value={hopType}
-              onChange={(e) =>
-                onHopTypeChange(e.target.value as "range" | "channels")
-              }
-            >
-              <option value="range">Range</option>
-              <option value="channels">Channels</option>
-            </Select>
-          </Row>
+      <HopSectionContainer>
+        <HopHeaderRow>
+          <HopHeaderLabel>
+            <GitFork size={14} />
+            Hop
+          </HopHeaderLabel>
+          <Toggle
+            $active={hopEnabled}
+            onClick={() => onHopEnabledChange(!hopEnabled)}
+            activeLabel="On"
+            inactiveLabel="Off"
+          />
+        </HopHeaderRow>
 
-          {hopType === "range" ? (
-            <>
-              <Row label="Hop start">
-                <FrequencyInput
-                  valueHz={hopStartFrequencyHz}
-                  onChangeHz={onHopStartFrequencyHzChange}
-                  minHz={0}
-                  maxHz={30_000_000_000}
-                />
-              </Row>
-              <Row label="Hop end">
-                <FrequencyInput
-                  valueHz={hopEndFrequencyHz}
-                  onChangeHz={onHopEndFrequencyHzChange}
-                  minHz={0}
-                  maxHz={30_000_000_000}
-                />
-              </Row>
-            </>
-          ) : (
-            <Row label="Channels">
-              <ChannelContainer>
-                {["a", "b", "c"].map((ch) => {
-                  const isSelected = hopChannels.includes(ch);
-                  const handleToggle = () => {
-                    const nextChs = isSelected
-                      ? hopChannels.filter((c) => c !== ch)
-                      : [...hopChannels, ch];
-                    onHopChannelsChange(nextChs);
-                  };
-                  return (
-                    <ChannelButton
-                      key={ch}
-                      type="button"
-                      $selected={isSelected}
-                      onClick={handleToggle}
-                    >
-                      {ch.toUpperCase()}
-                    </ChannelButton>
-                  );
-                })}
-              </ChannelContainer>
-            </Row>
-          )}
+        {hopEnabled && (
+          <HopOptionsContainer>
+            <HopFieldRow>
+              <HopFieldLabel>Hop type</HopFieldLabel>
+              <HopFieldControl>
+                <Select
+                  value={hopType}
+                  onChange={(e) =>
+                    onHopTypeChange(e.target.value as "range" | "channels")
+                  }
+                  style={{ width: "auto", minWidth: "120px" }}
+                >
+                  <option value="range">Range</option>
+                  <option value="channels">Channels</option>
+                </Select>
+              </HopFieldControl>
+            </HopFieldRow>
 
-          <Row label="Hop rate">
-            <InlineField>
-              <NumericInput
-                type="text"
-                value={localHopRate}
-                onChange={handleHopRateChange}
-                onBlur={handleHopRateBlur}
-              />
-              <UnitSuffix>Hz</UnitSuffix>
-            </InlineField>
-          </Row>
-        </>
-      )}
+            {hopType === "range" ? (
+              <>
+                <HopFieldRow
+                  style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
+                >
+                  <HopFieldLabel>Hop start</HopFieldLabel>
+                  <HopFieldControl>
+                    <FrequencyInput
+                      valueHz={hopStartFrequencyHz}
+                      onChangeHz={onHopStartFrequencyHzChange}
+                      minHz={0}
+                      maxHz={30_000_000_000}
+                    />
+                  </HopFieldControl>
+                </HopFieldRow>
+                <HopFieldRow
+                  style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
+                >
+                  <HopFieldLabel>Hop end</HopFieldLabel>
+                  <HopFieldControl>
+                    <FrequencyInput
+                      valueHz={hopEndFrequencyHz}
+                      onChangeHz={onHopEndFrequencyHzChange}
+                      minHz={0}
+                      maxHz={30_000_000_000}
+                    />
+                  </HopFieldControl>
+                </HopFieldRow>
+              </>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  width: "100%",
+                }}
+              >
+                <HopFieldLabel
+                  style={{ borderBottom: "none", paddingBottom: 0 }}
+                >
+                  Channels
+                </HopFieldLabel>
+                <ChannelsGrid
+                  channels={channelsList}
+                  selectedLabels={selectedLabels}
+                  onChange={handleChannelsChange}
+                />
+              </div>
+            )}
+
+            <HopFieldRow>
+              <HopFieldLabel>Hop rate</HopFieldLabel>
+              <HopFieldControl>
+                <InlineField>
+                  <NumericInput
+                    type="text"
+                    value={localHopRate}
+                    onChange={handleHopRateChange}
+                    onBlur={handleHopRateBlur}
+                  />
+                  <UnitSuffix>Hz</UnitSuffix>
+                </InlineField>
+              </HopFieldControl>
+            </HopFieldRow>
+          </HopOptionsContainer>
+        )}
+      </HopSectionContainer>
 
       <Row label={<IconLabel icon={SlidersHorizontal} text="Sample rate" />}>
         <FrequencyInput
@@ -495,6 +613,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           onChangeHz={onSampleRateChange}
           minHz={1}
           maxHz={maxSampleRateHz ?? 20_000_000}
+          disabled={hopEnabled}
         />
       </Row>
       <Row label={<IconLabel icon={Waves} text="Center frequency" />}>
@@ -503,6 +622,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           onChangeHz={onCenterFrequencyChange}
           minHz={0}
           maxHz={30_000_000_000}
+          disabled={hopEnabled}
         />
       </Row>
       <Row label="Power">

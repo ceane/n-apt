@@ -370,7 +370,8 @@ const LearnMoreLink = styled(Link)`
   top: 24px;
   right: 24px;
   color: ${(props) => props.theme.textMuted};
-  font-family: ${(props) => props.theme.typography?.mono ?? '"JetBrains Mono", monospace'};
+  font-family: ${(props) =>
+    props.theme.typography?.mono ?? '"JetBrains Mono", monospace'};
   font-size: 11px;
   font-weight: 500;
   text-decoration: none;

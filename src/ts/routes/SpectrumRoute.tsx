@@ -30,7 +30,10 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
 import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
-import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
+import {
+  useSnapshotListener,
+  buildSnapshotSettingsLabel,
+} from "@n-apt/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
 import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
@@ -155,18 +158,18 @@ const FastSnapshotToggleWrapper = styled.div`
   display: flex;
   align-items: center;
   padding: 0 8px;
-  
+
   /* Target the ToggleContainer */
   > div {
     gap: 6px;
   }
-  
+
   /* Target Switch */
   div[role="switch"] > div:first-child {
     width: 22px !important;
     height: 12px !important;
     border-radius: 6px !important;
-    
+
     &::after {
       width: 8px !important;
       height: 8px !important;
@@ -177,7 +180,7 @@ const FastSnapshotToggleWrapper = styled.div`
   div[role="switch"][aria-checked="true"] > div:first-child::after {
     left: 12px !important;
   }
-  
+
   div[role="switch"][aria-checked="false"] > div:first-child::after {
     left: 2px !important;
   }
@@ -602,6 +605,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const spectrumWidth = spectrumCanvas?.width ?? 1;
     const spectrumHeight =
       spectrumCanvas?.height ?? FAST_SPECTRUM_FALLBACK_HEIGHT;
+
+    const sdrSettingsLabel = buildSnapshotSettingsLabel({
+      effectiveSdrSettings,
+      gain: state.gain,
+      ppm: state.ppm,
+      hackrfLnaGain: state.hackrfLnaGain,
+      hackrfVgaGain: state.hackrfVgaGain,
+      hackrfAmpEnabled: state.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+      deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+    });
+    const sourceName = selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline");
+
     return (
       <FastSnapshotControl
         disabled={
@@ -624,6 +640,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               showStats: showStatsSpectrum,
               activeSignalArea: state.activeSignalArea,
               activeSignalAreaBounds,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
             },
           )
         }
@@ -648,6 +668,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 signalAreaBounds?.[state.activeSignalArea] ??
                 signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
                 null,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              getSdrSettingsLabel: () => buildSnapshotSettingsLabel({
+                effectiveSdrSettings,
+                gain: state.gain,
+                ppm: state.ppm,
+                hackrfLnaGain: state.hackrfLnaGain,
+                hackrfVgaGain: state.hackrfVgaGain,
+                hackrfAmpEnabled: state.hackrfAmpEnabled,
+                hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+                deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+              }),
+              getSourceName: () => selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline"),
             },
           )
         }
@@ -668,6 +703,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     state.activeSignalArea,
     activeSignalAreaBounds,
     signalAreaBounds,
+    effectiveSdrSettings,
+    state.gain,
+    state.ppm,
+    state.hackrfLnaGain,
+    state.hackrfVgaGain,
+    state.hackrfAmpEnabled,
+    state.hackrfBasebandBandwidth,
+    selectedSourceDerived.deviceProfile?.kind,
+    selectedSourceDerived.deviceName,
+    deviceProfile?.kind,
+    deviceKind,
+    deviceName,
+    isConnected,
   ]);
 
   const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
@@ -675,6 +723,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const waterfallWidth = waterfallCanvas?.width ?? 1;
     const waterfallHeight =
       waterfallCanvas?.height ?? FAST_WATERFALL_FALLBACK_HEIGHT;
+
+    const sdrSettingsLabel = buildSnapshotSettingsLabel({
+      effectiveSdrSettings,
+      gain: state.gain,
+      ppm: state.ppm,
+      hackrfLnaGain: state.hackrfLnaGain,
+      hackrfVgaGain: state.hackrfVgaGain,
+      hackrfAmpEnabled: state.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+      deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+    });
+    const sourceName = selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline");
+
     return (
       <FastSnapshotControl
         disabled={
@@ -697,6 +758,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               showStats: showStatsWaterfall,
               activeSignalArea: state.activeSignalArea,
               activeSignalAreaBounds,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
             },
           )
         }
@@ -721,6 +786,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 signalAreaBounds?.[state.activeSignalArea] ??
                 signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
                 null,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              getSdrSettingsLabel: () => buildSnapshotSettingsLabel({
+                effectiveSdrSettings,
+                gain: state.gain,
+                ppm: state.ppm,
+                hackrfLnaGain: state.hackrfLnaGain,
+                hackrfVgaGain: state.hackrfVgaGain,
+                hackrfAmpEnabled: state.hackrfAmpEnabled,
+                hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+                deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+              }),
+              getSourceName: () => selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline"),
             },
           )
         }
@@ -741,6 +821,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     state.activeSignalArea,
     activeSignalAreaBounds,
     signalAreaBounds,
+    effectiveSdrSettings,
+    state.gain,
+    state.ppm,
+    state.hackrfLnaGain,
+    state.hackrfVgaGain,
+    state.hackrfAmpEnabled,
+    state.hackrfBasebandBandwidth,
+    selectedSourceDerived.deviceProfile?.kind,
+    selectedSourceDerived.deviceName,
+    deviceProfile?.kind,
+    deviceKind,
+    deviceName,
+    isConnected,
   ]);
 
   const handleCreateNoteCard = useCallback(() => {

@@ -387,9 +387,7 @@ const AppRoutesInner: React.FC = () => {
           element={
             <LearnSignalsProvider>
               <Suspense
-                fallback={
-                  <RouteLoadingFallback>Loading…</RouteLoadingFallback>
-                }
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
               >
                 <LearnSignalsRoute />
               </Suspense>

@@ -95,6 +95,7 @@ jest.mock("@n-apt/components/TxSliderOverlay", () => ({
 
 jest.mock("@n-apt/hooks/useSnapshotListener", () => ({
   useSnapshotListener: jest.fn(),
+  buildSnapshotSettingsLabel: jest.fn(() => "mock-settings-label"),
 }));
 
 jest.mock("@n-apt/hooks/useDeviceConnectionState", () => ({

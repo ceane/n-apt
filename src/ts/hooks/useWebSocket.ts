@@ -83,6 +83,15 @@ export type WebSocketData = {
       tunerAgc?: boolean | null;
       rtlAgc?: boolean | null;
       ppm?: number | null;
+      txSafetyEnabled?: boolean | null;
+      txSafetyLimit?: string | null;
+      txSignal?: string | null;
+      txHopEnabled?: boolean | null;
+      txHopType?: string | null;
+      txHopStartFrequencyHz?: number | null;
+      txHopEndFrequencyHz?: number | null;
+      txHopChannels?: string[] | null;
+      txHopRateHz?: number | null;
     },
   ) => void;
 };
@@ -841,6 +850,15 @@ export const useWebSocket = (
         tunerAgc?: boolean | null;
         rtlAgc?: boolean | null;
         ppm?: number | null;
+        txSafetyEnabled?: boolean | null;
+        txSafetyLimit?: string | null;
+        txSignal?: string | null;
+        txHopEnabled?: boolean | null;
+        txHopType?: string | null;
+        txHopStartFrequencyHz?: number | null;
+        txHopEndFrequencyHz?: number | null;
+        txHopChannels?: string[] | null;
+        txHopRateHz?: number | null;
       },
     ) => {
       const ws = wsRef.current;

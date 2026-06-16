@@ -27,7 +27,12 @@ import {
   Trash2,
   type LucideIcon,
 } from "lucide-react";
-import { Row, Collapsible, Range } from "@n-apt/components/ui";
+import {
+  Row,
+  Collapsible,
+  Range,
+  ChannelsSelector,
+} from "@n-apt/components/ui";
 import { RadioTabs } from "@n-apt/components/ui/RadioTabs";
 
 const Section = styled.div`
@@ -173,56 +178,12 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   }
 `;
 
-const RangeRowContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  grid-column: 1 / -1;
-  padding: 14px;
-  box-sizing: border-box;
-  background-color: ${(props) => props.theme.surface};
-  border-radius: 6px;
-  border: 1px solid ${(props) => props.theme.border};
-`;
-
-const RangeRowLabel = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 12px;
-  color: ${(props) => props.theme.textSecondary};
-`;
-
 const SampleRateBadge = styled.span`
   margin-left: auto;
   font-size: 11px;
   color: ${(props) => props.theme.metadataLabel};
   font-family: ${(props) => props.theme.typography.mono};
   letter-spacing: 0.5px;
-`;
-
-const RangeRowBody = styled.div`
-  width: 100%;
-`;
-
-const RangeGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  width: 100%;
-  align-items: flex-start;
-`;
-
-const RangeGridExtras = styled.div`
-  grid-column: 1 / -1;
-  width: 100%;
-  min-width: 0;
 `;
 
 const DurationUnit = styled.span`
@@ -588,6 +549,53 @@ export const IQCaptureControlsSection: React.FC<
     error: geoError,
     isLoading: geoLoading,
   } = useGeolocation();
+
+  const mappedCaptureAreas = React.useMemo(() => {
+    return availableCaptureAreas.map((area) => {
+      const matchingSegment = captureRange.segments.find(
+        (seg) => seg.label === area.label,
+      );
+      return {
+        label: matchingSegment?.label ?? area.label,
+        min: matchingSegment?.min ?? area.min,
+        max: matchingSegment?.max ?? area.max,
+        extra: area.extra,
+      };
+    });
+  }, [availableCaptureAreas, captureRange.segments]);
+
+  const handleActiveCaptureAreasChange = (nextAreas: string[]) => {
+    const hwHz = maxSampleRate;
+    const nextOnscreenOnly =
+      nextAreas.includes("Onscreen") && nextAreas.length === 1;
+    const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
+
+    const nextSelectedSegments = mappedCaptureAreas.filter((a) =>
+      nextAreas.includes(a.label),
+    );
+    const nextMin =
+      nextSelectedSegments.length > 0
+        ? Math.min(...nextSelectedSegments.map((s) => s.min))
+        : 0;
+    const nextMax =
+      nextSelectedSegments.length > 0
+        ? Math.max(...nextSelectedSegments.map((s) => s.max))
+        : 0;
+    const nextSpan = nextMax - nextMin;
+
+    if (nextOnscreenOnly && hwHz > 0 && Math.abs(nextSpan - hwHz) < 10_000) {
+      if (acquisitionMode !== "whole_sample") {
+        onAcquisitionModeChange("whole_sample");
+      }
+    } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
+      if (acquisitionMode === "whole_sample") {
+        onAcquisitionModeChange("stepwise");
+      }
+    }
+
+    onActiveCaptureAreasChange(nextAreas);
+  };
+
   const hasOnscreenSelected = activeCaptureAreas.includes("Onscreen");
   const hasChannelSelected = activeCaptureAreas.some((a) => a !== "Onscreen");
   const onscreenOnly = hasOnscreenSelected && !hasChannelSelected;
@@ -828,86 +836,19 @@ export const IQCaptureControlsSection: React.FC<
 
   const captureContent = (
     <>
-      <RangeRowContainer>
-        <RangeRowLabel>
-          <IconLabel icon={Scan} text="Ranges" />
+      <ChannelsSelector
+        label="Ranges"
+        icon={Scan}
+        headerExtra={
           <SampleRateBadge aria-label="Hardware sample rate">
             {sampleRateLabel}
           </SampleRateBadge>
-        </RangeRowLabel>
-        <RangeRowBody>
-          <RangeGrid>
-            {rangeExtras ? (
-              <RangeGridExtras>{rangeExtras}</RangeGridExtras>
-            ) : null}
-            {availableCaptureAreas.map((area, idx) => {
-              const isSelected = activeCaptureAreas.includes(area.label);
-              const rangeVariant = idx % 2 === 0 ? "primary" : "secondary";
-
-              const handleToggle = () => {
-                const nextAreas = isSelected
-                  ? activeCaptureAreas.filter((a) => a !== area.label)
-                  : [...activeCaptureAreas, area.label];
-
-                const hwHz = maxSampleRate;
-                const nextOnscreenOnly =
-                  nextAreas.includes("Onscreen") && nextAreas.length === 1;
-                const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
-
-                const nextSelectedSegments = availableCaptureAreas.filter((a) =>
-                  nextAreas.includes(a.label),
-                );
-                const nextMin =
-                  nextSelectedSegments.length > 0
-                    ? Math.min(...nextSelectedSegments.map((s) => s.min))
-                    : 0;
-                const nextMax =
-                  nextSelectedSegments.length > 0
-                    ? Math.max(...nextSelectedSegments.map((s) => s.max))
-                    : 0;
-                const nextSpan = nextMax - nextMin;
-
-                if (
-                  nextOnscreenOnly &&
-                  hwHz > 0 &&
-                  Math.abs(nextSpan - hwHz) < 10_000
-                ) {
-                  if (acquisitionMode !== "whole_sample") {
-                    onAcquisitionModeChange("whole_sample");
-                  }
-                } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
-                  if (acquisitionMode === "whole_sample") {
-                    onAcquisitionModeChange("stepwise");
-                  }
-                }
-
-                onActiveCaptureAreasChange(nextAreas);
-              };
-
-              const matchingSegment = captureRange.segments.find(
-                (seg) => seg.label === area.label,
-              );
-              const label = matchingSegment?.label ?? area.label;
-              const min = matchingSegment?.min ?? area.min;
-              const max = matchingSegment?.max ?? area.max;
-
-              return (
-                <Range
-                  key={area.label}
-                  label={label}
-                  min={min}
-                  max={max}
-                  selected={isSelected}
-                  onToggle={handleToggle}
-                  variant={rangeVariant}
-                >
-                  {area.extra}
-                </Range>
-              );
-            })}
-          </RangeGrid>
-        </RangeRowBody>
-      </RangeRowContainer>
+        }
+        channels={mappedCaptureAreas}
+        selectedLabels={activeCaptureAreas}
+        onChange={handleActiveCaptureAreasChange}
+        rangeExtras={rangeExtras}
+      />
 
       <Row label={<IconLabel icon={Clock} text="Duration" />}>
         <DurationBlock>

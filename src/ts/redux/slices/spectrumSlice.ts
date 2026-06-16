@@ -86,6 +86,7 @@ export interface SpectrumState {
   txHopEndFrequencyHz: number;
   txHopChannels: string[];
   txHopRateHz: number;
+  txHopEnabled: boolean;
   gain: number;
   hackrfLnaGain: number;
   hackrfVgaGain: number;
@@ -144,6 +145,7 @@ const LIVE_CONTROL_DEFAULTS = {
   txHopEndFrequencyHz: 20_000_000,
   txHopChannels: ["a"],
   txHopRateHz: 10,
+  txHopEnabled: false,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
@@ -190,6 +192,7 @@ const initialState: SpectrumState = {
   txHopEndFrequencyHz: 20_000_000,
   txHopChannels: ["a"],
   txHopRateHz: 10,
+  txHopEnabled: false,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
@@ -436,6 +439,10 @@ const spectrumSlice = createSlice({
       state.txHopRateHz = action.payload;
     },
 
+    setTxHopEnabled: (state, action: PayloadAction<boolean>) => {
+      state.txHopEnabled = action.payload;
+    },
+
     setGain: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.gain = action.payload;
@@ -652,6 +659,7 @@ export const {
   setTxHopEndFrequencyHz,
   setTxHopChannels,
   setTxHopRateHz,
+  setTxHopEnabled,
   setGain,
   setHackrfLnaGain,
   setHackrfVgaGain,

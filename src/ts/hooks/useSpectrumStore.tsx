@@ -994,6 +994,15 @@ export type SpectrumStoreContextValue = {
         tunerAgc?: boolean | null;
         rtlAgc?: boolean | null;
         ppm?: number | null;
+        txSafetyEnabled?: boolean | null;
+        txSafetyLimit?: string | null;
+        txSignal?: string | null;
+        txHopEnabled?: boolean | null;
+        txHopType?: string | null;
+        txHopStartFrequencyHz?: number | null;
+        txHopEndFrequencyHz?: number | null;
+        txHopChannels?: string[] | null;
+        txHopRateHz?: number | null;
       },
     ) => void;
   };
@@ -1435,6 +1444,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           tunerAgc?: boolean | null;
           rtlAgc?: boolean | null;
           ppm?: number | null;
+          txSafetyEnabled?: boolean | null;
+          txSafetyLimit?: string | null;
+          txSignal?: string | null;
+          txHopEnabled?: boolean | null;
+          txHopType?: string | null;
+          txHopStartFrequencyHz?: number | null;
+          txHopEndFrequencyHz?: number | null;
+          txHopChannels?: string[] | null;
+          txHopRateHz?: number | null;
         },
       ) => {
         reduxDispatch({
@@ -1447,6 +1465,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,
               txSafetyLimit: reduxSpectrumState.txSafetyLimit,
               txSignal: reduxSpectrumState.txSignal,
+              txHopEnabled: reduxSpectrumState.txHopEnabled,
               txHopType: reduxSpectrumState.txHopType,
               txHopStartFrequencyHz: reduxSpectrumState.txHopStartFrequencyHz,
               txHopEndFrequencyHz: reduxSpectrumState.txHopEndFrequencyHz,

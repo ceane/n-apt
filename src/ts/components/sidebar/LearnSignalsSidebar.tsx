@@ -1,6 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import { useLearnSignals, SignalSection } from "@n-apt/contexts/LearnSignalsContext";
+import {
+  useLearnSignals,
+  SignalSection,
+} from "@n-apt/contexts/LearnSignalsContext";
 import { BookOpen } from "lucide-react";
 
 const RouteContent = styled.div`
@@ -42,9 +45,12 @@ const SectionButton = styled.button<{ $isActive: boolean }>`
   text-align: left;
   padding: 12px 16px;
   border-radius: 8px;
-  border: 1px solid ${(props) => (props.$isActive ? props.theme.primary : props.theme.border)};
-  background: ${(props) => (props.$isActive ? props.theme.surface : "transparent")};
-  color: ${(props) => (props.$isActive ? props.theme.primary : props.theme.textSecondary)};
+  border: 1px solid
+    ${(props) => (props.$isActive ? props.theme.primary : props.theme.border)};
+  background: ${(props) =>
+    props.$isActive ? props.theme.surface : "transparent"};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 600;
@@ -59,7 +65,8 @@ const SectionButton = styled.button<{ $isActive: boolean }>`
 `;
 
 export const LearnSignalsSidebar: React.FC = () => {
-  const { activeSection, setActiveSection, showIntro, setShowIntro } = useLearnSignals();
+  const { activeSection, setActiveSection, showIntro, setShowIntro } =
+    useLearnSignals();
 
   const sections: SignalSection[] = [
     "Radio Waves",
@@ -81,7 +88,8 @@ export const LearnSignalsSidebar: React.FC = () => {
           Signal Processing
         </InfoTitle>
         <InfoText>
-          Interactive visual guide to RF spectrum concepts, wave propagation, modulation, heterodyning, and FFT processing.
+          Interactive visual guide to RF spectrum concepts, wave propagation,
+          modulation, heterodyning, and FFT processing.
         </InfoText>
       </InfoBox>
 
@@ -95,7 +103,14 @@ export const LearnSignalsSidebar: React.FC = () => {
         </SectionButton>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          marginTop: "8px",
+        }}
+      >
         {sections.map((section) => (
           <SectionButton
             key={section}

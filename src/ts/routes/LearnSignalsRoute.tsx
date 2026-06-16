@@ -1,7 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import styled from "styled-components";
-import { useLearnSignals, SignalSection } from "@n-apt/contexts/LearnSignalsContext";
+import {
+  useLearnSignals,
+  SignalSection,
+} from "@n-apt/contexts/LearnSignalsContext";
 import { IntroView } from "@n-apt/md-signals/src/app/components/IntroView";
 import { RadioWaves } from "@n-apt/md-signals/src/app/components/RadioWaves";
 import { ObstaclesMultipath } from "@n-apt/md-signals/src/app/components/ObstaclesMultipath";
@@ -20,8 +23,10 @@ import "@n-apt/md-signals/src/styles/index.css";
 
 const StandaloneSignalsWrapper = styled.div`
   /* Reset and enforce clean sans-serif font family overall */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif !important;
+
   display: flex;
   height: 100vh;
   width: 100vw;
@@ -30,8 +35,11 @@ const StandaloneSignalsWrapper = styled.div`
   color: ${(props) => props.theme.textPrimary};
 
   /* Force font-family on every child element */
-  &, * {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  &,
+  * {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, sans-serif !important;
   }
 
   /* Sidebar styling matching Figma Make */
@@ -124,12 +132,12 @@ const StandaloneSignalsWrapper = styled.div`
       align-items: center !important;
       justify-content: center !important;
       border-radius: 8px !important;
-      
+
       &:hover {
         background-color: ${(props) => props.theme.surfaceHover} !important;
         border-color: ${(props) => props.theme.borderHover} !important;
       }
-      
+
       svg {
         width: 16px !important;
         height: 16px !important;
@@ -210,7 +218,7 @@ const StandaloneSignalsWrapper = styled.div`
       li {
         font-size: 14px;
         color: ${(props) => props.theme.textSecondary};
-        
+
         strong {
           color: ${(props) => props.theme.textPrimary};
           font-weight: 600;
@@ -231,7 +239,7 @@ const StandaloneSignalsWrapper = styled.div`
         font-size: 14px;
         color: ${(props) => props.theme.textPrimary};
         line-height: 1.5;
-        
+
         strong {
           font-weight: 600;
         }
@@ -288,7 +296,8 @@ const StandaloneSignalsWrapper = styled.div`
 `;
 
 export const LearnSignalsRoute: React.FC = () => {
-  const { activeSection, setActiveSection, showIntro, setShowIntro } = useLearnSignals();
+  const { activeSection, setActiveSection, showIntro, setShowIntro } =
+    useLearnSignals();
 
   const sections: SignalSection[] = [
     "Radio Waves",
@@ -304,7 +313,10 @@ export const LearnSignalsRoute: React.FC = () => {
 
   if (showIntro) {
     return (
-      <div className="size-full bg-background relative overflow-y-auto" style={{ height: "100%", width: "100%" }}>
+      <div
+        className="size-full bg-background relative overflow-y-auto"
+        style={{ height: "100%", width: "100%" }}
+      >
         <IntroView onComplete={() => setShowIntro(false)} />
       </div>
     );
@@ -333,10 +345,7 @@ export const LearnSignalsRoute: React.FC = () => {
               </button>
             ))}
             <div className="pt-4 border-t mt-4">
-              <Link
-                to="/"
-                className="back-to-napt"
-              >
+              <Link to="/" className="back-to-napt">
                 ← Back to N-APT
               </Link>
             </div>
@@ -348,7 +357,9 @@ export const LearnSignalsRoute: React.FC = () => {
       <main>
         <div className="max-w-4xl mx-auto">
           {activeSection === "Radio Waves" && <RadioWaves />}
-          {activeSection === "Obstacles & Multipath Reflection" && <ObstaclesMultipath />}
+          {activeSection === "Obstacles & Multipath Reflection" && (
+            <ObstaclesMultipath />
+          )}
           {activeSection === "Modulation" && <Modulation />}
           {activeSection === "Heterodyning" && <Heterodyning />}
           {activeSection === "Tx (Transmit/Broadcasting)" && <Transmit />}

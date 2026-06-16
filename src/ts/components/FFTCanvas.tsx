@@ -664,6 +664,7 @@ export type SnapshotData = {
   hardwareSampleRateHz?: number;
   isIqRecordingActive?: boolean;
   demodFocusOverlay?: DemodFocusOverlay | null;
+  activeSignalArea?: string;
 
   colormap: number[][];
 };
@@ -3533,6 +3534,7 @@ const FFTCanvas = memo(
         isIqRecordingActive,
         colormap: colormap || [],
         demodFocusOverlay: demodFocusOverlayRef.current,
+        activeSignalArea: _activeSignalArea,
       };
     }, [
       colormap,
@@ -3543,6 +3545,7 @@ const FFTCanvas = memo(
       isIqRecordingActive,
       isRtlSdr,
       webgpuEnabled,
+      _activeSignalArea,
     ]);
 
     const canvasPlaceholderState =

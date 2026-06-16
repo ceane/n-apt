@@ -637,11 +637,25 @@ pub fn handle_message(
         *crate::safety::TX_HOP_RATE_HZ.lock().unwrap() = hop_rate;
       }
 
-      let tx_signal = message
+      let raw_tx_signal = message
         .tx_signal
         .clone()
         .unwrap_or_else(|| "apt".to_string());
-      let hop_active = tx_signal == "hop";
+      let _tx_signal = if raw_tx_signal == "hop" {
+        "apt".to_string()
+      } else {
+        raw_tx_signal
+      };
+
+      let hop_active = message.tx_hop_enabled.unwrap_or_else(|| {
+        if message.tx_signal.as_deref() == Some("hop") {
+          true
+        } else {
+          shared
+            .tx_hop_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+        }
+      });
       shared
         .tx_hop_enabled
         .store(hop_active, std::sync::atomic::Ordering::Relaxed);

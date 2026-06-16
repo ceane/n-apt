@@ -27,6 +27,7 @@ import {
   setTxHopEndFrequencyHz,
   setTxHopChannels,
   setTxHopRateHz,
+  setTxHopEnabled,
   setHackrfAmpEnabled,
   setDeviceKind,
   setShowTxSlider,
@@ -1032,15 +1033,24 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     (state) => state.spectrum.txSafetyEnabled,
   );
   const txSafetyLimit = useAppSelector((state) => state.spectrum.txSafetyLimit);
-  const txHopType = useAppSelector((state) => state.spectrum.txHopType);
+  const txHopType = useAppSelector(
+    (state) => state.spectrum.txHopType ?? "range",
+  );
   const txHopStartFrequencyHz = useAppSelector(
-    (state) => state.spectrum.txHopStartFrequencyHz,
+    (state) => state.spectrum.txHopStartFrequencyHz ?? 10_000_000,
   );
   const txHopEndFrequencyHz = useAppSelector(
-    (state) => state.spectrum.txHopEndFrequencyHz,
+    (state) => state.spectrum.txHopEndFrequencyHz ?? 20_000_000,
   );
-  const txHopChannels = useAppSelector((state) => state.spectrum.txHopChannels);
-  const txHopRateHz = useAppSelector((state) => state.spectrum.txHopRateHz);
+  const txHopChannels = useAppSelector(
+    (state) => state.spectrum.txHopChannels ?? ["a"],
+  );
+  const txHopRateHz = useAppSelector(
+    (state) => state.spectrum.txHopRateHz ?? 10,
+  );
+  const txHopEnabled = useAppSelector(
+    (state) => state.spectrum.txHopEnabled ?? false,
+  );
   const [livePreviewStage, setLivePreviewStage] = useState(0);
 
   const isTransmittingGlobal = useMemo(() => {
@@ -1112,6 +1122,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           rtlAgc:
             source.sdr?.settings?.rtl_agc ?? liveState?.rtlAGC ?? undefined,
           ppm: source.sdr?.settings?.ppm ?? liveState?.ppm ?? undefined,
+          txSafetyEnabled,
+          txSafetyLimit,
+          txSignal,
+          txHopEnabled,
+          txHopType,
+          txHopStartFrequencyHz,
+          txHopEndFrequencyHz,
+          txHopChannels,
+          txHopRateHz,
         });
       };
 
@@ -1141,6 +1160,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txPowerDbm,
       txSampleRateHz,
       txVgaGain,
+      txSafetyEnabled,
+      txSafetyLimit,
+      txSignal,
+      txHopEnabled,
+      txHopType,
+      txHopStartFrequencyHz,
+      txHopEndFrequencyHz,
+      txHopChannels,
+      txHopRateHz,
       wsConnection.sendTransmitMode,
     ],
   );
@@ -1157,6 +1185,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       powerDbm: txPowerDbm,
       vgaGainDb: txVgaGain,
       ampEnabled: hackrfAmpEnabled,
+      txSafetyEnabled,
+      txSafetyLimit,
+      txSignal,
+      txHopEnabled,
+      txHopType,
+      txHopStartFrequencyHz,
+      txHopEndFrequencyHz,
+      txHopChannels,
+      txHopRateHz,
     });
   }, [
     isTransmittingGlobal,
@@ -1169,6 +1206,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     hackrfAmpEnabled,
     txSafetyEnabled,
     txSafetyLimit,
+    txHopEnabled,
     txHopType,
     txHopStartFrequencyHz,
     txHopEndFrequencyHz,
@@ -2118,6 +2156,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               }
               safetyLimit={txSafetyLimit}
               onSafetyLimitChange={(value) => dispatch(setTxSafetyLimit(value))}
+              hopEnabled={txHopEnabled}
+              onHopEnabledChange={(value) => dispatch(setTxHopEnabled(value))}
               hopType={txHopType}
               onHopTypeChange={(value) => dispatch(setTxHopType(value))}
               hopStartFrequencyHz={txHopStartFrequencyHz}

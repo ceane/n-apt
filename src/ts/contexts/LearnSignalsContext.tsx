@@ -26,9 +26,8 @@ export const LearnSignalsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [showIntro, setShowIntro] = useState(true);
-  const [activeSection, setActiveSection] = useState<SignalSection>(
-    "Radio Waves",
-  );
+  const [activeSection, setActiveSection] =
+    useState<SignalSection>("Radio Waves");
 
   return (
     <LearnSignalsContext.Provider

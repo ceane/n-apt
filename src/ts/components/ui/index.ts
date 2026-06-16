@@ -29,6 +29,11 @@ export { Prompt } from "./Prompt";
 export { PromptProvider, usePrompt } from "./PromptProvider";
 export { Range } from "./Range";
 export {
+  ChannelsGrid,
+  ChannelsSelector,
+  type ChannelOption,
+} from "./ChannelsSelector";
+export {
   APP_THEME_COLORS,
   buildAppTheme,
   useResolvedThemeMode,
