@@ -390,11 +390,41 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
 };
 
 const BEAT_SNAP_RANGES = [
-  { label: "δ", longLabel: "Delta", min: 0.5, max: 4, color: "rgba(255, 100, 100, 0.1)" },
-  { label: "θ", longLabel: "Theta", min: 4, max: 8, color: "rgba(100, 255, 100, 0.1)" },
-  { label: "α", longLabel: "Alpha", min: 8, max: 12, color: "rgba(100, 100, 255, 0.1)" },
-  { label: "β", longLabel: "Beta", min: 12, max: 30, color: "rgba(255, 255, 100, 0.1)" },
-  { label: "γ", longLabel: "Gamma", min: 30, max: 100, color: "rgba(255, 100, 255, 0.1)" },
+  {
+    label: "δ",
+    longLabel: "Delta",
+    min: 0.5,
+    max: 4,
+    color: "rgba(255, 100, 100, 0.1)",
+  },
+  {
+    label: "θ",
+    longLabel: "Theta",
+    min: 4,
+    max: 8,
+    color: "rgba(100, 255, 100, 0.1)",
+  },
+  {
+    label: "α",
+    longLabel: "Alpha",
+    min: 8,
+    max: 12,
+    color: "rgba(100, 100, 255, 0.1)",
+  },
+  {
+    label: "β",
+    longLabel: "Beta",
+    min: 12,
+    max: 30,
+    color: "rgba(255, 255, 100, 0.1)",
+  },
+  {
+    label: "γ",
+    longLabel: "Gamma",
+    min: 30,
+    max: 100,
+    color: "rgba(255, 100, 255, 0.1)",
+  },
   { label: "Voice", min: 120, max: 180, color: "rgba(100, 255, 255, 0.1)" },
 ];
 

@@ -457,7 +457,9 @@ export const Slider: React.FC<SliderProps> = React.memo(
         {snapRanges.length > 0 && orientation === "horizontal" && (
           <SelectedMarker $pos={percent}>
             <MarkerBubble>
-              {currentRange ? `${currentRange.longLabel || currentRange.label} ` : ""}
+              {currentRange
+                ? `${currentRange.longLabel || currentRange.label} `
+                : ""}
               {formatValue ? formatValue(value) : value}
             </MarkerBubble>
             <MarkerArrow />

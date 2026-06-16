@@ -154,6 +154,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               >
                 Map Endpoints
               </NavigationTab>
+              <NavigationTab
+                $isActive={path === "/learn-signals"}
+                onClick={(event) => handleTabClick("/learn-signals", event)}
+                data-path="/learn-signals"
+              >
+                Learn Signals
+              </NavigationTab>
             </NavigationTabs>
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>

@@ -31,15 +31,16 @@ const Overlay = styled.div`
   pointer-events: none;
 `;
 
-export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>> = ({
+export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode; hideTitle?: boolean }>> = ({
   children,
   title,
   overlay,
+  hideTitle,
 }) => (
   <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     <CanvasHost>{children}</CanvasHost>
     <Overlay>
-      <RendererBadge>{title}</RendererBadge>
+      {!hideTitle && <RendererBadge>{title}</RendererBadge>}
       {overlay}
     </Overlay>
   </CanvasHarness>

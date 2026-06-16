@@ -3,9 +3,9 @@ declare module "@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq" {
   export default calculateX;
 }
 
-declare module "@n-apt/encrypted-modules/tmp/ts/components/math/DrawMath" {
-  const DrawMath: React.ComponentType;
-  export default DrawMath;
+declare module "@n-apt/encrypted-modules/tmp/ts/components/math/MockNAPTMath" {
+  const MockNAPTMath: React.ComponentType;
+  export default MockNAPTMath;
 }
 
 declare module "@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath" {

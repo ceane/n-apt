@@ -67,8 +67,14 @@ const LegalDocumentRoute = lazy(() =>
     default: m.LegalDocumentRoute,
   })),
 );
+const LearnSignalsRoute = lazy(() =>
+  import("@n-apt/routes/LearnSignalsRoute").then((m) => ({
+    default: m.LearnSignalsRoute,
+  })),
+);
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
+import { LearnSignalsProvider } from "@n-apt/contexts/LearnSignalsContext";
 import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
@@ -374,6 +380,20 @@ const AppRoutesInner: React.FC = () => {
             >
               <LegalDocumentRoute />
             </Suspense>
+          }
+        />
+        <Route
+          path="/learn-signals"
+          element={
+            <LearnSignalsProvider>
+              <Suspense
+                fallback={
+                  <RouteLoadingFallback>Loading…</RouteLoadingFallback>
+                }
+              >
+                <LearnSignalsRoute />
+              </Suspense>
+            </LearnSignalsProvider>
           }
         />
       </Routes>

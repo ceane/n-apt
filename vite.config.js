@@ -124,6 +124,12 @@ export default defineConfig(({ mode }) => {
   },
   resolve: {
     alias: [{
+      find: /^\/?@n-apt\/md-signals\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/md-signals")}/$1`
+    }, {
+      find: /^\/?@n-apt\/md-preview\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+    }, {
       find: /^\/?@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {

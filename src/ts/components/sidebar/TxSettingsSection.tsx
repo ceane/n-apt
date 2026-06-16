@@ -14,6 +14,7 @@ import {
   calculateRoomPowerLimitJS,
   getMaxSafeVgaAndAmpJS,
   getApproxOutputPowerJS,
+  calculateRoomReachJS,
 } from "@n-apt/utils/safetyWasm";
 
 const Section = styled.div`
@@ -151,8 +152,8 @@ export interface TxSettingsSectionProps {
   // Safety & Hop props
   safetyEnabled: boolean;
   onSafetyEnabledChange: (value: boolean) => void;
-  safetyLimit: "person" | "room";
-  onSafetyLimitChange: (value: "person" | "room") => void;
+  safetyLimit: "person" | "room" | "min";
+  onSafetyLimitChange: (value: "person" | "room" | "min") => void;
   hopType: "range" | "channels";
   onHopTypeChange: (value: "range" | "channels") => void;
   hopStartFrequencyHz: number;
@@ -225,15 +226,35 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     setLocalHopRate(Number.isFinite(hopRateHz) ? hopRateHz.toString() : "10");
   }, [hopRateHz]);
 
+  const limitDbm = React.useMemo(() => {
+    if (safetyLimit === "min") return -70.0;
+    return calculateRoomPowerLimitJS(
+      centerFrequencyHz,
+      safetyLimit === "person" ? 1.0 : 3.0,
+    );
+  }, [safetyLimit, centerFrequencyHz]);
+
+  const safeGains = React.useMemo(() => {
+    return getMaxSafeVgaAndAmpJS(limitDbm);
+  }, [limitDbm]);
+
+  const minReach = React.useMemo(() => {
+    return calculateRoomReachJS(centerFrequencyHz, -70.0);
+  }, [centerFrequencyHz]);
+
+  const formatReach = (meters: number): string => {
+    if (meters >= 1000) {
+      return `${(meters / 1000).toFixed(1)}km`;
+    }
+    if (meters < 0.1) {
+      return `${(meters * 1000).toFixed(0)}mm`;
+    }
+    return `${meters.toFixed(2)}m`;
+  };
+
   // Enforce safety limits
   React.useEffect(() => {
     if (safetyEnabled) {
-      const limitDbm = calculateRoomPowerLimitJS(
-        centerFrequencyHz,
-        safetyLimit === "person" ? 1.0 : 3.0,
-      );
-      const safeGains = getMaxSafeVgaAndAmpJS(limitDbm);
-
       let nextVga = vgaGainDb;
       let nextAmp = !!ampEnabled;
       let nextPower = powerDbm;
@@ -266,8 +287,8 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     }
   }, [
     safetyEnabled,
-    safetyLimit,
-    centerFrequencyHz,
+    limitDbm,
+    safeGains,
     vgaGainDb,
     powerDbm,
     ampEnabled,
@@ -283,10 +304,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     if (Number.isFinite(num) && val !== "" && val !== "-") {
       let targetPower = num;
       if (safetyEnabled) {
-        const limitDbm = calculateRoomPowerLimitJS(
-          centerFrequencyHz,
-          safetyLimit === "person" ? 1.0 : 3.0,
-        );
         targetPower = Math.min(limitDbm, targetPower);
       }
       onPowerDbmChange(targetPower);
@@ -303,10 +320,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     if (Number.isFinite(num) && localPower !== "" && localPower !== "-") {
       let targetPower = num;
       if (safetyEnabled) {
-        const limitDbm = calculateRoomPowerLimitJS(
-          centerFrequencyHz,
-          safetyLimit === "person" ? 1.0 : 3.0,
-        );
         targetPower = Math.min(limitDbm, targetPower);
       }
       onPowerDbmChange(targetPower);
@@ -328,15 +341,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     if (Number.isFinite(num) && val !== "" && val !== "-") {
       let targetVga = num;
       if (safetyEnabled) {
-        const limitDbm = calculateRoomPowerLimitJS(
-          centerFrequencyHz,
-          safetyLimit === "person" ? 1.0 : 3.0,
-        );
-        const safeGains = getMaxSafeVgaAndAmpJS(limitDbm);
         targetVga = Math.min(safeGains.vga, targetVga);
       }
       onVgaGainChange(targetVga);
-      const targetPower = getApproxOutputPowerJS(targetVga, !!ampEnabled);
+      const targetPower =
+        safetyLimit === "min"
+          ? -70.0
+          : getApproxOutputPowerJS(targetVga, !!ampEnabled);
       onPowerDbmChange(targetPower);
     }
   };
@@ -346,16 +357,14 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     if (Number.isFinite(num) && localVgaGain !== "" && localVgaGain !== "-") {
       let targetVga = num;
       if (safetyEnabled) {
-        const limitDbm = calculateRoomPowerLimitJS(
-          centerFrequencyHz,
-          safetyLimit === "person" ? 1.0 : 3.0,
-        );
-        const safeGains = getMaxSafeVgaAndAmpJS(limitDbm);
         targetVga = Math.min(safeGains.vga, targetVga);
       }
       onVgaGainChange(targetVga);
       setLocalVgaGain(targetVga.toString());
-      const targetPower = getApproxOutputPowerJS(targetVga, !!ampEnabled);
+      const targetPower =
+        safetyLimit === "min"
+          ? -70.0
+          : getApproxOutputPowerJS(targetVga, !!ampEnabled);
       onPowerDbmChange(targetPower);
     } else {
       setLocalVgaGain(Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0");
@@ -365,7 +374,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   const handleAmpToggle = (newAmp: boolean) => {
     if (onAmpEnabledChange) {
       onAmpEnabledChange(newAmp);
-      const targetPower = getApproxOutputPowerJS(vgaGainDb, newAmp);
+      const targetPower =
+        safetyLimit === "min"
+          ? -70.0
+          : getApproxOutputPowerJS(vgaGainDb, newAmp);
       onPowerDbmChange(targetPower);
     }
   };
@@ -390,11 +402,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     }
   };
 
-  const limitDbm = calculateRoomPowerLimitJS(
-    centerFrequencyHz,
-    safetyLimit === "person" ? 1.0 : 3.0,
-  );
-  const safeGains = getMaxSafeVgaAndAmpJS(limitDbm);
   const isAmpDisabledBySafety = safetyEnabled && !safeGains.amp;
 
   return (
@@ -535,25 +542,36 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       <Row label={<IconLabel icon={ShieldAlert} text="Safety" />}>
         <Toggle
           $active={safetyEnabled}
-          onClick={() => onSafetyEnabledChange(!safetyEnabled)}
+          onClick={() => {
+            const nextActive = !safetyEnabled;
+            onSafetyEnabledChange(nextActive);
+            if (nextActive) {
+              onPowerDbmChange(-70);
+              onVgaGainChange(0);
+              if (onAmpEnabledChange) {
+                onAmpEnabledChange(false);
+              }
+              setLocalPower("-70");
+              setLocalVgaGain("0");
+            }
+          }}
           activeLabel="On"
           inactiveLabel="Off"
         />
-      </Row>
-
-      {safetyEnabled && (
-        <Row label="Safety limit">
+        {safetyEnabled && (
           <Select
             value={safetyLimit}
             onChange={(e) =>
-              onSafetyLimitChange(e.target.value as "person" | "room")
+              onSafetyLimitChange(e.target.value as "person" | "room" | "min")
             }
+            style={{ width: "auto", minWidth: "120px", marginLeft: "8px" }}
           >
             <option value="person">Person (1m reach)</option>
             <option value="room">Room (3m reach)</option>
+            <option value="min">Minimum ({formatReach(minReach)})</option>
           </Select>
-        </Row>
-      )}
+        )}
+      </Row>
 
       {onToggleTransmit && (
         <TxButton

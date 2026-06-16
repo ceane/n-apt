@@ -14,6 +14,7 @@ import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
 import { EditableCenterFrequency } from "@n-apt/components/ui/EditableCenterFrequency";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Button } from "@n-apt/components/ui/Button";
+import { Toggle } from "@n-apt/components/ui/Toggle";
 import {
   useSnapshot,
   type SnapshotVideoFormat,
@@ -150,6 +151,46 @@ const FastSnapshotStopButton = styled(FastSnapshotModeButton)`
   font-weight: 700;
 `;
 
+const FastSnapshotToggleWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  
+  /* Target the ToggleContainer */
+  > div {
+    gap: 6px;
+  }
+  
+  /* Target Switch */
+  div[role="switch"] > div:first-child {
+    width: 22px !important;
+    height: 12px !important;
+    border-radius: 6px !important;
+    
+    &::after {
+      width: 8px !important;
+      height: 8px !important;
+      top: 2px !important;
+    }
+  }
+
+  div[role="switch"][aria-checked="true"] > div:first-child::after {
+    left: 12px !important;
+  }
+  
+  div[role="switch"][aria-checked="false"] > div:first-child::after {
+    left: 2px !important;
+  }
+
+  span {
+    font-size: 9px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: ${(props) => props.theme.textSecondary} !important;
+  }
+`;
+
 const NotesSnapshotPill = styled(FastSnapshotPill)`
   min-height: 24px;
 `;
@@ -271,6 +312,8 @@ const FastSnapshotControl: React.FC<{
   onVideo: () => void;
   onStop: () => void;
   videoFormat: SnapshotVideoFormat | null;
+  showStats: boolean;
+  onShowStatsChange: (show: boolean) => void;
 }> = ({
   disabled = false,
   isRecording = false,
@@ -279,6 +322,8 @@ const FastSnapshotControl: React.FC<{
   onVideo,
   onStop,
   videoFormat,
+  showStats,
+  onShowStatsChange,
 }) => {
   if (isRecording) {
     return (
@@ -317,6 +362,17 @@ const FastSnapshotControl: React.FC<{
       >
         Video {videoFormat ? `(.${videoFormat})` : ""}
       </FastSnapshotModeButton>
+      <FastSnapshotDivider />
+      <FastSnapshotToggleWrapper>
+        <Toggle
+          $active={showStats}
+          onClick={() => onShowStatsChange(!showStats)}
+          title="Toggle including stats in snapshot/video"
+          disabled={disabled}
+          inactiveLabel="Stats: Off"
+          activeLabel="Stats: On"
+        />
+      </FastSnapshotToggleWrapper>
     </FastSnapshotPill>
   );
 };
@@ -350,6 +406,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
+  const [showStatsSpectrum, setShowStatsSpectrum] = useState(false);
+  const [showStatsWaterfall, setShowStatsWaterfall] = useState(false);
   const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
     useState(false);
   const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
@@ -553,6 +611,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         isRecording={isRecording === "spectrum"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}
+        showStats={showStatsSpectrum}
+        onShowStatsChange={setShowStatsSpectrum}
         onImage={() =>
           takeFastSnapshot(
             "spectrum",
@@ -560,6 +620,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             spectrumWidth,
             spectrumHeight,
             getCanvases,
+            {
+              showStats: showStatsSpectrum,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+            },
           )
         }
         onVideo={() =>
@@ -574,6 +639,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             }),
             "fast-fft-recording",
             getCanvases,
+            {
+              showStats: showStatsSpectrum,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              getActiveSignalArea: () => state.activeSignalArea,
+              getActiveSignalAreaBounds: () =>
+                signalAreaBounds?.[state.activeSignalArea] ??
+                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
+                null,
+            },
           )
         }
         onStop={stopFastRecording}
@@ -589,6 +664,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     startFastRecording,
     stopFastRecording,
     getCanvases,
+    showStatsSpectrum,
+    state.activeSignalArea,
+    activeSignalAreaBounds,
+    signalAreaBounds,
   ]);
 
   const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
@@ -605,6 +684,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         isRecording={isRecording === "waterfall"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}
+        showStats={showStatsWaterfall}
+        onShowStatsChange={setShowStatsWaterfall}
         onImage={() =>
           takeFastSnapshot(
             "waterfall",
@@ -612,6 +693,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             waterfallWidth,
             waterfallHeight,
             getCanvases,
+            {
+              showStats: showStatsWaterfall,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+            },
           )
         }
         onVideo={() =>
@@ -626,6 +712,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             }),
             "fast-waterfall-recording",
             getCanvases,
+            {
+              showStats: showStatsWaterfall,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              getActiveSignalArea: () => state.activeSignalArea,
+              getActiveSignalAreaBounds: () =>
+                signalAreaBounds?.[state.activeSignalArea] ??
+                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
+                null,
+            },
           )
         }
         onStop={stopFastRecording}
@@ -641,6 +737,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     startFastRecording,
     stopFastRecording,
     getCanvases,
+    showStatsWaterfall,
+    state.activeSignalArea,
+    activeSignalAreaBounds,
+    signalAreaBounds,
   ]);
 
   const handleCreateNoteCard = useCallback(() => {

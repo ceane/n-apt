@@ -36,12 +36,18 @@ const Wrapper = styled.div<{ $mode: ResponsiveKatexMode }>`
     transition: font-size 0.2s ease;
     min-height: 2em;
     position: relative;
-    
+
     /* Precise breakpoints for LaTeX font scaling */
     font-size: 1.1em;
-    @media (max-width: 1024px) { font-size: 1.0em; }
-    @media (max-width: 768px) { font-size: 0.9em; }
-    @media (max-width: 480px) { font-size: 0.8em; }
+    @media (max-width: 1024px) {
+      font-size: 1em;
+    }
+    @media (max-width: 768px) {
+      font-size: 0.9em;
+    }
+    @media (max-width: 480px) {
+      font-size: 0.8em;
+    }
   }
 
   .katex-display > .katex {

@@ -80,7 +80,7 @@ export interface SpectrumState {
   txPowerDbm: number;
   txVgaGain: number;
   txSafetyEnabled: boolean;
-  txSafetyLimit: "person" | "room";
+  txSafetyLimit: "person" | "room" | "min";
   txHopType: "range" | "channels";
   txHopStartFrequencyHz: number;
   txHopEndFrequencyHz: number;
@@ -138,7 +138,7 @@ const LIVE_CONTROL_DEFAULTS = {
   txPowerDbm: -18,
   txVgaGain: 16,
   txSafetyEnabled: false,
-  txSafetyLimit: "room" as const,
+  txSafetyLimit: "room" as "person" | "room" | "min",
   txHopType: "range" as const,
   txHopStartFrequencyHz: 10_000_000,
   txHopEndFrequencyHz: 20_000_000,
@@ -406,7 +406,10 @@ const spectrumSlice = createSlice({
       state.txSafetyEnabled = action.payload;
     },
 
-    setTxSafetyLimit: (state, action: PayloadAction<"person" | "room">) => {
+    setTxSafetyLimit: (
+      state,
+      action: PayloadAction<"person" | "room" | "min">,
+    ) => {
       state.txSafetyLimit = action.payload;
     },
 

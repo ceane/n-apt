@@ -1626,6 +1626,11 @@ export function buildFastSpectrumCanvas(
     spectrumGpu: HTMLCanvasElement | null;
     spectrumOverlay: HTMLCanvasElement | null;
   } | null,
+  options?: {
+    showStats?: boolean;
+    activeSignalArea?: string;
+    activeSignalAreaBounds?: { min: number; max: number } | null;
+  },
 ): HTMLCanvasElement | null {
   if (
     !snapshotData ||
@@ -1648,6 +1653,23 @@ export function buildFastSpectrumCanvas(
           visualRange: snapshotData.frequencyRange,
         };
 
+  const statsLines = options?.showStats
+    ? buildSnapshotStatsLines({
+        range: visualRange,
+        timestampLabel: fmtTimestamp(),
+        deviceName: snapshotData.isDeviceConnected ? "SDR" : "Offline",
+        channelName: options?.activeSignalArea,
+        activeSignalAreaBounds: options?.activeSignalAreaBounds,
+        whole: false,
+        hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
+        fftSize: snapshotData.fftSize,
+        fftWindow: snapshotData.fftWindow,
+        gain: undefined,
+        ppm: undefined,
+        showGeolocation: false,
+      })
+    : [];
+
   const canvas = renderSpectrumSnapshotCanvas(
     { ...snapshotData, waveform: slicedWaveform },
     visualRange,
@@ -1655,13 +1677,15 @@ export function buildFastSpectrumCanvas(
     Math.max(1, width),
     Math.max(1, height),
     snapshotData.frequencyRange,
-    [],
+    statsLines,
     slicedWaveform,
     theme,
     undefined,
     undefined,
     true,
     false,
+    options?.activeSignalAreaBounds,
+    options?.activeSignalArea,
   );
 
   // Draw demodFocus overlay if present
@@ -1866,6 +1890,12 @@ export function buildFastWaterfallCanvas(
     waterfallOverlay: HTMLCanvasElement | null;
   } | null,
   axisTheme?: FrequencyAxisTheme,
+  options?: {
+    showStats?: boolean;
+    activeSignalArea?: string;
+    activeSignalAreaBounds?: { min: number; max: number } | null;
+  },
+  themeOption?: SnapshotTheme,
 ): HTMLCanvasElement | null {
   const fallbackAxisTheme =
     axisTheme ??
@@ -1949,6 +1979,66 @@ export function buildFastWaterfallCanvas(
         plotLeft,
         plotRight,
       );
+    }
+  }
+
+  if (options?.showStats && composed) {
+    const ctx = composed.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const logicalW = composed.width / dpr;
+      const logicalH = composed.height / dpr;
+      const plotLeft = 40;
+      const plotTop = FAST_WATERFALL_VFO_HEADER_HEIGHT;
+
+      const mapper = new CoordinateMapper(
+        {
+          x: plotLeft,
+          y: plotTop,
+          width: logicalW - 80,
+          height: logicalH - plotTop,
+        },
+        effectiveRange || { min: 0, max: 1 },
+        { min: snapshotData?.dbMin ?? -120, max: snapshotData?.dbMax ?? 0 },
+        dpr,
+      );
+
+      const statsLines = buildSnapshotStatsLines({
+        range: effectiveRange || { min: 0, max: 1 },
+        timestampLabel: fmtTimestamp(),
+        deviceName: snapshotData?.isDeviceConnected ? "SDR" : "Offline",
+        channelName: options?.activeSignalArea,
+        activeSignalAreaBounds: options?.activeSignalAreaBounds,
+        whole: false,
+        hardwareSampleRateHz: snapshotData?.hardwareSampleRateHz,
+        fftSize: snapshotData?.fftSize,
+        fftWindow: snapshotData?.fftWindow,
+        gain: undefined,
+        ppm: undefined,
+        showGeolocation: false,
+      });
+
+      const theme = themeOption || {
+        bg: "rgba(5, 7, 13, 0.95)",
+        grid: "rgba(110, 163, 255, 0.35)",
+        line: "rgba(110, 163, 255, 0.35)",
+        shadow: "rgba(0, 0, 0, 0)",
+        text: "rgba(238, 243, 251, 0.7)",
+        hwLine: "rgba(0, 0, 0, 0)",
+        hwText: "rgba(0, 0, 0, 0)",
+        cfText: "#eef3fb",
+      };
+      const renderer = new SnapshotRenderer(mapper, theme);
+      const dc = new CanvasDrawingContext(ctx);
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      renderer.drawStatsBox(
+        dc,
+        statsLines,
+        new Float32Array(0),
+        1.0,
+      );
+      ctx.restore();
     }
   }
 
@@ -2054,6 +2144,11 @@ export function useSnapshot(
       height: number,
       theme: SnapshotTheme,
       canvases?: FastCanvases | null,
+      options?: {
+        showStats?: boolean;
+        activeSignalArea?: string;
+        activeSignalAreaBounds?: { min: number; max: number } | null;
+      },
     ): HTMLCanvasElement | null => {
       if (!snapshotData) {
         return null;
@@ -2066,6 +2161,7 @@ export function useSnapshot(
           height,
           theme,
           canvases,
+          options,
         );
       }
 
@@ -2086,6 +2182,8 @@ export function useSnapshot(
         snapshotData.frequencyRange || frequencyRange,
         canvases,
         waterfallAxisTheme,
+        options,
+        theme,
       );
     },
     [frequencyRange, staticThemeColors],
@@ -3319,6 +3417,13 @@ export function useSnapshot(
       getCanvasDimensions: () => { width: number; height: number },
       filenamePrefix: string,
       getCanvases: GetFastCanvases,
+      options?: {
+        showStats?: boolean;
+        activeSignalArea?: string;
+        activeSignalAreaBounds?: { min: number; max: number } | null;
+        getActiveSignalArea?: () => string;
+        getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
+      },
     ) => {
       if (fastRecordingSessionRef.current) {
         stopFastRecording();
@@ -3341,6 +3446,11 @@ export function useSnapshot(
         dimensions.height,
         theme,
         initialCanvases,
+        {
+          showStats: options?.showStats,
+          activeSignalArea: options?.getActiveSignalArea ? options.getActiveSignalArea() : options?.activeSignalArea,
+          activeSignalAreaBounds: options?.getActiveSignalAreaBounds ? options.getActiveSignalAreaBounds() : options?.activeSignalAreaBounds,
+        },
       );
       if (!initialFrame) return;
 
@@ -3418,6 +3528,11 @@ export function useSnapshot(
             dimensions.height,
             currentTheme,
             currentCanvases,
+            {
+              showStats: options?.showStats,
+              activeSignalArea: options?.getActiveSignalArea ? options.getActiveSignalArea() : options?.activeSignalArea,
+              activeSignalAreaBounds: options?.getActiveSignalAreaBounds ? options.getActiveSignalAreaBounds() : options?.activeSignalAreaBounds,
+            },
           );
           if (frameCanvas) {
             ctx.imageSmoothingEnabled = false;
@@ -3505,6 +3620,11 @@ export function useSnapshot(
       width: number,
       height: number,
       getCanvases: GetFastCanvases,
+      options?: {
+        showStats?: boolean;
+        activeSignalArea?: string;
+        activeSignalAreaBounds?: { min: number; max: number } | null;
+      },
     ) => {
       dispatch(bumpSnapshotSectionPulse());
       const snapshotData = getSnapshotData();
@@ -3530,6 +3650,7 @@ export function useSnapshot(
             height,
             theme,
             canvases,
+            options,
           );
         }
 
@@ -3540,6 +3661,8 @@ export function useSnapshot(
           waterfallFrequencyRange,
           canvases,
           waterfallAxisTheme,
+          options,
+          theme,
         );
       };
 
@@ -3561,7 +3684,7 @@ export function useSnapshot(
         },
       });
     },
-    [dispatch, buildSnapshotTheme, frequencyRange, handleSnapshot],
+    [dispatch, buildSnapshotTheme, frequencyRange, handleSnapshot, staticThemeColors],
   );
 
   return {

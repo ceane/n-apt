@@ -1144,6 +1144,40 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       wsConnection.sendTransmitMode,
     ],
   );
+
+  useEffect(() => {
+    if (!isTransmittingGlobal || !txTargetDeviceId) return;
+    const source = sourcesToUse.find((entry) => entry.id === txTargetDeviceId);
+    if (!source) return;
+
+    wsConnection.sendTransmitMode?.(true, source.name ?? txTargetDeviceId, {
+      serialNumber: source.serial_number?.trim() || txTargetDeviceId,
+      centerFrequencyHz: txCenterFrequencyHz,
+      sampleRateHz: txSampleRateHz,
+      powerDbm: txPowerDbm,
+      vgaGainDb: txVgaGain,
+      ampEnabled: hackrfAmpEnabled,
+    });
+  }, [
+    isTransmittingGlobal,
+    txTargetDeviceId,
+    txSignal,
+    txCenterFrequencyHz,
+    txSampleRateHz,
+    txPowerDbm,
+    txVgaGain,
+    hackrfAmpEnabled,
+    txSafetyEnabled,
+    txSafetyLimit,
+    txHopType,
+    txHopStartFrequencyHz,
+    txHopEndFrequencyHz,
+    txHopChannels,
+    txHopRateHz,
+    sourcesToUse,
+    wsConnection.sendTransmitMode,
+  ]);
+
   const sourceDevices = useMemo(
     () =>
       sourcesToUse.map((source) => {

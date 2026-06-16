@@ -294,6 +294,22 @@ const AuthButton = styled(Button)<{
         color: ${props.theme.textMuted};
       }
     `}
+
+  ${(props) =>
+    props.$variant === "secondary" &&
+    `
+      background-color: ${props.theme.surface};
+      border: 1px solid ${props.theme.border} !important;
+      color: ${props.theme.textSecondary};
+      box-shadow: none;
+
+      &:hover {
+        background-color: ${props.theme.surfaceHover};
+        border-color: ${props.theme.borderHover} !important;
+        color: ${props.theme.textPrimary};
+        box-shadow: 0 0 0 1px ${props.theme.borderHover}33;
+      }
+    `}
 `;
 
 const Divider = styled.div`
@@ -346,6 +362,23 @@ const LegalNotice = styled.p`
 
   a:hover {
     text-decoration: underline;
+  }
+`;
+
+const LearnMoreLink = styled(Link)`
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography?.mono ?? '"JetBrains Mono", monospace'};
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  z-index: 30;
+
+  &:hover {
+    color: ${(props) => props.theme.primary};
   }
 `;
 
@@ -567,6 +600,9 @@ export const AuthenticationUI = ({
 
   return (
     <Container>
+      <LearnMoreLink to="/learn-signals">
+        Learn More about Signals &gt;
+      </LearnMoreLink>
       <WaveBackground aria-hidden="true">
         <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
           <WavePath d={wavePathA} />
@@ -697,13 +733,14 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handlePasskeyAuth,
     handleRegisterPasskey,
   } = useAuthentication();
-  const isPublicLegalRoute =
+  const isPublicRoute =
     location.pathname === "/terms" ||
     location.pathname === "/privacy" ||
     location.pathname === "/license" ||
-    location.pathname === "/responsible-use";
+    location.pathname === "/responsible-use" ||
+    location.pathname === "/learn-signals";
 
-  if (isPublicLegalRoute) {
+  if (isPublicRoute) {
     return <>{children}</>;
   }
 

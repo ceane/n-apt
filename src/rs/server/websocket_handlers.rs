@@ -650,28 +650,37 @@ pub fn handle_message(
 
       // Enforce safety clamps on VGA gain and AMP enabled
       if safety_enabled {
-        let max_dist = if safety_limit == "person" { 1.0 } else { 3.0 };
-        let freq = sdr_settings.center_frequency as f64;
-        let limit_dbm =
-          crate::safety::calculate_room_power_limit(freq, max_dist);
-        let safe_gains = crate::safety::get_max_safe_vga_and_amp(limit_dbm);
-
-        if let Some(vga) = sdr_settings.gain.hackrf_vga_gain {
-          sdr_settings.gain.hackrf_vga_gain = Some(vga.min(safe_gains.vga));
-        } else {
-          sdr_settings.gain.hackrf_vga_gain = Some(0.0f64.min(safe_gains.vga));
-        }
-        if !safe_gains.amp {
+        if safety_limit == "min" {
+          sdr_settings.gain.hackrf_vga_gain = Some(0.0);
           sdr_settings.gain.hackrf_amp_enable = Some(false);
+        } else {
+          let max_dist = if safety_limit == "person" { 1.0 } else { 3.0 };
+          let freq = sdr_settings.center_frequency as f64;
+          let limit_dbm =
+            crate::safety::calculate_room_power_limit(freq, max_dist);
+          let safe_gains = crate::safety::get_max_safe_vga_and_amp(limit_dbm);
+
+          if let Some(vga) = sdr_settings.gain.hackrf_vga_gain {
+            sdr_settings.gain.hackrf_vga_gain = Some(vga.min(safe_gains.vga));
+          } else {
+            sdr_settings.gain.hackrf_vga_gain =
+              Some(0.0f64.min(safe_gains.vga));
+          }
+          if !safe_gains.amp {
+            sdr_settings.gain.hackrf_amp_enable = Some(false);
+          }
         }
       }
 
       *shared.sdr_settings.lock().unwrap() = sdr_settings.clone();
 
-      let tx_power = crate::safety::get_approx_output_power(
+      let mut tx_power = crate::safety::get_approx_output_power(
         sdr_settings.gain.hackrf_vga_gain.unwrap_or(0.0),
         sdr_settings.gain.hackrf_amp_enable.unwrap_or(false),
       );
+      if safety_enabled && safety_limit == "min" {
+        tx_power = -70.0;
+      }
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
       crate::safety::TX_TRANSMITTING
         .store(enabled, std::sync::atomic::Ordering::Relaxed);
