@@ -845,7 +845,7 @@ pkill -9 -f 'vite' || true
 # Kill by port (safe & exhaustive)
 # Ports: 5173 (Vite), 8765 (Backend), 6379 (Redis)
 for port in 5173 8765 6379; do
-  pids=$(lsof -ti :$port)
+  pids=$(lsof -tPni :$port)
   if [ ! -z "$pids" ]; then
     echo "Clearing port $port (PIDs: $pids)"
     kill -9 $pids 2>/dev/null || true
@@ -904,7 +904,7 @@ REDIS_PORT=6379
 DATA_DIR='.redis_data'
 mkdir -p "$DATA_DIR"
 if command -v redis-server >/dev/null 2>&1; then
-  if lsof -ti:$REDIS_PORT >/dev/null 2>&1; then
+  if lsof -tPni :$REDIS_PORT >/dev/null 2>&1; then
     echo "Error: Port $REDIS_PORT is still in use after cleanup. Please stop any system Redis services."
     exit 1
   fi
@@ -1452,7 +1452,7 @@ async function runNonTtyBuild() {
           pkill -9 -f 'n-apt-backend' || true
           pkill -9 -f 'vite' || true
           for port in 5173 8765 6379; do
-            pids=$(lsof -ti :$port)
+            pids=$(lsof -tPni :$port)
             if [ ! -z "$pids" ]; then
               kill -9 $pids 2>/dev/null || true
             fi

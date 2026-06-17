@@ -12,8 +12,8 @@ pkill -f "vite" 2>/dev/null || true
 pkill -f "node_modules/.bin/vite" 2>/dev/null || true
 
 # Kill processes using specific ports
-lsof -ti:5173 | xargs kill -9 2>/dev/null || true
-lsof -ti:8765 | xargs kill -9 2>/dev/null || true
+lsof -tPni :5173 | xargs kill -9 2>/dev/null || true
+lsof -tPni :8765 | xargs kill -9 2>/dev/null || true
 
 # Wait a moment for processes to die
 sleep 1
