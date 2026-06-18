@@ -128,7 +128,7 @@ describe("useOverlayRenderer Hook", () => {
     expect(labels).not.toContain("91MHz"); // Collides with center
   });
 
-  it("draws the Tx slider through the overlay renderer", () => {
+  it("draws the Tx slider without labels", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 
     result.current.drawTxSliderOnContext(mockCtx, 1000, 600, {
@@ -141,16 +141,7 @@ describe("useOverlayRenderer Hook", () => {
       txSampleRateHz: 240_000,
     });
 
-    expect(mockCtx.fillText).toHaveBeenCalledWith(
-      "Tx",
-      expect.any(Number),
-      expect.any(Number),
-    );
-    expect(mockCtx.fillText).toHaveBeenCalledWith(
-      "APT",
-      expect.any(Number),
-      expect.any(Number),
-    );
+    expect(mockCtx.fillText).not.toHaveBeenCalled();
   });
 
   it("can suppress the live status row when another overlay owns the bottom band", () => {

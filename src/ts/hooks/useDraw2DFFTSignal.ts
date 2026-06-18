@@ -727,6 +727,7 @@ export function useDraw2DFFTSignal() {
       width: number,
       height: number,
       slider: NonNullable<Draw2DFFTSignalOptions["txSlider"]>,
+      visualRange?: FrequencyRange,
     ) => {
       if (
         !slider.visible ||
@@ -747,7 +748,11 @@ export function useDraw2DFFTSignal() {
       const trackLeft = FFT_AREA_MIN.x;
       const trackRight = Math.max(trackLeft + 80, width - 40);
       const trackWidth = Math.max(1, trackRight - trackLeft);
-      const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+      const visRange = visualRange || {
+        min: slider.visibleMinHz,
+        max: slider.visibleMaxHz,
+      };
+      const visibleSpan = visRange.max - visRange.min;
       const bandwidth = Math.max(
         1,
         Math.min(visibleSpan, slider.txSampleRateHz),
@@ -755,9 +760,11 @@ export function useDraw2DFFTSignal() {
       const bandMin = slider.txCenterHz - bandwidth / 2;
       const bandMax = slider.txCenterHz + bandwidth / 2;
       const toX = (hz: number) =>
-        trackLeft + ((hz - slider.visibleMinHz) / visibleSpan) * trackWidth;
-      const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
-      const bandRight = Math.max(trackLeft, Math.min(trackRight, toX(bandMax)));
+        trackLeft + ((hz - visRange.min) / visibleSpan) * trackWidth;
+      const rawBandLeft = toX(bandMin);
+      const rawBandRight = toX(bandMax);
+      const bandLeft = Math.max(trackLeft, Math.min(trackRight, rawBandLeft));
+      const bandRight = Math.max(trackLeft, Math.min(trackRight, rawBandRight));
       const centerX = Math.max(
         trackLeft,
         Math.min(trackRight, toX(slider.txCenterHz)),
@@ -992,7 +999,7 @@ export function useDraw2DFFTSignal() {
         }
 
         if (!nodePreview && txSlider?.visible) {
-          drawTxSliderRow(ctx, cssWidth, cssHeight, txSlider);
+          drawTxSliderRow(ctx, cssWidth, cssHeight, txSlider, frequencyRange);
         }
 
         return true;

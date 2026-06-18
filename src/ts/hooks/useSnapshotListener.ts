@@ -199,6 +199,7 @@ export const useSnapshotListener = ({
         sourceName: deviceName || backend || deviceInfo || undefined,
         sdrSettingsLabel,
         ppm: ppm ?? options.ppm ?? undefined,
+        aspectRatio: options.aspectRatio,
         showGeolocation: options.showGeolocation,
         geolocation: options.geolocation,
         videoFrameRate: isVideo ? 30 : fftFrameRate,

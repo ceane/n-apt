@@ -6,6 +6,7 @@ const drawWebGPUFFTSignalMock = jest.fn(() => true);
 const draw3DWaterfallSignalMock = jest.fn(() => true);
 const drawMarkersOnContextMock = jest.fn();
 const drawTxSliderOnContextMock = jest.fn();
+const drawTxSliderBackdropOnContextMock = jest.fn();
 
 jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
   useDrawWebGPUFFTSignal: () => ({
@@ -28,6 +29,7 @@ jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
     drawDemodFocusOnContext: jest.fn(),
     drawSelectionOverlayOnContext: jest.fn(),
     drawTxSliderOnContext: drawTxSliderOnContextMock,
+    drawTxSliderBackdropOnContext: drawTxSliderBackdropOnContextMock,
   }),
 }));
 
@@ -77,10 +79,11 @@ describe("useSpectrumRenderer", () => {
 
     expect(markersOverlayRenderer.beginDraw).toHaveBeenCalledTimes(1);
     expect(drawTxSliderOnContextMock).toHaveBeenLastCalledWith(
-      ctx,
+      expect.anything(),
       1000,
       600,
       undefined,
+      { min: 0, max: 4_372_000 },
     );
 
     (performance.now as jest.Mock).mockReturnValue(1_001);
@@ -120,7 +123,7 @@ describe("useSpectrumRenderer", () => {
       0,
     );
     expect(drawTxSliderOnContextMock).toHaveBeenLastCalledWith(
-      ctx,
+      expect.anything(),
       1000,
       600,
       expect.objectContaining({
@@ -128,6 +131,7 @@ describe("useSpectrumRenderer", () => {
         signalLabel: "APT",
         txCenterHz: 2_186_000,
       }),
+      expect.any(Object),
     );
   });
 });

@@ -114,7 +114,7 @@ const theme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-const createStore = () =>
+const createStore = (preloadedState?: any) =>
   configureStore({
     reducer: {
       auth: authSlice,
@@ -127,6 +127,7 @@ const createStore = () =>
       demod: demodSlice,
       noteCards: noteCardsSlice,
     },
+    preloadedState,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({ serializableCheck: false }),
   });
@@ -358,10 +359,13 @@ describe("SpectrumRoute file mode", () => {
       sources: [],
     } as any;
 
-    const store = createStore();
-    store.dispatch(setDeviceKind("mock_tx"));
-    store.dispatch(setTxCenterFrequencyHz(Number.NaN));
-    store.dispatch(setTxSampleRateHz(Number.NaN));
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_tx",
+        txCenterFrequencyHz: Number.NaN,
+      },
+    });
 
     render(
       <Provider store={store}>

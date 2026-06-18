@@ -27,7 +27,6 @@ import {
   SnapshotTheme,
   SVGDrawingContext,
   DrawingContext,
-  StatsBoxPlacement,
 } from "@n-apt/utils/rendering/SnapshotRenderer";
 import { fmtTimestamp } from "@n-apt/utils/rendering/formatters";
 import {
@@ -86,6 +85,7 @@ export type SnapshotOptions = {
   gain?: number;
   ppm?: number;
   sdrSettingsLabel?: string;
+  fftSize?: number | string;
   modeLabel?: string;
   wholeChannelSegments?: WholeChannelSnapshotSegment[];
   getWholeChannelSegmentFrames?: () => AsyncGenerator<
@@ -516,7 +516,6 @@ function renderSpectrumSnapshot(
   waveform?: Float32Array,
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
-  statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
   forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
@@ -570,7 +569,6 @@ function renderSpectrumSnapshot(
       waveform,
       fontScale,
       zoom,
-      statsPlacementRef,
       crispTrace,
       forceTraceSteps,
       activeSignalAreaBounds,
@@ -596,7 +594,6 @@ function renderSpectrumSnapshot(
       waveform,
       fontScale,
       zoom,
-      statsPlacementRef,
       crispTrace,
       forceTraceSteps,
       activeSignalAreaBounds,
@@ -617,7 +614,6 @@ function renderToDC(
   waveform?: Float32Array,
   fontScale: number = 1,
   zoom: number = 1,
-  statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
   forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
@@ -676,28 +672,11 @@ function renderToDC(
     (frequencyRange.min + frequencyRange.max) / 2,
     fontScale,
   );
-  let statsPlacement: StatsBoxPlacement | null = null;
-  if (statsLines && traceWaveform) {
-    const placement = renderer.drawStatsBox(
-      dc,
-      statsLines,
-      traceWaveform,
-      fontScale,
-      statsPlacementRef?.current ?? undefined,
-      channelLabelBox ? [channelLabelBox] : null,
-    );
-    if (statsPlacementRef && !statsPlacementRef.current && placement) {
-      statsPlacementRef.current = placement;
-    }
-    statsPlacement = placement;
-  }
-
   renderer.drawChannelBounds(
     dc,
     shouldDrawChannelBounds ? activeSignalAreaBounds : null,
     frequencyRange,
     activeSignalAreaLabel,
-    statsPlacement,
   );
 }
 
@@ -927,7 +906,6 @@ export function renderSpectrumSnapshotCanvas(
   waveform?: Float32Array,
   theme?: SnapshotTheme,
   _aspectRatio?: SnapshotAspectRatio,
-  statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
   forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
@@ -945,7 +923,6 @@ export function renderSpectrumSnapshotCanvas(
     waveform,
     theme,
     _aspectRatio,
-    statsPlacementRef,
     crispTrace,
     forceTraceSteps,
     activeSignalAreaBounds,
@@ -1031,7 +1008,6 @@ export async function composeWholeChannelSpectrumCanvas(
   statsLines?: string[],
   theme?: SnapshotTheme,
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean },
-  statsPlacementRef?: { current: StatsBoxPlacement | null },
   crispTrace: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
@@ -1074,7 +1050,6 @@ export async function composeWholeChannelSpectrumCanvas(
     stitched,
     theme,
     undefined,
-    statsPlacementRef,
     crispTrace,
     false,
     activeSignalAreaBounds,
@@ -1591,7 +1566,6 @@ function buildLiveSpectrumSnapshotCanvas(
   statsLines: string[],
   waveform: Float32Array,
   theme: SnapshotTheme,
-  statsPlacementRef?: { current: StatsBoxPlacement | null },
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
 ): HTMLCanvasElement | null {
@@ -1609,12 +1583,95 @@ function buildLiveSpectrumSnapshotCanvas(
     waveform,
     theme,
     undefined,
-    statsPlacementRef,
     false,
     false,
     activeSignalAreaBounds,
     activeSignalAreaLabel,
   );
+}
+
+function renderStatsRowCanvas(
+  statsLines: string[],
+  width: number,
+  theme: SnapshotTheme,
+  aspectRatio?: SnapshotAspectRatio,
+): HTMLCanvasElement | null {
+  if (!statsLines.length) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, width);
+  const plotLeft = 52;
+  const plotRight = 40;
+  const padX = 12;
+  const padY = 12;
+  const fontBoost = aspectRatio && aspectRatio !== "default" ? 5 : 0;
+  const baseFontSize = 17 + fontBoost;
+  const lh = 24 + fontBoost;
+  const splitIndex = Math.ceil(statsLines.length / 2);
+  const leftLines = statsLines.slice(0, splitIndex);
+  const rightLines = statsLines.slice(splitIndex);
+  const rowCount = Math.max(leftLines.length, rightLines.length);
+  const dividerH = 1;
+  const boxH = rowCount * lh + padY * 2 + dividerH;
+  canvas.height = Math.max(1, boxH);
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const background = theme.bg;
+  const divider = theme.grid;
+  const textColor = theme.text;
+  const markerColor = "rgba(240, 240, 240, 0.96)";
+  const markerMutedColor = "rgba(240, 240, 240, 0.72)";
+
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = divider;
+  ctx.fillRect(
+    plotLeft,
+    0,
+    Math.max(1, canvas.width - plotLeft - plotRight),
+    dividerH,
+  );
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `${baseFontSize}px monospace`;
+
+  const drawLine = (line: string, x: number, y: number) => {
+    ctx.fillStyle = markerMutedColor;
+    ctx.fillText("-", x, y);
+    const pointWidth = ctx.measureText("-").width;
+    ctx.fillStyle = markerColor;
+    ctx.fillText(line, x + pointWidth + 4, y);
+  };
+
+  const availableWidth = Math.max(1, width - plotLeft - plotRight);
+  const centerGap = Math.max(32, Math.round(availableWidth * 0.08));
+  const leftColumnX = plotLeft;
+  const rightColumnX = plotLeft + Math.round((availableWidth - centerGap) / 2);
+
+  for (let i = 0; i < rowCount; i++) {
+    const y = padY + (i + 0.8) * lh;
+    if (leftLines[i]) drawLine(leftLines[i], leftColumnX, y);
+    if (rightLines[i]) drawLine(rightLines[i], rightColumnX, y);
+  }
+
+  return canvas;
+}
+
+function appendCanvasBelow(
+  topCanvas: HTMLCanvasElement,
+  bottomCanvas: HTMLCanvasElement,
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(topCanvas.width, bottomCanvas.width);
+  canvas.height = topCanvas.height + bottomCanvas.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return topCanvas;
+  ctx.drawImage(topCanvas, 0, 0);
+  ctx.drawImage(bottomCanvas, 0, topCanvas.height);
+  return canvas;
 }
 
 export function buildFastSpectrumCanvas(
@@ -1635,6 +1692,7 @@ export function buildFastSpectrumCanvas(
     gain?: number;
     ppm?: number;
     fftSize?: number | string;
+    aspectRatio?: SnapshotAspectRatio;
   },
 ): HTMLCanvasElement | null {
   if (
@@ -1662,12 +1720,17 @@ export function buildFastSpectrumCanvas(
     ? buildSnapshotStatsLines({
         range: visualRange,
         timestampLabel: fmtTimestamp(),
-        deviceName: options?.sourceName || (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
+        deviceName:
+          options?.sourceName ||
+          (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
-        fftSize: options?.fftSize !== undefined ? options.fftSize : snapshotData.fftSize,
+        fftSize:
+          options?.fftSize !== undefined
+            ? options.fftSize
+            : snapshotData.fftSize,
         fftWindow: snapshotData.fftWindow,
         gain: options?.gain,
         ppm: options?.ppm,
@@ -1676,7 +1739,7 @@ export function buildFastSpectrumCanvas(
       })
     : [];
 
-  const canvas = renderSpectrumSnapshotCanvas(
+  const spectrumCanvas = renderSpectrumSnapshotCanvas(
     { ...snapshotData, waveform: slicedWaveform },
     visualRange,
     true,
@@ -1687,20 +1750,53 @@ export function buildFastSpectrumCanvas(
     slicedWaveform,
     theme,
     undefined,
-    undefined,
     true,
     false,
     options?.activeSignalAreaBounds,
     options?.activeSignalArea,
   );
 
+  if (!spectrumCanvas) {
+    return null;
+  }
+
+  const statsRow = options?.showStats
+    ? renderStatsRowCanvas(
+        statsLines,
+        spectrumCanvas.width,
+        theme || {
+          bg: "#05070d",
+          grid: "rgba(110, 163, 255, 0.35)",
+          line: "rgba(110, 163, 255, 0.35)",
+          shadow: "rgba(0, 0, 0, 0)",
+          text: "rgba(238, 243, 251, 0.7)",
+          hwLine: "rgba(0, 0, 0, 0)",
+          hwText: "rgba(0, 0, 0, 0)",
+          cfText: "#eef3fb",
+        },
+        options?.aspectRatio,
+      )
+    : null;
+
+  if (!statsRow) {
+    return trimTransparentBottomRows(spectrumCanvas);
+  }
+
+  const composed = document.createElement("canvas");
+  composed.width = spectrumCanvas.width;
+  composed.height = spectrumCanvas.height + statsRow.height;
+  const ctx = composed.getContext("2d");
+  if (!ctx) return trimTransparentBottomRows(spectrumCanvas);
+  ctx.drawImage(spectrumCanvas, 0, 0);
+  ctx.drawImage(statsRow, 0, spectrumCanvas.height);
+
   // Draw demodFocus overlay if present
-  if (canvas && snapshotData.demodFocusOverlay) {
-    const ctx = canvas.getContext("2d");
+  if (snapshotData.demodFocusOverlay) {
+    const ctx = composed.getContext("2d");
     if (ctx) {
       const dpr = window.devicePixelRatio || 1;
-      const logicalW = canvas.width / dpr;
-      const logicalH = canvas.height / dpr;
+      const logicalW = composed.width / dpr;
+      const logicalH = spectrumCanvas.height / dpr;
       const plotLeft = Math.max(FFT_AREA_MIN.x, 52);
       const plotRight = logicalW - 40;
       const plotTop = FFT_AREA_MIN.y;
@@ -1719,7 +1815,7 @@ export function buildFastSpectrumCanvas(
     }
   }
 
-  return trimTransparentBottomRows(canvas);
+  return trimTransparentBottomRows(composed);
 }
 
 export function drawFastWaterfallLabelStrip(
@@ -1905,6 +2001,7 @@ export function buildFastWaterfallCanvas(
     gain?: number;
     ppm?: number;
     fftSize?: number | string;
+    aspectRatio?: SnapshotAspectRatio;
   },
   themeOption?: SnapshotTheme,
 ): HTMLCanvasElement | null {
@@ -1924,6 +2021,29 @@ export function buildFastWaterfallCanvas(
     snapshotData,
     frequencyRange,
   );
+  const statsLines =
+    options?.showStats && snapshotData
+      ? buildSnapshotStatsLines({
+          range: effectiveRange ?? { min: 0, max: 1 },
+          timestampLabel: fmtTimestamp(),
+          deviceName:
+            options?.sourceName ||
+            (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
+          channelName: options?.activeSignalArea,
+          activeSignalAreaBounds: options?.activeSignalAreaBounds,
+          whole: false,
+          hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
+          fftSize:
+            options?.fftSize !== undefined
+              ? options.fftSize
+              : snapshotData.fftSize,
+          fftWindow: snapshotData.fftWindow,
+          gain: options?.gain,
+          ppm: options?.ppm,
+          gainLabel: options?.sdrSettingsLabel,
+          showGeolocation: false,
+        })
+      : [];
   let sourceCanvas: HTMLCanvasElement | null = null;
 
   if (
@@ -1969,6 +2089,36 @@ export function buildFastWaterfallCanvas(
     tickDirection: "down",
     theme: fallbackAxisTheme,
   });
+
+  const statsRow = options?.showStats
+    ? renderStatsRowCanvas(
+        statsLines,
+        composed.width,
+        themeOption || {
+          bg: "#05070d",
+          grid: "rgba(110, 163, 255, 0.35)",
+          line: "rgba(110, 163, 255, 0.35)",
+          shadow: "rgba(0, 0, 0, 0)",
+          text: "rgba(238, 243, 251, 0.7)",
+          hwLine: "rgba(0, 0, 0, 0)",
+          hwText: "rgba(0, 0, 0, 0)",
+          cfText: "#eef3fb",
+        },
+        options?.aspectRatio,
+      )
+    : null;
+
+  if (statsRow) {
+    const combined = document.createElement("canvas");
+    combined.width = composed.width;
+    combined.height = statsRow.height + composed.height;
+    const ctx = combined.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(statsRow, 0, 0);
+      ctx.drawImage(composed, 0, statsRow.height);
+      return combined;
+    }
+  }
 
   if (snapshotData?.demodFocusOverlay && composed) {
     const ctx = composed.getContext("2d");
@@ -2017,12 +2167,17 @@ export function buildFastWaterfallCanvas(
       const statsLines = buildSnapshotStatsLines({
         range: effectiveRange || { min: 0, max: 1 },
         timestampLabel: fmtTimestamp(),
-        deviceName: options?.sourceName || (snapshotData?.isDeviceConnected ? "SDR" : "Offline"),
+        deviceName:
+          options?.sourceName ||
+          (snapshotData?.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData?.hardwareSampleRateHz,
-        fftSize: options?.fftSize !== undefined ? options.fftSize : snapshotData?.fftSize,
+        fftSize:
+          options?.fftSize !== undefined
+            ? options.fftSize
+            : snapshotData?.fftSize,
         fftWindow: snapshotData?.fftWindow,
         gain: options?.gain,
         ppm: options?.ppm,
@@ -2044,7 +2199,6 @@ export function buildFastWaterfallCanvas(
       const dc = new CanvasDrawingContext(ctx);
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      renderer.drawStatsBox(dc, statsLines, new Float32Array(0), 1.0);
       ctx.restore();
     }
   }
@@ -2160,6 +2314,7 @@ export function useSnapshot(
         gain?: number;
         ppm?: number;
         fftSize?: number | string;
+        aspectRatio?: SnapshotAspectRatio;
       },
     ): HTMLCanvasElement | null => {
       if (!snapshotData) {
@@ -2389,8 +2544,6 @@ export function useSnapshot(
             })
           : [];
 
-        const statsPlacementRef = { current: null as StatsBoxPlacement | null };
-
         if (options.showStats && options.showGeolocation) {
           if (options.geolocation) {
             statsLines.push(
@@ -2569,6 +2722,18 @@ export function useSnapshot(
             }
           }
 
+          const statsRow = options.showStats
+            ? renderStatsRowCanvas(
+                currentStatsLines,
+                targetFrameW,
+                theme,
+                options.aspectRatio,
+              )
+            : null;
+          if (statsRow) {
+            targetFrameH += statsRow.height;
+          }
+
           // Now render with target dimensions
           const currentWholeSpectrumCanvas =
             options.whole && frameSegments?.length
@@ -2582,7 +2747,6 @@ export function useSnapshot(
                   currentStatsLines,
                   theme,
                   options.stitchOptions,
-                  statsPlacementRef,
                   true,
                   options.activeSignalAreaBounds ?? null,
                   options.activeSignalArea,
@@ -2624,7 +2788,6 @@ export function useSnapshot(
                 currentStatsLines,
                 currentWaveform,
                 theme,
-                statsPlacementRef,
                 options.activeSignalAreaBounds ?? null,
                 options.activeSignalArea,
               ) ??
@@ -2639,7 +2802,6 @@ export function useSnapshot(
                 currentWaveform,
                 theme,
                 undefined,
-                statsPlacementRef,
                 false,
                 false,
                 options.activeSignalAreaBounds ?? null,
@@ -2678,6 +2840,14 @@ export function useSnapshot(
                 targetWaterfallH,
               );
             }
+          }
+
+          if (statsRow) {
+            frameCtx.drawImage(
+              statsRow,
+              0,
+              targetSpectrumH + (options.showWaterfall ? targetWaterfallH : 0),
+            );
           }
 
           return frameCanvas;
@@ -2749,6 +2919,19 @@ export function useSnapshot(
             liveSpectrumCanvas?.height ?? Math.round(targetSpectrumH * dpr);
           const pixelWaterfallH = Math.round(targetWaterfallH * dpr);
 
+          const statsRow = options.showStats
+            ? renderStatsRowCanvas(
+                statsLines,
+                pixelW,
+                theme,
+                options.aspectRatio,
+              )
+            : null;
+          const statsLogicalH = statsRow ? statsRow.height / dpr : 0;
+          if (statsRow) {
+            finalLogicalH += statsLogicalH;
+          }
+
           // Render whole channel canvases at target dimensions
           const wholeChannelSpectrumCanvas =
             options.whole && options.wholeChannelSegments?.length
@@ -2762,7 +2945,6 @@ export function useSnapshot(
                   statsLines,
                   theme,
                   options.stitchOptions,
-                  statsPlacementRef,
                   true,
                   options.activeSignalAreaBounds ?? null,
                   options.activeSignalArea,
@@ -2794,7 +2976,6 @@ export function useSnapshot(
               statsLines,
               waveformToRender,
               theme,
-              statsPlacementRef,
               options.activeSignalAreaBounds ?? null,
               options.activeSignalArea,
             );
@@ -2813,7 +2994,6 @@ export function useSnapshot(
                 waveformToRender,
                 theme,
                 options.aspectRatio,
-                statsPlacementRef,
                 false,
                 false,
                 options.activeSignalAreaBounds ?? null,
@@ -2843,9 +3023,16 @@ export function useSnapshot(
             }
           }
 
+          let statsSection = "";
+          if (statsRow) {
+            const statsDataUrl = statsRow.toDataURL("image/png");
+            statsSection = `<image href="${statsDataUrl}" x="0" y="${targetSpectrumH + (hasWaterfall ? targetWaterfallH : 0)}" width="${finalLogicalW}" height="${statsLogicalH}"/>`;
+          }
+
           const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
    ${spectrumSvg}
    ${waterfallSection}
+   ${statsSection}
  </svg>`;
 
           // Wrap in symbol structure for reusability
@@ -2964,6 +3151,19 @@ export function useSnapshot(
                 liveSpectrumCanvas?.height ?? Math.round(targetSpectrumH * dpr);
               const pixelWaterfallH = Math.round(targetWaterfallH * dpr);
 
+              const statsRow = options.showStats
+                ? renderStatsRowCanvas(
+                    currentStatsLines,
+                    pixelW,
+                    theme,
+                    options.aspectRatio,
+                  )
+                : null;
+              const statsLogicalH = statsRow ? statsRow.height / dpr : 0;
+              if (statsRow) {
+                finalLogicalH += statsLogicalH;
+              }
+
               const wholeChannelSpectrumCanvas =
                 options.whole && options.wholeChannelSegments?.length
                   ? await composeWholeChannelSpectrumCanvas(
@@ -2976,7 +3176,6 @@ export function useSnapshot(
                       currentStatsLines,
                       theme,
                       options.stitchOptions,
-                      statsPlacementRef,
                       true,
                       options.activeSignalAreaBounds ?? null,
                       options.activeSignalArea,
@@ -2997,7 +3196,6 @@ export function useSnapshot(
                     currentStatsLines,
                     currentWaveform,
                     theme,
-                    statsPlacementRef,
                     options.activeSignalAreaBounds ?? null,
                     options.activeSignalArea,
                   );
@@ -3016,7 +3214,6 @@ export function useSnapshot(
                     currentWaveform,
                     theme,
                     options.aspectRatio,
-                    statsPlacementRef,
                     false,
                     false,
                     options.activeSignalAreaBounds ?? null,
@@ -3040,9 +3237,16 @@ export function useSnapshot(
                 }
               }
 
+              let statsSection = "";
+              if (statsRow) {
+                const statsDataUrl = statsRow.toDataURL("image/png");
+                statsSection = `<image href="${statsDataUrl}" x="0" y="${targetSpectrumH + (hasWaterfall ? targetWaterfallH : 0)}" width="${finalLogicalW}" height="${statsLogicalH}"/>`;
+              }
+
               const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${finalLogicalW} ${finalLogicalH}" width="${finalLogicalW}" height="${finalLogicalH}">
   ${spectrumSvg}
   ${waterfallSection}
+  ${statsSection}
 </svg>`;
 
               return svgContent;
@@ -3276,6 +3480,18 @@ export function useSnapshot(
           }
         }
 
+        const statsRow = options.showStats
+          ? renderStatsRowCanvas(
+              statsLines,
+              finalPixelW,
+              theme,
+              options.aspectRatio,
+            )
+          : null;
+        if (statsRow) {
+          finalPixelH += statsRow.height;
+        }
+
         // Render whole channel canvases at target dimensions
         const wholeChannelSpectrumCanvas =
           options.whole && options.wholeChannelSegments?.length
@@ -3289,7 +3505,6 @@ export function useSnapshot(
                 statsLines,
                 theme,
                 options.stitchOptions,
-                statsPlacementRef,
                 true,
                 options.activeSignalAreaBounds ?? null,
                 options.activeSignalArea,
@@ -3320,7 +3535,6 @@ export function useSnapshot(
               statsLines,
               waveformToRender,
               theme,
-              statsPlacementRef,
               options.activeSignalAreaBounds ?? null,
               options.activeSignalArea,
             );
@@ -3338,7 +3552,6 @@ export function useSnapshot(
             waveformToRender,
             theme,
             options.aspectRatio,
-            undefined,
             false,
             false,
             options.activeSignalAreaBounds ?? null,
@@ -3370,6 +3583,13 @@ export function useSnapshot(
         ctx.drawImage(spectrumCanvas, 0, 0);
         if (waterfallCanvas) {
           ctx.drawImage(waterfallCanvas, 0, targetSpectrumH);
+        }
+        if (statsRow) {
+          ctx.drawImage(
+            statsRow,
+            0,
+            targetSpectrumH + (waterfallCanvas ? targetWaterfallH : 0),
+          );
         }
 
         // Export PNG
@@ -3439,6 +3659,7 @@ export function useSnapshot(
         sdrSettingsLabel?: string;
         gain?: number;
         ppm?: number;
+        fftSize?: number | string;
         getSdrSettingsLabel?: () => string | undefined;
         getSourceName?: () => string | undefined;
       },
@@ -3454,11 +3675,13 @@ export function useSnapshot(
       const snapshotData = getSnapshotData();
       if (!snapshotData) return;
 
-      const theme = buildSnapshotTheme(false);
+      const theme = buildSnapshotTheme(true);
       const dimensions = getCanvasDimensions();
       const initialCanvases = getCanvases();
 
-      const initialFrequencyRange = snapshotData.frequencyRange ? { ...snapshotData.frequencyRange } : null;
+      const initialFrequencyRange = snapshotData.frequencyRange
+        ? { ...snapshotData.frequencyRange }
+        : null;
       if (initialFrequencyRange) {
         snapshotData.frequencyRange = initialFrequencyRange;
       }
@@ -3571,9 +3794,11 @@ export function useSnapshot(
               }
             }
           }
-          const fftSizeToReport = fftSizeChanged ? `${minFftSize} (Varying)` : (currentFftSize || undefined);
+          const fftSizeToReport = fftSizeChanged
+            ? `${minFftSize} (Varying)`
+            : currentFftSize || undefined;
 
-          const currentTheme = buildSnapshotTheme(false);
+          const currentTheme = buildSnapshotTheme(true);
           const frameCanvas = renderFastRecordingFrame(
             target,
             currentSnapshotData,
@@ -3589,8 +3814,12 @@ export function useSnapshot(
               activeSignalAreaBounds: options?.getActiveSignalAreaBounds
                 ? options.getActiveSignalAreaBounds()
                 : options?.activeSignalAreaBounds,
-              sdrSettingsLabel: options?.getSdrSettingsLabel ? options.getSdrSettingsLabel() : options?.sdrSettingsLabel,
-              sourceName: options?.getSourceName ? options.getSourceName() : options?.sourceName,
+              sdrSettingsLabel: options?.getSdrSettingsLabel
+                ? options.getSdrSettingsLabel()
+                : options?.sdrSettingsLabel,
+              sourceName: options?.getSourceName
+                ? options.getSourceName()
+                : options?.sourceName,
               gain: options?.gain,
               ppm: options?.ppm,
               fftSize: fftSizeToReport,
@@ -3690,6 +3919,8 @@ export function useSnapshot(
         sdrSettingsLabel?: string;
         gain?: number;
         ppm?: number;
+        fftSize?: number | string;
+        aspectRatio?: SnapshotAspectRatio;
       },
     ) => {
       dispatch(bumpSnapshotSectionPulse());
@@ -3709,27 +3940,64 @@ export function useSnapshot(
 
       const getCanvas = () => {
         const canvases = getCanvases();
-        if (target === "spectrum") {
-          return buildFastSpectrumCanvas(
-            snapshotData,
-            width,
-            height,
-            theme,
-            canvases,
-            options,
-          );
+        const baseCanvas =
+          target === "spectrum"
+            ? buildFastSpectrumCanvas(
+                snapshotData,
+                width,
+                height,
+                theme,
+                canvases,
+                options,
+              )
+            : buildFastWaterfallCanvas(
+                snapshotData,
+                width,
+                height,
+                waterfallFrequencyRange,
+                canvases,
+                waterfallAxisTheme,
+                options,
+                theme,
+              );
+        if (!baseCanvas || !options?.showStats || !snapshotData) {
+          return baseCanvas;
         }
 
-        return buildFastWaterfallCanvas(
-          snapshotData,
-          width,
-          height,
-          waterfallFrequencyRange,
-          canvases,
-          waterfallAxisTheme,
-          options,
+        const statsLines = buildSnapshotStatsLines({
+          range: snapshotData.frequencyRange ??
+            waterfallFrequencyRange ?? {
+              min: 0,
+              max: 1,
+            },
+          timestampLabel: fmtTimestamp(),
+          deviceName:
+            options?.sourceName ||
+            (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
+          channelName: options?.activeSignalArea,
+          activeSignalAreaBounds: options?.activeSignalAreaBounds,
+          whole: false,
+          hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
+          fftSize:
+            options?.fftSize !== undefined
+              ? options.fftSize
+              : snapshotData.fftSize,
+          fftWindow: snapshotData.fftWindow,
+          gain: options?.gain,
+          ppm: options?.ppm,
+          gainLabel: options?.sdrSettingsLabel,
+          showGeolocation: false,
+        });
+        if (!statsLines.length) {
+          return baseCanvas;
+        }
+        const statsRow = renderStatsRowCanvas(
+          statsLines,
+          baseCanvas.width,
           theme,
+          options?.aspectRatio,
         );
+        return statsRow ? appendCanvasBelow(baseCanvas, statsRow) : baseCanvas;
       };
 
       const filenamePrefix =

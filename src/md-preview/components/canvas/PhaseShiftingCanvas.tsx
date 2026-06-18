@@ -16,6 +16,7 @@ const COLORS = {
   dashed: '#6B7280',
   solid: '#8B5CF6', // Purple
   text: '#000000',
+  axisText: 'rgba(0, 0, 0, 0.08)', // 8% opacity black for subtle text
   accent: '#1180FF' // Arrow and degrees
 };
 
@@ -84,7 +85,7 @@ function Grid2D({ frequency }: { frequency: number }) {
         points={[[x, -20, -1], [x, 20, -1]]}
         color={COLORS.grid}
         lineWidth={isMajor ? 1 : 0.5}
-        opacity={isMajor ? 0.3 : 0.1}
+        opacity={isMajor ? 0.08 : 0.03}
         transparent
       />
     );
@@ -100,7 +101,7 @@ function Grid2D({ frequency }: { frequency: number }) {
         points={[[-35, y, -1], [35, y, -1]]}
         color={COLORS.grid}
         lineWidth={isMajor ? 1 : 0.5}
-        opacity={isMajor ? 0.3 : 0.1}
+        opacity={isMajor ? 0.08 : 0.03}
         transparent
       />
     );
@@ -117,9 +118,13 @@ function Axes({ frequency }: { frequency: number }) {
     if (i === 0) continue;
     const x = i * stepX;
 
-    let shouldLabel = true;
-    if (stepX < 0.4 && i % 2 !== 0) shouldLabel = false;
-    if (stepX < 0.2 && i % 4 !== 0) shouldLabel = false;
+    // Only label multiples of pi/2 (i % 2 === 0) or pi (i % 4 === 0) based on frequency to avoid overlaps
+    let shouldLabel = false;
+    if (frequency <= 1.2) {
+      if (i % 2 === 0) shouldLabel = true;
+    } else {
+      if (i % 4 === 0) shouldLabel = true;
+    }
 
     xLabels.push({
       pos: x,
@@ -128,37 +133,37 @@ function Axes({ frequency }: { frequency: number }) {
   }
 
   const yLabels = [];
-  for (let i = -20; i <= 20; i++) {
-    if (i === 0) continue;
-    const y = i * 0.5;
-    yLabels.push({ pos: y, label: y.toFixed(1) });
+  // Label integers only to avoid vertical clutter
+  for (let y = -3; y <= 3; y++) {
+    if (y === 0) continue;
+    yLabels.push({ pos: y, label: y.toString() });
   }
 
   return (
     <group>
       {/* X Axis */}
-      <Line points={[[-35, 0, 0], [35, 0, 0]]} color={COLORS.axis} lineWidth={1.5} opacity={0.6} transparent />
+      <Line points={[[-35, 0, 0], [35, 0, 0]]} color={COLORS.axis} lineWidth={1.5} opacity={0.08} transparent />
       {/* Y Axis */}
-      <Line points={[[0, -15, 0], [0, 15, 0]]} color={COLORS.axis} lineWidth={1.5} opacity={0.6} transparent />
+      <Line points={[[0, -15, 0], [0, 15, 0]]} color={COLORS.axis} lineWidth={1.5} opacity={0.08} transparent />
 
       {/* Labels */}
-      <CanvasText position={[33.5, 0.4, 0]} fontSize={0.3} color={COLORS.text} text="x" />
-      <CanvasText position={[0.4, 14.5, 0]} fontSize={0.3} color={COLORS.text} text="y" />
-      <CanvasText position={[-0.4, -0.4, 0]} fontSize={0.2} color={COLORS.text} text="0" />
+      <CanvasText position={[33.5, 0.4, 0]} fontSize={0.3} color={COLORS.axisText} text="x" />
+      <CanvasText position={[0.4, 14.5, 0]} fontSize={0.3} color={COLORS.axisText} text="y" />
+      <CanvasText position={[-0.4, -0.4, 0]} fontSize={0.2} color={COLORS.axisText} text="0" />
 
       {/* Tick marks X */}
       {xLabels.map(({ pos, label }, i) => (
         <group key={`x-${i}`} position={[pos, 0, 0]}>
-          <Line points={[[0, -0.06, 0], [0, 0.06, 0]]} color={COLORS.axis} lineWidth={1} />
-          {label && <CanvasText position={[0, -0.5, 0]} fontSize={0.2} color={COLORS.text} text={label} />}
+          <Line points={[[0, -0.06, 0], [0, 0.06, 0]]} color={COLORS.axis} lineWidth={1} opacity={0.08} transparent />
+          {label && <CanvasText position={[0, -0.5, 0]} fontSize={0.2} color={COLORS.axisText} text={label} />}
         </group>
       ))}
 
       {/* Tick marks Y */}
       {yLabels.map(({ pos, label }, i) => (
         <group key={`y-${i}`} position={[0, pos, 0]}>
-          <Line points={[[-0.06, 0, 0], [0.06, 0, 0]]} color={COLORS.axis} lineWidth={1} />
-          <CanvasText position={[-0.6, 0, 0]} fontSize={0.2} color={COLORS.text} text={label} />
+          <Line points={[[-0.06, 0, 0], [0.06, 0, 0]]} color={COLORS.axis} lineWidth={1} opacity={0.08} transparent />
+          <CanvasText position={[-0.6, 0, 0]} fontSize={0.2} color={COLORS.axisText} text={label} />
         </group>
       ))}
     </group>
@@ -201,7 +206,7 @@ function Waves({ frequency, store }: { frequency: number, store: any }) {
   }, [amplitude, frequency, animatedPhase]);
 
   // Arrow points
-  const arrowY = amplitude + 0.5;
+  const arrowY = 1.25;
   const arrowStart = 0;
 
   let normalizedPhase = animatedPhase % (Math.PI * 2);
@@ -358,7 +363,7 @@ function PhaseShiftingCanvas() {
               </div>
             </>
           ) : (
-              <Canvas data-testid="r3f-canvas" orthographic camera={{ position: [Math.PI / 2, 0, 10], zoom: 90 }}>
+              <Canvas data-testid="r3f-canvas" orthographic camera={{ position: [0, 0, 10], zoom: 90 }}>
                 <Suspense fallback={null}>
                   <Scene store={store} />
                 </Suspense>

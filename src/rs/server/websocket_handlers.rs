@@ -251,36 +251,41 @@ pub async fn handle_ws_connection(
       client_msg = ws_receiver.next() => {
         match client_msg {
           Some(Ok(Message::Text(text))) => {
-            if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
-              if let Err(e) = message.validate() {
-                warn!("Invalid WebSocket message received: {}", e);
-                continue;
-              }
-              if message.message_type == "get_hardware_info" {
-                info!("Client requested hardware info");
-                let _device_connected = shared.device_connected.load(Ordering::Relaxed);
-                let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
-                let available_spectrum = shared
-                  .available_spectrum
-                  .unwrap_or((0.0, 30_000_000_000.0));
-
-                // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
-                let response = super::types::HardwareInfoResponse {
-                  message_type: "hardware_info".to_string(),
-                  hardware_freq_range: super::types::HardwareFreqRange {
-                    min: available_spectrum.0,
-                    max: available_spectrum.1,
-                  },
-                  sample_rate,
-                };
-
-                if let Ok(response_json) = serde_json::to_string(&response) {
-                  if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
-                    break;
-                  }
+            match serde_json::from_str::<WebSocketMessage>(&text) {
+              Ok(message) => {
+                if let Err(e) = message.validate() {
+                  warn!("Invalid WebSocket message received: {}", e);
+                  continue;
                 }
-              } else {
-                handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+                if message.message_type == "get_hardware_info" {
+                  info!("Client requested hardware info");
+                  let _device_connected = shared.device_connected.load(Ordering::Relaxed);
+                  let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+                  let available_spectrum = shared
+                    .available_spectrum
+                    .unwrap_or((0.0, 30_000_000_000.0));
+
+                  // Hardware range: 0 to 1.7e9 as requested for RTL-SDR and mock
+                  let response = super::types::HardwareInfoResponse {
+                    message_type: "hardware_info".to_string(),
+                    hardware_freq_range: super::types::HardwareFreqRange {
+                      min: available_spectrum.0,
+                      max: available_spectrum.1,
+                    },
+                    sample_rate,
+                  };
+
+                  if let Ok(response_json) = serde_json::to_string(&response) {
+                    if ws_sender.send(Message::Text(response_json.into())).await.is_err() {
+                      break;
+                    }
+                  }
+                } else {
+                  handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+                }
+              }
+              Err(e) => {
+                warn!("Failed to deserialize WebSocket message: {:?}, raw text: {}", e, text);
               }
             }
           }

@@ -17,6 +17,7 @@ export type CanvasTxSliderState = {
   visibleMaxHz: number;
   txCenterHz: number;
   txSampleRateHz: number;
+  isTransmitting?: boolean;
   onCenterFrequencyChange?: (valueHz: number) => void;
   onSampleRateChange?: (valueHz: number) => void;
   onOptionsRequest?: () => void;
@@ -112,6 +113,8 @@ export function useFrequencyDrag({
   const isPowerDraggingRef = useRef(false);
   const isTxSliderDraggingRef = useRef(false);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
+  const txSliderBodyDragOffsetHzRef = useRef(0);
+  const followTxSliderCenterRef = useRef<(centerHz: number) => void>(() => {});
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -224,15 +227,18 @@ export function useFrequencyDrag({
 
   const getTxSliderGeometry = (rect: DOMRect) => {
     const plot = getPlotBounds(rect);
-    const left = 4;
-    const right = Math.max(left, rect.width - 4);
+    const rowInset = 3;
+    const labelWidth = 47;
+    const trailingInset = 37;
+    const left = rowInset;
+    const right = Math.max(left, rect.width - rowInset);
     const top = Math.max(
-      plot.bottom - 5,
-      rect.height - getReservedBottomHeight(),
+      plot.bottom - rowInset,
+      rect.height - getReservedBottomHeight() + rowInset,
     );
-    const bottom = rect.height - 4;
-    const trackLeft = plot.left;
-    const trackRight = Math.max(trackLeft + 80, plot.right);
+    const bottom = rect.height - rowInset;
+    const trackLeft = labelWidth;
+    const trackRight = Math.max(trackLeft + 80, rect.width - trailingInset);
     return {
       left,
       right,
@@ -272,21 +278,48 @@ export function useFrequencyDrag({
     );
   };
 
-  const getTxSliderFrequencyForX = (x: number, rect: DOMRect) => {
+  const getTxVisualRange = (slider: CanvasTxSliderState) => {
+    const hardwareBounds = clampedVizRangeRef?.current || {
+      min: slider.visibleMinHz,
+      max: slider.visibleMaxHz,
+    };
+    const zoom = vizZoomRef?.current ?? 1;
+    const pan = vizPanOffsetRef?.current ?? 0;
+    const fullSpan = hardwareBounds.max - hardwareBounds.min;
+    const visualSpan = fullSpan / zoom;
+    const hardwareCenter = (hardwareBounds.min + hardwareBounds.max) / 2;
+    const visualCenter = hardwareCenter + pan;
+    return {
+      min: visualCenter - visualSpan / 2,
+      max: visualCenter + visualSpan / 2,
+    };
+  };
+
+  const getTxSliderFrequencyForX = (
+    x: number,
+    rect: DOMRect,
+    clampToTrack = true,
+  ) => {
     const slider = txSliderRef?.current;
     const geometry = getTxSliderGeometry(rect);
     if (!isTxSliderReady(slider)) {
       return null;
     }
-    const frac =
-      (Math.max(geometry.trackLeft, Math.min(geometry.trackRight, x)) -
-        geometry.trackLeft) /
-      geometry.trackWidth;
-    const visualRange = clampedVizRangeRef?.current || {
-      min: slider.visibleMinHz,
-      max: slider.visibleMaxHz,
-    };
+    const trackX = clampToTrack
+      ? Math.max(geometry.trackLeft, Math.min(geometry.trackRight, x))
+      : x;
+    const frac = (trackX - geometry.trackLeft) / geometry.trackWidth;
+    const visualRange = getTxVisualRange(slider);
     return visualRange.min + frac * (visualRange.max - visualRange.min);
+  };
+
+  const clampTxCenterHz = (centerHz: number) => {
+    const minHz = Math.max(0, hardwareSpectrumBounds?.min ?? 0);
+    const maxHz =
+      hardwareSpectrumBounds && Number.isFinite(hardwareSpectrumBounds.max)
+        ? hardwareSpectrumBounds.max
+        : Number.POSITIVE_INFINITY;
+    return Math.max(minHz, Math.min(maxHz, centerHz));
   };
 
   const updateTxSliderFromPointer = (clientX: number) => {
@@ -297,6 +330,7 @@ export function useFrequencyDrag({
     const pointerHz = getTxSliderFrequencyForX(
       clientX - canvasRect.left,
       canvasRect,
+      false,
     );
     if (pointerHz === null) return;
 
@@ -317,39 +351,30 @@ export function useFrequencyDrag({
       nextMax = Math.max(pointerHz, currentMin + minBandwidth);
     } else {
       const half = currentBandwidth / 2;
-      nextMin = pointerHz - half;
-      nextMax = pointerHz + half;
+      const nextBodyCenter = pointerHz + txSliderBodyDragOffsetHzRef.current;
+      nextMin = nextBodyCenter - half;
+      nextMax = nextBodyCenter + half;
     }
 
     let nextBandwidth = Math.max(
       minBandwidth,
       Math.min(maxBandwidth, nextMax - nextMin),
     );
-    let nextCenter = (nextMin + nextMax) / 2;
-    const half = nextBandwidth / 2;
-    if (nextCenter - half < slider.visibleMinHz) {
-      nextCenter = slider.visibleMinHz + half;
-    }
-    if (nextCenter + half > slider.visibleMaxHz) {
-      nextCenter = slider.visibleMaxHz - half;
-    }
+    let nextCenter = clampTxCenterHz((nextMin + nextMax) / 2);
 
+    slider.txSampleRateHz = nextBandwidth;
+    slider.txCenterHz = nextCenter;
     slider.onSampleRateChange?.(nextBandwidth);
     slider.onCenterFrequencyChange?.(nextCenter);
+    followTxSliderCenterRef.current(nextCenter);
     onDragRepaint?.();
   };
 
   const panTxSliderByHz = (deltaHz: number) => {
     const slider = txSliderRef?.current;
     if (!isTxSliderReady(slider)) return;
-    const bandwidth = Math.max(1, slider.txSampleRateHz);
-    const half = bandwidth / 2;
-    const minCenter = slider.visibleMinHz + half;
-    const maxCenter = slider.visibleMaxHz - half;
-    const nextCenter = Math.max(
-      minCenter,
-      Math.min(maxCenter, slider.txCenterHz + deltaHz),
-    );
+    const nextCenter = clampTxCenterHz(slider.txCenterHz + deltaHz);
+    slider.txCenterHz = nextCenter;
     slider.onCenterFrequencyChange?.(nextCenter);
     onDragRepaint?.();
   };
@@ -363,6 +388,7 @@ export function useFrequencyDrag({
       1,
       Math.min(visibleSpan, slider.txSampleRateHz * scale),
     );
+    slider.txSampleRateHz = nextBandwidth;
     slider.onSampleRateChange?.(nextBandwidth);
     onDragRepaint?.();
   };
@@ -638,6 +664,73 @@ export function useFrequencyDrag({
       return true;
     };
 
+    const maybeFollowTxSliderCenter = (centerHz: number) => {
+      const slider = txSliderRef?.current;
+      if (!isTxSliderReady(slider)) return;
+
+      const visualRange = getTxVisualRange(slider);
+      const visualSpan = visualRange.max - visualRange.min;
+      if (!Number.isFinite(visualSpan) || visualSpan <= 0) return;
+
+      const margin = Math.max(1, visualSpan * 0.03);
+      let rangeShiftHz = 0;
+      if (centerHz > visualRange.max - margin) {
+        rangeShiftHz = centerHz - (visualRange.max - margin);
+      } else if (centerHz < visualRange.min + margin) {
+        rangeShiftHz = centerHz - (visualRange.min + margin);
+      }
+
+      if (!Number.isFinite(rangeShiftHz) || Math.abs(rangeShiftHz) < 0.001) {
+        return;
+      }
+
+      const zoom = vizZoomRef?.current ?? 1;
+      const currentPan = vizPanOffsetRef?.current ?? 0;
+
+      if (zoom > 1 && onVizPanChange) {
+        const nextPan = currentPan + rangeShiftHz;
+        if (maybeRetuneHardwareWindow({ nextPan, zoom })) return;
+
+        const clampedPan = clampVizPan(
+          nextPan,
+          frequencyRangeRef.current,
+          zoom,
+          hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+        );
+        onVizPanChange(clampedPan);
+        if (vizPanOffsetRef) {
+          vizPanOffsetRef.current = clampedPan;
+        }
+        if (
+          autoZoomStabilityRef?.current &&
+          (vizZoomFloorRef?.current ?? 1) > 1
+        ) {
+          onVizZoomFloorPanChange?.(clampedPan);
+        }
+        return;
+      }
+
+      if (onFrequencyRangeChange) {
+        const currentRange = frequencyRangeRef.current;
+        const nextRange = clampWheelRangeToHardwareBounds({
+          min: currentRange.min + rangeShiftHz,
+          max: currentRange.max + rangeShiftHz,
+        });
+        frequencyRangeRef.current = nextRange;
+        onFrequencyRangeChange(nextRange);
+        return;
+      }
+
+      if (onVizPanChange) {
+        const clampedPan = Math.max(0, currentPan + rangeShiftHz);
+        onVizPanChange(clampedPan);
+        if (vizPanOffsetRef) {
+          vizPanOffsetRef.current = clampedPan;
+        }
+      }
+    };
+    followTxSliderCenterRef.current = maybeFollowTxSliderCenter;
+
     const updateContainerRect = () => {
       const container = getContainer();
       if (container) {
@@ -702,12 +795,12 @@ export function useFrequencyDrag({
         const slider = txSliderRef?.current;
         if (isTxSliderReady(slider)) {
           const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
-          slider.onSampleRateChange?.(
-            Math.max(
-              1,
-              Math.min(visibleSpan, txPinchInitialBandwidthRef.current * scale),
-            ),
+          const newBandwidth = Math.max(
+            1,
+            Math.min(visibleSpan, txPinchInitialBandwidthRef.current * scale),
           );
+          slider.txSampleRateHz = newBandwidth;
+          slider.onSampleRateChange?.(newBandwidth);
           onDragRepaint?.();
         }
         return;
@@ -1077,6 +1170,11 @@ export function useFrequencyDrag({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
+      // Allow buttons to handle their own clicks natively
+      if (e.target instanceof Element && e.target.closest("button")) {
+        return;
+      }
+
       const container = getContainer();
       if (!container) return;
 
@@ -1160,35 +1258,66 @@ export function useFrequencyDrag({
           const isCompactBandwidth = bandwidth < 200_000;
           const sliderMin = slider.txCenterHz - bandwidth / 2;
           const sliderMax = slider.txCenterHz + bandwidth / 2;
-          const visibleSpan = slider.visibleMaxHz - slider.visibleMinHz;
+          const visualRange = getTxVisualRange(slider);
+          const visibleSpan = visualRange.max - visualRange.min;
           const toX = (hz: number) =>
             geometry.trackLeft +
-            ((hz - slider.visibleMinHz) / visibleSpan) * geometry.trackWidth;
-          const leftHandleX = toX(sliderMin);
-          const rightHandleX = toX(sliderMax);
+            ((hz - visualRange.min) / visibleSpan) * geometry.trackWidth;
+          const rawLeft = toX(sliderMin);
+          const rawRight = toX(sliderMax);
+          const leftHandleX = Math.max(
+            geometry.trackLeft,
+            Math.min(geometry.trackRight, rawLeft),
+          );
+          const rightHandleX = Math.max(
+            geometry.trackLeft,
+            Math.min(geometry.trackRight, rawRight),
+          );
           const hitRadius = 14;
 
           if (isCompactBandwidth) {
             txSliderHandleRef.current = "body";
-          } else if (Math.abs(canvasX - leftHandleX) <= hitRadius) {
-            txSliderHandleRef.current = "left";
-          } else if (Math.abs(canvasX - rightHandleX) <= hitRadius) {
-            txSliderHandleRef.current = "right";
-          } else if (
-            canvasX >= Math.min(leftHandleX, rightHandleX) &&
-            canvasX <= Math.max(leftHandleX, rightHandleX)
-          ) {
-            txSliderHandleRef.current = "body";
-          } else if (
-            canvasX >= geometry.trackLeft &&
-            canvasX <= geometry.trackRight
-          ) {
-            txSliderHandleRef.current = "body";
           } else {
-            txSliderHandleRef.current = null;
+            const hitLeft = Math.abs(canvasX - leftHandleX) <= hitRadius;
+            const hitRight = Math.abs(canvasX - rightHandleX) <= hitRadius;
+
+            if (hitLeft && hitRight) {
+              if (rawRight < geometry.trackLeft) {
+                txSliderHandleRef.current = "right";
+              } else {
+                txSliderHandleRef.current = "left";
+              }
+            } else if (hitLeft) {
+              txSliderHandleRef.current = "left";
+            } else if (hitRight) {
+              txSliderHandleRef.current = "right";
+            } else if (
+              canvasX >= Math.min(leftHandleX, rightHandleX) &&
+              canvasX <= Math.max(leftHandleX, rightHandleX)
+            ) {
+              txSliderHandleRef.current = "body";
+            } else if (
+              canvasX >= geometry.trackLeft &&
+              canvasX <= geometry.trackRight
+            ) {
+              txSliderHandleRef.current = "body";
+            } else {
+              txSliderHandleRef.current = null;
+            }
           }
 
           if (txSliderHandleRef.current) {
+            if (txSliderHandleRef.current === "body") {
+              const pointerHz = getTxSliderFrequencyForX(
+                canvasX,
+                canvasRect,
+                false,
+              );
+              txSliderBodyDragOffsetHzRef.current =
+                pointerHz === null ? 0 : slider.txCenterHz - pointerHz;
+            } else {
+              txSliderBodyDragOffsetHzRef.current = 0;
+            }
             isTxSliderDraggingRef.current = true;
             updateTxSliderFromPointer(e.clientX);
             setPointerCaptureIfAvailable(container, e.pointerId);
@@ -1353,6 +1482,7 @@ export function useFrequencyDrag({
       if (isTxSliderDraggingRef.current) {
         isTxSliderDraggingRef.current = false;
         txSliderHandleRef.current = null;
+        txSliderBodyDragOffsetHzRef.current = 0;
         if (container) {
           releasePointerCaptureIfAvailable(container, e.pointerId);
           removeClassIfAvailable(container, "cursor-grabbing");
@@ -1904,6 +2034,7 @@ export function useFrequencyDrag({
         selectionBoxRef.current.remove();
         selectionBoxRef.current = null;
       }
+      followTxSliderCenterRef.current = () => {};
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMoveForCursor);
       container.removeEventListener("pointerleave", handlePointerLeave);

@@ -198,6 +198,7 @@ export function useSpectrumRenderer() {
     drawDemodFocusOnContext,
     drawSelectionOverlayOnContext,
     drawTxSliderOnContext,
+    drawTxSliderBackdropOnContext,
   } = useOverlayRenderer();
 
   const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
@@ -325,6 +326,13 @@ export function useSpectrumRenderer() {
         ) {
           const ctx = markersOverlayRenderer.beginDraw(width, height, dpr);
           ctx.clearRect(0, 0, width, height);
+          drawTxSliderBackdropOnContext(
+            ctx,
+            width,
+            height,
+            txSlider,
+            frequencyRange,
+          );
           if (!nodePreview && centerFrequencyHz !== undefined) {
             drawMarkersOnContext(
               ctx,
@@ -362,7 +370,7 @@ export function useSpectrumRenderer() {
             nodePreview,
             reservedBottomPx,
           );
-          drawTxSliderOnContext(ctx, width, height, txSlider);
+          drawTxSliderOnContext(ctx, width, height, txSlider, frequencyRange);
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
           lastMarkersOverlaySignatureRef.current = markersOverlaySignature;
@@ -403,6 +411,7 @@ export function useSpectrumRenderer() {
       drawDemodFocusOnContext,
       drawSelectionOverlayOnContext,
       drawTxSliderOnContext,
+      drawTxSliderBackdropOnContext,
     ],
   );
 

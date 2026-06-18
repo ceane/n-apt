@@ -2119,62 +2119,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             </ResetButton>
           </Section>
 
-          <Collapsible
-            title="Tx Settings"
-            icon={<SatelliteDish size={14} />}
-            defaultOpen={false}
-          >
-            <TxSettingsSection
-              signal={txSignal}
-              sampleRateHz={txSampleRateHz}
-              maxSampleRateHz={maxSampleRate}
-              centerFrequencyHz={txCenterFrequencyHz}
-              powerDbm={txPowerDbm}
-              vgaGainDb={txVgaGain}
-              ampEnabled={hackrfAmpEnabled}
-              onSignalChange={(value) => dispatch(setTxSignal(value))}
-              onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
-              onCenterFrequencyChange={(value) =>
-                dispatch(setTxCenterFrequencyHz(value))
-              }
-              onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
-              onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
-              onAmpEnabledChange={(value) => setHackrfAmpEnabled(value)}
-              isTransmitting={isTransmittingGlobal}
-              onToggleTransmit={
-                txTargetDeviceId
-                  ? () =>
-                      handleToggleTransmitMode(
-                        txTargetDeviceId,
-                        !isTransmittingGlobal,
-                      )
-                  : undefined
-              }
-              safetyEnabled={txSafetyEnabled}
-              onSafetyEnabledChange={(value) =>
-                dispatch(setTxSafetyEnabled(value))
-              }
-              safetyLimit={txSafetyLimit}
-              onSafetyLimitChange={(value) => dispatch(setTxSafetyLimit(value))}
-              hopEnabled={txHopEnabled}
-              onHopEnabledChange={(value) => dispatch(setTxHopEnabled(value))}
-              hopType={txHopType}
-              onHopTypeChange={(value) => dispatch(setTxHopType(value))}
-              hopStartFrequencyHz={txHopStartFrequencyHz}
-              onHopStartFrequencyHzChange={(value) =>
-                dispatch(setTxHopStartFrequencyHz(value))
-              }
-              hopEndFrequencyHz={txHopEndFrequencyHz}
-              onHopEndFrequencyHzChange={(value) =>
-                dispatch(setTxHopEndFrequencyHz(value))
-              }
-              hopChannels={txHopChannels}
-              onHopChannelsChange={(value) => dispatch(setTxHopChannels(value))}
-              hopRateHz={txHopRateHz}
-              onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
-            />
-          </Collapsible>
-
           <IQCaptureControlsSection
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
@@ -2312,6 +2256,62 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             limitMarkers={limitMarkers}
             rangeSlidersDisabled={visualizerLoading}
           />
+
+          <Collapsible
+            title="Tx Settings"
+            icon={<SatelliteDish size={14} />}
+            defaultOpen={true}
+          >
+            <TxSettingsSection
+              signal={txSignal}
+              sampleRateHz={txSampleRateHz}
+              maxSampleRateHz={maxSampleRate}
+              centerFrequencyHz={txCenterFrequencyHz}
+              powerDbm={txPowerDbm}
+              vgaGainDb={txVgaGain}
+              ampEnabled={hackrfAmpEnabled}
+              onSignalChange={(value) => dispatch(setTxSignal(value))}
+              onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
+              onCenterFrequencyChange={(value) =>
+                dispatch(setTxCenterFrequencyHz(value))
+              }
+              onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
+              onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+              onAmpEnabledChange={(value) => setHackrfAmpEnabled(value)}
+              isTransmitting={isTransmittingGlobal}
+              onToggleTransmit={
+                txTargetDeviceId
+                  ? () =>
+                      handleToggleTransmitMode(
+                        txTargetDeviceId,
+                        !isTransmittingGlobal,
+                      )
+                  : undefined
+              }
+              safetyEnabled={txSafetyEnabled}
+              onSafetyEnabledChange={(value) =>
+                dispatch(setTxSafetyEnabled(value))
+              }
+              safetyLimit={txSafetyLimit}
+              onSafetyLimitChange={(value) => dispatch(setTxSafetyLimit(value))}
+              hopEnabled={txHopEnabled}
+              onHopEnabledChange={(value) => dispatch(setTxHopEnabled(value))}
+              hopType={txHopType}
+              onHopTypeChange={(value) => dispatch(setTxHopType(value))}
+              hopStartFrequencyHz={txHopStartFrequencyHz}
+              onHopStartFrequencyHzChange={(value) =>
+                dispatch(setTxHopStartFrequencyHz(value))
+              }
+              hopEndFrequencyHz={txHopEndFrequencyHz}
+              onHopEndFrequencyHzChange={(value) =>
+                dispatch(setTxHopEndFrequencyHz(value))
+              }
+              hopChannels={txHopChannels}
+              onHopChannelsChange={(value) => dispatch(setTxHopChannels(value))}
+              hopRateHz={txHopRateHz}
+              onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
+            />
+          </Collapsible>
 
           <SignalDisplaySection
             sourceMode={sourceMode}

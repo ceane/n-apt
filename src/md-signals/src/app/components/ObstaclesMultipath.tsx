@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { motion } from "framer-motion";
+import MultipathReflectionCanvas from "@n-apt/md-preview/components/canvas/MultipathReflectionCanvas";
 
 export function ObstaclesMultipath() {
   return (
@@ -13,59 +14,7 @@ export function ObstaclesMultipath() {
         </p>
 
         <div className="bg-card border border-border rounded-lg p-6 my-6">
-          <h3 className="text-xl font-semibold text-foreground mb-4">Multipath Visualization</h3>
-          <div className="relative h-64 bg-muted rounded overflow-hidden">
-            <svg className="w-full h-full" viewBox="0 0 400 300">
-              {/* Transmitter */}
-              <circle cx="50" cy="150" r="8" fill="currentColor" className="text-foreground" />
-              <text x="50" y="180" fill="currentColor" className="text-foreground" fontSize="12" textAnchor="middle">TX</text>
-
-              {/* Receiver */}
-              <circle cx="350" cy="150" r="8" fill="currentColor" className="text-foreground" />
-              <text x="350" y="180" fill="currentColor" className="text-foreground" fontSize="12" textAnchor="middle">RX</text>
-
-              {/* Obstacles */}
-              <rect x="150" y="80" width="40" height="80" fill="currentColor" className="text-muted-foreground" opacity="0.6" />
-              <rect x="250" y="140" width="40" height="100" fill="currentColor" className="text-muted-foreground" opacity="0.6" />
-
-              {/* Direct path */}
-              <motion.line
-                x1="50" y1="150" x2="350" y2="150"
-                stroke="currentColor"
-                className="text-foreground"
-                strokeWidth="2"
-                strokeDasharray="5,5"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-              />
-
-              {/* Reflected paths */}
-              <motion.path
-                d="M 50 150 Q 200 50 350 150"
-                stroke="currentColor"
-                className="text-foreground opacity-70"
-                strokeWidth="2"
-                fill="none"
-                strokeDasharray="5,5"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear", delay: 0.3 }}
-              />
-
-              <motion.path
-                d="M 50 150 Q 200 250 350 150"
-                stroke="currentColor"
-                className="text-foreground opacity-50"
-                strokeWidth="2"
-                fill="none"
-                strokeDasharray="5,5"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear", delay: 0.6 }}
-              />
-            </svg>
-          </div>
+          <MultipathReflectionCanvas />
         </div>
 
         <h3 className="text-xl font-semibold text-foreground mt-6">Propagation Effects</h3>

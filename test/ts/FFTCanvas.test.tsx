@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "../../src/ts/components/FFTCanvas";
 import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
@@ -136,8 +136,49 @@ describe("FFTCanvas Component", () => {
     expect(
       await screen.findByTestId("tx-slider-visual-row"),
     ).toBeInTheDocument();
-    expect(screen.getByText("APT")).toBeInTheDocument();
-    expect(screen.getByText("-18 dBm")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /kHz|MHz|Hz.*→/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("retunes to the offscreen Tx slider center instead of panning into empty bins", async () => {
+    const onFrequencyRangeChange = jest.fn();
+    const onVizPanChange = jest.fn();
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              frequencyRange={{ min: 100, max: 110 }}
+              onFrequencyRangeChange={onFrequencyRangeChange}
+              onVizPanChange={onVizPanChange}
+              txSlider={{
+                visible: true,
+                visibleMinHz: 100,
+                visibleMaxHz: 110,
+                txCenterHz: 150,
+                txSampleRateHz: 60,
+                signalLabel: "APT",
+                powerDbm: -18,
+              }}
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    const goToButton = await screen.findByRole("button", {
+      name: /kHz|MHz|Hz.*→/i,
+    });
+    fireEvent.click(goToButton);
+
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 145,
+      max: 155,
+    });
+    expect(onVizPanChange).toHaveBeenCalledWith(0);
   });
 
   it("shows a loading placeholder with the source label while awaiting data", async () => {

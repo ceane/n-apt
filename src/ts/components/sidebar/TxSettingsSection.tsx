@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { Row, ChannelsGrid } from "@n-apt/components/ui";
+import { Row, ChannelsGrid, Tooltip } from "@n-apt/components/ui";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Toggle } from "@n-apt/components/ui/Toggle";
 import { useAppSelector } from "@n-apt/redux/store";
@@ -493,11 +493,71 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     }
   };
 
+  const handlePowerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const current = Number(localPower);
+    if (Number.isFinite(current)) {
+      let nextPower = current + delta;
+      if (safetyEnabled) {
+        nextPower = Math.min(limitDbm, nextPower);
+      }
+      nextPower = Math.max(-70.0, nextPower);
+      nextPower = Math.round(nextPower * 10) / 10;
+      onPowerDbmChange(nextPower);
+      setLocalPower(nextPower.toString());
+      const res = getMaxSafeVgaAndAmpJS(nextPower);
+      onVgaGainChange(res.vga);
+      if (onAmpEnabledChange) {
+        onAmpEnabledChange(res.amp);
+      }
+    }
+  };
+
+  const handleVgaGainKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const current = Number(localVgaGain);
+    if (Number.isFinite(current)) {
+      let nextVga = current + delta;
+      const maxVga = safetyEnabled ? safeGains.vga : 47;
+      nextVga = Math.max(0, Math.min(maxVga, nextVga));
+      onVgaGainChange(nextVga);
+      setLocalVgaGain(nextVga.toString());
+      const targetPower =
+        safetyLimit === "min"
+          ? -70.0
+          : getApproxOutputPowerJS(nextVga, !!ampEnabled);
+      onPowerDbmChange(targetPower);
+    }
+  };
+
+  const handleHopRateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "ArrowUp" ? 1 : -1;
+    const current = Number(localHopRate);
+    if (Number.isFinite(current)) {
+      const clamped = Math.max(1, Math.min(1000, current + delta));
+      onHopRateHzChange(clamped);
+      setLocalHopRate(clamped.toString());
+    }
+  };
+
   const isAmpDisabledBySafety = safetyEnabled && !safeGains.amp;
 
   return (
     <Section>
-      <Row label={<IconLabel icon={Radio} text="Signal" />}>
+      <Row
+        label={<IconLabel icon={Radio} text="Signal" />}
+        tooltip="Select the transmission signal type: APT (Automatic Picture Transmission), Tone (continuous sine wave), Noise (broadband white noise), or Custom I/Q playback."
+        tooltipTitle="Signal Type"
+      >
         <Select value={signal} onChange={(e) => onSignalChange(e.target.value)}>
           <option value="apt">APT</option>
           <option value="tone">Tone</option>
@@ -511,6 +571,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           <HopHeaderLabel>
             <GitFork size={14} />
             Hop
+            <Tooltip
+              title="Frequency Hopping"
+              content="Simulate rapid frequency hopping across multiple frequencies or channels at a defined rate."
+            />
           </HopHeaderLabel>
           <Toggle
             $active={hopEnabled}
@@ -523,7 +587,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         {hopEnabled && (
           <HopOptionsContainer>
             <HopFieldRow>
-              <HopFieldLabel>Hop type</HopFieldLabel>
+              <HopFieldLabel>
+                Hop type
+                <Tooltip
+                  title="Hop Type"
+                  content="Choose between hopping across a continuous range of frequencies (Range) or specific predefined channels (Channels)."
+                />
+              </HopFieldLabel>
               <HopFieldControl>
                 <Select
                   value={hopType}
@@ -543,7 +613,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                 <HopFieldRow
                   style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
                 >
-                  <HopFieldLabel>Hop start</HopFieldLabel>
+                  <HopFieldLabel>
+                    Hop start
+                    <Tooltip
+                      title="Hop Start Frequency"
+                      content="The lowest frequency of the hopping range in Hz."
+                    />
+                  </HopFieldLabel>
                   <HopFieldControl>
                     <FrequencyInput
                       valueHz={hopStartFrequencyHz}
@@ -556,7 +632,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                 <HopFieldRow
                   style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
                 >
-                  <HopFieldLabel>Hop end</HopFieldLabel>
+                  <HopFieldLabel>
+                    Hop end
+                    <Tooltip
+                      title="Hop End Frequency"
+                      content="The highest frequency of the hopping range in Hz."
+                    />
+                  </HopFieldLabel>
                   <HopFieldControl>
                     <FrequencyInput
                       valueHz={hopEndFrequencyHz}
@@ -580,6 +662,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                   style={{ borderBottom: "none", paddingBottom: 0 }}
                 >
                   Channels
+                  <Tooltip
+                    title="Predefined Channels"
+                    content="Select which specific predefined channels the signal will hop between."
+                  />
                 </HopFieldLabel>
                 <ChannelsGrid
                   channels={channelsList}
@@ -590,7 +676,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
             )}
 
             <HopFieldRow>
-              <HopFieldLabel>Hop rate</HopFieldLabel>
+              <HopFieldLabel>
+                Hop rate
+                <Tooltip
+                  title="Hop Rate"
+                  content="The rate (in Hz) at which the transmitter hops from one frequency to the next."
+                />
+              </HopFieldLabel>
               <HopFieldControl>
                 <InlineField>
                   <NumericInput
@@ -598,6 +690,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                     value={localHopRate}
                     onChange={handleHopRateChange}
                     onBlur={handleHopRateBlur}
+                    onKeyDown={handleHopRateKeyDown}
                   />
                   <UnitSuffix>Hz</UnitSuffix>
                 </InlineField>
@@ -607,7 +700,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         )}
       </HopSectionContainer>
 
-      <Row label={<IconLabel icon={SlidersHorizontal} text="Sample rate" />}>
+      <Row
+        label={<IconLabel icon={SlidersHorizontal} text="Sample rate" />}
+        tooltip="The sample rate (in Hz) at which the signal is generated and transmitted. Disabled when frequency hopping is active."
+        tooltipTitle="Sample Rate"
+      >
         <FrequencyInput
           valueHz={sampleRateHz}
           onChangeHz={onSampleRateChange}
@@ -616,7 +713,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           disabled={hopEnabled}
         />
       </Row>
-      <Row label={<IconLabel icon={Waves} text="Center frequency" />}>
+      <Row
+        label={<IconLabel icon={Waves} text="Center frequency" />}
+        tooltip="The center RF carrier frequency (in Hz) for the transmission. Disabled when frequency hopping is active."
+        tooltipTitle="Center Frequency"
+      >
         <FrequencyInput
           valueHz={centerFrequencyHz}
           onChangeHz={onCenterFrequencyChange}
@@ -625,7 +726,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           disabled={hopEnabled}
         />
       </Row>
-      <Row label="Power">
+      <Row
+        label="Power"
+        tooltip="The target transmission power in dBm. Changing this will automatically adjust the VGA gain and AMP settings to match the target value."
+        tooltipTitle="Output Power"
+      >
         <InlineField>
           <NumericInput
             ref={powerInputRef}
@@ -633,33 +738,16 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
             value={localPower}
             onChange={handlePowerChange}
             onBlur={handlePowerBlur}
+            onKeyDown={handlePowerKeyDown}
           />
           <UnitSuffix>dBm</UnitSuffix>
         </InlineField>
       </Row>
-      <Row label="VGA gain">
-        <InlineField>
-          <NumericInput
-            ref={vgaGainInputRef}
-            type="text"
-            value={localVgaGain}
-            onChange={handleVgaGainChange}
-            onBlur={handleVgaGainBlur}
-          />
-          <UnitSuffix>dB</UnitSuffix>
-        </InlineField>
-      </Row>
-      <Row label="TX Amp (Booster)">
-        <Toggle
-          $active={ampEnabled}
-          onClick={() => handleAmpToggle(!ampEnabled)}
-          activeLabel="On"
-          inactiveLabel="Off"
-          disabled={isAmpDisabledBySafety}
-        />
-      </Row>
-
-      <Row label={<IconLabel icon={ShieldAlert} text="Safety" />}>
+      <Row
+        label={<IconLabel icon={ShieldAlert} text="Safety" />}
+        tooltip="Output power safety limit configuration. Restricts the maximum VGA gain and amplifier to protect personnel (1m reach), room (3m reach), or forces the hardware minimum (-70 dBm)."
+        tooltipTitle="Tx Safety Clamp"
+      >
         <Toggle
           $active={safetyEnabled}
           onClick={() => {
@@ -691,6 +779,36 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
             <option value="min">Minimum ({formatReach(minReach)})</option>
           </Select>
         )}
+      </Row>
+      <Row
+        label="VGA gain"
+        tooltip="The Variable Gain Amplifier gain (in dB) on the HackRF transmitter path. Ranges from 0 to 47 dB in steps of 1."
+        tooltipTitle="VGA Gain"
+      >
+        <InlineField>
+          <NumericInput
+            ref={vgaGainInputRef}
+            type="text"
+            value={localVgaGain}
+            onChange={handleVgaGainChange}
+            onBlur={handleVgaGainBlur}
+            onKeyDown={handleVgaGainKeyDown}
+          />
+          <UnitSuffix>dB</UnitSuffix>
+        </InlineField>
+      </Row>
+      <Row
+        label="TX Amp (Booster)"
+        tooltip="Enable or disable the transmitter's RF amplifier (AMP) booster, which adds approximately 14 dB of gain."
+        tooltipTitle="TX Amplifier Booster"
+      >
+        <Toggle
+          $active={ampEnabled}
+          onClick={() => handleAmpToggle(!ampEnabled)}
+          activeLabel="On"
+          inactiveLabel="Off"
+          disabled={isAmpDisabledBySafety}
+        />
       </Row>
 
       {onToggleTransmit && (

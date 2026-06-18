@@ -435,14 +435,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           ? range.max
           : visibleMinHz + 1;
       const visibleSpanHz = visibleMaxHz - visibleMinHz;
-      const centerHz =
-        Number.isFinite(txCenterFrequencyHz) &&
-        txCenterFrequencyHz >= visibleMinHz &&
-        txCenterFrequencyHz <= visibleMaxHz
-          ? txCenterFrequencyHz
-          : visibleMinHz + visibleSpanHz / 2;
+      const centerHz = Number.isFinite(txCenterFrequencyHz)
+        ? txCenterFrequencyHz
+        : visibleMinHz + visibleSpanHz / 2;
       const sampleRateHz = Number.isFinite(txSampleRateHz)
-        ? Math.max(1, Math.min(visibleSpanHz, txSampleRateHz))
+        ? Math.max(1, txSampleRateHz)
         : Math.max(1, Math.min(120_000, visibleSpanHz));
 
       return {
@@ -614,9 +611,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       hackrfVgaGain: state.hackrfVgaGain,
       hackrfAmpEnabled: state.hackrfAmpEnabled,
       hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-      deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        deviceProfile?.kind ??
+        deviceKind ??
+        undefined,
     });
-    const sourceName = selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline");
+    const sourceName =
+      selectedSourceDerived.deviceName ??
+      deviceName ??
+      (isConnected ? "SDR" : "Offline");
 
     return (
       <FastSnapshotControl
@@ -644,6 +648,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               sdrSettingsLabel,
               gain: state.gain ?? undefined,
               ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
             },
           )
         }
@@ -672,17 +677,27 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               sdrSettingsLabel,
               gain: state.gain ?? undefined,
               ppm: state.ppm ?? undefined,
-              getSdrSettingsLabel: () => buildSnapshotSettingsLabel({
-                effectiveSdrSettings,
-                gain: state.gain,
-                ppm: state.ppm,
-                hackrfLnaGain: state.hackrfLnaGain,
-                hackrfVgaGain: state.hackrfVgaGain,
-                hackrfAmpEnabled: state.hackrfAmpEnabled,
-                hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-                deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
-              }),
-              getSourceName: () => selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline"),
+              fftSize: state.fftSize ?? undefined,
+              getSdrSettingsLabel: () =>
+                buildSnapshotSettingsLabel({
+                  effectiveSdrSettings,
+                  gain: state.gain,
+                  ppm: state.ppm,
+                  hackrfLnaGain: state.hackrfLnaGain,
+                  hackrfVgaGain: state.hackrfVgaGain,
+                  hackrfAmpEnabled: state.hackrfAmpEnabled,
+                  hackrfBasebandBandwidth:
+                    state.hackrfBasebandBandwidth ?? undefined,
+                  deviceKind:
+                    selectedSourceDerived.deviceProfile?.kind ??
+                    deviceProfile?.kind ??
+                    deviceKind ??
+                    undefined,
+                }),
+              getSourceName: () =>
+                selectedSourceDerived.deviceName ??
+                deviceName ??
+                (isConnected ? "SDR" : "Offline"),
             },
           )
         }
@@ -732,9 +747,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       hackrfVgaGain: state.hackrfVgaGain,
       hackrfAmpEnabled: state.hackrfAmpEnabled,
       hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-      deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        deviceProfile?.kind ??
+        deviceKind ??
+        undefined,
     });
-    const sourceName = selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline");
+    const sourceName =
+      selectedSourceDerived.deviceName ??
+      deviceName ??
+      (isConnected ? "SDR" : "Offline");
 
     return (
       <FastSnapshotControl
@@ -762,6 +784,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               sdrSettingsLabel,
               gain: state.gain ?? undefined,
               ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
             },
           )
         }
@@ -790,17 +813,27 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               sdrSettingsLabel,
               gain: state.gain ?? undefined,
               ppm: state.ppm ?? undefined,
-              getSdrSettingsLabel: () => buildSnapshotSettingsLabel({
-                effectiveSdrSettings,
-                gain: state.gain,
-                ppm: state.ppm,
-                hackrfLnaGain: state.hackrfLnaGain,
-                hackrfVgaGain: state.hackrfVgaGain,
-                hackrfAmpEnabled: state.hackrfAmpEnabled,
-                hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-                deviceKind: selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind ?? deviceKind ?? undefined,
-              }),
-              getSourceName: () => selectedSourceDerived.deviceName ?? deviceName ?? (isConnected ? "SDR" : "Offline"),
+              fftSize: state.fftSize ?? undefined,
+              getSdrSettingsLabel: () =>
+                buildSnapshotSettingsLabel({
+                  effectiveSdrSettings,
+                  gain: state.gain,
+                  ppm: state.ppm,
+                  hackrfLnaGain: state.hackrfLnaGain,
+                  hackrfVgaGain: state.hackrfVgaGain,
+                  hackrfAmpEnabled: state.hackrfAmpEnabled,
+                  hackrfBasebandBandwidth:
+                    state.hackrfBasebandBandwidth ?? undefined,
+                  deviceKind:
+                    selectedSourceDerived.deviceProfile?.kind ??
+                    deviceProfile?.kind ??
+                    deviceKind ??
+                    undefined,
+                }),
+              getSourceName: () =>
+                selectedSourceDerived.deviceName ??
+                deviceName ??
+                (isConnected ? "SDR" : "Offline"),
             },
           )
         }

@@ -210,14 +210,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           ? range.max
           : visibleMinHz + 1;
       const span = visibleMaxHz - visibleMinHz;
-      const centerHz =
-        Number.isFinite(txCenterFrequencyHz) &&
-        txCenterFrequencyHz >= visibleMinHz &&
-        txCenterFrequencyHz <= visibleMaxHz
-          ? txCenterFrequencyHz
-          : visibleMinHz + span / 2;
+      const centerHz = Number.isFinite(txCenterFrequencyHz)
+        ? txCenterFrequencyHz
+        : visibleMinHz + span / 2;
       const sampleRateHz = Number.isFinite(txSampleRateHz)
-        ? Math.max(1, Math.min(span, txSampleRateHz))
+        ? Math.max(1, txSampleRateHz)
         : Math.max(1, Math.min(120_000, span));
       return {
         visible: true,

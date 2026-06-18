@@ -390,6 +390,34 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
   });
 
+  it("preserves the TX slider body grab offset on pointer down", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(414, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBeCloseTo(105, 3);
+  });
+
   it("drags the canvas TX slider when zoomed in", () => {
     const clampedVizRangeRef = { current: { min: 102, max: 108 } };
     renderHook(() =>
@@ -418,6 +446,100 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnTxSampleRateChange).toHaveBeenCalled();
     expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("continues dragging the canvas TX slider past the visible track edge", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(1200, 580);
+    triggerPointerUp(1200, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBeGreaterThan(110);
+  });
+
+  it("retunes the hardware window when TX drag crosses the visible edge", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(1200, 580);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastRange.min).toBeGreaterThan(100);
+  });
+
+  it("clamps TX drag at 0 Hz instead of emitting negative frequencies", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef,
+        txSliderEnabled: true,
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 0,
+            visibleMaxHz: 10,
+            txCenterHz: 5,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(-1200, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBe(0);
   });
 
   it("routes wheel and double click to the canvas TX slider", () => {

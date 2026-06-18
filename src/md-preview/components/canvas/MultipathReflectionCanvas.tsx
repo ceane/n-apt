@@ -113,7 +113,7 @@ export default function MultipathReflectionCanvas() {
   return (
     <CanvasHarness aspectRatio="16/9">
       <div className="w-full h-full">
-        <svg viewBox="0 0 900 600" className="w-full h-auto block">
+        <svg viewBox="0 0 900 506.25" className="w-full h-auto block">
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#DBDCDE" strokeWidth="1" />
@@ -123,42 +123,39 @@ export default function MultipathReflectionCanvas() {
           {/* Grid */}
           <rect width="100%" height="100%" fill="url(#grid)" />
 
-          {/* Title */}
-          <text x="40" y="50" className="text-2xl font-mono font-bold fill-slate-800">Multipath</text>
-
           {/* Obstacle */}
-          <rect x="540" y="180" width="100" height="240" fill="#cbd5e1" rx="4" />
-          <text x="590" y="305" textAnchor="middle" className="text-sm font-mono fill-slate-500">Obstacle</text>
+          <rect x="540" y="150" width="100" height="200" fill="#cbd5e1" rx="4" />
+          <text x="590" y="255" textAnchor="middle" className="text-sm font-mono fill-slate-500">Obstacle</text>
 
           {/* Reflectors */}
-          <line x1="520" y1="90" x2="660" y2="90" stroke="#94a3b8" strokeWidth="8" strokeLinecap="round" />
-          <text x="680" y="95" className="text-sm font-mono fill-slate-500">Reflection</text>
+          <line x1="520" y1="75" x2="660" y2="75" stroke="#94a3b8" strokeWidth="8" strokeLinecap="round" />
+          <text x="680" y="80" className="text-sm font-mono fill-slate-500">Reflection</text>
 
-          <line x1="520" y1="510" x2="660" y2="510" stroke="#94a3b8" strokeWidth="8" strokeLinecap="round" />
-          <text x="680" y="515" className="text-sm font-mono fill-slate-500">Reflection</text>
+          <line x1="520" y1="425" x2="660" y2="425" stroke="#94a3b8" strokeWidth="8" strokeLinecap="round" />
+          <text x="680" y="430" className="text-sm font-mono fill-slate-500">Reflection</text>
 
           {/* Target */}
-          <circle cx="300" cy="300" r="45" fill="#d1d5db" />
-          <text x="300" y="235" textAnchor="middle" className="font-bold text-xl fill-slate-700">Target</text>
+          <circle cx="300" cy="250" r="45" fill="#d1d5db" />
+          <text x="300" y="185" textAnchor="middle" className="font-bold text-xl fill-slate-700">Target</text>
 
           {/* Waves */}
-          <AnimatedWave start={{ x: 115, y: 300 }} end={{ x: 250, y: 300 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 115, y: 250 }} end={{ x: 250, y: 250 }} time={time} color="#c026d3" />
 
           {/* Fan waves hitting the obstacle */}
-          <AnimatedWave start={{ x: 339, y: 277 }} end={{ x: 540, y: 220 }} time={time} color="#c026d3" />
-          <AnimatedWave start={{ x: 345, y: 300 }} end={{ x: 540, y: 300 }} time={time} color="#c026d3" />
-          <AnimatedWave start={{ x: 339, y: 323 }} end={{ x: 540, y: 380 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 339, y: 231 }} end={{ x: 540, y: 183 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 345, y: 250 }} end={{ x: 540, y: 250 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 339, y: 269 }} end={{ x: 540, y: 317 }} time={time} color="#c026d3" />
 
           {/* Reflected waves */}
-          <AnimatedWave start={{ x: 335, y: 265 }} end={{ x: 590, y: 90 }} time={time} color="#c026d3" />
-          <AnimatedWave start={{ x: 590, y: 90 }} end={{ x: 785, y: 285 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 335, y: 221 }} end={{ x: 590, y: 75 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 590, y: 75 }} end={{ x: 785, y: 238 }} time={time} color="#c026d3" />
 
-          <AnimatedWave start={{ x: 335, y: 335 }} end={{ x: 590, y: 510 }} time={time} color="#c026d3" />
-          <AnimatedWave start={{ x: 590, y: 510 }} end={{ x: 785, y: 315 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 335, y: 279 }} end={{ x: 590, y: 425 }} time={time} color="#c026d3" />
+          <AnimatedWave start={{ x: 590, y: 425 }} end={{ x: 785, y: 263 }} time={time} color="#c026d3" />
 
           {/* Nodes */}
-          <PulsingNode x={100} y={300} label="Tx" sublabel="(transmitter / source)" time={time} />
-          <PulsingNode x={800} y={300} label="Rx" sublabel="(receiver / destination)" time={time} />
+          <PulsingNode x={100} y={250} label="Tx" sublabel="(transmitter / source)" time={time} />
+          <PulsingNode x={800} y={250} label="Rx" sublabel="(receiver / destination)" time={time} />
 
         </svg>
       </div>
