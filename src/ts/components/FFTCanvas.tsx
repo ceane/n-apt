@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import styled, { keyframes } from "styled-components";
+import { Lock, Unlock } from "lucide-react";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
@@ -73,7 +74,10 @@ import {
   peakResampleWaterfallRow,
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
-import { roundDbValue } from "@n-apt/utils/frequency";
+import {
+  clampCenteredFrequencyRangeToZeroHz,
+  roundDbValue,
+} from "@n-apt/utils/frequency";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import {
   TX_SLIDER_ROW_HEIGHT,
@@ -279,32 +283,52 @@ const TxSliderVisualRow = memo(styled.div`
   isolation: isolate;
 `);
 
-const blink = keyframes`
-  0% { opacity: 0.1; transform: scale(0.6); }
-  50% { opacity: 1; transform: scale(1.1); }
-  100% { opacity: 0.1; transform: scale(0.6); }
-`;
-
 const TxSliderVisualLabel = styled.div`
-  padding-left: 17px;
+  padding-left: 14px;
   font-size: 12px;
   font-weight: 700;
   position: relative;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   z-index: 1;
+`;
+
+const TxSliderLockButton = styled.button`
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceHover};
+    border-color: ${({ theme }) => theme.colors.border};
+    color: ${({ theme }) => theme.colors.textPrimary};
+  }
 `;
 
 const TxBlinkingDot = styled.div`
   position: absolute;
-  left: 11px;
-  width: 20px;
-  height: 20px;
+  top: -1px;
+  right: -8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: ${({ theme }) => theme.colors.danger}73;
-  box-shadow: 0 0 8px ${({ theme }) => theme.colors.danger}99;
-  z-index: -1;
-  animation: ${blink} 1.5s infinite ease-in-out;
+  background: ${({ theme }) => theme.colors.primary};
+  box-shadow: 0 0 8px ${({ theme }) => theme.colors.primary}66;
+  z-index: 1;
 `;
 
 const TxSliderVisualTrack = styled.div`
@@ -360,8 +384,7 @@ const TxSliderVisualText = styled.div<{
   justify-content: center;
   gap: 6px;
   height: 14px;
-  color: ${({ theme, $isTransmitting }) =>
-    $isTransmitting ? theme.colors.primary : theme.colors.textMuted};
+  color: ${({ theme }) => theme.colors.textMuted};
   font-size: 10px;
   font-weight: 800;
   line-height: 1.05;
@@ -374,6 +397,7 @@ const TxSliderVisualText = styled.div<{
 const TxSliderVisualCenterFrequencyText = styled.div<{
   $left: number;
   $isTransmitting: boolean;
+  $isLocked: boolean;
 }>`
   position: absolute;
   left: ${({ $left }) => `${$left}%`};
@@ -385,8 +409,7 @@ const TxSliderVisualCenterFrequencyText = styled.div<{
   justify-content: center;
   gap: 6px;
   height: 14px;
-  color: ${({ theme, $isTransmitting }) =>
-    $isTransmitting ? theme.colors.primary : theme.colors.textMuted};
+  color: ${({ theme }) => theme.colors.textMuted};
   font-size: 10px;
   font-weight: 800;
   line-height: 1.05;
@@ -394,6 +417,14 @@ const TxSliderVisualCenterFrequencyText = styled.div<{
   transition: color 0.3s ease;
   pointer-events: none;
   z-index: 1;
+`;
+
+const TxSliderCenterLockIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  filter: none;
 `;
 
 const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
@@ -956,6 +987,7 @@ const FFTCanvas = memo(
       useState(false);
 
     const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
+    const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
     const powerLineDbRef = useRef<number | null>(null);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
@@ -1015,9 +1047,12 @@ const FFTCanvas = memo(
         const trackRight = Math.max(trackLeft + 80, plotRight);
         const trackWidth = Math.max(1, trackRight - trackLeft);
         const visibleSpan = visualRange.max - visualRange.min;
-        const bandwidth = Math.max(1, slider.txSampleRateHz);
-        const bandMin = slider.txCenterHz - bandwidth / 2;
-        const bandMax = slider.txCenterHz + bandwidth / 2;
+        const { min: bandMin, max: bandMax } =
+          clampCenteredFrequencyRangeToZeroHz(
+            slider.txCenterHz,
+            slider.txSampleRateHz,
+          );
+        const bandwidth = Math.max(1, bandMax - bandMin);
         const toX = (hz: number) =>
           trackLeft + ((hz - visualRange.min) / visibleSpan) * trackWidth;
         const rawBandLeft = toX(bandMin);
@@ -1422,10 +1457,15 @@ const FFTCanvas = memo(
       const span = visualMax - visualMin;
       if (span <= 0) return null;
 
-      const bandwidth = Math.max(1, slider.txSampleRateHz);
-      const center = slider.txCenterHz;
-      const bandStart = Math.max(visualMin, center - bandwidth / 2);
-      const bandEnd = Math.min(visualMax, center + bandwidth / 2);
+      const { min: rawBandStart, max: rawBandEnd } =
+        clampCenteredFrequencyRangeToZeroHz(
+          slider.txCenterHz,
+          slider.txSampleRateHz,
+        );
+      const bandwidth = Math.max(1, rawBandEnd - rawBandStart);
+      const center = (rawBandStart + rawBandEnd) / 2;
+      const bandStart = Math.max(visualMin, rawBandStart);
+      const bandEnd = Math.min(visualMax, rawBandEnd);
       const left = ((bandStart - visualMin) / span) * 100;
       const width =
         bandEnd > bandStart ? ((bandEnd - bandStart) / span) * 100 : 0;
@@ -1455,8 +1495,8 @@ const FFTCanvas = memo(
         powerLabel,
         isOffScreen: offScreenDirection !== null,
         offScreenDirection,
-        centerHzFormatted: formatHz(center),
-        bandwidthFormatted: formatHz(bandwidth),
+        centerHzFormatted: `○ ${formatHz(center)}`,
+        bandwidthFormatted: `| ${formatHz(bandwidth)} |`,
       };
     }, [effectiveTxSlider, currentVisualRange]);
 
@@ -1831,6 +1871,7 @@ const FFTCanvas = memo(
       onPowerLineDbChange: setPowerLineDb,
       txSliderRef,
       txSliderEnabled: !!effectiveTxSlider?.visible,
+      txSliderLocked: isTxSliderLocked,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -3660,8 +3701,33 @@ const FFTCanvas = memo(
                     {txSliderVisualMetrics && !compact ? (
                       <TxSliderVisualRow data-testid="tx-slider-visual-row">
                         <TxSliderVisualLabel>
-                          {isTransmittingGlobal && <TxBlinkingDot />}
-                          Tx
+                          <TxSliderLockButton
+                            type="button"
+                            onClick={() =>
+                              setIsTxSliderLocked((value) => !value)
+                            }
+                            aria-pressed={isTxSliderLocked}
+                            aria-label={
+                              isTxSliderLocked
+                                ? "Unlock Tx slider"
+                                : "Lock Tx slider"
+                            }
+                            title={
+                              isTxSliderLocked
+                                ? "Unlock Tx slider"
+                                : "Lock Tx slider"
+                            }
+                          >
+                            {isTxSliderLocked ? (
+                              <Lock size={10} strokeWidth={2.5} />
+                            ) : (
+                              <Unlock size={10} strokeWidth={2.5} />
+                            )}
+                          </TxSliderLockButton>
+                          <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                            {isTransmittingGlobal && <TxBlinkingDot />}
+                            Tx
+                          </div>
                         </TxSliderVisualLabel>
                         <TxSliderVisualTrack>
                           <TxSliderVisualBase />
@@ -3675,7 +3741,13 @@ const FFTCanvas = memo(
                               <TxSliderVisualCenterFrequencyText
                                 $left={txSliderVisualMetrics.centerLeft}
                                 $isTransmitting={isTransmittingGlobal}
+                                $isLocked={isTxSliderLocked}
                               >
+                                {isTxSliderLocked ? (
+                                  <TxSliderCenterLockIcon aria-hidden="true">
+                                    <Lock size={10} strokeWidth={2.5} />
+                                  </TxSliderCenterLockIcon>
+                                ) : null}
                                 {txSliderVisualMetrics.centerHzFormatted}
                               </TxSliderVisualCenterFrequencyText>
                               <TxSliderVisualText

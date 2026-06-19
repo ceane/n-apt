@@ -27,6 +27,22 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.sampleRateHz).toBeUndefined();
   });
 
+  it("restores Tx defaults when persisted spectrum state is partial", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        fftSize: 1024,
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.txSampleRateHz).toBe(2_400_000);
+    expect(parsed.txCenterFrequencyHz).toBe(137_100_000);
+    expect(parsed.txSignal).toBe("apt");
+    expect(parsed.txHopType).toBe("range");
+  });
+
   it("drops stale zero gain so the restored default survives hydration", () => {
     localStorage.setItem(
       "napt-sdr-settings-v2",

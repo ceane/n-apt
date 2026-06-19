@@ -119,6 +119,29 @@ export const normalizeFrequencyRangeToHz = (
 export const getFrequencyRangeCenterHz = (range: FrequencyRange): number =>
   Math.round((range.min + range.max) / 2);
 
+export const clampCenteredFrequencyRangeToZeroHz = (
+  centerHz: number,
+  bandwidthHz: number,
+): FrequencyRange => {
+  const safeBandwidth =
+    Number.isFinite(bandwidthHz) && bandwidthHz > 0 ? bandwidthHz : 0;
+  const halfBandwidth = safeBandwidth / 2;
+  const rawCenter = Number.isFinite(centerHz) ? centerHz : 0;
+
+  if (safeBandwidth <= 0) {
+    return { min: 0, max: 0 };
+  }
+
+  const adjustedCenter = Math.max(rawCenter, halfBandwidth);
+  const min = adjustedCenter - halfBandwidth;
+  const max = adjustedCenter + halfBandwidth;
+
+  return {
+    min: Math.round(Math.max(0, min)),
+    max: Math.round(Math.max(0, max)),
+  };
+};
+
 export const getAvailableSpectrumBounds = (
   bounds?: FrequencyRange | null,
 ): FrequencyRange => {

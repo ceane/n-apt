@@ -11,6 +11,7 @@ import {
   getFrequencyRequestCenterHz,
   shouldResendRetuneRequest,
   resetWebSocketMiddlewareState,
+  trimLiveFrameQueue,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -256,6 +257,23 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Live data ref isolation", () => {
+    it("trims retained live IQ frames to a small latest-frame queue", () => {
+      const frames = Array.from({ length: 20 }, (_, index) => ({
+        type: "spectrum",
+        data_type: "iq_raw",
+        iq_data: new Uint8Array(256 * 1024),
+        sample_rate: 2_400_000,
+        center_frequency_hz: 100_000_000,
+        timestamp: index,
+      })) as IqRawFrame[];
+
+      const trimmed = trimLiveFrameQueue(frames);
+
+      expect(trimmed).toHaveLength(8);
+      expect(trimmed[0].timestamp).toBe(12);
+      expect(trimmed[7].timestamp).toBe(19);
+    });
+
     it("does not silently reject live frames by center-frequency mismatch", () => {
       expect(isFrameStale(1_618_000)).toBe(false);
       expect(isFrameStale(26_738_000)).toBe(false);

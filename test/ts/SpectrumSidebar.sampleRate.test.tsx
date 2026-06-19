@@ -86,6 +86,10 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
     cryptoCorrupted: false,
     deviceName: mockWsConnection?.deviceName ?? "HackRF One",
     deviceProfile: mockWsConnection?.deviceProfile ?? { kind: "hackrf_one" },
+    selectedSourceId: mockLiveState.selectedSourceId ?? "",
+    setSelectedSourceId: jest.fn(),
+    selectedSource: mockLiveState.selectedSource ?? null,
+    sources: mockLiveState.sources ?? [],
   }),
 }));
 
@@ -727,5 +731,106 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(fftSizeOptionValues).toContain("2048");
     expect(fftSizeOptionValues).toContain("4096");
     expect(fftSizeOptionValues).toContain("262144");
+  });
+
+  it("targets the currently transmitting source when stopping tx from Tx Settings", async () => {
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: "tx-1",
+      selectedSource: {
+        id: "tx-1",
+        name: "HackRF One #1",
+        kind: "hackrf_one",
+        capability: "tx_rx",
+        status: "connected",
+      },
+      sources: [
+        {
+          id: "tx-1",
+          name: "HackRF One #1",
+          kind: "hackrf_one",
+          capability: "tx_rx",
+          status: "connected",
+          serial_number: "tx-1",
+          sdr: {
+            settings: {
+              center_frequency: 137_100_000,
+              sample_rate: 5_200_000,
+              hackrf_vga_gain: 16,
+              hackrf_lna_gain: 0,
+              hackrf_amp_enable: false,
+              tuner_agc: false,
+              rtl_agc: false,
+              ppm: 1,
+              fft: {
+                default_size: 262144,
+                default_frame_rate: 12,
+                max_size: 262144,
+                max_frame_rate: 60,
+              },
+            },
+          },
+        },
+        {
+          id: "tx-2",
+          name: "HackRF One #2",
+          kind: "hackrf_one",
+          capability: "tx_rx",
+          status: "transmitting",
+          serial_number: "tx-2",
+          sdr: {
+            settings: {
+              center_frequency: 137_100_000,
+              sample_rate: 5_200_000,
+              hackrf_vga_gain: 16,
+              hackrf_lna_gain: 0,
+              hackrf_amp_enable: false,
+              tuner_agc: false,
+              rtl_agc: false,
+              ppm: 1,
+              fft: {
+                default_size: 262144,
+                default_frame_rate: 12,
+                max_size: 262144,
+                max_frame_rate: 60,
+              },
+            },
+          },
+        },
+      ],
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: mockLiveState.sources,
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "tx-1",
+        activeSourceMode: "live",
+        sources: mockLiveState.sources,
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const txButton = await screen.findByRole("button", { name: /pause tx/i });
+    fireEvent.click(txButton);
+
+    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      false,
+      "HackRF One #2",
+      expect.objectContaining({
+        serialNumber: "tx-2",
+      }),
+    );
   });
 });

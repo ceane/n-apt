@@ -69,6 +69,7 @@ export interface FrequencyDragOptions {
   onPowerLineDbChange?: (db: number | null) => void;
   txSliderRef?: React.MutableRefObject<CanvasTxSliderState | null>;
   txSliderEnabled?: boolean;
+  txSliderLocked?: boolean;
 }
 
 export function useFrequencyDrag({
@@ -107,6 +108,7 @@ export function useFrequencyDrag({
   onPowerLineDbChange,
   txSliderRef,
   txSliderEnabled = false,
+  txSliderLocked = false,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
@@ -173,6 +175,13 @@ export function useFrequencyDrag({
   const containerRectRef = useRef<DOMRect | null>(null);
   const getReservedBottomHeight = () => LIVE_STATUS_ROW_HEIGHT;
   const getVfoInteractionHeight = () => 60 + getReservedBottomHeight();
+
+  useEffect(() => {
+    if (!txSliderLocked) return;
+    isTxSliderDraggingRef.current = false;
+    txSliderHandleRef.current = null;
+    txSliderBodyDragOffsetHzRef.current = 0;
+  }, [txSliderLocked]);
 
   const getPlotBounds = (rect: DOMRect) => {
     if (fullPlotSelection) {
@@ -1230,8 +1239,9 @@ export function useFrequencyDrag({
         const p1 = pointers[0];
         const p2 = pointers[1];
         if (
-          isPointInTxSlider(p1.x, p1.y, canvasRect) ||
-          isPointInTxSlider(p2.x, p2.y, canvasRect)
+          !txSliderLocked &&
+          (isPointInTxSlider(p1.x, p1.y, canvasRect) ||
+            isPointInTxSlider(p2.x, p2.y, canvasRect))
         ) {
           txPinchInitialDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y);
           txPinchInitialBandwidthRef.current =
@@ -1247,6 +1257,7 @@ export function useFrequencyDrag({
 
       const slider = txSliderRef?.current;
       if (
+        !txSliderLocked &&
         slider?.visible &&
         slider.visibleMaxHz > slider.visibleMinHz &&
         Number.isFinite(slider.txCenterHz) &&
@@ -1822,6 +1833,7 @@ export function useFrequencyDrag({
       if (isPointInTxSlider(e.clientX, e.clientY, rect)) {
         e.preventDefault();
         e.stopPropagation();
+        if (txSliderLocked) return;
         const slider = txSliderRef?.current;
         if (!isTxSliderReady(slider)) return;
         if (e.ctrlKey) {
@@ -1845,6 +1857,9 @@ export function useFrequencyDrag({
       // 1. Handle Pinch-to-Zoom (ctrlKey is true on trackpad pinches)
       if (e.ctrlKey) {
         e.preventDefault();
+        if (txSliderLocked && isPointInTxSlider(e.clientX, e.clientY, rect)) {
+          return;
+        }
         if (!onVizZoomChange || !vizZoomRef) return;
 
         const zoom = vizZoomRef.current;
@@ -1922,6 +1937,9 @@ export function useFrequencyDrag({
       if (isOverMargin) {
         // Move laterally on scroll
         e.preventDefault();
+        if (txSliderLocked && isPointInTxSlider(e.clientX, e.clientY, rect)) {
+          return;
+        }
 
         // Use deltaY for vertical scroll wheels to move laterally
         // Use deltaX for horizontal scroll wheels/gestures
@@ -2069,6 +2087,7 @@ export function useFrequencyDrag({
     renderWaveformRef,
     selectionMode,
     txSliderEnabled,
+    txSliderLocked,
   ]);
 }
 

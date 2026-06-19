@@ -2,6 +2,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useRef,
   useState,
   useMemo,
   type ReactNode,
@@ -112,6 +113,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       useState<HTMLCanvasElement | null>(null);
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
     const [isFftCanvasLoading, setIsFftCanvasLoading] = useState(true);
+    const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
+      useState(true);
+    const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
     const currentFrame = Array.isArray(props.dataRef.current)
       ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
       : props.dataRef.current;
@@ -166,6 +170,30 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
 
     useEffect(() => {
+      if (loadingPlaceholderTimeoutRef.current) {
+        window.clearTimeout(loadingPlaceholderTimeoutRef.current);
+        loadingPlaceholderTimeoutRef.current = null;
+      }
+
+      if (!isGlobalLoading) {
+        setShouldShowLoadingPlaceholder(false);
+        return;
+      }
+
+      loadingPlaceholderTimeoutRef.current = window.setTimeout(() => {
+        setShouldShowLoadingPlaceholder(true);
+        loadingPlaceholderTimeoutRef.current = null;
+      }, 160);
+
+      return () => {
+        if (loadingPlaceholderTimeoutRef.current) {
+          window.clearTimeout(loadingPlaceholderTimeoutRef.current);
+          loadingPlaceholderTimeoutRef.current = null;
+        }
+      };
+    }, [isGlobalLoading]);
+
+    useEffect(() => {
       if (
         sourceMode === "live" &&
         (awaitingDeviceData || placeholderErrorReason)
@@ -176,8 +204,8 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     }, [awaitingDeviceData, placeholderErrorReason, sourceMode]);
 
     useEffect(() => {
-      props.onLoadingStateChange?.(isGlobalLoading);
-    }, [isGlobalLoading, props.onLoadingStateChange]);
+      props.onLoadingStateChange?.(shouldShowLoadingPlaceholder);
+    }, [shouldShowLoadingPlaceholder, props.onLoadingStateChange]);
 
     const waterfallCanvasBindings: FFTCanvasWaterfallBindings = {
       waterfallGpuCanvasNode,

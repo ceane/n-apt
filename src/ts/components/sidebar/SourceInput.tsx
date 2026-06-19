@@ -171,6 +171,7 @@ const DevicePillMeta = styled.div`
 const DeviceStatusDot = styled.span<{
   $active?: boolean;
   $loading?: boolean;
+  $blink?: boolean;
 }>`
   width: 10px;
   height: 10px;
@@ -180,6 +181,8 @@ const DeviceStatusDot = styled.span<{
   box-shadow: ${({ $active }) =>
     $active ? "0 0 0 2px rgba(25, 217, 255, 0.12)" : "none"};
   flex-shrink: 0;
+  opacity: ${({ $blink = false }) => ($blink ? 1 : 0.25)};
+  transition: opacity 90ms linear;
 `;
 
 const DeviceActionButton = styled.button<{
@@ -299,6 +302,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [transmittingDotOn, setTransmittingDotOn] = React.useState(true);
 
   const handleFiles = useCallback(
     (files: File[]) => {
@@ -363,9 +367,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability.toUpperCase();
   };
 
-  const formatStatusLabel = (status?: string | null): string | null => {
+  const formatStatusLabel = (status?: string | null, isMock?: boolean): string | null => {
     if (!status) return null;
-    if (status === "transmitting") return "Transmitting (Tx)";
+    if (status === "transmitting") return isMock ? "Transmitting (Mock Tx)" : "Transmitting (Tx)";
     if (status === "streaming") return "Streaming";
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
@@ -374,8 +378,40 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
     device.status?.label?.toLowerCase?.() === "transmitting" || device.txMode;
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
+  React.useEffect(() => {
+    if (!transmittingDevice) {
+      setTransmittingDotOn(false);
+      return;
+    }
+
+    setTransmittingDotOn(true);
+    let timeoutId: any = null;
+    let cancelled = false;
+
+    const scheduleNextToggle = () => {
+      const delay = 100 + Math.random() * 100;
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        setTransmittingDotOn((value) => !value);
+        scheduleNextToggle();
+      }, delay);
+    };
+
+    scheduleNextToggle();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [transmittingDevice?.id]);
+
   const selectedDevice =
     sourceDevices.find((device) => device.id === selectedDeviceId) ?? null;
+  const isMockDevice = (device: (typeof sourceDevices)[number]) =>
+    device.name.toLowerCase().includes("mock") ||
+    device.backend?.toLowerCase().includes("mock") === true;
   const spaceBoundDevice =
     sourceDevices.find((device) => device.id === spaceBoundDeviceId) ?? null;
   const isDeviceConnected = (device: (typeof sourceDevices)[number]) => {
@@ -474,6 +510,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 <DeviceStatusDot
                   $active={isOnscreenStreaming}
                   $loading={device.status?.loading}
+                  $blink={device.id === transmittingDeviceId ? transmittingDotOn : true}
                   style={
                     device.status?.color
                       ? { backgroundColor: device.status.color }
@@ -485,8 +522,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   <DevicePillName>{device.name}</DevicePillName>
                   <DevicePillMeta>
                     {formatCapability(device.capability)}
-                    {formatStatusLabel(device.status?.label)
-                      ? ` · ${formatStatusLabel(device.status?.label)}`
+                    {formatStatusLabel(device.status?.label, isMockDevice(device))
+                      ? ` · ${formatStatusLabel(device.status?.label, isMockDevice(device))}`
                       : ""}
                   </DevicePillMeta>
                 </DevicePillMain>

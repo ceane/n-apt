@@ -53,6 +53,29 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByText("Authenticating...")).toBeInTheDocument();
   });
 
+  it("should show server down state", () => {
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} authState="server_down" />,
+    );
+    expect(
+      screen.getByText("Server is down", { selector: "h2 span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName.toLowerCase() === "p" &&
+          element.textContent?.includes("Try to restart the server"),
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("npm run dev", { selector: "code" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Sign in with Passkey/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Authenticate/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("should show success state", () => {
     renderAuthenticationUI(
       <AuthenticationUI {...defaultProps} authState="success" />,

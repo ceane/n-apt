@@ -73,4 +73,14 @@ describe("TxSettingsSection", () => {
     fireEvent.keyDown(hopRateInput, { key: "ArrowDown" });
     expect(defaultProps.onHopRateHzChange).toHaveBeenLastCalledWith(10);
   });
+
+  it("labels the transmit button as Pause Tx while transmitting", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} isTransmitting />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: /pause tx/i })).toBeInTheDocument();
+  });
 });

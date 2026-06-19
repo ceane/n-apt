@@ -321,8 +321,8 @@ pub struct WebSocketMessage {
     alias = "sampleRate",
     alias = "sampleRateHz"
   )]
-  #[validate(range(min = 1, max = 100000000))]
-  pub sample_rate: Option<u32>,
+  #[validate(range(min = 1.0, max = 100000000.0))]
+  pub sample_rate: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]

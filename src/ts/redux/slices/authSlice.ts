@@ -1,6 +1,11 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
-export type AuthState = "connecting" | "authenticating" | "ready" | "failed";
+export type AuthState =
+  | "connecting"
+  | "server_down"
+  | "authenticating"
+  | "ready"
+  | "failed";
 
 export interface AuthSliceState {
   authState: AuthState;

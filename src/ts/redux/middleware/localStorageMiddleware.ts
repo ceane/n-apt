@@ -173,6 +173,58 @@ export const loadPersistedSdrSettings = () => {
       delete parsed.sampleRateHz;
     }
 
+    if (!Number.isFinite(parsed.txSampleRateHz)) {
+      parsed.txSampleRateHz = 2_400_000;
+    }
+
+    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
+      parsed.txCenterFrequencyHz = 137_100_000;
+    }
+
+    if (!Number.isFinite(parsed.txPowerDbm)) {
+      parsed.txPowerDbm = -18;
+    }
+
+    if (!Number.isFinite(parsed.txVgaGain)) {
+      parsed.txVgaGain = 16;
+    }
+
+    if (typeof parsed.txSignal !== "string" || !parsed.txSignal) {
+      parsed.txSignal = "apt";
+    }
+
+    if (typeof parsed.txSafetyEnabled !== "boolean") {
+      parsed.txSafetyEnabled = false;
+    }
+
+    if (typeof parsed.txSafetyLimit !== "string") {
+      parsed.txSafetyLimit = "room";
+    }
+
+    if (typeof parsed.txHopType !== "string") {
+      parsed.txHopType = "range";
+    }
+
+    if (!Number.isFinite(parsed.txHopStartFrequencyHz)) {
+      parsed.txHopStartFrequencyHz = 10_000_000;
+    }
+
+    if (!Number.isFinite(parsed.txHopEndFrequencyHz)) {
+      parsed.txHopEndFrequencyHz = 20_000_000;
+    }
+
+    if (!Array.isArray(parsed.txHopChannels)) {
+      parsed.txHopChannels = ["a"];
+    }
+
+    if (!Number.isFinite(parsed.txHopRateHz)) {
+      parsed.txHopRateHz = 10;
+    }
+
+    if (typeof parsed.txHopEnabled !== "boolean") {
+      parsed.txHopEnabled = false;
+    }
+
     // Preserve the restored live default gain if stale cache data wrote a zero
     // generic gain. Zero is a common "missing value" in older persisted state.
     if (parsed.gain === 0) {

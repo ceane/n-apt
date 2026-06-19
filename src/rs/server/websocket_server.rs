@@ -116,10 +116,10 @@ enum SourceSelection {
 }
 
 fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
-  if source_id == "mock-apt" {
+  if source_id == "mock-apt" || source_id == "mock_apt" {
     return Ok(SourceSelection::MockApt);
   }
-  if source_id == "mock-tx" {
+  if source_id == "mock-tx" || source_id == "mock_tx" {
     return Ok(SourceSelection::MockTx);
   }
 
@@ -371,12 +371,8 @@ fn build_active_source_payload(
 
 fn build_mock_tx_source_payload(
   shared: &SharedState,
-  active_source_id: &str,
+  _active_source_id: &str,
 ) -> Option<serde_json::Value> {
-  if active_source_id == "mock-tx" {
-    return None;
-  }
-
   Some(build_source_payload(
     shared,
     "mock-tx".to_string(),
@@ -530,7 +526,9 @@ pub(crate) fn build_source_info_snapshot(
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
   );
 
-  sources.push(active_source);
+  if active_source_id != "mock-tx" {
+    sources.push(active_source);
+  }
   if let Some(mock_tx) = build_mock_tx_source_payload(shared, &active_source_id)
   {
     sources.push(mock_tx);

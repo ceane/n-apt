@@ -11,8 +11,8 @@ describe("TxSliderOverlay", () => {
           signalLabel="APT"
           visibleMinHz={18_000}
           visibleMaxHz={4_390_000}
-          txCenterHz={137_100_000}
-          txSampleRateHz={2_400_000}
+          txCenterHz={0}
+          txSampleRateHz={120_000}
           powerDbm={-18}
         />
       </TestWrapper>,
@@ -20,8 +20,9 @@ describe("TxSliderOverlay", () => {
 
     expect(
       screen.getByText(
-        "2.400MHz sample rate · 137.100MHz center · -18.0 dBm target",
+        "120.0kHz sample rate · 60.0kHz center · -18.0 dBm target",
       ),
     ).toBeInTheDocument();
+    expect(screen.getByText("APT")).toBeInTheDocument();
   });
 });

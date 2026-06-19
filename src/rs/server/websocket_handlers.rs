@@ -386,8 +386,9 @@ pub fn handle_message(
         }
       });
       let sample_rate = message.sample_rate.and_then(|rate| {
-        if (1_000_000..=20_000_000).contains(&rate) {
-          Some(rate)
+        let rounded_rate = rate.round() as u32;
+        if (1_000_000..=20_000_000).contains(&rounded_rate) {
+          Some(rounded_rate)
         } else {
           warn!("Ignoring invalid sample_rate from client: {}", rate);
           None
@@ -559,13 +560,14 @@ pub fn handle_message(
         .tx_device
         .clone()
         .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
+      info!("Received tx_mode message: enabled={}, device={}", enabled, device);
       let serial_number = shared.device_serial.lock().unwrap().clone();
       let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
       if let Some(center_frequency) = message.center_frequency {
         sdr_settings.center_frequency = center_frequency as u32;
       }
       if let Some(sample_rate) = message.sample_rate {
-        sdr_settings.sample_rate = sample_rate;
+        sdr_settings.sample_rate = sample_rate.round() as u32;
       }
       if let Some(vga_gain) = message.hackrf_vga_gain {
         sdr_settings.gain.hackrf_vga_gain = Some(vga_gain);
@@ -757,7 +759,12 @@ pub fn handle_message(
       let _ = cmd_tx.send(super::types::SdrCommand::RestartDevice);
     }
     "select_source" => {
-      if let Some(source_id) = message.source_id.clone() {
+      if let Some(mut source_id) = message.source_id.clone() {
+        if source_id == "mock_tx" {
+          source_id = "mock-tx".to_string();
+        } else if source_id == "mock_apt" {
+          source_id = "mock-apt".to_string();
+        }
         info!("Client requested source switch: {}", source_id);
         let _ =
           cmd_tx.send(super::types::SdrCommand::SetActiveSource { source_id });
@@ -1133,7 +1140,7 @@ mod tests {
       "N-APT".to_string(),
       "Mock TX Device".to_string(),
     );
-    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
     let mut broadcast_rx = broadcast_tx.subscribe();
     let mut next_source_info = || -> serde_json::Value {
       for _ in 0..4 {
@@ -1162,6 +1169,8 @@ mod tests {
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, enable);
 
+    assert!(shared.mock_tx_transmitting.load(std::sync::atomic::Ordering::Relaxed));
+
     let payload = next_source_info();
     assert_eq!(payload["active_source"], "mock-tx");
     assert_eq!(payload["sources"][0]["status"], "transmitting");
@@ -1176,6 +1185,8 @@ mod tests {
     .unwrap();
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, disable);
+
+    assert!(!shared.mock_tx_transmitting.load(std::sync::atomic::Ordering::Relaxed));
 
     let payload = next_source_info();
     assert_eq!(payload["sources"][0]["status"], "connected");

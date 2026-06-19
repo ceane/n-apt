@@ -544,6 +544,58 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       delete parsed.sampleRateHz;
     }
 
+    if (!Number.isFinite(parsed.txSampleRateHz)) {
+      parsed.txSampleRateHz = 2_400_000;
+    }
+
+    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
+      parsed.txCenterFrequencyHz = 137_100_000;
+    }
+
+    if (!Number.isFinite(parsed.txPowerDbm)) {
+      parsed.txPowerDbm = -18;
+    }
+
+    if (!Number.isFinite(parsed.txVgaGain)) {
+      parsed.txVgaGain = 16;
+    }
+
+    if (typeof parsed.txSignal !== "string" || !parsed.txSignal) {
+      parsed.txSignal = "apt";
+    }
+
+    if (typeof parsed.txSafetyEnabled !== "boolean") {
+      parsed.txSafetyEnabled = false;
+    }
+
+    if (typeof parsed.txSafetyLimit !== "string") {
+      parsed.txSafetyLimit = "room";
+    }
+
+    if (typeof parsed.txHopType !== "string") {
+      parsed.txHopType = "range";
+    }
+
+    if (!Number.isFinite(parsed.txHopStartFrequencyHz)) {
+      parsed.txHopStartFrequencyHz = 10_000_000;
+    }
+
+    if (!Number.isFinite(parsed.txHopEndFrequencyHz)) {
+      parsed.txHopEndFrequencyHz = 20_000_000;
+    }
+
+    if (!Array.isArray(parsed.txHopChannels)) {
+      parsed.txHopChannels = ["a"];
+    }
+
+    if (!Number.isFinite(parsed.txHopRateHz)) {
+      parsed.txHopRateHz = 10;
+    }
+
+    if (typeof parsed.txHopEnabled !== "boolean") {
+      parsed.txHopEnabled = false;
+    }
+
     // Older persisted spectrum state can contain gain=0 as a placeholder.
     // That should not override the live default restored from the backend.
     if (parsed.gain === 0) {

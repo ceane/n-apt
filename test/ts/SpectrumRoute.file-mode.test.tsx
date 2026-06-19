@@ -13,6 +13,7 @@ import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
+import notificationsSlice from "../../src/ts/redux/slices/notificationsSlice";
 import {
   setDeviceKind,
   setTxCenterFrequencyHz,
@@ -123,10 +124,11 @@ const createStore = (preloadedState?: any) =>
       theme: themeSlice,
       settings: settingsSlice,
       websocket: websocketSlice,
-      snapshot: snapshotSlice,
-      demod: demodSlice,
       noteCards: noteCardsSlice,
-    },
+      notifications: notificationsSlice,
+      demod: demodSlice,
+      snapshot: snapshotSlice,
+    } as any,
     preloadedState,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({ serializableCheck: false }),

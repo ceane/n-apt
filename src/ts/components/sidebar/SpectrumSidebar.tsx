@@ -1061,6 +1061,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [websocketSources, selectedSource]);
 
   const txTargetDeviceId = useMemo(() => {
+    const transmittingSource = websocketSources.find(
+      (s) => s.status === "transmitting",
+    );
+    if (selectedSource?.status === "transmitting") {
+      return selectedSource.id;
+    }
+    if (transmittingSource) {
+      return transmittingSource.id;
+    }
     if (
       selectedSource &&
       (selectedSource.capability === "tx" ||
@@ -1943,8 +1952,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [selectedPrimaryFile, aesKey, naptMetadata, naptMetadataError]);
 
   const limitMarkers = useMemo(
-    () => buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
-    [wsConnection.sdrLimitMarkers],
+    () =>
+      isMockLiveSource ? [] : buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
+    [isMockLiveSource, wsConnection.sdrLimitMarkers],
   );
 
   const resetLiveControls = useCallback(() => {

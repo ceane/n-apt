@@ -198,6 +198,7 @@ let statusBatchFrame: number | null = null;
 let pendingStatusUpdates: any = null;
 let allowNextPausedFrame = false;
 let pausedFrameRequestInFlight = false;
+const MAX_RETAINED_LIVE_FRAMES = 8;
 const DISCONNECT_GRACE_MS = 150;
 const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // RATIONALE for Auto FFT:
@@ -224,6 +225,18 @@ export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
 };
 
+export const trimLiveFrameQueue = <T>(frames: T[]): T[] => {
+  return frames.length > MAX_RETAINED_LIVE_FRAMES
+    ? frames.slice(-MAX_RETAINED_LIVE_FRAMES)
+    : frames;
+};
+
+const trimPendingDataUpdate = () => {
+  if (Array.isArray(pendingDataUpdate)) {
+    pendingDataUpdate = trimLiveFrameQueue(pendingDataUpdate);
+  }
+};
+
 export const shouldAcceptPausedFrameRequest = (): boolean => {
   if (pausedFrameRequestInFlight) {
     return false;
@@ -243,7 +256,18 @@ export const resetWebSocketMiddlewareState = (): void => {
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
   allowNextPausedFrame = false;
+  pendingDataUpdate = null;
+  pendingStatusUpdates = null;
+  liveDataRef.current = null;
   resetPausedFrameRequestGate();
+  if (dataBatchFrame) {
+    cancelAnimationFrame(dataBatchFrame);
+    dataBatchFrame = null;
+  }
+  if (statusBatchFrame) {
+    cancelAnimationFrame(statusBatchFrame);
+    statusBatchFrame = null;
+  }
   if (wsInstance.ws) {
     wsInstance.ws.onclose = null;
     wsInstance.ws.onerror = null;
@@ -286,12 +310,8 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
           liveDataRef.current = pendingDataUpdate;
         }
       }
-      // Limit queue size to prevent memory leaks if processing falls behind
-      if (
-        Array.isArray(liveDataRef.current) &&
-        liveDataRef.current.length > 100
-      ) {
-        liveDataRef.current = liveDataRef.current.slice(-50);
+      if (Array.isArray(liveDataRef.current)) {
+        liveDataRef.current = trimLiveFrameQueue(liveDataRef.current);
       }
       // Dispatch action to trigger state machine updates
       dispatch(incrementDataFrameCounter());
@@ -501,6 +521,7 @@ const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
     pendingDataUpdate = [data];
   } else {
     pendingDataUpdate.push(data);
+    trimPendingDataUpdate();
   }
 
   if (dataBatchFrame === null) {
@@ -551,6 +572,9 @@ const cleanupSocket = () => {
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
   lastFrequencyRangeRequest = null;
+  pendingDataUpdate = null;
+  pendingStatusUpdates = null;
+  liveDataRef.current = null;
   wsInstance.disposed = true;
 };
 
@@ -998,6 +1022,7 @@ const processBinaryMessage = async (
       pendingDataUpdate = [spectrumData];
     } else {
       pendingDataUpdate.push(spectrumData);
+      trimPendingDataUpdate();
     }
 
     if (dataBatchFrame === null) {
@@ -1153,6 +1178,7 @@ const createWebSocketMiddleware =
                         pendingDataUpdate = [decrypted];
                       } else {
                         pendingDataUpdate.push(decrypted);
+                        trimPendingDataUpdate();
                       }
                     }
                   } catch (e) {

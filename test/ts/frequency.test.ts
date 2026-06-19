@@ -1,5 +1,6 @@
 import {
   clampFrequencyHz,
+  clampCenteredFrequencyRangeToZeroHz,
   getBandwidthEndHz,
   getBandwidthStartHz,
   buildCenteredFrequencyRange,
@@ -178,6 +179,25 @@ describe("Frequency Utilities", () => {
       expect(buildCenteredFrequencyRange(1_500, 1_000)).toEqual({
         min: 1_000,
         max: 2_000,
+      });
+    });
+
+    test("should shift centered bandwidth upward when the low edge would go below zero", () => {
+      expect(clampCenteredFrequencyRangeToZeroHz(100, 1_000)).toEqual({
+        min: 0,
+        max: 1_000,
+      });
+      expect(clampCenteredFrequencyRangeToZeroHz(500, 1_000)).toEqual({
+        min: 0,
+        max: 1_000,
+      });
+      expect(clampCenteredFrequencyRangeToZeroHz(1_500, 1_000)).toEqual({
+        min: 1_000,
+        max: 2_000,
+      });
+      expect(clampCenteredFrequencyRangeToZeroHz(0, 120_000)).toEqual({
+        min: 0,
+        max: 120_000,
       });
     });
 

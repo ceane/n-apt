@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import styled from "styled-components";
 import { Signal } from "lucide-react";
-import { clampFrequencyHz } from "@n-apt/utils/frequency";
+import {
+  clampCenteredFrequencyRangeToZeroHz,
+  clampFrequencyHz,
+} from "@n-apt/utils/frequency";
 
 const OverlayRoot = styled.div`
   position: absolute;
@@ -227,22 +230,9 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
           const span = Math.max(1, visibleMaxHz - visibleMinHz);
           const pointerFreq = visibleMinHz + ratio * span;
 
-          const currentCenter = clampFrequencyHz(
-            txCenterHz,
-            visibleMinHz,
-            visibleMaxHz,
-          );
-          const halfWidth = Math.max(1, txSampleRateHz / 2);
-          const currentStart = clampFrequencyHz(
-            currentCenter - halfWidth,
-            visibleMinHz,
-            visibleMaxHz,
-          );
-          const currentEnd = clampFrequencyHz(
-            currentCenter + halfWidth,
-            visibleMinHz,
-            visibleMaxHz,
-          );
+          const { min: currentStart, max: currentEnd } =
+            clampCenteredFrequencyRangeToZeroHz(txCenterHz, txSampleRateHz);
+          const currentCenter = (currentStart + currentEnd) / 2;
 
           if (event.type === "pointerdown") {
             const distToLeft = Math.abs(pointerFreq - currentStart);
@@ -330,18 +320,9 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
 
   const band = useMemo(() => {
     const span = Math.max(1, visibleMaxHz - visibleMinHz);
-    const center = clampFrequencyHz(txCenterHz, visibleMinHz, visibleMaxHz);
-    const halfWidth = Math.max(1, txSampleRateHz / 2);
-    const start = clampFrequencyHz(
-      center - halfWidth,
-      visibleMinHz,
-      visibleMaxHz,
-    );
-    const end = clampFrequencyHz(
-      center + halfWidth,
-      visibleMinHz,
-      visibleMaxHz,
-    );
+    const { min: start, max: end } =
+      clampCenteredFrequencyRangeToZeroHz(txCenterHz, txSampleRateHz);
+    const center = (start + end) / 2;
     const left = ((start - visibleMinHz) / span) * 100;
     const right = ((end - visibleMinHz) / span) * 100;
     return {
@@ -402,7 +383,7 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             <span>{formatHz(band.end)}</span>
           </Marks>
           <Hint>
-            {formatHz(txSampleRateHz)} sample rate · {formatHz(txCenterHz)}{" "}
+            {formatHz(txSampleRateHz)} sample rate · {formatHz(band.centerHz)}{" "}
             center · {(Number.isFinite(powerDbm) ? powerDbm : 0).toFixed(1)} dBm
             target
           </Hint>

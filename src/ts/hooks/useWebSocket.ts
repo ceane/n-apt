@@ -125,6 +125,7 @@ type WsState = {
 
 type WsAction =
   | { type: "CONNECTED" }
+  | { type: "CONNECTION_LOST" }
   | { type: "DISCONNECTED" }
   | { type: "RESET" }
   | { type: "ERROR"; error: string }
@@ -173,6 +174,11 @@ function wsReducer(state: WsState, action: WsAction): WsState {
         isConnected: true,
         error: null,
         cryptoCorrupted: false,
+      };
+    case "CONNECTION_LOST":
+      return {
+        ...state,
+        isConnected: false,
       };
     case "DISCONNECTED":
       return {
@@ -598,7 +604,7 @@ export const useWebSocket = (
 
         ws.onclose = () => {
           if (disposed) return;
-          dispatch({ type: "DISCONNECTED" });
+          dispatch({ type: "CONNECTION_LOST" });
 
           // Exponential backoff reconnection logic
           const maxAttempts = 5;
@@ -863,12 +869,21 @@ export const useWebSocket = (
     ) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const roundedSettings = {
+        ...txSettings,
+        centerFrequencyHz: typeof txSettings.centerFrequencyHz === "number" ? Math.round(txSettings.centerFrequencyHz) : txSettings.centerFrequencyHz,
+        sampleRateHz: typeof txSettings.sampleRateHz === "number" ? Math.round(txSettings.sampleRateHz) : txSettings.sampleRateHz,
+        txHopStartFrequencyHz: typeof txSettings.txHopStartFrequencyHz === "number" ? Math.round(txSettings.txHopStartFrequencyHz) : txSettings.txHopStartFrequencyHz,
+        txHopEndFrequencyHz: typeof txSettings.txHopEndFrequencyHz === "number" ? Math.round(txSettings.txHopEndFrequencyHz) : txSettings.txHopEndFrequencyHz,
+      };
+
       ws.send(
         JSON.stringify({
           type: "tx_mode",
           txMode: enabled,
           txDevice: device,
-          ...txSettings,
+          ...roundedSettings,
         }),
       );
     },
