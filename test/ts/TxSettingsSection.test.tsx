@@ -74,13 +74,13 @@ describe("TxSettingsSection", () => {
     expect(defaultProps.onHopRateHzChange).toHaveBeenLastCalledWith(10);
   });
 
-  it("labels the transmit button as Pause Tx while transmitting", () => {
+  it("labels the transmit button as Stop Tx while transmitting", () => {
     render(
       <TestWrapper>
         <TxSettingsSection {...defaultProps} isTransmitting />
       </TestWrapper>,
     );
 
-    expect(screen.getByRole("button", { name: /pause tx/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /stop tx/i })).toBeInTheDocument();
   });
 });

@@ -172,7 +172,7 @@ describe("SpectrumRoute file mode", () => {
       },
       dispatch: jest.fn(),
       fftVisualizerMachine: {} as any,
-      manualVisualizerPaused: false,
+      manualVisualizerPaused: true,
       setManualVisualizerPaused: jest.fn(),
       selectedSourceId: "source-1",
       setSelectedSourceId: jest.fn(),
@@ -208,7 +208,13 @@ describe("SpectrumRoute file mode", () => {
         sampleRateOptions: [],
         sampleRateHz: null,
         sdrSettings: null,
-        sdrLimitMarkers: [],
+        sdrLimitMarkers: [
+          {
+            kind: "lower_limit",
+            freq_hz: 1_000_000,
+            label: "HackRF One, lower limit",
+          },
+        ],
         dataRef: { current: null },
         spectrumFrames: [],
         sources: [],
@@ -268,7 +274,7 @@ describe("SpectrumRoute file mode", () => {
     expect(typeof playbackProps?.onVizPanChange).toBe("function");
   });
 
-  it("passes a canvas TX slider on first render while the active source profile is still loading", async () => {
+  it("shows stopped mock tx as a placeholder without rendering the live mock apt stream", async () => {
     const mockValue = {
       state: {
         sourceMode: "live",
@@ -304,7 +310,13 @@ describe("SpectrumRoute file mode", () => {
       setManualVisualizerPaused: jest.fn(),
       selectedSourceId: "mock-tx",
       setSelectedSourceId: jest.fn(),
-      selectedSource: { id: "mock-tx" } as any,
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "connected",
+      } as any,
       selectedSourceDerived: {
         deviceState: "connected",
         deviceName: null,
@@ -323,7 +335,7 @@ describe("SpectrumRoute file mode", () => {
       lastSentPauseRef: { current: null },
       wsConnection: {
         isConnected: true,
-        activeSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
         deviceState: "connected",
         deviceLoadingReason: null,
         isPaused: false,
@@ -395,5 +407,15 @@ describe("SpectrumRoute file mode", () => {
       txCenterHz: 2_186_000,
       txSampleRateHz: 2_400_000,
     });
+    expect(visualizerProps.limitMarkers).toEqual([]);
+    expect(visualizerProps.deviceProfile).toMatchObject({ kind: "mock_tx" });
+    expect(visualizerProps.dataRef.current?.iq_data).toBeInstanceOf(Uint8Array);
+    expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "idle",
+      title: "Start Tx to transmit",
+      sourceLabel: "Mock Tx SDR",
+      message: "Previewing one local I/Q frame from the current Tx settings.",
+    });
+    expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
   });
 });

@@ -41,6 +41,44 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   return failing;
 };
 
+const pruneIncrementalCache = (addLog?: (msg: string) => void) => {
+  for (const profile of ['dev-fast', 'debug']) {
+    const incDir = path.resolve(`target/${profile}/incremental`);
+    if (!fs.existsSync(incDir)) continue;
+    try {
+      const subdirs = fs.readdirSync(incDir)
+        .map(name => {
+          const fullPath = path.join(incDir, name);
+          const stat = fs.statSync(fullPath);
+          return { name, fullPath, mtime: stat.mtimeMs };
+        })
+        .filter(item => {
+          try {
+            return fs.statSync(item.fullPath).isDirectory();
+          } catch {
+            return false;
+          }
+        });
+
+      subdirs.sort((a, b) => b.mtime - a.mtime);
+
+      if (subdirs.length > 5) {
+        const toDelete = subdirs.slice(5);
+        for (const item of toDelete) {
+          fs.rmSync(item.fullPath, { recursive: true, force: true });
+        }
+        if (addLog) {
+          addLog(`Pruned ${toDelete.length} old incremental folders in target/${profile} to free disk space.`);
+        }
+      }
+    } catch (err: any) {
+      if (addLog) {
+        addLog(`Failed to prune target/${profile}/incremental cache: ${err.message}`);
+      }
+    }
+  }
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rustBackendFeatureArgs =
@@ -227,6 +265,7 @@ const BuildOrchestrator = () => {
   const hadServicesRef = useRef(false);
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
   const buildStartedRef = useRef(false);
+  const intentionalRustKillRef = useRef(false);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
@@ -600,6 +639,26 @@ const BuildOrchestrator = () => {
             return;
           }
 
+          if (shutdownRequestedRef.current) {
+            return;
+          }
+
+          if (pidKey === 'rustPid') {
+            if (intentionalRustKillRef.current) {
+              intentionalRustKillRef.current = false;
+              return;
+            }
+            addLog(chalk.red(`[Watcher] Rust backend exited unexpectedly (${statusText}). Restarting in 1s...`));
+            setTimeout(() => {
+              if (shutdownRequestedRef.current) return;
+              const startCommand = isNativeWindows
+                ? 'target\\dev-fast\\n-apt-backend.exe'
+                : './target/dev-fast/n-apt-backend';
+              void startBackgroundProcess(startCommand, 'Rust backend', 'rustPid');
+            }, 1000);
+            return;
+          }
+
           if (code === 0 && !signal) {
             return;
           }
@@ -608,6 +667,12 @@ const BuildOrchestrator = () => {
         });
 
         child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+          if (shutdownRequestedRef.current) {
+            return;
+          }
+          if (pidKey === 'rustPid') {
+            return;
+          }
           if (code === 0 && !signal) {
             return;
           }
@@ -701,6 +766,9 @@ const BuildOrchestrator = () => {
       setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
       try {
+        // Prune incremental cache to prevent garbage accumulation
+        pruneIncrementalCache(addLog);
+
         // Build in the foreground so compiler output is visible, but start the
         // long-running backend as a detached child. Running `cargo run` here
         // keeps the orchestrator attached to server logs forever and causes the
@@ -777,6 +845,9 @@ exit 1
     }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail, logMetalBackendAvailability]);
 
   const runBuild = useCallback(async () => {
+    try {
+      fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: false }));
+    } catch {}
     setBuildState(prev => ({ ...prev, isBuilding: true }));
     
     // Check if services were already running before this build
@@ -859,43 +930,43 @@ sleep 0.5
         pidKey: undefined,
       },
       {
-        index: 1,
-        command: isNativeWindows
-          ? 'echo Config validation not supported on Windows; skipping.'
-          : `
-set -euo pipefail
-if [ ! -f ".env.local" ]; then
-  echo "Error: .env.local missing. Run npm run setup."
-  exit 1
-fi
-if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
-  echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
-  exit 1
-fi
-echo "Checking Rust syntax..."
-cargo check --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
-`,
-        description: 'Validating Rust backend code',
-        isBackground: false,
-        pidKey: undefined,
-      },
-      {
-        index: 2,
-        command: isNativeWindows
-          ? 'echo Config validation not supported on Windows; skipping.'
-          : `
-set -euo pipefail
-echo "Validating signals.yaml..."
-if [ -f "./target/debug/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-  ./target/debug/n-apt-backend --validate-config 2>&1
-else
-  cargo run --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
-fi
-`,
-        description: 'Validating signals.yaml',
-        isBackground: false,
-        pidKey: undefined,
-      },
+          index: 1,
+          command: isNativeWindows
+            ? 'echo Config validation not supported on Windows; skipping.'
+            : `
+  set -euo pipefail
+  if [ ! -f ".env.local" ]; then
+    echo "Error: .env.local missing. Run npm run setup."
+    exit 1
+  fi
+  if ! grep -q '^UNSAFE_LOCAL_USER_PASSWORD=' ".env.local"; then
+    echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
+    exit 1
+  fi
+  echo "Checking Rust syntax..."
+  cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
+  `,
+          description: 'Validating Rust backend code',
+          isBackground: false,
+          pidKey: undefined,
+        },
+        {
+          index: 2,
+          command: isNativeWindows
+            ? 'echo Config validation not supported on Windows; skipping.'
+            : `
+  set -euo pipefail
+  echo "Validating signals.yaml..."
+  if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+    ./target/dev-fast/n-apt-backend --validate-config 2>&1
+  else
+    cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+  fi
+  `,
+          description: 'Validating signals.yaml',
+          isBackground: false,
+          pidKey: undefined,
+        },
       {
         index: 3,
         command: `
@@ -1220,6 +1291,110 @@ exit 1
     }
   }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, checkDeviceStatus]);
 
+  // Watcher for Rust source files (Hot Reloading)
+  useEffect(() => {
+    const canWatch = allComplete && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    if (!canWatch) return;
+
+    let watcher: fs.FSWatcher | null = null;
+    let rebuildTimeout: NodeJS.Timeout | null = null;
+    let isRebuilding = false;
+
+    const srcRsPath = path.resolve('src/rs');
+
+    const triggerRebuild = async () => {
+      if (isRebuilding) return;
+      isRebuilding = true;
+
+      // Write status to file for frontend notification
+      try {
+        fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: true }));
+      } catch {}
+
+      addLog(chalk.yellow('\n[Watcher] Rust source file change detected. Rebuilding backend...'));
+      updateProcessStatus(7, 'running', undefined, 'Rebuilding Rust backend...');
+
+      // Prune old incremental cache before rebuild to keep target clean
+      pruneIncrementalCache(addLog);
+
+      const buildCommand = `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const buildResult = await executeForegroundCommand(
+        buildCommand,
+        'Rebuilding Rust backend',
+        7
+      );
+
+      // Write completion status to file
+      try {
+        fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: false, success: buildResult.success }));
+      } catch {}
+
+      if (buildResult.success) {
+        addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
+        
+        // Kill existing backend
+        if (buildState.rustPid) {
+          try {
+            intentionalRustKillRef.current = true;
+            process.kill(-buildState.rustPid, 'SIGTERM');
+          } catch {
+            try {
+              process.kill(buildState.rustPid, 'SIGTERM');
+            } catch {}
+          }
+        }
+
+        // Start new backend
+        const startCommand = isNativeWindows
+          ? 'target\\dev-fast\\n-apt-backend.exe'
+          : './target/dev-fast/n-apt-backend';
+        const startResult = await startBackgroundProcess(
+          startCommand,
+          'Rust backend',
+          'rustPid'
+        );
+
+        if (startResult) {
+          updateProcessStatus(7, 'success', metalBackendStatusRef.current ?? undefined, 'Rust backend running...');
+          notifier.notify({
+            title: 'N-APT',
+            message: '✓ Rust backend reloaded successfully',
+            icon: path.join(__dirname, 'public/icon-5112.png'),
+          });
+        } else {
+          updateProcessStatus(7, 'error', 'Failed to restart Rust backend', 'Rust backend failed');
+        }
+      } else {
+        addLog(chalk.red('[Watcher] Rebuild failed. Rust backend is still running old binary.'));
+        updateProcessStatus(7, 'warning', 'Rebuild failed - running old binary', 'Rust backend running (old)');
+      }
+
+      isRebuilding = false;
+    };
+
+    try {
+      watcher = fs.watch(srcRsPath, { recursive: true }, (eventType, filename) => {
+        if (!filename) return;
+        const ext = path.extname(filename);
+        const basename = path.basename(filename);
+        if (ext === '.rs' || basename === 'Cargo.toml') {
+          if (rebuildTimeout) clearTimeout(rebuildTimeout);
+          rebuildTimeout = setTimeout(() => {
+            void triggerRebuild();
+          }, 300); // 300ms debounce
+        }
+      });
+      addLog(chalk.blue('[Watcher] Watching Rust source files for changes...'));
+    } catch (err: any) {
+      addLog(chalk.red(`[Watcher] Failed to start filesystem watcher: ${err.message}`));
+    }
+
+    return () => {
+      if (watcher) watcher.close();
+      if (rebuildTimeout) clearTimeout(rebuildTimeout);
+    };
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
+
   const [expandedOutputStep, setExpandedOutputStep] = useState<number | null>(null);
 
   const toggleOutput = useCallback((index: number) => {
@@ -1465,20 +1640,23 @@ async function runNonTtyBuild() {
     {
       index: 1,
       description: 'Validating Rust backend code',
-      run: () => executeCommandNonTty(
-        isNativeWindows ? 'echo Config validation skipped' : `cargo check --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
-        'Validating Rust backend code'
-      )
+      run: () => {
+        pruneIncrementalCache();
+        return executeCommandNonTty(
+          isNativeWindows ? 'echo Config validation skipped' : `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
+          'Validating Rust backend code'
+        );
+      }
     },
     {
       index: 2,
       description: 'Validating signals.yaml',
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Validation skipped' : `
-          if [ -f "./target/debug/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-            ./target/debug/n-apt-backend --validate-config 2>&1
+          if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+            ./target/dev-fast/n-apt-backend --validate-config 2>&1
           else
-            cargo run --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+            cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
           fi
         `,
         'Validating signals.yaml'
@@ -1531,6 +1709,8 @@ async function runNonTtyBuild() {
           icon: path.join(__dirname, 'public/icon-5112.png'),
         });
         console.log('N-APT, Almost done building...');
+        
+        pruneIncrementalCache();
 
         const buildRes = await executeCommandNonTty(
           `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),

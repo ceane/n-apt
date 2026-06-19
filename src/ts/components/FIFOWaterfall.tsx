@@ -32,6 +32,7 @@ interface FIFOWaterfallProps {
   ) => number[];
   fftMin?: number;
   fftMax?: number;
+  isDeviceConnected?: boolean;
   awaitingDeviceData?: boolean;
   placeholderSourceLabel?: string;
   placeholderPaneLabel?: string;
@@ -226,6 +227,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     performScalarResampling,
     fftMin = FFT_MIN_DB,
     fftMax = FFT_MAX_DB,
+    isDeviceConnected = true,
     awaitingDeviceData = false,
     placeholderSourceLabel,
     placeholderPaneLabel = "Waterfall",
@@ -265,6 +267,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
     const placeholderState = useMemo<CanvasPlaceholderState | null>(() => {
       const hasWaveform = !!(waveform && waveform.length > 0);
+      if (!isDeviceConnected) {
+        return {
+          kind: "error",
+          sourceLabel: placeholderSourceLabel,
+          reason: "Server down",
+        };
+      }
+
       if (placeholderErrorReason) {
         return {
           kind: "error",
@@ -285,6 +295,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     }, [
       awaitingDeviceData,
       placeholderErrorReason,
+      isDeviceConnected,
       placeholderPaneLabel,
       placeholderSourceLabel,
       waveform,

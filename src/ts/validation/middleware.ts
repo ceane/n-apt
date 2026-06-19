@@ -108,7 +108,7 @@ export function validateWebSocketMessage(data: unknown): boolean {
         }
         return isValid;
       }
-      if (type === "status" && Array.isArray((data as any).sources)) {
+      if (type === "status" && "source_id" in data) {
         const isValid = isValidSourceStatusMessageEnhanced(data);
         if (!isValid) {
           logValidationFailure("Source status message", data);

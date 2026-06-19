@@ -641,6 +641,8 @@ pub struct SignalsData {
   pub available_spectrum: Option<AvailableSpectrumConfig>,
   #[serde(alias = "mock")]
   pub mock_apt: MockAptSignalsConfig,
+  #[serde(default)]
+  pub mock_tx: MockTxSignalsConfig,
   pub n_apt: NaptConfig,
   pub sdr: SdrConfig,
 }
@@ -671,6 +673,18 @@ pub struct MockAptSignalsConfig {
   pub training_areas: Option<HashMap<String, MockAptTrainingArea>>,
   #[serde(default)]
   pub channels: IndexMap<String, MockAptChannelConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockTxSignalsConfig {
+  #[serde(default = "default_true")]
+  pub enabled: bool,
+}
+
+impl Default for MockTxSignalsConfig {
+  fn default() -> Self {
+    Self { enabled: true }
+  }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

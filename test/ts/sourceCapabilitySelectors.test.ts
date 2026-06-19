@@ -3,7 +3,7 @@ import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 
 const makeSource = (overrides: Partial<SourceInfo>): SourceInfo => ({
   id: "source-1",
-  name: "Mock TX Device",
+  name: "Mock Tx SDR",
   kind: "mock",
   capability: "mock",
   status: "streaming",

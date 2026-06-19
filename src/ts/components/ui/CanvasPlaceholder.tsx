@@ -3,6 +3,12 @@ import styled from "styled-components";
 
 export type CanvasPlaceholderState =
   | {
+      kind: "idle";
+      sourceLabel?: string;
+      title: string;
+      message?: string;
+    }
+  | {
       kind: "loading";
       sourceLabel?: string;
       paneLabel: string;
@@ -19,7 +25,7 @@ interface CanvasPlaceholderProps {
   state: CanvasPlaceholderState;
 }
 
-const PlaceholderOverlay = styled.div`
+const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
   position: absolute;
   inset: 0;
   z-index: 100;
@@ -28,9 +34,10 @@ const PlaceholderOverlay = styled.div`
   justify-content: center;
   padding: 16px;
   pointer-events: none;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%),
-    linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96));
+  background: ${({ $idle }) =>
+    $idle
+      ? "linear-gradient(180deg, rgba(12, 15, 20, 0.36), rgba(5, 7, 10, 0.54))"
+      : "radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%), linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96))"};
 `;
 
 const PlaceholderCard = styled.div`
@@ -108,6 +115,21 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
   state,
 }) => {
   const sourceLabel = state.sourceLabel?.trim() || "source";
+
+  if (state.kind === "idle") {
+    return (
+      <PlaceholderOverlay $idle role="status" aria-live="polite">
+        <PlaceholderCard>
+          <PlaceholderKicker>Standby</PlaceholderKicker>
+          <PlaceholderTitle>{state.title}</PlaceholderTitle>
+          <PlaceholderSource>from {sourceLabel}</PlaceholderSource>
+          {state.message ? (
+            <PlaceholderBody>{state.message}</PlaceholderBody>
+          ) : null}
+        </PlaceholderCard>
+      </PlaceholderOverlay>
+    );
+  }
 
   if (state.kind === "loading") {
     return (

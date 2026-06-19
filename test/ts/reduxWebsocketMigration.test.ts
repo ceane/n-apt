@@ -12,6 +12,7 @@ import {
   shouldResendRetuneRequest,
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
+  buildSourceIqWebSocketUrl,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -22,6 +23,7 @@ import {
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
+import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -60,6 +62,311 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Thunk payload shaping", () => {
+    it("builds per-source IQ WebSocket URLs from stream keys", () => {
+      expect(
+        buildSourceIqWebSocketUrl(
+          "ws://localhost:5173/ws?token=session-token",
+          {
+            id: "rtl-sdr-0",
+            stream_key: "00000001",
+            stream_key_kind: "serial",
+          } as any,
+        ),
+      ).toBe("ws://localhost:5173/ws/source/00000001/iq?token=session-token");
+    });
+
+    it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "mock-apt",
+          active_source_mode: "live",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "mock",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "mock-apt",
+              stream_key_kind: "source_id",
+              serial_number: "mock-apt",
+              manufacturer: "N-APT",
+              product: "Mock APT SDR",
+              sdr: {
+                max_sample_rate: 2_400_000,
+                sample_rate_options: [2_400_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        }),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+      );
+    });
+
+    it("keeps transmitting source_info status in Redux after reconnect", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "hackrf_one-hackrf-test-serial",
+          active_source_mode: "live",
+          sources: [
+            {
+              id: "hackrf_one-hackrf-test-serial",
+              name: "HackRF One",
+              kind: "hackrf_one",
+              capability: "tx_rx",
+              status: "transmitting",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "hackrf-test-serial",
+              stream_key_kind: "serial",
+              serial_number: "hackrf-test-serial",
+              manufacturer: "Great Scott Gadgets",
+              product: "HackRF One",
+              sdr: {
+                max_sample_rate: 20_000_000,
+                sample_rate_options: [5_200_000, 10_000_000, 20_000_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 5_200_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                  hackrf_lna_gain: 0,
+                  hackrf_vga_gain: 16,
+                  hackrf_amp_enable: false,
+                  ppm: 0,
+                  tuner_agc: false,
+                  rtl_agc: false,
+                  fft_size: 262144,
+                  fft_window: "Rectangular",
+                  frame_rate: 12,
+                },
+              },
+            },
+          ],
+        }),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const state = middlewareStore.getState().websocket;
+      expect(state.activeSourceId).toBe("hackrf_one-hackrf-test-serial");
+      expect(state.deviceState).toBe("transmitting");
+      expect(state.sources[0].status).toBe("transmitting");
+      expect(state.sourceStatuses["hackrf_one-hackrf-test-serial"]).toBe(
+        "transmitting",
+      );
+    });
+
+    it("reopens the active per-source IQ WebSocket after an unexpected close", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null as (() => void) | null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "mock-apt",
+          active_source_mode: "live",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "mock",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "mock-apt",
+              stream_key_kind: "source_id",
+              serial_number: "mock-apt",
+              manufacturer: "N-APT",
+              product: "Mock APT SDR",
+              sdr: {
+                max_sample_rate: 2_400_000,
+                sample_rate_options: [2_400_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        }),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      sockets[1].onclose?.();
+      await new Promise((resolve) => setTimeout(resolve, 275));
+
+      expect(
+        sockets.filter(
+          (socket) =>
+            socket.url ===
+            "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+        ),
+      ).toHaveLength(2);
+    });
+
+    it("pauses a switched-away live source but not a transmitting source", () => {
+      expect(
+        shouldPauseSourceOnSwitch({
+          id: "mock-apt",
+          status: "streaming",
+        } as any),
+      ).toBe(true);
+      expect(
+        shouldPauseSourceOnSwitch({
+          id: "mock-tx",
+          status: "transmitting",
+        } as any),
+      ).toBe(false);
+    });
+
     it("sendFrequencyRange emits integer-Hz tuning payloads", async () => {
       const dispatch = jest.fn();
       const getState = () =>

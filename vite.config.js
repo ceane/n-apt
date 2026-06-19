@@ -156,13 +156,40 @@ export default defineConfig(({ mode }) => {
     fs: {
       allow: fsAllow,
     },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/rebuild-status') {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          const statusFile = path.resolve(dirname, '.rebuild_status.json');
+          if (fs.existsSync(statusFile)) {
+            res.end(fs.readFileSync(statusFile));
+          } else {
+            res.end(JSON.stringify({ rebuilding: false }));
+          }
+        } else {
+          next();
+        }
+      });
+    },
     proxy: {
       "/ws": {
         target: "ws://localhost:8765",
         ws: true,
         changeOrigin: true,
         timeout: 10000,
-        proxyTimeout: 10000
+        proxyTimeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, socket) => {
+            if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
+              if (socket && typeof socket.destroy === 'function') {
+                socket.destroy();
+              }
+            } else {
+              console.error('WebSocket proxy error:', err);
+            }
+          });
+        }
       },
       "/auth": {
         target: "http://localhost:8765",

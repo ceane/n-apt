@@ -188,6 +188,7 @@ const DeviceStatusDot = styled.span<{
 const DeviceActionButton = styled.button<{
   $active?: boolean;
   $opacity?: number;
+  $danger?: boolean;
 }>`
   display: inline-flex;
   align-items: center;
@@ -199,11 +200,12 @@ const DeviceActionButton = styled.button<{
   padding: 0;
   border-radius: 50%;
   border: 1px solid
-    ${({ theme, $active }) => ($active ? theme.primary : theme.borderHover)};
-  background: ${({ theme, $active }) =>
-    $active ? theme.primaryAnchor : theme.surface};
-  color: ${({ theme, $active }) =>
-    $active ? theme.primary : theme.textPrimary};
+    ${({ theme, $active, $danger }) =>
+      $danger ? `${theme.danger}80` : $active ? theme.primary : theme.borderHover};
+  background: ${({ theme, $active, $danger }) =>
+    $danger ? `${theme.danger}18` : $active ? theme.primaryAnchor : theme.surface};
+  color: ${({ theme, $active, $danger }) =>
+    $danger ? theme.danger : $active ? theme.primary : theme.textPrimary};
   font-family: ${({ theme }) => theme.typography.mono};
   font-size: 12px;
   font-weight: 500;
@@ -222,9 +224,11 @@ const DeviceActionButton = styled.button<{
 
   &:hover {
     transform: translateY(-1px);
-    background: ${({ theme }) => `${theme.primary}0d`};
-    border-color: ${({ theme }) => theme.primary};
-    color: ${({ theme }) => theme.primary};
+    background: ${({ theme, $danger }) =>
+      $danger ? `${theme.danger}26` : `${theme.primary}0d`};
+    border-color: ${({ theme, $danger }) =>
+      $danger ? theme.danger : theme.primary};
+    color: ${({ theme, $danger }) => ($danger ? theme.danger : theme.primary)};
   }
 `;
 
@@ -261,7 +265,6 @@ interface SourceInputProps {
     name: string;
     backend?: string | null;
     capability?: "rx" | "tx" | "tx_rx" | "mock" | string;
-    txMode?: boolean;
     summary?: string;
     status?: {
       color?: string;
@@ -376,7 +379,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 
   const sourceDevices = devices ?? [];
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
-    device.status?.label?.toLowerCase?.() === "transmitting" || device.txMode;
+    device.status?.label?.toLowerCase?.() === "transmitting";
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
   React.useEffect(() => {
     if (!transmittingDevice) {
@@ -484,9 +487,14 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const isSelectedDevice = device.id === selectedDeviceId;
             const isTxCapable =
               device.capability?.toLowerCase().includes("tx") ?? false;
+            const isTransmittingDevice = device.id === transmittingDeviceId;
             const actionLabel =
-              device.status?.actionLabel ??
-              (device.txMode ? "Pause" : "Resume");
+              isTxCapable
+                ? isTransmittingDevice
+                  ? "Stop Tx"
+                  : "Start Tx"
+                : (device.status?.actionLabel ??
+                  (device.status?.paused === false ? "Pause" : "Resume"));
             const showDeviceSpaceHint =
               isOnscreenStreaming &&
               (actionLabel === "Resume" || actionLabel === "Pause");
@@ -531,6 +539,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   <DeviceActionButton
                     type="button"
                     $active={isSelectedDevice}
+                    $danger={isTransmittingDevice}
                     $opacity={fileModeOpacity}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -548,12 +557,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   <DeviceActionButton
                     type="button"
                     $active={isSelectedDevice}
+                    $danger={isTransmittingDevice}
                     $opacity={fileModeOpacity}
                     onClick={(event) => {
                       event.stopPropagation();
                       onToggleDeviceTxMode(device.id);
                     }}
-                    title={device.txMode ? "Disable Tx" : "Enable Tx"}
+                    title={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
                   >
                     {actionLabel}
                     {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}

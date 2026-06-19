@@ -117,6 +117,14 @@ const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
   );
 };
 
+export const shouldPauseSourceOnSwitch = (
+  source: SourceInfo | null | undefined,
+): boolean => {
+  if (!source) return false;
+  if (source.status === "transmitting") return false;
+  return source.status === "streaming" || source.status === "connected";
+};
+
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
 
@@ -1122,6 +1130,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
     const pendingSourceSwitchRef = useRef<string | null>(null);
+    const previousSelectedSourceIdRef = useRef<string | null>(null);
     useEffect(() => {
       currentSourceStateRef.current = state;
     }, [state]);
@@ -1376,28 +1385,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
-    const deviceWaterfallClearKeyRef = useRef<string | null>(null);
-    useEffect(() => {
-      const nextKey =
-        activeSourceDerived.backend ||
-        activeSourceDerived.deviceProfile?.kind ||
-        activeSourceDerived.deviceName ||
-        activeSourceDerived.deviceInfo ||
-        null;
-      if (!nextKey) return;
 
-      const previousKey = deviceWaterfallClearKeyRef.current;
-      deviceWaterfallClearKeyRef.current = nextKey;
-      if (previousKey && previousKey !== nextKey) {
-        reduxDispatch(clearWaterfall());
-      }
-    }, [
-      activeSourceDerived.backend,
-      activeSourceDerived.deviceInfo,
-      activeSourceDerived.deviceName,
-      activeSourceDerived.deviceProfile?.kind,
-      reduxDispatch,
-    ]);
 
     useEffect(() => {
       reduxDispatch(
@@ -1683,6 +1671,31 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastSentPauseRef.current = manualVisualizerPaused;
       }
     }, [manualVisualizerPaused, isConnected, wsConnection]);
+
+    useEffect(() => {
+      const previousSelectedSourceId = previousSelectedSourceIdRef.current;
+      previousSelectedSourceIdRef.current = selectedSourceId || null;
+
+      if (!isConnected || !previousSelectedSourceId) {
+        return;
+      }
+
+      if (previousSelectedSourceId === selectedSourceId) {
+        return;
+      }
+
+      const previousSelectedSource = websocketSources.find(
+        (source) => source.id === previousSelectedSourceId,
+      );
+      if (!previousSelectedSource) {
+        return;
+      }
+
+      if (shouldPauseSourceOnSwitch(previousSelectedSource)) {
+        setManualVisualizerPaused(true);
+        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+      }
+    }, [isConnected, selectedSourceId, websocketSources]);
 
     // Persist SDR settings when they change
     useEffect(() => {

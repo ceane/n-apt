@@ -592,6 +592,10 @@ pub fn load_mock_apt_settings() -> super::types::MockAptSignalsConfig {
   signals_config().signals.mock_apt.clone()
 }
 
+pub fn load_mock_tx_settings() -> super::types::MockTxSignalsConfig {
+  signals_config().signals.mock_tx.clone()
+}
+
 pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
   let needs_reload = {
     let guard = SIGNALS_CONFIG.read().unwrap();
@@ -850,7 +854,7 @@ pub fn status_device_name(
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
     "hackrf_one" => "HackRF One".to_string(),
-    "mock_tx" => "Mock TX Device".to_string(),
+    "mock_tx" => "Mock Tx SDR".to_string(),
     _ => device_info
       .split(" - ")
       .next()
@@ -1491,6 +1495,21 @@ n_apt:
     eprintln!("Channel A freq_range: [{}, {}]", start, end);
     assert_eq!(start, 18000.0, "start should be 18kHz = 18000.0 Hz");
     assert_eq!(end, 4390000.0, "end should be 4.39MHz = 4390000.0 Hz");
+  }
+
+  #[test]
+  fn real_signals_yaml_enables_mock_tx_source() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))
+      .expect("set manifest dir");
+
+    let config = signals_config();
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    clear_signals_config_cache();
+    assert!(config.signals.mock_tx.enabled);
   }
 
   #[test]

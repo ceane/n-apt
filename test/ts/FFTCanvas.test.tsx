@@ -6,6 +6,7 @@ import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
 import {
   getLatestLiveFrame,
   getLiveFrameSignature,
+  shouldRenderWaterfallWithFrameOrRestore,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -214,7 +215,6 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas
               {...defaultProps}
               dataRef={{ current: { waveform: null } }}
-              isDeviceConnected={false}
               placeholderSourceLabel="Playback file"
               placeholderErrorReason="file stream ended unexpectedly"
             />
@@ -230,6 +230,30 @@ describe("FFTCanvas Component", () => {
       screen.getByText(
         "Can't playback from Playback file. Reason: file stream ended unexpectedly",
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a server down placeholder when the device disconnects", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: { waveform: null } }}
+                isDeviceConnected={false}
+                placeholderSourceLabel="Live SDR"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByText("Error / Server down")).toBeInTheDocument();
+    expect(
+      screen.getByText("Can't playback from Live SDR. Reason: Server down"),
     ).toBeInTheDocument();
   });
 
@@ -359,6 +383,84 @@ describe("FFTCanvas Component", () => {
     });
   });
 
+  it("persists and restores waterfall snapshots when the visualizer session key changes", async () => {
+    const machine = createFFTVisualizerMachine();
+    const sourceASnapshot = {
+      waveform: new Float32Array([1, 2, 3, 4]),
+      waterfallTextureSnapshot: new Uint8Array([10, 20, 30, 255]),
+      waterfallTextureMeta: {
+        width: 1,
+        height: 1,
+        writeRow: 0,
+      },
+      waterfallBuffer: new Uint8ClampedArray([10, 20, 30, 255]),
+      waterfallDims: {
+        width: 1,
+        height: 1,
+      },
+    };
+    const sourceBSnapshot = {
+      waveform: new Float32Array([5, 6, 7, 8]),
+      waterfallTextureSnapshot: new Uint8Array([40, 50, 60, 255]),
+      waterfallTextureMeta: {
+        width: 1,
+        height: 1,
+        writeRow: 0,
+      },
+      waterfallBuffer: new Uint8ClampedArray([40, 50, 60, 255]),
+      waterfallDims: {
+        width: 1,
+        height: 1,
+      },
+    };
+    machine.persist("source-a", sourceASnapshot);
+    machine.persist("source-b", sourceBSnapshot);
+
+    const renderWithSession = (sessionKey: string) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                isPaused={true}
+                visualizerMachine={machine}
+                visualizerSessionKey={sessionKey}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    const view = render(renderWithSession("source-a"));
+
+    await waitFor(() => {
+      expect(machine.restore("source-a")?.waterfallBuffer).toEqual(
+        sourceASnapshot.waterfallBuffer,
+      );
+    });
+
+    view.rerender(renderWithSession("source-b"));
+
+    await waitFor(() => {
+      expect(machine.restore("source-a")?.waterfallBuffer).toEqual(
+        sourceASnapshot.waterfallBuffer,
+      );
+      expect(machine.restore("source-b")?.waterfallBuffer).toEqual(
+        sourceBSnapshot.waterfallBuffer,
+      );
+    });
+
+    view.rerender(renderWithSession("source-a"));
+
+    await waitFor(() => {
+      expect(machine.restore("source-a")?.waterfallBuffer).toEqual(
+        sourceASnapshot.waterfallBuffer,
+      );
+    });
+  });
+
   it("clears the persisted session when waterfall reset is requested", async () => {
     const machine = createFFTVisualizerMachine();
     const onResetWaterfallCleared = jest.fn();
@@ -402,6 +504,18 @@ describe("FFTCanvas Component", () => {
     expect(getLatestLiveFrame([firstFrame, latestFrame])).toBe(latestFrame);
     expect(getLatestLiveFrame(firstFrame)).toBe(firstFrame);
     expect(getLatestLiveFrame([])).toBeNull();
+  });
+
+  it("renders a waterfall restore even before the next live frame arrives", () => {
+    expect(shouldRenderWaterfallWithFrameOrRestore(true, false, true)).toBe(
+      true,
+    );
+    expect(shouldRenderWaterfallWithFrameOrRestore(true, false, false)).toBe(
+      false,
+    );
+    expect(shouldRenderWaterfallWithFrameOrRestore(false, false, true)).toBe(
+      false,
+    );
   });
 
   it("prefers explicit timestamps when deriving a live frame signature", () => {

@@ -15,7 +15,6 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
-              txMode: true,
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -37,7 +36,9 @@ describe("SourceInput", () => {
       .closest('[role="button"]');
     expect(deviceRow).not.toBeNull();
     expect(
-      within(deviceRow as HTMLElement).getByRole("button", { name: /pause/i }),
+      within(deviceRow as HTMLElement).getByRole("button", {
+        name: /stop tx/i,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -52,13 +53,11 @@ describe("SourceInput", () => {
               id: "device-1",
               name: "Mock APT SDR",
               capability: "mock",
-              txMode: false,
             },
             {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
-              txMode: true,
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -175,7 +174,6 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
-              txMode: true,
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -218,7 +216,6 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
-              txMode: true,
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -244,7 +241,7 @@ describe("SourceInput", () => {
       .closest('[role="button"]') as HTMLElement;
     expect(txRow).not.toBeNull();
     expect(
-      within(txRow).getByRole("button", { name: /pause/i }),
+      within(txRow).getByRole("button", { name: /stop tx/i }),
     ).toBeInTheDocument();
   });
 
@@ -331,5 +328,39 @@ describe("SourceInput", () => {
       screen.queryByTitle("Switch to HackRF One #2"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("File Selection")).toBeInTheDocument();
+  });
+
+  it("labels idle tx-capable device actions as Start Tx", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              capability: "tx",
+              status: {
+                label: "connected",
+                actionLabel: "Start Tx",
+                actionTitle: "Start transmit mode",
+                onAction: jest.fn(),
+              },
+            },
+          ]}
+          selectedDeviceId="mock-tx"
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const txRow = screen
+      .getByText("Mock Tx SDR")
+      .closest('[role="button"]') as HTMLElement;
+    expect(txRow).not.toBeNull();
+    expect(
+      within(txRow).getByRole("button", { name: /start tx/i }),
+    ).toBeInTheDocument();
   });
 });

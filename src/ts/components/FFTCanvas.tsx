@@ -660,6 +660,8 @@ export interface FFTCanvasProps {
   placeholderPaneLabel?: string;
   /** Optional explicit playback error message for the placeholder overlay. */
   placeholderErrorReason?: string | null;
+  /** Optional explicit placeholder state for non-loading display modes. */
+  placeholderState?: CanvasPlaceholderState | null;
   /** Disable canvas interactions while a placeholder is shown. */
   interactionDisabled?: boolean;
   /** Emits when the rAF loop sees a real live frame from a mutable data ref. */
@@ -731,6 +733,12 @@ export const getLiveFrameSignature = (
     ? liveFrame.timestamp
     : liveFrame;
 };
+
+export const shouldRenderWaterfallWithFrameOrRestore = (
+  hasDimensions: boolean,
+  hasCurrentFrame: boolean,
+  hasPendingRestore: boolean,
+): boolean => hasDimensions && (hasCurrentFrame || hasPendingRestore);
 
 /**
  * FFT canvas component with FFT spectrum and waterfall displays
@@ -804,6 +812,7 @@ const FFTCanvas = memo(
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
       placeholderErrorReason = null,
+      placeholderState: explicitPlaceholderState = null,
       interactionDisabled = false,
       onRenderableFrameChange,
       onCanvasLoadingChange,
@@ -1132,6 +1141,15 @@ const FFTCanvas = memo(
       null,
     );
     const restoredWaterfallRef = useRef(false);
+    const activeVisualizerSessionKeyRef = useRef(visualizerSessionKey);
+    const latestVisualizerMachineRef = useRef(visualizerMachine);
+    const latestVisualizerSessionKeyRef = useRef(visualizerSessionKey);
+    const lastVisualizerAutoPersistAtRef = useRef(0);
+
+    useEffect(() => {
+      latestVisualizerMachineRef.current = visualizerMachine;
+      latestVisualizerSessionKeyRef.current = visualizerSessionKey;
+    }, [visualizerMachine, visualizerSessionKey]);
 
     // Simplified frame management
     const frameBufferRef = useRef<Float32Array[]>([]);
@@ -1307,6 +1325,18 @@ const FFTCanvas = memo(
 
     const canvasPlaceholderState =
       useMemo<CanvasPlaceholderState | null>(() => {
+        if (explicitPlaceholderState) {
+          return explicitPlaceholderState;
+        }
+
+        if (!isDeviceConnected) {
+          return {
+            kind: "error",
+            sourceLabel: placeholderSourceLabel,
+            reason: "Server down",
+          };
+        }
+
         if (placeholderErrorReason) {
           return {
             kind: "error",
@@ -1334,6 +1364,8 @@ const FFTCanvas = memo(
         placeholderSourceLabel,
         placeholderPaneLabel,
         awaitingDeviceData,
+        explicitPlaceholderState,
+        isDeviceConnected,
       ]);
 
     const demodFocusOverlay = useMemo(() => {
@@ -2641,7 +2673,14 @@ const FFTCanvas = memo(
             waterfallGpuCanvas
           ) {
             const dims = waterfallGpuDimsRef.current;
-            if (dims && currentFrame) {
+            if (
+              shouldRenderWaterfallWithFrameOrRestore(
+                !!dims,
+                !!currentFrame,
+                !!pendingWaterfallRestoreRef.current,
+              )
+            ) {
+              const waterfallDims = dims!;
               const waterfallMotion = getWaterfallMotion({
                 previousVisualRange: lastWaterfallVisualRangeRef.current,
                 currentVisualRange: visualRange,
@@ -2769,18 +2808,48 @@ const FFTCanvas = memo(
               // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
               // for session persistence. Always 4096 bins wide × RGBA.
               const textureBytesPerRow = FIXED_WATERFALL_BINS * 4;
-              const textureByteSize = textureBytesPerRow * dims.height;
+              const textureByteSize = textureBytesPerRow * waterfallDims.height;
               if (
                 !waterfallTextureSnapshotRef.current ||
                 waterfallTextureSnapshotRef.current.length !== textureByteSize
               ) {
-                waterfallTextureSnapshotRef.current = new Uint8Array(
-                  textureByteSize,
-                );
+                const oldSnapshot = waterfallTextureSnapshotRef.current;
+                const oldMeta = waterfallTextureMetaRef.current;
+                
+                const newSnapshot = new Uint8Array(textureByteSize);
+                let newWriteRow = 0;
+
+                if (oldSnapshot && oldMeta) {
+                  // Repack the circular buffer by display age so the visible history
+                  // stays in the same order after a height change. Matches WebGPU logic.
+                  const prevH = oldMeta.height;
+                  const needH = waterfallDims.height;
+                  const prevRenderRow = prevH > 0 ? (oldMeta.writeRow - 1 + prevH) % prevH : 0;
+                  const nextRenderRow = needH > 0 ? (oldMeta.writeRow - 1 + needH) % needH : 0;
+                  
+                  for (let age = 0; age < needH; age++) {
+                    const srcAge = Math.max(
+                      0,
+                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+                    );
+                    const srcY = prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const dstY = (nextRenderRow - age + needH) % needH;
+                    
+                    const srcOff = srcY * textureBytesPerRow;
+                    const dstOff = dstY * textureBytesPerRow;
+                    newSnapshot.set(
+                      oldSnapshot.subarray(srcOff, srcOff + textureBytesPerRow),
+                      dstOff
+                    );
+                  }
+                  newWriteRow = Math.min(oldMeta.writeRow, needH - 1);
+                }
+
+                waterfallTextureSnapshotRef.current = newSnapshot;
                 waterfallTextureMetaRef.current = {
                   width: FIXED_WATERFALL_BINS,
-                  height: dims.height,
-                  writeRow: 0,
+                  height: waterfallDims.height,
+                  writeRow: newWriteRow,
                 };
               }
               const meta = waterfallTextureMetaRef.current;
@@ -2790,6 +2859,55 @@ const FFTCanvas = memo(
                 shouldUpdateWaterfallRow,
                 hasRenderedRestore: restoredWaterfallRef.current,
               });
+
+              // Sync restore data into CPU snapshot so auto-persist
+              // doesn't overwrite restored history with an empty buffer.
+              if (restoreTexture && meta && snapshot) {
+                const restoreBytes = restoreTexture.data;
+                const restoreW = restoreTexture.width;
+                const restoreH = restoreTexture.height;
+                if (
+                  restoreW === FIXED_WATERFALL_BINS &&
+                  restoreH === waterfallDims.height &&
+                  restoreBytes.length === textureByteSize
+                ) {
+                  // Exact match — bulk copy
+                  snapshot.set(restoreBytes);
+                } else if (
+                  restoreW === FIXED_WATERFALL_BINS &&
+                  restoreBytes.length >= restoreW * restoreH * 4
+                ) {
+                  // Height may differ; repack chronologically to match WebGPU logic.
+                  const prevH = restoreH;
+                  const needH = waterfallDims.height;
+                  const prevRenderRow = prevH > 0 ? (restoreTexture.writeRow - 1 + prevH) % prevH : 0;
+                  const nextRenderRow = needH > 0 ? (restoreTexture.writeRow - 1 + needH) % needH : 0;
+                  
+                  for (let age = 0; age < needH; age++) {
+                    const srcAge = Math.max(
+                      0,
+                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+                    );
+                    const srcY = prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const dstY = (nextRenderRow - age + needH) % needH;
+                    
+                    const srcOff = srcY * textureBytesPerRow;
+                    const dstOff = dstY * textureBytesPerRow;
+                    snapshot.set(
+                      restoreBytes.subarray(srcOff, srcOff + textureBytesPerRow),
+                      dstOff,
+                    );
+                  }
+                }
+                meta.writeRow = Math.max(
+                  0,
+                  Math.min(
+                    restoreTexture.writeRow,
+                    waterfallDims.height - 1,
+                  ),
+                );
+              }
+
               if (
                 shouldUpdateWaterfallRow &&
                 meta &&
@@ -2802,13 +2920,36 @@ const FFTCanvas = memo(
                     rowData.byteOffset,
                     rowData.byteLength,
                   );
-                  const row = meta.writeRow % dims.height;
+                  const row = meta.writeRow % waterfallDims.height;
                   const offset = row * textureBytesPerRow;
                   snapshot.set(rowBytes, offset);
-                  meta.writeRow = (meta.writeRow + 1) % dims.height;
+                  meta.writeRow = (meta.writeRow + 1) % waterfallDims.height;
                 }
-                pendingWaterfallRestoreRef.current = null;
-                restoredWaterfallRef.current = false;
+                if (pendingWaterfallRestoreRef.current) {
+                  pendingWaterfallRestoreRef.current = null;
+                  restoredWaterfallRef.current = false;
+                }
+
+                const now = performance.now();
+                if (
+                  visualizerMachine &&
+                  now - lastVisualizerAutoPersistAtRef.current > 250
+                ) {
+                  lastVisualizerAutoPersistAtRef.current = now;
+                  visualizerMachine.persist(visualizerSessionKey, {
+                    waveform: renderWaveformRef.current
+                      ? new Float32Array(renderWaveformRef.current)
+                      : null,
+                    waterfallTextureSnapshot: new Uint8Array(snapshot),
+                    waterfallTextureMeta: { ...meta },
+                    waterfallBuffer: waterfallBufferRef.current
+                      ? new Uint8ClampedArray(waterfallBufferRef.current)
+                      : null,
+                    waterfallDims: waterfallDimsRef.current
+                      ? { ...waterfallDimsRef.current }
+                      : null,
+                  });
+                }
               }
 
               const waterfallDevice = webgpuDeviceRef.current;
@@ -2926,6 +3067,8 @@ const FFTCanvas = memo(
         compact,
         nodePreview,
         bandwidthAlignment,
+        visualizerMachine,
+        visualizerSessionKey,
       ],
     );
 
@@ -3167,30 +3310,92 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
 
-    // Effect: On mount: restore visualizer state from machine if available.
-    // On unmount: persist current state to machine and cleanup resources.
+    const clearLocalVisualizerSession = useCallback(() => {
+      cleanupWebGPUFIFOWaterfall();
+      waterfallBufferRef.current = null;
+      waterfallCappedBufferRef.current = null;
+      waterfallTextureSnapshotRef.current = null;
+      waterfallTextureMetaRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      pendingWaterfallRestoreRef.current = null;
+      restoredWaterfallRef.current = false;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      retuneSmearRef.current = 0;
+      retuneDriftPxRef.current = 0;
+      lastWaterfallVisualRangeRef.current = null;
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      frameBufferRef.current = [];
+      clearOverlayCanvas(waterfallOverlayCanvasNode);
+    }, [
+      cleanupWebGPUFIFOWaterfall,
+      clearOverlayCanvas,
+      waterfallOverlayCanvasNode,
+    ]);
+
     useEffect(() => {
+      const previousSessionKey = activeVisualizerSessionKeyRef.current;
+      if (previousSessionKey === visualizerSessionKey) {
+        return;
+      }
+
+      visualizerMachine?.persist(
+        previousSessionKey,
+        buildVisualizerSessionSnapshot(),
+      );
+      clearLocalVisualizerSession();
+      activeVisualizerSessionKeyRef.current = visualizerSessionKey;
+
       const restoredFromMachine = restoreVisualizerSessionSnapshot(
         visualizerMachine?.restore(visualizerSessionKey) ?? null,
       );
       if (restoredFromMachine) {
         forceRenderRef.current?.();
       }
+    }, [
+      buildVisualizerSessionSnapshot,
+      clearLocalVisualizerSession,
+      restoreVisualizerSessionSnapshot,
+      visualizerMachine,
+      visualizerSessionKey,
+    ]);
+
+    // Effect: On mount: restore visualizer state from machine if available.
+    // On unmount: persist current state to machine and cleanup resources.
+    useEffect(() => {
+      const restoredFromMachine = restoreVisualizerSessionSnapshot(
+        latestVisualizerMachineRef.current?.restore(
+          latestVisualizerSessionKeyRef.current,
+        ) ?? null,
+      );
+      if (restoredFromMachine) {
+        forceRenderRef.current?.();
+      }
 
       return () => {
-        persistVisualizerSession();
+        latestVisualizerMachineRef.current?.persist(
+          latestVisualizerSessionKeyRef.current,
+          buildVisualizerSessionSnapshot(),
+        );
         cleanupSpectrum();
         cleanupWebGPUFIFOWaterfall();
         cleanupWaterfallRetuneCompute();
       };
     }, [
+      buildVisualizerSessionSnapshot,
       cleanupWebGPUFIFOWaterfall,
       cleanupWaterfallRetuneCompute,
       cleanupSpectrum,
-      persistVisualizerSession,
       restoreVisualizerSessionSnapshot,
-      visualizerMachine,
-      visualizerSessionKey,
     ]);
 
     // Effect: When hardware frequency range changes, invalidate all cached waveforms

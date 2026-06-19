@@ -75,6 +75,7 @@ import { LIVE_CONTROL_DEFAULTS } from "@n-apt/hooks/useSpectrumStore";
 import type {
   CaptureRequest,
   CaptureFileType,
+  DeviceProfile,
 } from "@n-apt/consts/schemas/websocket";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
@@ -393,6 +394,32 @@ interface SpectrumSidebarProps {
   visualizerLoading?: boolean;
 }
 
+const TRANSMIT_WARNING_ACK_KEY = "napt.transmitWarningAccepted";
+
+const hasAcceptedTransmitWarning = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(TRANSMIT_WARNING_ACK_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+const markTransmitWarningAccepted = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(TRANSMIT_WARNING_ACK_KEY, "true");
+  } catch {
+    // If storage is unavailable, keep the safety prompt behavior unchanged.
+  }
+};
+
 const EMPTY_SELECTED_SOURCE_DERIVED = {
   deviceState: null,
   deviceName: null,
@@ -435,6 +462,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const lastSampleRateRef = useRef<number | null>(null);
   const mockManualSampleRateRef = useRef(false);
   const lastTxToggleTimeRef = useRef(0);
+  const pendingTxStopSourceIdRef = useRef<string | null>(null);
 
   // Get state from Redux
   const {
@@ -561,15 +589,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ? liveSdrSettingsToUse?.devices?.[deviceTypeNormalized]
     : undefined;
   const gainLimits = activeDeviceConfig?.gain_limits;
-  const isHackrfOne =
-    liveDeviceProfileToUse?.kind === "hackrf_one" ||
-    liveBackend?.toLowerCase() === "hackrf_one";
-  const isRtlSdr = isRtlSdrDevice({
-    deviceKind: liveDeviceProfileToUse?.kind,
-    backend: liveBackend,
-    deviceName: liveDeviceNameToUse,
-    isRtlSdr: liveDeviceProfileToUse?.is_rtl_sdr,
-  });
   const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
   const maxSampleRateHz =
     selectedSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
@@ -582,10 +601,34 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveDeviceNameToUse?.toLowerCase().includes("mock")
     );
 
+  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(
+    () =>
+      isMockLiveSource
+        ? {
+            kind: "mock_tx",
+            is_rtl_sdr: false,
+            supports_approx_dbm: false,
+            supports_raw_iq_stream: false,
+          }
+        : null,
+    [isMockLiveSource],
+  );
+  const liveDeviceProfileForDisplay =
+    mockTxDeviceProfile ?? liveDeviceProfileToUse;
+  const isHackrfOne =
+    liveDeviceProfileForDisplay?.kind === "hackrf_one" ||
+    liveBackend?.toLowerCase() === "hackrf_one";
+  const isRtlSdr = isRtlSdrDevice({
+    deviceKind: liveDeviceProfileForDisplay?.kind,
+    backend: liveBackend,
+    deviceName: liveDeviceNameToUse,
+    isRtlSdr: liveDeviceProfileForDisplay?.is_rtl_sdr,
+  });
+
   useEffect(() => {
-    if (!liveDeviceProfileToUse?.kind) return;
-    dispatch(setDeviceKind(liveDeviceProfileToUse.kind));
-  }, [liveDeviceProfileToUse?.kind, dispatch]);
+    if (!liveDeviceProfileForDisplay?.kind) return;
+    dispatch(setDeviceKind(liveDeviceProfileForDisplay.kind));
+  }, [liveDeviceProfileForDisplay?.kind, dispatch]);
   const mockResolved = useMemo(() => {
     if (!isMockLiveSource) return null;
     const spec = activeDeviceConfig?.sample_rate as SampleRateSpec | undefined;
@@ -1091,11 +1134,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const handleToggleTransmitMode = useCallback(
     (sourceId: string, nextEnabled: boolean) => {
       const now = Date.now();
-      if (now - lastTxToggleTimeRef.current < 800) {
+      if (nextEnabled && now - lastTxToggleTimeRef.current < 800) {
         console.warn("Throttling rapid transmit mode toggle request");
         return;
       }
-      lastTxToggleTimeRef.current = now;
 
       const source =
         selectedSource?.id === sourceId
@@ -1107,6 +1149,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       }
 
       const applyToggle = () => {
+        pendingTxStopSourceIdRef.current = nextEnabled ? null : source.id;
         wsConnection.sendTransmitMode?.(nextEnabled, source.name ?? sourceId, {
           serialNumber: source.serial_number?.trim() || sourceId,
           centerFrequencyHz:
@@ -1144,16 +1187,26 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       };
 
       if (nextEnabled) {
+        lastTxToggleTimeRef.current = now;
+        if (hasAcceptedTransmitWarning()) {
+          applyToggle();
+          return;
+        }
+
         showPrompt({
           title: "Check Before You Transmit",
           message: <TransmitPrompt />,
           confirmText: "Continue (Accept Responsibility)",
           cancelText: "Let me think about it...",
-          onConfirm: applyToggle,
+          onConfirm: () => {
+            markTransmitWarningAccepted();
+            applyToggle();
+          },
         });
         return;
       }
 
+      lastTxToggleTimeRef.current = 0;
       applyToggle();
     },
     [
@@ -1183,7 +1236,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
 
   useEffect(() => {
-    if (!isTransmittingGlobal || !txTargetDeviceId) return;
+    if (!isTransmittingGlobal) {
+      pendingTxStopSourceIdRef.current = null;
+      return;
+    }
+    if (!txTargetDeviceId) return;
+    if (pendingTxStopSourceIdRef.current === txTargetDeviceId) return;
     const source = sourcesToUse.find((entry) => entry.id === txTargetDeviceId);
     if (!source) return;
 
@@ -1239,8 +1297,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         const actionLabel =
           isTransmitting || supportsTx
             ? isTransmitting
-              ? "Pause"
-              : "Resume"
+              ? "Stop Tx"
+              : "Start Tx"
             : canToggleStreaming
               ? liveIsPaused
                 ? "Resume"
@@ -1249,8 +1307,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         const actionTitle =
           isTransmitting || supportsTx
             ? isTransmitting
-              ? "Pause transmit mode"
-              : "Resume transmit mode"
+              ? "Stop transmit mode"
+              : "Start transmit mode"
             : canToggleStreaming
               ? liveIsPaused
                 ? "Resume playback"
@@ -1268,7 +1326,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           name: source.name,
           backend: source.kind,
           capability: source.capability,
-          txMode: isTransmitting,
           summary: source.serial_number
             ? `SN ${source.serial_number}`
             : source.manufacturer
@@ -1458,7 +1515,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
       dispatch(setSelectedFiles(registeredFiles));
       storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
-      dispatch(clearWaterfall());
     },
     [dispatch, storeDispatch],
   );
@@ -2111,7 +2167,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           }}
           onToggleDeviceTxMode={(id) => {
             const current =
-              sourceDevices.find((entry) => entry.id === id)?.txMode ?? false;
+              sourceDevices.find((entry) => entry.id === id)?.status?.label ===
+              "transmitting";
             handleToggleTransmitMode(id, !current);
           }}
           onSourceModeChange={handleSourceModeChange}
@@ -2345,7 +2402,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fftWindow={fftWindow || "Rectangular"}
             temporalResolution={displayTemporalResolution}
             backend={liveBackend}
-            deviceProfile={liveDeviceProfileToUse}
+            deviceProfile={liveDeviceProfileForDisplay}
             powerScale={powerScale}
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
@@ -2375,7 +2432,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
           <SourceSettingsSection
             sourceMode={sourceMode}
-            deviceType={liveDeviceProfileToUse?.kind}
+            deviceType={liveDeviceProfileForDisplay?.kind}
             gain={gain}
             gainLimits={gainLimits}
             hackrfLnaGain={liveState.hackrfLnaGain}
@@ -2419,7 +2476,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onSelectedFilesChange={(files) => {
               dispatch(setSelectedFiles(files));
               storeDispatch({ type: "SET_SELECTED_FILES", files });
-              dispatch(clearWaterfall());
             }}
             stitchStatus={stitchStatus}
             isStitchPaused={isStitchPaused}
@@ -2427,7 +2483,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               selectedFiles.forEach((file) => fileRegistry.remove(file.id));
               dispatch(setSelectedFiles([]));
               storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
-              dispatch(clearWaterfall());
             }}
             selectedPrimaryFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}

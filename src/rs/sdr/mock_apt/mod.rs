@@ -1027,7 +1027,9 @@ impl MockAptDevice {
         for j in 0..fft_size {
           let t = self.total_samples + j as u64;
           let phase = phase_step * t as f64;
-          let subcarrier = (2.0 * std::f64::consts::PI * 2400.0 * t as f64 / sample_rate).sin();
+          let subcarrier = (2.0 * std::f64::consts::PI * 2400.0 * t as f64
+            / sample_rate)
+            .sin();
           let mod_val = 1.0 + 0.8 * subcarrier;
           let (p_im, p_re) = phase.sin_cos();
           self.i_accumulator[j] += p_re * mod_val * amp;

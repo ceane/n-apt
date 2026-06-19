@@ -181,6 +181,13 @@ signals:
         noise_floor_db: !dB -100dB
         signal_strength_range: !dB_range -100dB..-60dB
 
+  # Mock Tx source configuration.
+  # When enabled, the source list includes "Mock Tx SDR" as a separate transmit
+  # device. Starting Tx overlays transmit leakage on the active Mock APT SDR
+  # spectrum without switching away from the receive source.
+  mock_tx:
+    enabled: true
+
   triangulation:
     static:
       freq_range_hz: !frequency_range 2.3GHz..2.344GHz

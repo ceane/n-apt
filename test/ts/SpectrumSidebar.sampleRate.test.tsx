@@ -35,6 +35,8 @@ let mockStoreDispatch: jest.Mock;
 let mockToggleVisualizerPause: jest.Mock;
 let mockShowPrompt: jest.Mock;
 
+const TRANSMIT_WARNING_ACK_KEY = "napt.transmitWarningAccepted";
+
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
@@ -325,6 +327,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
   beforeEach(() => {
     initMockState();
     mockShowPrompt = jest.fn();
+    window.localStorage.removeItem(TRANSMIT_WARNING_ACK_KEY);
   });
 
   it("uses the active channel span for mock whole-channel mode instead of the mock device rate", async () => {
@@ -487,6 +490,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       mockShowPrompt.mock.calls[0][0].onConfirm();
     });
 
+    expect(window.localStorage.getItem(TRANSMIT_WARNING_ACK_KEY)).toBe("true");
     expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
       true,
       "Mock APT SDR",
@@ -495,6 +499,87 @@ describe("SpectrumSidebar sample rate behavior", () => {
         centerFrequencyHz: 137_100_000,
         sampleRateHz: 2_400_000,
         powerDbm: -18,
+        vgaGainDb: 16,
+      }),
+    );
+  });
+
+  it("skips the transmit warning after responsibility has already been accepted", async () => {
+    window.localStorage.setItem(TRANSMIT_WARNING_ACK_KEY, "true");
+
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: "mock-apt",
+      selectedSource: {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "tx_rx",
+        status: "connected",
+        serial_number: "device-1",
+      },
+      sources: [
+        {
+          id: "mock-apt",
+          name: "Mock APT SDR",
+          kind: "mock_apt",
+          capability: "tx_rx",
+          status: "connected",
+          serial_number: "device-1",
+          sdr: {
+            settings: {
+              center_frequency: 137_100_000,
+              sample_rate: 2_400_000,
+              hackrf_vga_gain: 16,
+              hackrf_lna_gain: 0,
+              hackrf_amp_enable: false,
+              tuner_agc: false,
+              rtl_agc: false,
+              ppm: 1,
+              fft: {
+                default_size: 262144,
+                default_frame_rate: 12,
+                max_size: 262144,
+                max_frame_rate: 60,
+              },
+            },
+          },
+        },
+      ],
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: mockLiveState.sources,
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-apt",
+        activeSourceMode: "live",
+        sources: mockLiveState.sources,
+      } as any),
+    );
+
+    const { getByRole } = render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(getByRole("button", { name: /source-input/i }));
+
+    expect(mockShowPrompt).not.toHaveBeenCalled();
+    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      true,
+      "Mock APT SDR",
+      expect.objectContaining({
+        serialNumber: "device-1",
+        centerFrequencyHz: 137_100_000,
+        sampleRateHz: 2_400_000,
         vgaGainDb: 16,
       }),
     );
@@ -822,8 +907,13 @@ describe("SpectrumSidebar sample rate behavior", () => {
       </Provider>,
     );
 
-    const txButton = await screen.findByRole("button", { name: /pause tx/i });
+    mockWsConnection.sendTransmitMode.mockClear();
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(100);
+
+    const txButton = await screen.findByRole("button", { name: /stop tx/i });
     fireEvent.click(txButton);
+
+    nowSpy.mockRestore();
 
     expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
       false,

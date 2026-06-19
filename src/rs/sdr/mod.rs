@@ -188,8 +188,11 @@ impl SdrDeviceFactory {
 
   /// Force creation of a mock APT device
   pub fn create_mock_device() -> Box<dyn SdrDevice> {
-    log::info!("Creating mock APT SDR device");
-    Box::new(crate::sdr::mock_apt::MockAptDevice::new())
+    log::info!(
+      "Creating mock APT SDR device with fixed seed for visual continuity"
+    );
+    // Use a fixed seed so frequencies stay aligned when swapping away and back
+    Box::new(crate::sdr::mock_apt::MockAptDevice::new_with_seed(0x0A97))
   }
 
   /// Force creation of an RTL-SDR device (will error if none available)

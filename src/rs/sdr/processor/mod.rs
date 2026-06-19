@@ -516,7 +516,11 @@ impl SdrProcessor {
     );
 
     self.frame.retune_cooldown_until =
-      Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
+      if self.device.device_type().contains("Mock") {
+        None
+      } else {
+        Some(std::time::Instant::now() + std::time::Duration::from_millis(500))
+      };
     self.frame.post_retune_discard_frames =
       self.post_retune_discard_frame_count();
     self.flush_read_queue();

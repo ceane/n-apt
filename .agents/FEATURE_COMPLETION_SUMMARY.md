@@ -1,21 +1,14 @@
-# Feature Completion Summary
+# Signals Site Integration Feature Summary
 
-## Fixed Slider Functionality in DrawSignalOptionsSidebar
+We integrated the Signals Interactive Site into the N-APT application.
 
-- **Issue**: Sliders in the draw signal simulator options sidebar were non-functional.
-- **Cause**: The Redux waterfall state was being merged as an override in `useSpectrumStore.tsx` via `applyWaterfallStateOverrides(state, waterfallState)`. However, actions like `SET_DRAW_PARAMS`, `SET_CLUMP_PARAMS`, `SET_ACTIVE_CLUMP_INDEX`, and `RESET_DRAW_PARAMS` were only dispatched to the local React reducer state, and not to the Redux store. This caused the local slider updates to be immediately overridden by the stale state of the Redux slice.
-- **Solution**: 
-  - Exported `setDrawParams`, `setClumpParams`, and `setActiveClumpIndex` from the Redux index bundle.
-  - Updated `storeDispatch` in `useSpectrumStore.tsx` to explicitly intercept `SET_DRAW_PARAMS`, `SET_CLUMP_PARAMS`, `SET_ACTIVE_CLUMP_INDEX`, and `RESET_DRAW_PARAMS` and dispatch them to the Redux store's waterfall slice, ensuring synchronization.
-
-## Added Additive Base Signal Modulation
-
-- **Concept (Industry & Technical Terms)**:
-  - **Additive Modulation / Spectral Superposition**: Adding the comb-like spikes (OFDM-like subcarriers or peak components) on top of a wideband base carrier.
-  - **Noise/Data Pedestal**: A shaped baseline carrier (like a wideband telemetry channel or BPSK/QPSK signal profile) under the spikes, which prevents the spectrum from dropping directly to the flat thermal noise floor between teeth.
-  - **Pseudo-random Data Modulation**: Applying a random variance to the shaped baseband carrier to mimic the high-frequency spectral fuzz typical of actual active data transmissions.
-- **Implementation**:
-  - Extended the `DrawParams` and `MockNAPTParams` interfaces with optional `baseSignalType` (`none`, `gaussian`, `bpsk`) and `baseSignalAmplitude` fields.
-  - Modified `useDrawMockNAPTSignal.ts` to compute a shaped base carrier (Gaussian pedestal or BPSK sinc^2 curve) under each comb clump when enabled.
-  - Modulated the base carrier using a randomized factor (`0.85 + Math.random() * 0.3`) to simulate live data stream spectral noise between the comb teeth.
-  - Added UI controls in `DrawSignalOptionsSidebar.tsx` to allow selecting the base signal type and adjusting the pedestal amplitude slider.
+## Changes Made
+1. **Extracted Assets**: Unzipped `Signals Interactive Site.zip` into `src/md-signals`.
+2. **Context Creation**: Created [LearnSignalsContext.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/contexts/LearnSignalsContext.tsx) to manage active chapter and onboarding/intro states between the sidebar and the main content.
+3. **Sidebar Navigation**: Built [LearnSignalsSidebar.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/sidebar/LearnSignalsSidebar.tsx) using the main application design system and styled-components, listing each interactive chapter.
+4. **Content View**: Added [LearnSignalsRoute.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/LearnSignalsRoute.tsx) that lazy-loads chapters and imports the site's styles.
+5. **Vite & TypeScript Config**: Updated [tsconfig.json](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tsconfig.json) and [vite.config.js](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/vite.config.js) to resolve `@n-apt/md-signals/*` imports and typecheck them smoothly (added `// @ts-nocheck` to signals site files to prevent strict TS failures).
+6. **Main Navigation**: Registered `Learn Signals` in the main [MainLayout.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/MainLayout.tsx) sidebar tabs and registered the `/learn-signals` path in [Routes.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/Routes.tsx).
+7. **Auth Page Integration**: 
+   - Added `/learn-signals` as a public route in [AuthenticationRoute.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/AuthenticationRoute.tsx) so users can explore the signals site without authentication.
+   - Added a button linking to `/learn-signals` on the login/auth page UI.

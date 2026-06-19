@@ -309,6 +309,10 @@ impl websocket_server::WebSocketServer {
       )
       .merge(protected_routes)
       // WebSocket endpoint
+      .route(
+        "/ws/source/{stream_key}/iq",
+        get(websocket_handlers::source_iq_ws_upgrade_handler),
+      )
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 

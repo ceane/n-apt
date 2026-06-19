@@ -19,6 +19,7 @@ import {
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import {
+  type DeviceState,
   type SourceErrorMessage,
   type SourceInfo,
   type SourceInfoMessage,
@@ -159,11 +160,11 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
 
 const mapSourceStatusToDeviceState = (
   status: SourceInfo["status"],
-): "connected" | "loading" | "disconnected" | "stale" | null => {
+): DeviceState => {
   if (status === "streaming") {
     return "connected";
   }
-  return status as "connected" | "loading" | "disconnected" | "stale" | null;
+  return status;
 };
 
 interface WebSocketInstance {
@@ -178,6 +179,13 @@ interface WebSocketInstance {
   disposed: boolean;
 }
 
+interface SourceIqWebSocketInstance {
+  ws: WebSocket | null;
+  url: string;
+  sourceId: string | null;
+  reconnectTimeout: number | null;
+}
+
 // Store WebSocket instance reference in middleware closure
 let wsInstance: WebSocketInstance = {
   ws: null,
@@ -189,6 +197,13 @@ let wsInstance: WebSocketInstance = {
   aesKey: null,
   enabled: false,
   disposed: false,
+};
+
+let sourceIqWsInstance: SourceIqWebSocketInstance = {
+  ws: null,
+  url: "",
+  sourceId: null,
+  reconnectTimeout: null,
 };
 
 // Batching for high-frequency data
@@ -220,6 +235,19 @@ let lastFrequencyRangeRequest: {
 } | null = null;
 let lastFrequencyRangeSendKey: string | null = null;
 let lastFrequencyRangeSendAt = 0;
+
+export const buildSourceIqWebSocketUrl = (
+  controlUrl: string,
+  source: Pick<SourceInfo, "id" | "stream_key"> | null | undefined,
+): string | null => {
+  const streamKey = source?.stream_key?.trim() || source?.id?.trim();
+  if (!controlUrl || !streamKey) return null;
+
+  const url = new URL(controlUrl, window.location.href);
+  url.pathname = url.pathname.replace(/\/ws\/?$/, "/ws");
+  url.pathname = `${url.pathname}/source/${encodeURIComponent(streamKey)}/iq`;
+  return url.toString();
+};
 
 export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
@@ -275,6 +303,20 @@ export const resetWebSocketMiddlewareState = (): void => {
     wsInstance.ws.onopen = null;
     wsInstance.ws = null;
   }
+  if (sourceIqWsInstance.ws) {
+    sourceIqWsInstance.ws.onclose = null;
+    sourceIqWsInstance.ws.onerror = null;
+    sourceIqWsInstance.ws.onmessage = null;
+    sourceIqWsInstance.ws.onopen = null;
+    sourceIqWsInstance.ws.close();
+    sourceIqWsInstance.ws = null;
+  }
+  if (sourceIqWsInstance.reconnectTimeout !== null) {
+    clearTimeout(sourceIqWsInstance.reconnectTimeout);
+    sourceIqWsInstance.reconnectTimeout = null;
+  }
+  sourceIqWsInstance.url = "";
+  sourceIqWsInstance.sourceId = null;
   wsInstance.reconnectTimeout = null;
   wsInstance.disconnectTimeout = null;
   wsInstance.reconnectAttempts = 0;
@@ -336,6 +378,7 @@ const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
     }
     pendingStatusUpdates = null;
   }
+  syncSourceIqSocket(dispatch, getState);
   statusBatchFrame = null;
 };
 
@@ -568,6 +611,7 @@ const cleanupSocket = () => {
     wsInstance.ws.close();
     wsInstance.ws = null;
   }
+  cleanupSourceIqSocket();
 
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
@@ -576,6 +620,96 @@ const cleanupSocket = () => {
   pendingStatusUpdates = null;
   liveDataRef.current = null;
   wsInstance.disposed = true;
+};
+
+const cleanupSourceIqSocket = () => {
+  if (sourceIqWsInstance.ws) {
+    sourceIqWsInstance.ws.onclose = null;
+    sourceIqWsInstance.ws.onerror = null;
+    sourceIqWsInstance.ws.onmessage = null;
+    sourceIqWsInstance.ws.onopen = null;
+    sourceIqWsInstance.ws.close();
+    sourceIqWsInstance.ws = null;
+  }
+  if (sourceIqWsInstance.reconnectTimeout !== null) {
+    clearTimeout(sourceIqWsInstance.reconnectTimeout);
+    sourceIqWsInstance.reconnectTimeout = null;
+  }
+  sourceIqWsInstance.url = "";
+  sourceIqWsInstance.sourceId = null;
+};
+
+const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
+  if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {
+    cleanupSourceIqSocket();
+    return;
+  }
+
+  const state = getState().websocket;
+  const activeSourceId = state.activeSourceId;
+  const activeSource = (state.sources ?? []).find(
+    (source: SourceInfo) => source.id === activeSourceId,
+  );
+  if (!activeSource?.supports_raw_iq_stream) {
+    cleanupSourceIqSocket();
+    return;
+  }
+
+  const nextUrl = buildSourceIqWebSocketUrl(wsInstance.url, activeSource);
+  if (!nextUrl) {
+    cleanupSourceIqSocket();
+    return;
+  }
+
+  const existing = sourceIqWsInstance.ws;
+  if (
+    existing &&
+    sourceIqWsInstance.url === nextUrl &&
+    sourceIqWsInstance.sourceId === activeSource.id &&
+    (existing.readyState === WebSocket.CONNECTING ||
+      existing.readyState === WebSocket.OPEN)
+  ) {
+    return;
+  }
+
+  cleanupSourceIqSocket();
+  const ws = new WebSocket(nextUrl);
+  ws.binaryType = "arraybuffer";
+  sourceIqWsInstance.ws = ws;
+  sourceIqWsInstance.url = nextUrl;
+  sourceIqWsInstance.sourceId = activeSource.id;
+  sourceIqWsInstance.reconnectTimeout = null;
+
+  ws.onmessage = async (event) => {
+    if (event.data instanceof ArrayBuffer && wsInstance.aesKey) {
+      await processBinaryMessage(
+        dispatch,
+        getState,
+        event.data,
+        wsInstance.aesKey,
+      );
+    }
+  };
+  ws.onerror = (error) => {
+    console.error("Source I/Q WebSocket error:", error);
+  };
+  ws.onclose = () => {
+    if (sourceIqWsInstance.ws === ws) {
+      sourceIqWsInstance.ws = null;
+      if (
+        wsInstance.enabled &&
+        !wsInstance.disposed &&
+        sourceIqWsInstance.url === nextUrl &&
+        sourceIqWsInstance.sourceId === activeSource.id &&
+        sourceIqWsInstance.reconnectTimeout === null
+      ) {
+        sourceIqWsInstance.reconnectTimeout = window.setTimeout(() => {
+          sourceIqWsInstance.reconnectTimeout = null;
+          syncSourceIqSocket(dispatch, getState);
+        }, 250);
+      }
+    }
+  };
 };
 
 // WebSocket message processing

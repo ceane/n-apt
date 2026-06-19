@@ -817,7 +817,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           onClick={onToggleTransmit}
           $isTransmitting={isTransmitting}
         >
-          {isTransmitting ? "Pause Tx" : "Start Tx"}
+          {isTransmitting ? "Stop Tx" : "Start Tx"}
         </TxButton>
       )}
     </Section>

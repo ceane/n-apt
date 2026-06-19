@@ -152,28 +152,36 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
   assert_ne!(session_key, state.shared.encryption_key);
   let token = state.session_store.create_session(session_key).await;
 
-  let ws_path = format!("/ws?token={token}");
+  let ws_path = format!("/ws/source/mock-apt/iq?token={token}");
   let mut websocket =
     server.get_websocket(&ws_path).await.into_websocket().await;
 
-  let _status = websocket.receive_text().await;
-
   let original_iq = vec![0x11, 0x22, 0x33, 0x44];
-  state
-    .spectrum_tx
-    .send(Arc::new(SpectrumData {
-      message_type: "spectrum".to_string(),
-      waveform: vec![],
-      is_mock_apt: false,
-      center_frequency_hz: Some(137_500_000),
-      waveform_span_hz: None,
-      timestamp: 123,
-      data_type: Some("iq_raw".to_string()),
-      sample_rate: Some(2_400_000),
-      power_scale: None,
-      iq_data: original_iq.clone(),
-    }))
-    .expect("spectrum frame should broadcast to websocket");
+  // Wait up to 500ms for the websocket handler to subscribe to the broadcast channel
+  let mut send_success = false;
+  for _ in 0..50 {
+    if state
+      .spectrum_tx
+      .send(Arc::new(SpectrumData {
+        message_type: "spectrum".to_string(),
+        waveform: vec![],
+        is_mock_apt: false,
+        center_frequency_hz: Some(137_500_000),
+        waveform_span_hz: None,
+        timestamp: 123,
+        data_type: Some("iq_raw".to_string()),
+        sample_rate: Some(2_400_000),
+        power_scale: None,
+        iq_data: original_iq.clone(),
+      }))
+      .is_ok()
+    {
+      send_success = true;
+      break;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+  }
+  assert!(send_success, "spectrum frame should broadcast to websocket");
 
   let frame_bytes =
     tokio::time::timeout(std::time::Duration::from_secs(2), async {

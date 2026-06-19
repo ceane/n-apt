@@ -160,6 +160,19 @@ describe("WebSocket Validation System", () => {
         }),
       ).toBe(true);
     });
+
+    test("should validate mock tx atomic connected status with retry metadata", () => {
+      const message = {
+        type: "status",
+        source_id: "mock-tx",
+        status: "connected",
+        loading_attempt: 0,
+        loading_attempt_max: 2,
+      };
+
+      expect(isValidSourceStatusMessage(message)).toBe(true);
+      expect(validateWebSocketMessage(message)).toBe(true);
+    });
   });
 
   describe("Capture Status Validation", () => {

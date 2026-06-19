@@ -77,4 +77,30 @@ describe("FIFOWaterfall", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("shows a server down placeholder when the device disconnects", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={null}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          isDeviceConnected={false}
+          placeholderSourceLabel="Live SDR"
+          performScalarResampling={(data, targetLength) =>
+            Array.from({ length: targetLength }, (_, index) => data[index] ?? 0)
+          }
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("Error / Server down")).toBeInTheDocument();
+    expect(
+      screen.getByText("Can't playback from Live SDR. Reason: Server down"),
+    ).toBeInTheDocument();
+  });
 });

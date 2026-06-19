@@ -133,7 +133,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       }
       if (sourceMode === "live") {
         if (!wsState.isConnected) {
-          return "Server Disconnected";
+          return "Server down";
         }
         if (wsState.cryptoCorrupted) {
           return "Crypto Corrupted";
@@ -331,6 +331,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               placeholderSourceLabel={props.placeholderSourceLabel}
               placeholderPaneLabel="FFT"
               placeholderErrorReason={placeholderErrorReason}
+              placeholderState={props.placeholderState}
               onRenderableFrameChange={setHasRenderableFrame}
               onCanvasLoadingChange={setIsFftCanvasLoading}
               waterfallCanvasBindings={waterfallCanvasBindings}
@@ -351,6 +352,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
+            placeholderState={props.placeholderState}
           />
         </Left>
         <SlidersRail>

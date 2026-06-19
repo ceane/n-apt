@@ -205,6 +205,8 @@ export const SourceInfoSchema = z.object({
   loading_attempt_max: z.number().int().nonnegative(),
   supports_approx_dbm: z.boolean(),
   supports_raw_iq_stream: z.boolean(),
+  stream_key: z.string().optional(),
+  stream_key_kind: z.enum(["serial", "source_id"]).optional(),
   sdr: z.object({
     max_sample_rate: z.number(),
     sample_rate_options: z.array(z.number()),

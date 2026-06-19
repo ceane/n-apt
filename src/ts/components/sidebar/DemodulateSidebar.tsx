@@ -233,7 +233,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
 
       dispatch(setSelectedFiles(registeredFiles));
       storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
-      dispatch(clearWaterfall());
       dispatch(triggerStitch());
       storeDispatch({ type: "TRIGGER_STITCH" });
     },

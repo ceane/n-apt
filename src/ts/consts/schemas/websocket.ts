@@ -252,6 +252,8 @@ export interface SourceInfo {
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
   supports_raw_iq_stream: boolean;
+  stream_key?: string;
+  stream_key_kind?: "serial" | "source_id";
   serial_number?: string;
   manufacturer?: string;
   product?: string;

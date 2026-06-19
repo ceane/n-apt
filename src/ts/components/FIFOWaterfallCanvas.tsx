@@ -105,6 +105,7 @@ interface FIFOWaterfallCanvasProps {
   placeholderSourceLabel?: string;
   placeholderPaneLabel?: string;
   placeholderErrorReason?: string | null;
+  placeholderState?: CanvasPlaceholderState | null;
 }
 
 const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
@@ -117,8 +118,13 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   placeholderSourceLabel,
   placeholderPaneLabel = "Waterfall",
   placeholderErrorReason = null,
+  placeholderState: explicitPlaceholderState = null,
 }) => {
   const placeholderState = (() => {
+    if (explicitPlaceholderState) {
+      return explicitPlaceholderState;
+    }
+
     if (placeholderErrorReason) {
       return {
         kind: "error" as const,

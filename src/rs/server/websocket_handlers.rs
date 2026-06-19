@@ -1,5 +1,5 @@
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
@@ -19,7 +19,17 @@ use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
   active_source_id, broadcast_active_source, broadcast_signal_display_settings,
   broadcast_source_status, build_channels_snapshot, build_source_info_snapshot,
+  resolve_stream_key_source_id,
 };
+
+const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+
+fn is_mock_tx_device_label(device: &str) -> bool {
+  let normalized = device.to_ascii_lowercase().replace(['_', '-'], " ");
+  normalized == "mock tx"
+    || normalized == "mock tx device"
+    || normalized == "mock tx sdr"
+}
 
 fn resolve_live_center_frequency(
   min_freq: f64,
@@ -70,7 +80,7 @@ pub async fn ws_upgrade_handler(
     }
   };
 
-  info!("WebSocket upgrade: valid session, starting encrypted stream");
+  info!("WebSocket upgrade: valid session, starting control stream");
 
   let shared = state.shared.clone();
   let enc_key = shared.encryption_key;
@@ -92,6 +102,149 @@ pub async fn ws_upgrade_handler(
   })
 }
 
+/// GET /ws/source/:streamKey/iq?token=<session_token> — authenticated raw I/Q stream.
+pub async fn source_iq_ws_upgrade_handler(
+  ws: WebSocketUpgrade,
+  Path(stream_key): Path<String>,
+  Query(params): Query<WsQueryParams>,
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  match state.session_store.validate(&params.token).await {
+    Some(_) => {}
+    None => {
+      return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
+        .into_response();
+    }
+  };
+
+  let Some(source_id) =
+    resolve_stream_key_source_id(&state.shared, stream_key.as_str())
+  else {
+    return (StatusCode::NOT_FOUND, "Unknown source stream key")
+      .into_response();
+  };
+  let source_snapshot = build_source_info_snapshot(&state.shared);
+  let supports_raw_iq_stream = source_snapshot["sources"]
+    .as_array()
+    .and_then(|sources| {
+      sources
+        .iter()
+        .find(|source| source["id"].as_str() == Some(source_id.as_str()))
+    })
+    .and_then(|source| source["supports_raw_iq_stream"].as_bool())
+    .unwrap_or(false);
+  if !supports_raw_iq_stream {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Source does not support raw I/Q stream",
+    )
+      .into_response();
+  }
+
+  info!(
+    "Source I/Q WebSocket upgrade: stream_key={}, source_id={}",
+    stream_key, source_id
+  );
+
+  let shared = state.shared.clone();
+  let enc_key = shared.encryption_key;
+  let spectrum_tx = state.spectrum_tx.clone();
+  let cmd_tx = state.cmd_tx.clone();
+  let _ = cmd_tx.send(super::types::SdrCommand::SetActiveSource {
+    source_id: source_id.clone(),
+  });
+
+  ws.on_upgrade(move |socket| {
+    handle_source_iq_connection(socket, shared, spectrum_tx, enc_key, source_id)
+  })
+}
+
+async fn send_encrypted_iq_frame(
+  ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+  enc_key: &[u8; 32],
+  spectrum_data: &super::types::SpectrumData,
+) -> Result<(), ()> {
+  let timestamp: u64 = spectrum_data.timestamp as u64;
+  let center_frequency: u64 =
+    spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
+  let data_type = 1u32;
+  let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
+  let iq_bytes = &spectrum_data.iq_data;
+
+  let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
+  binary_payload.extend_from_slice(&timestamp.to_le_bytes());
+  binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
+  binary_payload.extend_from_slice(&data_type.to_le_bytes());
+  binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
+
+  let encrypted_iq = crypto::encrypt_payload_binary(enc_key, iq_bytes)
+    .map_err(|_| {
+      error!("I/Q data encryption failed");
+    })?;
+  binary_payload.extend_from_slice(&encrypted_iq);
+
+  ws_sender
+    .send(Message::Binary(binary_payload.into()))
+    .await
+    .map_err(|_| ())
+}
+
+pub async fn handle_source_iq_connection(
+  socket: WebSocket,
+  shared: Arc<SharedState>,
+  spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
+  enc_key: [u8; 32],
+  source_id: String,
+) {
+  let (mut ws_sender, mut ws_receiver) = socket.split();
+  let mut spectrum_rx = spectrum_tx.subscribe();
+
+  shared.client_count.fetch_add(1, Ordering::Relaxed);
+  shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
+
+  loop {
+    tokio::select! {
+      spectrum_result = spectrum_rx.recv() => {
+        match spectrum_result {
+          Ok(spectrum_data) => {
+            if active_source_id(&shared) != source_id {
+              continue;
+            }
+            let allow_next_paused_frame = shared
+              .allow_next_paused_frame
+              .swap(false, Ordering::SeqCst);
+            let is_paused = shared.is_paused.load(Ordering::SeqCst);
+            if is_paused && !allow_next_paused_frame {
+              continue;
+            }
+            if send_encrypted_iq_frame(&mut ws_sender, &enc_key, &spectrum_data).await.is_err() {
+              break;
+            }
+          }
+          Err(broadcast::error::RecvError::Lagged(n)) => {
+            debug!("Source I/Q client lagged by {} spectrum frames, skipping", n);
+            continue;
+          }
+          Err(_) => break,
+        }
+      }
+      client_msg = ws_receiver.next() => {
+        match client_msg {
+          Some(Ok(Message::Close(_))) | None => break,
+          Some(Ok(_)) => continue,
+          Some(Err(e)) => {
+            warn!("Source I/Q WebSocket error: {}", e);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+  shared.client_count.fetch_sub(1, Ordering::Relaxed);
+}
+
 /// Manages an authenticated WebSocket connection.
 ///
 /// This function is responsible for:
@@ -111,14 +264,13 @@ pub async fn handle_ws_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   broadcast_tx: broadcast::Sender<String>,
-  spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
+  _spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
-  enc_key: [u8; 32],
+  _enc_key: [u8; 32],
   _session_token: String,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
-  let mut spectrum_rx = spectrum_tx.subscribe();
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
@@ -195,54 +347,6 @@ pub async fn handle_ws_connection(
           }
           Err(broadcast::error::RecvError::Lagged(n)) => {
             debug!("Client lagged by {} frames, skipping", n);
-            continue;
-          }
-          Err(_) => break,
-        }
-      }
-      spectrum_result = spectrum_rx.recv() => {
-        match spectrum_result {
-          Ok(spectrum_data) => {
-            let allow_next_paused_frame = shared
-              .allow_next_paused_frame
-              .swap(false, Ordering::SeqCst);
-            let is_paused = shared.is_paused.load(Ordering::SeqCst);
-            if is_paused && !allow_next_paused_frame {
-              continue;
-            }
-
-            let timestamp: u64 = spectrum_data.timestamp as u64; // i64 to u64
-             let center_frequency: u64 = spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
-
-            let data_type = 1u32;
-            let sample_rate = spectrum_data.sample_rate.unwrap_or(0) as u32;
-            let iq_bytes = &spectrum_data.iq_data;
-
-            // Construct header: [timestamp: 8][center_freq: 8][data_type: 4][sample_rate: 4]
-            let mut binary_payload = Vec::with_capacity(24 + iq_bytes.len());
-            binary_payload.extend_from_slice(&timestamp.to_le_bytes());
-            binary_payload.extend_from_slice(&center_frequency.to_le_bytes());
-            binary_payload.extend_from_slice(&data_type.to_le_bytes());
-            binary_payload.extend_from_slice(&sample_rate.to_le_bytes());
-
-            let frame_bytes = match crypto::encrypt_payload_binary(&enc_key, iq_bytes) {
-              Ok(encrypted_iq) => {
-                binary_payload.extend_from_slice(&encrypted_iq);
-                binary_payload
-              }
-              Err(_) => {
-                error!("I/Q data encryption failed");
-                continue;
-              }
-            };
-
-            // Send the binary message
-            if ws_sender.send(Message::Binary(frame_bytes.into())).await.is_err() {
-              break;
-            }
-          }
-          Err(broadcast::error::RecvError::Lagged(n)) => {
-            debug!("Client lagged by {} spectrum frames, skipping", n);
             continue;
           }
           Err(_) => break,
@@ -560,8 +664,16 @@ pub fn handle_message(
         .tx_device
         .clone()
         .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
-      info!("Received tx_mode message: enabled={}, device={}", enabled, device);
-      let serial_number = shared.device_serial.lock().unwrap().clone();
+      let is_mock_tx_device = is_mock_tx_device_label(&device);
+      info!(
+        "Received tx_mode message: enabled={}, device={}",
+        enabled, device
+      );
+      let serial_number = if is_mock_tx_device {
+        MOCK_TX_SOURCE_ID.to_string()
+      } else {
+        shared.device_serial.lock().unwrap().clone()
+      };
       let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
       if let Some(center_frequency) = message.center_frequency {
         sdr_settings.center_frequency = center_frequency as u32;
@@ -706,6 +818,21 @@ pub fn handle_message(
       crate::safety::TX_TRANSMITTING
         .store(enabled, std::sync::atomic::Ordering::Relaxed);
 
+      let _ = cmd_tx.send(super::types::SdrCommand::SetTransmitMode {
+        enabled,
+        device: device.clone(),
+        serial_number: serial_number.clone(),
+        center_frequency_hz: Some(sdr_settings.center_frequency as u64),
+        sample_rate_hz: Some(sdr_settings.sample_rate as u64),
+        power_dbm: Some(tx_power),
+        lna_gain_db: sdr_settings.gain.hackrf_lna_gain,
+        vga_gain_db: sdr_settings.gain.hackrf_vga_gain,
+        amp_enabled: sdr_settings.gain.hackrf_amp_enable,
+        tuner_agc: Some(sdr_settings.gain.tuner_agc),
+        rtl_agc: Some(sdr_settings.gain.rtl_agc),
+        ppm: Some(sdr_settings.ppm as u32),
+      });
+
       let entry = if enabled {
         TxLogEntry::start(
           device.clone(),
@@ -737,9 +864,7 @@ pub fn handle_message(
         .end()
       };
       write_global(&entry);
-      if device == "mock-tx"
-        || device == "mock_tx"
-        || device.to_lowercase().contains("mock")
+      if is_mock_tx_device
         || shared.device_profile.lock().unwrap().kind == "mock_tx"
       {
         shared
@@ -939,6 +1064,7 @@ mod tests {
   use serial_test::serial;
   use std::sync::mpsc;
   use std::sync::Arc;
+  use std::time::Duration;
   use tokio::sync::broadcast;
   use validator::Validate;
 
@@ -1128,17 +1254,17 @@ mod tests {
 
   #[test]
   #[serial]
-  fn mock_tx_mode_updates_source_status_for_iq_preview() {
+  fn mock_tx_mode_overlays_on_active_mock_apt_source() {
     let shared = test_shared_state();
     shared.update_device_status(
-      true,
-      "Mock TX Device".to_string(),
-      crate::server::websocket_server::build_device_profile("mock_tx"),
+      false,
+      "Mock APT SDR".to_string(),
+      crate::server::websocket_server::build_device_profile("mock_apt"),
     );
     shared.update_device_usb_strings(
-      "mock-tx".to_string(),
+      "mock-apt".to_string(),
       "N-APT".to_string(),
-      "Mock TX Device".to_string(),
+      "Mock APT SDR".to_string(),
     );
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
     let mut broadcast_rx = broadcast_tx.subscribe();
@@ -1159,7 +1285,7 @@ mod tests {
       r#"{
         "type":"tx_mode",
         "txMode":true,
-        "txDevice":"Mock TX Device",
+        "txDevice":"Mock Tx SDR",
         "centerFrequencyHz":1600000,
         "sampleRateHz":3200000,
         "vgaGainDb":12
@@ -1169,27 +1295,93 @@ mod tests {
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, enable);
 
-    assert!(shared.mock_tx_transmitting.load(std::sync::atomic::Ordering::Relaxed));
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected SetTransmitMode command");
+    match cmd {
+      SdrCommand::SetTransmitMode {
+        enabled,
+        device,
+        serial_number,
+        center_frequency_hz,
+        sample_rate_hz,
+        power_dbm,
+        vga_gain_db,
+        ..
+      } => {
+        assert!(enabled);
+        assert_eq!(device, "Mock Tx SDR");
+        assert_eq!(serial_number, "mock-tx");
+        assert_eq!(center_frequency_hz, Some(1_600_000));
+        assert_eq!(sample_rate_hz, Some(3_200_000));
+        assert_eq!(
+          power_dbm,
+          Some(crate::safety::get_approx_output_power(12.0, false))
+        );
+        assert_eq!(vga_gain_db, Some(12.0));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+
+    assert!(shared
+      .mock_tx_transmitting
+      .load(std::sync::atomic::Ordering::Relaxed));
 
     let payload = next_source_info();
-    assert_eq!(payload["active_source"], "mock-tx");
-    assert_eq!(payload["sources"][0]["status"], "transmitting");
+    assert_eq!(payload["active_source"], "mock-apt");
+    let sources = payload["sources"].as_array().expect("sources array");
+    let active_source = sources
+      .iter()
+      .find(|source| source["id"].as_str() == Some("mock-apt"))
+      .expect("active mock APT source");
+    let mock_tx = sources
+      .iter()
+      .find(|source| source["id"].as_str() == Some("mock-tx"))
+      .expect("mock Tx source");
+    assert_eq!(active_source["status"], "streaming");
+    assert_eq!(mock_tx["name"], "Mock Tx SDR");
+    assert_eq!(mock_tx["status"], "transmitting");
 
     let disable: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
         "txMode":false,
-        "txDevice":"Mock TX Device"
+        "txDevice":"Mock Tx SDR"
       }"#,
     )
     .unwrap();
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, disable);
 
-    assert!(!shared.mock_tx_transmitting.load(std::sync::atomic::Ordering::Relaxed));
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected stop SetTransmitMode command");
+    match cmd {
+      SdrCommand::SetTransmitMode {
+        enabled,
+        device,
+        serial_number,
+        ..
+      } => {
+        assert!(!enabled);
+        assert_eq!(device, "Mock Tx SDR");
+        assert_eq!(serial_number, "mock-tx");
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+
+    assert!(!shared
+      .mock_tx_transmitting
+      .load(std::sync::atomic::Ordering::Relaxed));
 
     let payload = next_source_info();
-    assert_eq!(payload["sources"][0]["status"], "connected");
+    assert_eq!(payload["active_source"], "mock-apt");
+    let sources = payload["sources"].as_array().expect("sources array");
+    let mock_tx = sources
+      .iter()
+      .find(|source| source["id"].as_str() == Some("mock-tx"))
+      .expect("mock Tx source");
+    assert_eq!(mock_tx["status"], "connected");
   }
 
   #[test]

@@ -34,14 +34,15 @@ function extractStrings(content) {
     } else if (m[4] !== undefined) {
       // double-quoted, need unescape
       try {
-        val = JSON.parse(`"${m[4].replace(/"/g, '\\"')}"`);
+        const s = m[4].replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        val = JSON.parse(`"${s}"`);
       } catch (e) {
         val = m[4];
       }
     } else if (m[6] !== undefined) {
       try {
         // single quoted -> convert to double-quoted for JSON.parse
-        const s = m[6].replace(/\\'/g, "'").replace(/"/g, '\\"');
+        const s = m[6].replace(/\\/g, '\\\\').replace(/\\'/g, "'").replace(/"/g, '\\"');
         val = JSON.parse(`"${s}"`);
       } catch (e) {
         val = m[6];

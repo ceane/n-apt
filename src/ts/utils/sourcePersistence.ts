@@ -15,8 +15,13 @@ export const getSourceViewStorageKey = (sourceId?: string | null): string => {
 };
 
 export const getSourceStorageIdentity = (
-  source?: Pick<SourceInfo, "id" | "serial_number"> | null,
+  source?: Pick<SourceInfo, "id" | "serial_number" | "stream_key"> | null,
 ): string | null => {
+  const streamKey = source?.stream_key?.trim();
+  if (streamKey) {
+    return streamKey;
+  }
+
   const serial = source?.serial_number?.trim();
   if (serial) {
     return serial;
@@ -27,7 +32,7 @@ export const getSourceStorageIdentity = (
 };
 
 export const getSourceViewStorageKeyForSource = (
-  source?: Pick<SourceInfo, "id" | "serial_number"> | null,
+  source?: Pick<SourceInfo, "id" | "serial_number" | "stream_key"> | null,
 ): string => {
   return getSourceViewStorageKey(getSourceStorageIdentity(source));
 };

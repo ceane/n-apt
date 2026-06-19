@@ -51,6 +51,8 @@ use std::ffi::CStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+const MOCK_TX_DISPLAY_NAME: &str = "Mock Tx SDR";
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
@@ -205,19 +207,28 @@ fn source_capability_for_kind(kind: &str) -> &'static str {
   }
 }
 
+fn is_tx_capable_source_kind(kind: &str) -> bool {
+  matches!(kind, "hackrf_one" | "mock_tx")
+}
+
 fn source_status_for_entry(
   is_active_source: bool,
   device_state: &str,
   kind: &str,
 ) -> &'static str {
+  let active_tx_state = is_active_source
+    && is_tx_capable_source_kind(kind)
+    && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
   if kind.starts_with("mock_apt") {
     "streaming"
   } else if kind == "mock_tx" {
-    if device_state == "transmitting" {
+    if active_tx_state || device_state == "transmitting" {
       "transmitting"
     } else {
       "connected"
     }
+  } else if active_tx_state {
+    "transmitting"
   } else if is_active_source {
     match device_state {
       "loading" => "loading",
@@ -332,6 +343,73 @@ fn build_source_payload(
   })
 }
 
+pub(crate) fn apply_stream_keys(sources: &mut [serde_json::Value]) {
+  use std::collections::HashMap;
+
+  let mut serial_counts: HashMap<String, usize> = HashMap::new();
+  for source in sources.iter() {
+    let serial = source["serial_number"].as_str().unwrap_or("").trim();
+    if !serial.is_empty() {
+      *serial_counts.entry(serial.to_string()).or_default() += 1;
+    }
+  }
+
+  for source in sources.iter_mut() {
+    let source_id = source["id"].as_str().unwrap_or("").to_string();
+    let kind = source["kind"].as_str().unwrap_or("");
+    let serial = source["serial_number"]
+      .as_str()
+      .unwrap_or("")
+      .trim()
+      .to_string();
+    let is_mock = source_id.starts_with("mock-") || kind.starts_with("mock");
+    let use_serial = !is_mock
+      && !serial.is_empty()
+      && serial_counts.get(&serial).copied() == Some(1);
+    if let Some(obj) = source.as_object_mut() {
+      if use_serial {
+        obj.insert("stream_key".to_string(), serde_json::Value::String(serial));
+        obj.insert(
+          "stream_key_kind".to_string(),
+          serde_json::Value::String("serial".to_string()),
+        );
+      } else {
+        obj.insert(
+          "stream_key".to_string(),
+          serde_json::Value::String(source_id),
+        );
+        obj.insert(
+          "stream_key_kind".to_string(),
+          serde_json::Value::String("source_id".to_string()),
+        );
+      }
+    }
+  }
+}
+
+pub(crate) fn stream_key_matches_source(
+  stream_key: &str,
+  source: &serde_json::Value,
+) -> bool {
+  source["stream_key"].as_str() == Some(stream_key)
+}
+
+pub(crate) fn resolve_stream_key_source_id(
+  shared: &SharedState,
+  stream_key: &str,
+) -> Option<String> {
+  let snapshot = build_source_info_snapshot(shared);
+  snapshot["sources"]
+    .as_array()
+    .and_then(|sources| {
+      sources
+        .iter()
+        .find(|source| stream_key_matches_source(stream_key, source))
+    })
+    .and_then(|source| source["id"].as_str())
+    .map(str::to_string)
+}
+
 fn build_active_source_payload(
   shared: &SharedState,
   source_id: String,
@@ -345,7 +423,7 @@ fn build_active_source_payload(
   let device_manufacturer = shared.device_manufacturer.lock().unwrap().clone();
   let device_product = shared.device_product.lock().unwrap().clone();
   let device_name = if device_profile.kind == "mock_tx" {
-    "Mock TX Device".to_string()
+    MOCK_TX_DISPLAY_NAME.to_string()
   } else if device_profile.kind.starts_with("mock_apt") {
     "Mock APT SDR".to_string()
   } else {
@@ -373,10 +451,14 @@ fn build_mock_tx_source_payload(
   shared: &SharedState,
   _active_source_id: &str,
 ) -> Option<serde_json::Value> {
+  if !crate::server::utils::load_mock_tx_settings().enabled {
+    return None;
+  }
+
   Some(build_source_payload(
     shared,
     "mock-tx".to_string(),
-    "Mock TX Device".to_string(),
+    MOCK_TX_DISPLAY_NAME.to_string(),
     "mock_tx",
     if shared
       .mock_tx_transmitting
@@ -390,11 +472,29 @@ fn build_mock_tx_source_payload(
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "mock-tx".to_string(),
     "N-APT".to_string(),
-    "Mock TX Device".to_string(),
-    "Mock TX Device".to_string(),
+    MOCK_TX_DISPLAY_NAME.to_string(),
+    MOCK_TX_DISPLAY_NAME.to_string(),
     true,
     false,
   ))
+}
+
+fn build_mock_apt_source_payload(shared: &SharedState) -> serde_json::Value {
+  build_source_payload(
+    shared,
+    "mock-apt".to_string(),
+    "Mock APT SDR".to_string(),
+    "mock_apt",
+    "connected",
+    0,
+    crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    "mock-apt".to_string(),
+    "N-APT".to_string(),
+    "Mock APT SDR".to_string(),
+    "Mock APT SDR".to_string(),
+    true,
+    false,
+  )
 }
 
 fn enumerate_rtl_sdr_sources(
@@ -529,6 +629,9 @@ pub(crate) fn build_source_info_snapshot(
   if active_source_id != "mock-tx" {
     sources.push(active_source);
   }
+  if active_source_id != "mock-apt" {
+    sources.push(build_mock_apt_source_payload(shared));
+  }
   if let Some(mock_tx) = build_mock_tx_source_payload(shared, &active_source_id)
   {
     sources.push(mock_tx);
@@ -538,6 +641,7 @@ pub(crate) fn build_source_info_snapshot(
   {
     sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
   }
+  apply_stream_keys(&mut sources);
 
   serde_json::json!({
     "type": "source_info",
@@ -702,8 +806,8 @@ pub(crate) fn broadcast_active_source(
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let payload = serde_json::json!({
     "type": "active_source",
-    "active_source": active_id,
-    "active_source_mode": if paused { "file" } else { "live" },
+    "source_id": active_id,
+    "source_mode": if paused { "file" } else { "live" },
   });
   let _ = broadcast_tx.send(payload.to_string());
 }
@@ -965,7 +1069,7 @@ impl WebSocketServer {
                     build_device_profile(processor.device_type())
                   };
                   let next_device_info = if source_id == "mock-tx" {
-                    "Mock TX Device".to_string()
+                    MOCK_TX_DISPLAY_NAME.to_string()
                   } else {
                     processor.get_device_info()
                   };
@@ -980,7 +1084,7 @@ impl WebSocketServer {
                     shared_state.update_device_usb_strings(
                       "mock-tx".to_string(),
                       "N-APT".to_string(),
-                      "Mock TX Device".to_string(),
+                      MOCK_TX_DISPLAY_NAME.to_string(),
                     );
                   } else {
                     shared_state.update_device_usb_strings(
@@ -1333,6 +1437,68 @@ impl WebSocketServer {
             info!("Setting power scale to: {:?}", scale);
             processor.set_power_scale(scale);
           }
+          crate::server::types::SdrCommand::SetTransmitMode {
+            enabled,
+            device,
+            center_frequency_hz,
+            sample_rate_hz,
+            lna_gain_db,
+            vga_gain_db,
+            amp_enabled,
+            tuner_agc,
+            rtl_agc,
+            ppm,
+            ..
+          } => {
+            info!(
+              "Applying transmit mode command: enabled={}, device={}",
+              enabled, device
+            );
+
+            let device_normalized =
+              device.to_ascii_lowercase().replace(['_', '-'], " ");
+            let is_mock_tx_device = device_normalized == "mock tx"
+              || device_normalized == "mock tx device"
+              || device_normalized == "mock tx sdr";
+
+            if !is_mock_tx_device {
+              if let Some(center_frequency_hz) = center_frequency_hz {
+                let mut processor = sdr_processor.lock().await;
+                processor.queue_center_frequency(
+                  center_frequency_hz.min(u32::MAX as u64) as u32,
+                );
+              }
+
+              shared_state.pending_fast_settings.lock().unwrap().push(
+                crate::server::types::SdrProcessorSettings {
+                  sample_rate: sample_rate_hz
+                    .map(|value| value.min(u32::MAX as u64) as u32),
+                  hackrf_lna_gain: lna_gain_db,
+                  hackrf_vga_gain: vga_gain_db,
+                  hackrf_amp_enable: amp_enabled,
+                  tuner_agc,
+                  rtl_agc,
+                  ppm,
+                  ..Default::default()
+                },
+              );
+            }
+
+            let active_kind =
+              shared_state.device_profile.lock().unwrap().kind.clone();
+            if active_kind == "mock_tx" || is_mock_tx_device {
+              shared_state
+                .mock_tx_transmitting
+                .store(enabled, Ordering::Relaxed);
+            }
+            if matches!(active_kind.as_str(), "mock_tx" | "hackrf_one") {
+              shared_state.set_device_state(
+                if enabled { "transmitting" } else { "connected" },
+                None,
+              );
+            }
+            broadcast_device_status(&shared_state, &_broadcast_tx);
+          }
           #[cfg(rs_decrypted)]
           crate::server::types::SdrCommand::ScanForAudio {
             job_id,
@@ -1522,6 +1688,7 @@ impl WebSocketServer {
             }
             broadcast_channels(&shared_state, &_broadcast_tx);
           }
+          broadcast_device_status(&shared_state, &_broadcast_tx);
         }
       }
 
@@ -2144,6 +2311,29 @@ mod tests {
 
   #[test]
   #[serial]
+  fn broadcast_active_source_uses_frontend_contract_fields() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
+
+    broadcast_active_source(&shared, &broadcast_tx);
+
+    let payload = serde_json::from_str::<serde_json::Value>(
+      &broadcast_rx.try_recv().expect("active source broadcast"),
+    )
+    .expect("active source payload should be valid JSON");
+
+    assert_eq!(payload["type"], "active_source");
+    assert_eq!(payload["source_id"], "mock-apt");
+    assert_eq!(payload["source_mode"], "live");
+    assert!(payload.get("active_source").is_none());
+    assert!(payload.get("active_source_mode").is_none());
+  }
+
+  #[test]
+  #[serial]
   fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
     let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
     crate::server::utils::clear_signals_config_cache();
@@ -2174,6 +2364,40 @@ mod tests {
     assert_eq!(payload["sources"][0]["kind"], "hackrf_one");
     assert_eq!(payload["sources"][0]["capability"], "tx_rx");
     assert_eq!(payload["sources"][0]["status"], "connected");
+  }
+
+  #[test]
+  #[serial]
+  fn source_info_reports_active_hackrf_as_transmitting_when_tx_is_active() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.update_device_status(
+      true,
+      "HackRF One".to_string(),
+      build_device_profile("hackrf_one"),
+    );
+    shared.update_device_usb_strings(
+      "hackrf-test-serial".to_string(),
+      "Great Scott Gadgets".to_string(),
+      "HackRF One".to_string(),
+    );
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+
+    let snapshot = build_source_info_snapshot(&shared);
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+
+    let sources = snapshot["sources"].as_array().expect("sources array");
+    let active = sources
+      .iter()
+      .find(|source| {
+        source["id"].as_str() == Some("hackrf_one-hackrf-test-serial")
+      })
+      .expect("active HackRF source");
+
+    assert_eq!(snapshot["active_source"], "hackrf_one-hackrf-test-serial");
+    assert_eq!(active["status"], "transmitting");
   }
 
   #[test]
@@ -2218,17 +2442,118 @@ mod tests {
       .find(|source| source["id"].as_str() == Some("mock-tx"))
       .expect("mock TX source should be present");
 
-    assert_eq!(mock_tx["name"], "Mock TX Device");
+    assert_eq!(mock_tx["name"], "Mock Tx SDR");
     assert_eq!(mock_tx["kind"], "mock_tx");
     assert_eq!(mock_tx["capability"], "tx");
     assert_eq!(mock_tx["status"], "connected");
-    assert_eq!(mock_tx["product"], "Mock TX Device");
+    assert_eq!(mock_tx["product"], "Mock Tx SDR");
+    assert_eq!(mock_tx["stream_key"], "mock-tx");
+    assert_eq!(mock_tx["stream_key_kind"], "source_id");
     assert_eq!(mock_tx["sdr"]["max_sample_rate"], 20_000_000);
     assert!(mock_tx["sdr"]["sample_rate_options"]
       .as_array()
       .expect("sample rate options")
       .iter()
       .any(|option| option.as_u64() == Some(20_000_000)));
+  }
+
+  #[test]
+  #[serial]
+  fn resolves_stream_key_to_source_id_from_snapshot() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    assert_eq!(
+      resolve_stream_key_source_id(&shared, "mock-tx").as_deref(),
+      Some("mock-tx")
+    );
+  }
+
+  #[test]
+  fn source_stream_key_prefers_unique_serial_number() {
+    let mut sources = vec![serde_json::json!({
+      "id": "rtl-sdr-0",
+      "serial_number": "00000001",
+    })];
+
+    apply_stream_keys(&mut sources);
+
+    assert_eq!(sources[0]["stream_key"], "00000001");
+    assert_eq!(sources[0]["stream_key_kind"], "serial");
+  }
+
+  #[test]
+  fn source_stream_key_falls_back_to_source_id_for_blank_serial() {
+    let mut sources = vec![serde_json::json!({
+      "id": "rtl-sdr-0",
+      "serial_number": "   ",
+    })];
+
+    apply_stream_keys(&mut sources);
+
+    assert_eq!(sources[0]["stream_key"], "rtl-sdr-0");
+    assert_eq!(sources[0]["stream_key_kind"], "source_id");
+  }
+
+  #[test]
+  fn source_stream_key_falls_back_to_source_id_for_duplicate_serial() {
+    let mut sources = vec![
+      serde_json::json!({
+        "id": "rtl-sdr-0",
+        "serial_number": "DUPLICATE",
+      }),
+      serde_json::json!({
+        "id": "rtl-sdr-1",
+        "serial_number": "DUPLICATE",
+      }),
+    ];
+
+    apply_stream_keys(&mut sources);
+
+    assert_eq!(sources[0]["stream_key"], "rtl-sdr-0");
+    assert_eq!(sources[0]["stream_key_kind"], "source_id");
+    assert_eq!(sources[1]["stream_key"], "rtl-sdr-1");
+    assert_eq!(sources[1]["stream_key_kind"], "source_id");
+  }
+
+  #[test]
+  #[serial]
+  fn source_info_snapshot_hides_disabled_mock_tx_device() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    let unique = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .expect("time")
+      .as_nanos();
+    let temp_dir =
+      std::env::temp_dir().join(format!("napt-mock-tx-disabled-{}", unique));
+    std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+    let manifest_signals =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("signals.yaml");
+    let mut yaml =
+      std::fs::read_to_string(manifest_signals).expect("read signals.yaml");
+    yaml = yaml.replace(
+      "mock_tx:\n    enabled: true",
+      "mock_tx:\n    enabled: false",
+    );
+    std::fs::write(temp_dir.join("signals.yaml"), yaml)
+      .expect("write temp signals.yaml");
+    std::env::set_current_dir(&temp_dir).expect("set temp dir");
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    let snapshot = build_source_info_snapshot(&shared);
+    let sources = snapshot["sources"].as_array().expect("sources array");
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    crate::server::utils::clear_signals_config_cache();
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    assert!(sources
+      .iter()
+      .all(|source| source["id"].as_str() != Some("mock-tx")));
   }
 
   #[test]
@@ -2240,13 +2565,13 @@ mod tests {
     let shared = SharedState::new("redis://127.0.0.1:6379");
     shared.update_device_status(
       true,
-      "Mock TX Device".to_string(),
+      "Mock Tx SDR".to_string(),
       build_device_profile("mock_tx"),
     );
     shared.update_device_usb_strings(
       "mock-tx".to_string(),
       "N-APT".to_string(),
-      "Mock TX Device".to_string(),
+      "Mock Tx SDR".to_string(),
     );
 
     let snapshot = build_source_info_snapshot(&shared);
@@ -2256,6 +2581,14 @@ mod tests {
     assert!(sources
       .iter()
       .all(|source| source["id"].as_str() != Some("mock_tx-0")));
+    let mock_apt = sources
+      .iter()
+      .find(|source| source["id"].as_str() == Some("mock-apt"))
+      .expect("mock APT source should stay visible");
+    assert_eq!(mock_apt["name"], "Mock APT SDR");
+    assert_eq!(mock_apt["kind"], "mock_apt");
+    assert_eq!(mock_apt["capability"], "mock");
+    assert_eq!(mock_apt["stream_key"], "mock-apt");
     let active = sources
       .iter()
       .find(|source| source["id"].as_str() == Some("mock-tx"))
