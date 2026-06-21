@@ -30,6 +30,9 @@ const VALIDATION_CONFIG = {
   logValidationFailures: true,
 };
 
+// Keep warnings aligned with a 60 FPS frame budget so routine dev work does not spam the console.
+const SLOW_VALIDATION_WARNING_MS = 16;
+
 // Validation metrics tracking
 interface ValidationMetrics {
   totalValidations: number;
@@ -60,7 +63,7 @@ function measureValidationTime<T>(validator: () => T, operation: string): T {
       duration) /
     validationMetrics.totalValidations;
 
-  if (VALIDATION_CONFIG.enableLogging && duration > 5) {
+  if (VALIDATION_CONFIG.enableLogging && duration >= SLOW_VALIDATION_WARNING_MS) {
     console.warn(
       `Slow validation detected: ${operation} took ${duration.toFixed(2)}ms`,
     );
@@ -268,9 +271,7 @@ export function processWebSocketMessageWithValidation(
         return isValidChannelsMessageEnhanced(data);
 
       case "status":
-        return Array.isArray((data as any).sources)
-          ? isValidSourceStatusMessageEnhanced(data)
-          : false;
+        return isValidSourceStatusMessageEnhanced(data);
 
       case "sdr_settings":
         return isValidSourceSdrSettingsMessageEnhanced(data);

@@ -13,6 +13,7 @@ import {
 import styled, { keyframes } from "styled-components";
 import { Lock, Unlock } from "lucide-react";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
+import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
@@ -652,6 +653,8 @@ export interface FFTCanvasProps {
     signalLabel?: string;
     powerDbm?: number;
   };
+  /** Optional explicit labels for the bottom FFT status band. */
+  canvasStatusRow?: LiveCanvasStatusRow | null;
   /** Optional action content rendered beside the FFT section title */
   headerActionContent?: ReactNode;
   /** Optional label used to personalize loading / error placeholders. */
@@ -809,6 +812,7 @@ const FFTCanvas = memo(
       showSpikeOverlay = false,
       headerActionContent,
       txSlider,
+      canvasStatusRow,
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
       placeholderErrorReason = null,
@@ -893,6 +897,46 @@ const FFTCanvas = memo(
         (source) => source.status === "transmitting",
       );
     }, [reduxWebsocketSources]);
+    const pendingTxSliderDispatchRef = useRef<{
+      centerHz?: number;
+      sampleRateHz?: number;
+    }>({});
+    const txSliderDispatchTimerRef = useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
+    const flushTxSliderDispatch = useCallback(() => {
+      txSliderDispatchTimerRef.current = null;
+      const pending = pendingTxSliderDispatchRef.current;
+      pendingTxSliderDispatchRef.current = {};
+      if (typeof pending.sampleRateHz === "number") {
+        dispatch(setTxSampleRateHz(pending.sampleRateHz));
+      }
+      if (typeof pending.centerHz === "number") {
+        dispatch(setTxCenterFrequencyHz(pending.centerHz));
+      }
+    }, [dispatch]);
+    const scheduleTxSliderDispatch = useCallback(
+      (patch: { centerHz?: number; sampleRateHz?: number }) => {
+        pendingTxSliderDispatchRef.current = {
+          ...pendingTxSliderDispatchRef.current,
+          ...patch,
+        };
+        if (txSliderDispatchTimerRef.current) return;
+        txSliderDispatchTimerRef.current = setTimeout(
+          flushTxSliderDispatch,
+          16,
+        );
+      },
+      [flushTxSliderDispatch],
+    );
+    useEffect(() => {
+      return () => {
+        if (txSliderDispatchTimerRef.current) {
+          clearTimeout(txSliderDispatchTimerRef.current);
+          txSliderDispatchTimerRef.current = null;
+        }
+      };
+    }, []);
     const effectiveTxSlider = useMemo(() => {
       if (txSlider?.visible) return txSlider;
       const canTransmit =
@@ -931,12 +975,11 @@ const FFTCanvas = memo(
         txCenterHz: centerHz,
         txSampleRateHz: sampleRateHz,
         onCenterFrequencyChange: (value: number) =>
-          dispatch(setTxCenterFrequencyHz(value)),
+          scheduleTxSliderDispatch({ centerHz: value }),
         onSampleRateChange: (value: number) =>
-          dispatch(setTxSampleRateHz(value)),
+          scheduleTxSliderDispatch({ sampleRateHz: value }),
       };
     }, [
-      dispatch,
       frequencyRange,
       reduxDeviceKind,
       reduxShowTxSlider,
@@ -945,6 +988,7 @@ const FFTCanvas = memo(
       reduxTxSampleRateHz,
       reduxTxSignal,
       isTransmittingGlobal,
+      scheduleTxSliderDispatch,
       txSlider,
     ]);
 
@@ -1534,11 +1578,15 @@ const FFTCanvas = memo(
 
     const handleOffscreenIndicatorClick = useCallback(
       (e: React.MouseEvent) => {
+        e.preventDefault();
         e.stopPropagation();
         const slider = effectiveTxSlider;
         if (!slider || !frequencyRange) return;
 
         const span = frequencyRange.max - frequencyRange.min;
+        const visualCenter =
+          (currentVisualRange.min + currentVisualRange.max) / 2;
+        onVizPanChange?.(slider.txCenterHz - visualCenter);
         if (onFrequencyRangeChange && Number.isFinite(span) && span > 0) {
           const center = Math.max(0, slider.txCenterHz);
           let nextMin = center - span / 2;
@@ -1551,13 +1599,11 @@ const FFTCanvas = memo(
           onVizPanChange?.(0);
           return;
         }
-
-        const centerFreq = (frequencyRange.min + frequencyRange.max) / 2;
-        onVizPanChange?.(slider.txCenterHz - centerFreq);
       },
       [
         effectiveTxSlider,
         frequencyRange,
+        currentVisualRange,
         onFrequencyRangeChange,
         onVizPanChange,
       ],
@@ -2085,6 +2131,7 @@ const FFTCanvas = memo(
             requestedRange: frequencyRange,
             centerFrequencyHz: currentFrame.center_frequency_hz,
             hardwareSampleRateHz: currentFrame.sample_rate,
+            preferRequestedRange: isIqRecordingActive,
             deviceKind: deviceProfile?.kind,
             backend: deviceBackend,
             deviceName,
@@ -2545,6 +2592,7 @@ const FFTCanvas = memo(
                   }
                 : selectionOverlayRef.current,
               txSlider: compact ? null : currentTxSlider,
+              canvasStatusRow: compact ? null : canvasStatusRow,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
@@ -2610,6 +2658,7 @@ const FFTCanvas = memo(
                   displayTemporalResolution,
                   !currentTxSlider?.visible,
                   bottomReservedPx,
+                  compact ? undefined : (canvasStatusRow ?? undefined),
                 );
               }
 
@@ -2815,7 +2864,7 @@ const FFTCanvas = memo(
               ) {
                 const oldSnapshot = waterfallTextureSnapshotRef.current;
                 const oldMeta = waterfallTextureMetaRef.current;
-                
+
                 const newSnapshot = new Uint8Array(textureByteSize);
                 let newWriteRow = 0;
 
@@ -2824,22 +2873,25 @@ const FFTCanvas = memo(
                   // stays in the same order after a height change. Matches WebGPU logic.
                   const prevH = oldMeta.height;
                   const needH = waterfallDims.height;
-                  const prevRenderRow = prevH > 0 ? (oldMeta.writeRow - 1 + prevH) % prevH : 0;
-                  const nextRenderRow = needH > 0 ? (oldMeta.writeRow - 1 + needH) % needH : 0;
-                  
+                  const prevRenderRow =
+                    prevH > 0 ? (oldMeta.writeRow - 1 + prevH) % prevH : 0;
+                  const nextRenderRow =
+                    needH > 0 ? (oldMeta.writeRow - 1 + needH) % needH : 0;
+
                   for (let age = 0; age < needH; age++) {
                     const srcAge = Math.max(
                       0,
                       Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
                     );
-                    const srcY = prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const srcY =
+                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
                     const dstY = (nextRenderRow - age + needH) % needH;
-                    
+
                     const srcOff = srcY * textureBytesPerRow;
                     const dstOff = dstY * textureBytesPerRow;
                     newSnapshot.set(
                       oldSnapshot.subarray(srcOff, srcOff + textureBytesPerRow),
-                      dstOff
+                      dstOff,
                     );
                   }
                   newWriteRow = Math.min(oldMeta.writeRow, needH - 1);
@@ -2880,31 +2932,38 @@ const FFTCanvas = memo(
                   // Height may differ; repack chronologically to match WebGPU logic.
                   const prevH = restoreH;
                   const needH = waterfallDims.height;
-                  const prevRenderRow = prevH > 0 ? (restoreTexture.writeRow - 1 + prevH) % prevH : 0;
-                  const nextRenderRow = needH > 0 ? (restoreTexture.writeRow - 1 + needH) % needH : 0;
-                  
+                  const prevRenderRow =
+                    prevH > 0
+                      ? (restoreTexture.writeRow - 1 + prevH) % prevH
+                      : 0;
+                  const nextRenderRow =
+                    needH > 0
+                      ? (restoreTexture.writeRow - 1 + needH) % needH
+                      : 0;
+
                   for (let age = 0; age < needH; age++) {
                     const srcAge = Math.max(
                       0,
                       Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
                     );
-                    const srcY = prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const srcY =
+                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
                     const dstY = (nextRenderRow - age + needH) % needH;
-                    
+
                     const srcOff = srcY * textureBytesPerRow;
                     const dstOff = dstY * textureBytesPerRow;
                     snapshot.set(
-                      restoreBytes.subarray(srcOff, srcOff + textureBytesPerRow),
+                      restoreBytes.subarray(
+                        srcOff,
+                        srcOff + textureBytesPerRow,
+                      ),
                       dstOff,
                     );
                   }
                 }
                 meta.writeRow = Math.max(
                   0,
-                  Math.min(
-                    restoreTexture.writeRow,
-                    waterfallDims.height - 1,
-                  ),
+                  Math.min(restoreTexture.writeRow, waterfallDims.height - 1),
                 );
               }
 
@@ -3069,6 +3128,7 @@ const FFTCanvas = memo(
         bandwidthAlignment,
         visualizerMachine,
         visualizerSessionKey,
+        canvasStatusRow,
       ],
     );
 
@@ -3398,9 +3458,9 @@ const FFTCanvas = memo(
       restoreVisualizerSessionSnapshot,
     ]);
 
-    // Effect: When hardware frequency range changes, invalidate all cached waveforms
-    // and buffers since they represent data from a different frequency span.
-    // If paused, force a re-render to update the visual state.
+    // Effect: When hardware frequency range changes, invalidate live caches.
+    // While paused, keep the cached waveform intact so a channel/zoom change
+    // redraws the frozen frame instead of rebuilding from a transient frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
       frequencyRangeRef.current = renderableFrequencyRange;
@@ -3413,11 +3473,14 @@ const FFTCanvas = memo(
       ) {
         lastProcessedDataRef.current = null;
         lastProcessedFrameSignatureRef.current = null;
-        renderWaveformRef.current = null;
-        waveformFloatRef.current = null;
-        fullChannelWaveformRef.current = null;
-        fullChannelRangeRef.current = null;
         frameBufferRef.current = [];
+
+        if (!isPaused) {
+          renderWaveformRef.current = null;
+          waveformFloatRef.current = null;
+          fullChannelWaveformRef.current = null;
+          fullChannelRangeRef.current = null;
+        }
       }
 
       if (isPaused) {
@@ -3929,7 +3992,13 @@ const FFTCanvas = memo(
                               <Unlock size={10} strokeWidth={2.5} />
                             )}
                           </TxSliderLockButton>
-                          <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                          <div
+                            style={{
+                              position: "relative",
+                              display: "inline-flex",
+                              alignItems: "center",
+                            }}
+                          >
                             {isTransmittingGlobal && <TxBlinkingDot />}
                             Tx
                           </div>
@@ -3976,6 +4045,7 @@ const FFTCanvas = memo(
                           {txSliderVisualMetrics.isOffScreen &&
                             txSliderVisualMetrics.offScreenDirection && (
                               <TxSliderVisualOffScreenIndicator
+                                type="button"
                                 $direction={
                                   txSliderVisualMetrics.offScreenDirection
                                 }

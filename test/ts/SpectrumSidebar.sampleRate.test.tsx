@@ -127,17 +127,47 @@ jest.mock("@n-apt/components/sidebar/ThemeSection", () => ({
 jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
   __esModule: true,
   default: ({
+    devices = [],
+    onSelectedDeviceChange,
     onToggleDeviceTxMode,
+    selectedDeviceId,
   }: {
+    devices?: Array<{
+      id: string;
+      name: string;
+      status?: {
+        actionLabel?: string;
+        onAction?: () => void;
+      };
+    }>;
+    onSelectedDeviceChange?: (id: string) => void;
     onToggleDeviceTxMode?: (id: string) => void;
+    selectedDeviceId?: string;
   }) => (
-    <button
-      type="button"
-      data-testid="source-input"
-      onClick={() => onToggleDeviceTxMode?.("device-1")}
-    >
-      source-input
-    </button>
+    <div data-testid="source-input">
+      <button
+        type="button"
+        onClick={() => onToggleDeviceTxMode?.("device-1")}
+      >
+        source-input
+      </button>
+      {devices.map((device) => (
+        <div key={device.id}>
+          <button
+            type="button"
+            onClick={() => onSelectedDeviceChange?.(device.id)}
+            aria-pressed={selectedDeviceId === device.id}
+          >
+            {device.name}
+          </button>
+          {device.status?.actionLabel ? (
+            <button type="button" onClick={device.status.onAction}>
+              {device.status.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
   ),
 }));
 
@@ -496,12 +526,97 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "Mock APT SDR",
       expect.objectContaining({
         serialNumber: "device-1",
-        centerFrequencyHz: 137_100_000,
+        centerFrequencyHz: 2_204_000,
         sampleRateHz: 2_400_000,
         powerDbm: -18,
         vgaGainDb: 16,
       }),
     );
+  });
+
+  it("binds the source pause button to the clicked source id", () => {
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: "mock-apt",
+      selectedSource: {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        capability: "mock",
+        status: "connected",
+      },
+      sources: [
+        {
+          id: "mock-apt",
+          name: "Mock APT SDR",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "connected",
+          loading_attempt: 0,
+          loading_attempt_max: 2,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+          paused: false,
+          sdr: {
+            max_sample_rate: 3_200_000,
+            sample_rate_options: [3_200_000],
+            fft_display: { markers: [] },
+            settings: {
+              sample_rate: 3_200_000,
+              min_receive_sample_rate: 3_200_000,
+              center_frequency: 1_600_000,
+              fft: {
+                default_size: 262144,
+                default_frame_rate: 12,
+                max_size: 262144,
+                max_frame_rate: 60,
+                size_to_frame_rate: { "262144": 12 },
+              },
+            },
+          },
+        },
+        {
+          id: "mock-tx",
+          name: "Mock Tx SDR",
+          kind: "mock_tx",
+          capability: "tx",
+          status: "connected",
+          loading_attempt: 0,
+          loading_attempt_max: 2,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+          paused: false,
+          sdr: {
+            max_sample_rate: 20_000_000,
+            sample_rate_options: [20_000_000],
+            fft_display: { markers: [] },
+            settings: {
+              sample_rate: 20_000_000,
+              center_frequency: 136_900_000,
+              fft: {
+                default_size: 262144,
+                default_frame_rate: 12,
+                max_size: 262144,
+                max_frame_rate: 60,
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sourceInput = screen.getByTestId("source-input");
+    fireEvent.click(within(sourceInput).getByRole("button", { name: "Mock APT SDR" }));
+    fireEvent.click(within(sourceInput).getByRole("button", { name: /pause/i }));
+
+    expect(mockToggleVisualizerPause).toHaveBeenCalledWith("mock-apt");
   });
 
   it("skips the transmit warning after responsibility has already been accepted", async () => {
@@ -578,11 +693,177 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "Mock APT SDR",
       expect.objectContaining({
         serialNumber: "device-1",
-        centerFrequencyHz: 137_100_000,
+        centerFrequencyHz: 2_204_000,
         sampleRateHz: 2_400_000,
         vgaGainDb: 16,
       }),
     );
+  });
+
+  it("starts tx from Tx Settings on first load before Redux sources are hydrated", async () => {
+    window.localStorage.setItem(TRANSMIT_WARNING_ACK_KEY, "true");
+
+    const mockTxSource = {
+      id: "mock-tx",
+      name: "Mock Tx SDR",
+      kind: "mock_tx",
+      capability: "tx",
+      status: "connected",
+      serial_number: "mock-tx",
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: false,
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [5_200_000, 10_000_000, 20_000_000],
+        fft_display: { markers: [] },
+        settings: {
+          center_frequency: 137_100_000,
+          sample_rate: 5_200_000,
+          hackrf_vga_gain: 16,
+          hackrf_lna_gain: 0,
+          hackrf_amp_enable: false,
+          tuner_agc: false,
+          rtl_agc: false,
+          ppm: 1,
+          fft: {
+            default_size: 262144,
+            default_frame_rate: 12,
+            max_size: 262144,
+            max_frame_rate: 60,
+          },
+        },
+      },
+    };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: "",
+      selectedSource: null,
+      sources: [mockTxSource],
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: [mockTxSource],
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sourceInput = screen.getByTestId("source-input");
+    const startTxButton = within(
+      within(sourceInput).getByRole("button", { name: "Mock Tx SDR" }).parentElement as HTMLElement,
+    ).getByRole("button", {
+      name: /start tx/i,
+    });
+
+    fireEvent.click(startTxButton);
+
+    expect(mockShowPrompt).not.toHaveBeenCalled();
+    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
+    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      true,
+      "Mock Tx SDR",
+      expect.objectContaining({
+        serialNumber: "mock-tx",
+        centerFrequencyHz: 2_204_000,
+        sampleRateHz: 2_400_000,
+      }),
+    );
+  });
+
+  it("coalesces rapid TX setting changes while transmit mode is active", async () => {
+    jest.useFakeTimers();
+    try {
+      const mockTxSource = {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "transmitting",
+        serial_number: "mock-tx",
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: false,
+        sdr: {
+          max_sample_rate: 20_000_000,
+          sample_rate_options: [5_200_000, 10_000_000, 20_000_000],
+          fft_display: { markers: [] },
+          settings: {
+            center_frequency: 137_100_000,
+            sample_rate: 5_200_000,
+            hackrf_vga_gain: 16,
+            hackrf_lna_gain: 0,
+            hackrf_amp_enable: false,
+            tuner_agc: false,
+            rtl_agc: false,
+            ppm: 1,
+          },
+        },
+      };
+      mockLiveState = {
+        ...mockLiveState,
+        selectedSourceId: "mock-tx",
+        selectedSource: mockTxSource,
+        sources: [mockTxSource],
+      };
+      mockWsConnection = {
+        ...mockWsConnection,
+        sources: [mockTxSource],
+      };
+
+      const store = createStore();
+      store.dispatch(setConnected());
+
+      const { rerender } = render(
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <SpectrumSidebar />
+          </ThemeProvider>
+        </Provider>,
+      );
+
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
+      mockWsConnection.sendTransmitMode.mockClear();
+
+      for (const centerFrequencyHz of [2_205_000, 2_206_000, 2_207_000]) {
+        act(() => {
+          store.dispatch({
+            type: "spectrum/setTxCenterFrequencyHz",
+            payload: centerFrequencyHz,
+          });
+          rerender(
+            <Provider store={store}>
+              <ThemeProvider theme={theme}>
+                <SpectrumSidebar />
+              </ThemeProvider>
+            </Provider>,
+          );
+        });
+      }
+
+      expect(mockWsConnection.sendTransmitMode).not.toHaveBeenCalled();
+
+      act(() => {
+        jest.advanceTimersByTime(17);
+      });
+
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+        true,
+        "Mock Tx SDR",
+        expect.objectContaining({
+          centerFrequencyHz: 2_207_000,
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.skip("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
@@ -910,7 +1191,12 @@ describe("SpectrumSidebar sample rate behavior", () => {
     mockWsConnection.sendTransmitMode.mockClear();
     const nowSpy = jest.spyOn(Date, "now").mockReturnValue(100);
 
-    const txButton = await screen.findByRole("button", { name: /stop tx/i });
+    const sourceInput = screen.getByTestId("source-input");
+    const txButton = within(
+      within(sourceInput).getByRole("button", { name: "HackRF One #2" }).parentElement as HTMLElement,
+    ).getByRole("button", {
+      name: /stop tx/i,
+    });
     fireEvent.click(txButton);
 
     nowSpy.mockRestore();

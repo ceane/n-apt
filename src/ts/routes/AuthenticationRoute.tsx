@@ -489,7 +489,8 @@ const AuthThemeButton = styled.button<{ $active?: boolean }>`
   border: 0;
   border-radius: 999px;
   padding: 6px 10px;
-  background: ${(props) => (props.$active ? props.theme.primary : "transparent")};
+  background: ${(props) =>
+    props.$active ? props.theme.primary : "transparent"};
   color: ${(props) =>
     props.$active ? props.theme.background : props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.mono};
@@ -497,7 +498,9 @@ const AuthThemeButton = styled.button<{ $active?: boolean }>`
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background-color 0.18s ease, color 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
 
   &:hover {
     color: ${(props) => props.theme.textPrimary};
@@ -519,7 +522,9 @@ const ThemeRevealButton = styled.button<{ $expanded?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: color 0.18s ease, transform 0.18s ease;
+  transition:
+    color 0.18s ease,
+    transform 0.18s ease;
 
   &:hover {
     color: ${(props) => props.theme.textPrimary};
@@ -532,7 +537,8 @@ const ThemeControls = styled.div<{ $expanded?: boolean }>`
   gap: 8px;
   max-width: ${(props) => (props.$expanded ? "360px" : "0px")};
   opacity: ${(props) => (props.$expanded ? 1 : 0)};
-  transform: ${(props) => (props.$expanded ? "translateX(0)" : "translateX(-8px)")};
+  transform: ${(props) =>
+    props.$expanded ? "translateX(0)" : "translateX(-8px)"};
   overflow: hidden;
   transition:
     max-width 0.28s ease,
@@ -582,16 +588,14 @@ export const AuthenticationUI = ({
   onRegisterPasskey,
 }: AuthenticationUIProps) => {
   const themeContext = React.useContext(ThemeContext);
-  const baseTheme = (
-    themeContext ??
+  const baseTheme = (themeContext ??
     buildAppTheme({
       accentColor: "#00d4ff",
       fftColor: "#00d4ff",
       appMode: "system",
       resolvedMode: "dark",
       waterfallTheme: "classic",
-    })
-  ) as AppStyledTheme;
+    })) as AppStyledTheme;
   const [password, setPassword] = useState("");
   const [authThemeMode, setAuthThemeMode] = useState<AuthThemeMode>(
     getInitialAuthThemeMode,
@@ -815,7 +819,9 @@ export const AuthenticationUI = ({
               setThemeExpanded((value) => !value);
             }}
             aria-expanded={themeExpanded}
-            aria-label={themeExpanded ? "Collapse theme picker" : "Expand theme picker"}
+            aria-label={
+              themeExpanded ? "Collapse theme picker" : "Expand theme picker"
+            }
           >
             <Radio size={12} strokeWidth={2} />
             <span>Theme</span>
@@ -850,26 +856,26 @@ export const AuthenticationUI = ({
           <span>Learn More about Signals &gt;</span>
         </LearnMoreLink>
         <WaveBackground aria-hidden="true">
-        <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
-          <WavePath d={wavePathA} />
-          <WavePath d={wavePathB} $delay="-4s" $reverse />
-        </WaveSvg>
-        {binaryDigits.map((digit) => (
-          <BinaryDigitContainer
-            key={digit.id}
-            $delay={digit.delay}
-            $duration={digit.duration}
-            style={
-              {
-                "--digit-y": `${digit.y}%`,
-              } as React.CSSProperties
-            }
-          >
-            <BinaryDigitInner $size={digit.size}>
-              {digit.value}
-            </BinaryDigitInner>
-          </BinaryDigitContainer>
-        ))}
+          <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
+            <WavePath d={wavePathA} />
+            <WavePath d={wavePathB} $delay="-4s" $reverse />
+          </WaveSvg>
+          {binaryDigits.map((digit) => (
+            <BinaryDigitContainer
+              key={digit.id}
+              $delay={digit.delay}
+              $duration={digit.duration}
+              style={
+                {
+                  "--digit-y": `${digit.y}%`,
+                } as React.CSSProperties
+              }
+            >
+              <BinaryDigitInner $size={digit.size}>
+                {digit.value}
+              </BinaryDigitInner>
+            </BinaryDigitContainer>
+          ))}
         </WaveBackground>
         <LogoContainer>
           <Logo src={nAptLogo} alt="N-APT Logo" />

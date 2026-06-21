@@ -54,23 +54,37 @@ export function drawLiveCanvasStatusRow(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  options: {
-    sampleRateHz: number;
-    fftSize: number;
-    fftWindow: string;
-    temporalResolution: "low" | "medium" | "high";
+  options: (
+    | {
+        sampleRateHz: number;
+        fftSize: number;
+        fftWindow: string;
+        temporalResolution: "low" | "medium" | "high";
+        statusRow?: never;
+      }
+    | {
+        statusRow: LiveCanvasStatusRow;
+        sampleRateHz?: never;
+        fftSize?: never;
+        fftWindow?: never;
+        temporalResolution?: never;
+      }
+  ) & {
     textColor?: string;
     backgroundColor?: string;
     rowHeight?: number;
   },
 ) {
   const canvasTheme = getCanvasThemeColors();
-  const status = formatLiveCanvasStatusRow({
-    sampleRateHz: options.sampleRateHz,
-    fftSize: options.fftSize,
-    fftWindow: options.fftWindow,
-    temporalResolution: options.temporalResolution,
-  });
+  const status: LiveCanvasStatusRow =
+    "statusRow" in options && options.statusRow
+      ? options.statusRow
+      : formatLiveCanvasStatusRow({
+          sampleRateHz: options.sampleRateHz,
+          fftSize: options.fftSize,
+          fftWindow: options.fftWindow,
+          temporalResolution: options.temporalResolution,
+        });
 
   const dpr = window.devicePixelRatio || 1;
   const rowHeight = options.rowHeight ?? 56;

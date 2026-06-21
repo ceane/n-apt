@@ -121,6 +121,7 @@ describe("useSpectrumRenderer", () => {
       undefined,
       false,
       0,
+      undefined,
     );
     expect(drawTxSliderOnContextMock).toHaveBeenLastCalledWith(
       expect.anything(),

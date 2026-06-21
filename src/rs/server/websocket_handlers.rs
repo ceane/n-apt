@@ -17,8 +17,8 @@ use super::tx_log::{write_global, TxLogEntry};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
-  active_source_id, broadcast_active_source, broadcast_signal_display_settings,
-  broadcast_source_status, build_channels_snapshot, build_source_info_snapshot,
+  active_source_id, broadcast_device_status, broadcast_signal_display_settings,
+  build_channels_snapshot, build_source_info_snapshot,
   resolve_stream_key_source_id,
 };
 
@@ -149,10 +149,6 @@ pub async fn source_iq_ws_upgrade_handler(
   let shared = state.shared.clone();
   let enc_key = shared.encryption_key;
   let spectrum_tx = state.spectrum_tx.clone();
-  let cmd_tx = state.cmd_tx.clone();
-  let _ = cmd_tx.send(super::types::SdrCommand::SetActiveSource {
-    source_id: source_id.clone(),
-  });
 
   ws.on_upgrade(move |socket| {
     handle_source_iq_connection(socket, shared, spectrum_tx, enc_key, source_id)
@@ -189,6 +185,18 @@ async fn send_encrypted_iq_frame(
     .map_err(|_| ())
 }
 
+fn should_send_source_iq_frame(
+  source_id: &str,
+  is_paused: bool,
+  allow_next_paused_frame: bool,
+  tx_transmitting: bool,
+) -> bool {
+  if !is_paused || allow_next_paused_frame {
+    return true;
+  }
+  source_id == "mock-tx" && tx_transmitting
+}
+
 pub async fn handle_source_iq_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
@@ -214,7 +222,15 @@ pub async fn handle_source_iq_connection(
               .allow_next_paused_frame
               .swap(false, Ordering::SeqCst);
             let is_paused = shared.is_paused.load(Ordering::SeqCst);
-            if is_paused && !allow_next_paused_frame {
+            let is_mock_tx_monitor =
+              source_id == "mock-tx"
+                && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+            if !should_send_source_iq_frame(
+              &source_id,
+              is_paused,
+              allow_next_paused_frame,
+              is_mock_tx_monitor,
+            ) {
               continue;
             }
             if send_encrypted_iq_frame(&mut ws_sender, &enc_key, &spectrum_data).await.is_err() {
@@ -456,9 +472,18 @@ pub fn handle_message(
     }
     "pause" => {
       if let Some(paused) = message.paused {
-        shared.is_paused.store(paused, Ordering::SeqCst);
-        broadcast_source_status(&shared, &broadcast_tx, "connected");
-        broadcast_active_source(&shared, &broadcast_tx);
+        let source_id = message
+          .source_id
+          .clone()
+          .unwrap_or_else(|| active_source_id(shared));
+        shared.set_source_pause_state(&source_id, paused);
+        if source_id == active_source_id(shared) {
+          shared.is_paused.store(paused, Ordering::SeqCst);
+          shared
+            .allow_next_paused_frame
+            .store(false, Ordering::SeqCst);
+        }
+        broadcast_device_status(&shared, &broadcast_tx);
       }
     }
     "gain" => {
@@ -760,11 +785,12 @@ pub fn handle_message(
         .tx_signal
         .clone()
         .unwrap_or_else(|| "apt".to_string());
-      let _tx_signal = if raw_tx_signal == "hop" {
+      let tx_signal = if raw_tx_signal == "hop" {
         "apt".to_string()
       } else {
         raw_tx_signal
       };
+      *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.clone();
 
       let hop_active = message.tx_hop_enabled.unwrap_or_else(|| {
         if message.tx_signal.as_deref() == Some("hop") {
@@ -815,15 +841,25 @@ pub fn handle_message(
         tx_power = -70.0;
       }
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
-      crate::safety::TX_TRANSMITTING
-        .store(enabled, std::sync::atomic::Ordering::Relaxed);
+      *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
+        sdr_settings.center_frequency as f64;
+      *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() =
+        sdr_settings.sample_rate as f64;
+      if let Some(tx_ifft_size) = message.tx_ifft_size {
+        *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
+      }
+      let was_transmitting = crate::safety::TX_TRANSMITTING
+        .swap(enabled, std::sync::atomic::Ordering::Relaxed);
+      let tx_status_changed = was_transmitting != enabled;
 
       let _ = cmd_tx.send(super::types::SdrCommand::SetTransmitMode {
         enabled,
         device: device.clone(),
         serial_number: serial_number.clone(),
+        tx_signal: Some(tx_signal),
         center_frequency_hz: Some(sdr_settings.center_frequency as u64),
         sample_rate_hz: Some(sdr_settings.sample_rate as u64),
+        tx_ifft_size: message.tx_ifft_size,
         power_dbm: Some(tx_power),
         lna_gain_db: sdr_settings.gain.hackrf_lna_gain,
         vga_gain_db: sdr_settings.gain.hackrf_vga_gain,
@@ -833,50 +869,57 @@ pub fn handle_message(
         ppm: Some(sdr_settings.ppm as u32),
       });
 
-      let entry = if enabled {
-        TxLogEntry::start(
-          device.clone(),
-          serial_number,
-          Some(sdr_settings.center_frequency as u64),
-          Some(sdr_settings.sample_rate as u64),
-          Some(sdr_settings.gain.tuner_gain),
-          sdr_settings.gain.hackrf_lna_gain,
-          sdr_settings.gain.hackrf_vga_gain,
-          sdr_settings.gain.hackrf_amp_enable,
-          Some(sdr_settings.gain.tuner_agc),
-          Some(sdr_settings.gain.rtl_agc),
-          Some(sdr_settings.ppm as u32),
-        )
-      } else {
-        TxLogEntry::start(
-          device.clone(),
-          serial_number,
-          Some(sdr_settings.center_frequency as u64),
-          Some(sdr_settings.sample_rate as u64),
-          Some(sdr_settings.gain.tuner_gain),
-          sdr_settings.gain.hackrf_lna_gain,
-          sdr_settings.gain.hackrf_vga_gain,
-          sdr_settings.gain.hackrf_amp_enable,
-          Some(sdr_settings.gain.tuner_agc),
-          Some(sdr_settings.gain.rtl_agc),
-          Some(sdr_settings.ppm as u32),
-        )
-        .end()
-      };
-      write_global(&entry);
+      if tx_status_changed {
+        let entry = if enabled {
+          TxLogEntry::start(
+            device.clone(),
+            serial_number,
+            Some(sdr_settings.center_frequency as u64),
+            Some(sdr_settings.sample_rate as u64),
+            Some(sdr_settings.gain.tuner_gain),
+            sdr_settings.gain.hackrf_lna_gain,
+            sdr_settings.gain.hackrf_vga_gain,
+            sdr_settings.gain.hackrf_amp_enable,
+            Some(sdr_settings.gain.tuner_agc),
+            Some(sdr_settings.gain.rtl_agc),
+            Some(sdr_settings.ppm as u32),
+          )
+        } else {
+          TxLogEntry::start(
+            device.clone(),
+            serial_number,
+            Some(sdr_settings.center_frequency as u64),
+            Some(sdr_settings.sample_rate as u64),
+            Some(sdr_settings.gain.tuner_gain),
+            sdr_settings.gain.hackrf_lna_gain,
+            sdr_settings.gain.hackrf_vga_gain,
+            sdr_settings.gain.hackrf_amp_enable,
+            Some(sdr_settings.gain.tuner_agc),
+            Some(sdr_settings.gain.rtl_agc),
+            Some(sdr_settings.ppm as u32),
+          )
+          .end()
+        };
+        write_global(&entry);
+      }
       if is_mock_tx_device
         || shared.device_profile.lock().unwrap().kind == "mock_tx"
       {
-        shared
+        let mock_tx_was_transmitting = shared
           .mock_tx_transmitting
-          .store(enabled, std::sync::atomic::Ordering::Relaxed);
-        if shared.device_profile.lock().unwrap().kind == "mock_tx" {
+          .swap(enabled, std::sync::atomic::Ordering::Relaxed);
+        let mock_tx_status_changed = mock_tx_was_transmitting != enabled;
+        if mock_tx_status_changed
+          && shared.device_profile.lock().unwrap().kind == "mock_tx"
+        {
           shared.set_device_state(
             if enabled { "transmitting" } else { "connected" },
             None,
           );
         }
-        super::websocket_server::broadcast_device_status(shared, broadcast_tx);
+        if tx_status_changed || mock_tx_status_changed {
+          super::websocket_server::broadcast_device_status(shared, broadcast_tx);
+        }
       }
     }
     "restart_device" => {
@@ -1058,6 +1101,7 @@ pub fn handle_message(
 mod tests {
   use super::{
     handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
+    should_send_source_iq_frame,
   };
   use crate::server::shared_state::SharedState;
   use crate::server::types::{SdrCommand, WebSocketMessage};
@@ -1288,6 +1332,7 @@ mod tests {
         "txDevice":"Mock Tx SDR",
         "centerFrequencyHz":1600000,
         "sampleRateHz":3200000,
+        "txIfftSize":8192,
         "vgaGainDb":12
       }"#,
     )
@@ -1305,6 +1350,7 @@ mod tests {
         serial_number,
         center_frequency_hz,
         sample_rate_hz,
+        tx_ifft_size,
         power_dbm,
         vga_gain_db,
         ..
@@ -1314,6 +1360,7 @@ mod tests {
         assert_eq!(serial_number, "mock-tx");
         assert_eq!(center_frequency_hz, Some(1_600_000));
         assert_eq!(sample_rate_hz, Some(3_200_000));
+        assert_eq!(tx_ifft_size, Some(8192));
         assert_eq!(
           power_dbm,
           Some(crate::safety::get_approx_output_power(12.0, false))
@@ -1403,5 +1450,59 @@ mod tests {
     handle_message(&cmd_tx, &shared, &broadcast_tx, message);
 
     assert!(cmd_rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn mock_tx_source_iq_frames_bypass_pause_while_transmitting() {
+    assert!(should_send_source_iq_frame("mock-tx", true, false, true));
+    assert!(should_send_source_iq_frame("mock-tx", true, true, false));
+    assert!(should_send_source_iq_frame("mock-tx", false, false, false));
+    assert!(!should_send_source_iq_frame("mock-tx", true, false, false));
+    assert!(!should_send_source_iq_frame("mock-apt", true, false, true));
+  }
+
+  #[test]
+  #[serial]
+  fn pause_commands_are_scoped_to_their_source() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      crate::server::websocket_server::build_device_profile("mock_apt"),
+    );
+    shared.update_device_usb_strings(
+      "mock-apt".to_string(),
+      "N-APT".to_string(),
+      "Mock APT SDR".to_string(),
+    );
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"pause",
+        "paused":true,
+        "source_id":"other-source"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(shared.is_source_paused("other-source"));
+    assert!(!shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
+
+    let active_pause: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"pause",
+        "paused":true,
+        "source_id":"mock-apt"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, active_pause);
+
+    assert!(shared.is_source_paused("mock-apt"));
+    assert!(shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
   }
 }

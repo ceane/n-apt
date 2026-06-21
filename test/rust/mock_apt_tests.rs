@@ -234,6 +234,63 @@ mod tests {
   }
 
   #[test]
+  fn test_active_tx_overlay_performance_regression() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    let baseline_elapsed = {
+      let mut device = new_perf_device(12345);
+      device.read_samples(1024).unwrap();
+
+      let start = Instant::now();
+      for _ in 0..60 {
+        let frame = device.read_samples(4096).unwrap();
+        assert_eq!(frame.data.len(), 8192);
+      }
+      start.elapsed()
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "apt".to_string();
+    *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 1_600_000.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 760_000.0;
+
+    let result = std::panic::catch_unwind(|| {
+      let mut device = new_perf_device(12345);
+      device.read_samples(1024).unwrap();
+
+      let start = Instant::now();
+      for _ in 0..60 {
+        let frame = device.read_samples(4096).unwrap();
+        assert_eq!(frame.data.len(), 8192);
+      }
+      start.elapsed()
+    });
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 0.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+
+    let elapsed = result.expect("active Tx performance test panicked");
+    println!(
+      "MOCK APT ACTIVE TX PERF: baseline={baseline_elapsed:?}, active={elapsed:?}"
+    );
+    assert!(
+      elapsed < Duration::from_millis(1500)
+        && elapsed.as_secs_f64() <= baseline_elapsed.as_secs_f64() * 2.5,
+      "active Mock APT Tx overlay is too slow for realtime streaming: baseline={baseline_elapsed:?}, active={elapsed:?}"
+    );
+  }
+
+  #[test]
   fn test_realistic_rf_helpers_fold_and_shape_signal() {
     let sample_rate = 3_200_000.0;
     let folded =

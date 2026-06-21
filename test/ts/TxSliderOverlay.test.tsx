@@ -1,3 +1,7 @@
+/**
+ * @jest-environment jsdom
+ * @vitest-environment jsdom
+ */
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
@@ -22,7 +26,7 @@ describe("TxSliderOverlay", () => {
       screen.getByText(
         "120.0kHz sample rate · 60.0kHz center · -18.0 dBm target",
       ),
-    ).toBeInTheDocument();
-    expect(screen.getByText("APT")).toBeInTheDocument();
+    ).toBeDefined();
+    expect(screen.getByText("APT")).toBeDefined();
   });
 });

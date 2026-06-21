@@ -9,6 +9,7 @@ import {
 } from "@n-apt/hooks/useOverlayRenderer";
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
+import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 
 const OVERLAY_MIN_INTERVAL_MS = 50;
 
@@ -33,6 +34,7 @@ const getMarkersOverlaySignature = ({
   demodFocusOverlay,
   selectionOverlay,
   txSlider,
+  canvasStatusRow,
 }: Pick<
   SpectrumRendererOptions,
   | "centerFrequencyHz"
@@ -48,6 +50,7 @@ const getMarkersOverlaySignature = ({
   | "demodFocusOverlay"
   | "selectionOverlay"
   | "txSlider"
+  | "canvasStatusRow"
   | "nodePreview"
 > & {
   width: number;
@@ -81,6 +84,14 @@ const getMarkersOverlaySignature = ({
         finiteOrEmpty(txSlider.powerDbm),
       ].join(":")
     : "hidden";
+  const statusSignature = canvasStatusRow
+    ? [
+        canvasStatusRow.sampleRateLabel,
+        canvasStatusRow.fftSizeLabel,
+        canvasStatusRow.fftWindowLabel,
+        canvasStatusRow.timingLabel,
+      ].join(":")
+    : "";
 
   return [
     width,
@@ -101,6 +112,7 @@ const getMarkersOverlaySignature = ({
     demodSignature,
     selectionSignature,
     txSignature,
+    statusSignature,
   ].join("|");
 };
 
@@ -167,6 +179,8 @@ export interface SpectrumRendererOptions {
   selectionOverlay?: SelectionOverlay | null;
   /** Tx slider rendered into the marker overlay texture */
   txSlider?: TxSliderOverlayState | null;
+  /** Optional explicit status labels rendered in the bottom FFT status band. */
+  canvasStatusRow?: LiveCanvasStatusRow | null;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -236,6 +250,7 @@ export function useSpectrumRenderer() {
         demodFocusOverlay,
         selectionOverlay,
         txSlider,
+        canvasStatusRow,
 
         lineColor,
         fillColor,
@@ -314,6 +329,7 @@ export function useSpectrumRenderer() {
           demodFocusOverlay,
           selectionOverlay,
           txSlider,
+          canvasStatusRow,
         });
         const markersOverlayInputsChanged =
           markersOverlaySignature !== lastMarkersOverlaySignatureRef.current;
@@ -350,6 +366,7 @@ export function useSpectrumRenderer() {
               temporalResolution,
               !txSlider?.visible,
               reservedBottomPx,
+              canvasStatusRow ?? undefined,
             );
           }
           drawDemodFocusOnContext(

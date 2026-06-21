@@ -15,6 +15,7 @@ const waterfallCanvasMock = jest.fn((_props?: any) => (
 ));
 let mockedSourceMode: "live" | "file" = "live";
 let mockedSpectrumState: Record<string, unknown> = {};
+let mockedWebsocketState: Record<string, unknown> = {};
 
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -71,6 +72,9 @@ jest.mock("@n-apt/redux", () => ({
         deviceLoadingReason: null,
         error: null,
         cryptoCorrupted: false,
+        activeSourceId: null,
+        sources: [],
+        ...mockedWebsocketState,
       },
     }),
   useAppDispatch: () => jest.fn(),
@@ -87,6 +91,7 @@ describe("FFTAndWaterfall", () => {
   beforeEach(() => {
     mockedSourceMode = "live";
     mockedSpectrumState = {};
+    mockedWebsocketState = {};
     fftCanvasMock.mockClear();
     fftCanvasMountSpy.mockClear();
     fftCanvasUnmountSpy.mockClear();
@@ -187,8 +192,11 @@ describe("FFTAndWaterfall", () => {
 
   it("passes Tx slider props on the first render when Redux says Tx is visible", () => {
     mockedSpectrumState = {
-      deviceKind: "mock_tx",
       showTxSlider: true,
+    };
+    mockedWebsocketState = {
+      activeSourceId: "mock-tx",
+      sources: [{ id: "mock-tx", capability: "tx", kind: "mock_tx" }],
     };
 
     render(
@@ -226,8 +234,11 @@ describe("FFTAndWaterfall", () => {
 
   it("defaults to true if Redux persist restores an undefined showTxSlider state", () => {
     mockedSpectrumState = {
-      deviceKind: "mock_tx",
       showTxSlider: undefined,
+    };
+    mockedWebsocketState = {
+      activeSourceId: "mock-tx",
+      sources: [{ id: "mock-tx", capability: "tx", kind: "mock_tx" }],
     };
 
     render(
@@ -259,8 +270,11 @@ describe("FFTAndWaterfall", () => {
 
   it("hides Tx slider props on the first render when Redux says device is mock (RX only)", () => {
     mockedSpectrumState = {
-      deviceKind: "mock",
       showTxSlider: true,
+    };
+    mockedWebsocketState = {
+      activeSourceId: "mock-apt",
+      sources: [{ id: "mock-apt", capability: "mock", kind: "mock_apt" }],
     };
 
     render(
@@ -286,6 +300,28 @@ describe("FFTAndWaterfall", () => {
       canShowTxSlider: false,
     });
     expect(fftProps?.txSlider).toBeUndefined();
+  });
+
+  it("does not surface a server-down placeholder for the mock apt source", () => {
+    mockedSpectrumState = {
+      deviceKind: "mock_apt",
+      showTxSlider: true,
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

@@ -21,6 +21,20 @@ interface ReduxVisualizerSlidersProps {
   onResetZoomDb?: () => void;
 }
 
+const isTxCapableSource = (
+  source?: { capability?: string | null; kind?: string | null } | null,
+) => {
+  if (!source) return false;
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    kind === "hackrf_one" ||
+    kind === "mock_tx"
+  );
+};
+
 const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   onResetZoomDb,
 }) => {
@@ -52,12 +66,12 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const showTxSlider = useAppSelector(
     (state) => state.spectrum.showTxSlider ?? true,
   );
-  const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const canShowTxSlider =
-    deviceKind === "hackrf_one" ||
-    deviceKind === "mock_tx" ||
-    deviceKind === "tx_rx" ||
-    deviceKind === "tx";
+  const activeSource = useAppSelector((state) =>
+    state.websocket.sources?.find?.(
+      (source) => source.id === state.websocket.activeSourceId,
+    ),
+  );
+  const canShowTxSlider = isTxCapableSource(activeSource);
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(

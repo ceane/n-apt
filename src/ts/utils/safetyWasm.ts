@@ -195,6 +195,42 @@ export function calculateRoomPowerLimitJS(
   return wattsToDbm(requiredPowerWatts);
 }
 
+export function getQuantizedIqPowerFloorDbmJS(
+  bits: number,
+  fftSize: number,
+  dbmOffset = 30,
+): number {
+  const usableBits = Math.min(32, Math.max(2, Math.trunc(bits)));
+  const sampleCount = Math.max(1, Math.trunc(fftSize));
+  const signedSteps = Math.pow(2, usableBits - 1);
+  return (
+    10 * Math.log10(1 / (signedSteps * signedSteps * sampleCount)) +
+    dbmOffset
+  );
+}
+
+export function getRecommendedFftSizeForIqPowerDbmJS(
+  requestedDbm: number,
+  bits: number,
+  dbmOffset = 30,
+): number {
+  if (!Number.isFinite(requestedDbm)) return 1;
+  const usableBits = Math.min(32, Math.max(2, Math.trunc(bits)));
+  const signedSteps = Math.pow(2, usableBits - 1);
+  const required = Math.max(
+    1,
+    Math.ceil(
+      Math.pow(10, (dbmOffset - requestedDbm) / 10) /
+        (signedSteps * signedSteps),
+    ),
+  );
+  let size = 1;
+  while (size < required && size < 1 << 30) {
+    size *= 2;
+  }
+  return size;
+}
+
 // WASM wrappers with JS fallback
 export async function getApproxOutputPower(
   vgaGain: number,
@@ -284,4 +320,35 @@ export async function calculateRoomPowerLimit(
     return wasm.calculate_room_power_limit(frequencyHz, maxDistanceM);
   }
   return calculateRoomPowerLimitJS(frequencyHz, maxDistanceM);
+}
+
+export async function getQuantizedIqPowerFloorDbm(
+  bits: number,
+  fftSize: number,
+  dbmOffset = 30,
+): Promise<number> {
+  const wasm = await getSafetyWasm();
+  if (wasm && typeof wasm.get_quantized_iq_power_floor_dbm === "function") {
+    return wasm.get_quantized_iq_power_floor_dbm(bits, fftSize, dbmOffset);
+  }
+  return getQuantizedIqPowerFloorDbmJS(bits, fftSize, dbmOffset);
+}
+
+export async function getRecommendedFftSizeForIqPowerDbm(
+  requestedDbm: number,
+  bits: number,
+  dbmOffset = 30,
+): Promise<number> {
+  const wasm = await getSafetyWasm();
+  if (
+    wasm &&
+    typeof wasm.get_recommended_fft_size_for_iq_power_dbm === "function"
+  ) {
+    return wasm.get_recommended_fft_size_for_iq_power_dbm(
+      requestedDbm,
+      bits,
+      dbmOffset,
+    );
+  }
+  return getRecommendedFftSizeForIqPowerDbmJS(requestedDbm, bits, dbmOffset);
 }

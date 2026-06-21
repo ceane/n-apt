@@ -187,6 +187,38 @@ signals:
   # spectrum without switching away from the receive source.
   mock_tx:
     enabled: true
+    signals:
+      apt:
+        label: "APT"
+        channel: "a"
+        center_frequency_hz: !frequency 2.204MHz
+        sample_rate_hz: !frequency 2.4MHz
+        offset_hz: !frequency 25kHz
+        tone_hz: !frequency 2.4kHz
+        description: "APT-like AM subcarrier inside channel A."
+      tone:
+        label: "Tone"
+        channel: "a"
+        center_frequency_hz: !frequency 1.6MHz
+        sample_rate_hz: !frequency 1MHz
+        offset_hz: !frequency 100kHz
+        tone_hz: !frequency 1kHz
+        description: "Continuous test tone inside channel A."
+      noise:
+        label: "Noise"
+        channel: "c"
+        center_frequency_hz: !frequency 13.875MHz
+        sample_rate_hz: !frequency 3.2MHz
+        bandwidth_hz: !frequency 600kHz
+        description: "Band-limited noise burst inside channel C."
+      custom:
+        label: "Custom I/Q"
+        channel: "b"
+        center_frequency_hz: !frequency 27.235MHz
+        sample_rate_hz: !frequency 2.4MHz
+        offset_hz: !frequency 50kHz
+        tone_hz: !frequency 1.2kHz
+        description: "Deterministic custom I/Q placeholder inside channel B."
 
   triangulation:
     static:

@@ -96,6 +96,7 @@ export const resolveRenderableFrequencyRange = ({
   requestedRange,
   centerFrequencyHz: _centerFrequencyHz,
   hardwareSampleRateHz,
+  preferRequestedRange,
   deviceKind,
   backend,
   deviceName,
@@ -104,8 +105,18 @@ export const resolveRenderableFrequencyRange = ({
   requestedRange: { min: number; max: number };
   centerFrequencyHz?: number | null;
   hardwareSampleRateHz?: number | null;
+  preferRequestedRange?: boolean;
 }): { min: number; max: number } => {
   if (!isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })) {
+    return requestedRange;
+  }
+
+  const requestedSpan = requestedRange.max - requestedRange.min;
+  if (
+    Number.isFinite(requestedSpan) &&
+    requestedSpan > 0 &&
+    preferRequestedRange
+  ) {
     return requestedRange;
   }
 
@@ -115,7 +126,6 @@ export const resolveRenderableFrequencyRange = ({
     hardwareSampleRateHz > 0
       ? hardwareSampleRateHz
       : 3_200_000;
-  const requestedSpan = requestedRange.max - requestedRange.min;
   if (
     Number.isFinite(requestedSpan) &&
     requestedSpan > 0 &&

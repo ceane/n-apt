@@ -255,7 +255,7 @@ describe("SourceInput", () => {
             {
               id: "device-1",
               name: "Mock APT SDR",
-              capability: "tx_rx",
+              capability: "rx",
               status: {
                 label: "streaming",
                 actionLabel: "Pause",

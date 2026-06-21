@@ -117,13 +117,67 @@ const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
   );
 };
 
+const isTxCapableSourceInfo = (
+  source: SourceInfo | null | undefined,
+): boolean => {
+  if (!source) return false;
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    kind === "hackrf_one" ||
+    kind === "mock_tx" ||
+    kind === "mock-tx"
+  );
+};
+
+export const shouldAutoResumeVisualizerOnSourceSwitch = (
+  selectedSource: SourceInfo | null | undefined,
+  autoPausedOnSourceSwitch: boolean,
+): boolean =>
+  autoPausedOnSourceSwitch &&
+  !!selectedSource &&
+  !isTxCapableSourceInfo(selectedSource);
+
+export const shouldAutoPauseVisualizerOnRouteLeave = (
+  selectedSource: SourceInfo | null | undefined,
+): boolean => !!selectedSource && !isTxCapableSourceInfo(selectedSource);
+
+export const shouldAutoResumeVisualizerOnTxSelection = (
+  selectedSource: SourceInfo | null | undefined,
+  manualVisualizerPaused: boolean,
+): boolean =>
+  !!selectedSource &&
+  !isTxCapableSourceInfo(selectedSource) &&
+  manualVisualizerPaused;
+
+export const shouldSyncVisualizerPauseToBackend = (
+  selectedSource: SourceInfo | null | undefined,
+): boolean => !!selectedSource && !isTxCapableSourceInfo(selectedSource);
+
 export const shouldPauseSourceOnSwitch = (
   source: SourceInfo | null | undefined,
 ): boolean => {
   if (!source) return false;
-  if (source.status === "transmitting") return false;
-  return source.status === "streaming" || source.status === "connected";
+  return !isTxCapableSourceInfo(source);
 };
+
+export const isLiveVisualizerPathname = (pathname: string): boolean =>
+  pathname === "/" || pathname === "/visualizer";
+
+export const resolveEffectiveSourcePaused = ({
+  backendPaused,
+  localPaused,
+  manuallyPaused,
+  autoPaused,
+}: {
+  backendPaused?: boolean;
+  localPaused?: boolean;
+  manuallyPaused: boolean;
+  autoPaused: boolean;
+}): boolean =>
+  localPaused ?? backendPaused ?? (manuallyPaused || autoPaused);
 
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
@@ -557,7 +611,7 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     }
 
     if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
-      parsed.txCenterFrequencyHz = 137_100_000;
+      parsed.txCenterFrequencyHz = 2_204_000;
     }
 
     if (!Number.isFinite(parsed.txPowerDbm)) {
@@ -995,7 +1049,6 @@ export type SpectrumStoreContextValue = {
     | undefined;
   sampleRateHzEffective: number | null;
   signalAreaBounds: Record<string, { min: number; max: number }> | null;
-  lastSentPauseRef: React.MutableRefObject<boolean | null>;
   wsConnection: {
     isConnected: boolean;
     activeSourceId: string | null;
@@ -1023,7 +1076,7 @@ export type SpectrumStoreContextValue = {
     error: string | null;
     cryptoCorrupted: boolean;
     sendFrequencyRange: (range: FrequencyRange) => void;
-    sendPauseCommand: (isPaused: boolean) => void;
+    sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
     sendSettings: (settings: SDRSettings) => void;
     sendRestartDevice: () => void;
     sendCaptureCommand: (req: CaptureRequest) => void;
@@ -1047,6 +1100,7 @@ export type SpectrumStoreContextValue = {
         serialNumber: string;
         centerFrequencyHz?: number | null;
         sampleRateHz?: number | null;
+        ifftSize?: number | null;
         powerDbm?: number | null;
         lnaGainDb?: number | null;
         vgaGainDb?: number | null;
@@ -1066,7 +1120,7 @@ export type SpectrumStoreContextValue = {
       },
     ) => void;
   };
-  toggleVisualizerPause: () => void;
+  toggleVisualizerPause: (sourceId?: string) => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
@@ -1114,6 +1168,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
     const websocketSources = useAppSelector((s) => s.websocket.sources);
     const websocketChannels = useAppSelector((s) => s.websocket.channels);
+    const sourceStatuses = useAppSelector((s) => s.websocket.sourceStatuses);
     const deviceState = activeSourceDerived.deviceState;
     const backend = activeSourceDerived.backend;
     const deviceName = activeSourceDerived.deviceName;
@@ -1126,26 +1181,54 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const stored = loadSelectedSourceId();
       return stored || activeSourceId || websocketSources[0]?.id || "";
     });
+    const [localSourcePauseOverrides, setLocalSourcePauseOverrides] = useState<
+      Record<string, boolean>
+    >({});
     const currentSourceStateRef = useRef(state);
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
     const pendingSourceSwitchRef = useRef<string | null>(null);
+    const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
+    const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const previousSelectedSourceIdRef = useRef<string | null>(null);
+    const previousIsVisualizerRouteRef = useRef(
+      isLiveVisualizerPathname(location.pathname),
+    );
     useEffect(() => {
       currentSourceStateRef.current = state;
     }, [state]);
+    const effectiveWebsocketSources = useMemo(
+      () =>
+        websocketSources.map((source) => {
+          const paused = resolveEffectiveSourcePaused({
+            backendPaused: source.paused,
+            localPaused: localSourcePauseOverrides[source.id],
+            manuallyPaused: manualPausedSourceIdsRef.current.has(source.id),
+            autoPaused: autoPausedSourceIdsRef.current.has(source.id),
+          });
+          return source.paused === paused ? source : { ...source, paused };
+        }),
+      [localSourcePauseOverrides, websocketSources],
+    );
     const selectedSource = useMemo(() => {
-      if (!Array.isArray(websocketSources) || websocketSources.length === 0) {
+      if (
+        !Array.isArray(effectiveWebsocketSources) ||
+        effectiveWebsocketSources.length === 0
+      ) {
         return null;
       }
 
       return (
-        websocketSources.find((source) => source.id === selectedSourceId) ??
-        websocketSources.find((source) => source.id === activeSourceId) ??
-        websocketSources[0] ??
+        effectiveWebsocketSources.find(
+          (source) => source.id === selectedSourceId,
+        ) ??
+        effectiveWebsocketSources.find(
+          (source) => source.id === activeSourceId,
+        ) ??
+        effectiveWebsocketSources[0] ??
         null
       );
-    }, [activeSourceId, selectedSourceId, websocketSources]);
+    }, [activeSourceId, effectiveWebsocketSources, selectedSourceId]);
     const selectedSourceViewKey = useMemo(
       () => getSourceViewStorageKeyForSource(selectedSource),
       [selectedSource],
@@ -1385,8 +1468,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
-
-
     useEffect(() => {
       reduxDispatch(
         connectWebSocket({
@@ -1408,13 +1489,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     const sendPauseCommand = useCallback(
-      (paused: boolean) => {
+      (paused: boolean, sourceId?: string) => {
+        const pauseSourceId = sourceId || selectedSourceId || activeSourceId;
+        if (!pauseSourceId) {
+          return;
+        }
         reduxDispatch({
           type: "websocket/setPaused",
-          payload: { isPaused: paused },
+          payload: {
+            isPaused: paused,
+            sourceId: pauseSourceId,
+          },
         });
       },
-      [reduxDispatch],
+      [activeSourceId, reduxDispatch, selectedSourceId],
     );
 
     const sendSettingsCommand = useCallback(
@@ -1477,6 +1565,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           serialNumber: string;
           centerFrequencyHz?: number | null;
           sampleRateHz?: number | null;
+          ifftSize?: number | null;
           powerDbm?: number | null;
           lnaGainDb?: number | null;
           vgaGainDb?: number | null;
@@ -1495,6 +1584,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           txHopRateHz?: number | null;
         },
       ) => {
+        const { ifftSize, ...txSettingsWithoutIfftSize } = txSettings;
         reduxDispatch({
           type: "websocket/sendMessage",
           payload: {
@@ -1511,7 +1601,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               txHopEndFrequencyHz: reduxSpectrumState.txHopEndFrequencyHz,
               txHopChannels: reduxSpectrumState.txHopChannels,
               txHopRateHz: reduxSpectrumState.txHopRateHz,
-              ...txSettings,
+              ...txSettingsWithoutIfftSize,
+              txIfftSize:
+                typeof ifftSize === "number"
+                  ? Math.round(ifftSize)
+                  : ifftSize,
             },
           },
         });
@@ -1540,7 +1634,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sdrLimitMarkers: activeSource?.sdr.fft_display.markers ?? [],
         dataRef,
         spectrumFrames: wsSpectrumFrames,
-        sources: websocketSources,
+        sources: effectiveWebsocketSources,
         captureStatus,
         error,
         cryptoCorrupted,
@@ -1564,7 +1658,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         isPaused,
         serverPaused,
         dataRef,
-        websocketSources,
+        effectiveWebsocketSources,
         captureStatus,
         error,
         cryptoCorrupted,
@@ -1582,22 +1676,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     // Track active spectrum route globally
-    const isVisualizerRoute =
-      location.pathname === "/" ||
-      location.pathname === "/visualizer" ||
-      location.pathname === "/demodulate";
-
-    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() => {
-      if (typeof window === "undefined") return false;
-      // On the visualizer route, always start unpaused so the first render
-      // doesn't race with the mount effect and send a stale pause=true.
-      const path = window.location.pathname;
-      if (path === "/" || path === "/visualizer" || path === "/demodulate")
-        return false;
-      return sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY) === "true";
-    });
-
-    const lastSentPauseRef = useRef<boolean | null>(null);
+    const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
+    const [manualVisualizerPaused, setManualVisualizerPaused] =
+      useState(false);
 
     // Track if we've already synced backend connection settings
     const hasInitializedBackendSettingsRef = useRef(false);
@@ -1634,68 +1715,137 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
       });
 
-    // 1. Clear manual pause on EXACTLY / if on fresh mount
-    useEffect(() => {
-      if (
-        location.pathname === "/" ||
-        location.pathname === "/demodulate" ||
-        location.pathname === "/visualizer"
-      ) {
-        setManualVisualizerPaused(false);
-        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "false");
-      }
-    }, []); // Only once on mount
-
-    // 2. Auto-pause when navigating AWAY. We don't auto-resume.
-    useEffect(() => {
-      if (!isVisualizerRoute && !manualVisualizerPaused) {
-        setManualVisualizerPaused(true);
-        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
-      }
-    }, [isVisualizerRoute, manualVisualizerPaused]);
-
-    // 3. Sync store visualizerPaused with manualVisualizerPaused
-    useEffect(() => {
-      if (mergedState.visualizerPaused !== manualVisualizerPaused) {
+    const syncSelectedSourcePauseState = useCallback(
+      (sourceId: string | null | undefined) => {
+        const sourcePaused = sourceId
+          ? effectiveWebsocketSources.find((source) => source.id === sourceId)
+              ?.paused
+          : undefined;
+        const nextPaused =
+          !!sourceId &&
+          (sourcePaused !== undefined
+            ? sourcePaused
+            : manualPausedSourceIdsRef.current.has(sourceId) ||
+              autoPausedSourceIdsRef.current.has(sourceId));
+        if (manualVisualizerPaused === nextPaused) {
+          return;
+        }
+        setManualVisualizerPaused(nextPaused);
         storeDispatch({
           type: "SET_VISUALIZER_PAUSED",
-          paused: manualVisualizerPaused,
+          paused: nextPaused,
         });
-      }
-    }, [manualVisualizerPaused, mergedState.visualizerPaused, storeDispatch]);
-
-    // 4. Sync backend with manualVisualizerPaused
-    useEffect(() => {
-      if (isConnected && lastSentPauseRef.current !== manualVisualizerPaused) {
-        wsConnection.sendPauseCommand(manualVisualizerPaused);
-        lastSentPauseRef.current = manualVisualizerPaused;
-      }
-    }, [manualVisualizerPaused, isConnected, wsConnection]);
+      },
+      [effectiveWebsocketSources, manualVisualizerPaused, storeDispatch],
+    );
 
     useEffect(() => {
+      if (!isConnected || !selectedSourceId || !selectedSource) {
+        return;
+      }
+
       const previousSelectedSourceId = previousSelectedSourceIdRef.current;
-      previousSelectedSourceIdRef.current = selectedSourceId || null;
+      previousSelectedSourceIdRef.current = selectedSourceId;
 
-      if (!isConnected || !previousSelectedSourceId) {
+      if (
+        previousSelectedSourceId &&
+        previousSelectedSourceId !== selectedSourceId
+      ) {
+        const previousSource = effectiveWebsocketSources.find(
+          (source) => source.id === previousSelectedSourceId,
+        );
+        const previouslyManuallyPaused =
+          manualPausedSourceIdsRef.current.has(previousSelectedSourceId);
+        const previouslyAutoPaused =
+          autoPausedSourceIdsRef.current.has(previousSelectedSourceId);
+        if (
+          previousSource &&
+          shouldPauseSourceOnSwitch(previousSource) &&
+          !previouslyManuallyPaused &&
+          !previouslyAutoPaused
+        ) {
+          autoPausedSourceIdsRef.current.add(previousSelectedSourceId);
+          setLocalSourcePauseOverrides((current) => ({
+            ...current,
+            [previousSelectedSourceId]: true,
+          }));
+          wsConnection.sendPauseCommand(true, previousSelectedSourceId);
+        }
+      }
+
+      if (isTxCapableSourceInfo(selectedSource)) {
+        syncSelectedSourcePauseState(selectedSourceId);
         return;
       }
 
-      if (previousSelectedSourceId === selectedSourceId) {
+      if (autoPausedSourceIdsRef.current.has(selectedSourceId)) {
+        autoPausedSourceIdsRef.current.delete(selectedSourceId);
+        setLocalSourcePauseOverrides((current) => ({
+          ...current,
+          [selectedSourceId]: false,
+        }));
+        wsConnection.sendPauseCommand(false, selectedSourceId);
+      }
+
+      syncSelectedSourcePauseState(selectedSourceId);
+    }, [
+      isConnected,
+      selectedSource,
+      selectedSourceId,
+      syncSelectedSourcePauseState,
+      effectiveWebsocketSources,
+      wsConnection,
+    ]);
+
+    useEffect(() => {
+      const wasVisualizerRoute = previousIsVisualizerRouteRef.current;
+      previousIsVisualizerRouteRef.current = isVisualizerRoute;
+
+      if (!selectedSourceId || !selectedSource) {
         return;
       }
 
-      const previousSelectedSource = websocketSources.find(
-        (source) => source.id === previousSelectedSourceId,
-      );
-      if (!previousSelectedSource) {
+      if (wasVisualizerRoute && !isVisualizerRoute) {
+        if (
+          isTxCapableSourceInfo(selectedSource) ||
+          manualPausedSourceIdsRef.current.has(selectedSourceId) ||
+          autoPausedSourceIdsRef.current.has(selectedSourceId)
+        ) {
+          return;
+        }
+
+        autoPausedSourceIdsRef.current.add(selectedSourceId);
+        setLocalSourcePauseOverrides((current) => ({
+          ...current,
+          [selectedSourceId]: true,
+        }));
+        wsConnection.sendPauseCommand(true, selectedSourceId);
+        syncSelectedSourcePauseState(selectedSourceId);
         return;
       }
 
-      if (shouldPauseSourceOnSwitch(previousSelectedSource)) {
-        setManualVisualizerPaused(true);
-        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+      if (!wasVisualizerRoute && isVisualizerRoute) {
+        if (!autoPausedSourceIdsRef.current.has(selectedSourceId)) {
+          syncSelectedSourcePauseState(selectedSourceId);
+          return;
+        }
+
+        autoPausedSourceIdsRef.current.delete(selectedSourceId);
+        setLocalSourcePauseOverrides((current) => ({
+          ...current,
+          [selectedSourceId]: false,
+        }));
+        wsConnection.sendPauseCommand(false, selectedSourceId);
+        syncSelectedSourcePauseState(selectedSourceId);
       }
-    }, [isConnected, selectedSourceId, websocketSources]);
+    }, [
+      isVisualizerRoute,
+      selectedSource,
+      selectedSourceId,
+      syncSelectedSourcePauseState,
+      storeDispatch,
+      wsConnection,
+    ]);
 
     // Persist SDR settings when they change
     useEffect(() => {
@@ -1840,6 +1990,111 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       state.sampleRateHz,
       state.fftSize,
       activeSourceId,
+    ]);
+
+    const lastSentTxSettingsRef = useRef<string | null>(null);
+    const txSettingsThrottleTimeoutRef = useRef<number | null>(null);
+    const txSettingsLastSentTimeRef = useRef<number>(0);
+    const latestTxSettingsRef = useRef<any>(null);
+
+    // Clean up throttle timeout on unmount
+    useEffect(() => {
+      return () => {
+        if (txSettingsThrottleTimeoutRef.current !== null) {
+          clearTimeout(txSettingsThrottleTimeoutRef.current);
+        }
+      };
+    }, []);
+
+    // Synchronize transmit settings changes to backend if currently transmitting
+    useEffect(() => {
+      if (!isConnected || !activeSourceId) return;
+
+      const currentStatus = sourceStatuses?.[activeSourceId];
+      if (currentStatus !== "transmitting") {
+        lastSentTxSettingsRef.current = null;
+        if (txSettingsThrottleTimeoutRef.current !== null) {
+          clearTimeout(txSettingsThrottleTimeoutRef.current);
+          txSettingsThrottleTimeoutRef.current = null;
+        }
+        return;
+      }
+
+      const settings = {
+        centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
+        sampleRateHz: reduxSpectrumState.txSampleRateHz,
+        powerDbm: reduxSpectrumState.txPowerDbm,
+        vgaGainDb: reduxSpectrumState.txVgaGain,
+        txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,
+        txSafetyLimit: reduxSpectrumState.txSafetyLimit,
+        txSignal: reduxSpectrumState.txSignal,
+        txHopEnabled: reduxSpectrumState.txHopEnabled,
+        txHopType: reduxSpectrumState.txHopType,
+        txHopStartFrequencyHz: reduxSpectrumState.txHopStartFrequencyHz,
+        txHopEndFrequencyHz: reduxSpectrumState.txHopEndFrequencyHz,
+        txHopChannels: reduxSpectrumState.txHopChannels,
+        txHopRateHz: reduxSpectrumState.txHopRateHz,
+      };
+
+      latestTxSettingsRef.current = settings;
+
+      const runSync = () => {
+        const freshSettings = latestTxSettingsRef.current;
+        if (!freshSettings) return;
+        const settingsStr = JSON.stringify(freshSettings);
+        if (lastSentTxSettingsRef.current === settingsStr) return;
+
+        lastSentTxSettingsRef.current = settingsStr;
+        txSettingsLastSentTimeRef.current = Date.now();
+        sendTransmitModeCommand(true, activeSourceId, {
+          serialNumber: activeSource?.serial_number ?? activeSourceId,
+          ...freshSettings,
+        });
+      };
+
+      const settingsStr = JSON.stringify(settings);
+      if (lastSentTxSettingsRef.current === settingsStr) return;
+
+      const now = Date.now();
+      const timeSinceLastSend = now - txSettingsLastSentTimeRef.current;
+      const throttleDelay = 50; // 50ms throttle limit for smooth interaction
+
+      if (timeSinceLastSend >= throttleDelay) {
+        if (txSettingsThrottleTimeoutRef.current !== null) {
+          clearTimeout(txSettingsThrottleTimeoutRef.current);
+          txSettingsThrottleTimeoutRef.current = null;
+        }
+        runSync();
+      } else {
+        // If a timeout is already scheduled, it will run with the latest settings,
+        // so we don't need to reschedule or postpone it.
+        if (txSettingsThrottleTimeoutRef.current === null) {
+          const remaining = throttleDelay - timeSinceLastSend;
+          txSettingsThrottleTimeoutRef.current = window.setTimeout(() => {
+            txSettingsThrottleTimeoutRef.current = null;
+            runSync();
+          }, remaining);
+        }
+      }
+    }, [
+      isConnected,
+      activeSourceId,
+      sourceStatuses,
+      reduxSpectrumState.txCenterFrequencyHz,
+      reduxSpectrumState.txSampleRateHz,
+      reduxSpectrumState.txPowerDbm,
+      reduxSpectrumState.txVgaGain,
+      reduxSpectrumState.txSafetyEnabled,
+      reduxSpectrumState.txSafetyLimit,
+      reduxSpectrumState.txSignal,
+      reduxSpectrumState.txHopEnabled,
+      reduxSpectrumState.txHopType,
+      reduxSpectrumState.txHopStartFrequencyHz,
+      reduxSpectrumState.txHopEndFrequencyHz,
+      reduxSpectrumState.txHopChannels,
+      reduxSpectrumState.txHopRateHz,
+      activeSource,
+      sendTransmitModeCommand,
     ]);
 
     // Revert power scale to dB if not supported by the current device
@@ -2180,32 +2435,71 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       };
     }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
 
-    const toggleVisualizerPause = useCallback(() => {
-      if (mergedState.sourceMode === "file") {
-        const nextPaused = !mergedState.isStitchPaused;
-        storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
-      } else {
-        const nextPaused = !manualVisualizerPaused;
-        setManualVisualizerPaused(nextPaused);
-        sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, String(nextPaused));
-
-        // Force an immediate update of the store state
-        storeDispatch({ type: "SET_VISUALIZER_PAUSED", paused: nextPaused });
-
-        // Send command immediately for responsiveness
-        if (isConnected) {
-          wsConnection.sendPauseCommand(nextPaused);
-          lastSentPauseRef.current = nextPaused;
+    const toggleVisualizerPause = useCallback(
+      (sourceId?: string) => {
+        if (mergedState.sourceMode === "file") {
+          const nextPaused = !mergedState.isStitchPaused;
+          storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
+          return;
         }
-      }
-    }, [
-      mergedState.sourceMode,
-      mergedState.isStitchPaused,
-      manualVisualizerPaused,
-      isConnected,
-      wsConnection.sendPauseCommand,
-      storeDispatch,
-    ]);
+
+        const pauseSourceId = sourceId || selectedSourceId || activeSourceId;
+        if (!pauseSourceId) {
+          return;
+        }
+
+        const pauseTargetSource =
+          effectiveWebsocketSources.find(
+            (source) => source.id === pauseSourceId,
+          ) ??
+          (selectedSourceId === pauseSourceId ? selectedSource : null);
+        const pauseTargetSourceId = pauseTargetSource?.id ?? pauseSourceId;
+        const targetIsTxCapable = isTxCapableSourceInfo(pauseTargetSource);
+        const currentPaused =
+          pauseTargetSource?.paused ??
+          (pauseTargetSourceId === selectedSourceId
+            ? manualVisualizerPaused
+            : false);
+        const nextPaused = !currentPaused;
+
+        if (targetIsTxCapable) {
+          return;
+        }
+
+        if (nextPaused) {
+          manualPausedSourceIdsRef.current.add(pauseTargetSourceId);
+          autoPausedSourceIdsRef.current.delete(pauseTargetSourceId);
+        } else {
+          manualPausedSourceIdsRef.current.delete(pauseTargetSourceId);
+          autoPausedSourceIdsRef.current.delete(pauseTargetSourceId);
+        }
+        setLocalSourcePauseOverrides((current) => ({
+          ...current,
+          [pauseTargetSourceId]: nextPaused,
+        }));
+
+        if (pauseTargetSourceId === selectedSourceId) {
+          setManualVisualizerPaused(nextPaused);
+          storeDispatch({
+            type: "SET_VISUALIZER_PAUSED",
+            paused: nextPaused,
+          });
+        }
+
+        wsConnection.sendPauseCommand(nextPaused, pauseTargetSourceId);
+      },
+      [
+        activeSourceId,
+        manualVisualizerPaused,
+        mergedState.isStitchPaused,
+        mergedState.sourceMode,
+        selectedSource,
+        selectedSourceId,
+        storeDispatch,
+        effectiveWebsocketSources,
+        wsConnection,
+      ],
+    );
 
     const value = useMemo(
       () => ({
@@ -2222,13 +2516,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         effectiveSdrSettings,
         sampleRateHzEffective,
         signalAreaBounds,
-        lastSentPauseRef,
         wsConnection,
         toggleVisualizerPause,
         cryptoCorrupted,
         deviceName,
         deviceProfile,
-        sources: websocketSources,
+        sources: effectiveWebsocketSources,
       }),
       [
         mergedState,
@@ -2247,7 +2540,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         cryptoCorrupted,
         deviceName,
         deviceProfile,
-        websocketSources,
+        effectiveWebsocketSources,
       ],
     );
 

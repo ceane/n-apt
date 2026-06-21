@@ -409,13 +409,151 @@ describe("SpectrumRoute file mode", () => {
     });
     expect(visualizerProps.limitMarkers).toEqual([]);
     expect(visualizerProps.deviceProfile).toMatchObject({ kind: "mock_tx" });
+    expect(visualizerProps.isDeviceConnected).toBe(true);
     expect(visualizerProps.dataRef.current?.iq_data).toBeInstanceOf(Uint8Array);
-    expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "idle",
-      title: "Start Tx to transmit",
-      sourceLabel: "Mock Tx SDR",
-      message: "Previewing one local I/Q frame from the current Tx settings.",
-    });
+    expect(visualizerProps.placeholderState).toBeNull();
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+  });
+
+  it("does not show the tx slider controls for rx-only mock apt sources", async () => {
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 2048,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 18_000, max: 4_372_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-apt",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "mock",
+        status: "streaming",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock APT SDR",
+        deviceProfile: {
+          kind: "mock_apt",
+          is_rtl_sdr: false,
+          supports_approx_dbm: false,
+          supports_raw_iq_stream: false,
+        },
+        deviceInfo: null,
+        backend: "mock_apt",
+        maxSampleRateHz: 3_200_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+      },
+      effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
+      effectiveSdrSettings: { sample_rate: 3_200_000 },
+      sampleRateHzEffective: 3_200_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-apt",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock_apt",
+        deviceInfo: null,
+        deviceName: "Mock APT SDR",
+        deviceProfile: {
+          kind: "mock_apt",
+          is_rtl_sdr: false,
+          supports_approx_dbm: false,
+          supports_raw_iq_stream: false,
+        },
+        maxSampleRateHz: 3_200_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: [{ waveform: new Float32Array([0, 1]) }] },
+        spectrumFrames: [{ waveform: new Float32Array([0, 1]) }],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock APT SDR",
+      deviceProfile: {
+        kind: "mock_apt",
+        is_rtl_sdr: false,
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: false,
+      },
+      sources: [],
+    } as any;
+
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_apt",
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.txSlider).toBeUndefined();
   });
 });

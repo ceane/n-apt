@@ -26,9 +26,9 @@ const shallowEqualObject = (
   return true;
 };
 
-const equalSpectrumFrames = (
-  a: SpectrumFrame[] | null | undefined,
-  b: SpectrumFrame[] | null | undefined,
+const equalArrayValues = (
+  a: unknown[] | null | undefined,
+  b: unknown[] | null | undefined,
 ): boolean => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -36,13 +36,7 @@ const equalSpectrumFrames = (
   for (let i = 0; i < a.length; i += 1) {
     const left = a[i];
     const right = b[i];
-    if (
-      left.id !== right.id ||
-      left.label !== right.label ||
-      left.min_hz !== right.min_hz ||
-      left.max_hz !== right.max_hz ||
-      left.description !== right.description
-    ) {
+    if (!equalValue(left, right)) {
       return false;
     }
   }
@@ -64,10 +58,7 @@ const validateCaptureStatusEnhanced = (
 const equalValue = (current: unknown, next: unknown): boolean => {
   if (current === next) return true;
   if (Array.isArray(current) && Array.isArray(next)) {
-    return equalSpectrumFrames(
-      current as SpectrumFrame[],
-      next as SpectrumFrame[],
-    );
+    return equalArrayValues(current, next);
   }
   if (
     current &&

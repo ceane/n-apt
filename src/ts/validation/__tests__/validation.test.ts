@@ -123,6 +123,19 @@ describe("Validation System", () => {
       ).toBe(true);
     });
 
+    test("should validate source status update for mock apt payload", () => {
+      const mockAptStatus = {
+        type: "status",
+        source_id: "mock-apt",
+        status: "connected",
+        loading_attempt: 0,
+        loading_attempt_max: 2,
+      };
+
+      expect(isValidSourceStatusMessage(mockAptStatus)).toBe(true);
+      expect(isValidWebSocketMessage(mockAptStatus)).toBe(true);
+    });
+
     test("should validate source sdr settings update", () => {
       expect(
         isValidSourceSdrSettingsMessage({
@@ -161,9 +174,19 @@ describe("Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: true,
+        source_id: "mock-apt",
       };
 
       expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should reject pause messages without source_id", () => {
+      expect(
+        isValidWebSocketMessage({
+          type: "pause",
+          paused: true,
+        }),
+      ).toBe(false);
     });
 
     test("should validate select source message", () => {

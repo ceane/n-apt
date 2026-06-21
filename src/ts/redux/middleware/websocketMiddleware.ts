@@ -60,9 +60,9 @@ const shallowEqualObject = (
   return true;
 };
 
-const equalSpectrumFrames = (
-  a: Array<Record<string, unknown>> | null | undefined,
-  b: Array<Record<string, unknown>> | null | undefined,
+const equalArrayValues = (
+  a: unknown[] | null | undefined,
+  b: unknown[] | null | undefined,
 ): boolean => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -70,13 +70,7 @@ const equalSpectrumFrames = (
   for (let i = 0; i < a.length; i += 1) {
     const left = a[i];
     const right = b[i];
-    if (
-      left.id !== right.id ||
-      left.label !== right.label ||
-      left.min_hz !== right.min_hz ||
-      left.max_hz !== right.max_hz ||
-      left.description !== right.description
-    ) {
+    if (!equalValue(left, right)) {
       return false;
     }
   }
@@ -86,10 +80,7 @@ const equalSpectrumFrames = (
 const equalValue = (current: unknown, next: unknown): boolean => {
   if (current === next) return true;
   if (Array.isArray(current) && Array.isArray(next)) {
-    return equalSpectrumFrames(
-      current as Array<Record<string, unknown>>,
-      next as Array<Record<string, unknown>>,
-    );
+    return equalArrayValues(current, next);
   }
   if (
     current &&
@@ -165,6 +156,101 @@ const mapSourceStatusToDeviceState = (
     return "connected";
   }
   return status;
+};
+
+const normalizeTxIdentity = (value: unknown): string =>
+  typeof value === "string"
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, "")
+    : "";
+
+const isMockTxIdentity = (value: unknown): boolean => {
+  const normalized = normalizeTxIdentity(value);
+  return normalized === "mocktx" || normalized === "mocktxsdr";
+};
+
+const sourceMatchesTxRequest = (
+  source: SourceInfo,
+  data: Record<string, unknown>,
+): boolean => {
+  const serialNumber = normalizeTxIdentity(data.serialNumber);
+  const txDevice = normalizeTxIdentity(data.txDevice);
+  const sourceId = normalizeTxIdentity(source.id);
+  const sourceSerial = normalizeTxIdentity(source.serial_number);
+  const sourceName = normalizeTxIdentity(source.name);
+
+  if (
+    serialNumber &&
+    (serialNumber === sourceId || serialNumber === sourceSerial)
+  ) {
+    return true;
+  }
+
+  if (txDevice && (txDevice === sourceName || txDevice === sourceId)) {
+    return true;
+  }
+
+  return (
+    (isMockTxIdentity(data.serialNumber) || isMockTxIdentity(data.txDevice)) &&
+    (source.kind === "mock_tx" || source.id === "mock-tx")
+  );
+};
+
+const applyOptimisticTransmitStatus = (
+  dispatch: Dispatch,
+  getState: () => any,
+  data: Record<string, unknown>,
+) => {
+  const enabled = Boolean(data.txMode);
+  const websocketState = getState().websocket;
+  const currentSources: SourceInfo[] = websocketState.sources ?? [];
+  if (currentSources.length === 0) {
+    return;
+  }
+
+  const targetSource =
+    currentSources.find((source) => sourceMatchesTxRequest(source, data)) ??
+    currentSources.find(
+      (source) =>
+        source.capability === "tx" ||
+        source.capability === "tx_rx" ||
+        source.kind === "mock_tx",
+    );
+  if (!targetSource) {
+    return;
+  }
+
+  const nextStatus: SourceInfo["status"] = enabled
+    ? "transmitting"
+    : "connected";
+  const nextSources = currentSources.map((source) => {
+    if (source.id === targetSource.id) {
+      return { ...source, status: nextStatus };
+    }
+    if (enabled && source.status === "transmitting") {
+      return { ...source, status: "connected" as const };
+    }
+    return source;
+  });
+  const nextSourceStatuses = Object.fromEntries(
+    nextSources.map((source) => [source.id, source.status]),
+  );
+  const activeSource =
+    nextSources.find((source) => source.id === websocketState.activeSourceId) ??
+    nextSources.find((source) => source.id === targetSource.id) ??
+    nextSources[0] ??
+    null;
+  const derived = activeSource ? deriveLegacyStateFromSource(activeSource) : {};
+
+  dispatch(
+    updateDeviceState({
+      sources: nextSources,
+      sourceStatuses: nextSourceStatuses,
+      ...derived,
+    }),
+  );
 };
 
 interface WebSocketInstance {
@@ -329,11 +415,23 @@ export const resetWebSocketMiddlewareState = (): void => {
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
-    const isPaused = getState().websocket.isPaused;
-    const sourceMode = getState().waterfall?.sourceMode;
+    const state = getState();
+    const isPaused = state.websocket.isPaused;
+    const sourceMode = state.waterfall?.sourceMode;
     const isFileSource = sourceMode === "file";
-    if ((!isPaused || allowNextPausedFrame) && !isFileSource) {
-      if (isPaused && allowNextPausedFrame) {
+    const activeSourceId = state.websocket.activeSourceId;
+    const activeSource = (state.websocket.sources ?? []).find(
+      (source: SourceInfo) => source.id === activeSourceId,
+    );
+    const isActiveMockTxTransmitting =
+      activeSourceId === "mock-tx" &&
+      (activeSource?.status === "transmitting" ||
+        state.websocket.sourceStatuses?.[activeSourceId] === "transmitting");
+    if (
+      (!isPaused || allowNextPausedFrame || isActiveMockTxTransmitting) &&
+      !isFileSource
+    ) {
+      if (isPaused && allowNextPausedFrame && !isActiveMockTxTransmitting) {
         liveDataRef.current = collapsePausedFrameBatch(pendingDataUpdate);
       } else if (Array.isArray(pendingDataUpdate)) {
         if (Array.isArray(liveDataRef.current)) {
@@ -394,6 +492,30 @@ const getPausedValue = (payload: unknown): boolean | null => {
     typeof (payload as { isPaused?: unknown }).isPaused === "boolean"
   ) {
     return (payload as { isPaused: boolean }).isPaused;
+  }
+
+  return null;
+};
+
+const getPauseSourceId = (payload: unknown): string | null => {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "sourceId" in payload &&
+    typeof (payload as { sourceId?: unknown }).sourceId === "string" &&
+    (payload as { sourceId: string }).sourceId.trim().length > 0
+  ) {
+    return (payload as { sourceId: string }).sourceId;
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "source_id" in payload &&
+    typeof (payload as { source_id?: unknown }).source_id === "string" &&
+    (payload as { source_id: string }).source_id.trim().length > 0
+  ) {
+    return (payload as { source_id: string }).source_id;
   }
 
   return null;
@@ -572,6 +694,14 @@ const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
       processBatchedData(dispatch, getState),
     );
   }
+};
+
+export const __testQueueLiveDataForMiddleware = (
+  data: any,
+  dispatch: Dispatch,
+  getState: () => any,
+) => {
+  queueLiveData(data, dispatch, getState);
 };
 
 const sameAesKeyReference = (
@@ -1397,6 +1527,14 @@ const createWebSocketMiddleware =
           };
         }
 
+        if (
+          type === "tx_mode" &&
+          wsInstance.ws &&
+          wsInstance.ws.readyState === WebSocket.OPEN
+        ) {
+          applyOptimisticTransmitStatus(dispatch, getState, data ?? {});
+        }
+
         if (type === "request_next_frame") {
           const now = Date.now();
           if (now - lastFrameRequestTime < FRAME_REQUEST_THROTTLE_MS) {
@@ -1425,16 +1563,24 @@ const createWebSocketMiddleware =
 
       case "websocket/setPaused": {
         const isPaused = getPausedValue(action.payload);
+        const sourceId =
+          getPauseSourceId(action.payload) ??
+          (getState().websocket.activeSourceId as string | null);
 
         if (isPaused === null) {
           return next(action);
         }
 
-        if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+        if (
+          sourceId &&
+          wsInstance.ws &&
+          wsInstance.ws.readyState === WebSocket.OPEN
+        ) {
           wsInstance.ws.send(
             JSON.stringify({
               type: "pause",
               paused: isPaused,
+              source_id: sourceId,
             }),
           );
         }

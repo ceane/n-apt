@@ -1,8 +1,8 @@
 use std::fs::{create_dir_all, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxPhase {
@@ -172,8 +172,21 @@ impl TxLogEntry {
   }
 }
 
+/// Maximum lines before rotation truncates to `ROTATION_KEEP_LINES`.
+const ROTATION_MAX_LINES: usize = 10_000;
+/// Lines retained after rotation (tail).
+const ROTATION_KEEP_LINES: usize = 5_000;
+/// Minimum interval between disk writes to avoid hot-path I/O flooding.
+const MIN_WRITE_INTERVAL_MS: u64 = 50;
+
+struct TxLogInner {
+  writer: BufWriter<std::fs::File>,
+  line_count: usize,
+  last_write: Instant,
+}
+
 pub struct TxLogger {
-  file: Mutex<std::fs::File>,
+  inner: Mutex<TxLogInner>,
   path: PathBuf,
 }
 
@@ -188,10 +201,10 @@ pub fn global_tx_logger() -> Option<&'static TxLogger> {
   TX_LOGGER.get()
 }
 
-pub fn write_global(entry: &TxLogEntry) {
-  if let Some(logger) = global_tx_logger() {
-    let _ = logger.write_entry(entry);
-  }
+pub fn write_global(_entry: &TxLogEntry) {
+  // if let Some(logger) = global_tx_logger() {
+  //   let _ = logger.write_entry(entry);
+  // }
 }
 
 impl TxLogger {
@@ -204,9 +217,19 @@ impl TxLogger {
     if let Some(parent) = path.parent() {
       create_dir_all(parent)?;
     }
+    // Count existing lines so rotation is aware of prior content.
+    let existing_lines = std::fs::read_to_string(&path)
+      .map(|c| c.lines().count())
+      .unwrap_or(0);
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
     Ok(Self {
-      file: Mutex::new(file),
+      inner: Mutex::new(TxLogInner {
+        writer: BufWriter::new(file),
+        line_count: existing_lines,
+        last_write: Instant::now()
+          .checked_sub(std::time::Duration::from_secs(1))
+          .unwrap_or_else(Instant::now),
+      }),
       path,
     })
   }
@@ -220,9 +243,55 @@ impl TxLogger {
       .duration_since(UNIX_EPOCH)
       .map(|d| d.as_millis())
       .unwrap_or_default();
-    let mut guard = self.file.lock().unwrap();
-    writeln!(guard, "{}", entry.serialize(timestamp_ms))?;
-    guard.flush()
+
+    let mut guard = self.inner.lock().unwrap();
+
+    // Throttle: skip non-critical writes that arrive too fast.
+    // Always write Start/End phase transitions; throttle Change entries.
+    if entry.phase == TxPhase::Change {
+      let elapsed = guard.last_write.elapsed();
+      if elapsed.as_millis() < MIN_WRITE_INTERVAL_MS as u128 {
+        return Ok(());
+      }
+    }
+
+    writeln!(guard.writer, "{}", entry.serialize(timestamp_ms))?;
+    guard.line_count += 1;
+    guard.last_write = Instant::now();
+
+    // Flush only on phase transitions (start/end), not on every change.
+    if entry.phase != TxPhase::Change {
+      guard.writer.flush()?;
+    }
+
+    // Rotate if we exceed the limit.
+    if guard.line_count > ROTATION_MAX_LINES {
+      // Flush before rotation.
+      guard.writer.flush()?;
+      drop(guard);
+      self.rotate()?;
+    }
+
+    Ok(())
+  }
+
+  /// Truncate the log to the last `ROTATION_KEEP_LINES` lines.
+  fn rotate(&self) -> io::Result<()> {
+    let contents = std::fs::read_to_string(&self.path).unwrap_or_default();
+    let lines: Vec<&str> = contents.lines().collect();
+    let keep_from = lines.len().saturating_sub(ROTATION_KEEP_LINES);
+    let kept: String = lines[keep_from..]
+      .iter()
+      .map(|l| format!("{}\n", l))
+      .collect();
+    std::fs::write(&self.path, &kept)?;
+
+    // Re-open the file in append mode and update inner state.
+    let file = OpenOptions::new().append(true).open(&self.path)?;
+    let mut guard = self.inner.lock().unwrap();
+    guard.writer = BufWriter::new(file);
+    guard.line_count = lines.len() - keep_from;
+    Ok(())
   }
 }
 

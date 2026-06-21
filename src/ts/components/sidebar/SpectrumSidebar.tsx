@@ -17,6 +17,7 @@ import {
   removeNoteCard,
   setTxSignal,
   setTxSampleRateHz,
+  setTxIfftSize,
   setTxCenterFrequencyHz,
   setTxPowerDbm,
   setTxVgaGain,
@@ -159,6 +160,16 @@ const StickyHeaderWrapper = memo(styled.div<{ $isSticky?: boolean }>`
 
 const STICKY_COMPACT_ENTER_OFFSET_PX = 0;
 const STICKY_COMPACT_EXIT_OFFSET_PX = 16;
+const TX_SIGNAL_PRESETS: Record<
+  string,
+  { centerFrequencyHz: number; sampleRateHz: number }
+> = {
+  apt: { centerFrequencyHz: 2_204_000, sampleRateHz: 2_400_000 },
+  tone: { centerFrequencyHz: 1_600_000, sampleRateHz: 1_000_000 },
+  noise: { centerFrequencyHz: 13_875_000, sampleRateHz: 3_200_000 },
+  custom: { centerFrequencyHz: 27_235_000, sampleRateHz: 2_400_000 },
+};
+const TX_SETTINGS_SYNC_DEBOUNCE_MS = 16;
 
 const SectionIcon = memo(styled.div`
   display: flex;
@@ -420,6 +431,43 @@ const markTransmitWarningAccepted = () => {
   }
 };
 
+const buildTxSettingsSyncKey = (values: {
+  sourceId?: string | null;
+  txSignal?: string | null;
+  centerFrequencyHz?: number | null;
+  sampleRateHz?: number | null;
+  ifftSize?: number | null;
+  powerDbm?: number | null;
+  vgaGainDb?: number | null;
+  ampEnabled?: boolean | null;
+  safetyEnabled?: boolean | null;
+  safetyLimit?: string | null;
+  hopEnabled?: boolean | null;
+  hopType?: string | null;
+  hopStartFrequencyHz?: number | null;
+  hopEndFrequencyHz?: number | null;
+  hopChannels?: string[] | null;
+  hopRateHz?: number | null;
+}) =>
+  JSON.stringify({
+    sourceId: values.sourceId ?? null,
+    txSignal: values.txSignal ?? null,
+    centerFrequencyHz: values.centerFrequencyHz ?? null,
+    sampleRateHz: values.sampleRateHz ?? null,
+    ifftSize: values.ifftSize ?? null,
+    powerDbm: values.powerDbm ?? null,
+    vgaGainDb: values.vgaGainDb ?? null,
+    ampEnabled: values.ampEnabled ?? null,
+    safetyEnabled: values.safetyEnabled ?? null,
+    safetyLimit: values.safetyLimit ?? null,
+    hopEnabled: values.hopEnabled ?? null,
+    hopType: values.hopType ?? null,
+    hopStartFrequencyHz: values.hopStartFrequencyHz ?? null,
+    hopEndFrequencyHz: values.hopEndFrequencyHz ?? null,
+    hopChannels: values.hopChannels ?? null,
+    hopRateHz: values.hopRateHz ?? null,
+  });
+
 const EMPTY_SELECTED_SOURCE_DERIVED = {
   deviceState: null,
   deviceName: null,
@@ -463,6 +511,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const mockManualSampleRateRef = useRef(false);
   const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
+  const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
+  const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Get state from Redux
   const {
@@ -607,8 +659,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         ? {
             kind: "mock_tx",
             is_rtl_sdr: false,
-            supports_approx_dbm: false,
-            supports_raw_iq_stream: false,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
           }
         : null,
     [isMockLiveSource],
@@ -1067,6 +1119,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,
   );
+  const txIfftSize = useAppSelector((state) => state.spectrum.txIfftSize);
   const txCenterFrequencyHz = useAppSelector(
     (state) => state.spectrum.txCenterFrequencyHz,
   );
@@ -1096,15 +1149,57 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
   const [livePreviewStage, setLivePreviewStage] = useState(0);
 
+  const mockTxSource = useMemo(() => {
+    return sourcesToUse.find((s) => s.id === "mock-tx" || s.kind === "mock_tx");
+  }, [sourcesToUse]);
+
+  const txSignalPresets = useMemo(() => {
+    const backendMockTx = (mockTxSource as any)?.mock_tx;
+    if (backendMockTx?.signals) {
+      const presets: Record<
+        string,
+        { centerFrequencyHz: number; sampleRateHz: number }
+      > = {};
+      for (const [key, sig] of Object.entries(backendMockTx.signals)) {
+        const signalObj = sig as any;
+        presets[key.toLowerCase()] = {
+          centerFrequencyHz: signalObj.center_frequency_hz ?? 0,
+          sampleRateHz: signalObj.sample_rate_hz ?? 0,
+        };
+      }
+      return presets;
+    }
+    return TX_SIGNAL_PRESETS;
+  }, [mockTxSource]);
+
+  const signalOptions = useMemo(() => {
+    const backendMockTx = (mockTxSource as any)?.mock_tx;
+    if (backendMockTx?.signals) {
+      return Object.entries(backendMockTx.signals).map(([key, sig]) => {
+        const signalObj = sig as any;
+        return {
+          value: key.toLowerCase(),
+          label: signalObj.label || key.toUpperCase(),
+        };
+      });
+    }
+    return [
+      { value: "apt", label: "APT" },
+      { value: "tone", label: "Tone" },
+      { value: "noise", label: "Noise" },
+      { value: "custom", label: "Custom I/Q" },
+    ];
+  }, [mockTxSource]);
+
   const isTransmittingGlobal = useMemo(() => {
     if (selectedSource && selectedSource.status === "transmitting") {
       return true;
     }
-    return websocketSources.some((source) => source.status === "transmitting");
-  }, [websocketSources, selectedSource]);
+    return sourcesToUse.some((source) => source.status === "transmitting");
+  }, [sourcesToUse, selectedSource]);
 
   const txTargetDeviceId = useMemo(() => {
-    const transmittingSource = websocketSources.find(
+    const transmittingSource = sourcesToUse.find(
       (s) => s.status === "transmitting",
     );
     if (selectedSource?.status === "transmitting") {
@@ -1122,14 +1217,28 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ) {
       return selectedSource.id;
     }
-    return websocketSources.find(
+    return sourcesToUse.find(
       (s) =>
         s.capability === "tx" ||
         s.capability === "tx_rx" ||
         s.kind === "mock_tx" ||
         s.kind === "mock-tx",
     )?.id;
-  }, [websocketSources, selectedSource]);
+  }, [sourcesToUse, selectedSource]);
+  const selectedSourceCapability = selectedSource?.capability?.toLowerCase?.();
+  const selectedSourceKind = selectedSource?.kind?.toLowerCase?.() ?? "";
+  const selectedBackendKind =
+    liveDeviceProfileForDisplay?.kind?.toLowerCase?.() ??
+    liveBackend?.toLowerCase?.() ??
+    "";
+  const isTxCapableSelectedSource =
+    selectedSourceCapability === "tx" ||
+    selectedSourceCapability === "tx_rx" ||
+    selectedSourceKind === "hackrf_one" ||
+    selectedSourceKind === "mock_tx" ||
+    selectedSourceKind === "mock-tx" ||
+    selectedBackendKind === "hackrf_one" ||
+    selectedBackendKind === "mock_tx";
 
   const handleToggleTransmitMode = useCallback(
     (sourceId: string, nextEnabled: boolean) => {
@@ -1150,6 +1259,36 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
       const applyToggle = () => {
         pendingTxStopSourceIdRef.current = nextEnabled ? null : source.id;
+        lastTxSettingsSyncKeyRef.current = nextEnabled
+          ? buildTxSettingsSyncKey({
+              sourceId: source.id,
+              txSignal,
+              centerFrequencyHz:
+                txCenterFrequencyHz ??
+                source.sdr?.settings?.center_frequency ??
+                undefined,
+              sampleRateHz:
+                txSampleRateHz ??
+                source.sdr?.settings?.sample_rate ??
+                undefined,
+              ifftSize: txIfftSize,
+              powerDbm: txPowerDbm ?? undefined,
+              vgaGainDb:
+                txVgaGain ?? source.sdr?.settings?.hackrf_vga_gain ?? undefined,
+              ampEnabled:
+                source.sdr?.settings?.hackrf_amp_enable ??
+                liveState?.hackrfAmpEnabled ??
+                undefined,
+              safetyEnabled: txSafetyEnabled,
+              safetyLimit: txSafetyLimit,
+              hopEnabled: txHopEnabled,
+              hopType: txHopType,
+              hopStartFrequencyHz: txHopStartFrequencyHz,
+              hopEndFrequencyHz: txHopEndFrequencyHz,
+              hopChannels: txHopChannels,
+              hopRateHz: txHopRateHz,
+            })
+          : null;
         wsConnection.sendTransmitMode?.(nextEnabled, source.name ?? sourceId, {
           serialNumber: source.serial_number?.trim() || sourceId,
           centerFrequencyHz:
@@ -1158,6 +1297,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             undefined,
           sampleRateHz:
             txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
+          ifftSize: txIfftSize,
           powerDbm: txPowerDbm ?? undefined,
           vgaGainDb:
             txVgaGain ?? source.sdr?.settings?.hackrf_vga_gain ?? undefined,
@@ -1235,39 +1375,101 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ],
   );
 
+  const handleTxSignalChange = useCallback(
+    (value: string) => {
+      dispatch(setTxSignal(value));
+      const preset = txSignalPresets[value.toLowerCase()];
+      if (!preset) return;
+      dispatch(setTxCenterFrequencyHz(preset.centerFrequencyHz));
+      dispatch(setTxSampleRateHz(preset.sampleRateHz));
+    },
+    [dispatch, txSignalPresets],
+  );
+
   useEffect(() => {
     if (!isTransmittingGlobal) {
       pendingTxStopSourceIdRef.current = null;
+      lastTxSettingsSyncKeyRef.current = null;
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
       return;
     }
     if (!txTargetDeviceId) return;
     if (pendingTxStopSourceIdRef.current === txTargetDeviceId) return;
     const source = sourcesToUse.find((entry) => entry.id === txTargetDeviceId);
     if (!source) return;
-
-    wsConnection.sendTransmitMode?.(true, source.name ?? txTargetDeviceId, {
-      serialNumber: source.serial_number?.trim() || txTargetDeviceId,
+    const syncKey = buildTxSettingsSyncKey({
+      sourceId: source.id,
+      txSignal,
       centerFrequencyHz: txCenterFrequencyHz,
       sampleRateHz: txSampleRateHz,
+      ifftSize: txIfftSize,
       powerDbm: txPowerDbm,
       vgaGainDb: txVgaGain,
       ampEnabled: hackrfAmpEnabled,
-      txSafetyEnabled,
-      txSafetyLimit,
-      txSignal,
-      txHopEnabled,
-      txHopType,
-      txHopStartFrequencyHz,
-      txHopEndFrequencyHz,
-      txHopChannels,
-      txHopRateHz,
+      safetyEnabled: txSafetyEnabled,
+      safetyLimit: txSafetyLimit,
+      hopEnabled: txHopEnabled,
+      hopType: txHopType,
+      hopStartFrequencyHz: txHopStartFrequencyHz,
+      hopEndFrequencyHz: txHopEndFrequencyHz,
+      hopChannels: txHopChannels,
+      hopRateHz: txHopRateHz,
     });
+    if (lastTxSettingsSyncKeyRef.current === syncKey) {
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+      return;
+    }
+    const sendTxSettings = () => {
+      lastTxSettingsSyncKeyRef.current = syncKey;
+      wsConnection.sendTransmitMode?.(true, source.name ?? txTargetDeviceId, {
+        serialNumber: source.serial_number?.trim() || txTargetDeviceId,
+        centerFrequencyHz: txCenterFrequencyHz,
+        sampleRateHz: txSampleRateHz,
+        ifftSize: txIfftSize,
+        powerDbm: txPowerDbm,
+        vgaGainDb: txVgaGain,
+        ampEnabled: hackrfAmpEnabled,
+        txSafetyEnabled,
+        txSafetyLimit,
+        txSignal,
+        txHopEnabled,
+        txHopType,
+        txHopStartFrequencyHz,
+        txHopEndFrequencyHz,
+        txHopChannels,
+        txHopRateHz,
+      });
+    };
+
+    if (lastTxSettingsSyncKeyRef.current === null) {
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+      sendTxSettings();
+      return;
+    }
+
+    if (txSettingsSyncTimerRef.current) {
+      clearTimeout(txSettingsSyncTimerRef.current);
+    }
+    txSettingsSyncTimerRef.current = setTimeout(() => {
+      txSettingsSyncTimerRef.current = null;
+      sendTxSettings();
+    }, TX_SETTINGS_SYNC_DEBOUNCE_MS);
   }, [
     isTransmittingGlobal,
     txTargetDeviceId,
     txSignal,
     txCenterFrequencyHz,
     txSampleRateHz,
+    txIfftSize,
     txPowerDbm,
     txVgaGain,
     hackrfAmpEnabled,
@@ -1283,11 +1485,21 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     wsConnection.sendTransmitMode,
   ]);
 
+  useEffect(() => {
+    return () => {
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const sourceDevices = useMemo(
     () =>
       sourcesToUse.map((source) => {
         const isTransmitting = source.status === "transmitting";
         const isStreaming = source.status === "streaming";
+        const isPaused = source.paused ?? false;
         const supportsTx =
           source.capability === "tx" || source.capability === "tx_rx";
         const isMockSource = source.capability === "mock";
@@ -1300,7 +1512,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               ? "Stop Tx"
               : "Start Tx"
             : canToggleStreaming
-              ? liveIsPaused
+              ? isPaused
                 ? "Resume"
                 : "Pause"
               : undefined;
@@ -1310,7 +1522,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               ? "Stop transmit mode"
               : "Start transmit mode"
             : canToggleStreaming
-              ? liveIsPaused
+              ? isPaused
                 ? "Resume playback"
                 : "Pause playback"
               : undefined;
@@ -1318,7 +1530,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           isTransmitting || supportsTx
             ? () => handleToggleTransmitMode(source.id, !isTransmitting)
             : canToggleStreaming
-              ? toggleLiveVisualizerPause
+              ? () => toggleLiveVisualizerPause(source.id)
               : undefined;
 
         return {
@@ -1353,7 +1565,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       }),
     [
       handleToggleTransmitMode,
-      liveIsPaused,
       sourcesToUse,
       toggleLiveVisualizerPause,
     ],
@@ -1362,7 +1573,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     () => new Set(activeCaptureAreas),
     [activeCaptureAreas],
   );
-
   // NAPT metadata state
   const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
   const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
@@ -1704,7 +1914,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       max: Math.max(...maxs),
       segments,
     };
-  }, [availableCaptureAreas, activeCaptureAreas, visibleOnscreenRange]);
+  }, [availableCaptureAreas, activeCaptureAreasSet, visibleOnscreenRange]);
 
   // Handlers
   const handleStopCapture = useCallback(() => {
@@ -2009,7 +2219,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const limitMarkers = useMemo(
     () =>
-      isMockLiveSource ? [] : buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
+      isMockLiveSource
+        ? []
+        : buildSdrLimitMarkers(wsConnection.sdrLimitMarkers),
     [isMockLiveSource, wsConnection.sdrLimitMarkers],
   );
 
@@ -2033,27 +2245,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     });
   }, [resetLiveControls, showPrompt]);
 
-  useEffect(() => {
-    setActiveCaptureAreas((current) => {
-      const validLabels = new Set(
-        availableCaptureAreas.map((area) => area.label),
-      );
-      const next = current.filter((label) => validLabels.has(label));
-      const resolved =
-        next.length > 0
-          ? next
-          : validLabels.has("Onscreen")
-            ? ["Onscreen"]
-            : next;
-      if (
-        resolved.length === current.length &&
-        resolved.every((label, index) => label === current[index])
-      ) {
-        return current;
-      }
-      return resolved;
-    });
-  }, [availableCaptureAreas]);
   const stickyWrapperRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
   const stickyStartRef = useRef<number | null>(null);
@@ -2157,7 +2348,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             setSelectedSourceId(id);
             const nextSelectedDevice =
               sourcesToUse.find((entry) => entry.id === id) ?? null;
-            if (!nextSelectedDevice?.capability?.toLowerCase().includes("tx")) {
+            const nextIsTxCapable =
+              nextSelectedDevice?.capability?.toLowerCase().includes("tx") ??
+              false;
+            if (sourceMode === "live" && !nextIsTxCapable) {
               dispatch(setShowTxSlider(false));
             }
             if (sourceMode === "file") {
@@ -2324,61 +2518,74 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             rangeSlidersDisabled={visualizerLoading}
           />
 
-          <Collapsible
-            title="Tx Settings"
-            icon={<SatelliteDish size={14} />}
-            defaultOpen={true}
-          >
-            <TxSettingsSection
-              signal={txSignal}
-              sampleRateHz={txSampleRateHz}
-              maxSampleRateHz={maxSampleRate}
-              centerFrequencyHz={txCenterFrequencyHz}
-              powerDbm={txPowerDbm}
-              vgaGainDb={txVgaGain}
-              ampEnabled={hackrfAmpEnabled}
-              onSignalChange={(value) => dispatch(setTxSignal(value))}
-              onSampleRateChange={(value) => dispatch(setTxSampleRateHz(value))}
-              onCenterFrequencyChange={(value) =>
-                dispatch(setTxCenterFrequencyHz(value))
-              }
-              onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
-              onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
-              onAmpEnabledChange={(value) => setHackrfAmpEnabled(value)}
-              isTransmitting={isTransmittingGlobal}
-              onToggleTransmit={
-                txTargetDeviceId
-                  ? () =>
-                      handleToggleTransmitMode(
-                        txTargetDeviceId,
-                        !isTransmittingGlobal,
-                      )
-                  : undefined
-              }
-              safetyEnabled={txSafetyEnabled}
-              onSafetyEnabledChange={(value) =>
-                dispatch(setTxSafetyEnabled(value))
-              }
-              safetyLimit={txSafetyLimit}
-              onSafetyLimitChange={(value) => dispatch(setTxSafetyLimit(value))}
-              hopEnabled={txHopEnabled}
-              onHopEnabledChange={(value) => dispatch(setTxHopEnabled(value))}
-              hopType={txHopType}
-              onHopTypeChange={(value) => dispatch(setTxHopType(value))}
-              hopStartFrequencyHz={txHopStartFrequencyHz}
-              onHopStartFrequencyHzChange={(value) =>
-                dispatch(setTxHopStartFrequencyHz(value))
-              }
-              hopEndFrequencyHz={txHopEndFrequencyHz}
-              onHopEndFrequencyHzChange={(value) =>
-                dispatch(setTxHopEndFrequencyHz(value))
-              }
-              hopChannels={txHopChannels}
-              onHopChannelsChange={(value) => dispatch(setTxHopChannels(value))}
-              hopRateHz={txHopRateHz}
-              onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
-            />
-          </Collapsible>
+          {isTxCapableSelectedSource ? (
+            <Collapsible
+              title="Tx Settings"
+              icon={<SatelliteDish size={14} />}
+              defaultOpen={true}
+            >
+              <TxSettingsSection
+                signal={txSignal}
+                sampleRateHz={txSampleRateHz}
+                maxSampleRateHz={maxSampleRate}
+                fftSize={fftSize}
+                ifftSize={txIfftSize}
+                ifftSizeOptions={fftSizeOptions}
+                centerFrequencyHz={txCenterFrequencyHz}
+                powerDbm={txPowerDbm}
+                vgaGainDb={txVgaGain}
+                ampEnabled={hackrfAmpEnabled}
+                onSignalChange={handleTxSignalChange}
+                signalOptions={signalOptions}
+                onSampleRateChange={(value) =>
+                  dispatch(setTxSampleRateHz(value))
+                }
+                onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
+                onCenterFrequencyChange={(value) =>
+                  dispatch(setTxCenterFrequencyHz(value))
+                }
+                onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
+                onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
+                onAmpEnabledChange={(value) => setHackrfAmpEnabled(value)}
+                isTransmitting={isTransmittingGlobal}
+                onToggleTransmit={
+                  txTargetDeviceId
+                    ? () =>
+                        handleToggleTransmitMode(
+                          txTargetDeviceId,
+                          !isTransmittingGlobal,
+                        )
+                    : undefined
+                }
+                safetyEnabled={txSafetyEnabled}
+                onSafetyEnabledChange={(value) =>
+                  dispatch(setTxSafetyEnabled(value))
+                }
+                safetyLimit={txSafetyLimit}
+                onSafetyLimitChange={(value) =>
+                  dispatch(setTxSafetyLimit(value))
+                }
+                hopEnabled={txHopEnabled}
+                onHopEnabledChange={(value) => dispatch(setTxHopEnabled(value))}
+                hopType={txHopType}
+                onHopTypeChange={(value) => dispatch(setTxHopType(value))}
+                hopStartFrequencyHz={txHopStartFrequencyHz}
+                onHopStartFrequencyHzChange={(value) =>
+                  dispatch(setTxHopStartFrequencyHz(value))
+                }
+                hopEndFrequencyHz={txHopEndFrequencyHz}
+                onHopEndFrequencyHzChange={(value) =>
+                  dispatch(setTxHopEndFrequencyHz(value))
+                }
+                hopChannels={txHopChannels}
+                onHopChannelsChange={(value) =>
+                  dispatch(setTxHopChannels(value))
+                }
+                hopRateHz={txHopRateHz}
+                onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
+              />
+            </Collapsible>
+          ) : null}
 
           <SignalDisplaySection
             sourceMode={sourceMode}

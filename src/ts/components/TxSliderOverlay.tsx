@@ -230,6 +230,16 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
           const span = Math.max(1, visibleMaxHz - visibleMinHz);
           const pointerFreq = visibleMinHz + ratio * span;
 
+          if (
+            !Number.isFinite(pointerFreq) ||
+            !Number.isFinite(visibleMinHz) ||
+            !Number.isFinite(visibleMaxHz) ||
+            !Number.isFinite(txCenterHz) ||
+            !Number.isFinite(txSampleRateHz)
+          ) {
+            return;
+          }
+
           const { min: currentStart, max: currentEnd } =
             clampCenteredFrequencyRangeToZeroHz(txCenterHz, txSampleRateHz);
           const currentCenter = (currentStart + currentEnd) / 2;
@@ -251,8 +261,10 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             );
             const nextSampleRate = currentEnd - nextStart;
             const nextCenter = nextStart + nextSampleRate / 2;
-            onSampleRateChange?.(Math.round(nextSampleRate));
-            onCenterFrequencyChange?.(Math.round(nextCenter));
+            if (Number.isFinite(nextSampleRate) && Number.isFinite(nextCenter)) {
+              onSampleRateChange?.(Math.round(nextSampleRate));
+              onCenterFrequencyChange?.(Math.round(nextCenter));
+            }
           } else {
             const nextEnd = Math.max(
               currentStart + 100_000,
@@ -260,8 +272,10 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             );
             const nextSampleRate = nextEnd - currentStart;
             const nextCenter = currentStart + nextSampleRate / 2;
-            onSampleRateChange?.(Math.round(nextSampleRate));
-            onCenterFrequencyChange?.(Math.round(nextCenter));
+            if (Number.isFinite(nextSampleRate) && Number.isFinite(nextCenter)) {
+              onSampleRateChange?.(Math.round(nextSampleRate));
+              onCenterFrequencyChange?.(Math.round(nextCenter));
+            }
           }
         };
 
@@ -320,8 +334,10 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
 
   const band = useMemo(() => {
     const span = Math.max(1, visibleMaxHz - visibleMinHz);
-    const { min: start, max: end } =
-      clampCenteredFrequencyRangeToZeroHz(txCenterHz, txSampleRateHz);
+    const { min: start, max: end } = clampCenteredFrequencyRangeToZeroHz(
+      txCenterHz,
+      txSampleRateHz,
+    );
     const center = (start + end) / 2;
     const left = ((start - visibleMinHz) / span) * 100;
     const right = ((end - visibleMinHz) / span) * 100;

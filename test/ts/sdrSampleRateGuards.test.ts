@@ -86,6 +86,21 @@ describe("sdrSampleRateGuards", () => {
     });
   });
 
+  it("preserves explicit file playback windows when frame metadata is narrower than the capture", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: 18_000, max: 3_218_000 },
+        centerFrequencyHz: 1_372_840,
+        hardwareSampleRateHz: 2_841_120,
+        deviceKind: "rtl_sdr",
+        preferRequestedRange: true,
+      }),
+    ).toEqual({
+      min: 18_000,
+      max: 3_218_000,
+    });
+  });
+
   it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {
     expect(
       clampRtlSdrFrequencyRangeToHardwareWindow({

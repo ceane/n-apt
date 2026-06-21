@@ -4,6 +4,7 @@ import { Row, ChannelsGrid, Tooltip } from "@n-apt/components/ui";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Toggle } from "@n-apt/components/ui/Toggle";
 import { useAppSelector } from "@n-apt/redux/store";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   Radio,
   SlidersHorizontal,
@@ -16,7 +17,16 @@ import {
   getMaxSafeVgaAndAmpJS,
   getApproxOutputPowerJS,
   calculateRoomReachJS,
+  getQuantizedIqPowerFloorDbmJS,
+  getRecommendedFftSizeForIqPowerDbmJS,
 } from "@n-apt/utils/safetyWasm";
+
+const MAX_TX_IFFT_BIN_WIDTH_HZ = 10_000;
+
+function getMinimumTxIfftSize(sampleRateHz: number): number {
+  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) return 1;
+  return Math.max(1, Math.ceil(sampleRateHz / MAX_TX_IFFT_BIN_WIDTH_HZ));
+}
 
 const Section = styled.div`
   display: grid;
@@ -65,6 +75,18 @@ const UnitSuffix = styled.span`
   color: ${(props) => props.theme.textSecondary};
   white-space: nowrap;
   font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const InlineWarning = styled.div`
+  grid-column: 1 / -1;
+  border: 1px solid ${({ theme }) => theme.colors.warning ?? "#d97706"};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.textPrimary};
+  background: ${({ theme }) =>
+    theme.mode === "light" ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.18)"};
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px 10px;
 `;
 
 const HopSectionContainer = styled.div`
@@ -197,12 +219,16 @@ export interface TxSettingsSectionProps {
   signal: string;
   sampleRateHz: number;
   maxSampleRateHz?: number | null;
+  fftSize?: number;
+  ifftSize?: number;
+  ifftSizeOptions?: number[];
   centerFrequencyHz: number;
   powerDbm?: number;
   vgaGainDb?: number;
   ampEnabled?: boolean;
   onSignalChange: (value: string) => void;
   onSampleRateChange: (value: number) => void;
+  onIfftSizeChange?: (value: number) => void;
   onCenterFrequencyChange: (value: number) => void;
   onPowerDbmChange: (value: number) => void;
   onVgaGainChange: (value: number) => void;
@@ -227,18 +253,23 @@ export interface TxSettingsSectionProps {
   onHopChannelsChange: (value: string[]) => void;
   hopRateHz: number;
   onHopRateHzChange: (value: number) => void;
+  signalOptions?: Array<{ value: string; label: string }>;
 }
 
 export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   signal,
   sampleRateHz,
   maxSampleRateHz = 20_000_000,
+  fftSize = 2048,
+  ifftSize = fftSize,
+  ifftSizeOptions = [],
   centerFrequencyHz,
   powerDbm = 0,
   vgaGainDb = 0,
   ampEnabled = false,
   onSignalChange,
   onSampleRateChange,
+  onIfftSizeChange,
   onCenterFrequencyChange,
   onPowerDbmChange,
   onVgaGainChange,
@@ -261,6 +292,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   onHopChannelsChange,
   hopRateHz = 10,
   onHopRateHzChange,
+  signalOptions,
 }) => {
   const [localPower, setLocalPower] = React.useState(
     Number.isFinite(powerDbm) ? powerDbm.toString() : "0",
@@ -333,6 +365,57 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     return calculateRoomReachJS(centerFrequencyHz, -70.0);
   }, [centerFrequencyHz]);
 
+  const iqPowerFloorDbm = React.useMemo(
+    () => getQuantizedIqPowerFloorDbmJS(8, ifftSize, 30),
+    [ifftSize],
+  );
+  const enforcedIqPowerFloorDbm = React.useMemo(
+    () => Math.ceil(iqPowerFloorDbm),
+    [iqPowerFloorDbm],
+  );
+  const isBelowIqPowerFloor =
+    Number.isFinite(powerDbm) && powerDbm <= enforcedIqPowerFloorDbm;
+  const recommendedFftSize = React.useMemo(
+    () => getRecommendedFftSizeForIqPowerDbmJS(powerDbm, 8, 30),
+    [powerDbm],
+  );
+  const minimumIfftSize = React.useMemo(
+    () => getMinimumTxIfftSize(sampleRateHz),
+    [sampleRateHz],
+  );
+  const effectiveIfftSizeOptions = React.useMemo(() => {
+    const options = (ifftSizeOptions.length ? ifftSizeOptions : [ifftSize])
+      .filter(
+        (size) =>
+          Number.isFinite(size) &&
+          size > 0 &&
+          Math.trunc(size) >= minimumIfftSize,
+      )
+      .map((size) => Math.trunc(size));
+    const nextPowerOfTwo = 2 ** Math.ceil(Math.log2(minimumIfftSize));
+    const fallback = Number.isFinite(nextPowerOfTwo) ? nextPowerOfTwo : 1;
+    return Array.from(new Set(options.length ? options : [fallback])).sort(
+      (a, b) => a - b,
+    );
+  }, [ifftSize, ifftSizeOptions, minimumIfftSize]);
+  const guardedIfftSize = React.useMemo(
+    () =>
+      effectiveIfftSizeOptions.includes(Math.trunc(ifftSize))
+        ? Math.trunc(ifftSize)
+        : effectiveIfftSizeOptions[0],
+    [effectiveIfftSizeOptions, ifftSize],
+  );
+  const isIfftSizeBelowSampleRateGuard =
+    Number.isFinite(ifftSize) && Math.trunc(ifftSize) < minimumIfftSize;
+  const txIfftBinWidthHz =
+    Number.isFinite(sampleRateHz) && guardedIfftSize > 0
+      ? sampleRateHz / guardedIfftSize
+      : 0;
+  const applyTxPowerFloor = React.useCallback(
+    (value: number) => Math.max(enforcedIqPowerFloorDbm, value),
+    [enforcedIqPowerFloorDbm],
+  );
+
   const formatReach = (meters: number): string => {
     if (meters >= 1000) {
       return `${(meters / 1000).toFixed(1)}km`;
@@ -366,7 +449,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
 
       if (changed) {
         if (nextPower !== powerDbm) {
-          onPowerDbmChange(nextPower);
+          onPowerDbmChange(applyTxPowerFloor(nextPower));
         }
         if (nextVga !== vgaGainDb) {
           onVgaGainChange(nextVga);
@@ -386,7 +469,31 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     onPowerDbmChange,
     onVgaGainChange,
     onAmpEnabledChange,
+    applyTxPowerFloor,
   ]);
+
+  React.useEffect(() => {
+    if (isBelowIqPowerFloor) {
+      onPowerDbmChange(enforcedIqPowerFloorDbm);
+      if (document.activeElement !== powerInputRef.current) {
+        setLocalPower(enforcedIqPowerFloorDbm.toString());
+      }
+    }
+  }, [
+    enforcedIqPowerFloorDbm,
+    isBelowIqPowerFloor,
+    onPowerDbmChange,
+  ]);
+
+  React.useEffect(() => {
+    if (
+      onIfftSizeChange &&
+      Number.isFinite(guardedIfftSize) &&
+      Math.trunc(ifftSize) !== guardedIfftSize
+    ) {
+      onIfftSizeChange(guardedIfftSize);
+    }
+  }, [guardedIfftSize, ifftSize, onIfftSizeChange]);
 
   const handlePowerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.trim();
@@ -397,6 +504,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       if (safetyEnabled) {
         targetPower = Math.min(limitDbm, targetPower);
       }
+      targetPower = applyTxPowerFloor(targetPower);
       onPowerDbmChange(targetPower);
       const res = getMaxSafeVgaAndAmpJS(targetPower);
       onVgaGainChange(res.vga);
@@ -413,6 +521,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       if (safetyEnabled) {
         targetPower = Math.min(limitDbm, targetPower);
       }
+      targetPower = applyTxPowerFloor(targetPower);
       onPowerDbmChange(targetPower);
       setLocalPower(targetPower.toString());
       const res = getMaxSafeVgaAndAmpJS(targetPower);
@@ -439,7 +548,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         safetyLimit === "min"
           ? -70.0
           : getApproxOutputPowerJS(targetVga, !!ampEnabled);
-      onPowerDbmChange(targetPower);
+      onPowerDbmChange(applyTxPowerFloor(targetPower));
     }
   };
 
@@ -456,7 +565,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         safetyLimit === "min"
           ? -70.0
           : getApproxOutputPowerJS(targetVga, !!ampEnabled);
-      onPowerDbmChange(targetPower);
+      onPowerDbmChange(applyTxPowerFloor(targetPower));
     } else {
       setLocalVgaGain(Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0");
     }
@@ -469,7 +578,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         safetyLimit === "min"
           ? -70.0
           : getApproxOutputPowerJS(vgaGainDb, newAmp);
-      onPowerDbmChange(targetPower);
+      onPowerDbmChange(applyTxPowerFloor(targetPower));
     }
   };
 
@@ -504,7 +613,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       if (safetyEnabled) {
         nextPower = Math.min(limitDbm, nextPower);
       }
-      nextPower = Math.max(-70.0, nextPower);
+      nextPower = applyTxPowerFloor(Math.max(-70.0, nextPower));
       nextPower = Math.round(nextPower * 10) / 10;
       onPowerDbmChange(nextPower);
       setLocalPower(nextPower.toString());
@@ -532,7 +641,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         safetyLimit === "min"
           ? -70.0
           : getApproxOutputPowerJS(nextVga, !!ampEnabled);
-      onPowerDbmChange(targetPower);
+      onPowerDbmChange(applyTxPowerFloor(targetPower));
     }
   };
 
@@ -559,10 +668,20 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         tooltipTitle="Signal Type"
       >
         <Select value={signal} onChange={(e) => onSignalChange(e.target.value)}>
-          <option value="apt">APT</option>
-          <option value="tone">Tone</option>
-          <option value="noise">Noise</option>
-          <option value="custom">Custom I/Q</option>
+          {signalOptions ? (
+            signalOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))
+          ) : (
+            <>
+              <option value="apt">APT</option>
+              <option value="tone">Tone</option>
+              <option value="noise">Noise</option>
+              <option value="custom">Custom I/Q</option>
+            </>
+          )}
         </Select>
       </Row>
 
@@ -727,8 +846,33 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         />
       </Row>
       <Row
+        label="IFFT Size"
+        tooltip="Tx synthesis size. This controls the generated I/Q resolution before the signal is viewed by the receive FFT. Larger IFFT sizes can represent lower quantized RMS powers but increase generation cost."
+        tooltipTitle="Tx IFFT Size"
+      >
+        <Select
+          value={guardedIfftSize}
+          onChange={(e) => onIfftSizeChange?.(Number(e.target.value))}
+        >
+          {effectiveIfftSizeOptions.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      {isIfftSizeBelowSampleRateGuard && (
+        <InlineWarning role="status">
+          IFFT bin width guard: {ifftSize.toLocaleString()} at{" "}
+          {formatFrequency(sampleRateHz)} would exceed{" "}
+          {formatFrequency(MAX_TX_IFFT_BIN_WIDTH_HZ)} per bin, so Tx IFFT is
+          advanced to {guardedIfftSize.toLocaleString()} (
+          {formatFrequency(txIfftBinWidthHz)} per bin).
+        </InlineWarning>
+      )}
+      <Row
         label="Power"
-        tooltip="The target transmission power in dBm. Changing this will automatically adjust the VGA gain and AMP settings to match the target value."
+        tooltip="The target transmission power in dBm. 8-bit I/Q has a quantized RMS floor determined by the active FFT size and the one-LSB sample step. Requests below that floor are rounded up to the next whole dBm; increase FFT size to represent lower powers."
         tooltipTitle="Output Power"
       >
         <InlineField>
@@ -743,6 +887,16 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           <UnitSuffix>dBm</UnitSuffix>
         </InlineField>
       </Row>
+      {isBelowIqPowerFloor && (
+        <InlineWarning role="status">
+          IQ floor: {iqPowerFloorDbm.toFixed(1)} dBm at Tx IFFT{" "}
+          {ifftSize.toLocaleString()}. The current request is below the 8-bit
+          I/Q RMS/LSB floor, so Tx power is stepped up to{" "}
+          {enforcedIqPowerFloorDbm} dBm. To represent lower power, increase FFT
+          size; {recommendedFftSize.toLocaleString()} is recommended for this
+          target.
+        </InlineWarning>
+      )}
       <Row
         label={<IconLabel icon={ShieldAlert} text="Safety" />}
         tooltip="Output power safety limit configuration. Restricts the maximum VGA gain and amplifier to protect personnel (1m reach), room (3m reach), or forces the hardware minimum (-70 dBm)."

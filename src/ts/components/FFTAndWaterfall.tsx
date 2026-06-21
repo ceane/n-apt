@@ -61,6 +61,20 @@ const SlidersRail = styled.div`
   align-items: center;
 `;
 
+const isTxCapableSource = (
+  source?: { capability?: string | null; kind?: string | null } | null,
+) => {
+  if (!source) return false;
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    kind === "hackrf_one" ||
+    kind === "mock_tx"
+  );
+};
+
 const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
   (props, ref) => {
     const dispatch = useAppDispatch();
@@ -94,14 +108,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const txPowerDbm = useAppSelector(
       (reduxState) => reduxState.spectrum.txPowerDbm,
     );
-    const deviceKind = useAppSelector(
-      (reduxState) => reduxState.spectrum.deviceKind,
+    const activeSource = useAppSelector((reduxState) =>
+      reduxState.websocket.sources?.find?.(
+        (source) => source.id === reduxState.websocket.activeSourceId,
+      ),
     );
-    const canShowTxSlider =
-      deviceKind === "hackrf_one" ||
-      deviceKind === "mock_tx" ||
-      deviceKind === "tx_rx" ||
-      deviceKind === "tx";
+    const canShowTxSlider = isTxCapableSource(activeSource);
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -132,6 +144,17 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         return props.placeholderErrorReason;
       }
       if (sourceMode === "live") {
+        const activeSourceCapability =
+          activeSource?.capability?.toLowerCase?.() ?? "";
+        const activeSourceKind = activeSource?.kind?.toLowerCase?.() ?? "";
+        if (
+          activeSourceCapability === "mock" ||
+          activeSourceKind === "mock_apt" ||
+          activeSourceKind === "mock_tx" ||
+          activeSourceKind === "mock-tx"
+        ) {
+          return null;
+        }
         if (!wsState.isConnected) {
           return "Server down";
         }
@@ -143,6 +166,8 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     }, [
       props.placeholderErrorReason,
       sourceMode,
+      activeSource?.capability,
+      activeSource?.kind,
       wsState.isConnected,
       wsState.cryptoCorrupted,
     ]);

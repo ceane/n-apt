@@ -1,4 +1,5 @@
 use redis::Commands;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -38,6 +39,9 @@ pub struct SharedState {
   pub is_paused: AtomicBool,
   /// Allow exactly one spectrum frame through while paused after a one-frame request
   pub allow_next_paused_frame: AtomicBool,
+  /// Pause state tracked per source so switching sources does not bleed pause
+  /// commands across unrelated devices.
+  pub source_pause_states: Mutex<HashMap<String, bool>>,
   /// Latest requested center frequency (MHz -> Hz), coalesced atomically
   pub pending_center_freq: AtomicU32,
   /// Whether there is a pending frequency change
@@ -102,6 +106,7 @@ pub struct SharedState {
   pub tx_hop_end_frequency_hz: Mutex<f64>,
   pub tx_hop_channels: Mutex<Vec<String>>,
   pub tx_hop_rate_hz: Mutex<f64>,
+  pub mock_tx_phase_accumulator: Mutex<f64>,
   /// Last broadcast status payload, used to suppress duplicate snapshots.
   pub last_broadcast_status: Mutex<Option<String>>,
 }
@@ -121,6 +126,7 @@ impl SharedState {
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
       allow_next_paused_frame: AtomicBool::new(false),
+      source_pause_states: Mutex::new(HashMap::new()),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
       shutdown: AtomicBool::new(false),
@@ -159,6 +165,7 @@ impl SharedState {
       tx_hop_end_frequency_hz: Mutex::new(0.0),
       tx_hop_channels: Mutex::new(Vec::new()),
       tx_hop_rate_hz: Mutex::new(1.0),
+      mock_tx_phase_accumulator: Mutex::new(0.0),
     })
   }
 
@@ -196,10 +203,44 @@ impl SharedState {
     self.health_failure_streak.store(0, Ordering::Relaxed);
     self.recovery_attempts.store(0, Ordering::Relaxed);
     if is_mock_fallback {
-      self.is_paused.store(false, Ordering::SeqCst);
       self.allow_next_paused_frame.store(true, Ordering::SeqCst);
     }
     *self.last_broadcast_status.lock().unwrap() = None;
+  }
+
+  /// Store or clear pause for a specific source.
+  pub fn set_source_pause_state(&self, source_id: &str, paused: bool) {
+    let mut states = self.source_pause_states.lock().unwrap();
+    if paused {
+      states.insert(source_id.to_string(), true);
+    } else {
+      states.remove(source_id);
+    }
+  }
+
+  /// Return whether the source is currently marked paused.
+  pub fn is_source_paused(&self, source_id: &str) -> bool {
+    self.source_pause_states
+      .lock()
+      .unwrap()
+      .get(source_id)
+      .copied()
+      .unwrap_or(false)
+  }
+
+  /// Mirror the provided source pause state into the active streaming fast path.
+  pub fn sync_active_source_pause_state(&self, source_id: &str) {
+    let paused = self.is_source_paused(source_id);
+    self.is_paused.store(paused, Ordering::SeqCst);
+    self.allow_next_paused_frame.store(false, Ordering::SeqCst);
+  }
+
+  /// Record a pause change for the active source and mirror it into the
+  /// legacy fast-path flag that the streaming loop still reads.
+  pub fn set_active_source_pause_state(&self, source_id: &str, paused: bool) {
+    self.set_source_pause_state(source_id, paused);
+    self.is_paused.store(paused, Ordering::SeqCst);
+    self.allow_next_paused_frame.store(false, Ordering::SeqCst);
   }
 
   /// Update USB device identification strings (serial, manufacturer, product).

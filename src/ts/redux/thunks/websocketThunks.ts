@@ -139,18 +139,21 @@ export const sendCenterFrequency = createAsyncThunk(
 // Send pause/resume command
 export const sendPauseCommand = createAsyncThunk(
   "websocket/sendPauseCommand",
-  async (isPaused: boolean, { dispatch, getState }) => {
+  async (
+    payload: { isPaused: boolean; sourceId: string },
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "pause",
-          data: { paused: isPaused },
+          data: { paused: payload.isPaused, source_id: payload.sourceId },
         },
       });
     }
-    return isPaused;
+    return payload.isPaused;
   },
 );
 

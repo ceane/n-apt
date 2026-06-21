@@ -19,7 +19,10 @@ import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
 } from "@n-apt/utils/rendering/vfoAxis";
-import { drawLiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
+import {
+  drawLiveCanvasStatusRow,
+  type LiveCanvasStatusRow,
+} from "@n-apt/hooks/useDraw2DFFTSignal";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -470,6 +473,7 @@ export function useOverlayRenderer() {
       _temporalResolution?: "low" | "medium" | "high",
       showStatusRow = true,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      _statusRow?: LiveCanvasStatusRow,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -522,25 +526,32 @@ export function useOverlayRenderer() {
         lineWidth: Math.max(0.5 / dpr, 1),
       });
 
-      if (
-        typeof _hardwareSampleRateHz === "number" &&
-        typeof _fftSize === "number" &&
-        _fftWindow &&
-        _temporalResolution &&
-        showStatusRow
-      ) {
-        drawLiveCanvasStatusRow(
-          ctx as CanvasRenderingContext2D,
-          width,
-          height,
-          {
-            sampleRateHz: _hardwareSampleRateHz,
-            fftSize: _fftSize,
-            fftWindow: _fftWindow,
-            temporalResolution: _temporalResolution,
-            textColor: canvasTheme.textColor,
-          },
-        );
+      if (showStatusRow) {
+        const statusRowOptions = _statusRow
+          ? {
+              statusRow: _statusRow,
+              textColor: canvasTheme.textColor,
+            }
+          : typeof _hardwareSampleRateHz === "number" &&
+              typeof _fftSize === "number" &&
+              _fftWindow &&
+              _temporalResolution
+            ? {
+                sampleRateHz: _hardwareSampleRateHz,
+                fftSize: _fftSize,
+                fftWindow: _fftWindow,
+                temporalResolution: _temporalResolution,
+                textColor: canvasTheme.textColor,
+              }
+            : null;
+        if (statusRowOptions) {
+          drawLiveCanvasStatusRow(
+            ctx as CanvasRenderingContext2D,
+            width,
+            height,
+            statusRowOptions,
+          );
+        }
       }
 
       const viewBandwidth = maxFreq - minFreq;

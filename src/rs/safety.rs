@@ -16,6 +16,10 @@ pub static TX_HOP_END_HZ: Mutex<f64> = Mutex::new(0.0);
 pub static TX_HOP_CHANNELS_MASK: AtomicU32 = AtomicU32::new(0); // Bit 0 = A, Bit 1 = B, Bit 2 = C
 pub static TX_HOP_RATE_HZ: Mutex<f64> = Mutex::new(1.0);
 pub static TX_POWER_DBM: Mutex<f64> = Mutex::new(0.0);
+pub static TX_SIGNAL: Mutex<String> = Mutex::new(String::new());
+pub static TX_CENTER_FREQUENCY_HZ: Mutex<f64> = Mutex::new(0.0);
+pub static TX_SAMPLE_RATE_HZ: Mutex<f64> = Mutex::new(0.0);
+pub static TX_IFFT_SIZE: Mutex<usize> = Mutex::new(2048);
 
 struct MappingPoint {
   vga: f64,
@@ -248,6 +252,40 @@ pub fn calculate_room_power_limit(
   watts_to_dbm(required_power_watts)
 }
 
+#[wasm_bindgen]
+pub fn get_quantized_iq_power_floor_dbm(
+  bits: u32,
+  fft_size: u32,
+  dbm_offset: f64,
+) -> f64 {
+  let usable_bits = bits.clamp(2, 32);
+  let sample_count = fft_size.max(1) as f64;
+  let signed_steps = 2.0f64.powi((usable_bits - 1) as i32);
+  10.0 * (1.0 / (signed_steps * signed_steps * sample_count)).log10()
+    + dbm_offset
+}
+
+#[wasm_bindgen]
+pub fn get_recommended_fft_size_for_iq_power_dbm(
+  requested_dbm: f64,
+  bits: u32,
+  dbm_offset: f64,
+) -> u32 {
+  if !requested_dbm.is_finite() {
+    return 1;
+  }
+  let usable_bits = bits.clamp(2, 32);
+  let signed_steps = 2.0f64.powi((usable_bits - 1) as i32);
+  let required = 10.0f64.powf((dbm_offset - requested_dbm) / 10.0)
+    / (signed_steps * signed_steps);
+  let required = required.ceil().max(1.0).min(u32::MAX as f64);
+  let mut size = 1u32;
+  while (size as f64) < required && size < (1 << 30) {
+    size <<= 1;
+  }
+  size
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -274,6 +312,22 @@ mod tests {
     assert!((get_approx_output_power(2.5, false) - (-5.0)).abs() < 1e-6);
     // AMP ON: VGA 25 is halfway between 20 (9.0) and 30 (12.0) -> 10.5 dBm
     assert!((get_approx_output_power(25.0, true) - 10.5).abs() < 1e-6);
+  }
+
+  #[test]
+  fn test_quantized_iq_power_floor_dbm() {
+    assert!(
+      (get_quantized_iq_power_floor_dbm(8, 2048, 30.0) - -45.257).abs()
+        < 0.001
+    );
+    assert!(
+      (get_quantized_iq_power_floor_dbm(8, 65_536, 30.0) - -60.309).abs()
+        < 0.001
+    );
+    assert_eq!(
+      get_recommended_fft_size_for_iq_power_dbm(-70.0, 8, 30.0),
+      1_048_576
+    );
   }
 
   #[test]

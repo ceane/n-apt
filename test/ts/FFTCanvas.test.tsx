@@ -137,9 +137,7 @@ describe("FFTCanvas Component", () => {
     expect(
       await screen.findByTestId("tx-slider-visual-row"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /kHz|MHz|Hz.*→/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("○ 2.204 MHz")).toBeInTheDocument();
   });
 
   it("retunes to the offscreen Tx slider center instead of panning into empty bins", async () => {

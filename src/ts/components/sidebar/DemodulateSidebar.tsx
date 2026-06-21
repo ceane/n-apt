@@ -124,15 +124,16 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       sources.map((source) => {
         const isStreaming = source.status === "streaming";
         const isMockSource = source.capability === "mock";
+        const isPaused = source.paused ?? false;
         const isLiveConnected =
           source.status === "connected" || isStreaming || isMockSource;
         const actionLabel = isLiveConnected
-          ? liveIsPaused
+          ? isPaused
             ? "Resume"
             : "Pause"
           : undefined;
         const actionTitle = isLiveConnected
-          ? liveIsPaused
+          ? isPaused
             ? "Resume playback"
             : "Pause playback"
           : undefined;
@@ -162,11 +163,13 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
                 : undefined,
             actionLabel,
             actionTitle,
-            onAction: isLiveConnected ? toggleVisualizerPause : undefined,
+            onAction: isLiveConnected
+              ? () => toggleVisualizerPause(source.id)
+              : undefined,
           },
         };
       }),
-    [liveIsPaused, sources, toggleVisualizerPause],
+    [sources, toggleVisualizerPause],
   );
 
   const wasLivePausedBeforeFileModeRef = useRef<boolean>(false);

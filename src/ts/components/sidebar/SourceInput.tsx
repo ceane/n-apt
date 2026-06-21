@@ -201,9 +201,17 @@ const DeviceActionButton = styled.button<{
   border-radius: 50%;
   border: 1px solid
     ${({ theme, $active, $danger }) =>
-      $danger ? `${theme.danger}80` : $active ? theme.primary : theme.borderHover};
+      $danger
+        ? `${theme.danger}80`
+        : $active
+          ? theme.primary
+          : theme.borderHover};
   background: ${({ theme, $active, $danger }) =>
-    $danger ? `${theme.danger}18` : $active ? theme.primaryAnchor : theme.surface};
+    $danger
+      ? `${theme.danger}18`
+      : $active
+        ? theme.primaryAnchor
+        : theme.surface};
   color: ${({ theme, $active, $danger }) =>
     $danger ? theme.danger : $active ? theme.primary : theme.textPrimary};
   font-family: ${({ theme }) => theme.typography.mono};
@@ -370,9 +378,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability.toUpperCase();
   };
 
-  const formatStatusLabel = (status?: string | null, isMock?: boolean): string | null => {
+  const formatStatusLabel = (
+    status?: string | null,
+    isMock?: boolean,
+  ): string | null => {
     if (!status) return null;
-    if (status === "transmitting") return isMock ? "Transmitting (Mock Tx)" : "Transmitting (Tx)";
+    if (status === "transmitting")
+      return isMock ? "Transmitting (Mock Tx)" : "Transmitting (Tx)";
     if (status === "streaming") return "Streaming";
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
@@ -488,13 +500,12 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const isTxCapable =
               device.capability?.toLowerCase().includes("tx") ?? false;
             const isTransmittingDevice = device.id === transmittingDeviceId;
-            const actionLabel =
-              isTxCapable
-                ? isTransmittingDevice
-                  ? "Stop Tx"
-                  : "Start Tx"
-                : (device.status?.actionLabel ??
-                  (device.status?.paused === false ? "Pause" : "Resume"));
+            const actionLabel = isTxCapable
+              ? isTransmittingDevice
+                ? "Stop Tx"
+                : "Start Tx"
+              : (device.status?.actionLabel ??
+                (device.status?.paused === false ? "Pause" : "Resume"));
             const showDeviceSpaceHint =
               isOnscreenStreaming &&
               (actionLabel === "Resume" || actionLabel === "Pause");
@@ -518,7 +529,11 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 <DeviceStatusDot
                   $active={isOnscreenStreaming}
                   $loading={device.status?.loading}
-                  $blink={device.id === transmittingDeviceId ? transmittingDotOn : true}
+                  $blink={
+                    device.id === transmittingDeviceId
+                      ? transmittingDotOn
+                      : true
+                  }
                   style={
                     device.status?.color
                       ? { backgroundColor: device.status.color }
@@ -530,7 +545,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   <DevicePillName>{device.name}</DevicePillName>
                   <DevicePillMeta>
                     {formatCapability(device.capability)}
-                    {formatStatusLabel(device.status?.label, isMockDevice(device))
+                    {formatStatusLabel(
+                      device.status?.label,
+                      isMockDevice(device),
+                    )
                       ? ` · ${formatStatusLabel(device.status?.label, isMockDevice(device))}`
                       : ""}
                   </DevicePillMeta>

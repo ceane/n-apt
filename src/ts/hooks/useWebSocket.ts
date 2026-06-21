@@ -58,7 +58,7 @@ export type WebSocketData = {
   error: string | null;
   cryptoCorrupted: boolean;
   sendFrequencyRange: (range: FrequencyRange) => void;
-  sendPauseCommand: (isPaused: boolean) => void;
+  sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
   sendCaptureCommand: (req: CaptureRequest) => void;
@@ -76,6 +76,7 @@ export type WebSocketData = {
       serialNumber: string;
       centerFrequencyHz?: number | null;
       sampleRateHz?: number | null;
+      ifftSize?: number | null;
       powerDbm?: number | null;
       lnaGainDb?: number | null;
       vgaGainDb?: number | null;
@@ -739,12 +740,13 @@ export const useWebSocket = (
   );
 
   // Function to send pause/resume commands to the server
-  const sendPauseCommand = useCallback((isPaused: boolean) => {
+  const sendPauseCommand = useCallback((isPaused: boolean, sourceId: string) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       const message = JSON.stringify({
         type: "pause",
         paused: isPaused,
+        source_id: sourceId,
       });
       ws.send(message);
     }
@@ -849,6 +851,7 @@ export const useWebSocket = (
         serialNumber: string;
         centerFrequencyHz?: number | null;
         sampleRateHz?: number | null;
+        ifftSize?: number | null;
         powerDbm?: number | null;
         lnaGainDb?: number | null;
         vgaGainDb?: number | null;
@@ -870,12 +873,27 @@ export const useWebSocket = (
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+      const { ifftSize, ...txSettingsWithoutIfftSize } = txSettings;
       const roundedSettings = {
-        ...txSettings,
-        centerFrequencyHz: typeof txSettings.centerFrequencyHz === "number" ? Math.round(txSettings.centerFrequencyHz) : txSettings.centerFrequencyHz,
-        sampleRateHz: typeof txSettings.sampleRateHz === "number" ? Math.round(txSettings.sampleRateHz) : txSettings.sampleRateHz,
-        txHopStartFrequencyHz: typeof txSettings.txHopStartFrequencyHz === "number" ? Math.round(txSettings.txHopStartFrequencyHz) : txSettings.txHopStartFrequencyHz,
-        txHopEndFrequencyHz: typeof txSettings.txHopEndFrequencyHz === "number" ? Math.round(txSettings.txHopEndFrequencyHz) : txSettings.txHopEndFrequencyHz,
+        ...txSettingsWithoutIfftSize,
+        centerFrequencyHz:
+          typeof txSettings.centerFrequencyHz === "number"
+            ? Math.round(txSettings.centerFrequencyHz)
+            : txSettings.centerFrequencyHz,
+        sampleRateHz:
+          typeof txSettings.sampleRateHz === "number"
+            ? Math.round(txSettings.sampleRateHz)
+            : txSettings.sampleRateHz,
+        txIfftSize:
+          typeof ifftSize === "number" ? Math.round(ifftSize) : ifftSize,
+        txHopStartFrequencyHz:
+          typeof txSettings.txHopStartFrequencyHz === "number"
+            ? Math.round(txSettings.txHopStartFrequencyHz)
+            : txSettings.txHopStartFrequencyHz,
+        txHopEndFrequencyHz:
+          typeof txSettings.txHopEndFrequencyHz === "number"
+            ? Math.round(txSettings.txHopEndFrequencyHz)
+            : txSettings.txHopEndFrequencyHz,
       };
 
       ws.send(

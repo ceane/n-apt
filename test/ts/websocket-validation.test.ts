@@ -20,6 +20,7 @@ import {
 describe("WebSocket Validation System", () => {
   beforeEach(() => {
     resetValidationMetrics();
+    jest.restoreAllMocks();
   });
 
   describe("WebSocket Message Validation", () => {
@@ -27,6 +28,7 @@ describe("WebSocket Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
@@ -79,6 +81,68 @@ describe("WebSocket Validation System", () => {
       const binaryData = new ArrayBuffer(1024);
       // Should skip validation for binary data
       expect(validateWebSocketMessage(binaryData)).toBe(true);
+    });
+
+    test("should not warn for sub-frame validation times", () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "development";
+      jest.resetModules();
+
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const nowSpy = jest
+        .spyOn(performance, "now")
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(6);
+
+      const { validateWebSocketMessage: devValidateWebSocketMessage } =
+        require("@n-apt/validation");
+
+      expect(
+        devValidateWebSocketMessage({
+          type: "pause",
+          paused: false,
+          source_id: "mock-apt",
+        }),
+      ).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      nowSpy.mockRestore();
+      warnSpy.mockRestore();
+      process.env.NODE_ENV = originalEnv;
+      jest.resetModules();
+    });
+
+    test("should warn for slow validation times at or above the threshold", () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "development";
+      jest.resetModules();
+
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const nowSpy = jest
+        .spyOn(performance, "now")
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(20);
+
+      const { validateWebSocketMessage: devValidateWebSocketMessage } =
+        require("@n-apt/validation");
+
+      expect(
+        devValidateWebSocketMessage({
+          type: "pause",
+          paused: false,
+          source_id: "mock-apt",
+        }),
+      ).toBe(true);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Slow validation detected: WebSocket message validation took",
+        ),
+      );
+
+      nowSpy.mockRestore();
+      warnSpy.mockRestore();
+      process.env.NODE_ENV = originalEnv;
+      jest.resetModules();
     });
   });
 
@@ -287,6 +351,7 @@ describe("WebSocket Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
 
       const result = processWebSocketMessageWithValidation(
@@ -374,8 +439,16 @@ describe("WebSocket Validation System", () => {
       resetValidationMetrics();
 
       // Perform validations with known outcomes
-      validateWebSocketMessage({ type: "pause", paused: true }); // valid
-      validateWebSocketMessage({ type: "pause", paused: false }); // valid
+      validateWebSocketMessage({
+        type: "pause",
+        paused: true,
+        source_id: "mock-apt",
+      }); // valid
+      validateWebSocketMessage({
+        type: "pause",
+        paused: false,
+        source_id: "mock-apt",
+      }); // valid
       validateWebSocketMessage({ type: "invalid_type" }); // invalid
 
       const metrics = getValidationMetrics();
@@ -393,6 +466,7 @@ describe("WebSocket Validation System", () => {
         validateWebSocketMessage({
           type: "pause",
           paused: i % 2 === 0,
+          source_id: "mock-apt",
         });
       }
 
@@ -455,6 +529,7 @@ describe("WebSocket Validation System", () => {
       const circularMessage: any = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
       circularMessage.self = circularMessage; // Create circular reference
 
@@ -466,6 +541,7 @@ describe("WebSocket Validation System", () => {
       const longStringMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
       // Create a circular reference with long string to test handling
       (longStringMessage as any).self = "A".repeat(10000);

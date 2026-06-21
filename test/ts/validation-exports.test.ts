@@ -36,7 +36,11 @@ describe("Validation Exports", () => {
     expect(typeof validateWebSocketMessage).toBe("function");
 
     // Test with a valid WebSocket message structure
-    const validMessage = { type: "pause", paused: true };
+    const validMessage = {
+      type: "pause",
+      paused: true,
+      source_id: "mock-apt",
+    };
     const result = validateWebSocketMessage(validMessage);
     expect(typeof result).toBe("boolean");
 

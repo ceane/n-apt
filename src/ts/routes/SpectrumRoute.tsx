@@ -465,6 +465,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.showTxSlider ?? true,
   );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
+  const sourceStatuses = useAppSelector(
+    (state) => state.websocket.sourceStatuses,
+  );
   const getTxSliderDefaults = useCallback(
     (range: FrequencyRange) => {
       const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
@@ -542,8 +545,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         ? {
             kind: "mock_tx",
             is_rtl_sdr: false,
-            supports_approx_dbm: false,
-            supports_raw_iq_stream: false,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
           }
         : null,
     [isMockLiveSource],
@@ -555,15 +558,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     deviceKind === "mock_tx" ||
     deviceKind === "tx_rx" ||
     deviceKind === "tx";
+  const isRxOnlyMockSource =
+    selectedSourceCapability === "mock" ||
+    selectedSourceDerived.deviceProfile?.kind === "mock_apt" ||
+    selectedSourceDerived.backend?.toLowerCase?.() === "mock_apt";
   const canShowTxSlider =
-    reduxDeviceKindSupportsTx ||
-    txCapableDeviceKind === "hackrf_one" ||
-    txCapableDeviceKind === "mock_tx" ||
-    txCapableDeviceKind === "tx_rx" ||
-    txCapableDeviceKind === "tx" ||
-    selectedSourceCapability === "tx" ||
-    selectedSourceCapability === "tx_rx" ||
-    selectedSourceCapability === "mock";
+    !isRxOnlyMockSource &&
+    (selectedSourceCapability === "tx" ||
+      selectedSourceCapability === "tx_rx" ||
+      reduxDeviceKindSupportsTx ||
+      txCapableDeviceKind === "hackrf_one" ||
+      txCapableDeviceKind === "mock_tx" ||
+      txCapableDeviceKind === "tx_rx" ||
+      txCapableDeviceKind === "tx");
 
   const effectiveTunerGainDb = useMemo(() => {
     const gainConfig = effectiveSdrSettings?.gain;
@@ -623,8 +630,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [activeTab]);
 
   useEffect(() => {
-    const nextDeviceKind =
-      fftDeviceProfile?.kind ?? null;
+    const nextDeviceKind = fftDeviceProfile?.kind ?? null;
     if (!nextDeviceKind) return;
     reduxDispatch(setDeviceKind(nextDeviceKind));
   }, [reduxDispatch, fftDeviceProfile?.kind]);
@@ -1268,12 +1274,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     selectedSourceObjectId === "mock-tx" ||
     selectedSourceKind === "mock_tx" ||
     selectedSourceKind === "mock-tx";
+  const selectedSourceStatus =
+    state.sourceMode === "live" && selectedSourceId
+      ? (sourceStatuses?.[selectedSourceId] ?? selectedSource?.status ?? null)
+      : (selectedSource?.status ?? null);
   const isSelectedMockTxTransmitting =
-    isSelectedMockTxSource && selectedSource?.status === "transmitting";
-  const showMockTxPreviewFrame =
-    isSelectedMockTxSource &&
-    !isSelectedMockTxTransmitting &&
-    !!txSliderDefaults;
+    isSelectedMockTxSource && selectedSourceStatus === "transmitting";
+  const showMockTxPreviewFrame = isSelectedMockTxSource && !!txSliderDefaults;
   const mockTxPreviewFrame = useMemo(
     () =>
       txSliderDefaults
@@ -1290,18 +1297,20 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       return dataRef;
     }
     return {
-      current:
-        showMockTxPreviewFrame && mockTxPreviewFrame ? mockTxPreviewFrame : null,
+      current: mockTxPreviewFrame,
     };
   }, [
     dataRef,
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
     mockTxPreviewFrame,
-    showMockTxPreviewFrame,
   ]);
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
-    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
+    if (
+      !isSelectedMockTxSource ||
+      isSelectedMockTxTransmitting ||
+      showMockTxPreviewFrame
+    ) {
       return null;
     }
     return {
@@ -1317,11 +1326,41 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     };
   }, [
     isSelectedMockTxSource,
-    isSelectedMockTxTransmitting,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
     showMockTxPreviewFrame,
   ]);
+  const handleVizPanChange = useCallback(
+    (nextPan: number) => {
+      if (
+        isSelectedMockTxTransmitting &&
+        state.sourceMode === "live" &&
+        state.frequencyRange
+      ) {
+        const currentRange = state.frequencyRange;
+        const span = currentRange.max - currentRange.min;
+        if (Number.isFinite(span) && span > 0 && Number.isFinite(nextPan)) {
+          const currentCenter = (currentRange.min + currentRange.max) / 2;
+          const nextCenter = currentCenter + nextPan;
+          handleFrequencyRangeChange({
+            min: nextCenter - span / 2,
+            max: nextCenter + span / 2,
+          });
+          setVizPanOffset(0);
+          return;
+        }
+      }
+
+      setVizPanOffset(nextPan);
+    },
+    [
+      handleFrequencyRangeChange,
+      isSelectedMockTxTransmitting,
+      setVizPanOffset,
+      state.frequencyRange,
+      state.sourceMode,
+    ],
+  );
 
   useEffect(() => {
     if (!isTxOptionsEditing) return;
@@ -1462,11 +1501,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 tunerGainDb={effectiveTunerGainDb}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
-                isPaused={manualVisualizerPaused}
+                isPaused={
+                  isSelectedMockTxTransmitting ? false : manualVisualizerPaused
+                }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}
                 powerScale={state.powerScale}
                 isDeviceConnected={
+                  isSelectedMockTxSource ||
                   selectedSourceDerived.deviceState === "connected"
                 }
                 onFrequencyRangeChange={handleFrequencyRangeChange}
@@ -1487,7 +1529,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onVizZoomFloorPanChange={(pan) =>
                   dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
                 }
-                onVizPanChange={setVizPanOffset}
+                onVizPanChange={handleVizPanChange}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
                 onFftDbLimitsChange={(min, max) =>
@@ -1575,7 +1617,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               onVizZoomFloorPanChange={(pan) =>
                 dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
               }
-              onVizPanChange={setVizPanOffset}
+              onVizPanChange={handleVizPanChange}
               onStitchStatus={(status) =>
                 storeDispatch({ type: "SET_STITCH_STATUS", status })
               }

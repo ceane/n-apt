@@ -67,7 +67,9 @@ describe("AuthenticationRoute", () => {
           element.textContent?.includes("Try to restart the server"),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("npm run dev", { selector: "code" })).toBeInTheDocument();
+    expect(
+      screen.getByText("npm run dev", { selector: "code" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Sign in with Passkey/ }),
     ).not.toBeInTheDocument();

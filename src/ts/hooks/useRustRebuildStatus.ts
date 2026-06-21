@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useDispatch } from "react-redux";
-import { addNotification, removeNotification } from "@n-apt/redux/slices/notificationsSlice";
+import {
+  addNotification,
+  removeNotification,
+} from "@n-apt/redux/slices/notificationsSlice";
 
 export const useRustRebuildStatus = () => {
   const dispatch = useDispatch();
@@ -15,7 +18,7 @@ export const useRustRebuildStatus = () => {
         const res = await fetch("/rebuild-status");
         if (!res.ok) return;
         const data = await res.json();
-        
+
         if (data.rebuilding) {
           if (!wasRebuildingRef.current) {
             wasRebuildingRef.current = true;
@@ -26,25 +29,27 @@ export const useRustRebuildStatus = () => {
                 title: "Rebuilding Rust Backend...",
                 message: "Rust source files modified. Compiling new binary...",
                 duration: 0, // persistent until finished
-              })
+              }),
             );
           }
         } else {
           if (wasRebuildingRef.current) {
             wasRebuildingRef.current = false;
             dispatch(removeNotification(notificationId));
-            
+
             const success = data.success !== false;
             dispatch(
               addNotification({
                 id: `rust-rebuild-finished-${Date.now()}`,
                 type: success ? "success" : "error",
-                title: success ? "Rust Backend Reloaded" : "Rust Rebuild Failed",
-                message: success 
-                  ? "[check] Rebuild of backend complete." 
+                title: success
+                  ? "Rust Backend Reloaded"
+                  : "Rust Rebuild Failed",
+                message: success
+                  ? "[check] Rebuild of backend complete."
                   : "Check terminal output for details.",
                 duration: 5000,
-              })
+              }),
             );
           }
         }

@@ -27,6 +27,9 @@ import {
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatDuration } from "@n-apt/utils/formatters";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -477,6 +480,51 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       takeSnapshot,
     ]);
 
+    const playbackCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
+      if (!hasStitchedData) return null;
+
+      const channelData =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      const firstMetadata = workerMetadataMap.current[0]?.[1] ?? null;
+      const captureSampleRateHz =
+        firstMetadata?.capture_sample_rate_hz ??
+        channelData?.sample_rate_hz ??
+        hardwareSampleRateHz;
+      const displayFftSize =
+        firstMetadata?.fft_size ?? channelData?.bins_per_frame ?? fftSize;
+      const deviceLabel =
+        firstMetadata?.source_device ?? firstMetadata?.hardware ?? "File";
+      const durationLabel =
+        typeof firstMetadata?.duration_s === "number" &&
+        Number.isFinite(firstMetadata.duration_s)
+          ? formatDuration(firstMetadata.duration_s)
+          : "N/A";
+
+      return {
+        sampleRateLabel: `Captured Sample Rate: ${formatFrequency(
+          captureSampleRateHz ?? 0,
+          {
+            precisionMHz: 4,
+            precisionKHz: 2,
+            precisionGHz: 3,
+            trimTrailingZeros: true,
+          },
+        )}`,
+        fftSizeLabel: `FFT Size: ${Number(displayFftSize).toLocaleString(
+          "en-US",
+        )}`,
+        fftWindowLabel: `Device: ${deviceLabel}`,
+        timingLabel: `Duration: ${durationLabel}`,
+      };
+    }, [
+      activeChannel,
+      allChannelsRef,
+      fftSize,
+      hardwareSampleRateHz,
+      hasStitchedData,
+      workerMetadataMap,
+    ]);
+
     const initialFileNamesKey = useMemo(
       () => Array.from(fileNamesSet).sort().join("|"),
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -600,6 +648,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               powerScale={powerScale}
               visualizerMachine={visualizerMachine}
               visualizerSessionKey={visualizerSessionKey}
+              canvasStatusRow={playbackCanvasStatusRow}
               onLoadingStateChange={setSnapshotButtonsLoading}
               awaitingDeviceData={false}
               headerActionContent={fastSpectrumSnapshotAction}

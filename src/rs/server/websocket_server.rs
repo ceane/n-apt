@@ -48,7 +48,7 @@
 use anyhow::Result;
 use log::{debug, error, info, warn};
 use std::ffi::CStr;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -74,6 +74,252 @@ use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
 
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
+static MOCK_TX_MONITOR_SAMPLE_CURSOR: AtomicU64 = AtomicU64::new(0);
+
+fn clamp_tx_monitor_offset(offset_hz: f64, sample_rate_hz: f64) -> f64 {
+  if !offset_hz.is_finite() || !sample_rate_hz.is_finite() {
+    return 0.0;
+  }
+  let nyquist = sample_rate_hz.max(1.0) / 2.0;
+  offset_hz.clamp(-nyquist * 0.85, nyquist * 0.85)
+}
+
+fn resolve_mock_tx_monitor_params(
+  signal_name: &str,
+  sample_rate_hz: f64,
+) -> (f64, f64, f64) {
+  let settings = crate::server::utils::load_mock_tx_settings();
+  let key = signal_name.trim().to_ascii_lowercase();
+  let preset = settings
+    .signals
+    .get(&key)
+    .or_else(|| settings.signals.get("apt"));
+
+  let offset_hz = preset
+    .and_then(|preset| preset.offset_hz)
+    .unwrap_or(25_000.0);
+  let tone_hz = preset
+    .and_then(|preset| preset.tone_hz)
+    .unwrap_or(2_400.0)
+    .max(1.0);
+  let bandwidth_hz = preset
+    .and_then(|preset| preset.bandwidth_hz)
+    .unwrap_or(sample_rate_hz / 5.0)
+    .max(1.0)
+    .min(sample_rate_hz.max(1.0));
+
+  (
+    clamp_tx_monitor_offset(offset_hz, sample_rate_hz),
+    tone_hz,
+    bandwidth_hz,
+  )
+}
+
+fn mock_tx_noise_unit(sample_index: u64, salt: u64) -> f64 {
+  let mut x = sample_index
+    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    .wrapping_add(salt);
+  x ^= x >> 30;
+  x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+  x ^= x >> 27;
+  x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+  x ^= x >> 31;
+  ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 - 1.0
+}
+
+fn mock_tx_dither_unit(sample_index: u64, salt: u64) -> f64 {
+  let salt_fraction = ((salt & 0xffff) as f64) / 65_536.0;
+  (sample_index as f64 * 0.618_033_988_749_894_9 + salt_fraction).fract()
+}
+
+fn mock_tx_monitor_target_rms_from_dbm(power_dbm: f64) -> f64 {
+  if !power_dbm.is_finite() {
+    return 0.0;
+  }
+  // Frontend generic dBm mode is dBFS + 30 dB. Generate IQ whose complex
+  // RMS therefore measures as the requested dBm after FFT normalization.
+  10.0f64.powf((power_dbm - 30.0) / 20.0).clamp(0.0, 0.92)
+}
+
+fn resolve_effective_tx_power_dbm(
+  power_dbm: Option<f64>,
+  vga_gain_db: Option<f64>,
+  amp_enabled: Option<bool>,
+) -> Option<f64> {
+  power_dbm.or_else(|| match (vga_gain_db, amp_enabled) {
+    (Some(vga_gain_db), Some(amp_enabled)) => Some(
+      crate::safety::get_approx_output_power(vga_gain_db, amp_enabled),
+    ),
+    _ => None,
+  })
+}
+
+fn quantize_mock_tx_iq(value: f64, sample_index: u64, salt: u64) -> u8 {
+  let scaled = value.clamp(-1.0, 1.0) * 128.0;
+  let magnitude = scaled.abs();
+  let dither = mock_tx_dither_unit(sample_index, salt);
+  let whole = magnitude.floor();
+  let fraction = magnitude - whole;
+  let quantized = whole + if dither < fraction { 1.0 } else { 0.0 };
+  let signed = if scaled < 0.0 { -quantized } else { quantized };
+  (128.0 + signed).round().clamp(0.0, 255.0) as u8
+}
+
+fn synthesize_mock_tx_monitor_iq(
+  fft_size: usize,
+  view_center_hz: f64,
+  view_sample_rate: u32,
+  tx_center_hz: f64,
+  tx_sample_rate_hz: f64,
+  signal_name: &str,
+  tx_ifft_size: usize,
+  power_dbm: f64,
+  phase_accumulator: &mut f64,
+) -> Vec<u8> {
+  if fft_size == 0 {
+    return Vec::new();
+  }
+
+  let sample_rate_hz = view_sample_rate.max(1) as f64;
+  let tx_sample_rate_hz = tx_sample_rate_hz.max(1.0);
+  let half_view = sample_rate_hz / 2.0;
+  let half_tx = tx_sample_rate_hz / 2.0;
+  let view_min_hz = view_center_hz - half_view;
+  let view_max_hz = view_center_hz + half_view;
+  let tx_min_hz = tx_center_hz - half_tx;
+  let tx_max_hz = tx_center_hz + half_tx;
+  let overlaps_tx_window = view_max_hz >= tx_min_hz && view_min_hz <= tx_max_hz;
+  let signal_key = if signal_name.trim().is_empty() {
+    "apt".to_string()
+  } else {
+    signal_name.trim().to_ascii_lowercase()
+  };
+  let (_offset_hz, tone_hz, bandwidth_hz) =
+    resolve_mock_tx_monitor_params(&signal_key, tx_sample_rate_hz);
+  let tx_occupied_bandwidth_hz = tx_sample_rate_hz.min(sample_rate_hz).max(1.0);
+  let tx_half_bandwidth_hz = tx_occupied_bandwidth_hz / 2.0;
+  let effective_tone_hz = tone_hz.min((tx_half_bandwidth_hz * 0.25).max(1.0));
+  let effective_bandwidth_hz =
+    bandwidth_hz.min(tx_occupied_bandwidth_hz * 0.85).max(1.0);
+  let start_sample =
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
+  let quantized_power_floor_dbm =
+    crate::safety::get_quantized_iq_power_floor_dbm(
+      8,
+      tx_ifft_size.max(1) as u32,
+      30.0,
+    )
+    .ceil();
+  let target_rms =
+    mock_tx_monitor_target_rms_from_dbm(power_dbm.max(quantized_power_floor_dbm));
+  let signal_abs_hz = tx_center_hz;
+  let rel_hz = signal_abs_hz - view_center_hz;
+  let signal_in_view = overlaps_tx_window && rel_hz.abs() <= half_view * 0.98;
+  let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
+  let mut out = Vec::with_capacity(fft_size * 2);
+
+  // Pre-calculate FM modulation constants to avoid recomputing in loop
+  let w_sweep = 2.0 * std::f64::consts::PI * 0.25 / sample_rate_hz;
+  let sweep_deviation_hz = 15_000.0_f64.min(tx_half_bandwidth_hz * 0.2);
+  let mod_index_sweep = sweep_deviation_hz / 0.25;
+
+  let w_drift = 2.0 * std::f64::consts::PI * 0.1 / sample_rate_hz;
+  let drift_deviation_hz = 2_000.0_f64.min(tx_half_bandwidth_hz * 0.15);
+  let mod_index_drift = drift_deviation_hz / 0.1;
+
+  for j in 0..fft_size {
+    let t = start_sample + j as u64;
+    let t_f = t as f64;
+
+    // Accumulate carrier phase for every sample to avoid jumps when phase_step changes (panning)
+    *phase_accumulator += phase_step;
+    // Prevent unbounded growth of phase_accumulator
+    if *phase_accumulator > 2.0 * std::f64::consts::PI {
+      *phase_accumulator -= 2.0 * std::f64::consts::PI;
+    } else if *phase_accumulator < -2.0 * std::f64::consts::PI {
+      *phase_accumulator += 2.0 * std::f64::consts::PI;
+    }
+    let carrier_phase = *phase_accumulator;
+
+    if !signal_in_view {
+      let noise_floor_rms = mock_tx_monitor_target_rms_from_dbm(-110.0);
+      let noise_i =
+        mock_tx_noise_unit(t, 0x464c_4154_5458_4949) * noise_floor_rms;
+      let noise_q =
+        mock_tx_noise_unit(t, 0x464c_4154_5458_5151) * noise_floor_rms;
+      out.push(quantize_mock_tx_iq(noise_i, t, 0x464c_4154_5458_4949));
+      out.push(quantize_mock_tx_iq(noise_q, t, 0x464c_4154_5458_5151));
+      continue;
+    }
+
+    // Dynamic phase calculation with continuous FM integration (no jumps)
+    let phase = if signal_key == "tone" {
+      carrier_phase + (t_f * w_sweep).sin() * mod_index_sweep
+    } else if signal_key == "apt" {
+      carrier_phase + (t_f * w_drift).cos() * mod_index_drift
+    } else {
+      carrier_phase
+    };
+
+    let (carrier_q, carrier_i) = phase.sin_cos();
+
+    let (i, q) = match signal_key.as_str() {
+      "carrier" => (carrier_i * target_rms, carrier_q * target_rms),
+      "tone" => (carrier_i * target_rms, carrier_q * target_rms),
+      "noise" => {
+        // Multi-carrier noise hump simulation of bandwidth_hz (600 kHz)
+        let mut i_sum = 0.0;
+        let mut q_sum = 0.0;
+        let num_carriers = 16;
+        for k in 0..num_carriers {
+          let fraction = (k as f64 / (num_carriers - 1) as f64) - 0.5;
+          let freq_offset = fraction * effective_bandwidth_hz;
+          let phase_noise =
+            mock_tx_noise_unit(t / 256, k as u64) * std::f64::consts::PI;
+          let phase_k = carrier_phase
+            + (2.0 * std::f64::consts::PI * freq_offset * t_f / sample_rate_hz)
+            + phase_noise;
+          let (sin_k, cos_k) = phase_k.sin_cos();
+          i_sum += cos_k;
+          q_sum += sin_k;
+        }
+        let norm = (num_carriers as f64).sqrt();
+        (i_sum * target_rms / norm, q_sum * target_rms / norm)
+      }
+      "custom" => {
+        // Dynamic BPSK digital signal with 120 kHz symbol rate
+        let symbol_rate = 120_000.0_f64.min(tx_occupied_bandwidth_hz / 8.0);
+        let symbol_period =
+          (sample_rate_hz / symbol_rate).round().max(1.0) as u64;
+        let symbol_index = t / symbol_period;
+        let mut hash = symbol_index.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        hash ^= hash >> 30;
+        let bit = hash & 1;
+        let symbol = if bit == 0 { -1.0 } else { 1.0 };
+        (carrier_i * symbol * target_rms, carrier_q * symbol * target_rms)
+      }
+      _ => {
+        // Sync-pulsed AM subcarrier for APT
+        let subcarrier = (2.0 * std::f64::consts::PI * effective_tone_hz * t_f
+          / sample_rate_hz)
+          .sin();
+        let tick_t = (t_f / (sample_rate_hz * 0.5)) % 1.0;
+        let sync_gate = if tick_t < 0.04 { 0.08 } else { 1.0 };
+        let modulation = (0.65 + 0.35 * subcarrier) * sync_gate;
+        let apt_rms_correction = 1.0 / 0.730_924_071_341_243_f64;
+        (
+          carrier_i * modulation * target_rms * apt_rms_correction,
+          carrier_q * modulation * target_rms * apt_rms_correction,
+        )
+      }
+    };
+
+    out.push(quantize_mock_tx_iq(i, t, 0x544d_4f4e_4951_4949));
+    out.push(quantize_mock_tx_iq(q, t, 0x544d_4f4e_4951_5151));
+  }
+
+  out
+}
 
 fn sanitize_source_component(value: &str) -> String {
   let mut sanitized = String::with_capacity(value.len());
@@ -213,9 +459,13 @@ fn is_tx_capable_source_kind(kind: &str) -> bool {
 
 fn source_status_for_entry(
   is_active_source: bool,
+  is_paused: bool,
   device_state: &str,
   kind: &str,
 ) -> &'static str {
+  if is_paused {
+    return "connected";
+  }
   let active_tx_state = is_active_source
     && is_tx_capable_source_kind(kind)
     && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
@@ -285,6 +535,7 @@ fn build_source_payload(
   product: String,
   device_info: String,
   device_connected: bool,
+  paused: bool,
   is_active_source: bool,
 ) -> serde_json::Value {
   let device_profile = build_device_profile(kind);
@@ -308,7 +559,8 @@ fn build_source_payload(
     "name": name,
     "kind": kind,
     "capability": source_capability_for_kind(kind),
-    "status": source_status_for_entry(is_active_source, device_state, kind),
+    "status": source_status_for_entry(is_active_source, paused, device_state, kind),
+    "paused": paused,
     "loading_attempt": loading_attempt,
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
@@ -417,6 +669,7 @@ fn build_active_source_payload(
   loading_attempt: u32,
   loading_attempt_max: u32,
 ) -> serde_json::Value {
+  let paused = shared.is_source_paused(&source_id);
   let device_profile = shared.device_profile.lock().unwrap().clone();
   let device_info = shared.device_info.lock().unwrap().clone();
   let device_serial = shared.device_serial.lock().unwrap().clone();
@@ -443,19 +696,22 @@ fn build_active_source_payload(
     device_product,
     device_info,
     shared.device_connected.load(Ordering::Relaxed),
+    paused,
     true,
   )
 }
 
 fn build_mock_tx_source_payload(
   shared: &SharedState,
-  _active_source_id: &str,
+  active_source_id: &str,
 ) -> Option<serde_json::Value> {
-  if !crate::server::utils::load_mock_tx_settings().enabled {
+  let mock_tx_settings = crate::server::utils::load_mock_tx_settings();
+  if !mock_tx_settings.enabled {
     return None;
   }
+  let paused = shared.is_source_paused("mock-tx");
 
-  Some(build_source_payload(
+  let mut payload = build_source_payload(
     shared,
     "mock-tx".to_string(),
     MOCK_TX_DISPLAY_NAME.to_string(),
@@ -475,11 +731,23 @@ fn build_mock_tx_source_payload(
     MOCK_TX_DISPLAY_NAME.to_string(),
     MOCK_TX_DISPLAY_NAME.to_string(),
     true,
-    false,
-  ))
+    paused,
+    active_source_id == "mock-tx",
+  );
+
+  if let Some(obj) = payload.as_object_mut() {
+    obj.insert(
+      "mock_tx".to_string(),
+      serde_json::to_value(&mock_tx_settings)
+        .unwrap_or(serde_json::Value::Null),
+    );
+  }
+
+  Some(payload)
 }
 
 fn build_mock_apt_source_payload(shared: &SharedState) -> serde_json::Value {
+  let paused = shared.is_source_paused("mock-apt");
   build_source_payload(
     shared,
     "mock-apt".to_string(),
@@ -493,6 +761,7 @@ fn build_mock_apt_source_payload(shared: &SharedState) -> serde_json::Value {
     "Mock APT SDR".to_string(),
     "Mock APT SDR".to_string(),
     true,
+    paused,
     false,
   )
 }
@@ -511,6 +780,7 @@ fn enumerate_rtl_sdr_sources(
     if source_id == active_source_id {
       continue;
     }
+    let paused = shared.is_source_paused(&source_id);
 
     let source_name = status_device_name(
       true,
@@ -534,6 +804,7 @@ fn enumerate_rtl_sdr_sources(
       product,
       device_name,
       true,
+      paused,
       false,
     ));
   }
@@ -576,6 +847,7 @@ fn enumerate_hackrf_sources(
       if source_id == active_source_id {
         continue;
       }
+      let paused = shared.is_source_paused(&source_id);
 
       let source_name = status_device_name(
         true,
@@ -595,6 +867,7 @@ fn enumerate_hackrf_sources(
         "HackRF One".to_string(),
         "HackRF One".to_string(),
         true,
+        paused,
         false,
       ));
     }
@@ -830,7 +1103,7 @@ pub(crate) fn build_device_profile(device_type: &str) -> DeviceProfile {
       kind: "mock_tx".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: false,
+      supports_raw_iq_stream: true,
     },
     _ => DeviceProfile {
       kind: "mock_apt".to_string(),
@@ -1094,6 +1367,7 @@ impl WebSocketServer {
                     );
                   }
                   shared_state.set_device_backend_error(processor.get_error());
+                  shared_state.sync_active_source_pause_state(&source_id);
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
@@ -1182,6 +1456,8 @@ impl WebSocketServer {
                   processor.get_product(),
                 );
                 shared_state.set_device_backend_error(processor.get_error());
+                let active_id = active_source_id(&shared_state);
+                shared_state.sync_active_source_pause_state(&active_id);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
             }
@@ -1393,8 +1669,9 @@ impl WebSocketServer {
               }
             }
 
-            // Auto-unpause for capture
-            shared_state.is_paused.store(false, Ordering::SeqCst);
+            // Auto-unpause for capture on the current active source.
+            let active_source_id = active_source_id(&shared_state);
+            shared_state.set_active_source_pause_state(&active_source_id, false);
 
             info!(
               "Started capture job {} for {}s (auto-unpaused)",
@@ -1440,8 +1717,11 @@ impl WebSocketServer {
           crate::server::types::SdrCommand::SetTransmitMode {
             enabled,
             device,
+            tx_signal,
             center_frequency_hz,
             sample_rate_hz,
+            tx_ifft_size,
+            power_dbm,
             lna_gain_db,
             vga_gain_db,
             amp_enabled,
@@ -1457,11 +1737,39 @@ impl WebSocketServer {
 
             let device_normalized =
               device.to_ascii_lowercase().replace(['_', '-'], " ");
-            let is_mock_tx_device = device_normalized == "mock tx"
-              || device_normalized == "mock tx device"
-              || device_normalized == "mock tx sdr";
+            let is_mock_tx_device = matches!(
+              device_normalized.as_str(),
+              "mock tx" | "mock tx device" | "mock tx sdr"
+            );
 
-            if !is_mock_tx_device {
+            let active_kind =
+              shared_state.device_profile.lock().unwrap().kind.clone();
+            if let Some(tx_signal) = tx_signal.as_deref() {
+              *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
+            }
+            let effective_power_dbm = resolve_effective_tx_power_dbm(
+              power_dbm,
+              vga_gain_db,
+              amp_enabled,
+            );
+            if let Some(power_dbm) = effective_power_dbm {
+              *crate::safety::TX_POWER_DBM.lock().unwrap() = power_dbm;
+            }
+            if let Some(center_frequency_hz) = center_frequency_hz {
+              *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
+                center_frequency_hz as f64;
+            }
+            if let Some(sample_rate_hz) = sample_rate_hz {
+              *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() =
+                sample_rate_hz as f64;
+            }
+            if let Some(tx_ifft_size) = tx_ifft_size {
+              *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
+            }
+            let was_transmitting =
+              crate::safety::TX_TRANSMITTING.swap(enabled, Ordering::Relaxed);
+
+            if !is_mock_tx_device || active_kind == "mock_tx" {
               if let Some(center_frequency_hz) = center_frequency_hz {
                 let mut processor = sdr_processor.lock().await;
                 processor.queue_center_frequency(
@@ -1484,20 +1792,22 @@ impl WebSocketServer {
               );
             }
 
-            let active_kind =
-              shared_state.device_profile.lock().unwrap().kind.clone();
+            let mut status_changed = was_transmitting != enabled;
             if active_kind == "mock_tx" || is_mock_tx_device {
-              shared_state
+              let mock_tx_was_transmitting = shared_state
                 .mock_tx_transmitting
-                .store(enabled, Ordering::Relaxed);
+                .swap(enabled, Ordering::Relaxed);
+              status_changed |= mock_tx_was_transmitting != enabled;
             }
-            if matches!(active_kind.as_str(), "mock_tx" | "hackrf_one") {
+            if status_changed && matches!(active_kind.as_str(), "mock_tx" | "hackrf_one") {
               shared_state.set_device_state(
                 if enabled { "transmitting" } else { "connected" },
                 None,
               );
             }
-            broadcast_device_status(&shared_state, &_broadcast_tx);
+            if status_changed {
+              broadcast_device_status(&shared_state, &_broadcast_tx);
+            }
           }
           #[cfg(rs_decrypted)]
           crate::server::types::SdrCommand::ScanForAudio {
@@ -1694,8 +2004,12 @@ impl WebSocketServer {
 
       // If the stream is paused by the client, don't read from SDR or broadcast
       // unless the frontend explicitly requested one fresh frame.
+      let should_stream_mock_tx_monitor = active_source_id(&shared_state)
+        == "mock-tx"
+        && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       if shared_state.is_paused.load(Ordering::SeqCst)
         && !allow_next_paused_frame
+        && !should_stream_mock_tx_monitor
       {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
@@ -1733,16 +2047,26 @@ impl WebSocketServer {
                 processor.frame.avg_spectrum = None;
               }
 
-              let force_noise =
-                cloned_shared.force_noise.load(std::sync::atomic::Ordering::Relaxed);
-              let waveform =
-                processor.read_and_process_frame_with_noise(force_noise)?;
+              let current_fft_size = processor.fft_processor.config().fft_size;
               let timestamp = chrono::Utc::now().timestamp_millis();
-              let center_frequency = processor.get_center_frequency();
-              let is_mock_apt = processor.device_type().contains("Mock");
-              let device_type = processor.device_type().to_string();
+              let mut center_frequency = processor.get_center_frequency();
+              let active_source_is_mock_tx =
+                active_source_id(&cloned_shared) == "mock-tx";
+              let tx_is_active = crate::safety::TX_TRANSMITTING
+                .load(std::sync::atomic::Ordering::Relaxed);
+              let streaming_mock_tx_monitor = active_source_is_mock_tx && tx_is_active;
+              let is_mock_apt = if streaming_mock_tx_monitor {
+                false
+              } else {
+                processor.device_type().contains("Mock")
+              };
+              let device_type = if streaming_mock_tx_monitor {
+                MOCK_TX_DISPLAY_NAME.to_string()
+              } else {
+                processor.device_type().to_string()
+              };
               let power_scale = processor.get_power_scale();
-              let sample_rate = {
+              let mut sample_rate = {
                 let processor_sample_rate = processor.get_sample_rate();
                 if processor_sample_rate == 0 {
                   cloned_shared.sdr_settings.lock().unwrap().sample_rate.max(1)
@@ -1750,7 +2074,46 @@ impl WebSocketServer {
                   processor_sample_rate
                 }
               };
-              let raw_iq = processor.frame.last_frame_raw_iq.clone();
+              let (waveform, raw_iq) = if streaming_mock_tx_monitor {
+                let settings = cloned_shared.sdr_settings.lock().unwrap().clone();
+                if center_frequency == 0 {
+                  center_frequency = settings.center_frequency;
+                }
+                sample_rate = settings.sample_rate.max(1);
+                let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
+                let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
+                let tx_center_hz =
+                  *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
+                let tx_sample_rate_hz =
+                  *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
+                let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+                let raw_iq = synthesize_mock_tx_monitor_iq(
+                  current_fft_size,
+                  center_frequency as f64,
+                  sample_rate,
+                  if tx_center_hz > 0.0 {
+                    tx_center_hz
+                  } else {
+                    center_frequency as f64
+                  },
+                  if tx_sample_rate_hz > 0.0 {
+                    tx_sample_rate_hz
+                  } else {
+                    sample_rate as f64
+                  },
+                  &tx_signal,
+                  tx_ifft_size,
+                  tx_power_dbm,
+                  &mut *cloned_shared.mock_tx_phase_accumulator.lock().unwrap(),
+                );
+                (Vec::new(), raw_iq)
+              } else {
+                let force_noise =
+                  cloned_shared.force_noise.load(std::sync::atomic::Ordering::Relaxed);
+                let waveform =
+                  processor.read_and_process_frame_with_noise(force_noise)?;
+                (waveform, processor.frame.last_frame_raw_iq.clone())
+              };
               let fps = processor.display_frame_rate;
               Ok((
                 waveform,
@@ -2429,6 +2792,27 @@ mod tests {
 
   #[test]
   #[serial]
+  fn paused_active_sources_do_not_report_streaming_status() {
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.set_active_source_pause_state("mock-apt", true);
+
+    let snapshot = build_source_info_snapshot(&shared);
+
+    assert_eq!(snapshot["active_source"], "mock-apt");
+    assert_eq!(snapshot["active_source_mode"], "file");
+    let sources = snapshot["sources"].as_array().expect("sources array");
+    let active = sources
+      .iter()
+      .find(|source| source["id"].as_str() == Some("mock-apt"))
+      .expect("active mock apt source");
+    assert_eq!(active["status"], "connected");
+  }
+
+  #[test]
+  #[serial]
   fn source_info_snapshot_includes_mock_tx_device() {
     let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
     crate::server::utils::clear_signals_config_cache();
@@ -2516,6 +2900,253 @@ mod tests {
     assert_eq!(sources[0]["stream_key_kind"], "source_id");
     assert_eq!(sources[1]["stream_key"], "rtl-sdr-1");
     assert_eq!(sources[1]["stream_key_kind"], "source_id");
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_returns_flat_noise_outside_tx_window() {
+    let frame = synthesize_mock_tx_monitor_iq(
+      2048,
+      20_000_000.0,
+      2_400_000,
+      2_204_000.0,
+      2_400_000.0,
+      "apt",
+      2048,
+      -18.0,
+      &mut 0.0,
+    );
+
+    let max_delta = frame
+      .iter()
+      .map(|byte| (*byte as i16 - 128).abs())
+      .max()
+      .unwrap_or(0);
+    assert!(
+      max_delta <= 3,
+      "off-window monitor should be a flat noise floor, max delta {max_delta}"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_signal_is_visible_inside_tx_window() {
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let frame = synthesize_mock_tx_monitor_iq(
+      2048,
+      2_204_000.0,
+      2_400_000,
+      2_204_000.0,
+      2_400_000.0,
+      "apt",
+      2048,
+      -18.0,
+      &mut 0.0,
+    );
+
+    let max_delta = frame
+      .iter()
+      .map(|byte| (*byte as i16 - 128).abs())
+      .max()
+      .unwrap_or(0);
+
+    assert!(
+      max_delta > 0,
+      "in-window monitor should contain the Tx waveform, max delta {max_delta}"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_power_dbm_controls_waveform_amplitude() {
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let high_power_frame = synthesize_mock_tx_monitor_iq(
+      65_536,
+      2_204_000.0,
+      2_400_000,
+      2_204_000.0,
+      2_400_000.0,
+      "carrier",
+      65_536,
+      -18.0,
+      &mut 0.0,
+    );
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let low_power_frame = synthesize_mock_tx_monitor_iq(
+      65_536,
+      2_204_000.0,
+      2_400_000,
+      2_204_000.0,
+      2_400_000.0,
+      "carrier",
+      65_536,
+      -70.0,
+      &mut 0.0,
+    );
+
+    let high_dbm = iq_bin_dbm_at(&high_power_frame, 0.0, 2_400_000.0);
+    let low_dbm = iq_bin_dbm_at(&low_power_frame, 0.0, 2_400_000.0);
+    let low_floor_dbm =
+      crate::safety::get_quantized_iq_power_floor_dbm(8, 65_536, 30.0).ceil();
+
+    assert!(
+      (high_dbm - -18.0).abs() < 1.5,
+      "-18 dBm monitor should measure near requested power, got {high_dbm:.2} dBm"
+    );
+    assert!(
+      (low_dbm - low_floor_dbm).abs() < 2.0,
+      "-70 dBm monitor should clamp to quantized floor {low_floor_dbm:.2} dBm, got {low_dbm:.2} dBm"
+    );
+    assert!(
+      high_dbm > low_dbm + 35.0,
+      "monitor amplitude should track requested power: high={high_dbm:.2} dBm, low={low_dbm:.2} dBm"
+    );
+  }
+
+  #[test]
+  fn tx_power_resolution_uses_explicit_power_before_vga_amp_mapping() {
+    assert_eq!(
+      resolve_effective_tx_power_dbm(Some(-18.0), Some(47.0), Some(true)),
+      Some(-18.0)
+    );
+  }
+
+  #[test]
+  fn tx_power_resolution_falls_back_to_vga_amp_mapping() {
+    let resolved =
+      resolve_effective_tx_power_dbm(None, Some(25.0), Some(true)).unwrap();
+    let expected = crate::safety::get_approx_output_power(25.0, true);
+    assert!(
+      (resolved - expected).abs() < 1e-6,
+      "expected VGA/AMP-derived power {expected}, got {resolved}"
+    );
+  }
+
+  fn iq_power_at(frame: &[u8], rel_hz: f64, sample_rate_hz: f64) -> f64 {
+    let mut acc_i = 0.0;
+    let mut acc_q = 0.0;
+    for (index, sample) in frame.chunks_exact(2).enumerate() {
+      let i = (sample[0] as f64 - 128.0) / 127.0;
+      let q = (sample[1] as f64 - 128.0) / 127.0;
+      let phase =
+        -2.0 * std::f64::consts::PI * rel_hz * index as f64 / sample_rate_hz;
+      let (sin_phase, cos_phase) = phase.sin_cos();
+      acc_i += i * cos_phase - q * sin_phase;
+      acc_q += i * sin_phase + q * cos_phase;
+    }
+    acc_i * acc_i + acc_q * acc_q
+  }
+
+  fn iq_bin_dbm_at(frame: &[u8], rel_hz: f64, sample_rate_hz: f64) -> f64 {
+    let sample_count = frame.len() / 2;
+    if sample_count == 0 {
+      return -150.0;
+    }
+    let normalized_power =
+      iq_power_at(frame, rel_hz, sample_rate_hz) / (sample_count * sample_count) as f64;
+    10.0 * normalized_power.max(1e-15).log10() + 30.0
+  }
+
+  fn max_iq_power_between(
+    frame: &[u8],
+    min_rel_hz: f64,
+    max_rel_hz: f64,
+    step_hz: f64,
+    sample_rate_hz: f64,
+  ) -> f64 {
+    let mut rel_hz = min_rel_hz;
+    let mut max_power = 0.0;
+    while rel_hz <= max_rel_hz {
+      let power = iq_power_at(frame, rel_hz, sample_rate_hz);
+      if power > max_power {
+        max_power = power;
+      }
+      rel_hz += step_hz.max(1.0);
+    }
+    max_power
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_centers_active_signal_on_requested_tx_center() {
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let frame = synthesize_mock_tx_monitor_iq(
+      4096,
+      2_204_000.0,
+      2_400_000,
+      2_204_000.0,
+      2_400_000.0,
+      "apt",
+      4096,
+      -18.0,
+      &mut 0.0,
+    );
+
+    let center_power = iq_power_at(&frame, 0.0, 2_400_000.0);
+    let preset_offset_power = iq_power_at(&frame, 25_000.0, 2_400_000.0);
+
+    assert!(
+      center_power > preset_offset_power * 4.0,
+      "active Tx should center on requested slider frequency: center={center_power}, offset={preset_offset_power}"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_keeps_modulation_inside_requested_tx_bandwidth() {
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let frame = synthesize_mock_tx_monitor_iq(
+      4096,
+      2_204_000.0,
+      2_400_000,
+      2_204_000.0,
+      10_000.0,
+      "tone",
+      4096,
+      -18.0,
+      &mut 0.0,
+    );
+
+    let inside_power =
+      max_iq_power_between(&frame, -4_000.0, 4_000.0, 500.0, 2_400_000.0);
+    let outside_power =
+      max_iq_power_between(&frame, 8_000.0, 20_000.0, 500.0, 2_400_000.0).max(
+        max_iq_power_between(&frame, -20_000.0, -8_000.0, 500.0, 2_400_000.0),
+      );
+
+    assert!(
+      inside_power > outside_power * 4.0,
+      "active Tx modulation should stay inside requested bandwidth: inside={inside_power}, outside={outside_power}"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_monitor_synthesis_is_lightweight_for_realtime_streaming() {
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+    let started_at = std::time::Instant::now();
+    let mut phase = 0.0;
+
+    for _ in 0..120 {
+      let frame = synthesize_mock_tx_monitor_iq(
+        4096,
+        2_204_000.0,
+        2_400_000,
+        2_204_000.0,
+        760_000.0,
+        "apt",
+        4096,
+        -18.0,
+        &mut phase,
+      );
+      assert_eq!(frame.len(), 8192);
+    }
+
+    let elapsed = started_at.elapsed();
+    assert!(
+      elapsed < Duration::from_millis(400),
+      "Mock Tx monitor synthesis is too slow for realtime streaming: {elapsed:?}"
+    );
   }
 
   #[test]

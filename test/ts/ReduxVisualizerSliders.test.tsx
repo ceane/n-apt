@@ -11,7 +11,7 @@ import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import ReduxVisualizerSliders from "../../src/ts/components/sidebar/ReduxVisualizerSliders";
-import { setDeviceKind, setShowTxSlider } from "../../src/ts/redux";
+import { setShowTxSlider } from "../../src/ts/redux";
 import { ThemeProvider } from "styled-components";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { THEME_TOKENS } from "../../src/ts/consts";
@@ -24,7 +24,7 @@ const theme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-const createStore = () =>
+const createStore = (preloadedState?: any) =>
   configureStore({
     reducer: {
       auth: authSlice,
@@ -35,15 +35,29 @@ const createStore = () =>
       websocket: websocketSlice,
       snapshot: snapshotSlice,
       demod: demodSlice,
-    },
+    } as any,
+    preloadedState,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({ serializableCheck: false }),
   });
 
 describe("ReduxVisualizerSliders", () => {
   test("shows the tx slider toggle for tx-capable devices", () => {
-    const store = createStore();
-    store.dispatch(setDeviceKind("hackrf_one"));
+    const store = createStore({
+      websocket: {
+        activeSourceId: "hackrf-1",
+        sources: [
+          {
+            id: "hackrf-1",
+            capability: "tx_rx",
+            kind: "hackrf_one",
+            name: "HackRF One",
+          },
+        ],
+        sourceStatuses: {},
+        channels: [],
+      },
+    });
     store.dispatch(setShowTxSlider(false));
 
     render(
@@ -60,8 +74,21 @@ describe("ReduxVisualizerSliders", () => {
   });
 
   test("shows the tx slider toggle for the mock tx device", () => {
-    const store = createStore();
-    store.dispatch(setDeviceKind("mock_tx"));
+    const store = createStore({
+      websocket: {
+        activeSourceId: "mock-tx",
+        sources: [
+          {
+            id: "mock-tx",
+            capability: "tx",
+            kind: "mock_tx",
+            name: "Mock Tx SDR",
+          },
+        ],
+        sourceStatuses: {},
+        channels: [],
+      },
+    });
     store.dispatch(setShowTxSlider(false));
 
     render(
@@ -78,15 +105,21 @@ describe("ReduxVisualizerSliders", () => {
   });
 
   test("defaults to true if Redux persist restores an undefined showTxSlider state", () => {
-    const store = createStore();
-    store.dispatch(setDeviceKind("mock_tx"));
-    // explicitly do not set showTxSlider to simulate undefined initial state
-    // wait, we can just set it to undefined manually if possible
-    // actually, let's just let it fall back
-
-    // since we can't dispatch undefined easily due to typescript, we can just check the initial default state which should have showTxSlider: true
-    // but the slice initializes to true anyway, so to simulate Redux persist replacing it with undefined we have to override the state.
-    // However, the slice handles it as true initially. So maybe this test isn't strictly necessary since Redux handles `undefined` internally. Let's just pass `undefined` as any to be thorough.
+    const store = createStore({
+      websocket: {
+        activeSourceId: "mock-tx",
+        sources: [
+          {
+            id: "mock-tx",
+            capability: "tx",
+            kind: "mock_tx",
+            name: "Mock Tx SDR",
+          },
+        ],
+        sourceStatuses: {},
+        channels: [],
+      },
+    });
     store.dispatch(setShowTxSlider(undefined as any));
 
     render(
@@ -97,13 +130,12 @@ describe("ReduxVisualizerSliders", () => {
       </Provider>,
     );
 
-    const button = screen.getByRole("button", { name: /hide tx slider/i }); // It says 'Hide' because it's active!
+    const button = screen.getByRole("button", { name: /hide tx slider/i });
     expect(button).toBeInTheDocument();
   });
 
   test("does not show the tx slider toggle when the selected device is rx-only", () => {
     const store = createStore();
-    store.dispatch(setDeviceKind(null));
     store.dispatch(setShowTxSlider(false));
 
     render(
@@ -121,7 +153,37 @@ describe("ReduxVisualizerSliders", () => {
 
   test("does not show the tx slider toggle when the selected device is a mock rx-only device", () => {
     const store = createStore();
-    store.dispatch(setDeviceKind("mock"));
+    store.dispatch(setShowTxSlider(false));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <ReduxVisualizerSliders />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /show tx slider/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("does not show the tx slider toggle for a mock APT source", () => {
+    const store = createStore({
+      websocket: {
+        activeSourceId: "mock-apt-1",
+        sources: [
+          {
+            id: "mock-apt-1",
+            capability: "mock",
+            kind: "mock_apt",
+            name: "Mock APT SDR",
+          },
+        ],
+        sourceStatuses: {},
+        channels: [],
+      },
+    });
     store.dispatch(setShowTxSlider(false));
 
     render(

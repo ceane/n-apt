@@ -248,6 +248,7 @@ export interface SourceInfo {
   kind: string;
   capability: SourceCapability;
   status: SourceStatus;
+  paused?: boolean;
   loading_attempt: number;
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
@@ -268,6 +269,22 @@ export interface SourceInfo {
       }>;
     };
     settings: SourceSdrSettings;
+  };
+  mock_tx?: {
+    enabled: boolean;
+    signals: Record<
+      string,
+      {
+        label?: string;
+        channel?: string;
+        center_frequency_hz?: number;
+        sample_rate_hz?: number;
+        offset_hz?: number;
+        tone_hz?: number;
+        bandwidth_hz?: number;
+        description?: string;
+      }
+    >;
   };
 }
 
@@ -321,7 +338,7 @@ export type WebSocketMessage =
       center_frequency?: number;
     }
   | ChannelsMessage
-  | { type: "pause"; paused: boolean }
+  | { type: "pause"; paused: boolean; source_id: string }
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)

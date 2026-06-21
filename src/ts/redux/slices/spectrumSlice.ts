@@ -76,6 +76,7 @@ export interface SpectrumState {
   // SDR settings
   txSignal: string;
   txSampleRateHz: number;
+  txIfftSize: number;
   txCenterFrequencyHz: number;
   txPowerDbm: number;
   txVgaGain: number;
@@ -135,7 +136,8 @@ const LIVE_CONTROL_DEFAULTS = {
   gain: 49.6,
   txSignal: "apt",
   txSampleRateHz: 2_400_000,
-  txCenterFrequencyHz: 137_100_000,
+  txIfftSize: 2048,
+  txCenterFrequencyHz: 2_204_000,
   txPowerDbm: -18,
   txVgaGain: 16,
   txSafetyEnabled: false,
@@ -182,7 +184,8 @@ const initialState: SpectrumState = {
   gain: 49.6,
   txSignal: "apt",
   txSampleRateHz: 2_400_000,
-  txCenterFrequencyHz: 137_100_000,
+  txIfftSize: 2048,
+  txCenterFrequencyHz: 2_204_000,
   txPowerDbm: -18,
   txVgaGain: 16,
   txSafetyEnabled: false,
@@ -376,6 +379,11 @@ const spectrumSlice = createSlice({
     setTxSampleRateHz: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.txSampleRateHz = action.payload;
+    },
+
+    setTxIfftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txIfftSize = action.payload;
     },
 
     setTxCenterFrequencyHz: (state, action: PayloadAction<number>) => {
@@ -648,6 +656,7 @@ export const {
   setWfSmoothEnabled,
   setTxSignal,
   setTxSampleRateHz,
+  setTxIfftSize,
   setTxCenterFrequencyHz,
   setDeviceKind,
   setTxPowerDbm,

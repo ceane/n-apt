@@ -691,6 +691,12 @@ const BuildOrchestrator = () => {
             if (activeChildrenRef.current) {
               activeChildrenRef.current.push(child);
             }
+            // Detach the child and its pipes so the orchestrator can exit cleanly
+            // once the build is finished. We keep the startup listeners above for
+            // launch-time diagnostics, but we do not want the live backend/stdout
+            // handles to keep the parent event loop open forever.
+            child.stdout?.unref?.();
+            child.stderr?.unref?.();
             child.unref(); // Allow parent to exit
             resolved = true;
             resolve(true);
@@ -909,20 +915,12 @@ exit 1
       {
         index: 0,
         command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `
-# Kill by name (aggressive)
-pkill -9 -f 'n-apt-backend' || true
-pkill -9 -f 'vite' || true
+# Kill by name without matching this cleanup shell itself.
+pkill -9 -f '[n]-apt-backend' || true
+pkill -9 -f '[v]ite' || true
+pkill -9 -f '[r]edis-server' || true
 
-# Kill by port (safe & exhaustive)
-# Ports: 5173 (Vite), 8765 (Backend), 6379 (Redis)
-for port in 5173 8765 6379; do
-  pids=$(lsof -tPni :$port)
-  if [ ! -z "$pids" ]; then
-    echo "Clearing port $port (PIDs: $pids)"
-    kill -9 $pids 2>/dev/null || true
-  fi
-done
-# Small settling delay
+# Small settling delay.
 sleep 0.5
 `,
         description: 'Cleaning up existing processes',
@@ -975,10 +973,6 @@ REDIS_PORT=6379
 DATA_DIR='.redis_data'
 mkdir -p "$DATA_DIR"
 if command -v redis-server >/dev/null 2>&1; then
-  if lsof -tPni :$REDIS_PORT >/dev/null 2>&1; then
-    echo "Error: Port $REDIS_PORT is still in use after cleanup. Please stop any system Redis services."
-    exit 1
-  fi
   exec redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb
 else
   echo "redis-server is required on PATH"
@@ -1075,6 +1069,11 @@ exit 1
     ];
 
     for (const step of steps) {
+      setBuildState(prev => ({
+        ...prev,
+        currentStep: step.index,
+      }));
+
       const stepLabelBase = (step.index === 4) ? getTowerLoadDescription() : step.description;
       const stepLabel = step.index === 0 ? stepLabelBase : withEllipsis(stepLabelBase);
       const runningLabel = step.label ?? stepLabel;
@@ -1128,6 +1127,11 @@ exit 1
         appendErrorDetail(`${step.description} failed`);
         break; // Stop the build if a step fails
       }
+
+      setBuildState(prev => ({
+        ...prev,
+        currentStep: step.index + 1,
+      }));
 
       // Small delay between steps for visual clarity
       await new Promise(resolve => {
@@ -1343,6 +1347,14 @@ exit 1
             } catch {}
           }
         }
+        // Pre-emptive safety check: Kill any other orphaned backend processes
+        try {
+          if (process.platform === 'win32') {
+            spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
+          } else {
+            spawnSync('pkill -9 -f n-apt-backend', { shell: true });
+          }
+        } catch {}
 
         // Start new backend
         const startCommand = isNativeWindows
@@ -1624,14 +1636,9 @@ async function runNonTtyBuild() {
       description: 'Cleaning up existing processes',
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Windows cleanup is skipped' : `
-          pkill -9 -f 'n-apt-backend' || true
-          pkill -9 -f 'vite' || true
-          for port in 5173 8765 6379; do
-            pids=$(lsof -tPni :$port)
-            if [ ! -z "$pids" ]; then
-              kill -9 $pids 2>/dev/null || true
-            fi
-          done
+          pkill -9 -f '[n]-apt-backend' || true
+          pkill -9 -f '[v]ite' || true
+          pkill -9 -f '[r]edis-server' || true
           sleep 0.5
         `,
         'Cleaning up existing processes'
@@ -1822,4 +1829,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 export default BuildOrchestrator;
-

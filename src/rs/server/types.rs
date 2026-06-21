@@ -122,8 +122,10 @@ pub enum SdrCommand {
     enabled: bool,
     device: String,
     serial_number: String,
+    tx_signal: Option<String>,
     center_frequency_hz: Option<u64>,
     sample_rate_hz: Option<u64>,
+    tx_ifft_size: Option<usize>,
     power_dbm: Option<f64>,
     lna_gain_db: Option<f64>,
     vga_gain_db: Option<f64>,
@@ -371,6 +373,9 @@ pub struct WebSocketMessage {
   pub tx_safety_enabled: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txSignal")]
   pub tx_signal: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txIfftSize")]
+  #[validate(range(min = 256, max = 8388608))]
+  pub tx_ifft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txSafetyLimit")]
   pub tx_safety_limit: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txHopType")]
@@ -679,12 +684,37 @@ pub struct MockAptSignalsConfig {
 pub struct MockTxSignalsConfig {
   #[serde(default = "default_true")]
   pub enabled: bool,
+  #[serde(default)]
+  pub signals: IndexMap<String, MockTxSignalConfig>,
 }
 
 impl Default for MockTxSignalsConfig {
   fn default() -> Self {
-    Self { enabled: true }
+    Self {
+      enabled: true,
+      signals: IndexMap::new(),
+    }
   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockTxSignalConfig {
+  #[serde(default)]
+  pub label: Option<String>,
+  #[serde(default)]
+  pub channel: Option<String>,
+  #[serde(default)]
+  pub center_frequency_hz: Option<f64>,
+  #[serde(default)]
+  pub sample_rate_hz: Option<f64>,
+  #[serde(default)]
+  pub offset_hz: Option<f64>,
+  #[serde(default)]
+  pub tone_hz: Option<f64>,
+  #[serde(default)]
+  pub bandwidth_hz: Option<f64>,
+  #[serde(default)]
+  pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

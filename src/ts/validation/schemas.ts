@@ -201,6 +201,7 @@ export const SourceInfoSchema = z.object({
   kind: z.string(),
   capability: SourceCapabilitySchema,
   status: SourceStatusSchema.nullable(),
+  paused: z.boolean().optional(),
   loading_attempt: z.number().int().nonnegative(),
   loading_attempt_max: z.number().int().nonnegative(),
   supports_approx_dbm: z.boolean(),
@@ -345,6 +346,7 @@ export const WebSocketMessageSchema = z.union([
   z.object({
     type: z.literal("pause"),
     paused: z.boolean(),
+    source_id: z.string(),
   }),
   z.object({
     type: z.literal("gain"),
