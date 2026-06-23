@@ -144,6 +144,14 @@ signals:
               dbm: 14.5
             - vga: 47
               dbm: 15.0
+        _tx_iq_power_model:
+          iq_encoding: offset_binary_u8
+          signed_range: [-128, 127]
+          normalized_sample: "(byte - 128) / 127"
+          complex_rms_formula: "sqrt(mean(i_norm^2 + q_norm^2))"
+          dbm_formula: "20 * log10(complex_rms) + calibration_db"
+          inverse_rms_formula: "10 ** ((dbm - calibration_db) / 20)"
+          calibration_db: 15.0
 
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated
@@ -187,11 +195,12 @@ signals:
   # spectrum without switching away from the receive source.
   mock_tx:
     enabled: true
+    noise_floor_db: !dB -100dB
     signals:
       apt:
         label: "APT"
         channel: "a"
-        center_frequency_hz: !frequency 2.204MHz
+        center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 2.4MHz
         offset_hz: !frequency 25kHz
         tone_hz: !frequency 2.4kHz
@@ -199,7 +208,7 @@ signals:
       tone:
         label: "Tone"
         channel: "a"
-        center_frequency_hz: !frequency 1.6MHz
+        center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 1MHz
         offset_hz: !frequency 100kHz
         tone_hz: !frequency 1kHz
@@ -214,7 +223,7 @@ signals:
       custom:
         label: "Custom I/Q"
         channel: "b"
-        center_frequency_hz: !frequency 27.235MHz
+        center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 2.4MHz
         offset_hz: !frequency 50kHz
         tone_hz: !frequency 1.2kHz

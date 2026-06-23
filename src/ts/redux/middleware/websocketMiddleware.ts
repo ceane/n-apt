@@ -103,9 +103,13 @@ const getDeviceKindFromSource = (source: SourceInfo): string => {
     kind === "hackrf_one" ||
     kind === "mock_tx" ||
     kind === "tx_rx" ||
-    kind === "tx"
+    kind === "tx" ||
+    kind === "mock_apt"
   ) {
     return kind;
+  }
+  if (kind.includes("mock_apt") || kind.includes("mock-apt") || source.id === "mock-apt") {
+    return "mock_apt";
   }
   if (capability === "mock" || kind.includes("mock")) return "mock_tx";
   if (capability.includes("tx")) return "tx";
@@ -321,6 +325,44 @@ let lastFrequencyRangeRequest: {
 } | null = null;
 let lastFrequencyRangeSendKey: string | null = null;
 let lastFrequencyRangeSendAt = 0;
+
+const roundHzField = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  return Math.round(numeric);
+};
+
+export const normalizeFrequencyRangeMessageData = (
+  type: string,
+  data: any,
+): any => {
+  if (type !== "frequency_range" && type !== "set_frequency_range") {
+    return data;
+  }
+
+  const normalized = { ...(data ?? {}) };
+  const integerFields = [
+    "min_hz",
+    "max_hz",
+    "min_freq",
+    "max_freq",
+    "center_frequency",
+    "bandwidth_center_frequency",
+  ] as const;
+
+  for (const field of integerFields) {
+    if (normalized[field] !== undefined && normalized[field] !== null) {
+      const rounded = roundHzField(normalized[field]);
+      if (rounded === undefined) {
+        delete normalized[field];
+      } else {
+        normalized[field] = rounded;
+      }
+    }
+  }
+
+  return normalized;
+};
 
 export const buildSourceIqWebSocketUrl = (
   controlUrl: string,
@@ -1512,14 +1554,17 @@ const createWebSocketMiddleware =
 
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
-        if (shouldSuppressDuplicateFrequencyRangeSend(type, data)) {
+        const normalizedData = normalizeFrequencyRangeMessageData(type, data);
+        if (shouldSuppressDuplicateFrequencyRangeSend(type, normalizedData)) {
           return next(action);
         }
-        trackFrequencyRangeRequest(type, data);
+        trackFrequencyRangeRequest(type, normalizedData);
 
         // Track intended FFT size to prevent clobbering from status broadcasts
         const requestedFftSize =
-          data?.fft_size ?? data?.fftSize ?? data?.fft_size_hz;
+          normalizedData?.fft_size ??
+          normalizedData?.fftSize ??
+          normalizedData?.fft_size_hz;
         if (type === "settings" && requestedFftSize) {
           lastSettingsRequest = {
             fft_size: requestedFftSize,
@@ -1532,7 +1577,11 @@ const createWebSocketMiddleware =
           wsInstance.ws &&
           wsInstance.ws.readyState === WebSocket.OPEN
         ) {
-          applyOptimisticTransmitStatus(dispatch, getState, data ?? {});
+          applyOptimisticTransmitStatus(
+            dispatch,
+            getState,
+            normalizedData ?? {},
+          );
         }
 
         if (type === "request_next_frame") {
@@ -1553,10 +1602,10 @@ const createWebSocketMiddleware =
         }
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-          wsInstance.ws.send(JSON.stringify({ type, ...data }));
+          wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
         } else {
           // Queue the message for when connection is restored
-          dispatch(queueMessage({ type, data }));
+          dispatch(queueMessage({ type, data: normalizedData }));
         }
         return next(action);
       }

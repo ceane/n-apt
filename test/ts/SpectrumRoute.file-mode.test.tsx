@@ -410,9 +410,187 @@ describe("SpectrumRoute file mode", () => {
     expect(visualizerProps.limitMarkers).toEqual([]);
     expect(visualizerProps.deviceProfile).toMatchObject({ kind: "mock_tx" });
     expect(visualizerProps.isDeviceConnected).toBe(true);
-    expect(visualizerProps.dataRef.current?.iq_data).toBeInstanceOf(Uint8Array);
-    expect(visualizerProps.placeholderState).toBeNull();
+    expect(visualizerProps.dataRef.current?.iq_data).toBeUndefined();
+    expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "idle",
+      title: "Start Tx to transmit",
+    });
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+  });
+
+  it("keeps the live mock tx monitor centered on tx center instead of frame metadata", async () => {
+    const liveMockTxFrame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      center_frequency_hz: 1_600_000,
+      sample_rate: 1_000_000,
+      timestamp: 1,
+      iq_data: new Uint8Array(4096).fill(128),
+    };
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 16384,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 0, max: 3_200_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-tx",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "transmitting",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        deviceInfo: null,
+        backend: "mock_tx",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+      },
+      effectiveFrames: [],
+      effectiveSdrSettings: { sample_rate: 3_200_000 },
+      sampleRateHzEffective: 3_200_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-tx",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock_tx",
+        deviceInfo: null,
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: liveMockTxFrame },
+        spectrumFrames: [liveMockTxFrame],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock Tx SDR",
+      deviceProfile: {
+        kind: "mock_tx",
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+      sources: [],
+    } as any;
+
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_tx",
+        txCenterFrequencyHz: 137_100_000,
+        txSampleRateHz: 2_400_000,
+      },
+      websocket: {
+        ...websocketSlice(undefined, { type: "@@INIT" as any }),
+        sourceStatuses: { "mock-tx": "transmitting" },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.frequencyRange).toEqual({
+      min: 135_500_000,
+      max: 138_700_000,
+    });
+    expect(visualizerProps.centerFrequencyHz).toBe(137_100_000);
+    expect(visualizerProps.hardwareSampleRateHz).toBe(3_200_000);
+    expect(visualizerProps.dataRef.current).toBe(liveMockTxFrame);
+    expect(visualizerProps.txSlider).toMatchObject({
+      visible: true,
+      visibleMinHz: 135_500_000,
+      visibleMaxHz: 138_700_000,
+      txCenterHz: 137_100_000,
+      txSampleRateHz: 2_400_000,
+    });
+    expect(mockValue.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "SET_SAMPLE_RATE",
+        sampleRateHz: 2_400_000,
+      }),
+    );
   });
 
   it("does not show the tx slider controls for rx-only mock apt sources", async () => {

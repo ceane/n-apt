@@ -63,7 +63,10 @@ function measureValidationTime<T>(validator: () => T, operation: string): T {
       duration) /
     validationMetrics.totalValidations;
 
-  if (VALIDATION_CONFIG.enableLogging && duration >= SLOW_VALIDATION_WARNING_MS) {
+  if (
+    VALIDATION_CONFIG.enableLogging &&
+    duration >= SLOW_VALIDATION_WARNING_MS
+  ) {
     console.warn(
       `Slow validation detected: ${operation} took ${duration.toFixed(2)}ms`,
     );

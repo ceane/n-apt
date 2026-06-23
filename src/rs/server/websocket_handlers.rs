@@ -194,7 +194,7 @@ fn should_send_source_iq_frame(
   if !is_paused || allow_next_paused_frame {
     return true;
   }
-  source_id == "mock-tx" && tx_transmitting
+  matches!(source_id, "mock-tx" | "mock-apt") && tx_transmitting
 }
 
 pub async fn handle_source_iq_connection(
@@ -918,7 +918,10 @@ pub fn handle_message(
           );
         }
         if tx_status_changed || mock_tx_status_changed {
-          super::websocket_server::broadcast_device_status(shared, broadcast_tx);
+          super::websocket_server::broadcast_device_status(
+            shared,
+            broadcast_tx,
+          );
         }
       }
     }
@@ -1141,6 +1144,16 @@ mod tests {
       Some(2_812_345.0),
     );
     assert_eq!(center, 2_812_345);
+  }
+
+  #[test]
+  fn accepts_fractional_bandwidth_center_frequency_from_client() {
+    let msg: WebSocketMessage = serde_json::from_str(
+      r#"{"type":"frequency_range","min_hz":2204000,"max_hz":2204001,"center_frequency":2204001,"bandwidth_center_frequency":2204499.5}"#,
+    )
+    .unwrap();
+
+    assert_eq!(msg.bandwidth_center_frequency, Some(2_204_500));
   }
 
   #[test]
@@ -1458,7 +1471,7 @@ mod tests {
     assert!(should_send_source_iq_frame("mock-tx", true, true, false));
     assert!(should_send_source_iq_frame("mock-tx", false, false, false));
     assert!(!should_send_source_iq_frame("mock-tx", true, false, false));
-    assert!(!should_send_source_iq_frame("mock-apt", true, false, true));
+    assert!(should_send_source_iq_frame("mock-apt", true, false, true));
   }
 
   #[test]

@@ -261,7 +261,10 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             );
             const nextSampleRate = currentEnd - nextStart;
             const nextCenter = nextStart + nextSampleRate / 2;
-            if (Number.isFinite(nextSampleRate) && Number.isFinite(nextCenter)) {
+            if (
+              Number.isFinite(nextSampleRate) &&
+              Number.isFinite(nextCenter)
+            ) {
               onSampleRateChange?.(Math.round(nextSampleRate));
               onCenterFrequencyChange?.(Math.round(nextCenter));
             }
@@ -272,7 +275,10 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             );
             const nextSampleRate = nextEnd - currentStart;
             const nextCenter = currentStart + nextSampleRate / 2;
-            if (Number.isFinite(nextSampleRate) && Number.isFinite(nextCenter)) {
+            if (
+              Number.isFinite(nextSampleRate) &&
+              Number.isFinite(nextCenter)
+            ) {
               onSampleRateChange?.(Math.round(nextSampleRate));
               onCenterFrequencyChange?.(Math.round(nextCenter));
             }

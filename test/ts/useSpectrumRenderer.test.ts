@@ -84,6 +84,7 @@ describe("useSpectrumRenderer", () => {
       600,
       undefined,
       { min: 0, max: 4_372_000 },
+      1,
     );
 
     (performance.now as jest.Mock).mockReturnValue(1_001);
@@ -122,6 +123,7 @@ describe("useSpectrumRenderer", () => {
       false,
       0,
       undefined,
+      1,
     );
     expect(drawTxSliderOnContextMock).toHaveBeenLastCalledWith(
       expect.anything(),
@@ -133,6 +135,7 @@ describe("useSpectrumRenderer", () => {
         txCenterHz: 2_186_000,
       }),
       expect.any(Object),
+      1,
     );
   });
 });

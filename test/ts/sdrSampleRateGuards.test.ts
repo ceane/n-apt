@@ -101,6 +101,18 @@ describe("sdrSampleRateGuards", () => {
     });
   });
 
+  it("falls back mock TX render windows to the RF carrier and at least 3.2MHz", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: 0, max: 1_000_000 },
+        deviceKind: "mock_tx",
+      }),
+    ).toEqual({
+      min: 135_500_000,
+      max: 138_700_000,
+    });
+  });
+
   it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {
     expect(
       clampRtlSdrFrequencyRangeToHardwareWindow({

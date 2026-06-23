@@ -164,10 +164,10 @@ const TX_SIGNAL_PRESETS: Record<
   string,
   { centerFrequencyHz: number; sampleRateHz: number }
 > = {
-  apt: { centerFrequencyHz: 2_204_000, sampleRateHz: 2_400_000 },
-  tone: { centerFrequencyHz: 1_600_000, sampleRateHz: 1_000_000 },
+  apt: { centerFrequencyHz: 137_100_000, sampleRateHz: 2_400_000 },
+  tone: { centerFrequencyHz: 137_100_000, sampleRateHz: 1_000_000 },
   noise: { centerFrequencyHz: 13_875_000, sampleRateHz: 3_200_000 },
-  custom: { centerFrequencyHz: 27_235_000, sampleRateHz: 2_400_000 },
+  custom: { centerFrequencyHz: 137_100_000, sampleRateHz: 2_400_000 },
 };
 const TX_SETTINGS_SYNC_DEBOUNCE_MS = 16;
 
@@ -653,17 +653,34 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveDeviceNameToUse?.toLowerCase().includes("mock")
     );
 
+  const isMockAptSource =
+    sourceMode === "live" &&
+    !!(
+      selectedSource?.kind?.toLowerCase().includes("apt") ||
+      selectedSourceId === "mock-apt" ||
+      selectedSourceId === "mock_apt" ||
+      liveBackend?.toLowerCase().includes("apt")
+    );
+
   const mockTxDeviceProfile = useMemo<DeviceProfile | null>(
-    () =>
-      isMockLiveSource
-        ? {
-            kind: "mock_tx",
-            is_rtl_sdr: false,
-            supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
-          }
-        : null,
-    [isMockLiveSource],
+    () => {
+      if (!isMockLiveSource) return null;
+      if (isMockAptSource) {
+        return {
+          kind: "mock_apt",
+          is_rtl_sdr: true,
+          supports_approx_dbm: false,
+          supports_raw_iq_stream: false,
+        };
+      }
+      return {
+        kind: "mock_tx",
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      };
+    },
+    [isMockLiveSource, isMockAptSource],
   );
   const liveDeviceProfileForDisplay =
     mockTxDeviceProfile ?? liveDeviceProfileToUse;
@@ -1563,11 +1580,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           },
         };
       }),
-    [
-      handleToggleTransmitMode,
-      sourcesToUse,
-      toggleLiveVisualizerPause,
-    ],
+    [handleToggleTransmitMode, sourcesToUse, toggleLiveVisualizerPause],
   );
   const activeCaptureAreasSet = useMemo(
     () => new Set(activeCaptureAreas),

@@ -13,6 +13,7 @@ import {
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
   buildSourceIqWebSocketUrl,
+  normalizeFrequencyRangeMessageData,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -751,6 +752,52 @@ describe("Redux WebSocket Migration", () => {
             bandwidth_center_frequency: undefined,
           },
         },
+      });
+    });
+
+    it("rounds fractional bandwidth center frequency before dispatch", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: { bandwidthCenterFreqHz: 2_204_499.5 },
+          spectrum: {},
+        }) as any;
+
+      await (
+        sendFrequencyRange({
+          min: 2_204_000,
+          max: 2_204_001,
+        }) as any
+      )(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 2_204_000,
+            max_hz: 2_204_001,
+            center_frequency: 2_204_001,
+            bandwidth_center_frequency: 2_204_500,
+          },
+        },
+      });
+    });
+
+    it("normalizes direct frequency range websocket payloads to integer Hz", () => {
+      expect(
+        normalizeFrequencyRangeMessageData("frequency_range", {
+          min_hz: 2_204_000,
+          max_hz: 2_204_001,
+          center_frequency: 2_204_000.5,
+          bandwidth_center_frequency: 2_204_499.5,
+        }),
+      ).toEqual({
+        min_hz: 2_204_000,
+        max_hz: 2_204_001,
+        center_frequency: 2_204_001,
+        bandwidth_center_frequency: 2_204_500,
       });
     });
 

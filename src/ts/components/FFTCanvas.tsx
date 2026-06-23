@@ -87,6 +87,120 @@ import {
 } from "@n-apt/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 
+type FrameRenderRangeInput = {
+  currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
+  requestedRange: FrequencyRange;
+  propsCenterFrequencyHz: number;
+  propsHardwareSampleRateHz?: number | null;
+  preferRequestedRange?: boolean;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isRtlSdr?: boolean | null;
+};
+
+const isMockTxIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}) => {
+  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedName = deviceName?.toLowerCase?.() ?? "";
+  return (
+    normalizedKind === "mock-tx" ||
+    normalizedBackend === "mock-tx" ||
+    normalizedName.includes("mock tx")
+  );
+};
+
+const isMockAptIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}) => {
+  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedName = deviceName?.toLowerCase?.() ?? "";
+  return (
+    normalizedKind === "mock-apt" ||
+    normalizedBackend === "mock-apt" ||
+    normalizedName.includes("mock apt")
+  );
+};
+
+export const resolveEffectiveDbmOffsetDb = ({
+  powerScale,
+  deviceKind,
+  backend,
+  deviceName,
+  isTransmitting,
+  tunerGainDb,
+}: {
+  powerScale: "dB" | "dBm";
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isTransmitting?: boolean;
+  tunerGainDb?: number | null;
+}): number => {
+  if (powerScale !== "dBm") return 0.0;
+
+  const isMockTxDevice = isMockTxIdentity({ deviceKind, backend, deviceName });
+  const isMockAptDevice = isMockAptIdentity({
+    deviceKind,
+    backend,
+    deviceName,
+  });
+  if (isMockTxDevice || (isMockAptDevice && isTransmitting)) {
+    return 15.0;
+  }
+
+  if (deviceKind === "hackrf_one") {
+    return computeHackrfApproxDbmOffsetDb({
+      totalGainDb: tunerGainDb ?? 0,
+    });
+  }
+
+  return 30.0;
+};
+
+export const resolveLiveFrameRenderableFrequencyRange = ({
+  currentFrame,
+  requestedRange,
+  propsCenterFrequencyHz,
+  propsHardwareSampleRateHz,
+  preferRequestedRange,
+  deviceKind,
+  backend,
+  deviceName,
+  isRtlSdr,
+}: FrameRenderRangeInput): FrequencyRange => {
+  const mockTxMonitor = isMockTxIdentity({ deviceKind, backend, deviceName });
+  return resolveRenderableFrequencyRange({
+    requestedRange,
+    centerFrequencyHz: mockTxMonitor
+      ? propsCenterFrequencyHz
+      : currentFrame.center_frequency_hz,
+    hardwareSampleRateHz: mockTxMonitor
+      ? propsHardwareSampleRateHz
+      : currentFrame.sample_rate,
+    preferRequestedRange,
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr,
+  });
+};
+
 // Use dynamic import for WASM module loading
 (async () => {
   try {
@@ -1040,12 +1154,19 @@ const FFTCanvas = memo(
       useState(false);
 
     const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
+    const [isPowerLineHeld, setIsPowerLineHeld] = useState(false);
     const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
     const powerLineDbRef = useRef<number | null>(null);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
     useEffect(() => {
       powerLineDbRef.current = powerLineDb;
+      if (powerLineDb === null) {
+        setIsPowerLineHeld(false);
+      }
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRender();
     }, [powerLineDb]);
 
     const {
@@ -1239,14 +1360,14 @@ const FFTCanvas = memo(
       deviceName,
       isRtlSdr: deviceProfile?.is_rtl_sdr,
     });
-    const effectiveDbmOffsetDb =
-      effectivePowerScale === "dBm"
-        ? isHackrfDevice
-          ? computeHackrfApproxDbmOffsetDb({
-              totalGainDb: tunerGainDb ?? 0,
-            })
-          : 30.0
-        : 0.0;
+    const effectiveDbmOffsetDb = resolveEffectiveDbmOffsetDb({
+      powerScale: effectivePowerScale,
+      deviceKind: deviceProfile?.kind,
+      backend: deviceBackend,
+      deviceName,
+      isTransmitting: isTransmittingGlobal,
+      tunerGainDb,
+    });
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
@@ -1947,6 +2068,7 @@ const FFTCanvas = memo(
       tooltipSpanRef,
       powerLineDbRef,
       onPowerLineDbChange: setPowerLineDb,
+      onPowerLineHoldChange: setIsPowerLineHeld,
       txSliderRef,
       txSliderEnabled: !!effectiveTxSlider?.visible,
       txSliderLocked: isTxSliderLocked,
@@ -2127,10 +2249,11 @@ const FFTCanvas = memo(
           const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
-          frequencyRangeRef.current = resolveRenderableFrequencyRange({
+          frequencyRangeRef.current = resolveLiveFrameRenderableFrequencyRange({
+            currentFrame,
             requestedRange: frequencyRange,
-            centerFrequencyHz: currentFrame.center_frequency_hz,
-            hardwareSampleRateHz: currentFrame.sample_rate,
+            propsCenterFrequencyHz: centerFreqRef.current,
+            propsHardwareSampleRateHz: hardwareSampleRateHz,
             preferRequestedRange: isIqRecordingActive,
             deviceKind: deviceProfile?.kind,
             backend: deviceBackend,
@@ -2539,6 +2662,8 @@ const FFTCanvas = memo(
               })
             | null;
           const bottomReservedPx = TX_SLIDER_ROW_HEIGHT;
+          const markerOverlayOpacity =
+            powerLineDbRef.current !== null ? 0.1 : 1;
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
             drawSpectrum({
@@ -2592,6 +2717,7 @@ const FFTCanvas = memo(
                   }
                 : selectionOverlayRef.current,
               txSlider: compact ? null : currentTxSlider,
+              overlayOpacity: markerOverlayOpacity,
               canvasStatusRow: compact ? null : canvasStatusRow,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
@@ -2659,6 +2785,7 @@ const FFTCanvas = memo(
                   !currentTxSlider?.visible,
                   bottomReservedPx,
                   compact ? undefined : (canvasStatusRow ?? undefined),
+                  markerOverlayOpacity,
                 );
               }
 
@@ -2671,6 +2798,7 @@ const FFTCanvas = memo(
                   activeDemodFocus,
                   nodePreview,
                   bottomReservedPx,
+                  markerOverlayOpacity,
                 );
               }
 
@@ -2694,6 +2822,7 @@ const FFTCanvas = memo(
                 visualRange,
                 frequencyRangeRef.current,
                 bottomReservedPx,
+                markerOverlayOpacity,
               );
 
               // Draw draggable horizontal power line
@@ -2707,6 +2836,7 @@ const FFTCanvas = memo(
                   activeScaleDbMaxRef.current,
                   effectivePowerScaleRef.current,
                   bottomReservedPx,
+                  isPowerLineHeld ? " HOLD" : "",
                 );
               }
             }

@@ -1513,6 +1513,21 @@ n_apt:
   }
 
   #[test]
+  fn real_signals_yaml_sets_mock_tx_noise_floor() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))
+      .expect("set manifest dir");
+
+    let config = signals_config();
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    clear_signals_config_cache();
+    assert_eq!(config.signals.mock_tx.noise_floor_db, Some(-100.0));
+  }
+
+  #[test]
   fn test_hackrf_one_tx_power_mapping_parses() {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();
@@ -1535,6 +1550,38 @@ n_apt:
 
     assert_eq!(tx_mapping.amp_on[6].vga, 47);
     assert_eq!(tx_mapping.amp_on[6].dbm, 15.0);
+  }
+
+  #[test]
+  fn test_hackrf_one_tx_iq_power_model_parses() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let sdr_settings = load_sdr_settings();
+    let hackrf_cfg = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .expect("hackrf_one should exist");
+    let tx_iq_power_model = hackrf_cfg
+      .tx_iq_power_model
+      .as_ref()
+      .expect("tx_iq_power_model should exist");
+
+    assert_eq!(tx_iq_power_model.iq_encoding, "offset_binary_u8");
+    assert_eq!(tx_iq_power_model.signed_range, [-128, 127]);
+    assert_eq!(tx_iq_power_model.normalized_sample, "(byte - 128) / 127");
+    assert_eq!(
+      tx_iq_power_model.complex_rms_formula,
+      "sqrt(mean(i_norm^2 + q_norm^2))"
+    );
+    assert_eq!(
+      tx_iq_power_model.dbm_formula,
+      "20 * log10(complex_rms) + calibration_db"
+    );
+    assert_eq!(
+      tx_iq_power_model.inverse_rms_formula,
+      "10 ** ((dbm - calibration_db) / 20)"
+    );
+    assert_eq!(tx_iq_power_model.calibration_db, 15.0);
   }
 }
 

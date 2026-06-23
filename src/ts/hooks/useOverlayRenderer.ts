@@ -127,6 +127,40 @@ const getCanvasThemeColors = () => ({
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
 
+const applyOpacityToColor = (color: string, opacity: number) => {
+  const alpha = Math.max(0, Math.min(1, opacity));
+  if (alpha >= 0.999) return color;
+  const rgbaMatch = color.match(
+    /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/,
+  );
+  if (rgbaMatch) {
+    return `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, ${alpha})`;
+  }
+  const rgbMatch = color.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+  if (rgbMatch) {
+    return `rgba(${rgbMatch[1]}, ${rgbMatch[2]}, ${rgbMatch[3]}, ${alpha})`;
+  }
+  if (color.startsWith("#")) {
+    const hex = color.substring(1);
+    let r = 0,
+      g = 0,
+      b = 0;
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.substring(0, 2), 16);
+      g = parseInt(hex.substring(2, 4), 16);
+      b = parseInt(hex.substring(4, 6), 16);
+    } else {
+      return color;
+    }
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return color;
+};
+
 const VFO_AXIS_ROW_HEIGHT = 40;
 const LIVE_STATUS_ROW_HEIGHT = 56;
 export const TX_SLIDER_ROW_HEIGHT = LIVE_STATUS_ROW_HEIGHT;
@@ -153,6 +187,7 @@ export function useOverlayRenderer() {
       fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -220,10 +255,13 @@ export function useOverlayRenderer() {
         // Bounds check with small padding
         if (yPos < FFT_AREA_MIN.y - 2 || yPos > fftAreaMax.y + 2) continue;
 
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.beginPath();
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
+        ctx.restore();
 
         let label = `${Math.round(line)}`;
         // Append unit only to the top-most label (the first one in our array)
@@ -341,11 +379,14 @@ export function useOverlayRenderer() {
         const ix = xPos;
 
         // Grid line
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = canvasTheme.gridColor;
         ctx.beginPath();
         ctx.moveTo(ix, FFT_AREA_MIN.y);
         ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
+        ctx.restore();
 
         // Tick mark
         ctx.strokeStyle = canvasTheme.textColor;
@@ -385,6 +426,7 @@ export function useOverlayRenderer() {
 
       if (shouldShowHWGrid) {
         ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
         ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
@@ -474,6 +516,7 @@ export function useOverlayRenderer() {
       showStatusRow = true,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
       _statusRow?: LiveCanvasStatusRow,
+      overlayOpacity: number = 1,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -509,7 +552,7 @@ export function useOverlayRenderer() {
         showEdgeLabels: false,
         showTickMarks: false,
         showTickLabels: false,
-        showCenterLine: true,
+        showCenterLine: overlayOpacity >= 0.999,
         centerLineTop: FFT_AREA_MIN.y,
         centerLineBottom: fftAreaMax.y,
         icon: "wave",
@@ -557,6 +600,8 @@ export function useOverlayRenderer() {
       const viewBandwidth = maxFreq - minFreq;
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
+
+      ctx.save();
 
       const limitMarkers = (_limitMarkers ?? []).filter(
         (marker) =>
@@ -609,6 +654,7 @@ export function useOverlayRenderer() {
       demodFocus: DemodFocusOverlay | null | undefined,
       nodePreview = false,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       if (!demodFocus) return;
 
@@ -683,8 +729,8 @@ export function useOverlayRenderer() {
               trimTrailingZeros: true,
             });
 
-      ctx.save();
       const canvasTheme = getCanvasThemeColors();
+      ctx.save();
 
       // 1. Selection Box - Background Highlight (from theme)
       ctx.fillStyle = canvasTheme.spectrumOverlay;
@@ -706,7 +752,10 @@ export function useOverlayRenderer() {
       const centerLineX = freqToX(centerFrequencyHz);
       if (centerLineX >= plotLeft && centerLineX <= plotRight) {
         ctx.save();
-        ctx.strokeStyle = canvasTheme.centerLineColor;
+        ctx.strokeStyle = applyOpacityToColor(
+          canvasTheme.centerLineColor,
+          overlayOpacity,
+        );
         ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
         ctx.beginPath();
         ctx.moveTo(centerLineX, plotTop);
@@ -852,6 +901,7 @@ export function useOverlayRenderer() {
       height: number,
       slider: TxSliderOverlayState | null | undefined,
       visualRange?: FrequencyRange,
+      overlayOpacity: number = 1,
     ) => {
       if (
         !slider?.visible ||
@@ -892,6 +942,7 @@ export function useOverlayRenderer() {
         ? "rgba(0, 212, 255, 0.98)"
         : "rgba(148, 163, 184, 0.96)";
       ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
       ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textBaseline = "middle";
 
@@ -1045,6 +1096,7 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       fullCaptureRange?: { min: number; max: number },
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -1094,6 +1146,7 @@ export function useOverlayRenderer() {
 
       if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = canvasTheme.offsetTickLine;
         ctx.fillStyle = canvasTheme.offsetTickText;
         ctx.font = "10px JetBrains Mono";
@@ -1131,6 +1184,7 @@ export function useOverlayRenderer() {
       fftMax: number,
       powerScale: "dB" | "dBm" = "dB",
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      suffix = "",
     ) => {
       if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
 
@@ -1151,10 +1205,8 @@ export function useOverlayRenderer() {
       // Bounds check with padding
       if (yPos < FFT_AREA_MIN.y || yPos > fftAreaMax.y) return;
 
-      ctx.save();
-
       // Formulate label e.g., -35.4dBm or -35.4dB
-      const label = `${powerLineDb.toFixed(1)}${powerScale}`;
+      const label = `${powerLineDb.toFixed(1)}${powerScale}${suffix}`;
       ctx.font = "12px JetBrains Mono";
       const textWidth = ctx.measureText(label).width;
 
@@ -1185,8 +1237,8 @@ export function useOverlayRenderer() {
       ctx.stroke();
 
       // 2. Draw background pill
-      // Keep the badge neutral so it reads correctly in light mode.
-      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+      // Use the theme's surface color so it reads correctly in both light and dark modes.
+      ctx.fillStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.92);
       ctx.strokeStyle = canvasTheme.powerLineColor;
       ctx.lineWidth = 1;
       ctx.setLineDash([]);

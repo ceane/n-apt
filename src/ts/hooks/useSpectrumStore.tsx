@@ -123,12 +123,15 @@ const isTxCapableSourceInfo = (
   if (!source) return false;
   const capability = source.capability?.toLowerCase?.() ?? "";
   const kind = source.kind?.toLowerCase?.() ?? "";
+  const id = source.id?.toLowerCase?.() ?? "";
   return (
     capability === "tx" ||
     capability === "tx_rx" ||
     kind === "hackrf_one" ||
     kind === "mock_tx" ||
-    kind === "mock-tx"
+    kind === "mock-tx" ||
+    id === "mock-tx" ||
+    id.includes("hackrf_one")
   );
 };
 
@@ -163,6 +166,15 @@ export const shouldPauseSourceOnSwitch = (
   return !isTxCapableSourceInfo(source);
 };
 
+export const shouldResumePausedRxSourceOnSelection = (
+  source: SourceInfo | null | undefined,
+  manuallyPaused: boolean,
+): boolean =>
+  !!source &&
+  !manuallyPaused &&
+  source.paused === true &&
+  !isTxCapableSourceInfo(source);
+
 export const isLiveVisualizerPathname = (pathname: string): boolean =>
   pathname === "/" || pathname === "/visualizer";
 
@@ -176,8 +188,7 @@ export const resolveEffectiveSourcePaused = ({
   localPaused?: boolean;
   manuallyPaused: boolean;
   autoPaused: boolean;
-}): boolean =>
-  localPaused ?? backendPaused ?? (manuallyPaused || autoPaused);
+}): boolean => localPaused ?? backendPaused ?? (manuallyPaused || autoPaused);
 
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
@@ -610,8 +621,12 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       parsed.txSampleRateHz = 2_400_000;
     }
 
-    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
-      parsed.txCenterFrequencyHz = 2_204_000;
+    if (
+      !Number.isFinite(parsed.txCenterFrequencyHz) ||
+      parsed.txCenterFrequencyHz === 2_204_000 ||
+      parsed.txCenterFrequencyHz === 1_600_000
+    ) {
+      parsed.txCenterFrequencyHz = 137_100_000;
     }
 
     if (!Number.isFinite(parsed.txPowerDbm)) {
@@ -1603,9 +1618,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               txHopRateHz: reduxSpectrumState.txHopRateHz,
               ...txSettingsWithoutIfftSize,
               txIfftSize:
-                typeof ifftSize === "number"
-                  ? Math.round(ifftSize)
-                  : ifftSize,
+                typeof ifftSize === "number" ? Math.round(ifftSize) : ifftSize,
             },
           },
         });
@@ -1677,8 +1690,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Track active spectrum route globally
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
-    const [manualVisualizerPaused, setManualVisualizerPaused] =
-      useState(false);
+    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(false);
 
     // Track if we've already synced backend connection settings
     const hasInitializedBackendSettingsRef = useRef(false);
@@ -1754,10 +1766,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         const previousSource = effectiveWebsocketSources.find(
           (source) => source.id === previousSelectedSourceId,
         );
-        const previouslyManuallyPaused =
-          manualPausedSourceIdsRef.current.has(previousSelectedSourceId);
-        const previouslyAutoPaused =
-          autoPausedSourceIdsRef.current.has(previousSelectedSourceId);
+        const previouslyManuallyPaused = manualPausedSourceIdsRef.current.has(
+          previousSelectedSourceId,
+        );
+        const previouslyAutoPaused = autoPausedSourceIdsRef.current.has(
+          previousSelectedSourceId,
+        );
         if (
           previousSource &&
           shouldPauseSourceOnSwitch(previousSource) &&
@@ -1774,6 +1788,22 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       if (isTxCapableSourceInfo(selectedSource)) {
+        syncSelectedSourcePauseState(selectedSourceId);
+        return;
+      }
+
+      if (
+        shouldResumePausedRxSourceOnSelection(
+          selectedSource,
+          manualPausedSourceIdsRef.current.has(selectedSourceId),
+        )
+      ) {
+        autoPausedSourceIdsRef.current.delete(selectedSourceId);
+        setLocalSourcePauseOverrides((current) => ({
+          ...current,
+          [selectedSourceId]: false,
+        }));
+        wsConnection.sendPauseCommand(false, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
         return;
       }
@@ -2451,8 +2481,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         const pauseTargetSource =
           effectiveWebsocketSources.find(
             (source) => source.id === pauseSourceId,
-          ) ??
-          (selectedSourceId === pauseSourceId ? selectedSource : null);
+          ) ?? (selectedSourceId === pauseSourceId ? selectedSource : null);
         const pauseTargetSourceId = pauseTargetSource?.id ?? pauseSourceId;
         const targetIsTxCapable = isTxCapableSourceInfo(pauseTargetSource);
         const currentPaused =

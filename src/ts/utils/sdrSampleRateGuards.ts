@@ -107,6 +107,25 @@ export const resolveRenderableFrequencyRange = ({
   hardwareSampleRateHz?: number | null;
   preferRequestedRange?: boolean;
 }): { min: number; max: number } => {
+  const kind = normalize(deviceKind);
+  if (kind === "mock-tx" || kind === "mock_tx") {
+    const center =
+      typeof _centerFrequencyHz === "number" &&
+      Number.isFinite(_centerFrequencyHz)
+        ? _centerFrequencyHz
+        : 137_100_000;
+    const rate =
+      typeof hardwareSampleRateHz === "number" &&
+      Number.isFinite(hardwareSampleRateHz) &&
+      hardwareSampleRateHz > 0
+        ? Math.max(hardwareSampleRateHz, 3_200_000)
+        : 3_200_000;
+    return {
+      min: center - rate / 2,
+      max: center + rate / 2,
+    };
+  }
+
   if (!isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })) {
     return requestedRange;
   }

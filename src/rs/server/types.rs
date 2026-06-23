@@ -3,6 +3,35 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use validator::Validate;
 
+fn deserialize_optional_integer_hz<'de, D>(
+  deserializer: D,
+) -> Result<Option<u64>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+  match value {
+    None | Some(serde_json::Value::Null) => Ok(None),
+    Some(serde_json::Value::Number(number)) => {
+      if let Some(unsigned) = number.as_u64() {
+        return Ok(Some(unsigned));
+      }
+      let float = number
+        .as_f64()
+        .ok_or_else(|| serde::de::Error::custom("expected finite Hz number"))?;
+      if !float.is_finite() || float < 0.0 {
+        return Err(serde::de::Error::custom(
+          "expected non-negative finite Hz number",
+        ));
+      }
+      Ok(Some(float.round() as u64))
+    }
+    Some(other) => Err(serde::de::Error::custom(format!(
+      "expected numeric Hz value, got {other}"
+    ))),
+  }
+}
+
 /// WebMCP tool request from agents
 #[derive(Debug, Deserialize, Validate)]
 pub struct WebMCPToolRequest {
@@ -237,7 +266,9 @@ pub struct WebSocketMessage {
   pub bandwidth: Option<u64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
-    alias = "bandwidthCenterFrequency"
+    alias = "bandwidthCenterFrequency",
+    default,
+    deserialize_with = "deserialize_optional_integer_hz"
   )]
   pub bandwidth_center_frequency: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
@@ -684,6 +715,8 @@ pub struct MockAptSignalsConfig {
 pub struct MockTxSignalsConfig {
   #[serde(default = "default_true")]
   pub enabled: bool,
+  #[serde(default, alias = "noise_floor")]
+  pub noise_floor_db: Option<f64>,
   #[serde(default)]
   pub signals: IndexMap<String, MockTxSignalConfig>,
 }
@@ -692,6 +725,7 @@ impl Default for MockTxSignalsConfig {
   fn default() -> Self {
     Self {
       enabled: true,
+      noise_floor_db: None,
       signals: IndexMap::new(),
     }
   }
@@ -798,6 +832,73 @@ pub struct TxPowerMapping {
   pub amp_on: Vec<VgaPowerPoint>,
 }
 
+fn default_tx_iq_encoding() -> String {
+  "offset_binary_u8".to_string()
+}
+
+fn default_tx_iq_signed_range() -> [i16; 2] {
+  [-128, 127]
+}
+
+fn default_tx_iq_normalized_sample() -> String {
+  "(byte - 128) / 127".to_string()
+}
+
+fn default_tx_iq_complex_rms_formula() -> String {
+  "sqrt(mean(i_norm^2 + q_norm^2))".to_string()
+}
+
+fn default_tx_iq_dbm_formula() -> String {
+  "20 * log10(complex_rms) + calibration_db".to_string()
+}
+
+fn default_tx_iq_inverse_rms_formula() -> String {
+  "10 ** ((dbm - calibration_db) / 20)".to_string()
+}
+
+fn default_tx_iq_calibration_db() -> f64 {
+  15.0
+}
+
+fn default_tx_iq_saturation_rms() -> f64 {
+  0.92
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TxIqPowerModel {
+  #[serde(default = "default_tx_iq_encoding")]
+  pub iq_encoding: String,
+  #[serde(default = "default_tx_iq_signed_range")]
+  pub signed_range: [i16; 2],
+  #[serde(default = "default_tx_iq_normalized_sample")]
+  pub normalized_sample: String,
+  #[serde(default = "default_tx_iq_complex_rms_formula")]
+  pub complex_rms_formula: String,
+  #[serde(default = "default_tx_iq_dbm_formula")]
+  pub dbm_formula: String,
+  #[serde(default = "default_tx_iq_inverse_rms_formula")]
+  pub inverse_rms_formula: String,
+  #[serde(default = "default_tx_iq_calibration_db")]
+  pub calibration_db: f64,
+  #[serde(default = "default_tx_iq_saturation_rms")]
+  pub saturation_rms: f64,
+}
+
+impl Default for TxIqPowerModel {
+  fn default() -> Self {
+    Self {
+      iq_encoding: default_tx_iq_encoding(),
+      signed_range: default_tx_iq_signed_range(),
+      normalized_sample: default_tx_iq_normalized_sample(),
+      complex_rms_formula: default_tx_iq_complex_rms_formula(),
+      dbm_formula: default_tx_iq_dbm_formula(),
+      inverse_rms_formula: default_tx_iq_inverse_rms_formula(),
+      calibration_db: default_tx_iq_calibration_db(),
+      saturation_rms: default_tx_iq_saturation_rms(),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDeviceConfig {
   pub sample_rate: SdrSampleRateSpec,
@@ -813,6 +914,12 @@ pub struct SdrDeviceConfig {
     skip_serializing_if = "Option::is_none"
   )]
   pub tx_power_mapping: Option<TxPowerMapping>,
+  #[serde(
+    rename = "_tx_iq_power_model",
+    default,
+    skip_serializing_if = "Option::is_none"
+  )]
+  pub tx_iq_power_model: Option<TxIqPowerModel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -83,7 +83,9 @@ const InlineWarning = styled.div`
   border-radius: 4px;
   color: ${({ theme }) => theme.textPrimary};
   background: ${({ theme }) =>
-    theme.mode === "light" ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.18)"};
+    theme.mode === "light"
+      ? "rgba(245, 158, 11, 0.12)"
+      : "rgba(245, 158, 11, 0.18)"};
   font-size: 11px;
   line-height: 1.4;
   padding: 8px 10px;
@@ -479,11 +481,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         setLocalPower(enforcedIqPowerFloorDbm.toString());
       }
     }
-  }, [
-    enforcedIqPowerFloorDbm,
-    isBelowIqPowerFloor,
-    onPowerDbmChange,
-  ]);
+  }, [enforcedIqPowerFloorDbm, isBelowIqPowerFloor, onPowerDbmChange]);
 
   React.useEffect(() => {
     if (

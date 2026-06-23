@@ -336,12 +336,14 @@ export const WebSocketMessageSchema = z.union([
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
+    bandwidth_center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
+    bandwidth_center_frequency: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("pause"),

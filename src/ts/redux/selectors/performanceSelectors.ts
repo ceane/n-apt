@@ -173,9 +173,13 @@ const getDeviceKindFromSource = (source: SourceInfo): string => {
     kind === "hackrf_one" ||
     kind === "mock_tx" ||
     kind === "tx_rx" ||
-    kind === "tx"
+    kind === "tx" ||
+    kind === "mock_apt"
   ) {
     return kind;
+  }
+  if (kind.includes("mock_apt") || kind.includes("mock-apt") || source.id === "mock-apt") {
+    return "mock_apt";
   }
   if (capability === "mock" || kind.includes("mock")) return "mock_tx";
   if (capability.includes("tx")) return "tx";

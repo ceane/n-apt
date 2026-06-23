@@ -94,8 +94,9 @@ describe("WebSocket Validation System", () => {
         .mockReturnValueOnce(0)
         .mockReturnValueOnce(6);
 
-      const { validateWebSocketMessage: devValidateWebSocketMessage } =
-        require("@n-apt/validation");
+      const {
+        validateWebSocketMessage: devValidateWebSocketMessage,
+      } = require("@n-apt/validation");
 
       expect(
         devValidateWebSocketMessage({
@@ -123,8 +124,9 @@ describe("WebSocket Validation System", () => {
         .mockReturnValueOnce(0)
         .mockReturnValueOnce(20);
 
-      const { validateWebSocketMessage: devValidateWebSocketMessage } =
-        require("@n-apt/validation");
+      const {
+        validateWebSocketMessage: devValidateWebSocketMessage,
+      } = require("@n-apt/validation");
 
       expect(
         devValidateWebSocketMessage({

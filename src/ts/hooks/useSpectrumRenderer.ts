@@ -34,6 +34,7 @@ const getMarkersOverlaySignature = ({
   demodFocusOverlay,
   selectionOverlay,
   txSlider,
+  overlayOpacity = 1,
   canvasStatusRow,
 }: Pick<
   SpectrumRendererOptions,
@@ -50,6 +51,7 @@ const getMarkersOverlaySignature = ({
   | "demodFocusOverlay"
   | "selectionOverlay"
   | "txSlider"
+  | "overlayOpacity"
   | "canvasStatusRow"
   | "nodePreview"
 > & {
@@ -179,6 +181,8 @@ export interface SpectrumRendererOptions {
   selectionOverlay?: SelectionOverlay | null;
   /** Tx slider rendered into the marker overlay texture */
   txSlider?: TxSliderOverlayState | null;
+  /** Fade applied to marker overlays */
+  overlayOpacity?: number;
   /** Optional explicit status labels rendered in the bottom FFT status band. */
   canvasStatusRow?: LiveCanvasStatusRow | null;
 
@@ -250,6 +254,7 @@ export function useSpectrumRenderer() {
         demodFocusOverlay,
         selectionOverlay,
         txSlider,
+        overlayOpacity = 1,
         canvasStatusRow,
 
         lineColor,
@@ -304,6 +309,7 @@ export function useSpectrumRenderer() {
             fullCaptureRange,
             isIqRecordingActive,
             reservedBottomPx,
+            overlayOpacity,
           );
           gridOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.grid = false;
@@ -329,6 +335,7 @@ export function useSpectrumRenderer() {
           demodFocusOverlay,
           selectionOverlay,
           txSlider,
+          overlayOpacity,
           canvasStatusRow,
         });
         const markersOverlayInputsChanged =
@@ -367,6 +374,7 @@ export function useSpectrumRenderer() {
               !txSlider?.visible,
               reservedBottomPx,
               canvasStatusRow ?? undefined,
+              overlayOpacity,
             );
           }
           drawDemodFocusOnContext(
@@ -377,6 +385,7 @@ export function useSpectrumRenderer() {
             demodFocusOverlay,
             nodePreview,
             reservedBottomPx,
+            overlayOpacity,
           );
           drawSelectionOverlayOnContext(
             ctx,
@@ -387,7 +396,14 @@ export function useSpectrumRenderer() {
             nodePreview,
             reservedBottomPx,
           );
-          drawTxSliderOnContext(ctx, width, height, txSlider, frequencyRange);
+          drawTxSliderOnContext(
+            ctx,
+            width,
+            height,
+            txSlider,
+            frequencyRange,
+            overlayOpacity,
+          );
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
           lastMarkersOverlaySignatureRef.current = markersOverlaySignature;

@@ -6,6 +6,8 @@ import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
 import {
   getLatestLiveFrame,
   getLiveFrameSignature,
+  resolveEffectiveDbmOffsetDb,
+  resolveLiveFrameRenderableFrequencyRange,
   shouldRenderWaterfallWithFrameOrRestore,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
@@ -137,7 +139,7 @@ describe("FFTCanvas Component", () => {
     expect(
       await screen.findByTestId("tx-slider-visual-row"),
     ).toBeInTheDocument();
-    expect(screen.getByText("○ 2.204 MHz")).toBeInTheDocument();
+    expect(screen.getByText(/137\.100 MHz/)).toBeInTheDocument();
   });
 
   it("retunes to the offscreen Tx slider center instead of panning into empty bins", async () => {
@@ -533,6 +535,93 @@ describe("FFTCanvas Component", () => {
       }),
     ).toEqual(expect.objectContaining({ iq_data: expect.any(Uint8Array) }));
     expect(getLiveFrameSignature(null)).toBeNull();
+  });
+
+  it("uses route monitor props instead of mock tx frame metadata for live range placement", () => {
+    expect(
+      resolveLiveFrameRenderableFrequencyRange({
+        currentFrame: {
+          center_frequency_hz: 1_600_000,
+          sample_rate: 1_000_000,
+        } as any,
+        requestedRange: { min: 135_500_000, max: 138_700_000 },
+        propsCenterFrequencyHz: 137_100_000,
+        propsHardwareSampleRateHz: 3_200_000,
+        deviceKind: "mock_tx",
+        backend: "mock_tx",
+        deviceName: "Mock Tx SDR",
+        isRtlSdr: false,
+      }),
+    ).toEqual({
+      min: 135_500_000,
+      max: 138_700_000,
+    });
+  });
+
+  it("uses Mock Tx dBm calibration for Mock APT receive view while Tx is active", () => {
+    expect(
+      resolveEffectiveDbmOffsetDb({
+        powerScale: "dBm",
+        deviceKind: "mock_apt",
+        backend: "mock",
+        deviceName: "Mock APT SDR",
+        isTransmitting: true,
+        tunerGainDb: 49.6,
+      }),
+    ).toBeCloseTo(15.0, 6);
+  });
+
+  it("processes non-empty live mock tx IQ instead of rendering an empty flatline", async () => {
+    processIqToDbmSpectrumMock.mockClear();
+    const iqData = new Uint8Array(2048);
+    for (let index = 0; index < iqData.length; index += 2) {
+      iqData[index] = index % 4 === 0 ? 129 : 127;
+      iqData[index + 1] = 128;
+    }
+    const liveFrame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      iq_data: iqData,
+      sample_rate: 3_200_000,
+      center_frequency_hz: 137_100_000,
+      timestamp: 42,
+    };
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                frequencyRange={{ min: 135_500_000, max: 138_700_000 }}
+                centerFrequencyHz={137_100_000}
+                hardwareSampleRateHz={3_200_000}
+                deviceProfile={{
+                  kind: "mock_tx",
+                  is_rtl_sdr: false,
+                  supports_approx_dbm: true,
+                  supports_raw_iq_stream: true,
+                }}
+                deviceBackend="mock_tx"
+                deviceName="Mock Tx SDR"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock).toHaveBeenCalled();
+    });
+
+    const calls = processIqToDbmSpectrumMock.mock.calls as unknown as any[][];
+    const lastCall = calls[calls.length - 1];
+    const firstArg = lastCall?.[0] as Uint8Array | undefined;
+    expect(firstArg).toBe(iqData);
+    expect(Array.from(firstArg ?? []).some((byte) => byte !== 128)).toBe(true);
   });
 
   it("reprocesses the live frame when fftWindow changes without temporal resolution changes", async () => {

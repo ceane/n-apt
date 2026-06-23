@@ -177,7 +177,11 @@ export const loadPersistedSdrSettings = () => {
       parsed.txSampleRateHz = 2_400_000;
     }
 
-    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
+    if (
+      !Number.isFinite(parsed.txCenterFrequencyHz) ||
+      parsed.txCenterFrequencyHz === 2_204_000 ||
+      parsed.txCenterFrequencyHz === 1_600_000
+    ) {
       parsed.txCenterFrequencyHz = 137_100_000;
     }
 

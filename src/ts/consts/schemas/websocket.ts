@@ -272,6 +272,7 @@ export interface SourceInfo {
   };
   mock_tx?: {
     enabled: boolean;
+    noise_floor_db?: number;
     signals: Record<
       string,
       {
@@ -336,6 +337,7 @@ export type WebSocketMessage =
       min_hz: number;
       max_hz: number;
       center_frequency?: number;
+      bandwidth_center_frequency?: number;
     }
   | ChannelsMessage
   | { type: "pause"; paused: boolean; source_id: string }

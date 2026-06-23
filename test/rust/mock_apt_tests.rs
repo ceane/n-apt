@@ -29,6 +29,28 @@ mod tests {
       .sum()
   }
 
+  fn iq_bin_magnitude(
+    samples: &[u8],
+    sample_rate_hz: f64,
+    offset_hz: f64,
+  ) -> f64 {
+    let sample_count = samples.len() / 2;
+    let phase_step = -2.0 * std::f64::consts::PI * offset_hz / sample_rate_hz;
+    let mut sum_re = 0.0;
+    let mut sum_im = 0.0;
+
+    for sample_index in 0..sample_count {
+      let i = samples[sample_index * 2] as f64 - 128.0;
+      let q = samples[sample_index * 2 + 1] as f64 - 128.0;
+      let phase = phase_step * sample_index as f64;
+      let (sin, cos) = phase.sin_cos();
+      sum_re += i * cos - q * sin;
+      sum_im += i * sin + q * cos;
+    }
+
+    (sum_re.hypot(sum_im)) / sample_count.max(1) as f64
+  }
+
   #[test]
   fn test_device_type() {
     let device = MockAptDevice::new();
@@ -287,6 +309,60 @@ mod tests {
       elapsed < Duration::from_millis(1500)
         && elapsed.as_secs_f64() <= baseline_elapsed.as_secs_f64() * 2.5,
       "active Mock APT Tx overlay is too slow for realtime streaming: baseline={baseline_elapsed:?}, active={elapsed:?}"
+    );
+  }
+
+  #[test]
+  fn test_active_tx_overlay_is_visible_in_mock_apt_receive_spectrum() {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+
+    let sample_rate_hz = 3_200_000.0;
+    let tx_center_hz = 1_600_000.0;
+    let tx_offset_hz = 100_000.0;
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    let baseline_energy = {
+      let mut device = new_perf_device(24680);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      let frame = device.read_samples(4096).unwrap();
+      iq_bin_magnitude(&frame.data, sample_rate_hz, 0.0)
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "tone".to_string();
+    *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = tx_center_hz;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 2_400_000.0;
+
+    let active_energy = {
+      let mut device = new_perf_device(24680);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      let frame = device.read_samples(4096).unwrap();
+      let center_energy = iq_bin_magnitude(&frame.data, sample_rate_hz, 0.0);
+      let offset_energy =
+        iq_bin_magnitude(&frame.data, sample_rate_hz, tx_offset_hz);
+      assert!(
+        center_energy > offset_energy,
+        "active Mock Tx overlay should peak at Tx center, not preset offset: center={center_energy}, offset={offset_energy}"
+      );
+      center_energy
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 0.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+
+    assert!(
+      active_energy > baseline_energy + 0.5,
+      "active Mock Tx should be visible in Mock APT receive spectrum: baseline={baseline_energy}, active={active_energy}"
     );
   }
 

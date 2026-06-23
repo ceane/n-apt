@@ -67,6 +67,7 @@ export interface FrequencyDragOptions {
   tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
   powerLineDbRef?: React.MutableRefObject<number | null>;
   onPowerLineDbChange?: (db: number | null) => void;
+  onPowerLineHoldChange?: (held: boolean) => void;
   txSliderRef?: React.MutableRefObject<CanvasTxSliderState | null>;
   txSliderEnabled?: boolean;
   txSliderLocked?: boolean;
@@ -106,6 +107,7 @@ export function useFrequencyDrag({
   tooltipSpanRef,
   powerLineDbRef,
   onPowerLineDbChange,
+  onPowerLineHoldChange,
   txSliderRef,
   txSliderEnabled = false,
   txSliderLocked = false,
@@ -113,6 +115,7 @@ export function useFrequencyDrag({
   const isDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
   const isPowerDraggingRef = useRef(false);
+  const isPowerHeldRef = useRef(false);
   const isTxSliderDraggingRef = useRef(false);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const txSliderBodyDragOffsetHzRef = useRef(0);
@@ -778,8 +781,14 @@ export function useFrequencyDrag({
         const canvas = getActiveSpectrumCanvas();
         const canvasRect = (canvas ? canvasDragRectRef.current : null) || rect;
         const canvasY = e.clientY - canvasRect.top;
+        const canvasX = e.clientX - canvasRect.left;
         const plot = getPlotBounds(canvasRect);
         const clampedY = Math.max(plot.top, Math.min(plot.bottom, canvasY));
+        const isSpectrumSide = canvasX >= plot.left;
+        if (isSpectrumSide && !isPowerHeldRef.current) {
+          isPowerHeldRef.current = true;
+          onPowerLineHoldChange?.(true);
+        }
         const fraction = (plot.bottom - clampedY) / (plot.bottom - plot.top);
         const db =
           vizDbMinRef.current +
@@ -1343,12 +1352,21 @@ export function useFrequencyDrag({
         canvasX < plot.left && canvasY >= plot.top && canvasY <= plot.bottom;
       if (isLeftMargin && onPowerLineDbChange && vizDbMinRef && vizDbMaxRef) {
         isPowerDraggingRef.current = true;
+        isPowerHeldRef.current = false;
+        onPowerLineHoldChange?.(false);
         const clampedY = Math.max(plot.top, Math.min(plot.bottom, canvasY));
         const fraction = (plot.bottom - clampedY) / (plot.bottom - plot.top);
         const db =
           vizDbMinRef.current +
           fraction * (vizDbMaxRef.current - vizDbMinRef.current);
         onPowerLineDbChange(db);
+        setPointerCaptureIfAvailable(container, e.pointerId);
+        return;
+      }
+
+      if (powerLineDbRef?.current !== null && onPowerLineDbChange) {
+        isPowerHeldRef.current = true;
+        onPowerLineHoldChange?.(true);
         setPointerCaptureIfAvailable(container, e.pointerId);
         return;
       }
@@ -1507,12 +1525,49 @@ export function useFrequencyDrag({
         if (container) {
           releasePointerCaptureIfAvailable(container, e.pointerId);
         }
-        if (onPowerLineDbChange) {
-          onPowerLineDbChange(null);
+        const rect = container?.getBoundingClientRect();
+        const canvasX = rect ? e.clientX - rect.left : e.clientX;
+        const canvasY = rect ? e.clientY - rect.top : e.clientY;
+        const plot = rect ? getPlotBounds(rect) : null;
+        const isLeftMargin =
+          plot &&
+          canvasX < plot.left &&
+          canvasY >= plot.top &&
+          canvasY <= plot.bottom;
+        if (isLeftMargin) {
+          onPowerLineDbChange?.(null);
+          isPowerHeldRef.current = false;
+          onPowerLineHoldChange?.(false);
         }
         if (onDragRepaint) {
           onDragRepaint();
         }
+        return;
+      }
+
+      if (isPowerHeldRef.current) {
+        const rect = container?.getBoundingClientRect();
+        const canvasX = rect ? e.clientX - rect.left : e.clientX;
+        const canvasY = rect ? e.clientY - rect.top : e.clientY;
+        const plot = rect ? getPlotBounds(rect) : null;
+        const isLeftMargin =
+          plot &&
+          canvasX < plot.left &&
+          canvasY >= plot.top &&
+          canvasY <= plot.bottom;
+        if (isLeftMargin) {
+          isPowerHeldRef.current = false;
+          onPowerLineHoldChange?.(false);
+          if (container)
+            releasePointerCaptureIfAvailable(container, e.pointerId);
+          onPowerLineDbChange?.(null);
+          onDragRepaint?.();
+          return;
+        }
+        if (container) {
+          releasePointerCaptureIfAvailable(container, e.pointerId);
+        }
+        onDragRepaint?.();
         return;
       }
 

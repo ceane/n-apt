@@ -204,8 +204,7 @@ export function getQuantizedIqPowerFloorDbmJS(
   const sampleCount = Math.max(1, Math.trunc(fftSize));
   const signedSteps = Math.pow(2, usableBits - 1);
   return (
-    10 * Math.log10(1 / (signedSteps * signedSteps * sampleCount)) +
-    dbmOffset
+    10 * Math.log10(1 / (signedSteps * signedSteps * sampleCount)) + dbmOffset
   );
 }
 

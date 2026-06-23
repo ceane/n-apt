@@ -243,14 +243,14 @@ export const useLiveSampleRateControl = ({
       manualSampleRateOptions.length > 0 &&
       !currentRateIsAllowedManual;
 
-      if (
-        (currentRateIsPreviousWhole ||
-          (currentRateIsKnownInvalidManual &&
-            sampleRateModeRef.current !== "manual")) &&
-        currentRate !== null &&
+    if (
+      (currentRateIsPreviousWhole ||
+        (currentRateIsKnownInvalidManual &&
+          sampleRateModeRef.current !== "manual")) &&
+      currentRate !== null &&
       nextRate !== currentRate &&
       sampleRateModeRef.current !== "manual"
-      ) {
+    ) {
       sampleRateModeRef.current = "whole";
       lastAppliedWholeChannelRateRef.current = nextRate;
       setSampleRate(nextRate);

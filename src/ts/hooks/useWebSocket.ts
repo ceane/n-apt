@@ -740,17 +740,20 @@ export const useWebSocket = (
   );
 
   // Function to send pause/resume commands to the server
-  const sendPauseCommand = useCallback((isPaused: boolean, sourceId: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "pause",
-        paused: isPaused,
-        source_id: sourceId,
-      });
-      ws.send(message);
-    }
-  }, []);
+  const sendPauseCommand = useCallback(
+    (isPaused: boolean, sourceId: string) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "pause",
+          paused: isPaused,
+          source_id: sourceId,
+        });
+        ws.send(message);
+      }
+    },
+    [],
+  );
 
   // Function to send frequency range updates to the server
   const sendFrequencyRange = useCallback((range: FrequencyRange) => {

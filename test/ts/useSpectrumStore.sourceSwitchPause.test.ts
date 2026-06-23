@@ -4,6 +4,7 @@ import {
   shouldAutoResumeVisualizerOnTxSelection,
   shouldSyncVisualizerPauseToBackend,
   shouldPauseSourceOnSwitch,
+  shouldResumePausedRxSourceOnSelection,
   isLiveVisualizerPathname,
   resolveEffectiveSourcePaused,
 } from "@n-apt/hooks/useSpectrumStore";
@@ -149,5 +150,32 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         autoPaused: true,
       }),
     ).toBe(true);
+  });
+
+  it("resumes a backend-paused rx source when it is selected without a manual pause", () => {
+    expect(
+      shouldResumePausedRxSourceOnSelection(
+        {
+          id: "rx-source",
+          name: "Mock APT SDR",
+          capability: "mock",
+          status: "connected",
+          paused: true,
+        } as any,
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldResumePausedRxSourceOnSelection(
+        {
+          id: "rx-source",
+          name: "Mock APT SDR",
+          capability: "mock",
+          status: "connected",
+          paused: true,
+        } as any,
+        true,
+      ),
+    ).toBe(false);
   });
 });

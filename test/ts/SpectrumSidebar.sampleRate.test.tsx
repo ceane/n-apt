@@ -145,10 +145,7 @@ jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
     selectedDeviceId?: string;
   }) => (
     <div data-testid="source-input">
-      <button
-        type="button"
-        onClick={() => onToggleDeviceTxMode?.("device-1")}
-      >
+      <button type="button" onClick={() => onToggleDeviceTxMode?.("device-1")}>
         source-input
       </button>
       {devices.map((device) => (
@@ -526,7 +523,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "Mock APT SDR",
       expect.objectContaining({
         serialNumber: "device-1",
-        centerFrequencyHz: 2_204_000,
+        centerFrequencyHz: 137_100_000,
         sampleRateHz: 2_400_000,
         powerDbm: -18,
         vgaGainDb: 16,
@@ -613,8 +610,12 @@ describe("SpectrumSidebar sample rate behavior", () => {
     );
 
     const sourceInput = screen.getByTestId("source-input");
-    fireEvent.click(within(sourceInput).getByRole("button", { name: "Mock APT SDR" }));
-    fireEvent.click(within(sourceInput).getByRole("button", { name: /pause/i }));
+    fireEvent.click(
+      within(sourceInput).getByRole("button", { name: "Mock APT SDR" }),
+    );
+    fireEvent.click(
+      within(sourceInput).getByRole("button", { name: /pause/i }),
+    );
 
     expect(mockToggleVisualizerPause).toHaveBeenCalledWith("mock-apt");
   });
@@ -693,7 +694,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "Mock APT SDR",
       expect.objectContaining({
         serialNumber: "device-1",
-        centerFrequencyHz: 2_204_000,
+        centerFrequencyHz: 137_100_000,
         sampleRateHz: 2_400_000,
         vgaGainDb: 16,
       }),
@@ -758,7 +759,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     const sourceInput = screen.getByTestId("source-input");
     const startTxButton = within(
-      within(sourceInput).getByRole("button", { name: "Mock Tx SDR" }).parentElement as HTMLElement,
+      within(sourceInput).getByRole("button", { name: "Mock Tx SDR" })
+        .parentElement as HTMLElement,
     ).getByRole("button", {
       name: /start tx/i,
     });
@@ -772,7 +774,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "Mock Tx SDR",
       expect.objectContaining({
         serialNumber: "mock-tx",
-        centerFrequencyHz: 2_204_000,
+        centerFrequencyHz: 137_100_000,
         sampleRateHz: 2_400_000,
       }),
     );
@@ -1193,7 +1195,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     const sourceInput = screen.getByTestId("source-input");
     const txButton = within(
-      within(sourceInput).getByRole("button", { name: "HackRF One #2" }).parentElement as HTMLElement,
+      within(sourceInput).getByRole("button", { name: "HackRF One #2" })
+        .parentElement as HTMLElement,
     ).getByRole("button", {
       name: /stop tx/i,
     });

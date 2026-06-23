@@ -28,6 +28,11 @@ const buildTunedFrequencyPayload = (
   };
 };
 
+const optionalIntegerHz = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
+};
+
 // Connect to WebSocket
 export const connectWebSocket = createAsyncThunk(
   "websocket/connect",
@@ -65,8 +70,9 @@ export const sendFrequencyRange = createAsyncThunk(
           type: "frequency_range",
           data: {
             ...tunedRange,
-            bandwidth_center_frequency: (state as any).demod
-              ?.bandwidthCenterFreqHz,
+            bandwidth_center_frequency: optionalIntegerHz(
+              (state as any).demod?.bandwidthCenterFreqHz,
+            ),
           },
         },
       });

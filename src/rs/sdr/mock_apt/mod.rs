@@ -15,7 +15,7 @@ use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::server::types::MockAptRealisticRfConfig;
+use crate::server::types::{MockAptRealisticRfConfig, TxIqPowerModel};
 
 use super::SdrDevice;
 
@@ -178,7 +178,6 @@ pub fn realistic_visibility_gain(
 #[derive(Debug, Clone, Copy)]
 struct MockTxRuntimePreset {
   center_frequency_hz: f64,
-  offset_hz: f64,
   tone_hz: f64,
   bandwidth_hz: f64,
 }
@@ -238,9 +237,6 @@ fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
 
   MockTxRuntimePreset {
     center_frequency_hz,
-    offset_hz: preset
-      .and_then(|preset| preset.offset_hz)
-      .unwrap_or(25_000.0),
     tone_hz: preset.and_then(|preset| preset.tone_hz).unwrap_or(2_400.0),
     bandwidth_hz: preset
       .and_then(|preset| preset.bandwidth_hz)
@@ -1040,10 +1036,11 @@ impl MockAptDevice {
       };
       let tx_preset = resolve_mock_tx_preset(&tx_signal);
       let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
-      // Assume a nominal path/coupling loss of 50 dB from TX antenna to RX path
-      let received_strength_db = tx_power_dbm - 50.0;
-      // Calculate amplitude of the received signal without rx_gain multiplier (avoid clipping/harmonics)
-      let amp = (received_strength_db / 20.0 * std::f64::consts::LN_10).exp();
+      // Mock APT is a verification receiver for Mock Tx, so render the Tx
+      // overlay at the same monitor calibration instead of hiding it behind
+      // an arbitrary coupling loss.
+      let amp = 10.0f64
+        .powf((tx_power_dbm - TxIqPowerModel::default().calibration_db) / 20.0);
 
       let hop_enabled = crate::safety::TX_HOP_ENABLED
         .load(std::sync::atomic::Ordering::Relaxed);
@@ -1105,7 +1102,7 @@ impl MockAptDevice {
         let rel_freq = if active_tx_center_hz > 0.0 {
           active_tx_center_hz - center_freq
         } else {
-          tx_preset.center_frequency_hz - center_freq + tx_preset.offset_hz
+          tx_preset.center_frequency_hz - center_freq
         };
         // Only synthesize non-hop leakage if it is within the receiver passband
         if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
