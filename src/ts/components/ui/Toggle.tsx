@@ -10,23 +10,26 @@ const ToggleContainer = styled.div<{ $disabled?: boolean }>`
   user-select: none;
 `;
 
-const Switch = styled.div<{ $active: boolean }>`
-  width: 32px;
-  height: 18px;
+const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
+  width: ${(props) => (props.$hasInnerLabel ? "56px" : "32px")};
+  height: ${(props) => (props.$hasInnerLabel ? "20px" : "18px")};
   background-color: ${(props) =>
     props.$active ? props.theme.primary : props.theme.borderHover};
-  border-radius: 9px;
+  border-radius: 10px;
   position: relative;
   transition: background-color 0.2s ease;
   pointer-events: auto;
+  display: flex;
+  align-items: center;
 
   &::after {
     content: "";
     position: absolute;
     top: 2px;
-    left: ${(props) => (props.$active ? "16px" : "2px")};
-    width: 14px;
-    height: 14px;
+    left: ${(props) =>
+      props.$active ? (props.$hasInnerLabel ? "38px" : "16px") : "2px"};
+    width: 16px;
+    height: 16px;
     background-color: white;
     border-radius: 50%;
     transition: left 0.2s ease;
@@ -42,6 +45,21 @@ const Label = styled.span`
   user-select: none;
 `;
 
+const InnerLabel = styled.span<{ $active: boolean }>`
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  user-select: none;
+  pointer-events: none;
+  left: ${(props) => (props.$active ? "8px" : "auto")};
+  right: ${(props) => (!props.$active ? "8px" : "auto")};
+  text-transform: uppercase;
+`;
+
 export interface ToggleProps {
   $active: boolean;
   onClick?: () => void;
@@ -50,6 +68,8 @@ export interface ToggleProps {
   title?: string;
   activeLabel?: string;
   inactiveLabel?: string;
+  showInnerLabel?: boolean;
+  labelPosition?: "left" | "right";
 }
 
 export const Toggle: React.FC<ToggleProps> = ({
@@ -60,6 +80,8 @@ export const Toggle: React.FC<ToggleProps> = ({
   title,
   activeLabel,
   inactiveLabel,
+  showInnerLabel,
+  labelPosition = "right",
 }) => {
   const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
@@ -79,6 +101,17 @@ export const Toggle: React.FC<ToggleProps> = ({
     }
   };
 
+  const renderLabel = () => {
+    return (
+      <>
+        {(activeLabel || inactiveLabel) && (
+          <Label>{$active ? (activeLabel ?? "") : (inactiveLabel ?? "")}</Label>
+        )}
+        {children && <Label>{children}</Label>}
+      </>
+    );
+  };
+
   return (
     <ToggleContainer
       $disabled={disabled}
@@ -90,11 +123,13 @@ export const Toggle: React.FC<ToggleProps> = ({
       aria-disabled={disabled}
       tabIndex={disabled ? -1 : 0}
     >
-      <Switch $active={$active} />
-      {(activeLabel || inactiveLabel) && (
-        <Label>{$active ? (activeLabel ?? "") : (inactiveLabel ?? "")}</Label>
-      )}
-      {children && <Label>{children}</Label>}
+      {labelPosition === "left" && renderLabel()}
+      <Switch $active={$active} $hasInnerLabel={showInnerLabel}>
+        {showInnerLabel && (
+          <InnerLabel $active={$active}>{$active ? "ON" : "OFF"}</InnerLabel>
+        )}
+      </Switch>
+      {labelPosition === "right" && renderLabel()}
     </ToggleContainer>
   );
 };

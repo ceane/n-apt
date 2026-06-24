@@ -2,6 +2,7 @@ use n_apt_backend::sdr::mock_apt::MockAptDevice;
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::sdr::SdrDevice;
 use n_apt_backend::server::types::MockAptRealisticRfConfig;
+use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -49,6 +50,71 @@ mod tests {
     }
 
     (sum_re.hypot(sum_im)) / sample_count.max(1) as f64
+  }
+
+  fn iq_bin_dbm(samples: &[u8], sample_rate_hz: f64, offset_hz: f64) -> f64 {
+    let magnitude =
+      iq_bin_magnitude(samples, sample_rate_hz, offset_hz) / 128.0;
+    20.0 * magnitude.max(1e-12).log10() + 15.0
+  }
+
+  fn max_iq_bin_dbm(
+    samples: &[u8],
+    sample_rate_hz: f64,
+    min_offset_hz: f64,
+    max_offset_hz: f64,
+    step_hz: f64,
+  ) -> f64 {
+    let mut offset_hz = min_offset_hz;
+    let mut max_dbm: f64 = -150.0;
+    while offset_hz <= max_offset_hz {
+      max_dbm = max_dbm.max(iq_bin_dbm(samples, sample_rate_hz, offset_hz));
+      offset_hz += step_hz.max(1.0);
+    }
+    max_dbm
+  }
+
+  fn fft_spectrum_dbm(samples: &[u8], sample_rate_hz: f64) -> Vec<(f64, f64)> {
+    let sample_count = samples.len() / 2;
+    let mut iq: Vec<Complex<f32>> = samples
+      .chunks_exact(2)
+      .map(|sample| {
+        Complex::new(
+          (sample[0] as f32 - 128.0) / 128.0,
+          (sample[1] as f32 - 128.0) / 128.0,
+        )
+      })
+      .collect();
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(sample_count);
+    fft.process(&mut iq);
+
+    iq.iter()
+      .enumerate()
+      .map(|(index, bin)| {
+        let rel_hz = if index <= sample_count / 2 {
+          index as f64 * sample_rate_hz / sample_count as f64
+        } else {
+          -((sample_count - index) as f64 * sample_rate_hz
+            / sample_count as f64)
+        };
+        let re = bin.re as f64 / sample_count as f64;
+        let im = bin.im as f64 / sample_count as f64;
+        let dbm = 10.0 * (re * re + im * im).max(1e-15).log10() + 15.0;
+        (rel_hz, dbm)
+      })
+      .collect()
+  }
+
+  fn percentile_dbm(mut values: Vec<f64>, percentile: f64) -> f64 {
+    values.retain(|value| value.is_finite());
+    if values.is_empty() {
+      return -150.0;
+    }
+    values.sort_by(|left, right| left.total_cmp(right));
+    let index =
+      ((values.len() - 1) as f64 * percentile.clamp(0.0, 1.0)).round() as usize;
+    values[index]
   }
 
   #[test]
@@ -363,6 +429,216 @@ mod tests {
     assert!(
       active_energy > baseline_energy + 0.5,
       "active Mock Tx should be visible in Mock APT receive spectrum: baseline={baseline_energy}, active={active_energy}"
+    );
+  }
+
+  #[test]
+  fn test_active_tx_overlay_respects_narrow_tx_bandwidth_in_mock_apt_receive_spectrum(
+  ) {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let sample_rate_hz = 3_200_000.0;
+    let tx_center_hz = 137_100_000.0;
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "apt".to_string();
+    *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = tx_center_hz;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 100_000.0;
+
+    let frame = {
+      let mut device = new_perf_device(13579);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      device.read_samples(65_536).unwrap()
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 0.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+
+    let center_dbm = iq_bin_dbm(&frame.data, sample_rate_hz, 0.0);
+    let outside_dbm = max_iq_bin_dbm(
+      &frame.data,
+      sample_rate_hz,
+      250_000.0,
+      1_400_000.0,
+      25_000.0,
+    )
+    .max(max_iq_bin_dbm(
+      &frame.data,
+      sample_rate_hz,
+      -1_400_000.0,
+      -250_000.0,
+      25_000.0,
+    ));
+
+    assert!(
+      outside_dbm < center_dbm - 35.0,
+      "Mock APT receive overlay should not show Tx energy outside a narrow Tx bandwidth: center={center_dbm:.2} dBm, outside={outside_dbm:.2} dBm"
+    );
+  }
+
+  #[test]
+  fn test_active_tx_overlay_suppresses_edge_adjacent_shoulders_in_mock_apt_receive_spectrum(
+  ) {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let sample_rate_hz = 4_372_000.0;
+    let tx_center_hz = 137_100_000.0;
+    let tx_bandwidth_hz = 873_000.0;
+    let tx_half_width_hz = tx_bandwidth_hz / 2.0;
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "apt".to_string();
+    *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = tx_center_hz;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = tx_bandwidth_hz;
+
+    let frame = {
+      let mut device = new_perf_device(24681357);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      device.read_samples(65_536).unwrap()
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 0.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+
+    let spectrum = fft_spectrum_dbm(&frame.data, sample_rate_hz);
+    let far_floor_dbm = percentile_dbm(
+      spectrum
+        .iter()
+        .filter(|(rel_hz, _)| {
+          (1_200_000.0..=1_900_000.0).contains(rel_hz)
+            || (-1_900_000.0..=-1_200_000.0).contains(rel_hz)
+        })
+        .map(|(_, dbm)| *dbm)
+        .collect(),
+      0.95,
+    );
+    let adjacent_outside_dbm = percentile_dbm(
+      spectrum
+        .iter()
+        .filter(|(rel_hz, _)| {
+          (tx_half_width_hz + 50_000.0..=tx_half_width_hz + 350_000.0)
+            .contains(rel_hz)
+            || (-(tx_half_width_hz + 350_000.0)
+              ..=-(tx_half_width_hz + 50_000.0))
+              .contains(rel_hz)
+        })
+        .map(|(_, dbm)| *dbm)
+        .collect(),
+      0.95,
+    );
+
+    assert!(
+      adjacent_outside_dbm <= far_floor_dbm + 6.0,
+      "Mock APT receive overlay should not keep elevated shoulders just outside Tx bandwidth: adjacent={adjacent_outside_dbm:.2} dBm, far_floor={far_floor_dbm:.2} dBm"
+    );
+  }
+
+  #[test]
+  fn test_active_noise_tx_overlay_does_not_create_cliffs_outside_allocated_bandwidth(
+  ) {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let sample_rate_hz = 4_372_000.0;
+    let tx_center_hz = 13_875_000.0;
+    let tx_bandwidth_hz = 2_490_000.0;
+    let tx_half_width_hz = tx_bandwidth_hz / 2.0;
+    let fft_size = 65_536;
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    let baseline = {
+      let mut device = new_perf_device(97531);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      let frame = device.read_samples(fft_size).unwrap();
+      fft_spectrum_dbm(&frame.data, sample_rate_hz)
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "noise".to_string();
+    *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = tx_center_hz;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = tx_bandwidth_hz;
+
+    let active = {
+      let mut device = new_perf_device(97531);
+      device.set_center_frequency(tx_center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      let frame = device.read_samples(fft_size).unwrap();
+      fft_spectrum_dbm(&frame.data, sample_rate_hz)
+    };
+
+    n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = "apt".to_string();
+    *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+      .lock()
+      .unwrap() = 0.0;
+    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+
+    let outside_active_dbm = percentile_dbm(
+      active
+        .iter()
+        .filter(|(rel_hz, _)| {
+          (tx_half_width_hz + 80_000.0..=tx_half_width_hz + 650_000.0)
+            .contains(rel_hz)
+            || (-(tx_half_width_hz + 650_000.0)
+              ..=-(tx_half_width_hz + 80_000.0))
+              .contains(rel_hz)
+        })
+        .map(|(_, dbm)| *dbm)
+        .collect(),
+      0.95,
+    );
+    let outside_baseline_dbm = percentile_dbm(
+      baseline
+        .iter()
+        .filter(|(rel_hz, _)| {
+          (tx_half_width_hz + 80_000.0..=tx_half_width_hz + 650_000.0)
+            .contains(rel_hz)
+            || (-(tx_half_width_hz + 650_000.0)
+              ..=-(tx_half_width_hz + 80_000.0))
+              .contains(rel_hz)
+        })
+        .map(|(_, dbm)| *dbm)
+        .collect(),
+      0.95,
+    );
+    let in_band_active_dbm = percentile_dbm(
+      active
+        .iter()
+        .filter(|(rel_hz, _)| {
+          (-tx_half_width_hz * 0.85..=tx_half_width_hz * 0.85).contains(rel_hz)
+        })
+        .map(|(_, dbm)| *dbm)
+        .collect(),
+      0.95,
+    );
+
+    assert!(
+      outside_active_dbm <= outside_baseline_dbm + 4.0,
+      "noise Tx overlay should not create the visible shoulder/cliff shelves outside the allocated bandwidth: active_outside={outside_active_dbm:.2} dBm, baseline_outside={outside_baseline_dbm:.2} dBm"
+    );
+    assert!(
+      in_band_active_dbm >= outside_active_dbm + 10.0,
+      "noise Tx overlay should remain concentrated inside the allocated bandwidth: in_band={in_band_active_dbm:.2} dBm, outside={outside_active_dbm:.2} dBm"
     );
   }
 

@@ -124,6 +124,7 @@ describe("useSpectrumRenderer", () => {
       0,
       undefined,
       1,
+      false,
     );
     expect(drawTxSliderOnContextMock).toHaveBeenLastCalledWith(
       expect.anything(),
@@ -136,6 +137,19 @@ describe("useSpectrumRenderer", () => {
       }),
       expect.any(Object),
       1,
+    );
+    expect(drawTxSliderBackdropOnContextMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      1000,
+      600,
+      expect.objectContaining({
+        visible: true,
+        signalLabel: "APT",
+        txCenterHz: 2_186_000,
+      }),
+      { min: 0, max: 4_372_000 },
+      -120,
+      0,
     );
   });
 });

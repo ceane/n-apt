@@ -13,7 +13,10 @@ import {
 import styled, { keyframes } from "styled-components";
 import { Lock, Unlock } from "lucide-react";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
-import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
+import {
+  formatLiveCanvasStatusRow,
+  type LiveCanvasStatusRow,
+} from "@n-apt/hooks/useDraw2DFFTSignal";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
@@ -172,6 +175,34 @@ export const resolveEffectiveDbmOffsetDb = ({
 
   return 30.0;
 };
+
+export const getTxSpectrumRevisionKey = ({
+  centerFrequencyHz,
+  sampleRateHz,
+  signal,
+  powerDbm,
+}: {
+  centerFrequencyHz?: number | null;
+  sampleRateHz?: number | null;
+  signal?: string | null;
+  powerDbm?: number | null;
+}) =>
+  JSON.stringify({
+    centerFrequencyHz:
+      typeof centerFrequencyHz === "number" &&
+      Number.isFinite(centerFrequencyHz)
+        ? Math.round(centerFrequencyHz)
+        : null,
+    sampleRateHz:
+      typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? Math.round(sampleRateHz)
+        : null,
+    signal: signal ?? null,
+    powerDbm:
+      typeof powerDbm === "number" && Number.isFinite(powerDbm)
+        ? Number(powerDbm.toFixed(3))
+        : null,
+  });
 
 export const resolveLiveFrameRenderableFrequencyRange = ({
   currentFrame,
@@ -549,6 +580,20 @@ const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
   font-weight: 600;
 `;
 
+const TxSliderVisualPowerDot = styled.span<{ $isTransmitting: boolean }>`
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: ${({ $isTransmitting, theme }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  box-shadow: 0 0 0 1px
+    ${({ $isTransmitting, theme }) =>
+      $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  margin-right: 5px;
+  transform: translateY(0px);
+`;
+
 const TxSliderVisualOffScreenIndicator = styled.button<{
   $direction: "left" | "right";
   $isTransmitting: boolean;
@@ -786,6 +831,7 @@ export interface FFTCanvasProps {
   /** Emits the actual placeholder/loading state owned by the FFT canvas. */
   onCanvasLoadingChange?: (isLoading: boolean) => void;
   showSpikeOverlay?: boolean;
+  isStandby?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
   vizZoomFloorPan?: number;
@@ -932,6 +978,7 @@ const FFTCanvas = memo(
       placeholderErrorReason = null,
       placeholderState: explicitPlaceholderState = null,
       interactionDisabled = false,
+      isStandby: explicitIsStandby,
       onRenderableFrameChange,
       onCanvasLoadingChange,
       vizZoom = 1,
@@ -1011,6 +1058,16 @@ const FFTCanvas = memo(
         (source) => source.status === "transmitting",
       );
     }, [reduxWebsocketSources]);
+    const isStandby = useMemo(() => {
+      if (typeof explicitIsStandby === "boolean") {
+        return explicitIsStandby;
+      }
+      return !!(
+        explicitPlaceholderState &&
+        explicitPlaceholderState.kind === "idle" &&
+        explicitPlaceholderState.title === "Start Tx to transmit"
+      );
+    }, [explicitIsStandby, explicitPlaceholderState]);
     const pendingTxSliderDispatchRef = useRef<{
       centerHz?: number;
       sampleRateHz?: number;
@@ -1153,21 +1210,26 @@ const FFTCanvas = memo(
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
 
-    const [powerLineDb, setPowerLineDb] = useState<number | null>(null);
-    const [isPowerLineHeld, setIsPowerLineHeld] = useState(false);
     const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
     const powerLineDbRef = useRef<number | null>(null);
+    const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
-    useEffect(() => {
-      powerLineDbRef.current = powerLineDb;
-      if (powerLineDb === null) {
-        setIsPowerLineHeld(false);
+    const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
+      const wasActive = powerLineDbRef.current !== null;
+      const isActive = nextPowerLineDb !== null;
+      if (Object.is(powerLineDbRef.current, nextPowerLineDb)) return;
+
+      powerLineDbRef.current = nextPowerLineDb;
+      if (nextPowerLineDb === null) {
+        isPowerLineHeldRef.current = false;
       }
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [powerLineDb]);
+      if (wasActive !== isActive) {
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+      }
+      forceRenderRef.current?.();
+    }, []);
 
     const {
       waterfallBufferRef,
@@ -1371,6 +1433,49 @@ const FFTCanvas = memo(
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
+    const txModeDeviceName = useMemo(() => {
+      const source =
+        reduxWebsocketSources.find((item) => item.status === "transmitting") ??
+        reduxWebsocketSources.find(
+          (item) =>
+            item.capability === "tx" ||
+            item.capability === "tx_rx" ||
+            item.kind === "mock_tx" ||
+            item.kind === "tx" ||
+            item.kind === "tx_rx",
+        );
+      return source?.name?.trim() || deviceName?.trim() || null;
+    }, [deviceName, reduxWebsocketSources]);
+    const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
+      const txModeLabel = txModeDeviceName
+        ? `Tx Mode / ${txModeDeviceName}`
+        : undefined;
+
+      if (canvasStatusRow) {
+        return {
+          ...canvasStatusRow,
+          ...(txModeLabel ? { txModeLabel } : {}),
+        };
+      }
+
+      if (typeof hardwareSampleRateHz !== "number") return null;
+      return {
+        ...formatLiveCanvasStatusRow({
+          sampleRateHz: hardwareSampleRateHz,
+          fftSize: effectiveFftSize,
+          fftWindow: fftWindow ?? "Rectangular",
+          temporalResolution: displayTemporalResolution,
+        }),
+        ...(txModeLabel ? { txModeLabel } : {}),
+      };
+    }, [
+      canvasStatusRow,
+      displayTemporalResolution,
+      effectiveFftSize,
+      fftWindow,
+      hardwareSampleRateHz,
+      txModeDeviceName,
+    ]);
     const validatedDbRange = useMemo(
       () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
       [baseDbMin, baseDbMax, effectivePowerScale],
@@ -1490,6 +1595,9 @@ const FFTCanvas = memo(
 
     const canvasPlaceholderState =
       useMemo<CanvasPlaceholderState | null>(() => {
+        if (isStandby) {
+          return null;
+        }
         if (explicitPlaceholderState) {
           return explicitPlaceholderState;
         }
@@ -1861,6 +1969,7 @@ const FFTCanvas = memo(
     const temporalWriteIndexRef = useRef(0);
     const temporalActiveCountRef = useRef(0);
     const activeTemporalFramesRef = useRef<Float32Array[]>([]);
+    const lastTxSpectrumRevisionKeyRef = useRef<string | null>(null);
 
     const resetTemporalAveragingState = useCallback(() => {
       temporalFramePoolRef.current.length = 0;
@@ -1878,6 +1987,39 @@ const FFTCanvas = memo(
       spectrumOutputBufferRef.current = null;
       resetTemporalAveragingState();
     }, [resetTemporalAveragingState]);
+
+    const txSpectrumRevisionKey = useMemo(
+      () =>
+        getTxSpectrumRevisionKey({
+          centerFrequencyHz: reduxTxCenterFrequencyHz,
+          sampleRateHz: reduxTxSampleRateHz,
+          signal: reduxTxSignal,
+          powerDbm: reduxTxPowerDbm,
+        }),
+      [
+        reduxTxCenterFrequencyHz,
+        reduxTxSampleRateHz,
+        reduxTxSignal,
+        reduxTxPowerDbm,
+      ],
+    );
+
+    useEffect(() => {
+      if (lastTxSpectrumRevisionKeyRef.current === null) {
+        lastTxSpectrumRevisionKeyRef.current = txSpectrumRevisionKey;
+        return;
+      }
+      if (lastTxSpectrumRevisionKeyRef.current === txSpectrumRevisionKey) {
+        return;
+      }
+      lastTxSpectrumRevisionKeyRef.current = txSpectrumRevisionKey;
+      invalidateSpectrumProcessingCaches();
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [invalidateSpectrumProcessingCaches, txSpectrumRevisionKey]);
 
     // Refs for volatile rendering parameters to stabilize callbacks
     const fftColorRef = useRef(fftColor);
@@ -2068,7 +2210,13 @@ const FFTCanvas = memo(
       tooltipSpanRef,
       powerLineDbRef,
       onPowerLineDbChange: setPowerLineDb,
-      onPowerLineHoldChange: setIsPowerLineHeld,
+      onPowerLineHoldChange: useCallback((held: boolean) => {
+        if (isPowerLineHeldRef.current === held) return;
+        isPowerLineHeldRef.current = held;
+        overlayDirtyRef.current.markers = true;
+        forceRenderRef.current?.();
+      }, []),
+      powerScale: effectivePowerScale,
       txSliderRef,
       txSliderEnabled: !!effectiveTxSlider?.visible,
       txSliderLocked: isTxSliderLocked,
@@ -2196,7 +2344,7 @@ const FFTCanvas = memo(
           !!placeholderErrorReason ||
           (!isDeviceConnected && !hasRenderableFrame);
 
-        if (showLoadingPlaceholder || showErrorPlaceholder) {
+        if ((showLoadingPlaceholder || showErrorPlaceholder) && !isStandby) {
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
 
@@ -2212,7 +2360,6 @@ const FFTCanvas = memo(
           return;
         }
 
-        clearOverlayCanvas(spectrumOverlayCanvas);
         clearOverlayCanvas(waterfallOverlayCanvas);
 
         const powerScale = effectivePowerScaleRef.current;
@@ -2550,13 +2697,12 @@ const FFTCanvas = memo(
               renderWaveformRef.current,
             );
           }
-
           pendingFftSizeChangeRef.current = false;
         }
 
         const waveform = renderWaveformRef.current;
-        if (!waveform || waveform.length === 0) {
-          if (isPaused && !waveform) {
+        if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
+          if (isPaused) {
             restoreWaveformFromStorageRef.current();
             if (
               !renderWaveformRef.current ||
@@ -2567,6 +2713,50 @@ const FFTCanvas = memo(
           } else {
             return;
           }
+        }
+
+        if (isStandby) {
+          if (!hasRenderedSpectrumFrame) {
+            const previewWaveform = new Float32Array(effectiveFftSize).fill(
+              FFT_MIN_DB,
+            );
+            const prev = renderWaveformRef.current;
+            if (!prev || prev.length !== previewWaveform.length) {
+              renderWaveformRef.current = new Float32Array(previewWaveform);
+            } else {
+              prev.set(previewWaveform);
+            }
+            waveformFloatRef.current = renderWaveformRef.current;
+          }
+
+          // Set frequencyRangeRef.current if not set or zeroed
+          if (
+            (!frequencyRangeRef.current ||
+              frequencyRangeRef.current.min === 0) &&
+            frequencyRange
+          ) {
+            frequencyRangeRef.current = frequencyRange;
+          }
+
+          // Render frozen waterfall to preserve frames (just like pause)
+          const waterfallDevice = webgpuDeviceRef.current;
+          const waterfallFormat = webgpuFormatRef.current;
+          if (waterfallGpuCanvas && waterfallDevice && waterfallFormat) {
+            drawWebGPUFIFOWaterfall({
+              canvas: waterfallGpuCanvas,
+              device: waterfallDevice,
+              format: waterfallFormat,
+              fftData: new Float32Array(0),
+              fftMin: activeScaleDbMinRef.current,
+              fftMax: activeScaleDbMaxRef.current,
+              driftAmount: 0,
+              freeze: true,
+              colormap: colormapRef.current,
+              colormapName: waterfallThemeRef.current,
+            });
+          }
+        } else {
+          // Reset standby cleared ref or state if any
         }
 
         // Update waveform reference after potential restoration
@@ -2718,12 +2908,13 @@ const FFTCanvas = memo(
                 : selectionOverlayRef.current,
               txSlider: compact ? null : currentTxSlider,
               overlayOpacity: markerOverlayOpacity,
-              canvasStatusRow: compact ? null : canvasStatusRow,
+              canvasStatusRow: compact ? null : effectiveCanvasStatusRow,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
+              isStandby: isStandby,
             });
 
             if (!hasRenderedSpectrumFrame) {
@@ -2739,6 +2930,7 @@ const FFTCanvas = memo(
               const dpr = window.devicePixelRatio || 1;
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
 
               const activeDemodFocus = liveDragSelectionRef.current
                 ? {
@@ -2784,8 +2976,9 @@ const FFTCanvas = memo(
                   displayTemporalResolution,
                   !currentTxSlider?.visible,
                   bottomReservedPx,
-                  compact ? undefined : (canvasStatusRow ?? undefined),
-                  markerOverlayOpacity,
+                  compact ? undefined : (effectiveCanvasStatusRow ?? undefined),
+                  1.0,
+                  isStandby,
                 );
               }
 
@@ -2836,7 +3029,8 @@ const FFTCanvas = memo(
                   activeScaleDbMaxRef.current,
                   effectivePowerScaleRef.current,
                   bottomReservedPx,
-                  isPowerLineHeld ? " HOLD" : "",
+                  currentTxSlider?.powerDbm ?? null,
+                  isPowerLineHeldRef.current,
                 );
               }
             }
@@ -2866,6 +3060,7 @@ const FFTCanvas = memo(
                 textureWidth: 4096,
               });
               const shouldUpdateWaterfallRow =
+                !isStandby &&
                 !isPaused &&
                 (hasNewData || waterfallMotion.shouldPaintMotionRow);
               retuneDriftPxRef.current = waterfallMotion.driftBins;
@@ -3258,7 +3453,8 @@ const FFTCanvas = memo(
         bandwidthAlignment,
         visualizerMachine,
         visualizerSessionKey,
-        canvasStatusRow,
+        effectiveCanvasStatusRow,
+        isStandby,
       ],
     );
 
@@ -4045,7 +4241,9 @@ const FFTCanvas = memo(
                 {!compact && (
                   <SectionTitleRow>
                     <SectionTitle>
-                      FFT Signal Display {isPaused && "(Paused)"}
+                      {isStandby
+                        ? "FFT Signal Display (Standby)"
+                        : `FFT Signal Display ${isPaused ? "(Paused)" : ""}`}
                     </SectionTitle>
                     {headerActionContent && (
                       <SectionTitleActions
@@ -4165,7 +4363,14 @@ const FFTCanvas = memo(
                                   <TxSliderVisualPower
                                     $isTransmitting={isTransmittingGlobal}
                                   >
-                                    {"·"}
+                                    {effectivePowerScale === "dBm" ? (
+                                      <TxSliderVisualPowerDot
+                                        aria-hidden="true"
+                                        $isTransmitting={isTransmittingGlobal}
+                                      />
+                                    ) : (
+                                      "·"
+                                    )}
                                     {txSliderVisualMetrics.powerLabel}
                                   </TxSliderVisualPower>
                                 ) : null}

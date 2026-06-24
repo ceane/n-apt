@@ -18,6 +18,7 @@ export type CanvasTxSliderState = {
   txCenterHz: number;
   txSampleRateHz: number;
   isTransmitting?: boolean;
+  powerDbm?: number;
   onCenterFrequencyChange?: (valueHz: number) => void;
   onSampleRateChange?: (valueHz: number) => void;
   onOptionsRequest?: () => void;
@@ -68,6 +69,7 @@ export interface FrequencyDragOptions {
   powerLineDbRef?: React.MutableRefObject<number | null>;
   onPowerLineDbChange?: (db: number | null) => void;
   onPowerLineHoldChange?: (held: boolean) => void;
+  powerScale?: "dB" | "dBm";
   txSliderRef?: React.MutableRefObject<CanvasTxSliderState | null>;
   txSliderEnabled?: boolean;
   txSliderLocked?: boolean;
@@ -108,6 +110,7 @@ export function useFrequencyDrag({
   powerLineDbRef,
   onPowerLineDbChange,
   onPowerLineHoldChange,
+  powerScale = "dB",
   txSliderRef,
   txSliderEnabled = false,
   txSliderLocked = false,
@@ -785,15 +788,31 @@ export function useFrequencyDrag({
         const plot = getPlotBounds(canvasRect);
         const clampedY = Math.max(plot.top, Math.min(plot.bottom, canvasY));
         const isSpectrumSide = canvasX >= plot.left;
-        if (isSpectrumSide && !isPowerHeldRef.current) {
-          isPowerHeldRef.current = true;
-          onPowerLineHoldChange?.(true);
-        }
+        const txPowerDbm = txSliderRef?.current?.powerDbm;
+        const hasSnapDot =
+          powerScale === "dBm" &&
+          typeof txPowerDbm === "number" &&
+          Number.isFinite(txPowerDbm);
         const fraction = (plot.bottom - clampedY) / (plot.bottom - plot.top);
         const db =
           vizDbMinRef.current +
           fraction * (vizDbMaxRef.current - vizDbMinRef.current);
-        onPowerLineDbChange(db);
+        const snapY = (() => {
+          if (!hasSnapDot || !vizDbMinRef || !vizDbMaxRef) return null;
+          const snapFraction =
+            (txPowerDbm - vizDbMinRef.current) /
+            (vizDbMaxRef.current - vizDbMinRef.current);
+          return plot.bottom - snapFraction * (plot.bottom - plot.top);
+        })();
+        const dotHit = Boolean(
+          hasSnapDot && snapY !== null && Math.abs(clampedY - snapY) <= 5,
+        );
+        const heldNow = isSpectrumSide;
+        if (heldNow !== isPowerHeldRef.current) {
+          isPowerHeldRef.current = heldNow;
+          onPowerLineHoldChange?.(heldNow);
+        }
+        onPowerLineDbChange(dotHit ? (txPowerDbm ?? null) : db);
         if (onDragRepaint) {
           onDragRepaint();
         }
@@ -1365,9 +1384,13 @@ export function useFrequencyDrag({
       }
 
       if (powerLineDbRef?.current !== null && onPowerLineDbChange) {
+        const isSpectrumSide =
+          canvasX >= plot.left && canvasY >= plot.top && canvasY <= plot.bottom;
+        if (!isSpectrumSide) return;
         isPowerHeldRef.current = true;
         onPowerLineHoldChange?.(true);
         setPointerCaptureIfAvailable(container, e.pointerId);
+        onDragRepaint?.();
         return;
       }
 
@@ -1538,6 +1561,8 @@ export function useFrequencyDrag({
           onPowerLineDbChange?.(null);
           isPowerHeldRef.current = false;
           onPowerLineHoldChange?.(false);
+        } else if (isPowerHeldRef.current) {
+          onPowerLineHoldChange?.(true);
         }
         if (onDragRepaint) {
           onDragRepaint();

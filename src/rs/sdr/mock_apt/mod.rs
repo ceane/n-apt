@@ -10,6 +10,7 @@ use crossbeam_channel::Receiver;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
+use rustfft::{num_complex::Complex, FftPlanner};
 use std::f32::consts::PI;
 use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
@@ -763,6 +764,166 @@ impl SdrDevice for MockAptDevice {
   }
 }
 
+fn hash_noise(t: u64, seed: u64) -> f64 {
+  let mut x = t.wrapping_mul(0x85ebca6b) ^ seed;
+  x = x.wrapping_mul(0xc2b2ae35);
+  x ^= x >> 16;
+  let r = (x & 0xfffffff) as f64 / 268435456.0; // 0.0 to 1.0
+  r * 2.0 - 1.0
+}
+
+fn quantize_mock_apt_sample(
+  value: f64,
+  sample_index: u64,
+  salt: u64,
+  stochastic: bool,
+) -> u8 {
+  let scaled = value.clamp(-1.0, 1.0) * 127.0;
+  if !stochastic {
+    return (scaled + 128.0) as u8;
+  }
+
+  let lower = scaled.floor();
+  let fraction = scaled - lower;
+  let dither = (hash_noise(sample_index, salt) + 1.0) * 0.5;
+  let signed = lower + if dither < fraction { 1.0 } else { 0.0 };
+  (128.0 + signed).clamp(0.0, 255.0) as u8
+}
+
+fn constrain_mock_apt_tx_overlay_to_bandwidth(
+  i_accumulator: &mut [f64],
+  q_accumulator: &mut [f64],
+  before_i: &[f64],
+  before_q: &[f64],
+  rel_center_hz: f64,
+  tx_sample_rate_hz: f64,
+  view_sample_rate_hz: f64,
+) {
+  let len = i_accumulator
+    .len()
+    .min(q_accumulator.len())
+    .min(before_i.len())
+    .min(before_q.len());
+  if len == 0
+    || !rel_center_hz.is_finite()
+    || !tx_sample_rate_hz.is_finite()
+    || !view_sample_rate_hz.is_finite()
+  {
+    return;
+  }
+
+  let half_tx_hz = (tx_sample_rate_hz.max(1.0) / 2.0).max(0.5);
+  let bin_width_hz = view_sample_rate_hz.max(1.0) / len as f64;
+  let guard_hz = bin_width_hz * 1.5;
+  let mut overlay: Vec<Complex<f32>> = (0..len)
+    .map(|index| {
+      Complex::new(
+        (i_accumulator[index] - before_i[index]) as f32,
+        (q_accumulator[index] - before_q[index]) as f32,
+      )
+    })
+    .collect();
+
+  let mut planner = FftPlanner::<f32>::new();
+  let fft = planner.plan_fft_forward(len);
+  fft.process(&mut overlay);
+
+  for (index, bin) in overlay.iter_mut().enumerate() {
+    let bin_hz = if index <= len / 2 {
+      index as f64 * bin_width_hz
+    } else {
+      -((len - index) as f64 * bin_width_hz)
+    };
+    if (bin_hz - rel_center_hz).abs() > half_tx_hz + guard_hz {
+      *bin = Complex::new(0.0, 0.0);
+    }
+  }
+
+  let ifft = planner.plan_fft_inverse(len);
+  ifft.process(&mut overlay);
+  let scale = 1.0 / len as f32;
+  for index in 0..len {
+    let filtered = overlay[index] * scale;
+    i_accumulator[index] = before_i[index] + filtered.re as f64;
+    q_accumulator[index] = before_q[index] + filtered.im as f64;
+  }
+}
+
+fn add_bandlimited_mock_tx_noise_overlay(
+  i_accumulator: &mut [f64],
+  q_accumulator: &mut [f64],
+  rel_center_hz: f64,
+  tx_sample_rate_hz: f64,
+  view_sample_rate_hz: f64,
+  amp: f64,
+  frame_start_sample: u64,
+) {
+  let len = i_accumulator.len().min(q_accumulator.len());
+  if len == 0
+    || !rel_center_hz.is_finite()
+    || !tx_sample_rate_hz.is_finite()
+    || !view_sample_rate_hz.is_finite()
+    || tx_sample_rate_hz <= 0.0
+    || view_sample_rate_hz <= 0.0
+  {
+    return;
+  }
+
+  let bin_width_hz = view_sample_rate_hz / len as f64;
+  let half_tx_hz = tx_sample_rate_hz / 2.0;
+  let edge_taper_hz = (tx_sample_rate_hz * 0.04).max(bin_width_hz * 2.0);
+  let mut spectrum = vec![Complex::new(0.0f32, 0.0f32); len];
+  let mut occupied_bins = 0usize;
+
+  for (index, bin) in spectrum.iter_mut().enumerate() {
+    let bin_hz = if index <= len / 2 {
+      index as f64 * bin_width_hz
+    } else {
+      -((len - index) as f64 * bin_width_hz)
+    };
+    let offset_from_tx_center = (bin_hz - rel_center_hz).abs();
+    if offset_from_tx_center > half_tx_hz {
+      continue;
+    }
+
+    let taper = if offset_from_tx_center >= half_tx_hz - edge_taper_hz {
+      let x =
+        ((half_tx_hz - offset_from_tx_center) / edge_taper_hz).clamp(0.0, 1.0);
+      x * x * (3.0 - 2.0 * x)
+    } else {
+      1.0
+    };
+    let phase_unit = (hash_noise(
+      frame_start_sample.wrapping_add(index as u64),
+      0x4241_4e44_4e4f_4953,
+    ) + 1.0)
+      * 0.5;
+    let phase = 2.0 * std::f64::consts::PI * phase_unit;
+    let (sin, cos) = phase.sin_cos();
+    *bin = Complex::new((cos * taper) as f32, (sin * taper) as f32);
+    occupied_bins += 1;
+  }
+
+  if occupied_bins == 0 {
+    return;
+  }
+
+  let magnitude = (amp * len as f64 / (occupied_bins as f64).sqrt()) as f32;
+  for bin in spectrum.iter_mut() {
+    *bin *= magnitude;
+  }
+
+  let mut planner = FftPlanner::<f32>::new();
+  let ifft = planner.plan_fft_inverse(len);
+  ifft.process(&mut spectrum);
+  let scale = 1.0 / len as f32;
+  for index in 0..len {
+    let sample = spectrum[index] * scale;
+    i_accumulator[index] += sample.re as f64;
+    q_accumulator[index] += sample.im as f64;
+  }
+}
+
 #[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
@@ -1028,6 +1189,9 @@ impl MockAptDevice {
     if crate::safety::TX_TRANSMITTING.load(std::sync::atomic::Ordering::Relaxed)
     {
       use rand::SeedableRng;
+      let before_tx_i = self.i_accumulator[..fft_size].to_vec();
+      let before_tx_q = self.q_accumulator[..fft_size].to_vec();
+      let active_tx_overlay_center_hz: f64;
       let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
       let tx_signal = if tx_signal.trim().is_empty() {
         "apt".to_string()
@@ -1083,6 +1247,7 @@ impl MockAptDevice {
         };
 
         // Add band-limited noise spike at current_freq
+        active_tx_overlay_center_hz = current_freq;
         let rel_freq = current_freq - center_freq;
         // Check if the signal is within the displayable passband
         if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
@@ -1104,112 +1269,83 @@ impl MockAptDevice {
         } else {
           tx_preset.center_frequency_hz - center_freq
         };
+        active_tx_overlay_center_hz = center_freq + rel_freq;
         // Only synthesize non-hop leakage if it is within the receiver passband
         if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
           let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
-          let (carrier_step_sin, carrier_step_cos) = phase_step.sin_cos();
-          let initial_phase = phase_step * self.total_samples as f64;
-          let (mut carrier_sin, mut carrier_cos) = initial_phase.sin_cos();
+          let tx_sample_rate =
+            *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
           if tx_signal == "tone" {
             for j in 0..fft_size {
-              let p_re = carrier_cos;
-              let p_im = carrier_sin;
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
               self.i_accumulator[j] += p_re * amp;
               self.q_accumulator[j] += p_im * amp;
-
-              let next_carrier_sin =
-                carrier_sin * carrier_step_cos + carrier_cos * carrier_step_sin;
-              let next_carrier_cos =
-                carrier_cos * carrier_step_cos - carrier_sin * carrier_step_sin;
-              carrier_sin = next_carrier_sin;
-              carrier_cos = next_carrier_cos;
             }
           } else if tx_signal == "noise" {
-            let noise_envelope_step =
-              2.0 * std::f64::consts::PI * tx_preset.bandwidth_hz / sample_rate;
-            let (noise_step_sin, noise_step_cos) =
-              noise_envelope_step.sin_cos();
-            let initial_noise_phase =
-              noise_envelope_step * self.total_samples as f64;
-            let (mut noise_env_sin, mut noise_env_cos) =
-              initial_noise_phase.sin_cos();
-
-            for j in 0..fft_size {
-              let p_re = carrier_cos;
-              let p_im = carrier_sin;
-              let noise_val = self.rng.random_range(-1.0..1.0);
-              let envelope = (noise_env_sin.abs() * 0.65) + 0.35;
-              self.i_accumulator[j] += noise_val * envelope * p_re * amp;
-              self.q_accumulator[j] += noise_val * envelope * p_im * amp;
-
-              let next_carrier_sin =
-                carrier_sin * carrier_step_cos + carrier_cos * carrier_step_sin;
-              let next_carrier_cos =
-                carrier_cos * carrier_step_cos - carrier_sin * carrier_step_sin;
-              carrier_sin = next_carrier_sin;
-              carrier_cos = next_carrier_cos;
-
-              let next_noise_env_sin =
-                noise_env_sin * noise_step_cos + noise_env_cos * noise_step_sin;
-              let next_noise_env_cos =
-                noise_env_cos * noise_step_cos - noise_env_sin * noise_step_sin;
-              noise_env_sin = next_noise_env_sin;
-              noise_env_cos = next_noise_env_cos;
-            }
+            let bw = if tx_sample_rate > 0.0 {
+              tx_sample_rate
+            } else {
+              tx_preset.bandwidth_hz
+            };
+            add_bandlimited_mock_tx_noise_overlay(
+              &mut self.i_accumulator[..fft_size],
+              &mut self.q_accumulator[..fft_size],
+              rel_freq,
+              bw,
+              sample_rate,
+              amp,
+              self.total_samples,
+            );
           } else if tx_signal == "custom" {
-            let bit_period = (sample_rate / tx_preset.tone_hz.max(1.0))
-              .round()
-              .max(1.0) as u64;
+            let bw = if tx_sample_rate > 0.0 {
+              tx_sample_rate
+            } else {
+              2_400_000.0
+            };
+            let symbol_rate = tx_preset.tone_hz * (bw / 2_400_000.0).min(1.0);
+            let bit_period =
+              (sample_rate / symbol_rate.max(1.0)).round().max(1.0) as u64;
 
             for j in 0..fft_size {
               let t = self.total_samples + j as u64;
-              let p_re = carrier_cos;
-              let p_im = carrier_sin;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
+
               let bit_index = t / bit_period;
               let bit = (bit_index ^ (bit_index >> 1)) & 1;
               let symbol = if bit == 0 { -1.0 } else { 1.0 };
               let shaped = 0.75 + 0.25 * symbol;
               self.i_accumulator[j] += p_re * shaped * amp;
               self.q_accumulator[j] += p_im * symbol * amp * 0.5;
-
-              let next_carrier_sin =
-                carrier_sin * carrier_step_cos + carrier_cos * carrier_step_sin;
-              let next_carrier_cos =
-                carrier_cos * carrier_step_cos - carrier_sin * carrier_step_sin;
-              carrier_sin = next_carrier_sin;
-              carrier_cos = next_carrier_cos;
             }
           } else {
-            let tone_step =
-              2.0 * std::f64::consts::PI * tx_preset.tone_hz / sample_rate;
-            let (tone_step_sin, tone_step_cos) = tone_step.sin_cos();
-            let initial_tone_phase = tone_step * self.total_samples as f64;
-            let (mut tone_sin, mut tone_cos) = initial_tone_phase.sin_cos();
-
             for j in 0..fft_size {
-              let p_re = carrier_cos;
-              let p_im = carrier_sin;
-              let mod_val = 1.0 + 0.8 * tone_sin;
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
+
+              let tone_phase = (2.0 * std::f64::consts::PI * tx_preset.tone_hz
+                / sample_rate)
+                * t as f64;
+              let mod_val = 1.0 + 0.8 * tone_phase.sin();
               self.i_accumulator[j] += p_re * mod_val * amp;
               self.q_accumulator[j] += p_im * mod_val * amp;
-
-              let next_carrier_sin =
-                carrier_sin * carrier_step_cos + carrier_cos * carrier_step_sin;
-              let next_carrier_cos =
-                carrier_cos * carrier_step_cos - carrier_sin * carrier_step_sin;
-              carrier_sin = next_carrier_sin;
-              carrier_cos = next_carrier_cos;
-
-              let next_tone_sin =
-                tone_sin * tone_step_cos + tone_cos * tone_step_sin;
-              let next_tone_cos =
-                tone_cos * tone_step_cos - tone_sin * tone_step_sin;
-              tone_sin = next_tone_sin;
-              tone_cos = next_tone_cos;
             }
           }
         }
       }
+      let tx_sample_rate = *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
+      constrain_mock_apt_tx_overlay_to_bandwidth(
+        &mut self.i_accumulator[..fft_size],
+        &mut self.q_accumulator[..fft_size],
+        &before_tx_i,
+        &before_tx_q,
+        active_tx_overlay_center_hz - center_freq,
+        tx_sample_rate,
+        sample_rate,
+      );
     }
 
     // Apply noise, clip and quantize (Sequential to keep RNG identical).
@@ -1271,14 +1407,25 @@ impl MockAptDevice {
     // Write directly into the pre-reserved byte_buffer via pointer to avoid
     // 2×fft_size bounds-checked push() calls (already reserved on line 522).
     let buf_ptr = self.byte_buffer.as_mut_ptr();
+    let stochastic_tx_quantization =
+      crate::safety::TX_TRANSMITTING.load(std::sync::atomic::Ordering::Relaxed);
     for j in 0..fft_size {
+      let sample_index = self.total_samples + j as u64;
       let i_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
       let q_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
 
-      let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0)
-        + 128.0) as u8;
-      let q_u8 = (((self.q_accumulator[j] + q_noise).clamp(-1.0, 1.0) * 127.0)
-        + 128.0) as u8;
+      let i_u8 = quantize_mock_apt_sample(
+        self.i_accumulator[j] + i_noise,
+        sample_index,
+        0x4d41_5054_5458_4949,
+        stochastic_tx_quantization,
+      );
+      let q_u8 = quantize_mock_apt_sample(
+        self.q_accumulator[j] + q_noise,
+        sample_index,
+        0x4d41_5054_5458_5151,
+        stochastic_tx_quantization,
+      );
 
       // SAFETY: byte_buffer has capacity ≥ fft_size*2 (reserved on line 522)
       unsafe {

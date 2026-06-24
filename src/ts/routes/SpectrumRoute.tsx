@@ -51,6 +51,7 @@ import {
   setTxPowerDbm,
   setDeviceKind,
 } from "@n-apt/redux";
+import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   clampFrequencyRangeToBounds,
   buildCenteredFrequencyRange,
@@ -73,6 +74,37 @@ const resolveMockTxMonitorSampleRateHz = (
   }
   return 3_200_000;
 };
+
+export const getMockTxPreviewRequestKey = ({
+  sourceId,
+  centerFrequencyHz,
+  sampleRateHz,
+  signal,
+  powerDbm,
+}: {
+  sourceId?: string | null;
+  centerFrequencyHz?: number | null;
+  sampleRateHz?: number | null;
+  signal?: string | null;
+  powerDbm?: number | null;
+}) =>
+  JSON.stringify({
+    sourceId: sourceId ?? null,
+    centerFrequencyHz:
+      typeof centerFrequencyHz === "number" &&
+      Number.isFinite(centerFrequencyHz)
+        ? Math.round(centerFrequencyHz)
+        : null,
+    sampleRateHz:
+      typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? Math.round(sampleRateHz)
+        : null,
+    signal: signal ?? null,
+    powerDbm:
+      typeof powerDbm === "number" && Number.isFinite(powerDbm)
+        ? Number(powerDbm.toFixed(3))
+        : null,
+  });
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
@@ -177,38 +209,11 @@ const FastSnapshotToggleWrapper = styled.div`
   align-items: center;
   padding: 0 8px;
 
-  /* Target the ToggleContainer */
-  > div {
-    gap: 6px;
-  }
-
-  /* Target Switch */
-  div[role="switch"] > div:first-child {
-    width: 22px !important;
-    height: 12px !important;
-    border-radius: 6px !important;
-
-    &::after {
-      width: 8px !important;
-      height: 8px !important;
-      top: 2px !important;
-    }
-  }
-
-  div[role="switch"][aria-checked="true"] > div:first-child::after {
-    left: 12px !important;
-  }
-
-  div[role="switch"][aria-checked="false"] > div:first-child::after {
-    left: 2px !important;
-  }
-
   span {
-    font-size: 9px !important;
-    font-weight: 700 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: ${(props) => props.theme.textSecondary} !important;
+    font-size: 10px;
+    font-family: inherit;
+    text-transform: none;
+    letter-spacing: inherit;
   }
 `;
 
@@ -380,8 +385,9 @@ const FastSnapshotControl: React.FC<{
         type="button"
         disabled={disabled || !videoFormat}
         onClick={onVideo}
+        title={videoFormat ? `Video (.${videoFormat})` : "Video"}
       >
-        Video {videoFormat ? `(.${videoFormat})` : ""}
+        Video
       </FastSnapshotModeButton>
       <FastSnapshotDivider />
       <FastSnapshotToggleWrapper>
@@ -390,8 +396,10 @@ const FastSnapshotControl: React.FC<{
           onClick={() => onShowStatsChange(!showStats)}
           title="Toggle including stats in snapshot/video"
           disabled={disabled}
-          inactiveLabel="Stats: Off"
-          activeLabel="Stats: On"
+          inactiveLabel="Stats"
+          activeLabel="Stats"
+          showInnerLabel={true}
+          labelPosition="left"
         />
       </FastSnapshotToggleWrapper>
     </FastSnapshotPill>
@@ -432,6 +440,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
     useState(false);
   const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
+  const [hasPlayedAtLeastOnce, setHasPlayedAtLeastOnce] = useState(false);
   const txOptionsRef = useRef<HTMLDivElement | null>(null);
   const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
   const txSampleRateHz = useAppSelector(
@@ -494,6 +503,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       dataRef,
       captureStatus,
       sdrLimitMarkers,
+      sources,
+      sendTransmitMode,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
@@ -533,26 +544,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       selectedSource?.id === "mock-apt" ||
       selectedSourceDerived.backend?.toLowerCase().includes("apt")
     );
-  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(
-    () => {
-      if (!isMockLiveSource) return null;
-      if (isMockAptSource) {
-        return {
-          kind: "mock_apt",
-          is_rtl_sdr: true,
-          supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
-        };
-      }
+  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
+    if (!isMockLiveSource) return null;
+    if (isMockAptSource) {
       return {
-        kind: "mock_tx",
-        is_rtl_sdr: false,
-        supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        kind: "mock_apt",
+        is_rtl_sdr: true,
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: false,
       };
-    },
-    [isMockLiveSource, isMockAptSource],
-  );
+    }
+    return {
+      kind: "mock_tx",
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+  }, [isMockLiveSource, isMockAptSource]);
   const fftDeviceProfile =
     mockTxDeviceProfile ?? selectedSourceDerived.deviceProfile ?? deviceProfile;
   const reduxDeviceKindSupportsTx =
@@ -1316,20 +1324,147 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       : (selectedSource?.status ?? null);
   const isSelectedMockTxTransmitting =
     isSelectedMockTxSource && selectedSourceStatus === "transmitting";
-  const emptyMockTxDataRef = useMemo(() => ({ current: null }), []);
-  const fftDataRef = useMemo(() => {
-    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
-      return dataRef;
+  const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
+  const transmittingTxSource = useMemo(
+    () =>
+      sources.find((source) => {
+        const kind = source.kind?.toLowerCase?.() ?? "";
+        const capability = source.capability?.toLowerCase?.() ?? "";
+        const status = sourceStatuses?.[source.id] ?? source.status;
+        return (
+          status === "transmitting" &&
+          (source.id === "mock-tx" ||
+            kind === "mock_tx" ||
+            kind === "mock-tx" ||
+            capability === "tx" ||
+            capability === "tx_rx")
+        );
+      }) ?? null,
+    [sourceStatuses, sources],
+  );
+
+  useEffect(() => {
+    setHasPlayedAtLeastOnce(false);
+  }, [selectedSourceId]);
+
+  useEffect(() => {
+    if (isSelectedMockTxTransmitting) {
+      setHasPlayedAtLeastOnce(true);
     }
-    return emptyMockTxDataRef;
+  }, [isSelectedMockTxTransmitting]);
+
+  useEffect(() => {
+    if (!transmittingTxSource) {
+      lastTxSettingsSyncKeyRef.current = null;
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+      return;
+    }
+
+    const syncKey = JSON.stringify({
+      sourceId: transmittingTxSource.id,
+      txSignal,
+      txCenterFrequencyHz,
+      txSampleRateHz,
+      txPowerDbm,
+    });
+    if (lastTxSettingsSyncKeyRef.current === syncKey) {
+      return;
+    }
+
+    const sendTxSettings = () => {
+      lastTxSettingsSyncKeyRef.current = syncKey;
+      sendTransmitMode?.(
+        true,
+        transmittingTxSource.name ?? transmittingTxSource.id,
+        {
+          serialNumber:
+            transmittingTxSource.serial_number?.trim() ||
+            transmittingTxSource.id,
+          centerFrequencyHz: txCenterFrequencyHz,
+          sampleRateHz: txSampleRateHz,
+          powerDbm: txPowerDbm,
+          txSignal,
+        },
+      );
+    };
+
+    if (lastTxSettingsSyncKeyRef.current === null) {
+      sendTxSettings();
+      return;
+    }
+
+    if (txSettingsSyncTimerRef.current) {
+      clearTimeout(txSettingsSyncTimerRef.current);
+    }
+    txSettingsSyncTimerRef.current = setTimeout(() => {
+      txSettingsSyncTimerRef.current = null;
+      sendTxSettings();
+    }, 16);
+
+    return () => {
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+    };
   }, [
-    dataRef,
-    emptyMockTxDataRef,
+    sendTransmitMode,
+    transmittingTxSource,
+    txCenterFrequencyHz,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
+  ]);
+
+  const lastMockTxPreviewRequestKeyRef = useRef<string | null>(null);
+  const mockTxPreviewRequestKey = useMemo(
+    () =>
+      getMockTxPreviewRequestKey({
+        sourceId: selectedSourceId,
+        centerFrequencyHz: txCenterFrequencyHz,
+        sampleRateHz: txSampleRateHz,
+        signal: txSignal,
+        powerDbm: txPowerDbm,
+      }),
+    [
+      selectedSourceId,
+      txCenterFrequencyHz,
+      txPowerDbm,
+      txSampleRateHz,
+      txSignal,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
+      lastMockTxPreviewRequestKeyRef.current = null;
+      return;
+    }
+    if (lastMockTxPreviewRequestKeyRef.current === mockTxPreviewRequestKey) {
+      return;
+    }
+    lastMockTxPreviewRequestKeyRef.current = mockTxPreviewRequestKey;
+    reduxDispatch(requestNextLiveFrame());
+  }, [
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
+    mockTxPreviewRequestKey,
+    reduxDispatch,
   ]);
+
+  const fftDataRef = dataRef;
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
-    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
+    if (
+      !isSelectedMockTxSource ||
+      isSelectedMockTxTransmitting ||
+      hasPlayedAtLeastOnce
+    ) {
       return null;
     }
     return {
@@ -1344,6 +1479,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
+    hasPlayedAtLeastOnce,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
   ]);
@@ -1539,6 +1675,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   "device"
                 }
                 placeholderState={mockTxPlaceholderState}
+                isStandby={
+                  isSelectedMockTxSource && !isSelectedMockTxTransmitting
+                }
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={(pan) =>

@@ -1,7 +1,7 @@
-use std::ffi::CStr;
-use std::sync::atomic::Ordering;
 use anyhow::Result;
 use log::warn;
+use std::ffi::CStr;
+use std::sync::atomic::Ordering;
 
 use crate::server::shared_state::SharedState;
 use crate::server::types::DeviceProfile;
@@ -14,16 +14,16 @@ pub enum SourceSelection {
   #[cfg(has_hackrf)]
   HackRf(i32),
 }
-use crate::server::utils::{
-  device_config_key, reconcile_device_state, resolve_device_sample_rate_options,
-  status_device_name,
-};
-use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
+use super::mock_tx::MOCK_TX_DISPLAY_NAME;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::device::HackRfDevice;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
-use super::mock_tx::MOCK_TX_DISPLAY_NAME;
+use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
+use crate::server::utils::{
+  device_config_key, reconcile_device_state,
+  resolve_device_sample_rate_options, status_device_name,
+};
 
 pub fn build_device_profile(device_type: &str) -> DeviceProfile {
   match device_type.to_lowercase().as_str() {
@@ -607,9 +607,7 @@ fn enumerate_hackrf_sources(
   sources
 }
 
-pub fn build_source_info_snapshot(
-  shared: &SharedState,
-) -> serde_json::Value {
+pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   let device_connected = shared.device_connected.load(Ordering::Relaxed);
   let device_state = reconcile_device_state(
     device_connected,

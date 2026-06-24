@@ -19,6 +19,7 @@ import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 
 export type LiveCanvasStatusRow = {
   sampleRateLabel: string;
+  txModeLabel?: string;
   fftSizeLabel: string;
   fftWindowLabel: string;
   timingLabel: string;
@@ -110,8 +111,18 @@ export function drawLiveCanvasStatusRow(
   ctx.font = "11px JetBrains Mono";
   ctx.textBaseline = "middle";
 
+  const sampleRateText = `⌞ ${status.sampleRateLabel} ⌟`;
   ctx.textAlign = "center";
-  ctx.fillText(`⌞ ${status.sampleRateLabel} ⌟`, centerX, rowTop + 18);
+  ctx.fillText(sampleRateText, centerX, rowTop + 18);
+  if (status.txModeLabel) {
+    const sampleRateLeftX = centerX - ctx.measureText(sampleRateText).width / 2;
+    const txLabelX = leftX + 4;
+    const txLabelMaxWidth = Math.max(0, sampleRateLeftX - txLabelX - 18);
+    if (txLabelMaxWidth > 20) {
+      ctx.textAlign = "left";
+      ctx.fillText(status.txModeLabel, txLabelX, rowTop + 18, txLabelMaxWidth);
+    }
+  }
   ctx.textAlign = "left";
   ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
   ctx.textAlign = "center";
@@ -742,6 +753,7 @@ export function useDraw2DFFTSignal() {
       height: number,
       slider: NonNullable<Draw2DFFTSignalOptions["txSlider"]>,
       visualRange?: FrequencyRange,
+      powerScale: "dB" | "dBm" = "dB",
     ) => {
       if (
         !slider.visible ||
@@ -834,13 +846,34 @@ export function useDraw2DFFTSignal() {
       ctx.font = "700 12px JetBrains Mono, monospace";
       ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
 
+      const hasTxPowerDot =
+        powerScale === "dBm" &&
+        typeof slider.powerDbm === "number" &&
+        Number.isFinite(slider.powerDbm);
+
       if (
         typeof slider.powerDbm === "number" &&
         Number.isFinite(slider.powerDbm)
       ) {
         ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
         ctx.font = "10px JetBrains Mono, monospace";
-        ctx.fillText(`${slider.powerDbm.toFixed(0)} dBm`, centerX, powerY);
+        const powerLabel = `${slider.powerDbm.toFixed(0)} dBm`;
+        ctx.fillText(powerLabel, centerX, powerY);
+
+        if (hasTxPowerDot) {
+          const labelWidth = ctx.measureText(powerLabel).width;
+          const dotX = centerX - labelWidth / 2 - 8;
+          const dotY = powerY - 1;
+          ctx.save();
+          ctx.fillStyle = "rgba(255, 206, 84, 0.96)";
+          ctx.strokeStyle = "rgba(255, 245, 214, 0.96)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       ctx.restore();
@@ -1013,7 +1046,14 @@ export function useDraw2DFFTSignal() {
         }
 
         if (!nodePreview && txSlider?.visible) {
-          drawTxSliderRow(ctx, cssWidth, cssHeight, txSlider, frequencyRange);
+          drawTxSliderRow(
+            ctx,
+            cssWidth,
+            cssHeight,
+            txSlider,
+            frequencyRange,
+            powerScale,
+          );
         }
 
         return true;

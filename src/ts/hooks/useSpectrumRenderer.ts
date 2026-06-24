@@ -11,8 +11,6 @@ import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 
-const OVERLAY_MIN_INTERVAL_MS = 50;
-
 const finiteOrEmpty = (value: number | undefined | null) =>
   typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 
@@ -36,6 +34,9 @@ const getMarkersOverlaySignature = ({
   txSlider,
   overlayOpacity = 1,
   canvasStatusRow,
+  isStandby = false,
+  fftMin,
+  fftMax,
 }: Pick<
   SpectrumRendererOptions,
   | "centerFrequencyHz"
@@ -54,6 +55,9 @@ const getMarkersOverlaySignature = ({
   | "overlayOpacity"
   | "canvasStatusRow"
   | "nodePreview"
+  | "isStandby"
+  | "fftMin"
+  | "fftMax"
 > & {
   width: number;
   height: number;
@@ -89,6 +93,7 @@ const getMarkersOverlaySignature = ({
   const statusSignature = canvasStatusRow
     ? [
         canvasStatusRow.sampleRateLabel,
+        canvasStatusRow.txModeLabel ?? "",
         canvasStatusRow.fftSizeLabel,
         canvasStatusRow.fftWindowLabel,
         canvasStatusRow.timingLabel,
@@ -115,6 +120,9 @@ const getMarkersOverlaySignature = ({
     selectionSignature,
     txSignature,
     statusSignature,
+    isStandby ? "standby" : "active",
+    finiteOrEmpty(fftMin),
+    finiteOrEmpty(fftMax),
   ].join("|");
 };
 
@@ -185,6 +193,8 @@ export interface SpectrumRendererOptions {
   overlayOpacity?: number;
   /** Optional explicit status labels rendered in the bottom FFT status band. */
   canvasStatusRow?: LiveCanvasStatusRow | null;
+  /** Whether the visualizer is in standby mode */
+  isStandby?: boolean;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -219,7 +229,6 @@ export function useSpectrumRenderer() {
     drawTxSliderBackdropOnContext,
   } = useOverlayRenderer();
 
-  const lastOverlayUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
   const lastMarkersOverlaySignatureRef = useRef<string | null>(null);
 
   const drawSpectrum = useCallback(
@@ -256,6 +265,7 @@ export function useSpectrumRenderer() {
         txSlider,
         overlayOpacity = 1,
         canvasStatusRow,
+        isStandby = false,
 
         lineColor,
         fillColor,
@@ -284,18 +294,12 @@ export function useSpectrumRenderer() {
       }
 
       if (device && format) {
-        const now = performance.now();
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.clientWidth || 1;
         const height = canvas.clientHeight || 1;
 
-        // Update grid/hardware-sample-rate labels if dirty or enough time passed
-        if (
-          gridOverlayRenderer &&
-          (overlayDirty?.grid ||
-            now - lastOverlayUploadMsRef.current.grid >=
-              OVERLAY_MIN_INTERVAL_MS * 2)
-        ) {
+        // Update static grid/hardware-sample-rate labels only when inputs change.
+        if (gridOverlayRenderer && overlayDirty?.grid) {
           const ctx = gridOverlayRenderer.beginDraw(width, height, dpr);
           drawGridOnContext(
             ctx,
@@ -313,7 +317,6 @@ export function useSpectrumRenderer() {
           );
           gridOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.grid = false;
-          lastOverlayUploadMsRef.current.grid = now;
         }
 
         // Update center markers and hotspot labels
@@ -337,15 +340,15 @@ export function useSpectrumRenderer() {
           txSlider,
           overlayOpacity,
           canvasStatusRow,
+          isStandby,
+          fftMin,
+          fftMax,
         });
         const markersOverlayInputsChanged =
           markersOverlaySignature !== lastMarkersOverlaySignatureRef.current;
         if (
           markersOverlayRenderer &&
-          (markersOverlayInputsChanged ||
-            overlayDirty?.markers ||
-            now - lastOverlayUploadMsRef.current.markers >=
-              OVERLAY_MIN_INTERVAL_MS)
+          (markersOverlayInputsChanged || overlayDirty?.markers)
         ) {
           const ctx = markersOverlayRenderer.beginDraw(width, height, dpr);
           ctx.clearRect(0, 0, width, height);
@@ -355,6 +358,8 @@ export function useSpectrumRenderer() {
             height,
             txSlider,
             frequencyRange,
+            fftMin,
+            fftMax,
           );
           if (!nodePreview && centerFrequencyHz !== undefined) {
             drawMarkersOnContext(
@@ -375,6 +380,7 @@ export function useSpectrumRenderer() {
               reservedBottomPx,
               canvasStatusRow ?? undefined,
               overlayOpacity,
+              isStandby,
             );
           }
           drawDemodFocusOnContext(
@@ -407,7 +413,6 @@ export function useSpectrumRenderer() {
           markersOverlayRenderer.endDraw();
           if (overlayDirty) overlayDirty.markers = false;
           lastMarkersOverlaySignatureRef.current = markersOverlaySignature;
-          lastOverlayUploadMsRef.current.markers = now;
         }
 
         // Perform the actual signal trace render
@@ -451,7 +456,6 @@ export function useSpectrumRenderer() {
   const cleanup = useCallback(() => {
     cleanupGPU();
     cleanup3D();
-    lastOverlayUploadMsRef.current = { grid: 0, markers: 0, spikes: 0 };
     lastMarkersOverlaySignatureRef.current = null;
   }, [cleanupGPU, cleanup3D]);
 

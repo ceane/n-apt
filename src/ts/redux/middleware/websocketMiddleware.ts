@@ -108,7 +108,11 @@ const getDeviceKindFromSource = (source: SourceInfo): string => {
   ) {
     return kind;
   }
-  if (kind.includes("mock_apt") || kind.includes("mock-apt") || source.id === "mock-apt") {
+  if (
+    kind.includes("mock_apt") ||
+    kind.includes("mock-apt") ||
+    source.id === "mock-apt"
+  ) {
     return "mock_apt";
   }
   if (capability === "mock" || kind.includes("mock")) return "mock_tx";
@@ -469,11 +473,19 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       activeSourceId === "mock-tx" &&
       (activeSource?.status === "transmitting" ||
         state.websocket.sourceStatuses?.[activeSourceId] === "transmitting");
+    const isActiveMockTxStandby =
+      activeSourceId === "mock-tx" && !isActiveMockTxTransmitting;
     if (
-      (!isPaused || allowNextPausedFrame || isActiveMockTxTransmitting) &&
+      ((!isPaused && !isActiveMockTxStandby) ||
+        allowNextPausedFrame ||
+        isActiveMockTxTransmitting) &&
       !isFileSource
     ) {
-      if (isPaused && allowNextPausedFrame && !isActiveMockTxTransmitting) {
+      if (
+        (isPaused || isActiveMockTxStandby) &&
+        allowNextPausedFrame &&
+        !isActiveMockTxTransmitting
+      ) {
         liveDataRef.current = collapsePausedFrameBatch(pendingDataUpdate);
       } else if (Array.isArray(pendingDataUpdate)) {
         if (Array.isArray(liveDataRef.current)) {

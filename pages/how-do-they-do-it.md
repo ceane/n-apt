@@ -1156,6 +1156,14 @@ Using the obvious and what I've seen, it was pretty easy to give a solid estimat
 
 These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there is a lot more going on behind the scenes for every "bit" of computer to biology to computer data derived from these signals.
 
+
+### One important note: Quantiziation
+
+There are two ways to save both processing power and data by quantitizing the signal:
+
+- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 instead of u16
+- (2) Using a smaller IFFT size, meaning the signal getting sliced by 2048 points instead of full fidelity (millions)
+
 <br />
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]

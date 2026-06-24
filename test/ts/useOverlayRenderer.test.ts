@@ -144,6 +144,35 @@ describe("useOverlayRenderer Hook", () => {
     expect(mockCtx.fillText).not.toHaveBeenCalled();
   });
 
+  it("draws the Tx backdrop as a bandwidth by power rectangle", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawTxSliderBackdropOnContext(
+      mockCtx,
+      1000,
+      600,
+      {
+        visible: true,
+        isTransmitting: true,
+        powerDbm: -60,
+        visibleMinHz: 136_000_000,
+        visibleMaxHz: 138_000_000,
+        txCenterHz: 137_000_000,
+        txSampleRateHz: 200_000,
+      },
+      { min: 136_000_000, max: 138_000_000 },
+      -120,
+      0,
+    );
+
+    expect(mockCtx.rect).toHaveBeenCalled();
+    const [x, y, width, height] = mockCtx.rect.mock.calls.at(-1);
+    expect(x).toBeCloseTo(459.5, 1);
+    expect(width).toBeCloseTo(91, 0);
+    expect(y).toBeCloseTo(263, 0);
+    expect(height).toBeCloseTo(243, 0);
+  });
+
   it("can suppress the live status row when another overlay owns the bottom band", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 

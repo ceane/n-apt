@@ -141,6 +141,164 @@ describe("Redux WebSocket Migration", () => {
       }
     });
 
+    it("does not accept unsolicited Mock Tx standby frames", async () => {
+      jest.useFakeTimers();
+      try {
+        const middlewareStore = configureStore({
+          reducer: {
+            websocket: websocketSlice,
+            spectrum: spectrumSlice,
+          },
+          middleware: (getDefaultMiddleware) =>
+            getDefaultMiddleware({
+              serializableCheck: false,
+            }),
+        });
+        middlewareStore.dispatch({
+          type: "websocket/updateDeviceState",
+          payload: {
+            isPaused: false,
+            activeSourceId: "mock-tx",
+            sources: [
+              {
+                id: "mock-tx",
+                name: "Mock Tx SDR",
+                kind: "mock_tx",
+                capability: "tx",
+                status: "connected",
+                sdr: {
+                  max_sample_rate: 2_400_000,
+                  sample_rate_options: [2_400_000],
+                  fft_display: { markers: [] },
+                  settings: {
+                    sample_rate: 2_400_000,
+                    center_frequency: 137_100_000,
+                  },
+                },
+              },
+            ],
+            sourceStatuses: { "mock-tx": "connected" },
+          },
+        });
+
+        __testQueueLiveDataForMiddleware(
+          {
+            type: "spectrum",
+            data_type: "iq_raw",
+            center_frequency_hz: 137_100_000,
+            sample_rate: 2_400_000,
+            iq_data: new Uint8Array([128, 128, 129, 127]),
+          },
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+
+        jest.advanceTimersByTime(16);
+
+        expect(liveDataRef.current).toBeNull();
+        expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("accepts exactly one requested Mock Tx standby preview frame", async () => {
+      jest.useFakeTimers();
+      try {
+        const middlewareStore = configureStore({
+          reducer: {
+            websocket: websocketSlice,
+            spectrum: spectrumSlice,
+          },
+          middleware: (getDefaultMiddleware) =>
+            getDefaultMiddleware({
+              serializableCheck: false,
+            }).concat(websocketMiddleware),
+        });
+        const sent: string[] = [];
+        (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
+          readyState: WebSocket.OPEN,
+          close: jest.fn(),
+          send: jest.fn((message: string) => sent.push(message)),
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn(),
+          dispatchEvent: jest.fn(),
+          onopen: null,
+          onclose: null,
+          onerror: null,
+          onmessage: null,
+        }));
+        middlewareStore.dispatch({
+          type: "websocket/connect",
+          payload: {
+            url: "ws://localhost/ws",
+            aesKey: {} as CryptoKey,
+            enabled: true,
+          },
+        });
+        middlewareStore.dispatch({
+          type: "websocket/updateDeviceState",
+          payload: {
+            isPaused: false,
+            activeSourceId: "mock-tx",
+            sources: [
+              {
+                id: "mock-tx",
+                name: "Mock Tx SDR",
+                kind: "mock_tx",
+                capability: "tx",
+                status: "connected",
+                sdr: {
+                  max_sample_rate: 2_400_000,
+                  sample_rate_options: [2_400_000],
+                  fft_display: { markers: [] },
+                  settings: {
+                    sample_rate: 2_400_000,
+                    center_frequency: 137_100_000,
+                  },
+                },
+              },
+            ],
+            sourceStatuses: { "mock-tx": "connected" },
+          },
+        });
+        middlewareStore.dispatch({
+          type: "websocket/sendMessage",
+          payload: { type: "request_next_frame", data: {} },
+        });
+
+        const firstFrame = {
+          type: "spectrum",
+          data_type: "iq_raw",
+          center_frequency_hz: 137_100_000,
+          sample_rate: 2_400_000,
+          iq_data: new Uint8Array([128, 128, 129, 127]),
+        };
+        const secondFrame = {
+          ...firstFrame,
+          iq_data: new Uint8Array([128, 128, 130, 126]),
+        };
+        __testQueueLiveDataForMiddleware(
+          firstFrame,
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+        jest.advanceTimersByTime(16);
+
+        __testQueueLiveDataForMiddleware(
+          secondFrame,
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+        jest.advanceTimersByTime(16);
+
+        expect(liveDataRef.current).toEqual(firstFrame);
+        expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(

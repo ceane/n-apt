@@ -10,27 +10,71 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
-use super::types::{SpectrumData, PowerScale};
+use super::types::{PowerScale, SpectrumData};
 use crate::sdr::processor::SdrProcessor;
 
+pub mod broadcasting;
 pub mod mock_tx;
 pub mod sources;
-pub mod broadcasting;
-
-
 
 // Re-export key symbols for tests and other modules
+pub use broadcasting::{
+  broadcast_active_source, broadcast_channels, broadcast_device_status,
+  broadcast_signal_display_settings, broadcast_source_status,
+  build_channels_snapshot, reconcile_stale_device_snapshot,
+};
 pub use mock_tx::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
 pub use sources::{
-  active_source_id, build_source_info_snapshot, build_device_profile,
-  resolve_source_selection, open_device_for_source_id, apply_stream_keys,
-  resolve_stream_key_source_id,
+  active_source_id, apply_stream_keys, build_device_profile,
+  build_source_info_snapshot, open_device_for_source_id,
+  resolve_source_selection, resolve_stream_key_source_id,
 };
-pub use broadcasting::{
-  broadcast_source_status, broadcast_channels, broadcast_signal_display_settings,
-  broadcast_device_status, broadcast_active_source, reconcile_stale_device_snapshot,
-  build_channels_snapshot,
-};
+
+const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+
+fn should_synthesize_mock_tx_monitor_frame(
+  active_source_id: &str,
+  tx_is_active: bool,
+  requested_single_frame: bool,
+) -> bool {
+  active_source_id == MOCK_TX_SOURCE_ID
+    && (tx_is_active || requested_single_frame)
+}
+
+fn should_hold_mock_tx_standby_stream(
+  active_source_id: &str,
+  tx_is_active: bool,
+  requested_single_frame: bool,
+) -> bool {
+  active_source_id == MOCK_TX_SOURCE_ID
+    && !tx_is_active
+    && !requested_single_frame
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn mock_tx_request_next_frame_uses_monitor_synthesis_when_not_transmitting() {
+    assert!(should_synthesize_mock_tx_monitor_frame(
+      "mock-tx", false, true
+    ));
+    assert!(!should_synthesize_mock_tx_monitor_frame(
+      "mock-apt", false, true
+    ));
+  }
+
+  #[test]
+  fn mock_tx_standby_stream_waits_for_explicit_request() {
+    assert!(should_hold_mock_tx_standby_stream("mock-tx", false, false));
+    assert!(!should_hold_mock_tx_standby_stream("mock-tx", false, true));
+    assert!(!should_hold_mock_tx_standby_stream("mock-tx", true, false));
+    assert!(!should_hold_mock_tx_standby_stream(
+      "mock-apt", false, false
+    ));
+  }
+}
 
 #[derive(Clone)]
 pub struct WebSocketServer {
@@ -926,11 +970,22 @@ impl WebSocketServer {
       // If the stream is paused by the client, don't read from SDR or broadcast
       // unless the frontend explicitly requested one fresh frame.
       let active_source_for_pause = active_source_id(&shared_state);
+      let requested_single_frame = allow_next_paused_frame;
+      let tx_is_active_for_gate =
+        crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       let should_stream_while_tx_active =
         matches!(active_source_for_pause.as_str(), "mock-tx" | "mock-apt")
-          && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+          && tx_is_active_for_gate;
+      if should_hold_mock_tx_standby_stream(
+        &active_source_for_pause,
+        tx_is_active_for_gate,
+        requested_single_frame,
+      ) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        continue;
+      }
       if shared_state.is_paused.load(Ordering::SeqCst)
-        && !allow_next_paused_frame
+        && !requested_single_frame
         && !should_stream_while_tx_active
       {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -972,11 +1027,14 @@ impl WebSocketServer {
               let current_fft_size = processor.fft_processor.config().fft_size;
               let timestamp = chrono::Utc::now().timestamp_millis();
               let mut center_frequency = processor.get_center_frequency();
-              let active_source_is_mock_tx =
-                active_source_id(&cloned_shared) == "mock-tx";
+              let active_source_id = active_source_id(&cloned_shared);
               let tx_is_active = crate::safety::TX_TRANSMITTING
                 .load(std::sync::atomic::Ordering::Relaxed);
-              let streaming_mock_tx_monitor = active_source_is_mock_tx && tx_is_active;
+              let streaming_mock_tx_monitor = should_synthesize_mock_tx_monitor_frame(
+                &active_source_id,
+                tx_is_active,
+                requested_single_frame,
+              );
               let is_mock_apt = if streaming_mock_tx_monitor {
                 false
               } else {
@@ -1157,8 +1215,7 @@ impl WebSocketServer {
             }
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let supported_device_present =
-                matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
+              let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
               if !supported_device_present {
                 warn!(
                   "Supported USB device unplugged after read error. Falling back to mock immediately."
@@ -1244,8 +1301,7 @@ impl WebSocketServer {
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
               // Threshold reached — immediate fallback
-              let supported_device_present =
-                matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
+              let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
               warn!(
                   "Read-error threshold reached (streak={}). Supported USB device present={}.",
                   streak, supported_device_present,

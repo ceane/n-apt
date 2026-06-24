@@ -662,26 +662,23 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveBackend?.toLowerCase().includes("apt")
     );
 
-  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(
-    () => {
-      if (!isMockLiveSource) return null;
-      if (isMockAptSource) {
-        return {
-          kind: "mock_apt",
-          is_rtl_sdr: true,
-          supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
-        };
-      }
+  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
+    if (!isMockLiveSource) return null;
+    if (isMockAptSource) {
       return {
-        kind: "mock_tx",
-        is_rtl_sdr: false,
-        supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        kind: "mock_apt",
+        is_rtl_sdr: true,
+        supports_approx_dbm: false,
+        supports_raw_iq_stream: false,
       };
-    },
-    [isMockLiveSource, isMockAptSource],
-  );
+    }
+    return {
+      kind: "mock_tx",
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+  }, [isMockLiveSource, isMockAptSource]);
   const liveDeviceProfileForDisplay =
     mockTxDeviceProfile ?? liveDeviceProfileToUse;
   const isHackrfOne =
@@ -2540,7 +2537,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               <TxSettingsSection
                 signal={txSignal}
                 sampleRateHz={txSampleRateHz}
-                maxSampleRateHz={maxSampleRate}
+                maxSampleRateHz={maxSampleRateHz}
                 fftSize={fftSize}
                 ifftSize={txIfftSize}
                 ifftSizeOptions={fftSizeOptions}

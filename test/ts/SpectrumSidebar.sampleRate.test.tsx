@@ -868,6 +868,112 @@ describe("SpectrumSidebar sample rate behavior", () => {
     }
   });
 
+  it("syncs TX sample-rate changes to the transmitting source while viewing Mock APT", async () => {
+    jest.useFakeTimers();
+    try {
+      const mockAptSource = {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "mock",
+        status: "streaming",
+        serial_number: "mock-apt",
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+        sdr: {
+          max_sample_rate: 3_200_000,
+          sample_rate_options: [3_200_000],
+          fft_display: { markers: [] },
+          settings: {
+            center_frequency: 137_100_000,
+            sample_rate: 3_200_000,
+            min_receive_sample_rate: 3_200_000,
+          },
+        },
+      };
+      const mockTxSource = {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "transmitting",
+        serial_number: "mock-tx",
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+        sdr: {
+          max_sample_rate: 20_000_000,
+          sample_rate_options: [2_400_000, 3_200_000, 5_200_000],
+          fft_display: { markers: [] },
+          settings: {
+            center_frequency: 137_100_000,
+            sample_rate: 2_400_000,
+            hackrf_vga_gain: 16,
+            hackrf_amp_enable: false,
+          },
+        },
+      };
+      mockLiveState = {
+        ...mockLiveState,
+        selectedSourceId: "mock-apt",
+        selectedSource: mockAptSource,
+        sources: [mockAptSource, mockTxSource],
+      };
+      mockWsConnection = {
+        ...mockWsConnection,
+        sources: [mockAptSource, mockTxSource],
+      };
+
+      const store = createStore();
+      store.dispatch(setConnected());
+
+      const { rerender } = render(
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <SpectrumSidebar />
+          </ThemeProvider>
+        </Provider>,
+      );
+
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenLastCalledWith(
+        true,
+        "Mock Tx SDR",
+        expect.objectContaining({ sampleRateHz: 2_400_000 }),
+      );
+      mockWsConnection.sendTransmitMode.mockClear();
+
+      act(() => {
+        store.dispatch({
+          type: "spectrum/setTxSampleRateHz",
+          payload: 218_000,
+        });
+        rerender(
+          <Provider store={store}>
+            <ThemeProvider theme={theme}>
+              <SpectrumSidebar />
+            </ThemeProvider>
+          </Provider>,
+        );
+      });
+
+      act(() => {
+        jest.advanceTimersByTime(17);
+      });
+
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+        true,
+        "Mock Tx SDR",
+        expect.objectContaining({
+          serialNumber: "mock-tx",
+          sampleRateHz: 218_000,
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it.skip("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
     const store = createStore();
     store.dispatch(setConnected());

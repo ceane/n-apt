@@ -346,6 +346,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             <FFTCanvas
               ref={ref}
               {...props}
+              isStandby={props.isStandby}
               txSlider={effectiveTxSlider}
               interactionDisabled={isGlobalLoading}
               awaitingDeviceData={
@@ -365,6 +366,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}
+            isStandby={props.isStandby}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
             headerActionContent={props.waterfallHeaderActionContent}

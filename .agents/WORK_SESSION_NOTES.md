@@ -1,26 +1,14 @@
-# Work Session Notes - Ring Buffer GC Fix
+# Tx Standby & Pause Optimization
 
 ## Problem
-The waterfall history was not persisting when returning to a device or switching devices. This occurred due to a bug in `useSharedBufferManager.ts` where active ring buffers were incorrectly garbage collected. 
+In Mock APT transmitter mode, when the transmitter went into standby (paused) after a transmission, the visualizer did not preserve the last rendered spectrum/waterfall frames. Instead, it reset to a narrow, blocky artificial preview spike.
 
-## Root Cause
-The garbage collection routine checked:
-```typescript
-if (
-  now - ringBuffer.writeIndex > maxAge &&
-  now - ringBuffer.readIndex > maxAge
-) {
-  ringBuffersToDelete.push(id);
-}
-```
-However, `writeIndex` and `readIndex` represent buffer positions (integers like `0` to `capacity`), not timestamps. Subtracting them from the current timestamp `performance.now()` meant that after 60 seconds of page load time, the condition would always evaluate to true, destroying active ring buffers.
+Additionally, reducing the Tx bandwidth in the settings did not confine the generated Mock transmit I/Q leakage signal (skirts/noise/shoulders) to the selected bandwidth, causing it to occupy the preset wider bandwidth (e.g. 2.4 MHz).
 
-## Fix
-1. Added `lastAccessed: number` to the `RingBuffer` interface.
-2. Initialized `lastAccessed` with `performance.now()` in `createRingBuffer`.
-3. Updated `lastAccessed` during writes (`writeToRingBuffer`) and reads (`readFromRingBuffer`).
-4. Updated `performGarbageCollection` to check `now - ringBuffer.lastAccessed > maxAge`.
+## Solution
+1. Modified [FFTCanvas.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/FFTCanvas.tsx) to only generate and display the standby/preview waveform before any real spectrum frame has been rendered (`!hasRenderedSpectrumFrame`).
+2. Once a transmission has started and rendered at least one real frame, subsequent standby/pause states do not overwrite the waveform with the preview waveform.
+3. The visualizer now correctly preserves and freezes the last rendered spectrum frame and waterfall state when transitioning to standby, acting exactly like a pause.
+4. Updated [mod.rs](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/rs/sdr/mock_apt/mod.rs) to read the dynamic transmit sample rate (`TX_SAMPLE_RATE_HZ`) from the safety state.
+5. Implemented precise carrier phase calculation (direct `sin_cos`) and band-limited noise/phase-modulation for the simulated transmitter signals (such as `APT`, `noise`, `custom`, and `tone`). This ensures that the transmit leakage signal and its noise shoulders perfectly scale and constrain themselves to the dynamically selected Tx bandwidth.
 
-## Validation
-- Successfully ran typecheck.
-- Verified that `test/ts/waterfallRestore.test.ts` passes.

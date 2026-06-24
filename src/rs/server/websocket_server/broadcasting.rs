@@ -1,9 +1,11 @@
+use super::sources::{
+  active_source_id, build_device_profile, build_source_info_snapshot,
+};
+use crate::sdr::hotplug::supported_usb_device_count;
+use crate::server::shared_state::SharedState;
+use log::warn;
 use std::sync::atomic::Ordering;
 use tokio::sync::broadcast;
-use log::warn;
-use crate::server::shared_state::SharedState;
-use crate::sdr::hotplug::supported_usb_device_count;
-use super::sources::{active_source_id, build_source_info_snapshot, build_device_profile};
 
 pub const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
@@ -43,9 +45,7 @@ pub fn broadcast_channels(
   let _ = broadcast_tx.send(payload);
 }
 
-pub fn build_channels_snapshot(
-  shared: &SharedState,
-) -> serde_json::Value {
+pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
   let channels = shared.channels.lock().unwrap().clone();
   let active_signal_area =
     channels.first().map(|channel| channel.label.clone());

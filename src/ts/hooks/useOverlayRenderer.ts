@@ -517,6 +517,7 @@ export function useOverlayRenderer() {
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
       _statusRow?: LiveCanvasStatusRow,
       overlayOpacity: number = 1,
+      isStandby = false,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -533,6 +534,11 @@ export function useOverlayRenderer() {
         ? _fullCaptureRange.max - _fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
+
+      const centerLineColor = isStandby
+        ? applyOpacityToColor(canvasTheme.centerLineColor, 0.1)
+        : canvasTheme.centerLineColor;
+
       drawVfoAxis({
         ctx: createCanvasVfoAxisContext(ctx),
         frequencyRange: { min: minFreq, max: maxFreq },
@@ -552,7 +558,7 @@ export function useOverlayRenderer() {
         showEdgeLabels: false,
         showTickMarks: false,
         showTickLabels: false,
-        showCenterLine: overlayOpacity >= 0.999,
+        showCenterLine: overlayOpacity >= 0.999 || isStandby,
         centerLineTop: FFT_AREA_MIN.y,
         centerLineBottom: fftAreaMax.y,
         icon: "wave",
@@ -560,7 +566,7 @@ export function useOverlayRenderer() {
           tick: canvasTheme.textColor,
           label: canvasTheme.textColor,
           center: canvasTheme.centerLabelText,
-          centerLine: canvasTheme.centerLineColor,
+          centerLine: centerLineColor,
         },
         fontPx: 12,
         centerFontPx: 12,
@@ -976,6 +982,8 @@ export function useOverlayRenderer() {
       height: number,
       slider: TxSliderOverlayState | null | undefined,
       visualRange?: FrequencyRange,
+      fftMin: number = -120,
+      fftMax: number = 0,
     ) => {
       if (
         !slider?.visible ||
@@ -1012,8 +1020,8 @@ export function useOverlayRenderer() {
 
       const blockLeft = bandLeft;
       const blockWidth = bandRight - bandLeft;
-      const blockTop = Math.max(0, top - VFO_AXIS_ROW_HEIGHT + 2);
-      const blockBottom = Math.max(blockTop + 1, height);
+      const blockTop = Math.max(0, top - VFO_AXIS_ROW_HEIGHT);
+      const blockBottom = height;
       ctx.save();
       ctx.fillStyle = slider.isTransmitting
         ? "rgba(0, 212, 255, 0.12)"
@@ -1184,7 +1192,8 @@ export function useOverlayRenderer() {
       fftMax: number,
       powerScale: "dB" | "dBm" = "dB",
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
-      suffix = "",
+      snapDbm: number | null = null,
+      isHeld = false,
     ) => {
       if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
 
@@ -1206,15 +1215,19 @@ export function useOverlayRenderer() {
       if (yPos < FFT_AREA_MIN.y || yPos > fftAreaMax.y) return;
 
       // Formulate label e.g., -35.4dBm or -35.4dB
-      const label = `${powerLineDb.toFixed(1)}${powerScale}${suffix}`;
+      const valueLabel = `${powerLineDb.toFixed(1)}${powerScale}`;
+      const hintLabel = isHeld ? "Click to release" : "";
       ctx.font = "12px JetBrains Mono";
-      const textWidth = ctx.measureText(label).width;
+      const valueWidth = ctx.measureText(valueLabel).width;
+      ctx.font = "9px JetBrains Mono";
+      const hintWidth = hintLabel ? ctx.measureText(hintLabel).width : 0;
+      const textWidth = isHeld ? valueWidth + 16 + hintWidth : valueWidth;
 
       const ix = Math.round(yPos);
 
       // Measure label dimensions
-      const paddingX = 6;
-      const rectHeight = 18;
+      const paddingX = 10;
+      const rectHeight = 20;
       const rectWidth = textWidth + paddingX * 2;
       const rectX = FFT_AREA_MIN.x + 4;
       const pillGap = 10;
@@ -1236,6 +1249,26 @@ export function useOverlayRenderer() {
       ctx.lineTo(fftAreaMax.x, ix);
       ctx.stroke();
 
+      if (
+        powerScale === "dBm" &&
+        typeof snapDbm === "number" &&
+        Number.isFinite(snapDbm)
+      ) {
+        const snapY = fftAreaMax.y - (snapDbm - fftMin) * scaleFactor;
+        if (snapY >= FFT_AREA_MIN.y && snapY <= fftAreaMax.y) {
+          const snapX = FFT_AREA_MIN.x + 2;
+          ctx.save();
+          ctx.fillStyle = canvasTheme.powerLineColor;
+          ctx.strokeStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.9);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(snapX, Math.round(snapY), 3.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
       // 2. Draw background pill
       // Use the theme's surface color so it reads correctly in both light and dark modes.
       ctx.fillStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.92);
@@ -1254,9 +1287,18 @@ export function useOverlayRenderer() {
 
       // 3. Draw text inside the pill
       ctx.fillStyle = canvasTheme.powerLineColor;
-      ctx.textAlign = "center";
+      ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(label, rectX + rectWidth / 2, rectY + rectHeight / 2);
+      ctx.font = "12px JetBrains Mono";
+      ctx.fillText(valueLabel, rectX + paddingX, rectY + rectHeight / 2);
+      if (isHeld && hintLabel) {
+        ctx.font = "9px JetBrains Mono";
+        ctx.fillText(
+          hintLabel,
+          rectX + paddingX + valueWidth + 16,
+          rectY + rectHeight / 2,
+        );
+      }
 
       ctx.restore();
     },

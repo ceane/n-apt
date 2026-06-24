@@ -1,5 +1,5 @@
 import React from "react";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -591,6 +591,195 @@ describe("SpectrumRoute file mode", () => {
         sampleRateHz: 2_400_000,
       }),
     );
+  });
+
+  it("syncs canvas Tx bandwidth changes to the active backend transmitter while viewing Mock APT", async () => {
+    jest.useFakeTimers();
+    try {
+      const sendTransmitMode = jest.fn();
+      const mockAptSource = {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "mock",
+        status: "streaming",
+      };
+      const mockTxSource = {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "transmitting",
+        serial_number: "mock-tx",
+      };
+      const mockValue = {
+        state: {
+          sourceMode: "live",
+          selectedFiles: [],
+          stitchTrigger: 0,
+          stitchSourceSettings: { gain: 0, ppm: 0 },
+          isStitchPaused: false,
+          fftSize: 2048,
+          displayMode: "fft",
+          powerScale: "dBm",
+          snapshotGridPreference: true,
+          displayTemporalResolution: "medium",
+          frequencyRange: { min: 134_914_000, max: 139_286_000 },
+          activeSignalArea: "A",
+          vizZoom: 1,
+          vizZoomFloor: 1,
+          vizZoomFloorPan: 0,
+          vizPanOffset: 0,
+          fftMinDb: -100,
+          fftMaxDb: 30,
+          fftWindow: "Rectangular",
+          autoZoomStability: false,
+          fftFrameRate: 60,
+          showSpikeOverlay: false,
+          heterodyningVerifyRequestId: 0,
+          heterodyningHighlightedBins: [],
+          isWaterfallCleared: false,
+          selectedFilesCount: 0,
+        },
+        dispatch: jest.fn(),
+        fftVisualizerMachine: {} as any,
+        manualVisualizerPaused: false,
+        setManualVisualizerPaused: jest.fn(),
+        selectedSourceId: "mock-apt",
+        setSelectedSourceId: jest.fn(),
+        selectedSource: mockAptSource,
+        selectedSourceDerived: {
+          deviceState: "streaming",
+          deviceName: "Mock APT SDR",
+          deviceProfile: {
+            kind: "mock_apt",
+            is_rtl_sdr: true,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+          },
+          deviceInfo: null,
+          backend: "mock_apt",
+          maxSampleRateHz: 4_372_000,
+          sampleRateOptions: [4_372_000],
+          sampleRateHz: 4_372_000,
+          sdrSettings: { sample_rate: 4_372_000 },
+        },
+        effectiveFrames: [],
+        effectiveSdrSettings: { sample_rate: 4_372_000 },
+        sampleRateHzEffective: 4_372_000,
+        signalAreaBounds: null,
+        lastSentPauseRef: { current: null },
+        wsConnection: {
+          isConnected: true,
+          activeSourceId: "mock-apt",
+          deviceState: "streaming",
+          deviceLoadingReason: null,
+          isPaused: false,
+          serverPaused: false,
+          backend: "mock_apt",
+          deviceInfo: null,
+          deviceName: "Mock APT SDR",
+          deviceProfile: {
+            kind: "mock_apt",
+            is_rtl_sdr: true,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+          },
+          maxSampleRateHz: 4_372_000,
+          sampleRateOptions: [4_372_000],
+          sampleRateHz: 4_372_000,
+          sdrSettings: { sample_rate: 4_372_000 },
+          sdrLimitMarkers: [],
+          dataRef: { current: null },
+          spectrumFrames: [],
+          sources: [mockAptSource, mockTxSource],
+          captureStatus: { status: "idle" },
+          error: null,
+          cryptoCorrupted: false,
+          sendFrequencyRange: jest.fn(),
+          sendPauseCommand: jest.fn(),
+          sendSettings: jest.fn(),
+          sendRestartDevice: jest.fn(),
+          sendCaptureCommand: jest.fn(),
+          sendScanCommand: jest.fn(),
+          sendDemodulateCommand: jest.fn(),
+          sendTrainingCommand: jest.fn(),
+          sendPowerScaleCommand: jest.fn(),
+          sendTransmitMode,
+        },
+        toggleVisualizerPause: jest.fn(),
+        cryptoCorrupted: false,
+        deviceName: "Mock APT SDR",
+        deviceProfile: {
+          kind: "mock_apt",
+          is_rtl_sdr: true,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        sources: [mockAptSource, mockTxSource],
+      } as any;
+
+      const store = createStore({
+        spectrum: {
+          ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+          deviceKind: "mock_apt",
+          txCenterFrequencyHz: 137_100_000,
+          txSampleRateHz: 2_400_000,
+          txPowerDbm: -18,
+        },
+        websocket: {
+          ...websocketSlice(undefined, { type: "@@INIT" as any }),
+          sourceStatuses: { "mock-tx": "transmitting" },
+        },
+      });
+
+      const { rerender } = render(
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <SpectrumProvider mockValue={mockValue}>
+              <SpectrumRoute activeTab="visualizer" />
+            </SpectrumProvider>
+          </ThemeProvider>
+        </Provider>,
+      );
+
+      expect(sendTransmitMode).toHaveBeenCalledWith(
+        true,
+        "Mock Tx SDR",
+        expect.objectContaining({ sampleRateHz: 2_400_000 }),
+      );
+      sendTransmitMode.mockClear();
+
+      act(() => {
+        store.dispatch(setTxSampleRateHz(873_000));
+        rerender(
+          <Provider store={store}>
+            <ThemeProvider theme={theme}>
+              <SpectrumProvider mockValue={mockValue}>
+                <SpectrumRoute activeTab="visualizer" />
+              </SpectrumProvider>
+            </ThemeProvider>
+          </Provider>,
+        );
+      });
+      act(() => {
+        jest.advanceTimersByTime(17);
+      });
+
+      expect(sendTransmitMode).toHaveBeenCalledWith(
+        true,
+        "Mock Tx SDR",
+        expect.objectContaining({
+          serialNumber: "mock-tx",
+          centerFrequencyHz: 137_100_000,
+          sampleRateHz: 873_000,
+          powerDbm: -18,
+          txSignal: "apt",
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("does not show the tx slider controls for rx-only mock apt sources", async () => {

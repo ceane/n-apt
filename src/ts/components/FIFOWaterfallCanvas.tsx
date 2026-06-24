@@ -106,6 +106,7 @@ interface FIFOWaterfallCanvasProps {
   placeholderPaneLabel?: string;
   placeholderErrorReason?: string | null;
   placeholderState?: CanvasPlaceholderState | null;
+  isStandby?: boolean;
 }
 
 const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
@@ -119,7 +120,17 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   placeholderPaneLabel = "Waterfall",
   placeholderErrorReason = null,
   placeholderState: explicitPlaceholderState = null,
+  isStandby: explicitIsStandby,
 }) => {
+  const isStandby =
+    typeof explicitIsStandby === "boolean"
+      ? explicitIsStandby
+      : !!(
+          explicitPlaceholderState &&
+          explicitPlaceholderState.kind === "idle" &&
+          explicitPlaceholderState.title === "Start Tx to transmit"
+        );
+
   const placeholderState = (() => {
     if (explicitPlaceholderState) {
       return explicitPlaceholderState;
@@ -153,7 +164,9 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
       <WaterfallSection>
         <SectionTitleRow>
           <SectionTitle>
-            Waterfall Display {isPaused && "(Paused)"}
+            {isStandby
+              ? "Waterfall Display (Standby)"
+              : `Waterfall Display ${isPaused ? "(Paused)" : ""}`}
           </SectionTitle>
           {headerActionContent && (
             <SectionTitleActions data-disabled={!!placeholderState}>
