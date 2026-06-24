@@ -71,6 +71,7 @@ describe("useFrequencyDrag Hook", () => {
     vizDbMaxRef: { current: 0 },
   };
 
+  const listenerCallbacks = new Map<string, Set<Function>>();
   let listeners: Record<string, Function> = {};
 
   beforeEach(() => {
@@ -80,6 +81,7 @@ describe("useFrequencyDrag Hook", () => {
     mockOnTxSampleRateChange.mockClear();
     mockOnTxOptionsRequest.mockClear();
     listeners = {};
+    listenerCallbacks.clear();
     frequencyRangeRef.current = { min: 100, max: 110 };
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 1;
     if (defaultOptions.vizZoomFloorRef)
@@ -91,11 +93,28 @@ describe("useFrequencyDrag Hook", () => {
 
     // Mock window event listeners
     jest.spyOn(window, "addEventListener").mockImplementation((event, cb) => {
-      listeners[event] = cb as Function;
+      let callbacks = listenerCallbacks.get(event);
+      if (!callbacks) {
+        callbacks = new Set();
+        listenerCallbacks.set(event, callbacks);
+        listeners[event] = (...args: any[]) => {
+          callbacks!.forEach((h) => h(...args));
+        };
+      }
+      callbacks.add(cb as Function);
     });
-    jest.spyOn(window, "removeEventListener").mockImplementation((event) => {
-      delete listeners[event];
-    });
+    jest
+      .spyOn(window, "removeEventListener")
+      .mockImplementation((event, cb) => {
+        const callbacks = listenerCallbacks.get(event);
+        if (callbacks) {
+          callbacks.delete(cb as Function);
+          if (callbacks.size === 0) {
+            delete listeners[event];
+            listenerCallbacks.delete(event);
+          }
+        }
+      });
   });
 
   afterEach(() => {
@@ -117,20 +136,28 @@ describe("useFrequencyDrag Hook", () => {
     });
   };
 
-  const triggerPointerMove = (clientX: number, clientY: number) => {
+  const triggerPointerMove = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
     const handler = listeners["pointermove"];
     if (handler) {
       act(() => {
-        handler({ clientX, clientY } as any);
+        handler({ clientX, clientY, pointerId } as any);
       });
     }
   };
 
-  const triggerPointerUp = (clientX: number, clientY: number) => {
+  const triggerPointerUp = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
     const handler = listeners["pointerup"];
     if (handler) {
       act(() => {
-        handler({ clientX, clientY, pointerId: 1 } as any);
+        handler({ clientX, clientY, pointerId } as any);
       });
     }
   };

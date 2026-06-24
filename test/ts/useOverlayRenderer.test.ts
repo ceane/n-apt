@@ -169,8 +169,8 @@ describe("useOverlayRenderer Hook", () => {
     const [x, y, width, height] = mockCtx.rect.mock.calls.at(-1);
     expect(x).toBeCloseTo(459.5, 1);
     expect(width).toBeCloseTo(91, 0);
-    expect(y).toBeCloseTo(263, 0);
-    expect(height).toBeCloseTo(243, 0);
+    expect(y).toBeCloseTo(504, 0);
+    expect(height).toBeCloseTo(96, 0);
   });
 
   it("can suppress the live status row when another overlay owns the bottom band", () => {

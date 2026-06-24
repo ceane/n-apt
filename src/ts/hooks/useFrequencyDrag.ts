@@ -1383,7 +1383,7 @@ export function useFrequencyDrag({
         return;
       }
 
-      if (powerLineDbRef?.current !== null && onPowerLineDbChange) {
+      if (powerLineDbRef?.current != null && onPowerLineDbChange) {
         const isSpectrumSide =
           canvasX >= plot.left && canvasY >= plot.top && canvasY <= plot.bottom;
         if (!isSpectrumSide) return;
