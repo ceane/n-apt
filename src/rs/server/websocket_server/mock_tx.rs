@@ -451,7 +451,7 @@ mod tests {
 
   fn synthesize_test_frame(
     signal_name: &str,
-    tx_sample_rate_hz: f64,
+    tx_bandwidth_hz: f64,
     power_dbm: f64,
   ) -> Vec<u8> {
     let model = TxIqPowerModel::default();
@@ -461,7 +461,7 @@ mod tests {
       137_100_000.0,
       TEST_VIEW_SAMPLE_RATE_HZ as u32,
       137_100_000.0,
-      tx_sample_rate_hz,
+      tx_bandwidth_hz,
       signal_name,
       TEST_FFT_SIZE,
       power_dbm,
@@ -473,7 +473,7 @@ mod tests {
   fn synthesize_test_frame_with_view_and_ifft(
     signal_name: &str,
     view_sample_rate_hz: f64,
-    tx_sample_rate_hz: f64,
+    tx_bandwidth_hz: f64,
     tx_ifft_size: usize,
     power_dbm: f64,
   ) -> Vec<u8> {
@@ -484,7 +484,7 @@ mod tests {
       137_100_000.0,
       view_sample_rate_hz as u32,
       137_100_000.0,
-      tx_sample_rate_hz,
+      tx_bandwidth_hz,
       signal_name,
       tx_ifft_size,
       power_dbm,
