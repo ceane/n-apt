@@ -166,6 +166,8 @@ const DevicePillMeta = styled.div`
   color: ${(props) => props.theme.textSecondary};
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  white-space: normal;
+  line-height: 1.3;
 `;
 
 const DeviceStatusDot = styled.span<{
@@ -240,6 +242,16 @@ const DeviceActionButton = styled.button<{
   }
 `;
 
+const DeviceActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 170px;
+`;
+
 const FileActionButton = styled(DeviceActionButton)`
   width: 65px;
   aspect-ratio: 1;
@@ -273,6 +285,7 @@ interface SourceInputProps {
     name: string;
     backend?: string | null;
     capability?: "rx" | "tx" | "tx_rx" | "mock" | string;
+    duplex_mode?: string | null;
     summary?: string;
     status?: {
       color?: string;
@@ -290,6 +303,7 @@ interface SourceInputProps {
   }>;
   selectedDeviceId?: string;
   onSelectedDeviceChange?: (id: string) => void;
+  onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
 }
 
@@ -308,6 +322,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   devices,
   selectedDeviceId,
   onSelectedDeviceChange,
+  onToggleDeviceRxPause,
   onToggleDeviceTxMode,
 }) => {
   const fileSelectionActive = sourceMode === "file";
@@ -372,9 +387,12 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     fileSelectionActive &&
     (fileButtonLabel === "Play" || fileButtonLabel === "Pause");
 
-  const formatCapability = (capability?: string | null): string => {
+  const formatCapability = (
+    capability?: string | null,
+    isHalfDuplex?: boolean,
+  ): string => {
     if (!capability) return "unknown";
-    if (capability === "tx_rx") return "TX/RX";
+    if (capability === "tx_rx") return isHalfDuplex ? "Half-Duplex" : "TX/RX";
     return capability.toUpperCase();
   };
 
@@ -389,7 +407,29 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
+  const formatDuplexMode = (duplexMode?: string | null): string | null => {
+    const normalized = duplexMode?.trim();
+    if (!normalized) return null;
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  };
+  const formatRxTxLabel = (
+    capability?: string | null,
+    duplexMode?: string | null,
+    status?: string | null,
+  ) => {
+    const normalizedDuplex = duplexMode?.toLowerCase?.() ?? "";
+    if (normalizedDuplex === "half-duplex") {
+      return "Rx/Tx";
+    }
+    return capability?.toLowerCase().includes("tx") ? "Tx" : "Rx";
+  };
   const sourceDevices = devices ?? [];
+  const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
+    device.backend?.toLowerCase().includes("hackrf") === true ||
+    device.name.toLowerCase().includes("hackrf") === true;
+  const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
+    device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
+    device.status?.label !== "transmitting";
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
     device.status?.label?.toLowerCase?.() === "transmitting";
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
@@ -499,6 +539,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const isSelectedDevice = device.id === selectedDeviceId;
             const isTxCapable =
               device.capability?.toLowerCase().includes("tx") ?? false;
+            const isHalfDuplex = isHalfDuplexDevice(device);
             const isTransmittingDevice = device.id === transmittingDeviceId;
             const actionLabel = isTxCapable
               ? isTransmittingDevice
@@ -544,49 +585,63 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 <DevicePillMain $opacity={fileModeOpacity}>
                   <DevicePillName>{device.name}</DevicePillName>
                   <DevicePillMeta>
-                    {formatCapability(device.capability)}
-                    {formatStatusLabel(
+                    {formatRxTxLabel(
+                      device.capability,
+                      device.duplex_mode,
                       device.status?.label,
-                      isMockDevice(device),
-                    )
-                      ? ` · ${formatStatusLabel(device.status?.label, isMockDevice(device))}`
+                    )}{" "}
+                    · Connected
+                    {device.duplex_mode
+                      ? ` · ${formatDuplexMode(device.duplex_mode)}`
                       : ""}
                   </DevicePillMeta>
                 </DevicePillMain>
-                {device.status?.onAction ? (
-                  <DeviceActionButton
-                    type="button"
-                    $active={isSelectedDevice}
-                    $danger={isTransmittingDevice}
-                    $opacity={fileModeOpacity}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      device.status?.onAction?.();
-                    }}
-                    title={device.status.actionTitle}
-                  >
-                    {actionLabel}
-                    {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
-                  </DeviceActionButton>
-                ) : isTxCapable &&
-                  (!transmittingDeviceId ||
-                    device.id === transmittingDeviceId) &&
-                  onToggleDeviceTxMode ? (
-                  <DeviceActionButton
-                    type="button"
-                    $active={isSelectedDevice}
-                    $danger={isTransmittingDevice}
-                    $opacity={fileModeOpacity}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleDeviceTxMode(device.id);
-                    }}
-                    title={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
-                  >
-                    {actionLabel}
-                    {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
-                  </DeviceActionButton>
-                ) : null}
+                <DeviceActions>
+                  {isHalfDuplex && onToggleDeviceRxPause ? (
+                    <DeviceActionButton
+                      type="button"
+                      $active={isSelectedDevice}
+                      $opacity={fileModeOpacity}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleDeviceRxPause(device.id);
+                      }}
+                      title={isHalfDuplexRxActive(device) ? "Resume Rx" : "Pause Rx"}
+                    >
+                      {isHalfDuplexRxActive(device) ? "Resume Rx" : "Pause Rx"}
+                    </DeviceActionButton>
+                  ) : !isHalfDuplex && device.status?.onAction ? (
+                    <DeviceActionButton
+                      type="button"
+                      $active={isSelectedDevice}
+                      $danger={isTransmittingDevice}
+                      $opacity={fileModeOpacity}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        device.status?.onAction?.();
+                      }}
+                      title={device.status.actionTitle}
+                    >
+                      {actionLabel}
+                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
+                    </DeviceActionButton>
+                  ) : null}
+                  {isHalfDuplex && onToggleDeviceTxMode ? (
+                    <DeviceActionButton
+                      type="button"
+                      $active={isSelectedDevice}
+                      $danger={isTransmittingDevice}
+                      $opacity={fileModeOpacity}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleDeviceTxMode(device.id);
+                      }}
+                      title="Start Tx"
+                    >
+                      Start Tx
+                    </DeviceActionButton>
+                  ) : null}
+                </DeviceActions>
               </DevicePill>
             );
           })}

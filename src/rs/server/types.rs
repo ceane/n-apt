@@ -352,7 +352,9 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "sampleRate",
-    alias = "sampleRateHz"
+    alias = "sampleRateHz",
+    alias = "bandwidthHz",
+    alias = "txBandwidthHz"
   )]
   #[validate(range(min = 1.0, max = 100000000.0))]
   pub sample_rate: Option<f64>,

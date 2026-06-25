@@ -247,6 +247,7 @@ export interface SourceInfo {
   name: string;
   kind: string;
   capability: SourceCapability;
+  duplex_mode?: string | null;
   status: SourceStatus;
   paused?: boolean;
   loading_attempt: number;

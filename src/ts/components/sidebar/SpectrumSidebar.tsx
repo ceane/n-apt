@@ -162,12 +162,12 @@ const STICKY_COMPACT_ENTER_OFFSET_PX = 0;
 const STICKY_COMPACT_EXIT_OFFSET_PX = 16;
 const TX_SIGNAL_PRESETS: Record<
   string,
-  { centerFrequencyHz: number; sampleRateHz: number }
+  { centerFrequencyHz: number; bandwidthHz: number }
 > = {
-  apt: { centerFrequencyHz: 137_100_000, sampleRateHz: 2_400_000 },
-  tone: { centerFrequencyHz: 137_100_000, sampleRateHz: 1_000_000 },
-  noise: { centerFrequencyHz: 13_875_000, sampleRateHz: 3_200_000 },
-  custom: { centerFrequencyHz: 137_100_000, sampleRateHz: 2_400_000 },
+  apt: { centerFrequencyHz: 137_100_000, bandwidthHz: 2_400_000 },
+  tone: { centerFrequencyHz: 137_100_000, bandwidthHz: 1_000_000 },
+  noise: { centerFrequencyHz: 13_875_000, bandwidthHz: 3_200_000 },
+  custom: { centerFrequencyHz: 137_100_000, bandwidthHz: 2_400_000 },
 };
 const TX_SETTINGS_SYNC_DEBOUNCE_MS = 16;
 
@@ -435,7 +435,7 @@ const buildTxSettingsSyncKey = (values: {
   sourceId?: string | null;
   txSignal?: string | null;
   centerFrequencyHz?: number | null;
-  sampleRateHz?: number | null;
+  bandwidthHz?: number | null;
   ifftSize?: number | null;
   powerDbm?: number | null;
   vgaGainDb?: number | null;
@@ -453,7 +453,7 @@ const buildTxSettingsSyncKey = (values: {
     sourceId: values.sourceId ?? null,
     txSignal: values.txSignal ?? null,
     centerFrequencyHz: values.centerFrequencyHz ?? null,
-    sampleRateHz: values.sampleRateHz ?? null,
+    bandwidthHz: values.bandwidthHz ?? null,
     ifftSize: values.ifftSize ?? null,
     powerDbm: values.powerDbm ?? null,
     vgaGainDb: values.vgaGainDb ?? null,
@@ -1172,13 +1172,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (backendMockTx?.signals) {
       const presets: Record<
         string,
-        { centerFrequencyHz: number; sampleRateHz: number }
+        { centerFrequencyHz: number; bandwidthHz: number }
       > = {};
       for (const [key, sig] of Object.entries(backendMockTx.signals)) {
         const signalObj = sig as any;
         presets[key.toLowerCase()] = {
           centerFrequencyHz: signalObj.center_frequency_hz ?? 0,
-          sampleRateHz: signalObj.sample_rate_hz ?? 0,
+          bandwidthHz:
+            signalObj.bandwidth_hz ?? signalObj.sample_rate_hz ?? 0,
         };
       }
       return presets;
@@ -1281,7 +1282,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 txCenterFrequencyHz ??
                 source.sdr?.settings?.center_frequency ??
                 undefined,
-              sampleRateHz:
+              bandwidthHz:
                 txSampleRateHz ??
                 source.sdr?.settings?.sample_rate ??
                 undefined,
@@ -1309,6 +1310,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             txCenterFrequencyHz ??
             source.sdr?.settings?.center_frequency ??
             undefined,
+          bandwidthHz:
+            txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
           sampleRateHz:
             txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
           ifftSize: txIfftSize,
@@ -1395,7 +1398,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const preset = txSignalPresets[value.toLowerCase()];
       if (!preset) return;
       dispatch(setTxCenterFrequencyHz(preset.centerFrequencyHz));
-      dispatch(setTxSampleRateHz(preset.sampleRateHz));
+      dispatch(setTxSampleRateHz(preset.bandwidthHz));
     },
     [dispatch, txSignalPresets],
   );
@@ -1418,7 +1421,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sourceId: source.id,
       txSignal,
       centerFrequencyHz: txCenterFrequencyHz,
-      sampleRateHz: txSampleRateHz,
+      bandwidthHz: txSampleRateHz,
       ifftSize: txIfftSize,
       powerDbm: txPowerDbm,
       vgaGainDb: txVgaGain,
@@ -1444,6 +1447,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       wsConnection.sendTransmitMode?.(true, source.name ?? txTargetDeviceId, {
         serialNumber: source.serial_number?.trim() || txTargetDeviceId,
         centerFrequencyHz: txCenterFrequencyHz,
+        bandwidthHz: txSampleRateHz,
         sampleRateHz: txSampleRateHz,
         ifftSize: txIfftSize,
         powerDbm: txPowerDbm,
@@ -1509,8 +1513,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, []);
 
   const sourceDevices = useMemo(
-    () =>
-      sourcesToUse.map((source) => {
+    () => {
+      const mappedSources = sourcesToUse.map((source) => {
         const isTransmitting = source.status === "transmitting";
         const isStreaming = source.status === "streaming";
         const isPaused = source.paused ?? false;
@@ -1552,6 +1556,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           name: source.name,
           backend: source.kind,
           capability: source.capability,
+          duplex_mode:
+            source.duplex_mode ??
+            (source.kind === "mock_apt" || source.id === "mock-apt"
+              ? "Simplex"
+              : source.kind === "mock_tx" || source.id === "mock-tx"
+                ? "Simplex"
+                : null),
           summary: source.serial_number
             ? `SN ${source.serial_number}`
             : source.manufacturer
@@ -1576,7 +1587,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onAction,
           },
         };
-      }),
+      });
+      return mappedSources;
+    },
     [handleToggleTransmitMode, sourcesToUse, toggleLiveVisualizerPause],
   );
   const activeCaptureAreasSet = useMemo(
@@ -2369,6 +2382,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }
             setLivePreviewStage(1);
           }}
+          onToggleDeviceRxPause={(id) => {
+            toggleLiveVisualizerPause(id);
+          }}
           onToggleDeviceTxMode={(id) => {
             const current =
               sourceDevices.find((entry) => entry.id === id)?.status?.label ===
@@ -2536,8 +2552,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             >
               <TxSettingsSection
                 signal={txSignal}
-                sampleRateHz={txSampleRateHz}
-                maxSampleRateHz={maxSampleRateHz}
+                bandwidthHz={txSampleRateHz}
+                maxBandwidthHz={maxSampleRateHz}
                 fftSize={fftSize}
                 ifftSize={txIfftSize}
                 ifftSizeOptions={fftSizeOptions}
@@ -2547,9 +2563,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 ampEnabled={hackrfAmpEnabled}
                 onSignalChange={handleTxSignalChange}
                 signalOptions={signalOptions}
-                onSampleRateChange={(value) =>
-                  dispatch(setTxSampleRateHz(value))
-                }
+                onBandwidthChange={(value) => dispatch(setTxSampleRateHz(value))}
                 onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
                 onCenterFrequencyChange={(value) =>
                   dispatch(setTxCenterFrequencyHz(value))

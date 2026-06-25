@@ -1,4 +1,4 @@
-use crate::fft::now_millis;
+use crate::s::fft::now_millis;
 use anyhow::Result;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -387,7 +387,7 @@ impl FFTProcessor {
     }
 
     if self.config.zoom_width < self.config.fft_size {
-      let zoomed_power = crate::fft::zoom_fft(
+      let zoomed_power = crate::s::fft::zoom_fft(
         power,
         self.config.zoom_offset,
         self.config.zoom_width,
@@ -419,7 +419,7 @@ impl FFTProcessor {
   ) -> Result<FFTResult> {
     // Apply zoom if configured (SDR++ style)
     let zoomed_power = if self.config.zoom_width < self.config.fft_size {
-      crate::fft::zoom_fft(
+      crate::s::fft::zoom_fft(
         &power,
         self.config.zoom_offset,
         self.config.zoom_width,
@@ -1483,7 +1483,7 @@ impl FFTProcessor {
 
     // Apply zoom if configured (SDR++ style)
     let zoomed_power = if self.config.zoom_width < self.config.fft_size {
-      crate::fft::zoom_fft(
+      crate::s::fft::zoom_fft(
         &power,
         self.config.zoom_offset,
         self.config.zoom_width,

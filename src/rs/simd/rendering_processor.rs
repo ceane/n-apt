@@ -2,7 +2,7 @@
 //!
 //! ARM-optimized processor for rendering operations using unified SIMD backend.
 
-use crate::fft::processor::WindowType;
+use crate::s::fft::processor::WindowType;
 #[allow(unused_imports)]
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 use crate::simd::common::WindowFunctions;

@@ -140,6 +140,26 @@ const isMockAptIdentity = ({
   );
 };
 
+export const resolveTxModeDeviceName = (
+  sources: Array<{ status: string; name?: string | null }>,
+  deviceName: string | null | undefined,
+  canTransmit: boolean,
+  isStandby: boolean,
+): string | null => {
+  const transmittingSource = sources.find(
+    (item) => item.status === "transmitting",
+  );
+  if (transmittingSource?.name?.trim()) {
+    return transmittingSource.name.trim();
+  }
+
+  if (isStandby && canTransmit) {
+    return deviceName?.trim() || null;
+  }
+
+  return null;
+};
+
 export const resolveEffectiveDbmOffsetDb = ({
   powerScale,
   deviceKind,
@@ -437,7 +457,7 @@ const TxSliderVisualLabel = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 8px;
   z-index: 1;
 `;
 
@@ -475,6 +495,18 @@ const TxBlinkingDot = styled.div`
   background: ${({ theme }) => theme.colors.primary};
   box-shadow: 0 0 8px ${({ theme }) => theme.colors.primary}66;
   z-index: 1;
+`;
+
+const TxSliderMetaText = styled.span`
+  position: absolute;
+  left: 50px;
+  font-size: 10px;
+  font-weight: 500;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  opacity: 0.85;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  font-family: ${({ theme }) => theme.typography.mono};
 `;
 
 const TxSliderVisualTrack = styled.div`
@@ -1433,19 +1465,23 @@ const FFTCanvas = memo(
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
+    const canTransmit = useMemo(() => {
+      return (
+        reduxDeviceKind === "hackrf_one" ||
+        reduxDeviceKind === "mock_tx" ||
+        reduxDeviceKind === "tx_rx" ||
+        reduxDeviceKind === "tx" ||
+        reduxDeviceKind === "mock"
+      );
+    }, [reduxDeviceKind]);
     const txModeDeviceName = useMemo(() => {
-      const source =
-        reduxWebsocketSources.find((item) => item.status === "transmitting") ??
-        reduxWebsocketSources.find(
-          (item) =>
-            item.capability === "tx" ||
-            item.capability === "tx_rx" ||
-            item.kind === "mock_tx" ||
-            item.kind === "tx" ||
-            item.kind === "tx_rx",
-        );
-      return source?.name?.trim() || deviceName?.trim() || null;
-    }, [deviceName, reduxWebsocketSources]);
+      return resolveTxModeDeviceName(
+        reduxWebsocketSources,
+        deviceName,
+        canTransmit,
+        isStandby,
+      );
+    }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
     const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
       const txModeLabel = txModeDeviceName
         ? `Tx Mode / ${txModeDeviceName}`
@@ -4296,39 +4332,51 @@ const FFTCanvas = memo(
                     )}
                     {txSliderVisualMetrics && !compact ? (
                       <TxSliderVisualRow data-testid="tx-slider-visual-row">
-                        <TxSliderVisualLabel>
-                          <TxSliderLockButton
-                            type="button"
-                            onClick={() =>
-                              setIsTxSliderLocked((value) => !value)
-                            }
-                            aria-pressed={isTxSliderLocked}
-                            aria-label={
-                              isTxSliderLocked
-                                ? "Unlock Tx slider"
-                                : "Lock Tx slider"
-                            }
-                            title={
-                              isTxSliderLocked
-                                ? "Unlock Tx slider"
-                                : "Lock Tx slider"
-                            }
-                          >
-                            {isTxSliderLocked ? (
-                              <Lock size={10} strokeWidth={2.5} />
-                            ) : (
-                              <Unlock size={10} strokeWidth={2.5} />
-                            )}
-                          </TxSliderLockButton>
-                          <div
-                            style={{
-                              position: "relative",
-                              display: "inline-flex",
-                              alignItems: "center",
-                            }}
-                          >
-                            {isTransmittingGlobal && <TxBlinkingDot />}
-                            Tx
+                         <TxSliderVisualLabel>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", height: "18px" }}>
+                            <TxSliderLockButton
+                              type="button"
+                              onClick={() =>
+                                setIsTxSliderLocked((value) => !value)
+                              }
+                              aria-pressed={isTxSliderLocked}
+                              aria-label={
+                                isTxSliderLocked
+                                  ? "Unlock Tx slider"
+                                  : "Lock Tx slider"
+                              }
+                              title={
+                                isTxSliderLocked
+                                  ? "Unlock Tx slider"
+                                  : "Lock Tx slider"
+                              }
+                            >
+                              {isTxSliderLocked ? (
+                                <Lock size={10} strokeWidth={2.5} />
+                              ) : (
+                                <Unlock size={10} strokeWidth={2.5} />
+                              )}
+                            </TxSliderLockButton>
+                            <TxSliderMetaText>
+                              {txModeDeviceName || "Device"}
+                            </TxSliderMetaText>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", height: "18px", paddingLeft: "2px" }}>
+                            <div
+                              style={{
+                                position: "relative",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                width: "16px",
+                                justifyContent: "center",
+                              }}
+                            >
+                              {isTransmittingGlobal && <TxBlinkingDot />}
+                              Tx
+                            </div>
+                            <TxSliderMetaText style={{ textTransform: "uppercase" }}>
+                              {txSliderVisualMetrics?.signalLabel || "Unknown"}
+                            </TxSliderMetaText>
                           </div>
                         </TxSliderVisualLabel>
                         <TxSliderVisualTrack>

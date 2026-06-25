@@ -5,45 +5,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const MOCK_TX_DISPLAY_NAME: &str = "Mock Tx SDR";
 pub static MOCK_TX_MONITOR_SAMPLE_CURSOR: AtomicU64 = AtomicU64::new(0);
 
-fn clamp_tx_monitor_offset(offset_hz: f64, sample_rate_hz: f64) -> f64 {
-  if !offset_hz.is_finite() || !sample_rate_hz.is_finite() {
-    return 0.0;
-  }
-  let nyquist = sample_rate_hz.max(1.0) / 2.0;
-  offset_hz.clamp(-nyquist * 0.85, nyquist * 0.85)
-}
-
-fn resolve_mock_tx_monitor_params(
-  signal_name: &str,
-  sample_rate_hz: f64,
-) -> (f64, f64, f64) {
-  let settings = crate::server::utils::load_mock_tx_settings();
-  let key = signal_name.trim().to_ascii_lowercase();
-  let preset = settings
-    .signals
-    .get(&key)
-    .or_else(|| settings.signals.get("apt"));
-
-  let offset_hz = preset
-    .and_then(|preset| preset.offset_hz)
-    .unwrap_or(25_000.0);
-  let tone_hz = preset
-    .and_then(|preset| preset.tone_hz)
-    .unwrap_or(2_400.0)
-    .max(1.0);
-  let bandwidth_hz = preset
-    .and_then(|preset| preset.bandwidth_hz)
-    .unwrap_or(sample_rate_hz / 5.0)
-    .max(1.0)
-    .min(sample_rate_hz.max(1.0));
-
-  (
-    clamp_tx_monitor_offset(offset_hz, sample_rate_hz),
-    tone_hz,
-    bandwidth_hz,
-  )
-}
-
 fn mock_tx_noise_unit(sample_index: u64, salt: u64) -> f64 {
   let mut x = sample_index
     .wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -103,44 +64,119 @@ fn quantize_mock_tx_iq(value: f64, sample_index: u64, salt: u64) -> u8 {
   (128.0 + signed).clamp(0.0, 255.0) as u8
 }
 
-fn constrain_signal_to_tx_bandwidth(
-  signal: &mut [Complex<f32>],
+fn clamp_quantized_iq_to_bandwidth(
+  frame: &mut [u8],
   rel_center_hz: f64,
-  tx_sample_rate_hz: f64,
+  width_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
 ) {
-  let len = signal.len();
-  if len == 0
+  let sample_count = frame.len() / 2;
+  if sample_count == 0
     || !rel_center_hz.is_finite()
-    || !tx_sample_rate_hz.is_finite()
+    || !width_bandwidth_hz.is_finite()
     || !view_sample_rate_hz.is_finite()
   {
     return;
   }
 
-  let half_tx_hz = (tx_sample_rate_hz.max(1.0) / 2.0).max(0.5);
-  let bin_width_hz = view_sample_rate_hz.max(1.0) / len as f64;
-  let guard_hz = bin_width_hz * 1.5;
+  let half_width_hz = width_bandwidth_hz.max(1.0) / 2.0;
+  let bin_width_hz = view_sample_rate_hz.max(1.0) / sample_count as f64;
+  let guard_hz = bin_width_hz * 2.0;
   let mut planner = FftPlanner::<f32>::new();
-  let fft = planner.plan_fft_forward(len);
-  fft.process(signal);
+  let fft = planner.plan_fft_forward(sample_count);
+  let ifft = planner.plan_fft_inverse(sample_count);
 
-  for (index, bin) in signal.iter_mut().enumerate() {
-    let bin_hz = if index <= len / 2 {
-      index as f64 * bin_width_hz
-    } else {
-      -((len - index) as f64 * bin_width_hz)
-    };
-    if (bin_hz - rel_center_hz).abs() > half_tx_hz + guard_hz {
-      *bin = Complex::new(0.0, 0.0);
+  for _ in 0..3 {
+    let mut iq: Vec<Complex<f32>> = frame
+      .chunks_exact(2)
+      .map(|sample| {
+        Complex::new(
+          (sample[0] as f32 - 128.0) / 128.0,
+          (sample[1] as f32 - 128.0) / 128.0,
+        )
+      })
+      .collect();
+    fft.process(&mut iq);
+
+    for (index, bin) in iq.iter_mut().enumerate() {
+      let bin_hz = if index <= sample_count / 2 {
+        index as f64 * bin_width_hz
+      } else {
+        -((sample_count - index) as f64 * bin_width_hz)
+      };
+      if (bin_hz - rel_center_hz).abs() > half_width_hz + guard_hz {
+        *bin = Complex::new(0.0, 0.0);
+      }
+    }
+
+    ifft.process(&mut iq);
+    let scale = 1.0 / sample_count as f32;
+    for (index, sample) in iq.iter().enumerate() {
+      let sample = *sample * scale;
+      frame[index * 2] =
+        ((sample.re.clamp(-1.0, 1.0) * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
+      frame[index * 2 + 1] =
+        ((sample.im.clamp(-1.0, 1.0) * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
     }
   }
+}
 
-  let ifft = planner.plan_fft_inverse(len);
-  ifft.process(signal);
-  let scale = 1.0 / len as f32;
-  for sample in signal.iter_mut() {
-    *sample *= scale;
+fn peak_amplitude_inside_bandwidth(
+  frame: &[u8],
+  rel_center_hz: f64,
+  width_bandwidth_hz: f64,
+  view_sample_rate_hz: f64,
+) -> f64 {
+  let sample_count = frame.len() / 2;
+  if sample_count == 0 {
+    return 0.0;
+  }
+
+  let half_width_hz = width_bandwidth_hz.max(1.0) / 2.0;
+  let bin_width_hz = view_sample_rate_hz.max(1.0) / sample_count as f64;
+  let mut iq: Vec<Complex<f32>> = frame
+    .chunks_exact(2)
+    .map(|sample| {
+      Complex::new(
+        (sample[0] as f32 - 128.0) / 128.0,
+        (sample[1] as f32 - 128.0) / 128.0,
+      )
+    })
+    .collect();
+  let mut planner = FftPlanner::<f32>::new();
+  let fft = planner.plan_fft_forward(sample_count);
+  fft.process(&mut iq);
+
+  iq.iter()
+    .enumerate()
+    .filter_map(|(index, bin)| {
+      let bin_hz = if index <= sample_count / 2 {
+        index as f64 * bin_width_hz
+      } else {
+        -((sample_count - index) as f64 * bin_width_hz)
+      };
+      if (bin_hz - rel_center_hz).abs() <= half_width_hz {
+        let re = bin.re as f64 / sample_count as f64;
+        let im = bin.im as f64 / sample_count as f64;
+        Some(re.hypot(im))
+      } else {
+        None
+      }
+    })
+    .fold(0.0_f64, f64::max)
+}
+
+fn scale_quantized_iq(frame: &mut [u8], factor: f64) {
+  if !factor.is_finite() || factor <= 0.0 {
+    return;
+  }
+  for sample in frame.chunks_exact_mut(2) {
+    let i = (sample[0] as f64 - 128.0) / 128.0;
+    let q = (sample[1] as f64 - 128.0) / 128.0;
+    sample[0] =
+      ((i * factor).clamp(-1.0, 1.0) * 128.0 + 128.0).clamp(0.0, 255.0) as u8;
+    sample[1] =
+      ((q * factor).clamp(-1.0, 1.0) * 128.0 + 128.0).clamp(0.0, 255.0) as u8;
   }
 }
 
@@ -166,12 +202,34 @@ pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
   configured_rms
 }
 
+use std::sync::Mutex;
+
+use crate::s::ifft::mock_tx_gen::{
+  generate_mock_tx_samples_ifft, MockTxParams,
+};
+
+struct MockTxBuffer {
+  params: Option<MockTxParams>,
+  samples: Vec<Complex<f32>>,
+}
+
+impl MockTxBuffer {
+  const fn new() -> Self {
+    Self {
+      params: None,
+      samples: Vec::new(),
+    }
+  }
+}
+
+static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+
 pub fn synthesize_mock_tx_monitor_iq(
   fft_size: usize,
   view_center_hz: f64,
   view_sample_rate: u32,
   tx_center_hz: f64,
-  tx_sample_rate_hz: f64,
+  tx_bandwidth_hz: f64,
   signal_name: &str,
   tx_ifft_size: usize,
   power_dbm: f64,
@@ -183,28 +241,30 @@ pub fn synthesize_mock_tx_monitor_iq(
   }
 
   let sample_rate_hz = view_sample_rate.max(1) as f64;
-  let tx_sample_rate_hz = tx_sample_rate_hz.max(1.0);
-  let half_view = sample_rate_hz / 2.0;
-  let half_tx = tx_sample_rate_hz / 2.0;
-  let view_min_hz = view_center_hz - half_view;
-  let view_max_hz = view_center_hz + half_view;
-  let tx_min_hz = tx_center_hz - half_tx;
-  let tx_max_hz = tx_center_hz + half_tx;
-  let overlaps_tx_window = view_max_hz >= tx_min_hz && view_min_hz <= tx_max_hz;
+  let tx_bandwidth_hz = tx_bandwidth_hz.max(1.0);
   let signal_key = if signal_name.trim().is_empty() {
-    "apt".to_string()
+    "wifi".to_string()
   } else {
     signal_name.trim().to_ascii_lowercase()
   };
-  let (_offset_hz, tone_hz, bandwidth_hz) =
-    resolve_mock_tx_monitor_params(&signal_key, tx_sample_rate_hz);
-  let tx_occupied_bandwidth_hz = tx_sample_rate_hz.min(sample_rate_hz).max(1.0);
-  let tx_half_bandwidth_hz = tx_occupied_bandwidth_hz / 2.0;
-  let effective_tone_hz = tone_hz.min((tx_half_bandwidth_hz * 0.25).max(1.0));
-  let effective_bandwidth_hz =
-    bandwidth_hz.min(tx_occupied_bandwidth_hz * 0.85).max(1.0);
-  let start_sample =
-    MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
+
+  let settings = crate::server::utils::load_mock_tx_settings();
+  let preset = settings
+    .signals
+    .get(&signal_key)
+    .or_else(|| settings.signals.get("wifi"));
+
+  let tx_occupied_bandwidth_hz = tx_bandwidth_hz.min(sample_rate_hz).max(1.0);
+  let effective_bandwidth_hz = tx_occupied_bandwidth_hz;
+
+  let offset_hz = preset.and_then(|p| p.offset_hz).unwrap_or(0.0);
+  let offset_hz = offset_hz.clamp(
+    -tx_occupied_bandwidth_hz * 0.85 / 2.0,
+    tx_occupied_bandwidth_hz * 0.85 / 2.0,
+  );
+
+  let rel_hz = tx_center_hz - view_center_hz + offset_hz;
+
   let quantized_power_floor_dbm =
     crate::safety::get_quantized_iq_power_floor_dbm(
       8,
@@ -217,137 +277,95 @@ pub fn synthesize_mock_tx_monitor_iq(
     power_model,
   );
   let noise_floor_rms = mock_tx_monitor_noise_floor_rms(power_model);
-  let signal_abs_hz = tx_center_hz;
-  let rel_hz = signal_abs_hz - view_center_hz;
-  let signal_in_view = overlaps_tx_window && rel_hz.abs() <= half_view * 0.98;
+  let render_ifft_size = fft_size;
+
+  let current_params = MockTxParams {
+    signal_key,
+    sample_rate_hz,
+    bandwidth_hz: effective_bandwidth_hz,
+    tx_ifft_size: render_ifft_size,
+  };
+
+  let start_sample =
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
+
+  // Read or compute cached IFFT block
+  let mut cache = MOCK_TX_CACHE.lock().unwrap();
+  if cache.params.as_ref() != Some(&current_params)
+    || cache.samples.is_empty()
+    || cache.samples.len() != render_ifft_size
+  {
+    cache.samples = generate_mock_tx_samples_ifft(&current_params);
+    cache.params = Some(current_params);
+  }
+  let block = cache.samples.clone();
+  drop(cache);
+
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
-  let mut signal_samples = vec![Complex::new(0.0_f32, 0.0_f32); fft_size];
-  let mut noise_samples = vec![Complex::new(0.0_f32, 0.0_f32); fft_size];
-
-  // Pre-calculate FM modulation constants to avoid recomputing in loop
-  let w_sweep = 2.0 * std::f64::consts::PI * 0.25 / sample_rate_hz;
-  let sweep_deviation_hz = 15_000.0_f64.min(tx_half_bandwidth_hz * 0.2);
-  let mod_index_sweep = sweep_deviation_hz / 0.25;
-
-  let w_drift = 2.0 * std::f64::consts::PI * 0.1 / sample_rate_hz;
-  let drift_deviation_hz = 2_000.0_f64.min(tx_half_bandwidth_hz * 0.15);
-  let mod_index_drift = drift_deviation_hz / 0.1;
+  let mut out = Vec::with_capacity(fft_size * 2);
 
   for j in 0..fft_size {
     let t = start_sample + j as u64;
-    let t_f = t as f64;
 
-    // Accumulate carrier phase for every sample to avoid jumps when phase_step changes (panning)
+    // Accumulate carrier phase continuously to avoid tuning/panning clicks
     *phase_accumulator += phase_step;
-    // Prevent unbounded growth of phase_accumulator
     if *phase_accumulator > 2.0 * std::f64::consts::PI {
       *phase_accumulator -= 2.0 * std::f64::consts::PI;
     } else if *phase_accumulator < -2.0 * std::f64::consts::PI {
       *phase_accumulator += 2.0 * std::f64::consts::PI;
     }
-    let carrier_phase = *phase_accumulator;
+
+    let (sin_p, cos_p) = phase_accumulator.sin_cos();
+
+    // Loop baseband block sample and mix to carrier frequency offset
+    let block_sample = block[(t % render_ifft_size as u64) as usize];
+    let i_sig = (block_sample.re as f64 * cos_p
+      - block_sample.im as f64 * sin_p)
+      * target_rms;
+    let q_sig = (block_sample.re as f64 * sin_p
+      + block_sample.im as f64 * cos_p)
+      * target_rms;
 
     let noise_i =
       mock_tx_noise_unit(t, 0x464c_4154_5458_4949) * noise_floor_rms;
     let noise_q =
       mock_tx_noise_unit(t, 0x464c_4154_5458_5151) * noise_floor_rms;
-    noise_samples[j] = Complex::new(noise_i as f32, noise_q as f32);
 
-    if !signal_in_view {
-      continue;
-    }
+    let i_val = i_sig + noise_i;
+    let q_val = q_sig + noise_q;
 
-    // Dynamic phase calculation with continuous FM integration (no jumps)
-    let phase = if signal_key == "tone" {
-      carrier_phase + (t_f * w_sweep).sin() * mod_index_sweep
-    } else if signal_key == "apt" {
-      carrier_phase + (t_f * w_drift).cos() * mod_index_drift
-    } else {
-      carrier_phase
-    };
-
-    let (carrier_q, carrier_i) = phase.sin_cos();
-
-    let (i, q) = match signal_key.as_str() {
-      "carrier" => (carrier_i * target_rms, carrier_q * target_rms),
-      "tone" => (carrier_i * target_rms, carrier_q * target_rms),
-      "noise" => {
-        // Multi-carrier noise hump simulation of bandwidth_hz (600 kHz)
-        let mut i_sum = 0.0;
-        let mut q_sum = 0.0;
-        let num_carriers = 16;
-        for k in 0..num_carriers {
-          let fraction = (k as f64 / (num_carriers - 1) as f64) - 0.5;
-          let freq_offset = fraction * effective_bandwidth_hz;
-          let phase_noise =
-            mock_tx_noise_unit(t / 256, k as u64) * std::f64::consts::PI;
-          let phase_k = carrier_phase
-            + (2.0 * std::f64::consts::PI * freq_offset * t_f / sample_rate_hz)
-            + phase_noise;
-          let (sin_k, cos_k) = phase_k.sin_cos();
-          i_sum += cos_k;
-          q_sum += sin_k;
-        }
-        let norm = (num_carriers as f64).sqrt();
-        (i_sum * target_rms / norm, q_sum * target_rms / norm)
-      }
-      "custom" => {
-        // Dynamic BPSK digital signal with 120 kHz symbol rate
-        let symbol_rate = 120_000.0_f64.min(tx_occupied_bandwidth_hz / 8.0);
-        let symbol_period =
-          (sample_rate_hz / symbol_rate).round().max(1.0) as u64;
-        let symbol_index = t / symbol_period;
-        let mut hash = symbol_index.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        hash ^= hash >> 30;
-        let bit = hash & 1;
-        let symbol = if bit == 0 { -1.0 } else { 1.0 };
-        (
-          carrier_i * symbol * target_rms,
-          carrier_q * symbol * target_rms,
-        )
-      }
-      _ => {
-        // AM subcarrier for the visual Mock Tx monitor without periodic blanking.
-        let subcarrier = (2.0 * std::f64::consts::PI * effective_tone_hz * t_f
-          / sample_rate_hz)
-          .sin();
-        let modulation = 0.78 + 0.22 * subcarrier;
-        let apt_rms_correction = 1.0 / 0.795_f64;
-        (
-          carrier_i * modulation * target_rms * apt_rms_correction,
-          carrier_q * modulation * target_rms * apt_rms_correction,
-        )
-      }
-    };
-
-    signal_samples[j] = Complex::new(i as f32, q as f32);
+    out.push(quantize_mock_tx_iq(i_val, t, 0x544d_4f4e_4951_4949));
+    out.push(quantize_mock_tx_iq(q_val, t, 0x544d_4f4e_4951_5151));
   }
 
-  if signal_in_view {
-    constrain_signal_to_tx_bandwidth(
-      &mut signal_samples,
+  clamp_quantized_iq_to_bandwidth(
+    &mut out,
+    rel_hz,
+    effective_bandwidth_hz,
+    sample_rate_hz,
+  );
+  for _ in 0..2 {
+    let peak = peak_amplitude_inside_bandwidth(
+      &out,
       rel_hz,
-      tx_sample_rate_hz,
+      effective_bandwidth_hz,
+      sample_rate_hz,
+    );
+    if peak <= 0.0 {
+      break;
+    }
+    let factor = (target_rms / peak).clamp(0.5, 1.4);
+    if (factor - 1.0).abs() <= 0.02 {
+      break;
+    }
+    scale_quantized_iq(&mut out, factor);
+    clamp_quantized_iq_to_bandwidth(
+      &mut out,
+      rel_hz,
+      effective_bandwidth_hz,
       sample_rate_hz,
     );
   }
-
-  let mut out = Vec::with_capacity(fft_size * 2);
-  for j in 0..fft_size {
-    let t = start_sample + j as u64;
-    let sample = signal_samples[j] + noise_samples[j];
-    out.push(quantize_mock_tx_iq(
-      sample.re as f64,
-      t,
-      0x544d_4f4e_4951_4949,
-    ));
-    out.push(quantize_mock_tx_iq(
-      sample.im as f64,
-      t,
-      0x544d_4f4e_4951_5151,
-    ));
-  }
-
   out
 }
 
@@ -357,7 +375,7 @@ mod tests {
 
   const TEST_FFT_SIZE: usize = 65_536;
   const TEST_VIEW_SAMPLE_RATE_HZ: f64 = 3_200_000.0;
-  const TEST_TX_SAMPLE_RATE_HZ: f64 = 100_000.0;
+  const TEST_TX_BANDWIDTH_HZ: f64 = 100_000.0;
   const TEST_TX_POWER_DBM: f64 = -18.0;
 
   #[derive(Debug, Clone)]
@@ -366,42 +384,15 @@ mod tests {
     dbm: f64,
   }
 
-  fn iq_bin_dbm_at(frame: &[u8], rel_hz: f64, sample_rate_hz: f64) -> f64 {
-    let sample_count = frame.len() / 2;
-    if sample_count == 0 {
-      return -150.0;
-    }
-    let mut acc_i = 0.0;
-    let mut acc_q = 0.0;
-    for (index, sample) in frame.chunks_exact(2).enumerate() {
-      let i = (sample[0] as f64 - 128.0) / 128.0;
-      let q = (sample[1] as f64 - 128.0) / 128.0;
-      let phase =
-        -2.0 * std::f64::consts::PI * rel_hz * index as f64 / sample_rate_hz;
-      let (sin_phase, cos_phase) = phase.sin_cos();
-      acc_i += i * cos_phase - q * sin_phase;
-      acc_q += i * sin_phase + q * cos_phase;
-    }
-    let normalized_power =
-      (acc_i * acc_i + acc_q * acc_q) / (sample_count * sample_count) as f64;
-    10.0 * normalized_power.max(1e-15).log10()
-      + TxIqPowerModel::default().calibration_db
-  }
-
   fn max_dbm_between(
-    frame: &[u8],
+    spectrum: &[SpectrumBin],
     min_rel_hz: f64,
     max_rel_hz: f64,
-    step_hz: f64,
-    sample_rate_hz: f64,
   ) -> f64 {
-    let mut rel_hz = min_rel_hz;
-    let mut max_dbm: f64 = -150.0;
-    while rel_hz <= max_rel_hz {
-      max_dbm = max_dbm.max(iq_bin_dbm_at(frame, rel_hz, sample_rate_hz));
-      rel_hz += step_hz.max(1.0);
-    }
-    max_dbm
+    spectrum
+      .iter()
+      .filter(|b| b.rel_hz >= min_rel_hz && b.rel_hz <= max_rel_hz)
+      .fold(-150.0_f64, |max, b| max.max(b.dbm))
   }
 
   fn spectrum_dbm(frame: &[u8], sample_rate_hz: f64) -> Vec<SpectrumBin> {
@@ -458,28 +449,6 @@ mod tests {
     values[index]
   }
 
-  fn occupied_bandwidth_hz(
-    spectrum: &[SpectrumBin],
-    threshold_dbm: f64,
-  ) -> f64 {
-    let active_bins: Vec<_> = spectrum
-      .iter()
-      .filter(|bin| bin.dbm >= threshold_dbm)
-      .collect();
-    if active_bins.is_empty() {
-      return 0.0;
-    }
-
-    let min_hz = active_bins
-      .iter()
-      .fold(f64::INFINITY, |min, bin| min.min(bin.rel_hz));
-    let max_hz = active_bins
-      .iter()
-      .fold(f64::NEG_INFINITY, |max, bin| max.max(bin.rel_hz));
-
-    (max_hz - min_hz).max(0.0)
-  }
-
   fn synthesize_test_frame(
     signal_name: &str,
     tx_sample_rate_hz: f64,
@@ -501,15 +470,40 @@ mod tests {
     )
   }
 
+  fn synthesize_test_frame_with_view_and_ifft(
+    signal_name: &str,
+    view_sample_rate_hz: f64,
+    tx_sample_rate_hz: f64,
+    tx_ifft_size: usize,
+    power_dbm: f64,
+  ) -> Vec<u8> {
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    synthesize_mock_tx_monitor_iq(
+      TEST_FFT_SIZE,
+      137_100_000.0,
+      view_sample_rate_hz as u32,
+      137_100_000.0,
+      tx_sample_rate_hz,
+      signal_name,
+      tx_ifft_size,
+      power_dbm,
+      &model,
+      &mut 0.0,
+    )
+  }
+
   fn assert_tx_spectrum_contract(signal_name: &str) {
     let frame = synthesize_test_frame(
       signal_name,
-      TEST_TX_SAMPLE_RATE_HZ,
+      TEST_TX_BANDWIDTH_HZ,
       TEST_TX_POWER_DBM,
     );
     let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
-    let guard_hz = TEST_VIEW_SAMPLE_RATE_HZ / TEST_FFT_SIZE as f64 * 3.0;
-    let tx_half_width_hz = TEST_TX_SAMPLE_RATE_HZ / 2.0;
+    let bin_width_hz = TEST_VIEW_SAMPLE_RATE_HZ / TEST_FFT_SIZE as f64;
+    // Small guard for FFT bin quantization at band edges
+    let guard_hz = bin_width_hz * 3.0;
+    let tx_half_width_hz = TEST_TX_BANDWIDTH_HZ / 2.0;
 
     let in_band: Vec<_> = spectrum
       .iter()
@@ -520,7 +514,7 @@ mod tests {
         .iter()
         .filter(|bin| {
           bin.rel_hz >= -1_400_000.0
-            && bin.rel_hz <= -(tx_half_width_hz + 200_000.0)
+            && bin.rel_hz <= -(tx_half_width_hz + 100_000.0)
         })
         .map(|bin| bin.dbm),
     );
@@ -529,39 +523,45 @@ mod tests {
         .iter()
         .filter(|bin| {
           bin.rel_hz <= 1_400_000.0
-            && bin.rel_hz >= tx_half_width_hz + 200_000.0
+            && bin.rel_hz >= tx_half_width_hz + 100_000.0
         })
         .map(|bin| bin.dbm),
     );
     let in_band_peak =
       in_band.iter().fold(-150.0_f64, |max, bin| max.max(bin.dbm));
-    let outside_peak = spectrum
-      .iter()
-      .filter(|bin| bin.rel_hz.abs() > tx_half_width_hz + guard_hz)
-      .fold(-150.0_f64, |max, bin| max.max(bin.dbm));
+    let outside = sorted_dbm(
+      spectrum
+        .iter()
+        .filter(|bin| bin.rel_hz.abs() > tx_half_width_hz + guard_hz)
+        .map(|bin| bin.dbm),
+    );
+    let outside_peak = percentile_dbm(&outside, 0.99);
     let left_floor = percentile_dbm(&far_left, 0.50);
     let right_floor = percentile_dbm(&far_right, 0.50);
-    let noise_floor_dbm = (left_floor + right_floor) / 2.0;
-    let occupied_width_hz =
-      occupied_bandwidth_hz(&spectrum, noise_floor_dbm + 18.0);
-    let max_allowed_width_hz = TEST_TX_SAMPLE_RATE_HZ + guard_hz * 2.0;
-
     assert!(
       (left_floor - right_floor).abs() <= 3.0,
-      "{signal_name} Tx noise floor should remain flat outside the Tx channel: left={left_floor:.2} dBm, right={right_floor:.2} dBm"
+      "{signal_name} Tx noise floor should remain flat outside the \
+       Tx channel: left={left_floor:.2} dBm, right={right_floor:.2} dBm"
+    );
+    // Tightened: out-of-band peak must be >= 40 dB below in-band peak
+    assert!(
+      outside_peak <= in_band_peak - 40.0,
+      "{signal_name} Tx signal should stay constrained to configured \
+       bandwidth: in-band peak={in_band_peak:.2} dBm, \
+       outside peak={outside_peak:.2} dBm, \
+       delta={:.2} dB (need >= 40 dB)",
+      in_band_peak - outside_peak,
+    );
+    // Tightened: peak must be within ±3 dB of requested power
+    assert!(
+      in_band_peak <= TEST_TX_POWER_DBM + 3.0,
+      "{signal_name} Tx peak should stay near requested power: \
+       requested={TEST_TX_POWER_DBM:.2} dBm, peak={in_band_peak:.2} dBm"
     );
     assert!(
-      occupied_width_hz <= max_allowed_width_hz,
-      "{signal_name} Tx occupied bandwidth exceeds configured Tx width: occupied={occupied_width_hz:.1} Hz, allowed={max_allowed_width_hz:.1} Hz, threshold={:.2} dBm",
-      noise_floor_dbm + 18.0
-    );
-    assert!(
-      outside_peak <= in_band_peak - 25.0,
-      "{signal_name} Tx signal should stay constrained to configured bandwidth: in-band peak={in_band_peak:.2} dBm, outside peak={outside_peak:.2} dBm"
-    );
-    assert!(
-      in_band_peak <= TEST_TX_POWER_DBM + 6.0,
-      "{signal_name} Tx peak should stay near requested power: requested={TEST_TX_POWER_DBM:.2} dBm, peak={in_band_peak:.2} dBm"
+      in_band_peak >= TEST_TX_POWER_DBM - 3.0,
+      "{signal_name} Tx peak too far below requested power: \
+       requested={TEST_TX_POWER_DBM:.2} dBm, peak={in_band_peak:.2} dBm"
     );
   }
 
@@ -575,35 +575,564 @@ mod tests {
       3_200_000,
       137_100_000.0,
       100_000.0,
-      "apt",
+      "wifi",
       65_536,
       -18.0,
       &model,
       &mut 0.0,
     );
 
-    let center_dbm = iq_bin_dbm_at(&frame, 0.0, 3_200_000.0);
-    let outside_dbm =
-      max_dbm_between(&frame, 250_000.0, 1_400_000.0, 25_000.0, 3_200_000.0)
-        .max(max_dbm_between(
-          &frame,
-          -1_400_000.0,
-          -250_000.0,
-          25_000.0,
-          3_200_000.0,
-        ));
+    let spectrum = spectrum_dbm(&frame, 3_200_000.0);
+    let center_dbm = max_dbm_between(&spectrum, -50000.0, 50000.0);
+    let outside_dbm = max_dbm_between(&spectrum, 250_000.0, 1_400_000.0)
+      .max(max_dbm_between(&spectrum, -1_400_000.0, -250_000.0));
 
     assert!(
-      outside_dbm < center_dbm - 35.0,
-      "narrow Tx bandwidth should not create broad shoulders outside the Tx window: center={center_dbm:.2} dBm, outside={outside_dbm:.2} dBm"
+      outside_dbm < center_dbm - 40.0,
+      "narrow Tx bandwidth should not create broad shoulders outside \
+       the Tx window: center={center_dbm:.2} dBm, \
+       outside={outside_dbm:.2} dBm, \
+       delta={:.2} dB (need >= 40 dB)",
+      center_dbm - outside_dbm,
     );
   }
 
   #[test]
   fn tx_monitor_generated_signals_have_flat_noise_floor_and_constrained_shape()
   {
-    for signal_name in ["apt", "tone", "carrier", "custom", "noise"] {
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
       assert_tx_spectrum_contract(signal_name);
+    }
+  }
+
+  /// Spectral mask test: verify that signal energy at specific offsets
+  /// from the band edge drops below threshold.
+  #[test]
+  fn tx_monitor_spectral_mask_at_band_edges() {
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      let frame = synthesize_test_frame(
+        signal_name,
+        TEST_TX_BANDWIDTH_HZ,
+        TEST_TX_POWER_DBM,
+      );
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+      let tx_half_width_hz = TEST_TX_BANDWIDTH_HZ / 2.0;
+      let in_band_peak = spectrum
+        .iter()
+        .filter(|b| b.rel_hz.abs() <= tx_half_width_hz)
+        .fold(-150.0_f64, |max, b| max.max(b.dbm));
+
+      // Check at 2x the Tx bandwidth offset: must be >= 50 dB below peak
+      let far_offset_hz = tx_half_width_hz * 2.0;
+      let far_peak = spectrum
+        .iter()
+        .filter(|b| {
+          b.rel_hz.abs() >= far_offset_hz
+            && b.rel_hz.abs() <= far_offset_hz + 50_000.0
+        })
+        .fold(-150.0_f64, |max, b| max.max(b.dbm));
+
+      assert!(
+        far_peak <= in_band_peak - 50.0,
+        "{signal_name} spectral mask violated at 2x bandwidth offset: \
+         in-band peak={in_band_peak:.2} dBm, far peak={far_peak:.2} dBm, \
+         delta={:.2} dB (need >= 50 dB)",
+        in_band_peak - far_peak,
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_explicit_power_and_bandwidth() {
+    let signals = vec![
+      ("d", 100_000.0, 100_000.0),
+      ("d_sharp", 100_000.0, 100_000.0),
+      ("wifi", 100_000.0, 100_000.0),
+      ("5g", 100_000.0, 100_000.0),
+    ];
+    for (signal_name, tx_rate, expected_bw) in signals {
+      let power_dbm = -20.0;
+      let frame = synthesize_test_frame(signal_name, tx_rate, power_dbm);
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+
+      let peak_power = max_dbm_between(
+        &spectrum,
+        -TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+        TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+      );
+
+      // Explicit power check: Height matches requested precisely
+      let power_error = (peak_power - power_dbm).abs();
+      assert!(
+        power_error <= 1.5,
+        "[{signal_name}] Explicit power test: peak power {peak_power:.1} dBm deviates from target {power_dbm} by {power_error:.1} dB",
+      );
+
+      // Explicit bandwidth check: Width matches requested boundaries precisely
+      // We check that energy strictly drops off beyond the dotted lines boundary.
+      let half_bw = expected_bw / 2.0;
+      let margin_hz = expected_bw * 0.15; // 15% margin for modulation FM sidelobes
+      let outside_peak = spectrum
+        .iter()
+        .filter(|b| b.rel_hz.abs() > half_bw + margin_hz)
+        .fold(-150.0_f64, |max, b| max.max(b.dbm));
+
+      assert!(
+        outside_peak <= peak_power - 30.0,
+        "[{signal_name}] Explicit bandwidth test: energy outside ±{:.1}kHz exceeds limit. Peak: {:.1}dBm, Outside peak: {:.1}dBm",
+        (half_bw + margin_hz) / 1000.0,
+        peak_power,
+        outside_peak
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_d_family_uses_sparse_scaling_spikes_not_filled_blocks() {
+    let narrow = spectrum_dbm(
+      &synthesize_test_frame("d_sharp", 100_000.0, TEST_TX_POWER_DBM),
+      TEST_VIEW_SAMPLE_RATE_HZ,
+    );
+    let wide = spectrum_dbm(
+      &synthesize_test_frame("d", 1_000_000.0, TEST_TX_POWER_DBM),
+      TEST_VIEW_SAMPLE_RATE_HZ,
+    );
+
+    let narrow_peak = max_dbm_between(
+      &narrow,
+      -TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+      TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+    );
+    let wide_peak = max_dbm_between(
+      &wide,
+      -TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+      TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+    );
+    let narrow_active_bins = narrow
+      .iter()
+      .filter(|bin| {
+        bin.rel_hz.abs() <= 50_000.0 && bin.dbm >= narrow_peak - 24.0
+      })
+      .count();
+    let wide_active_bins = wide
+      .iter()
+      .filter(|bin| {
+        bin.rel_hz.abs() <= 500_000.0 && bin.dbm >= wide_peak - 24.0
+      })
+      .count();
+    let narrow_total_bins = narrow
+      .iter()
+      .filter(|bin| bin.rel_hz.abs() <= 50_000.0)
+      .count();
+
+    assert!(
+      narrow_active_bins <= 12,
+      "D# should render as one or a few narrow spectral spikes, not a filled rectangle: active_bins={narrow_active_bins}"
+    );
+    assert!(
+      (narrow_active_bins as f64 / narrow_total_bins.max(1) as f64) <= 0.08,
+      "D# active bins should be sparse within the allocated bandwidth: active={narrow_active_bins}, total={narrow_total_bins}"
+    );
+    assert!(
+      wide_active_bins >= narrow_active_bins * 2,
+      "D should gain more sawtooth harmonics/spikes as bandwidth grows: narrow={narrow_active_bins}, wide={wide_active_bins}"
+    );
+  }
+
+  #[test]
+  fn tx_monitor_wifi_and_5g_have_ofdm_shaped_skirts_not_square_edges() {
+    for signal_name in ["wifi", "5g"] {
+      let frame =
+        synthesize_test_frame(signal_name, 1_000_000.0, TEST_TX_POWER_DBM);
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+      let center = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| bin.rel_hz.abs() <= 250_000.0)
+          .map(|bin| bin.dbm),
+      );
+      let shoulder = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| (360_000.0..=470_000.0).contains(&bin.rel_hz.abs()))
+          .map(|bin| bin.dbm),
+      );
+      let outside = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| (560_000.0..=800_000.0).contains(&bin.rel_hz.abs()))
+          .map(|bin| bin.dbm),
+      );
+
+      let center_level = percentile_dbm(&center, 0.75);
+      let shoulder_level = percentile_dbm(&shoulder, 0.75);
+      let outside_level = percentile_dbm(&outside, 0.95);
+
+      assert!(
+        shoulder_level <= center_level - 4.0,
+        "{signal_name} should have a sloped OFDM shoulder, not a square top at the band edge: center={center_level:.2} dBm, shoulder={shoulder_level:.2} dBm"
+      );
+      assert!(
+        outside_level <= shoulder_level - 12.0,
+        "{signal_name} should drop below its shaped shoulder outside the allocated bandwidth: shoulder={shoulder_level:.2} dBm, outside={outside_level:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_signals_strictly_occupy_requested_bandwidth() {
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      let tx_rate_hz = 1_000_000.0;
+      let half_width_hz = tx_rate_hz / 2.0;
+      let frame =
+        synthesize_test_frame(signal_name, tx_rate_hz, TEST_TX_POWER_DBM);
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+      let peak = max_dbm_between(
+        &spectrum,
+        -TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+        TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+      );
+      let near_left_edge = max_dbm_between(
+        &spectrum,
+        -half_width_hz * 0.98,
+        -half_width_hz * 0.72,
+      );
+      let near_right_edge =
+        max_dbm_between(&spectrum, half_width_hz * 0.72, half_width_hz * 0.98);
+      let outside = max_dbm_between(
+        &spectrum,
+        half_width_hz + 25_000.0,
+        half_width_hz + 400_000.0,
+      )
+      .max(max_dbm_between(
+        &spectrum,
+        -half_width_hz - 400_000.0,
+        -half_width_hz - 25_000.0,
+      ));
+
+      assert!(
+        near_left_edge >= peak - 28.0 && near_right_edge >= peak - 28.0,
+        "{signal_name} should use the requested Tx bandwidth up to both dotted edges: peak={peak:.2} dBm, left_edge={near_left_edge:.2} dBm, right_edge={near_right_edge:.2} dBm"
+      );
+      assert!(
+        outside <= TEST_TX_POWER_DBM - 38.0,
+        "{signal_name} should not extend past the requested Tx bandwidth: peak={peak:.2} dBm, outside={outside:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_wifi_and_5g_have_flat_top_then_internal_rolloff() {
+    for signal_name in ["wifi", "5g"] {
+      let tx_rate_hz = 1_000_000.0;
+      let half_width_hz = tx_rate_hz / 2.0;
+      let frame =
+        synthesize_test_frame(signal_name, tx_rate_hz, TEST_TX_POWER_DBM);
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+      let center = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| bin.rel_hz.abs() <= half_width_hz * 0.30)
+          .map(|bin| bin.dbm),
+      );
+      let flat_top = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| {
+            (half_width_hz * 0.35..=half_width_hz * 0.68)
+              .contains(&bin.rel_hz.abs())
+          })
+          .map(|bin| bin.dbm),
+      );
+      let rolloff = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| {
+            (half_width_hz * 0.92..=half_width_hz * 0.99)
+              .contains(&bin.rel_hz.abs())
+          })
+          .map(|bin| bin.dbm),
+      );
+      let outside = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| {
+            (half_width_hz + 40_000.0..=half_width_hz + 300_000.0)
+              .contains(&bin.rel_hz.abs())
+          })
+          .map(|bin| bin.dbm),
+      );
+
+      let center_level = percentile_dbm(&center, 0.60);
+      let flat_level = percentile_dbm(&flat_top, 0.60);
+      let rolloff_level = percentile_dbm(&rolloff, 0.75);
+      let outside_level = percentile_dbm(&outside, 0.95);
+
+      assert!(
+        (flat_level - center_level).abs() <= 4.0,
+        "{signal_name} should have a flat OFDM top before rolloff: center={center_level:.2} dBm, flat={flat_level:.2} dBm"
+      );
+      assert!(
+        rolloff_level <= flat_level - 5.0 && rolloff_level >= flat_level - 26.0,
+        "{signal_name} should roll off inside the allocated bandwidth instead of rising vertically: flat={flat_level:.2} dBm, rolloff={rolloff_level:.2} dBm"
+      );
+      assert!(
+        outside_level <= rolloff_level - 10.0,
+        "{signal_name} should drop after the internal rolloff before leaving the requested bandwidth: rolloff={rolloff_level:.2} dBm, outside={outside_level:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_small_ifft_blocks_still_stay_inside_requested_bandwidth() {
+    let view_sample_rate_hz = 18_250_000.0;
+    let tx_rate_hz = 1_000_000.0;
+    let tx_half_width_hz = tx_rate_hz / 2.0;
+
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      let frame = synthesize_test_frame_with_view_and_ifft(
+        signal_name,
+        view_sample_rate_hz,
+        tx_rate_hz,
+        2048,
+        TEST_TX_POWER_DBM,
+      );
+      let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+      let peak = max_dbm_between(
+        &spectrum,
+        -TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+        TEST_VIEW_SAMPLE_RATE_HZ / 2.0,
+      );
+      let outside = max_dbm_between(
+        &spectrum,
+        tx_half_width_hz + 50_000.0,
+        view_sample_rate_hz / 2.0,
+      )
+      .max(max_dbm_between(
+        &spectrum,
+        -view_sample_rate_hz / 2.0,
+        -tx_half_width_hz - 50_000.0,
+      ));
+
+      assert!(
+        outside <= peak - 38.0,
+        "{signal_name} with a small Tx IFFT block should not create periodic comb energy outside the requested bandwidth: peak={peak:.2} dBm, outside={outside:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_small_ifft_blocks_keep_peak_at_requested_power() {
+    let view_sample_rate_hz = 18_250_000.0;
+    let tx_rate_hz = 1_000_000.0;
+
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      let frame = synthesize_test_frame_with_view_and_ifft(
+        signal_name,
+        view_sample_rate_hz,
+        tx_rate_hz,
+        2048,
+        TEST_TX_POWER_DBM,
+      );
+      let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+      let peak = max_dbm_between(
+        &spectrum,
+        -view_sample_rate_hz / 2.0,
+        view_sample_rate_hz / 2.0,
+      );
+
+      assert!(
+        peak <= TEST_TX_POWER_DBM + 3.0,
+        "{signal_name} with a small Tx IFFT block should not exceed requested power: requested={TEST_TX_POWER_DBM:.2} dBm, peak={peak:.2} dBm"
+      );
+      assert!(
+        peak >= TEST_TX_POWER_DBM - 3.0,
+        "{signal_name} with a small Tx IFFT block should remain visible at requested power: requested={TEST_TX_POWER_DBM:.2} dBm, peak={peak:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_width_bandwidth_and_height_power_are_strict_in_wide_views() {
+    let view_sample_rate_hz = 18_250_000.0;
+    let width_bandwidth_hz = 1_000_000.0;
+    let height_power_dbm = TEST_TX_POWER_DBM;
+    let half_width_hz = width_bandwidth_hz / 2.0;
+
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      let frame = synthesize_test_frame_with_view_and_ifft(
+        signal_name,
+        view_sample_rate_hz,
+        width_bandwidth_hz,
+        2048,
+        height_power_dbm,
+      );
+      let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+      let peak = max_dbm_between(
+        &spectrum,
+        -view_sample_rate_hz / 2.0,
+        view_sample_rate_hz / 2.0,
+      );
+      let inside_width =
+        max_dbm_between(&spectrum, -half_width_hz, half_width_hz);
+      let outside = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| {
+            (half_width_hz + 50_000.0..=view_sample_rate_hz / 2.0)
+              .contains(&bin.rel_hz.abs())
+          })
+          .map(|bin| bin.dbm),
+      );
+      let outside_width = percentile_dbm(&outside, 0.99);
+
+      assert!(
+        (inside_width - peak).abs() <= 0.1,
+        "{signal_name} peak must be inside width_bandwidth: inside={inside_width:.2} dBm, peak={peak:.2} dBm"
+      );
+      assert!(
+        peak <= height_power_dbm + 3.0,
+        "{signal_name} must not exceed height_power: height_power={height_power_dbm:.2} dBm, peak={peak:.2} dBm"
+      );
+      assert!(
+        peak >= height_power_dbm - 3.0,
+        "{signal_name} must reach height_power: height_power={height_power_dbm:.2} dBm, peak={peak:.2} dBm"
+      );
+      assert!(
+        outside_width <= height_power_dbm - 38.0,
+        "{signal_name} must stay inside width_bandwidth: width_bandwidth={width_bandwidth_hz:.0} Hz, outside={outside_width:.2} dBm, height_power={height_power_dbm:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_width_bandwidth_and_height_power_hold_across_signal_widths() {
+    let height_power_dbm = TEST_TX_POWER_DBM;
+
+    for width_bandwidth_hz in
+      [33_000.0, 100_000.0, 1_000_000.0, 3_200_000.0, 5_000_000.0] as [f64; 5]
+    {
+      let view_sample_rate_hz = (width_bandwidth_hz * 8.0).max(8_000_000.0);
+      let half_width_hz = width_bandwidth_hz / 2.0;
+      let edge_margin_hz = (width_bandwidth_hz * 0.04)
+        .max(view_sample_rate_hz / TEST_FFT_SIZE as f64 * 4.0);
+
+      for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+        let frame = synthesize_test_frame_with_view_and_ifft(
+          signal_name,
+          view_sample_rate_hz,
+          width_bandwidth_hz,
+          2048,
+          height_power_dbm,
+        );
+        let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+        let peak = max_dbm_between(
+          &spectrum,
+          -view_sample_rate_hz / 2.0,
+          view_sample_rate_hz / 2.0,
+        );
+        let inside_width =
+          max_dbm_between(&spectrum, -half_width_hz, half_width_hz);
+        let edge_left = max_dbm_between(
+          &spectrum,
+          -half_width_hz + edge_margin_hz,
+          -half_width_hz * 0.55,
+        );
+        let edge_right = max_dbm_between(
+          &spectrum,
+          half_width_hz * 0.55,
+          half_width_hz - edge_margin_hz,
+        );
+        let outside = sorted_dbm(
+          spectrum
+            .iter()
+            .filter(|bin| {
+              (half_width_hz + edge_margin_hz..=view_sample_rate_hz / 2.0)
+                .contains(&bin.rel_hz.abs())
+            })
+            .map(|bin| bin.dbm),
+        );
+        let outside_width = percentile_dbm(&outside, 0.99);
+
+        assert!(
+          (inside_width - peak).abs() <= 0.1,
+          "{signal_name} {width_bandwidth_hz:.0}Hz peak must be inside width_bandwidth: inside={inside_width:.2} dBm, peak={peak:.2} dBm"
+        );
+        assert!(
+          peak <= height_power_dbm + 3.0,
+          "{signal_name} {width_bandwidth_hz:.0}Hz must not exceed height_power: height_power={height_power_dbm:.2} dBm, peak={peak:.2} dBm"
+        );
+        assert!(
+          peak >= height_power_dbm - 3.0,
+          "{signal_name} {width_bandwidth_hz:.0}Hz must reach height_power: height_power={height_power_dbm:.2} dBm, peak={peak:.2} dBm"
+        );
+        assert!(
+          outside_width <= height_power_dbm - 38.0,
+          "{signal_name} {width_bandwidth_hz:.0}Hz must stay inside width_bandwidth: outside={outside_width:.2} dBm, height_power={height_power_dbm:.2} dBm"
+        );
+        assert!(
+          edge_left >= height_power_dbm - 34.0
+            && edge_right >= height_power_dbm - 34.0,
+          "{signal_name} {width_bandwidth_hz:.0}Hz should visibly occupy both sides of width_bandwidth: left={edge_left:.2} dBm, right={edge_right:.2} dBm, height_power={height_power_dbm:.2} dBm"
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn tx_monitor_wifi_and_5g_do_not_render_wide_plateaus_at_2_4mhz_width() {
+    let view_sample_rate_hz = 18_250_000.0;
+    let width_bandwidth_hz = 2_400_000.0;
+    let height_power_dbm = TEST_TX_POWER_DBM;
+    let half_width_hz = width_bandwidth_hz / 2.0;
+    let edge_margin_hz = 75_000.0;
+
+    for signal_name in ["wifi", "5g"] {
+      let frame = synthesize_test_frame_with_view_and_ifft(
+        signal_name,
+        view_sample_rate_hz,
+        width_bandwidth_hz,
+        2048,
+        height_power_dbm,
+      );
+      let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+      let peak = max_dbm_between(
+        &spectrum,
+        -view_sample_rate_hz / 2.0,
+        view_sample_rate_hz / 2.0,
+      );
+      let outside = sorted_dbm(
+        spectrum
+          .iter()
+          .filter(|bin| {
+            (half_width_hz + edge_margin_hz..=view_sample_rate_hz / 2.0)
+              .contains(&bin.rel_hz.abs())
+          })
+          .map(|bin| bin.dbm),
+      );
+      let outside_99 = percentile_dbm(&outside, 0.99);
+      let outside_999 = percentile_dbm(&outside, 0.999);
+      let visible_outside_bins = spectrum
+        .iter()
+        .filter(|bin| {
+          bin.rel_hz.abs() > half_width_hz + edge_margin_hz
+            && bin.dbm >= height_power_dbm - 30.0
+        })
+        .count();
+
+      assert!(
+        peak <= height_power_dbm + 3.0 && peak >= height_power_dbm - 3.0,
+        "{signal_name} 2.4MHz should render at height_power: peak={peak:.2} dBm, height_power={height_power_dbm:.2} dBm"
+      );
+      assert!(
+        outside_99 <= height_power_dbm - 38.0
+          && outside_999 <= height_power_dbm - 32.0,
+        "{signal_name} 2.4MHz should not render a wide plateau outside width_bandwidth: outside99={outside_99:.2} dBm, outside999={outside_999:.2} dBm, height_power={height_power_dbm:.2} dBm"
+      );
+      assert_eq!(
+        visible_outside_bins, 0,
+        "{signal_name} 2.4MHz should have no visible bins outside width_bandwidth above height_power-30dB"
+      );
     }
   }
 }

@@ -3,8 +3,8 @@
 //! Platform-specific SIMD acceleration for FFT pre/post-processing on native targets.
 //! Uses aarch64 NEON or x86_64 SSE intrinsics for vectorized operations.
 
-use crate::fft::processor::WindowType;
-use crate::fft::types::RawSamples;
+use crate::s::fft::processor::WindowType;
+use crate::s::fft::types::RawSamples;
 use crate::simd::common::{SIMDProcessor, WindowFunctions};
 use anyhow::Result;
 use rustfft::FftPlanner;
@@ -200,7 +200,7 @@ impl NativeProcessor {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::fft::types::RawSamples;
+  use crate::s::fft::types::RawSamples;
 
   #[test]
   fn test_native_simd_processor_creation() {

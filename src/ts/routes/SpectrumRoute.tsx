@@ -1387,6 +1387,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             transmittingTxSource.serial_number?.trim() ||
             transmittingTxSource.id,
           centerFrequencyHz: txCenterFrequencyHz,
+          bandwidthHz: txSampleRateHz,
           sampleRateHz: txSampleRateHz,
           powerDbm: txPowerDbm,
           txSignal,

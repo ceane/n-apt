@@ -8,8 +8,7 @@ pub mod crypto;
 #[path = "../encrypted-modules/tmp/rs/mod.rs"]
 #[rustfmt::skip]
 pub mod encrypted_modules;
-pub mod fft;
-pub mod ifft;
+pub mod s;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sdr; // New abstract SDR interface
 #[cfg(not(target_arch = "wasm32"))]

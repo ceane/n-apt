@@ -723,7 +723,7 @@ impl WebSocketServer {
                 center_frequency_hz as f64;
             }
             if let Some(sample_rate_hz) = sample_rate_hz {
-              *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() =
+              *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() =
                 sample_rate_hz as f64;
             }
             if let Some(tx_ifft_size) = tx_ifft_size {
@@ -1060,8 +1060,8 @@ impl WebSocketServer {
                 let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
                 let tx_center_hz =
                   *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
-                let tx_sample_rate_hz =
-                  *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
+                let tx_bandwidth_hz =
+                  *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
                 let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
                 let tx_iq_power_model = mock_tx::resolve_mock_tx_iq_power_model();
                 center_frequency = if tx_center_hz > 0.0 {
@@ -1071,23 +1071,19 @@ impl WebSocketServer {
                 } else {
                   center_frequency
                 };
-                sample_rate = if tx_sample_rate_hz > 0.0 {
-                  tx_sample_rate_hz.round().clamp(1.0, u32::MAX as f64) as u32
-                } else {
-                  settings.sample_rate.max(1)
-                }
-                .max(3_200_000);
+                let monitor_sample_rate = sample_rate.max(settings.sample_rate.max(1));
+                sample_rate = monitor_sample_rate;
                 let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
                   current_fft_size,
                   center_frequency as f64,
-                  sample_rate,
+                  monitor_sample_rate,
                   if tx_center_hz > 0.0 {
                     tx_center_hz
                   } else {
                     center_frequency as f64
                   },
-                  if tx_sample_rate_hz > 0.0 {
-                    tx_sample_rate_hz
+                  if tx_bandwidth_hz > 0.0 {
+                    tx_bandwidth_hz
                   } else {
                     sample_rate as f64
                   },

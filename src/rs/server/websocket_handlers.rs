@@ -843,7 +843,7 @@ pub fn handle_message(
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
         sdr_settings.center_frequency as f64;
-      *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() =
+      *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() =
         sdr_settings.sample_rate as f64;
       if let Some(tx_ifft_size) = message.tx_ifft_size {
         *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
@@ -1344,7 +1344,7 @@ mod tests {
         "txMode":true,
         "txDevice":"Mock Tx SDR",
         "centerFrequencyHz":1600000,
-        "sampleRateHz":3200000,
+        "bandwidthHz":3200000,
         "txIfftSize":8192,
         "vgaGainDb":12
       }"#,

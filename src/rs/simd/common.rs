@@ -3,8 +3,8 @@
 //! Shared traits and functions for SIMD FFT processors.
 //! This eliminates code duplication while maintaining platform-specific optimizations.
 
-use crate::fft::processor::WindowType;
-use crate::fft::types::RawSamples;
+use crate::s::fft::processor::WindowType;
+use crate::s::fft::types::RawSamples;
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 use anyhow::Result;
 use rustfft::num_complex::Complex;

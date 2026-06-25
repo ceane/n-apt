@@ -22,6 +22,7 @@ interface SourceSidebarProps {
   selectedDeviceId?: string;
   onSelectedDeviceChange?: (id: string) => void;
   spaceBoundDeviceId?: string | null;
+  onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
   compactActiveOnly?: boolean;
   selectedFilesCount?: number;
@@ -40,6 +41,7 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
   selectedDeviceId,
   onSelectedDeviceChange,
   spaceBoundDeviceId,
+  onToggleDeviceRxPause,
   onToggleDeviceTxMode,
   compactActiveOnly,
   selectedFilesCount,
@@ -60,6 +62,7 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         selectedDeviceId={selectedDeviceId}
         onSelectedDeviceChange={onSelectedDeviceChange}
         spaceBoundDeviceId={spaceBoundDeviceId}
+        onToggleDeviceRxPause={onToggleDeviceRxPause}
         onToggleDeviceTxMode={onToggleDeviceTxMode}
         compactActiveOnly={compactActiveOnly}
         selectedFilesCount={selectedFilesCount}

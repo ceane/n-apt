@@ -224,7 +224,7 @@ impl SdrDevice for HackRfDevice {
   fn read_samples(
     &mut self,
     fft_size: usize,
-  ) -> Result<crate::fft::types::RawSamples> {
+  ) -> Result<crate::s::fft::types::RawSamples> {
     self.ensure_streaming()?;
     let mut frame = self.rx_queue.recv_timeout(HACKRF_RX_TIMEOUT).map_err(
       |err| match err {
@@ -255,7 +255,7 @@ impl SdrDevice for HackRfDevice {
     // Normalize signed i8 IQ data to unsigned u8 offset binary (centered at 128)
     normalize_hackrf_buffer(&mut self.iq_buffer);
 
-    Ok(crate::fft::types::RawSamples {
+    Ok(crate::s::fft::types::RawSamples {
       data: std::mem::take(&mut self.iq_buffer),
       sample_rate: self.sample_rate,
     })

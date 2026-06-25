@@ -23,9 +23,9 @@ import {
 
 const MAX_TX_IFFT_BIN_WIDTH_HZ = 10_000;
 
-function getMinimumTxIfftSize(sampleRateHz: number): number {
-  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) return 1;
-  return Math.max(1, Math.ceil(sampleRateHz / MAX_TX_IFFT_BIN_WIDTH_HZ));
+function getMinimumTxIfftSize(bandwidthHz: number): number {
+  if (!Number.isFinite(bandwidthHz) || bandwidthHz <= 0) return 1;
+  return Math.max(1, Math.ceil(bandwidthHz / MAX_TX_IFFT_BIN_WIDTH_HZ));
 }
 
 const Section = styled.div`
@@ -219,7 +219,9 @@ const TxButton = styled.button<{ $isTransmitting?: boolean }>`
 
 export interface TxSettingsSectionProps {
   signal: string;
-  sampleRateHz: number;
+  bandwidthHz?: number;
+  sampleRateHz?: number;
+  maxBandwidthHz?: number | null;
   maxSampleRateHz?: number | null;
   fftSize?: number;
   ifftSize?: number;
@@ -229,7 +231,8 @@ export interface TxSettingsSectionProps {
   vgaGainDb?: number;
   ampEnabled?: boolean;
   onSignalChange: (value: string) => void;
-  onSampleRateChange: (value: number) => void;
+  onBandwidthChange?: (value: number) => void;
+  onSampleRateChange?: (value: number) => void;
   onIfftSizeChange?: (value: number) => void;
   onCenterFrequencyChange: (value: number) => void;
   onPowerDbmChange: (value: number) => void;
@@ -260,7 +263,9 @@ export interface TxSettingsSectionProps {
 
 export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   signal,
+  bandwidthHz,
   sampleRateHz,
+  maxBandwidthHz,
   maxSampleRateHz = 20_000_000,
   fftSize = 2048,
   ifftSize = fftSize,
@@ -270,6 +275,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   vgaGainDb = 0,
   ampEnabled = false,
   onSignalChange,
+  onBandwidthChange,
   onSampleRateChange,
   onIfftSizeChange,
   onCenterFrequencyChange,
@@ -296,6 +302,14 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   onHopRateHzChange,
   signalOptions,
 }) => {
+  const widthBandwidthHz =
+    typeof bandwidthHz === "number" && Number.isFinite(bandwidthHz)
+      ? bandwidthHz
+      : (sampleRateHz ?? 2_400_000);
+  const maxWidthBandwidthHz = maxBandwidthHz ?? maxSampleRateHz ?? 20_000_000;
+  const handleBandwidthChange =
+    onBandwidthChange ?? onSampleRateChange ?? (() => {});
+
   const [localPower, setLocalPower] = React.useState(
     Number.isFinite(powerDbm) ? powerDbm.toString() : "0",
   );
@@ -382,8 +396,8 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     [powerDbm],
   );
   const minimumIfftSize = React.useMemo(
-    () => getMinimumTxIfftSize(sampleRateHz),
-    [sampleRateHz],
+    () => getMinimumTxIfftSize(widthBandwidthHz),
+    [widthBandwidthHz],
   );
   const effectiveIfftSizeOptions = React.useMemo(() => {
     const options = (ifftSizeOptions.length ? ifftSizeOptions : [ifftSize])
@@ -407,11 +421,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         : effectiveIfftSizeOptions[0],
     [effectiveIfftSizeOptions, ifftSize],
   );
-  const isIfftSizeBelowSampleRateGuard =
+  const isIfftSizeBelowBandwidthGuard =
     Number.isFinite(ifftSize) && Math.trunc(ifftSize) < minimumIfftSize;
   const txIfftBinWidthHz =
-    Number.isFinite(sampleRateHz) && guardedIfftSize > 0
-      ? sampleRateHz / guardedIfftSize
+    Number.isFinite(widthBandwidthHz) && guardedIfftSize > 0
+      ? widthBandwidthHz / guardedIfftSize
       : 0;
   const applyTxPowerFloor = React.useCallback(
     (value: number) => Math.max(enforcedIqPowerFloorDbm, value),
@@ -818,15 +832,15 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       </HopSectionContainer>
 
       <Row
-        label={<IconLabel icon={SlidersHorizontal} text="Sample rate" />}
-        tooltip="The sample rate (in Hz) at which the signal is generated and transmitted. Disabled when frequency hopping is active."
-        tooltipTitle="Sample Rate"
+        label={<IconLabel icon={SlidersHorizontal} text="Bandwidth" />}
+        tooltip="The occupied transmit bandwidth (in Hz) that constrains the generated signal width. Disabled when frequency hopping is active."
+        tooltipTitle="Bandwidth"
       >
         <FrequencyInput
-          valueHz={sampleRateHz}
-          onChangeHz={onSampleRateChange}
+          valueHz={widthBandwidthHz}
+          onChangeHz={handleBandwidthChange}
           minHz={1}
-          maxHz={maxSampleRateHz ?? 20_000_000}
+          maxHz={maxWidthBandwidthHz}
           disabled={hopEnabled}
         />
       </Row>
@@ -859,10 +873,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
           ))}
         </Select>
       </Row>
-      {isIfftSizeBelowSampleRateGuard && (
+      {isIfftSizeBelowBandwidthGuard && (
         <InlineWarning role="status">
-          IFFT bin width guard: {ifftSize.toLocaleString()} at{" "}
-          {formatFrequency(sampleRateHz)} would exceed{" "}
+          Bandwidth bin width guard: {ifftSize.toLocaleString()} at{" "}
+          {formatFrequency(widthBandwidthHz)} would exceed{" "}
           {formatFrequency(MAX_TX_IFFT_BIN_WIDTH_HZ)} per bin, so Tx IFFT is
           advanced to {guardedIfftSize.toLocaleString()} (
           {formatFrequency(txIfftBinWidthHz)} per bin).

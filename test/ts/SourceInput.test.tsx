@@ -15,6 +15,7 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -30,15 +31,13 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("TX/RX · Transmitting (Tx)")).toBeInTheDocument();
+    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
     const deviceRow = screen
       .getByText("HackRF One #2")
       .closest('[role="button"]');
     expect(deviceRow).not.toBeNull();
     expect(
-      within(deviceRow as HTMLElement).getByRole("button", {
-        name: /stop tx/i,
-      }),
+      within(deviceRow as HTMLElement).getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
   });
 
@@ -58,6 +57,7 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -72,7 +72,7 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("TX/RX · Transmitting (Tx)")).toBeInTheDocument();
+    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
     expect(screen.getByText("Mock APT SDR")).toBeInTheDocument();
   });
 
@@ -87,6 +87,7 @@ describe("SourceInput", () => {
               id: "device-1",
               name: "Mock APT SDR",
               capability: "tx_rx",
+              duplex_mode: "Simplex",
               status: {
                 label: "streaming",
                 actionLabel: "Pause",
@@ -98,11 +99,13 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: { label: "disconnected" },
             },
           ]}
           selectedDeviceId="device-1"
           onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
         />
       </TestWrapper>,
     );
@@ -124,6 +127,7 @@ describe("SourceInput", () => {
               id: "device-1",
               name: "Mock APT SDR",
               capability: "tx_rx",
+              duplex_mode: "Simplex",
               status: {
                 label: "streaming",
                 actionLabel: "Pause",
@@ -140,6 +144,8 @@ describe("SourceInput", () => {
           ]}
           selectedDeviceId="device-1"
           onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
         />
       </TestWrapper>,
     );
@@ -174,6 +180,7 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -183,6 +190,8 @@ describe("SourceInput", () => {
           ]}
           selectedDeviceId="device-1"
           onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
         />
       </TestWrapper>,
     );
@@ -192,7 +201,7 @@ describe("SourceInput", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByTitle("Switch to HackRF One #2")).toBeInTheDocument();
     expect(screen.queryByText("File Selection")).not.toBeInTheDocument();
-    expect(screen.getByText("TX/RX · Transmitting (Tx)")).toBeInTheDocument();
+    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
   });
 
   it("keeps live and transmit actions available when transmit is active", () => {
@@ -206,6 +215,7 @@ describe("SourceInput", () => {
               id: "device-1",
               name: "Mock APT SDR",
               capability: "mock",
+              duplex_mode: "Simplex",
               status: {
                 label: "streaming",
                 actionLabel: "Pause",
@@ -216,6 +226,7 @@ describe("SourceInput", () => {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: {
                 label: "transmitting",
                 actionLabel: "Pause",
@@ -225,6 +236,8 @@ describe("SourceInput", () => {
           ]}
           selectedDeviceId="device-1"
           onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
         />
       </TestWrapper>,
     );
@@ -241,7 +254,7 @@ describe("SourceInput", () => {
       .closest('[role="button"]') as HTMLElement;
     expect(txRow).not.toBeNull();
     expect(
-      within(txRow).getByRole("button", { name: /stop tx/i }),
+      within(txRow).getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
   });
 
@@ -306,12 +319,14 @@ describe("SourceInput", () => {
               id: "device-1",
               name: "Mock APT SDR",
               capability: "mock",
+              duplex_mode: "Simplex",
               status: { label: "streaming" },
             },
             {
               id: "device-2",
               name: "HackRF One #2",
               capability: "tx_rx",
+              duplex_mode: "Half-duplex",
               status: { label: "disconnected" },
             },
           ]}
@@ -341,6 +356,7 @@ describe("SourceInput", () => {
               id: "mock-tx",
               name: "Mock Tx SDR",
               capability: "tx",
+              duplex_mode: "Simplex",
               status: {
                 label: "connected",
                 actionLabel: "Start Tx",
@@ -361,6 +377,45 @@ describe("SourceInput", () => {
     expect(txRow).not.toBeNull();
     expect(
       within(txRow).getByRole("button", { name: /start tx/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows half-duplex stats and separate Rx/Tx controls for HackRF-style devices", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: {
+                label: "connected",
+                paused: false,
+                onAction: jest.fn(),
+              },
+            },
+          ]}
+          selectedDeviceId="hackrf-1"
+          onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
+    const deviceRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    expect(deviceRow).not.toBeNull();
+    expect(within(deviceRow).getByRole("button", { name: /resume rx/i })).toBeInTheDocument();
+    expect(
+      within(deviceRow).getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
   });
 });

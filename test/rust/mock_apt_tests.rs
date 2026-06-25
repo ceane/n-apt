@@ -675,6 +675,7 @@ mod tests {
 
   #[test]
   fn test_realistic_rf_mode_is_deterministic() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new_with_seed(98765);
     device.set_realistic_rf_config(realistic_rf_config());
     device.set_settle_time(0);

@@ -7,6 +7,7 @@ import {
   getLatestLiveFrame,
   getLiveFrameSignature,
   resolveEffectiveDbmOffsetDb,
+  resolveTxModeDeviceName,
   resolveLiveFrameRenderableFrequencyRange,
   shouldRenderWaterfallWithFrameOrRestore,
 } from "../../src/ts/components/FFTCanvas";
@@ -140,6 +141,40 @@ describe("FFTCanvas Component", () => {
       await screen.findByTestId("tx-slider-visual-row"),
     ).toBeInTheDocument();
     expect(screen.getByText(/137\.100 MHz/)).toBeInTheDocument();
+  });
+
+  it("does not show a Tx Mode label when no source is transmitting", () => {
+    expect(
+      resolveTxModeDeviceName(
+        [
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            status: "connected",
+          } as any,
+        ],
+        "Mock Tx SDR",
+        true,
+        false,
+      ),
+    ).toBeNull();
+  });
+
+  it("shows the device name in standby for a tx-capable device", () => {
+    expect(
+      resolveTxModeDeviceName(
+        [
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            status: "connected",
+          } as any,
+        ],
+        "Mock Tx SDR",
+        true,
+        true,
+      ),
+    ).toBe("Mock Tx SDR");
   });
 
   it("retunes to the offscreen Tx slider center instead of panning into empty bins", async () => {

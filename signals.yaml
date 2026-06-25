@@ -61,6 +61,7 @@ signals:
     # and !max from the device's supported ceiling.
     devices:
       rtl_sdr:
+        duplex_mode: Simplex
         sample_rate: !frequency 3.2MHz
         gain_limits:
           min: 0.0
@@ -78,12 +79,14 @@ signals:
               freq_hz: !frequency 1.766GHz
               label: "RTL-SDR v4 upper limit rate"
       mock_apt:
+        duplex_mode: Simplex
         sample_rate: !floor...!channel
         gain_limits:
           min: 0.0
           max: 49.6
           step: 0.1
       hackrf_one:
+        duplex_mode: Half-duplex
         sample_rate: !clamp
           value: !channel sample_rate
           min: !floor sample_rate
@@ -195,39 +198,37 @@ signals:
   # spectrum without switching away from the receive source.
   mock_tx:
     enabled: true
+    duplex_mode: Simplex
     noise_floor_db: !dB -100dB
     signals:
-      apt:
-        label: "APT"
+      d:
+        label: "D"
         channel: "a"
         center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 2.4MHz
-        offset_hz: !frequency 25kHz
-        tone_hz: !frequency 2.4kHz
-        description: "APT-like AM subcarrier inside channel A."
-      tone:
-        label: "Tone"
+        bandwidth_hz: !frequency 600kHz
+        description: "A continuous sawtooth/triangle-like wave spectrum."
+      d_sharp:
+        label: "D#"
         channel: "a"
         center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 1MHz
-        offset_hz: !frequency 100kHz
-        tone_hz: !frequency 1kHz
-        description: "Continuous test tone inside channel A."
-      noise:
-        label: "Noise"
+        bandwidth_hz: !frequency 50kHz
+        description: "A narrow sawtooth-like wave variant."
+      wifi:
+        label: "WiFi"
         channel: "c"
         center_frequency_hz: !frequency 13.875MHz
         sample_rate_hz: !frequency 3.2MHz
-        bandwidth_hz: !frequency 600kHz
-        description: "Band-limited noise burst inside channel C."
-      custom:
-        label: "Custom I/Q"
+        bandwidth_hz: !frequency 1MHz
+        description: "An OFDM-like emulated WiFi block with slight taper."
+      5g:
+        label: "5G"
         channel: "b"
         center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 2.4MHz
-        offset_hz: !frequency 50kHz
-        tone_hz: !frequency 1.2kHz
-        description: "Deterministic custom I/Q placeholder inside channel B."
+        bandwidth_hz: !frequency 2MHz
+        description: "An OFDM-like emulated 5G block with very sharp edges."
 
   triangulation:
     static:

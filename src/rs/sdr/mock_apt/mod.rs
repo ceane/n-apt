@@ -4,7 +4,28 @@
 //! Uses bin-based frequency modeling for consistent FFT placement and dynamic signal behavior.
 //! Reads configuration from signals.yaml for signal parameters and variation settings.
 
-use crate::fft::types::RawSamples;
+use crate::s::fft::types::RawSamples;
+use crate::s::ifft::mock_tx_gen::{
+  generate_mock_tx_samples_ifft, MockTxParams,
+};
+use std::sync::Mutex;
+
+struct MockTxBuffer {
+  params: Option<MockTxParams>,
+  samples: Vec<Complex<f32>>,
+}
+
+impl MockTxBuffer {
+  const fn new() -> Self {
+    Self {
+      params: None,
+      samples: Vec::new(),
+    }
+  }
+}
+
+static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 use rand::rngs::StdRng;
@@ -1273,9 +1294,69 @@ impl MockAptDevice {
         // Only synthesize non-hop leakage if it is within the receiver passband
         if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
           let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
-          let tx_sample_rate =
-            *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
-          if tx_signal == "tone" {
+          let tx_bandwidth_hz =
+            *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+          if tx_signal == "d"
+            || tx_signal == "d_sharp"
+            || tx_signal == "wifi"
+            || tx_signal == "5g"
+          {
+            let tx_ifft_size = fft_size;
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
+            } else {
+              tx_preset.bandwidth_hz
+            };
+            let current_params = MockTxParams {
+              signal_key: tx_signal.clone(),
+              sample_rate_hz: sample_rate,
+              bandwidth_hz: bw,
+              tx_ifft_size,
+            };
+            let mut cache = MOCK_TX_CACHE.lock().unwrap();
+            if cache.params.as_ref() != Some(&current_params)
+              || cache.samples.is_empty()
+              || cache.samples.len() != tx_ifft_size
+            {
+              cache.samples = generate_mock_tx_samples_ifft(&current_params);
+              cache.params = Some(current_params);
+            }
+            let block = cache.samples.clone();
+            drop(cache);
+
+            let mut max_peak = 0.0_f64;
+            for s in &block {
+              let peak = ((s.re * s.re + s.im * s.im) as f64).sqrt();
+              if peak > max_peak {
+                max_peak = peak;
+              }
+            }
+            let peak_env = amp * max_peak;
+            let scale = if peak_env > 0.95 {
+              0.95 / peak_env
+            } else {
+              1.0
+            };
+
+            for j in 0..fft_size {
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (sin_p, cos_p) = phase.sin_cos();
+
+              let block_sample = block[(t % tx_ifft_size as u64) as usize];
+              let i_sig = (block_sample.re as f64 * cos_p
+                - block_sample.im as f64 * sin_p)
+                * amp
+                * scale;
+              let q_sig = (block_sample.re as f64 * sin_p
+                + block_sample.im as f64 * cos_p)
+                * amp
+                * scale;
+
+              self.i_accumulator[j] += i_sig;
+              self.q_accumulator[j] += q_sig;
+            }
+          } else if tx_signal == "tone" {
             for j in 0..fft_size {
               let t = self.total_samples + j as u64;
               let phase = phase_step * t as f64;
@@ -1284,8 +1365,8 @@ impl MockAptDevice {
               self.q_accumulator[j] += p_im * amp;
             }
           } else if tx_signal == "noise" {
-            let bw = if tx_sample_rate > 0.0 {
-              tx_sample_rate
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
             } else {
               tx_preset.bandwidth_hz
             };
@@ -1299,8 +1380,8 @@ impl MockAptDevice {
               self.total_samples,
             );
           } else if tx_signal == "custom" {
-            let bw = if tx_sample_rate > 0.0 {
-              tx_sample_rate
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
             } else {
               2_400_000.0
             };
@@ -1336,14 +1417,14 @@ impl MockAptDevice {
           }
         }
       }
-      let tx_sample_rate = *crate::safety::TX_SAMPLE_RATE_HZ.lock().unwrap();
+      let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
       constrain_mock_apt_tx_overlay_to_bandwidth(
         &mut self.i_accumulator[..fft_size],
         &mut self.q_accumulator[..fft_size],
         &before_tx_i,
         &before_tx_q,
         active_tx_overlay_center_hz - center_freq,
-        tx_sample_rate,
+        tx_bandwidth_hz,
         sample_rate,
       );
     }

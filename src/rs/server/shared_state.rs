@@ -220,7 +220,8 @@ impl SharedState {
 
   /// Return whether the source is currently marked paused.
   pub fn is_source_paused(&self, source_id: &str) -> bool {
-    self.source_pause_states
+    self
+      .source_pause_states
       .lock()
       .unwrap()
       .get(source_id)

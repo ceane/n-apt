@@ -18,7 +18,7 @@ pub static TX_HOP_RATE_HZ: Mutex<f64> = Mutex::new(1.0);
 pub static TX_POWER_DBM: Mutex<f64> = Mutex::new(0.0);
 pub static TX_SIGNAL: Mutex<String> = Mutex::new(String::new());
 pub static TX_CENTER_FREQUENCY_HZ: Mutex<f64> = Mutex::new(0.0);
-pub static TX_SAMPLE_RATE_HZ: Mutex<f64> = Mutex::new(0.0);
+pub static TX_BANDWIDTH_HZ: Mutex<f64> = Mutex::new(0.0);
 pub static TX_IFFT_SIZE: Mutex<usize> = Mutex::new(2048);
 
 struct MappingPoint {
@@ -317,8 +317,7 @@ mod tests {
   #[test]
   fn test_quantized_iq_power_floor_dbm() {
     assert!(
-      (get_quantized_iq_power_floor_dbm(8, 2048, 30.0) - -45.257).abs()
-        < 0.001
+      (get_quantized_iq_power_floor_dbm(8, 2048, 30.0) - -45.257).abs() < 0.001
     );
     assert!(
       (get_quantized_iq_power_floor_dbm(8, 65_536, 30.0) - -60.309).abs()
