@@ -82,6 +82,10 @@ import {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("spectrumReducer", () => {
+  it("defaults txSignal to wifi", () => {
+    expect(INITIAL_SPECTRUM_STATE.txSignal).toBe("wifi");
+  });
+
   it("SET_SIGNAL_AREA updates activeSignalArea", () => {
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_SIGNAL_AREA",

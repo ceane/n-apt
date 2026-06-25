@@ -262,7 +262,11 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "bandwidthHz",
+    alias = "txBandwidthHz"
+  )]
   pub bandwidth: Option<u64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
@@ -352,9 +356,7 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "sampleRate",
-    alias = "sampleRateHz",
-    alias = "bandwidthHz",
-    alias = "txBandwidthHz"
+    alias = "sampleRateHz"
   )]
   #[validate(range(min = 1.0, max = 100000000.0))]
   pub sample_rate: Option<f64>,

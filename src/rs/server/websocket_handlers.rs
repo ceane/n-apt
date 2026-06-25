@@ -21,8 +21,19 @@ use super::websocket_server::{
   build_channels_snapshot, build_source_info_snapshot,
   resolve_stream_key_source_id,
 };
+use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+
+fn normalize_tx_signal(signal_name: Option<&str>) -> String {
+  let canonical = canonical_mock_tx_signal_key(signal_name.unwrap_or("wifi"));
+  match canonical.as_str() {
+    "d" | "d_sharp" | "wifi" | "5g" | "tone" | "noise" | "custom" => {
+      canonical
+    }
+    _ => "wifi".to_string(),
+  }
+}
 
 fn is_mock_tx_device_label(device: &str) -> bool {
   let normalized = device.to_ascii_lowercase().replace(['_', '-'], " ");
@@ -781,25 +792,13 @@ pub fn handle_message(
         *crate::safety::TX_HOP_RATE_HZ.lock().unwrap() = hop_rate;
       }
 
-      let raw_tx_signal = message
-        .tx_signal
-        .clone()
-        .unwrap_or_else(|| "apt".to_string());
-      let tx_signal = if raw_tx_signal == "hop" {
-        "apt".to_string()
-      } else {
-        raw_tx_signal
-      };
+      let tx_signal = normalize_tx_signal(message.tx_signal.as_deref());
       *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.clone();
 
       let hop_active = message.tx_hop_enabled.unwrap_or_else(|| {
-        if message.tx_signal.as_deref() == Some("hop") {
-          true
-        } else {
-          shared
-            .tx_hop_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
-        }
+        shared
+          .tx_hop_enabled
+          .load(std::sync::atomic::Ordering::Relaxed)
       });
       shared
         .tx_hop_enabled
@@ -843,8 +842,11 @@ pub fn handle_message(
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
         sdr_settings.center_frequency as f64;
-      *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() =
-        sdr_settings.sample_rate as f64;
+      let tx_bw = message
+        .bandwidth
+        .map(|bw| bw as f64)
+        .unwrap_or(sdr_settings.sample_rate as f64);
+      *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = tx_bw;
       if let Some(tx_ifft_size) = message.tx_ifft_size {
         *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
       }
@@ -1442,6 +1444,80 @@ mod tests {
       .find(|source| source["id"].as_str() == Some("mock-tx"))
       .expect("mock Tx source");
     assert_eq!(mock_tx["status"], "connected");
+  }
+
+  #[test]
+  #[serial]
+  fn tx_mode_without_signal_defaults_to_wifi() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"tx_mode",
+        "txMode":true,
+        "txDevice":"Mock Tx SDR"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected SetTransmitMode command");
+    match cmd {
+      SdrCommand::SetTransmitMode {
+        enabled,
+        device,
+        serial_number,
+        tx_signal,
+        ..
+      } => {
+        assert!(enabled);
+        assert_eq!(device, "Mock Tx SDR");
+        assert_eq!(serial_number, "mock-tx");
+        assert_eq!(tx_signal.as_deref(), Some("wifi"));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+
+    assert_eq!(
+      crate::safety::TX_SIGNAL.lock().unwrap().as_str(),
+      "wifi"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn tx_mode_legacy_apt_signal_falls_back_to_wifi() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"tx_mode",
+        "txMode":true,
+        "txDevice":"Mock Tx SDR",
+        "txSignal":"apt"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected SetTransmitMode command");
+    match cmd {
+      SdrCommand::SetTransmitMode {
+        tx_signal,
+        ..
+      } => {
+        assert_eq!(tx_signal.as_deref(), Some("wifi"));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
   }
 
   #[test]

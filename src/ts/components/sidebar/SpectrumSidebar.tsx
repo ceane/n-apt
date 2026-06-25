@@ -164,10 +164,10 @@ const TX_SIGNAL_PRESETS: Record<
   string,
   { centerFrequencyHz: number; bandwidthHz: number }
 > = {
-  apt: { centerFrequencyHz: 137_100_000, bandwidthHz: 2_400_000 },
-  tone: { centerFrequencyHz: 137_100_000, bandwidthHz: 1_000_000 },
-  noise: { centerFrequencyHz: 13_875_000, bandwidthHz: 3_200_000 },
-  custom: { centerFrequencyHz: 137_100_000, bandwidthHz: 2_400_000 },
+  d: { centerFrequencyHz: 137_100_000, bandwidthHz: 600_000 },
+  d_sharp: { centerFrequencyHz: 137_100_000, bandwidthHz: 50_000 },
+  wifi: { centerFrequencyHz: 13_875_000, bandwidthHz: 1_000_000 },
+  "5g": { centerFrequencyHz: 137_100_000, bandwidthHz: 2_000_000 },
 };
 const TX_SETTINGS_SYNC_DEBOUNCE_MS = 16;
 
@@ -1129,7 +1129,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   >("png");
   const [snapshotAspectRatio, setSnapshotAspectRatio] =
     useState<SnapshotAspectRatio>("default");
-  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
+  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "wifi");
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,
   );
@@ -1199,10 +1199,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       });
     }
     return [
-      { value: "apt", label: "APT" },
-      { value: "tone", label: "Tone" },
-      { value: "noise", label: "Noise" },
-      { value: "custom", label: "Custom I/Q" },
+      { value: "d", label: "D" },
+      { value: "d_sharp", label: "D#" },
+      { value: "wifi", label: "WiFi" },
+      { value: "5g", label: "5G" },
     ];
   }, [mockTxSource]);
 

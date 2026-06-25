@@ -6,7 +6,7 @@
 
 use crate::s::fft::types::RawSamples;
 use crate::s::ifft::mock_tx_gen::{
-  generate_mock_tx_samples_ifft, MockTxParams,
+  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
 };
 use std::sync::Mutex;
 
@@ -223,11 +223,11 @@ fn clamp_window_to_range(
 fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
   let settings = crate::server::utils::load_mock_tx_settings();
   let mock_apt_settings = crate::server::utils::load_mock_apt_settings();
-  let signal_key = signal_name.trim().to_ascii_lowercase();
+  let signal_key = canonical_mock_tx_signal_key(signal_name);
   let preset = settings
     .signals
     .get(&signal_key)
-    .or_else(|| settings.signals.get("apt"));
+    .or_else(|| settings.signals.get("wifi"));
 
   let channel = preset
     .and_then(|preset| preset.channel.as_deref())
@@ -817,7 +817,7 @@ fn constrain_mock_apt_tx_overlay_to_bandwidth(
   before_i: &[f64],
   before_q: &[f64],
   rel_center_hz: f64,
-  tx_sample_rate_hz: f64,
+  tx_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
 ) {
   let len = i_accumulator
@@ -827,13 +827,13 @@ fn constrain_mock_apt_tx_overlay_to_bandwidth(
     .min(before_q.len());
   if len == 0
     || !rel_center_hz.is_finite()
-    || !tx_sample_rate_hz.is_finite()
+    || !tx_bandwidth_hz.is_finite()
     || !view_sample_rate_hz.is_finite()
   {
     return;
   }
 
-  let half_tx_hz = (tx_sample_rate_hz.max(1.0) / 2.0).max(0.5);
+  let half_tx_hz = (tx_bandwidth_hz.max(1.0) / 2.0).max(0.5);
   let bin_width_hz = view_sample_rate_hz.max(1.0) / len as f64;
   let guard_hz = bin_width_hz * 1.5;
   let mut overlay: Vec<Complex<f32>> = (0..len)
@@ -874,7 +874,7 @@ fn add_bandlimited_mock_tx_noise_overlay(
   i_accumulator: &mut [f64],
   q_accumulator: &mut [f64],
   rel_center_hz: f64,
-  tx_sample_rate_hz: f64,
+  tx_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
   amp: f64,
   frame_start_sample: u64,
@@ -882,17 +882,17 @@ fn add_bandlimited_mock_tx_noise_overlay(
   let len = i_accumulator.len().min(q_accumulator.len());
   if len == 0
     || !rel_center_hz.is_finite()
-    || !tx_sample_rate_hz.is_finite()
+    || !tx_bandwidth_hz.is_finite()
     || !view_sample_rate_hz.is_finite()
-    || tx_sample_rate_hz <= 0.0
+    || tx_bandwidth_hz <= 0.0
     || view_sample_rate_hz <= 0.0
   {
     return;
   }
 
   let bin_width_hz = view_sample_rate_hz / len as f64;
-  let half_tx_hz = tx_sample_rate_hz / 2.0;
-  let edge_taper_hz = (tx_sample_rate_hz * 0.04).max(bin_width_hz * 2.0);
+  let half_tx_hz = tx_bandwidth_hz / 2.0;
+  let edge_taper_hz = (tx_bandwidth_hz * 0.04).max(bin_width_hz * 2.0);
   let mut spectrum = vec![Complex::new(0.0f32, 0.0f32); len];
   let mut occupied_bins = 0usize;
 
@@ -1214,11 +1214,7 @@ impl MockAptDevice {
       let before_tx_q = self.q_accumulator[..fft_size].to_vec();
       let active_tx_overlay_center_hz: f64;
       let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
-      let tx_signal = if tx_signal.trim().is_empty() {
-        "apt".to_string()
-      } else {
-        tx_signal.trim().to_ascii_lowercase()
-      };
+      let tx_signal = canonical_mock_tx_signal_key(&tx_signal);
       let tx_preset = resolve_mock_tx_preset(&tx_signal);
       let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
       // Mock APT is a verification receiver for Mock Tx, so render the Tx
@@ -1294,14 +1290,14 @@ impl MockAptDevice {
         // Only synthesize non-hop leakage if it is within the receiver passband
         if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
           let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
-          let tx_bandwidth_hz =
-            *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+          let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
           if tx_signal == "d"
             || tx_signal == "d_sharp"
             || tx_signal == "wifi"
             || tx_signal == "5g"
           {
-            let tx_ifft_size = fft_size;
+            let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+            let render_ifft_size = tx_ifft_size.min(fft_size).max(256);
             let bw = if tx_bandwidth_hz > 0.0 {
               tx_bandwidth_hz
             } else {
@@ -1311,18 +1307,19 @@ impl MockAptDevice {
               signal_key: tx_signal.clone(),
               sample_rate_hz: sample_rate,
               bandwidth_hz: bw,
-              tx_ifft_size,
+              tx_ifft_size: render_ifft_size,
             };
             let mut cache = MOCK_TX_CACHE.lock().unwrap();
             if cache.params.as_ref() != Some(&current_params)
               || cache.samples.is_empty()
-              || cache.samples.len() != tx_ifft_size
+              || cache.samples.len() != render_ifft_size
             {
               cache.samples = generate_mock_tx_samples_ifft(&current_params);
               cache.params = Some(current_params);
             }
             let block = cache.samples.clone();
             drop(cache);
+            let block_cursor = (self.frame_log_counter as usize) % render_ifft_size;
 
             let mut max_peak = 0.0_f64;
             for s in &block {
@@ -1343,7 +1340,8 @@ impl MockAptDevice {
               let phase = phase_step * t as f64;
               let (sin_p, cos_p) = phase.sin_cos();
 
-              let block_sample = block[(t % tx_ifft_size as u64) as usize];
+              let block_sample =
+                block[((t as usize + block_cursor) % render_ifft_size) as usize];
               let i_sig = (block_sample.re as f64 * cos_p
                 - block_sample.im as f64 * sin_p)
                 * amp

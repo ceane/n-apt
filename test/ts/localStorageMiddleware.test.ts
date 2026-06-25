@@ -39,8 +39,21 @@ describe("loadPersistedSdrSettings", () => {
 
     expect(parsed.txSampleRateHz).toBe(2_400_000);
     expect(parsed.txCenterFrequencyHz).toBe(137_100_000);
-    expect(parsed.txSignal).toBe("apt");
+    expect(parsed.txSignal).toBe("wifi");
     expect(parsed.txHopType).toBe("range");
+  });
+
+  it("upgrades legacy apt txSignal values to wifi", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        txSignal: "apt",
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.txSignal).toBe("wifi");
   });
 
   it("drops stale zero gain so the restored default survives hydration", () => {

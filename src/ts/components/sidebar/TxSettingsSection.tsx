@@ -676,7 +676,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     <Section>
       <Row
         label={<IconLabel icon={Radio} text="Signal" />}
-        tooltip="Select the transmission signal type: APT (Automatic Picture Transmission), Tone (continuous sine wave), Noise (broadband white noise), or Custom I/Q playback."
+        tooltip="Select the transmission signal type: D, D#, WiFi, or 5G."
         tooltipTitle="Signal Type"
       >
         <Select value={signal} onChange={(e) => onSignalChange(e.target.value)}>
@@ -688,10 +688,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
             ))
           ) : (
             <>
-              <option value="apt">APT</option>
-              <option value="tone">Tone</option>
-              <option value="noise">Noise</option>
-              <option value="custom">Custom I/Q</option>
+              <option value="d">D</option>
+              <option value="d_sharp">D#</option>
+              <option value="wifi">WiFi</option>
+              <option value="5g">5G</option>
             </>
           )}
         </Select>

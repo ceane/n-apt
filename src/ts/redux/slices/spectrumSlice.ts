@@ -134,7 +134,7 @@ const LIVE_CONTROL_DEFAULTS = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   gain: 49.6,
-  txSignal: "apt",
+  txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
   txCenterFrequencyHz: 137_100_000,
@@ -182,7 +182,7 @@ const initialState: SpectrumState = {
   wfSmoothEnabled: false,
 
   gain: 49.6,
-  txSignal: "apt",
+  txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
   txCenterFrequencyHz: 137_100_000,

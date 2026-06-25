@@ -40,6 +40,30 @@ const safeRemoveItem = (key: string): boolean => {
   }
 };
 
+export const normalizePersistedTxSignalKey = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "wifi";
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "":
+    case "apt":
+      return "wifi";
+    case "d":
+    case "d_sharp":
+    case "dsharp":
+    case "wifi":
+    case "5g":
+    case "tone":
+    case "noise":
+    case "custom":
+      return normalized === "dsharp" ? "d_sharp" : normalized;
+    default:
+      return "wifi";
+  }
+};
+
 // Create localStorage middleware
 const createLocalStorageMiddleware =
   (): Middleware<{}, any> => (store) => (next) => (action: any) => {
@@ -193,9 +217,7 @@ export const loadPersistedSdrSettings = () => {
       parsed.txVgaGain = 16;
     }
 
-    if (typeof parsed.txSignal !== "string" || !parsed.txSignal) {
-      parsed.txSignal = "apt";
-    }
+    parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 
     if (typeof parsed.txSafetyEnabled !== "boolean") {
       parsed.txSafetyEnabled = false;

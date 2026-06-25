@@ -141,7 +141,7 @@ const isMockAptIdentity = ({
 };
 
 export const resolveTxModeDeviceName = (
-  sources: Array<{ status: string; name?: string | null }>,
+  sources: Array<{ status: string | null; name?: string | null }>,
   deviceName: string | null | undefined,
   canTransmit: boolean,
   isStandby: boolean,
@@ -1068,7 +1068,7 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.spectrum.showTxSlider ?? true,
     );
     const reduxTxSignal = useAppSelector(
-      (reduxState) => reduxState.spectrum.txSignal || "apt",
+      (reduxState) => reduxState.spectrum.txSignal || "wifi",
     );
     const reduxTxCenterFrequencyHz = useAppSelector(
       (reduxState) => reduxState.spectrum.txCenterFrequencyHz,

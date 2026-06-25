@@ -1082,11 +1082,7 @@ impl WebSocketServer {
                   } else {
                     center_frequency as f64
                   },
-                  if tx_bandwidth_hz > 0.0 {
-                    tx_bandwidth_hz
-                  } else {
-                    sample_rate as f64
-                  },
+                  tx_bandwidth_hz,
                   &tx_signal,
                   tx_ifft_size,
                   tx_power_dbm,

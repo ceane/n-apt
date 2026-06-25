@@ -114,9 +114,9 @@ fn clamp_quantized_iq_to_bandwidth(
     for (index, sample) in iq.iter().enumerate() {
       let sample = *sample * scale;
       frame[index * 2] =
-        ((sample.re.clamp(-1.0, 1.0) * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
+        quantize_mock_tx_iq(sample.re as f64, index as u64, 0x544d_4f4e_4951_4949);
       frame[index * 2 + 1] =
-        ((sample.im.clamp(-1.0, 1.0) * 128.0) + 128.0).clamp(0.0, 255.0) as u8;
+        quantize_mock_tx_iq(sample.im as f64, index as u64, 0x544d_4f4e_4951_5151);
     }
   }
 }
@@ -205,7 +205,7 @@ pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
 use std::sync::Mutex;
 
 use crate::s::ifft::mock_tx_gen::{
-  generate_mock_tx_samples_ifft, MockTxParams,
+  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
 };
 
 struct MockTxBuffer {
@@ -236,17 +236,15 @@ pub fn synthesize_mock_tx_monitor_iq(
   power_model: &TxIqPowerModel,
   phase_accumulator: &mut f64,
 ) -> Vec<u8> {
+  #[cfg(test)]
+  let _guard = crate::server::utils::cwd_lock().lock().unwrap();
+
   if fft_size == 0 {
     return Vec::new();
   }
 
   let sample_rate_hz = view_sample_rate.max(1) as f64;
-  let tx_bandwidth_hz = tx_bandwidth_hz.max(1.0);
-  let signal_key = if signal_name.trim().is_empty() {
-    "wifi".to_string()
-  } else {
-    signal_name.trim().to_ascii_lowercase()
-  };
+  let signal_key = canonical_mock_tx_signal_key(signal_name);
 
   let settings = crate::server::utils::load_mock_tx_settings();
   let preset = settings
@@ -254,7 +252,13 @@ pub fn synthesize_mock_tx_monitor_iq(
     .get(&signal_key)
     .or_else(|| settings.signals.get("wifi"));
 
-  let tx_occupied_bandwidth_hz = tx_bandwidth_hz.min(sample_rate_hz).max(1.0);
+  let target_bandwidth_hz = if tx_bandwidth_hz > 0.0 {
+    tx_bandwidth_hz
+  } else {
+    preset.and_then(|p| p.bandwidth_hz).unwrap_or(sample_rate_hz)
+  };
+
+  let tx_occupied_bandwidth_hz = target_bandwidth_hz.min(sample_rate_hz).max(1.0);
   let effective_bandwidth_hz = tx_occupied_bandwidth_hz;
 
   let offset_hz = preset.and_then(|p| p.offset_hz).unwrap_or(0.0);
@@ -277,7 +281,7 @@ pub fn synthesize_mock_tx_monitor_iq(
     power_model,
   );
   let noise_floor_rms = mock_tx_monitor_noise_floor_rms(power_model);
-  let render_ifft_size = fft_size;
+  let render_ifft_size = tx_ifft_size.min(fft_size).max(256);
 
   let current_params = MockTxParams {
     signal_key,
@@ -300,6 +304,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   }
   let block = cache.samples.clone();
   drop(cache);
+  let block_cursor = (start_sample as usize) % render_ifft_size;
 
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
   let mut out = Vec::with_capacity(fft_size * 2);
@@ -318,7 +323,8 @@ pub fn synthesize_mock_tx_monitor_iq(
     let (sin_p, cos_p) = phase_accumulator.sin_cos();
 
     // Loop baseband block sample and mix to carrier frequency offset
-    let block_sample = block[(t % render_ifft_size as u64) as usize];
+    let block_sample =
+      block[((t as usize + block_cursor) % render_ifft_size) as usize];
     let i_sig = (block_sample.re as f64 * cos_p
       - block_sample.im as f64 * sin_p)
       * target_rms;
@@ -463,7 +469,7 @@ mod tests {
       137_100_000.0,
       tx_bandwidth_hz,
       signal_name,
-      TEST_FFT_SIZE,
+      2048,
       power_dbm,
       &model,
       &mut 0.0,
@@ -570,13 +576,13 @@ mod tests {
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     let frame = synthesize_mock_tx_monitor_iq(
-      65_536,
+      TEST_FFT_SIZE,
       137_100_000.0,
       3_200_000,
       137_100_000.0,
       100_000.0,
       "wifi",
-      65_536,
+      2048,
       -18.0,
       &model,
       &mut 0.0,
@@ -748,20 +754,27 @@ mod tests {
       let center = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| bin.rel_hz.abs() <= 250_000.0)
-          .map(|bin| bin.dbm),
+          .enumerate()
+          .filter(|(idx, bin)| idx % 32 == 0 && bin.rel_hz.abs() <= 250_000.0)
+          .map(|(_, bin)| bin.dbm),
       );
       let shoulder = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| (360_000.0..=470_000.0).contains(&bin.rel_hz.abs()))
-          .map(|bin| bin.dbm),
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0 && (360_000.0..=470_000.0).contains(&bin.rel_hz.abs())
+          })
+          .map(|(_, bin)| bin.dbm),
       );
       let outside = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| (560_000.0..=800_000.0).contains(&bin.rel_hz.abs()))
-          .map(|bin| bin.dbm),
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0 && (560_000.0..=800_000.0).contains(&bin.rel_hz.abs())
+          })
+          .map(|(_, bin)| bin.dbm),
       );
 
       let center_level = percentile_dbm(&center, 0.75);
@@ -832,35 +845,42 @@ mod tests {
       let center = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| bin.rel_hz.abs() <= half_width_hz * 0.30)
-          .map(|bin| bin.dbm),
+          .enumerate()
+          .filter(|(idx, bin)| idx % 32 == 0 && bin.rel_hz.abs() <= half_width_hz * 0.30)
+          .map(|(_, bin)| bin.dbm),
       );
       let flat_top = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| {
-            (half_width_hz * 0.35..=half_width_hz * 0.68)
-              .contains(&bin.rel_hz.abs())
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0
+              && (half_width_hz * 0.35..=half_width_hz * 0.68)
+                .contains(&bin.rel_hz.abs())
           })
-          .map(|bin| bin.dbm),
+          .map(|(_, bin)| bin.dbm),
       );
       let rolloff = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| {
-            (half_width_hz * 0.92..=half_width_hz * 0.99)
-              .contains(&bin.rel_hz.abs())
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0
+              && (half_width_hz * 0.92..=half_width_hz * 0.99)
+                .contains(&bin.rel_hz.abs())
           })
-          .map(|bin| bin.dbm),
+          .map(|(_, bin)| bin.dbm),
       );
       let outside = sorted_dbm(
         spectrum
           .iter()
-          .filter(|bin| {
-            (half_width_hz + 40_000.0..=half_width_hz + 300_000.0)
-              .contains(&bin.rel_hz.abs())
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0
+              && (half_width_hz + 40_000.0..=half_width_hz + 300_000.0)
+                .contains(&bin.rel_hz.abs())
           })
-          .map(|bin| bin.dbm),
+          .map(|(_, bin)| bin.dbm),
       );
 
       let center_level = percentile_dbm(&center, 0.60);
@@ -1134,5 +1154,41 @@ mod tests {
         "{signal_name} 2.4MHz should have no visible bins outside width_bandwidth above height_power-30dB"
       );
     }
+  }
+
+  #[test]
+  fn tx_monitor_advances_when_fft_size_divides_block_length() {
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    let mut phase_accumulator = 0.0;
+    let first = synthesize_mock_tx_monitor_iq(
+      2048,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+    let second = synthesize_mock_tx_monitor_iq(
+      2048,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+
+    assert_ne!(
+      first, second,
+      "mock tx monitor should advance even when frame length matches block length"
+    );
   }
 }

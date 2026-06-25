@@ -97,7 +97,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       (reduxState) => reduxState.spectrum.showTxSlider ?? true,
     );
     const txSignal = useAppSelector(
-      (reduxState) => reduxState.spectrum.txSignal || "apt",
+      (reduxState) => reduxState.spectrum.txSignal || "wifi",
     );
     const txCenterFrequencyHz = useAppSelector(
       (reduxState) => reduxState.spectrum.txCenterFrequencyHz,

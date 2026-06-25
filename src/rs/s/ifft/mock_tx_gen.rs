@@ -8,6 +8,18 @@ pub struct MockTxParams {
   pub tx_ifft_size: usize,
 }
 
+pub fn canonical_mock_tx_signal_key(signal_name: &str) -> String {
+  let normalized = signal_name
+    .trim()
+    .to_ascii_lowercase()
+    .replace([' ', '-'], "_");
+  match normalized.as_str() {
+    "" => "wifi".to_string(),
+    "dsharp" => "d_sharp".to_string(),
+    other => other.to_string(),
+  }
+}
+
 pub fn generate_mock_tx_samples_ifft(
   params: &MockTxParams,
 ) -> Vec<Complex<f32>> {
@@ -57,7 +69,7 @@ pub fn generate_mock_tx_samples_ifft(
     }
   } else {
     let half_width = half_bins.max(1) as f64;
-    let shoulder_start = if key == "5g" { 0.72 } else { 0.68 };
+    let shoulder_start = if key == "5g" { 0.55 } else { 0.50 };
     for k in 0..num_bins {
       let centered = k as isize - half_bins as isize;
       let bin_idx = if centered >= 0 {
@@ -148,4 +160,17 @@ pub fn generate_mock_tx_samples_ifft(
   }
 
   spectrum
+}
+
+#[cfg(test)]
+mod tests {
+  use super::canonical_mock_tx_signal_key;
+
+  #[test]
+  fn canonical_mock_tx_signal_key_normalizes_supported_keys() {
+    assert_eq!(canonical_mock_tx_signal_key("wifi"), "wifi");
+    assert_eq!(canonical_mock_tx_signal_key("D Sharp"), "d_sharp");
+    assert_eq!(canonical_mock_tx_signal_key("5g"), "5g");
+    assert_eq!(canonical_mock_tx_signal_key("  "), "wifi");
+  }
 }

@@ -347,7 +347,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 1_600_000.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 760_000.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 760_000.0;
 
     let result = std::panic::catch_unwind(|| {
       let mut device = new_perf_device(12345);
@@ -365,7 +365,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 0.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
 
     let elapsed = result.expect("active Tx performance test panicked");
     println!(
@@ -403,7 +403,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = tx_center_hz;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 2_400_000.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
 
     let active_energy = {
       let mut device = new_perf_device(24680);
@@ -424,7 +424,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 0.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
 
     assert!(
       active_energy > baseline_energy + 0.5,
@@ -447,7 +447,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = tx_center_hz;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 100_000.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 100_000.0;
 
     let frame = {
       let mut device = new_perf_device(13579);
@@ -460,7 +460,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 0.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
 
     let center_dbm = iq_bin_dbm(&frame.data, sample_rate_hz, 0.0);
     let outside_dbm = max_iq_bin_dbm(
@@ -501,7 +501,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = tx_center_hz;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = tx_bandwidth_hz;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = tx_bandwidth_hz;
 
     let frame = {
       let mut device = new_perf_device(24681357);
@@ -514,7 +514,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 0.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
 
     let spectrum = fft_spectrum_dbm(&frame.data, sample_rate_hz);
     let far_floor_dbm = percentile_dbm(
@@ -576,7 +576,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = tx_center_hz;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = tx_bandwidth_hz;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = tx_bandwidth_hz;
 
     let active = {
       let mut device = new_perf_device(97531);
@@ -591,7 +591,7 @@ mod tests {
     *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
       .lock()
       .unwrap() = 0.0;
-    *n_apt_backend::safety::TX_SAMPLE_RATE_HZ.lock().unwrap() = 0.0;
+    *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
 
     let outside_active_dbm = percentile_dbm(
       active
@@ -700,6 +700,7 @@ mod tests {
 
   #[test]
   fn test_realistic_rf_aliasing_keeps_folded_signal_visible() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut canonical = MockAptDevice::new_with_seed(24680);
     canonical.set_settle_time(0);
     canonical.set_center_frequency(10_000_000).unwrap();
@@ -722,6 +723,7 @@ mod tests {
 
   #[test]
   fn test_realistic_rf_retune_settling_ramps_after_tune() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new_with_seed(13579);
     device.set_realistic_rf_config(realistic_rf_config());
     device.set_settle_time(0);
@@ -750,6 +752,7 @@ mod tests {
 
   #[test]
   fn test_consecutive_frames_do_not_restart() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new_with_seed(12345);
     device.read_samples(1024).unwrap();
 
@@ -765,6 +768,45 @@ mod tests {
         );
       }
       previous_checksum = Some(checksum);
+    }
+  }
+
+  #[test]
+  fn test_wifi_and_5g_tx_overlay_frames_advance() {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let sample_rate_hz = 3_200_000.0;
+    let center_hz = 1_600_000.0;
+
+    for tx_signal in ["wifi", "5g"] {
+      n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+      *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
+      *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -18.0;
+      *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+        .lock()
+        .unwrap() = center_hz;
+      *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+
+      let mut device = new_perf_device(424242);
+      device.set_center_frequency(center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      device.read_samples(1024).unwrap();
+
+      let frame1 = device.read_samples(8192).unwrap();
+      let frame2 = device.read_samples(8192).unwrap();
+
+      assert_ne!(
+        frame1.data, frame2.data,
+        "{} overlay frames should advance instead of freezing",
+        tx_signal
+      );
+
+      n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+      *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+        .lock()
+        .unwrap() = 0.0;
+      *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
     }
   }
 

@@ -442,7 +442,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
   const [hasPlayedAtLeastOnce, setHasPlayedAtLeastOnce] = useState(false);
   const txOptionsRef = useRef<HTMLDivElement | null>(null);
-  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "apt");
+  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "wifi");
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,
   );

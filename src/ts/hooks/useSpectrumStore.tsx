@@ -56,6 +56,7 @@ import {
   websocketActions,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { normalizePersistedTxSignalKey } from "@n-apt/redux/middleware/localStorageMiddleware";
 import {
   connectWebSocket,
   disconnectWebSocket,
@@ -323,6 +324,7 @@ export type SpectrumState = {
   fftWindow: string;
   showSpikeOverlay: boolean;
   gain: number;
+  txSignal: string;
   hackrfLnaGain: number;
   hackrfVgaGain: number;
   hackrfAmpEnabled: boolean;
@@ -551,6 +553,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   fftWindow: "Rectangular",
   showSpikeOverlay: false,
   gain: 10,
+  txSignal: "wifi",
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 0.0,
   hackrfAmpEnabled: true,
@@ -637,9 +640,7 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
       parsed.txVgaGain = 16;
     }
 
-    if (typeof parsed.txSignal !== "string" || !parsed.txSignal) {
-      parsed.txSignal = "apt";
-    }
+    parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 
     if (typeof parsed.txSafetyEnabled !== "boolean") {
       parsed.txSafetyEnabled = false;
