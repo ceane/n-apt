@@ -1618,13 +1618,13 @@ function renderStatsRowCanvas(
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  const background = theme.bg;
   const divider = theme.grid;
   const textColor = theme.text;
-  const markerColor = "rgba(240, 240, 240, 0.96)";
-  const markerMutedColor = "rgba(240, 240, 240, 0.72)";
+  const rowBackground = theme.bg;
+  const markerColor = textColor;
+  const markerMutedColor = "rgba(0, 0, 0, 0.45)";
 
-  ctx.fillStyle = background;
+  ctx.fillStyle = rowBackground;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = divider;
   ctx.fillRect(
@@ -3940,64 +3940,25 @@ export function useSnapshot(
 
       const getCanvas = () => {
         const canvases = getCanvases();
-        const baseCanvas =
-          target === "spectrum"
-            ? buildFastSpectrumCanvas(
-                snapshotData,
-                width,
-                height,
-                theme,
-                canvases,
-                options,
-              )
-            : buildFastWaterfallCanvas(
-                snapshotData,
-                width,
-                height,
-                waterfallFrequencyRange,
-                canvases,
-                waterfallAxisTheme,
-                options,
-                theme,
-              );
-        if (!baseCanvas || !options?.showStats || !snapshotData) {
-          return baseCanvas;
-        }
-
-        const statsLines = buildSnapshotStatsLines({
-          range: snapshotData.frequencyRange ??
-            waterfallFrequencyRange ?? {
-              min: 0,
-              max: 1,
-            },
-          timestampLabel: fmtTimestamp(),
-          deviceName:
-            options?.sourceName ||
-            (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
-          channelName: options?.activeSignalArea,
-          activeSignalAreaBounds: options?.activeSignalAreaBounds,
-          whole: false,
-          hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
-          fftSize:
-            options?.fftSize !== undefined
-              ? options.fftSize
-              : snapshotData.fftSize,
-          fftWindow: snapshotData.fftWindow,
-          gain: options?.gain,
-          ppm: options?.ppm,
-          gainLabel: options?.sdrSettingsLabel,
-          showGeolocation: false,
-        });
-        if (!statsLines.length) {
-          return baseCanvas;
-        }
-        const statsRow = renderStatsRowCanvas(
-          statsLines,
-          baseCanvas.width,
-          theme,
-          options?.aspectRatio,
-        );
-        return statsRow ? appendCanvasBelow(baseCanvas, statsRow) : baseCanvas;
+        return target === "spectrum"
+          ? buildFastSpectrumCanvas(
+              snapshotData,
+              width,
+              height,
+              theme,
+              canvases,
+              options,
+            )
+          : buildFastWaterfallCanvas(
+              snapshotData,
+              width,
+              height,
+              waterfallFrequencyRange,
+              canvases,
+              waterfallAxisTheme,
+              options,
+              theme,
+            );
       };
 
       const filenamePrefix =

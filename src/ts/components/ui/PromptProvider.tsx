@@ -65,6 +65,10 @@ const Input = styled.input`
   }
 `;
 
+const HiddenInput = styled.input`
+  display: none;
+`;
+
 const ButtonRow = styled.div`
   display: flex;
   gap: 12px;
@@ -216,13 +220,12 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({
               vault.
             </Message>
           </div>
-          <input
+          <HiddenInput
             type="text"
             name="username"
             autoComplete="username"
             value="n-apt-user"
             readOnly
-            style={{ display: "none" }}
           />
           <Input
             ref={passwordInputRef}

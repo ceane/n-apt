@@ -1191,4 +1191,49 @@ mod tests {
       "mock tx monitor should advance even when frame length matches block length"
     );
   }
+
+  #[test]
+  fn tx_monitor_spectrum_animates_when_fft_size_divides_block_length() {
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    let mut phase_accumulator = 0.0;
+    let first = synthesize_mock_tx_monitor_iq(
+      2048,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+    let second = synthesize_mock_tx_monitor_iq(
+      2048,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+
+    let first_spectrum = spectrum_dbm(&first, TEST_VIEW_SAMPLE_RATE_HZ);
+    let second_spectrum = spectrum_dbm(&second, TEST_VIEW_SAMPLE_RATE_HZ);
+    let max_in_band_delta = first_spectrum
+      .iter()
+      .zip(second_spectrum.iter())
+      .filter(|(left, _)| left.rel_hz.abs() <= 1_200_000.0)
+      .map(|(left, right)| (left.dbm - right.dbm).abs())
+      .fold(0.0_f64, f64::max);
+
+    assert!(
+      max_in_band_delta >= 1.0,
+      "mock tx monitor should change visible in-band FFT magnitudes, max delta was {max_in_band_delta:.3} dB"
+    );
+  }
 }

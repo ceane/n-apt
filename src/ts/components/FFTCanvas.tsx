@@ -922,11 +922,9 @@ export const getLatestLiveFrame = <T,>(
 
 export const getLiveFrameSignature = (
   liveFrame: LiveFrameData | null | undefined,
-): number | LiveFrameData | null => {
+): LiveFrameData | null => {
   if (!liveFrame) return null;
-  return typeof liveFrame.timestamp === "number"
-    ? liveFrame.timestamp
-    : liveFrame;
+  return liveFrame;
 };
 
 export const shouldRenderWaterfallWithFrameOrRestore = (
@@ -1414,9 +1412,7 @@ const FFTCanvas = memo(
     const frameBufferRef = useRef<Float32Array[]>([]);
     const maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
-    const lastProcessedFrameSignatureRef = useRef<
-      number | LiveFrameData | null
-    >(null);
+    const lastProcessedFrameSignatureRef = useRef<LiveFrameData | null>(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
     centerFreqRef.current = centerFrequencyHz;

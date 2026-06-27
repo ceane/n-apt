@@ -553,15 +553,23 @@ describe("FFTCanvas Component", () => {
     );
   });
 
-  it("prefers explicit timestamps when deriving a live frame signature", () => {
+  it("distinguishes live frames that share a millisecond timestamp", () => {
     const frame = {
       type: "spectrum" as const,
       iq_data: new Uint8Array([1, 2, 3]),
       data_type: "iq_raw" as const,
       timestamp: 12345,
     };
+    const nextFrame = {
+      type: "spectrum" as const,
+      iq_data: new Uint8Array([4, 5, 6]),
+      data_type: "iq_raw" as const,
+      timestamp: 12345,
+    };
 
-    expect(getLiveFrameSignature(frame)).toBe(12345);
+    expect(getLiveFrameSignature(frame)).not.toBe(
+      getLiveFrameSignature(nextFrame),
+    );
     expect(
       getLiveFrameSignature({
         type: "spectrum",

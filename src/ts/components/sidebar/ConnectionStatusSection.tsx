@@ -25,6 +25,16 @@ const ConnectionStatusContainer = styled.div`
   box-shadow: none;
 `;
 
+const ExtraActionsContainer = styled.div`
+  grid-column: 1 / -1;
+  width: 100%;
+`;
+
+const CryptoErrorContainer = styled.div`
+  grid-column: 1 / -1;
+  margin-top: 8px;
+`;
+
 const ConnectionStatus = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -495,16 +505,16 @@ export const ConnectionStatusSection: React.FC<
           )}
         </ActionsColumn>
         {extraActions && (
-          <div style={{ gridColumn: "1 / -1", width: "100%" }}>
+          <ExtraActionsContainer>
             {extraActions}
-          </div>
+          </ExtraActionsContainer>
         )}
       </ConnectionStatusContainer>
 
       {cryptoCorrupted && !fileMode && (
-        <div style={{ gridColumn: "1 / -1", marginTop: "8px" }}>
+        <CryptoErrorContainer>
           <DecryptionFallback moduleName="Live Stream" errorType="vault" />
-        </div>
+        </CryptoErrorContainer>
       )}
     </>
   );

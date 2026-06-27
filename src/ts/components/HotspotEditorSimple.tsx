@@ -156,7 +156,7 @@ function HotspotMarker({
             <meshStandardMaterial color="#1a1a1a" />
           </mesh>
           <mesh position={[0, 0, 0.01]}>
-            <input
+            <RenameInput
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
@@ -169,16 +169,6 @@ function HotspotMarker({
                 }
               }}
               onBlur={handleRename}
-              style={{
-                position: "absolute",
-                background: "transparent",
-                border: "none",
-                color: "#fff",
-                fontSize: "10px",
-                textAlign: "center",
-                width: "100%",
-                outline: "none",
-              }}
               autoFocus
             />
           </mesh>
@@ -203,6 +193,33 @@ const CanvasContainer = styled.div`
   }
 `;
 
+const RenameInput = styled.input`
+  position: absolute;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
+  width: 100%;
+  outline: none;
+`;
+
+const InstructionOverlay = styled.div`
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 14px;
+`;
+
+const StyledCanvas = styled(Canvas)`
+  width: 100%;
+  height: 100%;
+`;
+
 interface HotspotEditorSimpleProps {
   width?: string | number;
   height?: string | number;
@@ -223,11 +240,7 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
 
   return (
     <CanvasContainer style={{ width, height }}>
-      <Canvas
-        style={{
-          width: "100%",
-          height: "100%",
-        }}
+      <StyledCanvas
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
       >
         <ambientLight intensity={MODEL_AMBIENT_LIGHT_INTENSITY} />
@@ -274,22 +287,11 @@ export const HotspotEditorSimple: React.FC<HotspotEditorSimpleProps> = ({
         </Model>
 
         <OrbitControls target={MODEL_CAMERA_TARGET} />
-      </Canvas>
+      </StyledCanvas>
 
-      <div
-        style={{
-          position: "absolute",
-          top: "20px",
-          left: "20px",
-          background: "rgba(0, 0, 0, 0.8)",
-          color: "#fff",
-          padding: "10px",
-          borderRadius: "4px",
-          fontSize: "14px",
-        }}
-      >
+      <InstructionOverlay>
         Click on the model to add hotspots
-      </div>
+      </InstructionOverlay>
     </CanvasContainer>
   );
 };

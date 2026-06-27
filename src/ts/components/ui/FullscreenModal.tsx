@@ -61,6 +61,34 @@ const CloseButton = styled.button`
   }
 `;
 
+const ModalHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 30px;
+  border-bottom: 1px solid #1f1f1f;
+  background: #161616;
+`;
+
+const ModalSubtitle = styled.div`
+  font-size: 12px;
+  color: #00d4ff;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+`;
+
+const ModalTitle = styled.div`
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+`;
+
+const ModalBody = styled.div`
+  flex: 1;
+  overflow: auto;
+`;
+
 interface FullscreenModalProps {
   children: React.ReactNode;
   title: string;
@@ -75,37 +103,16 @@ export const FullscreenModal: React.FC<FullscreenModalProps> = ({
   return createPortal(
     <FullscreenOverlay>
       <ModalContent>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "20px 30px",
-            borderBottom: "1px solid #1f1f1f",
-            background: "#161616",
-          }}
-        >
+        <ModalHeader>
           <div>
-            <div
-              style={{
-                fontSize: "12px",
-                color: "#00d4ff",
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                fontWeight: 800,
-              }}
-            >
-              Diagnostic View
-            </div>
-            <div style={{ fontSize: "24px", fontWeight: 700, color: "#fff" }}>
-              {title}
-            </div>
+            <ModalSubtitle>Diagnostic View</ModalSubtitle>
+            <ModalTitle>{title}</ModalTitle>
           </div>
           <CloseButton onClick={onClose}>
             <X size={24} />
           </CloseButton>
-        </div>
-        <div style={{ flex: 1, overflow: "auto" }}>{children}</div>
+        </ModalHeader>
+        <ModalBody>{children}</ModalBody>
       </ModalContent>
     </FullscreenOverlay>,
     document.body,

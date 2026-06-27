@@ -1,6 +1,18 @@
 import React from "react";
+import styled from "styled-components";
 import { createPlugin, useInputContext, Components } from "leva/plugin";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
+
+const PluginWrapper = styled.div<{ $isMenuOpen: boolean }>`
+  position: relative;
+  z-index: ${(props) => (props.$isMenuOpen ? 100000 : 1)};
+`;
+
+const InputWrapper = styled.div`
+  flex: 1;
+  display: flex;
+  overflow: visible;
+`;
 
 const FrequencyComponent = () => {
   const { label, value, onUpdate, id } = useInputContext<any>();
@@ -8,11 +20,10 @@ const FrequencyComponent = () => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
   return (
-    <div style={{ position: "relative", zIndex: isMenuOpen ? 100000 : 1 }}>
+    <PluginWrapper $isMenuOpen={isMenuOpen}>
       <Row input>
         <Label>{label}</Label>
-        <div
-          style={{ flex: 1, display: "flex", overflow: "visible" }}
+        <InputWrapper
           onPointerDown={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
@@ -23,9 +34,9 @@ const FrequencyComponent = () => {
             stepHz={1_000_000} // Set step to 1 MHz instead of auto 1 GHz jumps
             onMenuOpenChange={setIsMenuOpen}
           />
-        </div>
+        </InputWrapper>
       </Row>
-    </div>
+    </PluginWrapper>
   );
 };
 

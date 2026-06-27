@@ -811,6 +811,55 @@ mod tests {
   }
 
   #[test]
+  fn test_wifi_and_5g_tx_overlay_spectrum_keeps_animating() {
+    use std::sync::atomic::Ordering;
+
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let sample_rate_hz = 3_200_000.0;
+    let center_hz = 1_600_000.0;
+    let fft_size = 2048;
+
+    for tx_signal in ["wifi", "5g"] {
+      n_apt_backend::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+      *n_apt_backend::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
+      *n_apt_backend::safety::TX_POWER_DBM.lock().unwrap() = -6.0;
+      *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+        .lock()
+        .unwrap() = center_hz;
+      *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+      *n_apt_backend::safety::TX_IFFT_SIZE.lock().unwrap() = fft_size;
+
+      let mut device = new_perf_device(242424);
+      device.set_center_frequency(center_hz as u32).unwrap();
+      device.set_sample_rate(sample_rate_hz as u32).unwrap();
+      device.read_samples(1024).unwrap();
+
+      let frame1 = device.read_samples(fft_size).unwrap();
+      let frame2 = device.read_samples(fft_size).unwrap();
+      let spectrum1 = fft_spectrum_dbm(&frame1.data, sample_rate_hz);
+      let spectrum2 = fft_spectrum_dbm(&frame2.data, sample_rate_hz);
+      let max_in_band_delta = spectrum1
+        .iter()
+        .zip(spectrum2.iter())
+        .filter(|((rel_hz, _), _)| rel_hz.abs() <= 1_200_000.0)
+        .map(|((_, left_dbm), (_, right_dbm))| (left_dbm - right_dbm).abs())
+        .fold(0.0_f64, f64::max);
+
+      assert!(
+        max_in_band_delta >= 1.0,
+        "{tx_signal} overlay should keep changing visible FFT magnitudes, max delta was {max_in_band_delta:.3} dB"
+      );
+
+      n_apt_backend::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+      *n_apt_backend::safety::TX_CENTER_FREQUENCY_HZ
+        .lock()
+        .unwrap() = 0.0;
+      *n_apt_backend::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
+      *n_apt_backend::safety::TX_IFFT_SIZE.lock().unwrap() = 2048;
+    }
+  }
+
+  #[test]
   fn test_mock_apt_medium_frame_performance() {
     use std::time::Instant;
 
