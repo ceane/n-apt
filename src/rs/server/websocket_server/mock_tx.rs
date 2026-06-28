@@ -246,6 +246,11 @@ impl MockTxBuffer {
 
 static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
 
+/// Test-only lock that serializes cursor-reset + synthesize pairs so parallel
+/// tests cannot race on MOCK_TX_MONITOR_SAMPLE_CURSOR or MOCK_TX_CACHE.
+#[cfg(test)]
+static MOCK_TX_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn synthesize_mock_tx_monitor_iq(
   fft_size: usize,
   view_center_hz: f64,
@@ -259,7 +264,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   phase_accumulator: &mut f64,
 ) -> Vec<u8> {
   #[cfg(test)]
-  let _guard = crate::server::utils::cwd_lock().lock().unwrap();
+  let _cwd_guard = crate::server::utils::cwd_lock().lock().unwrap();
 
   if fft_size == 0 {
     return Vec::new();
@@ -496,6 +501,7 @@ mod tests {
     tx_bandwidth_hz: f64,
     power_dbm: f64,
   ) -> Vec<u8> {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     synthesize_mock_tx_monitor_iq(
@@ -519,6 +525,7 @@ mod tests {
     tx_ifft_size: usize,
     power_dbm: f64,
   ) -> Vec<u8> {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     synthesize_mock_tx_monitor_iq(
@@ -609,6 +616,7 @@ mod tests {
 
   #[test]
   fn tx_monitor_narrow_bandwidth_suppresses_far_outside_shoulders() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     let frame = synthesize_mock_tx_monitor_iq(
@@ -941,6 +949,7 @@ mod tests {
 
   #[test]
   fn tx_monitor_wifi_and_5g_change_after_about_one_second_of_frames() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     let animation_fft_size = 8192;
 
@@ -1309,6 +1318,7 @@ mod tests {
 
   #[test]
   fn tx_monitor_advances_when_fft_size_divides_block_length() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     let mut phase_accumulator = 0.0;
@@ -1346,6 +1356,7 @@ mod tests {
 
   #[test]
   fn tx_monitor_spectrum_animates_when_fft_size_divides_block_length() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     let mut phase_accumulator = 0.0;
@@ -1393,6 +1404,7 @@ mod tests {
   /// nothingness) and visibly animates across frames.
   #[test]
   fn tx_monitor_all_signals_are_present_and_animate() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     let tx_bandwidth_hz = 1_000_000.0;
 
