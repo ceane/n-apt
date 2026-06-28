@@ -188,16 +188,8 @@ function wsReducer(state: WsState, action: WsAction): WsState {
         isConnected: false,
         deviceState: null,
         deviceLoadingReason: null,
-        backend: null,
-        deviceInfo: null,
-        deviceName: null,
-        deviceProfile: null,
-        maxSampleRateHz: null,
-        sampleRateOptions: [],
-        sampleRateHz: null,
-        minReceiveSampleRateHz: null,
-        sdrSettings: null,
-        sdrLimitMarkers: [],
+        data: null,
+        spectrumFrames: [],
         captureStatus: null,
       };
     case "RESET":

@@ -132,14 +132,22 @@ const createLocalStorageMiddleware =
       const websocketState = state.websocket;
 
       // Cache spectrum frames
+      if (action.type === "websocket/setSpectrumFrames") {
+        if (websocketState.spectrumFrames.length > 0) {
+          safeSetItem(
+            STORAGE_KEYS.SPECTRUM_FRAMES,
+            JSON.stringify(websocketState.spectrumFrames),
+          );
+        } else {
+          safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
+        }
+      }
+
       if (
-        action.type === "websocket/setSpectrumFrames" &&
-        websocketState.spectrumFrames.length > 0
+        action.type === "websocket/setDisconnected" ||
+        action.type === "websocket/reset"
       ) {
-        safeSetItem(
-          STORAGE_KEYS.SPECTRUM_FRAMES,
-          JSON.stringify(websocketState.spectrumFrames),
-        );
+        safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
       }
 
       // Cache SDR settings from WebSocket
