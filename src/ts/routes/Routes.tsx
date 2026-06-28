@@ -72,6 +72,11 @@ const LearnSignalsRoute = lazy(() =>
     default: m.LearnSignalsRoute,
   })),
 );
+const CellularTriangulationTargetingDemoRoute = lazy(() =>
+  import("@n-apt/tracked-interactive/Route").then((m) => ({
+    default: m.CellularTriangulationTargetingDemoRoute,
+  })),
+);
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { LearnSignalsProvider } from "@n-apt/contexts/LearnSignalsContext";
@@ -392,6 +397,16 @@ const AppRoutesInner: React.FC = () => {
                 <LearnSignalsRoute />
               </Suspense>
             </LearnSignalsProvider>
+          }
+        />
+        <Route
+          path="/game"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <CellularTriangulationTargetingDemoRoute />
+            </Suspense>
           }
         />
       </Routes>

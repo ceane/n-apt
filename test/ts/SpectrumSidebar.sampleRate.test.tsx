@@ -524,7 +524,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       expect.objectContaining({
         serialNumber: "device-1",
         centerFrequencyHz: 137_100_000,
-        sampleRateHz: 2_400_000,
+        bandwidthHz: 2_400_000,
         powerDbm: -18,
         vgaGainDb: 16,
       }),
@@ -695,7 +695,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       expect.objectContaining({
         serialNumber: "device-1",
         centerFrequencyHz: 137_100_000,
-        sampleRateHz: 2_400_000,
+        bandwidthHz: 2_400_000,
         vgaGainDb: 16,
       }),
     );
@@ -775,7 +775,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       expect.objectContaining({
         serialNumber: "mock-tx",
         centerFrequencyHz: 137_100_000,
-        sampleRateHz: 2_400_000,
+        bandwidthHz: 2_400_000,
       }),
     );
   });

@@ -17,6 +17,10 @@ import {
   markPendingProcessesAfterFailure,
   type FailingServices
 } from './buildStatus';
+import {
+  createRustHotReloadGate,
+  runRustHotReloadValidation,
+} from '@n-apt/utils/rustHotReloadGate';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -1302,134 +1306,93 @@ exit 1
 
     let watcher: fs.FSWatcher | null = null;
     let rebuildTimeout: NodeJS.Timeout | null = null;
-    let rebuildStableCheck: NodeJS.Timeout | null = null;
     let isRebuilding = false;
-    let pendingReloadPath: string | null = null;
+    const hotReloadGate = createRustHotReloadGate(1200);
 
     const srcRsPath = path.resolve('src/rs');
 
-    const getWatchedSourceSnapshot = () => {
-      const snapshot: Array<{ path: string; mtimeMs: number; size: number }> = [];
-      const candidates = [
-        pendingReloadPath,
-        'Cargo.toml',
-        'src/rs',
-      ].filter((value): value is string => Boolean(value));
-
-      for (const candidate of candidates) {
-        const absolute = path.resolve(candidate);
+    const restartRustBackend = async () => {
+      addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
+      
+      if (buildState.rustPid) {
         try {
-          const stat = fs.statSync(absolute);
-          snapshot.push({
-            path: absolute,
-            mtimeMs: stat.mtimeMs,
-            size: stat.size,
-          });
+          intentionalRustKillRef.current = true;
+          process.kill(-buildState.rustPid, 'SIGTERM');
         } catch {
-          // Ignore missing files; Cargo will report the real failure if needed.
+          try {
+            process.kill(buildState.rustPid, 'SIGTERM');
+          } catch {}
         }
       }
 
-      return snapshot;
-    };
+      try {
+        if (process.platform === 'win32') {
+          spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
+        } else {
+          spawnSync('pkill -9 -f n-apt-backend', { shell: true });
+        }
+      } catch {}
 
-    const waitForStableSave = async (pathHint: string | null) => {
-      const settleMs = 900;
-      const sampleA = getWatchedSourceSnapshot();
-      await new Promise((resolve) => setTimeout(resolve, settleMs));
-      const sampleB = getWatchedSourceSnapshot();
+      const startCommand = isNativeWindows
+        ? 'target\\dev-fast\\n-apt-backend.exe'
+        : './target/dev-fast/n-apt-backend';
+      const startResult = await startBackgroundProcess(
+        startCommand,
+        'Rust backend',
+        'rustPid'
+      );
 
-      const stable = sampleA.length === sampleB.length && sampleA.every((entry, index) => {
-        const next = sampleB[index];
-        return next
-          && next.path === entry.path
-          && next.mtimeMs === entry.mtimeMs
-          && next.size === entry.size;
-      });
-
-      if (!stable) {
-        addLog(chalk.yellow(
-          `[Watcher] Source changes are still settling${pathHint ? ` (${pathHint})` : ''}; waiting before rebuild...`
-        ));
-        return false;
-      }
-
-      return true;
+      return startResult;
     };
 
     const triggerRebuild = async () => {
       if (isRebuilding) return;
       isRebuilding = true;
 
-      // Write status to file for frontend notification
       try {
         fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: true }));
       } catch {}
 
-      addLog(chalk.yellow('\n[Watcher] Rust source file change detected. Rebuilding backend...'));
-      updateProcessStatus(7, 'running', undefined, 'Rebuilding Rust backend...');
+      addLog(chalk.yellow('\n[Watcher] Rust source changes settled. Validating backend...'));
+      updateProcessStatus(7, 'running', undefined, 'Validating Rust backend...');
 
-      // Prune old incremental cache before rebuild to keep target clean
       pruneIncrementalCache(addLog);
 
+      const checkCommand = `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
       const buildCommand = `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
-      const buildResult = await executeForegroundCommand(
-        buildCommand,
-        'Rebuilding Rust backend',
-        7
-      );
 
-      // Write completion status to file
+      const validationResult = await runRustHotReloadValidation({
+        cargoCheck: () => executeForegroundCommand(
+          checkCommand,
+          'Checking Rust backend',
+          7
+        ),
+        cargoBuild: () => executeForegroundCommand(
+          buildCommand,
+          'Building Rust backend',
+          7
+        ),
+        restart: restartRustBackend,
+        log: addLog,
+        updateStatus: (status, message, label) => {
+          updateProcessStatus(7, status, message, label);
+        },
+      });
+
       try {
-        fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: false, success: buildResult.success }));
+        fs.writeFileSync('.rebuild_status.json', JSON.stringify({
+          rebuilding: false,
+          success: validationResult.stage === 'restarted',
+          stage: validationResult.stage,
+        }));
       } catch {}
 
-      if (buildResult.success) {
-        addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
-        
-        // Kill existing backend
-        if (buildState.rustPid) {
-          try {
-            intentionalRustKillRef.current = true;
-            process.kill(-buildState.rustPid, 'SIGTERM');
-          } catch {
-            try {
-              process.kill(buildState.rustPid, 'SIGTERM');
-            } catch {}
-          }
-        }
-        // Pre-emptive safety check: Kill any other orphaned backend processes
-        try {
-          if (process.platform === 'win32') {
-            spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
-          } else {
-            spawnSync('pkill -9 -f n-apt-backend', { shell: true });
-          }
-        } catch {}
-
-        // Start new backend
-        const startCommand = isNativeWindows
-          ? 'target\\dev-fast\\n-apt-backend.exe'
-          : './target/dev-fast/n-apt-backend';
-        const startResult = await startBackgroundProcess(
-          startCommand,
-          'Rust backend',
-          'rustPid'
-        );
-
-        if (startResult) {
-          updateProcessStatus(7, 'success', metalBackendStatusRef.current ?? undefined, 'Rust backend running...');
-          notifier.notify({
-            title: 'N-APT',
-            message: '✓ Rust backend reloaded successfully',
-            icon: path.join(__dirname, 'public/icon-5112.png'),
-          });
-        } else {
-          updateProcessStatus(7, 'error', 'Failed to restart Rust backend', 'Rust backend failed');
-        }
-      } else {
-        addLog(chalk.red('[Watcher] Rebuild failed. Rust backend is still running old binary.'));
-        updateProcessStatus(7, 'warning', 'Rebuild failed - running old binary', 'Rust backend running (old)');
+      if (validationResult.stage === 'restarted') {
+        notifier.notify({
+          title: 'N-APT',
+          message: '✓ Rust backend reloaded successfully',
+          icon: path.join(__dirname, 'public/icon-5112.png'),
+        });
       }
 
       isRebuilding = false;
@@ -1441,27 +1404,15 @@ exit 1
         const ext = path.extname(filename);
         const basename = path.basename(filename);
         if (ext === '.rs' || basename === 'Cargo.toml') {
-          pendingReloadPath = path.join(srcRsPath, filename);
+          hotReloadGate.recordChange();
           if (rebuildTimeout) clearTimeout(rebuildTimeout);
-          if (rebuildStableCheck) clearTimeout(rebuildStableCheck);
           rebuildTimeout = setTimeout(() => {
-            rebuildStableCheck = setTimeout(async () => {
-              if (await waitForStableSave(pendingReloadPath)) {
-                pendingReloadPath = null;
-                void triggerRebuild();
-              } else {
-                if (rebuildTimeout) clearTimeout(rebuildTimeout);
-                rebuildTimeout = setTimeout(() => {
-                  rebuildStableCheck = setTimeout(async () => {
-                    if (await waitForStableSave(pendingReloadPath)) {
-                      pendingReloadPath = null;
-                      void triggerRebuild();
-                    }
-                  }, 0);
-                }, 450);
-              }
-            }, 0);
-          }, 900); // wait for editors that write temp files / multi-step saves
+            if (hotReloadGate.shouldAttemptValidation()) {
+              void triggerRebuild();
+            } else {
+              addLog(chalk.yellow('[Watcher] Rust source changes detected; waiting for edits to settle...'));
+            }
+          }, 1200);
         }
       });
       addLog(chalk.blue('[Watcher] Watching Rust source files for changes...'));
@@ -1472,7 +1423,6 @@ exit 1
     return () => {
       if (watcher) watcher.close();
       if (rebuildTimeout) clearTimeout(rebuildTimeout);
-      if (rebuildStableCheck) clearTimeout(rebuildStableCheck);
     };
   }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
 

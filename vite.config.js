@@ -139,6 +139,9 @@ export default defineConfig(({ mode }) => {
       find: /^\/?@n-apt\/webmcp\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/agents/webmcp/$1")
     }, {
+      find: /^\/?@n-apt\/tracked-interactive\/(.*)$/,
+      replacement: path.resolve(dirname, "src/tracked-interactive/$1")
+    }, {
       find: /^\/?@n-apt\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/$1")
     }, {

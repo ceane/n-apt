@@ -69,11 +69,18 @@ pub fn generate_mock_tx_samples_ifft(
         (edge_fraction * half_bins.max(1) as f64).round().max(1.0) as usize;
       let amp =
         (1.0 / harmonic as f32) * (1.0 - 0.35 * n as f32 / spike_count as f32);
-      let phase = if key == "d_sharp" {
-        std::f64::consts::FRAC_PI_4 * harmonic as f64
-      } else {
-        -std::f64::consts::FRAC_PI_2 * harmonic as f64
-      };
+        let phase = if params.phase_seed != 0 {
+          let seed_phase = subcarrier_phase_hash(harmonic as u64, params.phase_seed);
+          if key == "d_sharp" {
+            std::f64::consts::FRAC_PI_4 * harmonic as f64 + seed_phase
+          } else {
+            -std::f64::consts::FRAC_PI_2 * harmonic as f64 + seed_phase
+          }
+        } else if key == "d_sharp" {
+          std::f64::consts::FRAC_PI_4 * harmonic as f64
+        } else {
+          -std::f64::consts::FRAC_PI_2 * harmonic as f64
+        };
       let (sin_p, cos_p) = phase.sin_cos();
 
       if bin_offset < params.tx_ifft_size / 2 {
@@ -88,7 +95,7 @@ pub fn generate_mock_tx_samples_ifft(
     }
   } else {
     let half_width = half_bins.max(1) as f64;
-    let shoulder_start = if key == "5g" { 0.55 } else { 0.50 };
+    let shoulder_start = if key == "5g" { 0.18 } else { 0.16 };
     for k in 0..num_bins {
       let centered = k as isize - half_bins as isize;
       let bin_idx = if centered >= 0 {
@@ -105,8 +112,7 @@ pub fn generate_mock_tx_samples_ifft(
         } else {
           let t =
             ((x - shoulder_start) / (1.0 - shoulder_start)).clamp(0.0, 1.0);
-          let smooth = t * t * (3.0 - 2.0 * t);
-          1.0 - 0.985 * smooth
+          (1.0 - t).powi(3)
         };
 
         let base_phase =
@@ -164,6 +170,24 @@ pub fn generate_mock_tx_samples_ifft(
 
   // Transform to time domain
   fft.process(&mut spectrum);
+
+  if key == "wifi" || key == "5g" {
+    let edge_fraction = if key == "5g" { 0.34 } else { 0.28 };
+    let edge_len = ((params.tx_ifft_size as f64) * edge_fraction)
+      .round()
+      .clamp(1.0, (params.tx_ifft_size / 2).max(1) as f64) as usize;
+    for (idx, sample) in spectrum.iter_mut().enumerate() {
+      let dist = idx.min(params.tx_ifft_size - 1 - idx);
+      let window = if dist >= edge_len {
+        1.0
+      } else {
+        let t = dist as f64 / edge_len.max(1) as f64;
+        0.5 - 0.5 * (std::f64::consts::PI * t).cos()
+      } as f32;
+      sample.re *= window;
+      sample.im *= window;
+    }
+  }
 
   // Normalize block so its FFT peak bin is exactly 1.0 (after receiver size normalization)
   let mut test_block = spectrum.clone();
