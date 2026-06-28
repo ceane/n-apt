@@ -47,6 +47,18 @@ describe("Redux WebSocket Migration", () => {
   let store: ReturnType<typeof configureStore>;
 
   beforeEach(() => {
+    jest.useRealTimers();
+    const requestAnimationFrame = jest.fn((callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0),
+    );
+    const cancelAnimationFrame = jest.fn((id: number) => {
+      window.clearTimeout(id);
+    });
+    window.requestAnimationFrame = requestAnimationFrame as any;
+    window.cancelAnimationFrame = cancelAnimationFrame as any;
+    global.requestAnimationFrame = requestAnimationFrame as any;
+    global.cancelAnimationFrame = cancelAnimationFrame as any;
+
     // Create a minimal store with websocket and spectrum slices
     store = configureStore({
       reducer: {
@@ -327,14 +339,71 @@ describe("Redux WebSocket Migration", () => {
         iq_data: new Uint8Array([128, 128, 129, 127]),
       };
 
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "mock-tx",
+          activeSourceMode: "live",
+          backend: "mock_apt",
+          deviceInfo: "Mock Tx SDR",
+          deviceName: "Mock Tx SDR",
+          deviceProfile: {
+            kind: "mock_tx",
+            is_rtl_sdr: false,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+          },
+          sources: [
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 0,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              sdr: {
+                max_sample_rate: 2_400_000,
+                sample_rate_options: [2_400_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                },
+              },
+            },
+          ],
+          sourceStatuses: { "mock-tx": "streaming" },
+          channels: [cachedSpectrumFrame as any],
+          maxSampleRateHz: 2_400_000,
+          sampleRateOptions: [2_400_000],
+          sampleRateHz: 2_400_000,
+          sdrSettings: {
+            sample_rate: 2_400_000,
+            center_frequency: 137_100_000,
+          } as any,
+          sdrLimitMarkers: [],
+        }),
+      );
       middlewareStore.dispatch(setSpectrumFrames([cachedSpectrumFrame as any]));
       liveDataRef.current = [liveFrame as any];
 
       middlewareStore.dispatch({ type: "websocket/disconnect" });
 
+      const websocketState = middlewareStore.getState().websocket;
+
       expect(liveDataRef.current).toBeNull();
-      expect(middlewareStore.getState().websocket.spectrumFrames).toEqual([]);
-      expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
+      expect(websocketState.spectrumFrames).toEqual([]);
+      expect(websocketState.dataFrameCounter).toBe(0);
+      expect(websocketState.channels).toEqual([]);
+      expect(websocketState.sampleRateHz).toBeNull();
+      expect(websocketState.sdrSettings).toBeNull();
+      expect(websocketState.sources).toEqual([]);
+      expect(websocketState.sourceStatuses).toEqual({});
+      expect(websocketState.activeSourceId).toBeNull();
+      expect(websocketState.backend).toBeNull();
+      expect(websocketState.queuedMessages).toEqual([]);
     });
 
     it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {
@@ -1384,7 +1453,41 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("WebSocket disconnect handling", () => {
-    it("clears stale live device metadata when the socket disconnects", () => {
+    it("does not queue Tx or preview frame requests while disconnected", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "tx_mode",
+          data: {
+            txMode: true,
+            txDevice: "Mock Tx SDR",
+            serialNumber: "mock-tx",
+          },
+        },
+      });
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "request_next_frame",
+          data: {},
+        },
+      });
+
+      expect(middlewareStore.getState().websocket.queuedMessages).toEqual([]);
+    });
+
+    it("clears device metadata when the socket disconnects", () => {
       const middlewareStore = configureStore({
         reducer: {
           websocket: websocketSlice,

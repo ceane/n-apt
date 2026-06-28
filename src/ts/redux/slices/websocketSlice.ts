@@ -208,6 +208,7 @@ const websocketSlice = createSlice({
       state.captureStatus = null;
       state.spectrumFrames = [];
       state.dataFrameCounter = 0;
+      state.queuedMessages = [];
     },
 
     setReconnecting: (state, action: PayloadAction<number>) => {

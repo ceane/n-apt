@@ -2171,6 +2171,17 @@ const FFTCanvas = memo(
     // to show/hide red limit lines indicating hardware boundaries
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
+      if (!isDeviceConnected) {
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        lastIncomingFrameRef.current = null;
+        renderWaveformRef.current = null;
+        waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+        frameBufferRef.current = [];
+        forceRenderRef.current?.();
+      }
     }, [isDeviceConnected]);
 
     useEffect(() => {

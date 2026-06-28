@@ -28,7 +28,7 @@ interface CanvasPlaceholderProps {
 const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
   position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -156,10 +156,15 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
     <PlaceholderOverlay role="alert" aria-live="assertive">
       <PlaceholderCard>
         <PlaceholderKicker $error>Error</PlaceholderKicker>
-        <PlaceholderTitle $error>Error / {state.reason}</PlaceholderTitle>
+        <PlaceholderTitle $error>
+          {state.reason === "Server down" ? "Server Down" : `Error / ${state.reason}`}
+        </PlaceholderTitle>
         <PlaceholderBody>
-          {state.message ||
-            `Can't playback from ${sourceLabel}. Reason: ${state.reason}`}
+          {state.reason === "Server down"
+            ? state.message ||
+              "The server was disconnected due to being manually exited or an error."
+            : state.message ||
+              `Can't playback from ${sourceLabel}. Reason: ${state.reason}`}
         </PlaceholderBody>
       </PlaceholderCard>
     </PlaceholderOverlay>

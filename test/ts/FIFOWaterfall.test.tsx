@@ -98,9 +98,11 @@ describe("FIFOWaterfall", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText("Error / Server down")).toBeInTheDocument();
+    expect(screen.getByText("Server Down")).toBeInTheDocument();
     expect(
-      screen.getByText("Can't playback from Live SDR. Reason: Server down"),
+      screen.getByText(
+        "The server was disconnected due to being manually exited or an error.",
+      ),
     ).toBeInTheDocument();
   });
 });

@@ -420,11 +420,11 @@ export const resetWebSocketMiddlewareState = (): void => {
   pendingStatusUpdates = null;
   liveDataRef.current = null;
   resetPausedFrameRequestGate();
-  if (dataBatchFrame) {
+  if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
   }
-  if (statusBatchFrame) {
+  if (statusBatchFrame !== null) {
     cancelAnimationFrame(statusBatchFrame);
     statusBatchFrame = null;
   }
@@ -449,6 +449,14 @@ export const resetWebSocketMiddlewareState = (): void => {
   }
   sourceIqWsInstance.url = "";
   sourceIqWsInstance.sourceId = null;
+  if (wsInstance.reconnectTimeout !== null) {
+    clearTimeout(wsInstance.reconnectTimeout);
+    wsInstance.reconnectTimeout = null;
+  }
+  if (wsInstance.disconnectTimeout !== null) {
+    clearTimeout(wsInstance.disconnectTimeout);
+    wsInstance.disconnectTimeout = null;
+  }
   wsInstance.reconnectTimeout = null;
   wsInstance.disconnectTimeout = null;
   wsInstance.reconnectAttempts = 0;
@@ -532,6 +540,21 @@ const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
   }
   syncSourceIqSocket(dispatch, getState);
   statusBatchFrame = null;
+};
+
+const applyStatusUpdates = (
+  dispatch: Dispatch,
+  getState: () => any,
+  updates: Record<string, unknown>,
+) => {
+  const websocketState = getState().websocket;
+  const hasChanges = Object.entries(updates).some(([key, value]) => {
+    return !equalValue(websocketState[key], value);
+  });
+  if (hasChanges) {
+    dispatch(updateDeviceState(updates));
+  }
+  syncSourceIqSocket(dispatch, getState);
 };
 
 const getPausedValue = (payload: unknown): boolean | null => {
@@ -943,16 +966,7 @@ const processMessage = (
         sourceStatuses,
         ...derived,
       };
-      if (pendingStatusUpdates === null) {
-        pendingStatusUpdates = updates;
-      } else {
-        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
-      }
-      if (statusBatchFrame === null) {
-        statusBatchFrame = window.requestAnimationFrame(() =>
-          processBatchedStatus(dispatch, getState),
-        );
-      }
+      applyStatusUpdates(dispatch, getState, updates);
     } catch (e) {
       console.error("Failed to parse source_info message:", e);
     }
@@ -992,16 +1006,7 @@ const processMessage = (
         ...derived,
       };
 
-      if (pendingStatusUpdates === null) {
-        pendingStatusUpdates = combinedUpdates;
-      } else {
-        pendingStatusUpdates = { ...pendingStatusUpdates, ...combinedUpdates };
-      }
-      if (statusBatchFrame === null) {
-        statusBatchFrame = window.requestAnimationFrame(() =>
-          processBatchedStatus(dispatch, getState),
-        );
-      }
+      applyStatusUpdates(dispatch, getState, combinedUpdates);
     } catch (e) {
       console.error("Failed to parse active_source message:", e);
     }
@@ -1092,16 +1097,7 @@ const processMessage = (
         updates.deviceLoadingReason =
           parsedData.status === "loading" ? "connect" : null;
       }
-      if (pendingStatusUpdates === null) {
-        pendingStatusUpdates = updates;
-      } else {
-        pendingStatusUpdates = { ...pendingStatusUpdates, ...updates };
-      }
-      if (statusBatchFrame === null) {
-        statusBatchFrame = window.requestAnimationFrame(() =>
-          processBatchedStatus(dispatch, getState),
-        );
-      }
+      applyStatusUpdates(dispatch, getState, updates);
     } catch (e) {
       console.error("Failed to parse source status message:", e);
     }
@@ -1549,19 +1545,31 @@ const createWebSocketMiddleware =
           clearTimeout(wsInstance.disconnectTimeout);
         }
 
+        wsInstance.disposed = true;
+        wsInstance.enabled = false;
+        if (wsInstance.reconnectTimeout) {
+          clearTimeout(wsInstance.reconnectTimeout);
+          wsInstance.reconnectTimeout = null;
+        }
+
         liveDataRef.current = null;
         pendingDataUpdate = null;
         pendingStatusUpdates = null;
+        if (statusBatchFrame !== null) {
+          cancelAnimationFrame(statusBatchFrame);
+          statusBatchFrame = null;
+        }
 
         wsInstance.disconnectTimeout = window.setTimeout(() => {
           wsInstance.disconnectTimeout = null;
           cleanupSocket();
         }, DISCONNECT_GRACE_MS);
 
-        if (dataBatchFrame) {
+        if (dataBatchFrame !== null) {
           cancelAnimationFrame(dataBatchFrame);
           dataBatchFrame = null;
         }
+        cleanupSourceIqSocket();
         resetPausedFrameRequestGate();
 
         dispatch(setDisconnected());
@@ -1619,6 +1627,9 @@ const createWebSocketMiddleware =
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
+        } else if (type === "tx_mode" || type === "request_next_frame") {
+          allowNextPausedFrame = false;
+          resetPausedFrameRequestGate();
         } else {
           // Queue the message for when connection is restored
           dispatch(queueMessage({ type, data: normalizedData }));

@@ -514,10 +514,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const selectedSourceKind = selectedSource?.kind?.toLowerCase?.() ?? "";
   const selectedSourceObjectId = selectedSource?.id ?? "";
   const isSelectedMockTxSource =
-    selectedSourceId === "mock-tx" ||
-    selectedSourceObjectId === "mock-tx" ||
-    selectedSourceKind === "mock_tx" ||
-    selectedSourceKind === "mock-tx";
+    isConnected &&
+    !!selectedSource &&
+    (selectedSourceId === "mock-tx" ||
+      selectedSourceObjectId === "mock-tx" ||
+      selectedSourceKind === "mock_tx" ||
+      selectedSourceKind === "mock-tx");
   const visualizerSessionKey = useMemo(
     () => getSourceViewStorageKeyForSource(selectedSource),
     [selectedSource],
@@ -1663,8 +1665,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 fftWindow={state.fftWindow}
                 powerScale={state.powerScale}
                 isDeviceConnected={
-                  isSelectedMockTxSource ||
-                  selectedSourceDerived.deviceState === "connected"
+                  isConnected &&
+                  (isSelectedMockTxSource ||
+                    selectedSourceDerived.deviceState === "connected")
                 }
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}

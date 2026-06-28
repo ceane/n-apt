@@ -601,14 +601,19 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
+  const liveIsConnected = wsConnection.isConnected ?? isConnected;
   const sourcesToUse = useMemo(
-    () =>
-      sources.length > 0
+    () => {
+      if (!liveIsConnected) {
+        return [];
+      }
+      return sources.length > 0
         ? sources
         : Array.isArray(wsConnection.sources) && wsConnection.sources.length > 0
           ? wsConnection.sources
-          : websocketSources,
-    [sources, websocketSources, wsConnection.sources],
+          : websocketSources;
+    },
+    [liveIsConnected, sources, websocketSources, wsConnection.sources],
   );
 
   const liveBackend = selectedSourceDerived.backend ?? wsConnection.backend;
@@ -617,7 +622,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveDeviceLoadingReason =
     wsConnection.deviceLoadingReason ??
     (selectedSource?.status === "loading" ? "connect" : null);
-  const liveIsConnected = wsConnection.isConnected ?? isConnected;
   const liveIsPaused =
     manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
   const liveCaptureStatus = wsConnection.captureStatus ?? captureStatus;
@@ -1257,6 +1261,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const handleToggleTransmitMode = useCallback(
     (sourceId: string, nextEnabled: boolean) => {
+      if (!isConnected) {
+        return;
+      }
       const now = Date.now();
       if (nextEnabled && now - lastTxToggleTimeRef.current < 800) {
         console.warn("Throttling rapid transmit mode toggle request");
@@ -1386,6 +1393,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txHopEndFrequencyHz,
       txHopChannels,
       txHopRateHz,
+      isConnected,
       wsConnection.sendTransmitMode,
     ],
   );
