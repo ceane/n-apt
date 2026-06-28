@@ -152,6 +152,13 @@ const createLocalStorageMiddleware =
           JSON.stringify(websocketState.sdrSettings),
         );
       }
+
+      if (
+        action.type === "websocket/disconnect" ||
+        action.type === "websocket/setDisconnected"
+      ) {
+        safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
+      }
     }
 
     return result;

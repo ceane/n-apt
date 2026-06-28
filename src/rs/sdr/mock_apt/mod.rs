@@ -268,10 +268,15 @@ fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
   }
 }
 
-fn mock_apt_motion_unit(sample_index: u64, salt: u64) -> f64 {
+const MOCK_APT_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
+const MOCK_APT_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
+const MOCK_APT_I_DITHER_KEY: u64 = 0x4d41_5054_5458_4949;
+const MOCK_APT_Q_DITHER_KEY: u64 = 0x4d41_5054_5458_5151;
+
+fn mock_apt_motion_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
     .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-    .wrapping_add(salt);
+    .wrapping_add(noise_key);
   x ^= x >> 30;
   x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
   x ^= x >> 27;
@@ -291,9 +296,9 @@ fn wifi_5g_motion_gain(
 
   // OFDM-like transmit blocks need a little frame-to-frame texture so the
   // signal does not look frozen when the same cached block is reused.
-  let frame_noise = mock_apt_motion_unit(frame_seed, 0x5749_4649_5f46_524d);
+  let frame_noise = mock_apt_motion_unit(frame_seed, MOCK_APT_FRAME_NOISE_KEY);
   let sample_noise =
-    mock_apt_motion_unit(sample_index ^ frame_seed, 0x534d_504c_5458_4741);
+    mock_apt_motion_unit(sample_index ^ frame_seed, MOCK_APT_SAMPLE_NOISE_KEY);
   (1.0 + 0.06 * frame_noise + 0.03 * sample_noise).clamp(0.85, 1.15)
 }
 
@@ -825,7 +830,7 @@ fn hash_noise(t: u64, seed: u64) -> f64 {
 fn quantize_mock_apt_sample(
   value: f64,
   sample_index: u64,
-  salt: u64,
+  noise_key: u64,
   stochastic: bool,
 ) -> u8 {
   let scaled = value.clamp(-1.0, 1.0) * 127.0;
@@ -835,7 +840,7 @@ fn quantize_mock_apt_sample(
 
   let lower = scaled.floor();
   let fraction = scaled - lower;
-  let dither = (hash_noise(sample_index, salt) + 1.0) * 0.5;
+  let dither = (hash_noise(sample_index, noise_key) + 1.0) * 0.5;
   let signed = lower + if dither < fraction { 1.0 } else { 0.0 };
   (128.0 + signed).clamp(0.0, 255.0) as u8
 }
@@ -1537,13 +1542,13 @@ impl MockAptDevice {
       let i_u8 = quantize_mock_apt_sample(
         self.i_accumulator[j] + i_noise,
         sample_index,
-        0x4d41_5054_5458_4949,
+        MOCK_APT_I_DITHER_KEY,
         stochastic_tx_quantization,
       );
       let q_u8 = quantize_mock_apt_sample(
         self.q_accumulator[j] + q_noise,
         sample_index,
-        0x4d41_5054_5458_5151,
+        MOCK_APT_Q_DITHER_KEY,
         stochastic_tx_quantization,
       );
 

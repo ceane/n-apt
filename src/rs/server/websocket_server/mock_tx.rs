@@ -5,10 +5,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const MOCK_TX_DISPLAY_NAME: &str = "Mock Tx SDR";
 pub static MOCK_TX_MONITOR_SAMPLE_CURSOR: AtomicU64 = AtomicU64::new(0);
 
-fn mock_tx_noise_unit(sample_index: u64, salt: u64) -> f64 {
+const MOCK_TX_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
+const MOCK_TX_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
+const MOCK_TX_I_DITHER_KEY: u64 = 0x544d_4f4e_4951_4949;
+const MOCK_TX_Q_DITHER_KEY: u64 = 0x544d_4f4e_4951_5151;
+const MOCK_TX_FLAT_I_NOISE_KEY: u64 = 0x464c_4154_5458_4949;
+const MOCK_TX_FLAT_Q_NOISE_KEY: u64 = 0x464c_4154_5458_5151;
+
+fn mock_tx_noise_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
     .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-    .wrapping_add(salt);
+    .wrapping_add(noise_key);
   x ^= x >> 30;
   x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
   x ^= x >> 27;
@@ -28,9 +35,9 @@ fn wifi_5g_motion_gain(
 
   // OFDM-style blocks need a little frame-to-frame texture so the live monitor
   // does not look frozen when the same cached IFFT block is reused.
-  let frame_noise = mock_tx_noise_unit(frame_seed, 0x5749_4649_5f46_524d);
+  let frame_noise = mock_tx_noise_unit(frame_seed, MOCK_TX_FRAME_NOISE_KEY);
   let sample_noise =
-    mock_tx_noise_unit(sample_index ^ frame_seed, 0x534d_504c_5458_4741);
+    mock_tx_noise_unit(sample_index ^ frame_seed, MOCK_TX_SAMPLE_NOISE_KEY);
   (1.0 + 0.14 * frame_noise + 0.06 * sample_noise).clamp(0.75, 1.25)
 }
 
@@ -72,11 +79,11 @@ pub fn resolve_effective_tx_power_dbm(
   })
 }
 
-fn quantize_mock_tx_iq(value: f64, sample_index: u64, salt: u64) -> u8 {
+fn quantize_mock_tx_iq(value: f64, sample_index: u64, noise_key: u64) -> u8 {
   let scaled = value.clamp(-1.0, 1.0) * 128.0;
   let lower = scaled.floor();
   let fraction = scaled - lower;
-  let dither = (mock_tx_noise_unit(sample_index, salt) + 1.0) * 0.5;
+  let dither = (mock_tx_noise_unit(sample_index, noise_key) + 1.0) * 0.5;
   let signed = lower + if dither < fraction { 1.0 } else { 0.0 };
   (128.0 + signed).clamp(0.0, 255.0) as u8
 }
@@ -131,9 +138,9 @@ fn clamp_quantized_iq_to_bandwidth(
     for (index, sample) in iq.iter().enumerate() {
       let sample = *sample * scale;
       frame[index * 2] =
-        quantize_mock_tx_iq(sample.re as f64, index as u64, 0x544d_4f4e_4951_4949);
+        quantize_mock_tx_iq(sample.re as f64, index as u64, MOCK_TX_I_DITHER_KEY);
       frame[index * 2 + 1] =
-        quantize_mock_tx_iq(sample.im as f64, index as u64, 0x544d_4f4e_4951_5151);
+        quantize_mock_tx_iq(sample.im as f64, index as u64, MOCK_TX_Q_DITHER_KEY);
     }
   }
 }
@@ -364,15 +371,15 @@ pub fn synthesize_mock_tx_monitor_iq(
       * motion_gain;
 
     let noise_i =
-      mock_tx_noise_unit(t, 0x464c_4154_5458_4949) * noise_floor_rms;
+      mock_tx_noise_unit(t, MOCK_TX_FLAT_I_NOISE_KEY) * noise_floor_rms;
     let noise_q =
-      mock_tx_noise_unit(t, 0x464c_4154_5458_5151) * noise_floor_rms;
+      mock_tx_noise_unit(t, MOCK_TX_FLAT_Q_NOISE_KEY) * noise_floor_rms;
 
     let i_val = i_sig + noise_i;
     let q_val = q_sig + noise_q;
 
-    out.push(quantize_mock_tx_iq(i_val, t, 0x544d_4f4e_4951_4949));
-    out.push(quantize_mock_tx_iq(q_val, t, 0x544d_4f4e_4951_5151));
+    out.push(quantize_mock_tx_iq(i_val, t, MOCK_TX_I_DITHER_KEY));
+    out.push(quantize_mock_tx_iq(q_val, t, MOCK_TX_Q_DITHER_KEY));
   }
 
   clamp_quantized_iq_to_bandwidth(

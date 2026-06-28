@@ -27,6 +27,7 @@ import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
 import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
+import { waitFor } from "@testing-library/react";
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -721,14 +722,14 @@ describe("Redux WebSocket Migration", () => {
       sockets[0].onmessage?.({ data: sourceInfo("connected") });
       await new Promise((resolve) => setTimeout(resolve, 25));
       sockets[0].onmessage?.({ data: sourceInfo("transmitting") });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-
-      expect(middlewareStore.getState().websocket.sources[0].status).toBe(
-        "transmitting",
-      );
-      expect(middlewareStore.getState().websocket.deviceState).toBe(
-        "transmitting",
-      );
+      await waitFor(() => {
+        expect(middlewareStore.getState().websocket.sources[0].status).toBe(
+          "transmitting",
+        );
+        expect(middlewareStore.getState().websocket.deviceState).toBe(
+          "transmitting",
+        );
+      });
     });
 
     it("reopens the active per-source IQ WebSocket after an unexpected close", async () => {

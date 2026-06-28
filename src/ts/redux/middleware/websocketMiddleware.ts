@@ -1549,6 +1549,10 @@ const createWebSocketMiddleware =
           clearTimeout(wsInstance.disconnectTimeout);
         }
 
+        liveDataRef.current = null;
+        pendingDataUpdate = null;
+        pendingStatusUpdates = null;
+
         wsInstance.disconnectTimeout = window.setTimeout(() => {
           wsInstance.disconnectTimeout = null;
           cleanupSocket();

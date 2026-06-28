@@ -206,6 +206,8 @@ const websocketSlice = createSlice({
       state.sdrSettings = null;
       state.sdrLimitMarkers = [];
       state.captureStatus = null;
+      state.spectrumFrames = [];
+      state.dataFrameCounter = 0;
     },
 
     setReconnecting: (state, action: PayloadAction<number>) => {
