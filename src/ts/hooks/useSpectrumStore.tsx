@@ -1269,6 +1269,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         : [];
 
       if (availableSourceIds.length === 0) {
+        if (selectedSourceId.length > 0) {
+          setSelectedSourceId("");
+        }
         return;
       }
 
@@ -1602,6 +1605,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           txHopRateHz?: number | null;
         },
       ) => {
+        if (!isConnected) {
+          return;
+        }
         const { ifftSize, ...txSettingsWithoutIfftSize } = txSettings;
         reduxDispatch({
           type: "websocket/sendMessage",
@@ -1626,7 +1632,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           },
         });
       },
-      [reduxDispatch, reduxSpectrumState],
+      [isConnected, reduxDispatch, reduxSpectrumState],
     );
 
     const wsConnection = useMemo(
@@ -1729,6 +1735,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           return null;
         }
       });
+    const lastLiveSourceIdRef = useRef<string | null>(null);
 
     const syncSelectedSourcePauseState = useCallback(
       (sourceId: string | null | undefined) => {
@@ -1829,6 +1836,32 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       effectiveWebsocketSources,
       wsConnection,
     ]);
+
+    useEffect(() => {
+      if (state.sourceMode !== "live") {
+        lastLiveSourceIdRef.current = null;
+        return;
+      }
+
+      const currentLiveSourceId =
+        selectedSource?.id ?? activeSourceId ?? selectedSourceId ?? null;
+      if (!currentLiveSourceId) {
+        return;
+      }
+
+      if (lastLiveSourceIdRef.current === currentLiveSourceId) {
+        return;
+      }
+
+      lastLiveSourceIdRef.current = currentLiveSourceId;
+      liveDataRef.current = null;
+      setCachedFrames([]);
+      try {
+        sessionStorage.removeItem("napt-spectrum-frames");
+      } catch {
+        /* ignore */
+      }
+    }, [activeSourceId, selectedSource, selectedSourceId, state.sourceMode]);
 
     useEffect(() => {
       const wasVisualizerRoute = previousIsVisualizerRouteRef.current;
@@ -2142,6 +2175,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [deviceProfile, state.powerScale, storeDispatch]);
 
     useEffect(() => {
+      if (!isConnected) {
+        setCachedFrames([]);
+        try {
+          sessionStorage.removeItem("napt-spectrum-frames");
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (wsSpectrumFrames.length === 0) return;
       setCachedFrames(wsSpectrumFrames);
       try {
@@ -2152,9 +2194,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       } catch {
         /* ignore */
       }
-    }, [wsSpectrumFrames]);
+    }, [isConnected, wsSpectrumFrames]);
 
     useEffect(() => {
+      if (!isConnected) {
+        setCachedSdrSettings(null);
+        try {
+          sessionStorage.removeItem("napt-sdr-settings");
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (!sdrSettings) return;
       setCachedSdrSettings(sdrSettings);
       try {
@@ -2171,7 +2222,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           sdrSettings: sdrSettings as any,
         }),
       );
-    }, [sdrSettings, reduxDispatch]);
+    }, [isConnected, sdrSettings, reduxDispatch]);
 
     const hydratedBackendSampleRateRef = useRef(false);
 
@@ -2225,12 +2276,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     const effectiveFrames: SpectrumFrame[] =
-      Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
+      !isConnected
+        ? []
+        : Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
         ? wsSpectrumFrames
         : Array.isArray(cachedFrames)
           ? cachedFrames
           : [];
-    const effectiveSdrSettings = sdrSettings ?? cachedSdrSettings;
+    const effectiveSdrSettings = isConnected
+      ? (sdrSettings ?? cachedSdrSettings)
+      : null;
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
       localSampleRateHz: mergedState.sampleRateHz,
