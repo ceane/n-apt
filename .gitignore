@@ -65,6 +65,9 @@ redis/backups
 .redis_data/
 .redis_data
 
+# Local rebuild metadata
+.rebuild_status.json
+
 # Rust-specific files
 *.pdb
 *.profraw
