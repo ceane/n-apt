@@ -843,10 +843,15 @@ pub fn handle_message(
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
         sdr_settings.center_frequency as f64;
-      let tx_bw = message
-        .bandwidth
-        .map(|bw| bw as f64)
-        .unwrap_or(sdr_settings.sample_rate as f64);
+      let current_tx_bandwidth_hz =
+        *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+      let tx_bw = match message.bandwidth {
+        Some(bw) => bw as f64,
+        None if !enabled && current_tx_bandwidth_hz > 0.0 => {
+          current_tx_bandwidth_hz
+        }
+        None => sdr_settings.sample_rate as f64,
+      };
       *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = tx_bw;
       if let Some(tx_ifft_size) = message.tx_ifft_size {
         *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
@@ -1446,6 +1451,41 @@ mod tests {
       .find(|source| source["id"].as_str() == Some("mock-tx"))
       .expect("mock Tx source");
     assert_eq!(mock_tx["status"], "connected");
+  }
+
+  #[test]
+  #[serial]
+  fn tx_mode_disable_without_bandwidth_keeps_existing_tx_bandwidth() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"tx_mode",
+        "txMode":false,
+        "txDevice":"Mock Tx SDR"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected SetTransmitMode command");
+    match cmd {
+      SdrCommand::SetTransmitMode {
+        enabled,
+        bandwidth_hz,
+        ..
+      } => {
+        assert!(!enabled);
+        assert_eq!(bandwidth_hz, Some(2_400_000.0));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
+    assert_eq!(*crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(), 2_400_000.0);
   }
 
   #[test]

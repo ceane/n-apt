@@ -1,7 +1,13 @@
+import { configureStore } from "@reduxjs/toolkit";
+import websocketSlice, {
+  setDisconnected,
+  setSpectrumFrames,
+} from "@n-apt/redux/slices/websocketSlice";
 import {
   loadPersistedSdrSettings,
   loadPersistedSdrSettingsCache,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
+import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
 
 describe("loadPersistedSdrSettings", () => {
   beforeEach(() => {
@@ -84,5 +90,32 @@ describe("loadPersistedSdrSettings", () => {
 
     expect(parsed?.gain?.tuner_gain).toBeUndefined();
     expect(parsed?.gain?.rtl_agc).toBe(false);
+  });
+
+  it("removes persisted spectrum frames when the websocket disconnects", () => {
+    const store = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+          serializableCheck: false,
+        }).concat(localStorageMiddleware),
+    });
+
+    const spectrumFrame = {
+      id: "cached-frame",
+      label: "cached-frame",
+      min_hz: 1,
+      max_hz: 2,
+      description: "cached spectrum frame",
+    };
+
+    store.dispatch(setSpectrumFrames([spectrumFrame as any]));
+    expect(localStorage.getItem("napt-spectrum-frames")).not.toBeNull();
+
+    store.dispatch(setDisconnected());
+
+    expect(localStorage.getItem("napt-spectrum-frames")).toBeNull();
   });
 });

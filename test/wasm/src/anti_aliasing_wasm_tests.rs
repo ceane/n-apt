@@ -1,4 +1,4 @@
-use n_apt_backend::fft::anti_aliasing::*;
+use n_apt_backend::s::fft::anti_aliasing::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test]

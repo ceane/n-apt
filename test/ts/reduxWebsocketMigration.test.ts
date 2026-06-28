@@ -2,6 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import websocketSlice, {
   updateDeviceState,
   setCaptureStatus,
+  setSpectrumFrames,
 } from "@n-apt/redux/slices/websocketSlice";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -297,6 +298,42 @@ describe("Redux WebSocket Migration", () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it("clears stale live spectrum caches immediately when disconnecting", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      const cachedSpectrumFrame = {
+        id: "cached-frame",
+        label: "cached-frame",
+        min_hz: 1,
+        max_hz: 2,
+        description: "cached spectrum frame",
+      };
+      const liveFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        center_frequency_hz: 137_100_000,
+        sample_rate: 2_400_000,
+        iq_data: new Uint8Array([128, 128, 129, 127]),
+      };
+
+      middlewareStore.dispatch(setSpectrumFrames([cachedSpectrumFrame as any]));
+      liveDataRef.current = [liveFrame as any];
+
+      middlewareStore.dispatch({ type: "websocket/disconnect" });
+
+      expect(liveDataRef.current).toBeNull();
+      expect(middlewareStore.getState().websocket.spectrumFrames).toEqual([]);
+      expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
     });
 
     it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {

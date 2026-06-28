@@ -171,24 +171,6 @@ pub fn generate_mock_tx_samples_ifft(
   // Transform to time domain
   fft.process(&mut spectrum);
 
-  if key == "wifi" || key == "5g" {
-    let edge_fraction = if key == "5g" { 0.34 } else { 0.28 };
-    let edge_len = ((params.tx_ifft_size as f64) * edge_fraction)
-      .round()
-      .clamp(1.0, (params.tx_ifft_size / 2).max(1) as f64) as usize;
-    for (idx, sample) in spectrum.iter_mut().enumerate() {
-      let dist = idx.min(params.tx_ifft_size - 1 - idx);
-      let window = if dist >= edge_len {
-        1.0
-      } else {
-        let t = dist as f64 / edge_len.max(1) as f64;
-        0.5 - 0.5 * (std::f64::consts::PI * t).cos()
-      } as f32;
-      sample.re *= window;
-      sample.im *= window;
-    }
-  }
-
   // Normalize block so its FFT peak bin is exactly 1.0 (after receiver size normalization)
   let mut test_block = spectrum.clone();
   forward_fft.process(&mut test_block);
