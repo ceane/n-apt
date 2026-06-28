@@ -87,6 +87,49 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rustBackendFeatureArgs =
   process.platform === 'darwin' ? '--features mock_apt_metal' : '';
+const launchedChildren = new Set<ReturnType<typeof spawn>>();
+
+const trackLaunchedChild = (child: ReturnType<typeof spawn>) => {
+  launchedChildren.add(child);
+  const forget = () => launchedChildren.delete(child);
+  child.once('exit', forget);
+  child.once('error', forget);
+  return child;
+};
+
+const terminateLaunchedChildren = () => {
+  for (const child of Array.from(launchedChildren)) {
+    try {
+      if (child.pid) {
+        process.kill(-child.pid, 'SIGTERM');
+      }
+    } catch {
+      try {
+        child.kill('SIGTERM');
+      } catch {}
+    }
+  }
+  launchedChildren.clear();
+};
+
+const terminateKnownDevProcesses = () => {
+  terminateLaunchedChildren();
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
+      return;
+    }
+
+    spawnSync('pkill', ['-TERM', '-f', 'target/dev-fast/n-apt-backend']);
+    spawnSync('pkill', ['-TERM', '-f', 'n-apt-backend']);
+    spawnSync('pkill', ['-TERM', '-f', 'cargo run --profile dev-fast --bin n-apt-backend']);
+    spawnSync('pkill', ['-TERM', '-f', 'node_modules/.bin/vite dev --host']);
+    spawnSync('pkill', ['-TERM', '-f', 'vite dev --host']);
+    spawnSync('pkill', ['-TERM', '-f', 'redis-server.*n-apt']);
+  } catch {
+    // Best-effort process cleanup for dev shutdown.
+  }
+};
 
 // Types
 interface ProcessStatus {
@@ -113,6 +156,19 @@ interface BuildState {
   warningDetails: string[];
   activeBuildOutputStep?: number;
 }
+
+type BackgroundCommand =
+  | string
+  | {
+      executable: string;
+      args: string[];
+      label?: string;
+    };
+
+const describeBackgroundCommand = (command: BackgroundCommand) =>
+  typeof command === 'string'
+    ? command
+    : [command.executable, ...command.args].join(' ');
 
 // Simple spinner animation
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -146,6 +202,12 @@ const isWsl = process.platform === 'linux' && (
   os.release().toLowerCase().includes('microsoft')
 );
 const isNativeWindows = isWindows && !isWsl;
+const strictStartupValidation = process.env.NAPT_DEV_STRICT_STARTUP === '1';
+const backgroundStartGraceMs = Number.parseInt(process.env.NAPT_DEV_BACKGROUND_GRACE_MS || '500', 10);
+const stepSettleDelayMs = Number.parseInt(process.env.NAPT_DEV_STEP_DELAY_MS || '100', 10);
+
+const safeDelayMs = (value: number, fallback: number) =>
+  Number.isFinite(value) && value >= 0 ? value : fallback;
 
 const withEllipsis = (label: string) => (label.endsWith('...') ? label : `${label}...`);
 
@@ -405,6 +467,8 @@ const BuildOrchestrator = () => {
       }
     }
 
+    terminateKnownDevProcesses();
+
     activeChildrenRef.current = [];
     exit();
   }, [exit]);
@@ -413,12 +477,12 @@ const BuildOrchestrator = () => {
       return new Promise((resolve) => {
         try {
           addLog(chalk.blue(`Executing: ${command}`));
-          const child = spawn(command, [], {
+          const child = trackLaunchedChild(spawn(command, [], {
             shell: true,
             cwd: './',
             stdio: ['ignore', 'pipe', 'pipe'],
             detached: true,
-          });
+          }));
   
           if (activeChildrenRef.current) {
             activeChildrenRef.current.push(child);
@@ -492,11 +556,11 @@ const BuildOrchestrator = () => {
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
           addLog(chalk.blue(`Executing foreground: ${command}`));
-          const child = spawn(command, [], {
+          const child = trackLaunchedChild(spawn(command, [], {
             shell: true,
             cwd: './',
             stdio: ['ignore', 'pipe', 'pipe'],
-          });
+          }));
   
           if (activeChildrenRef.current) {
             activeChildrenRef.current.push(child);
@@ -577,16 +641,27 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus]);
 
-  const startBackgroundProcess = useCallback((command: string, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
+  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
+    const displayCommand = describeBackgroundCommand(command);
+    const isRustBackendBinary =
+      pidKey === 'rustPid' &&
+      typeof command === 'string' &&
+      /(^|\/|\\)n-apt-backend(\.exe)?$/.test(command.trim());
+    const executable = typeof command === 'string' ? command : command.executable;
+    const args = typeof command === 'string' ? [] : command.args;
+    const shouldUseShell = typeof command === 'string' && !isRustBackendBinary;
     return new Promise((resolve) => {
       try {
-        addLog(chalk.blue(`Starting background: ${command}`));
-        const child = spawn(command, [], {
-          shell: true,
+        if (pidKey === 'redisPid') {
+          fs.mkdirSync('.redis_data', { recursive: true });
+        }
+        addLog(chalk.blue(`Starting background: ${displayCommand}`));
+        const child = trackLaunchedChild(spawn(executable, args, {
+          shell: shouldUseShell,
           stdio: 'pipe',
           detached: true,
           cwd: './' // Run from project root
-        });
+        }));
         let resolved = false;
         let crashReported = false;
         const reportCrash = (reason: string) => {
@@ -652,14 +727,9 @@ const BuildOrchestrator = () => {
               intentionalRustKillRef.current = false;
               return;
             }
-            addLog(chalk.red(`[Watcher] Rust backend exited unexpectedly (${statusText}). Restarting in 1s...`));
-            setTimeout(() => {
-              if (shutdownRequestedRef.current) return;
-              const startCommand = isNativeWindows
-                ? 'target\\dev-fast\\n-apt-backend.exe'
-                : './target/dev-fast/n-apt-backend';
-              void startBackgroundProcess(startCommand, 'Rust backend', 'rustPid');
-            }, 1000);
+            addLog(chalk.red(`[Watcher] Rust backend exited unexpectedly (${statusText}). Leaving it stopped.`));
+            appendErrorDetail(`Rust backend exited unexpectedly (${statusText})`);
+            setBuildState(prev => ({ ...prev, rustPid: undefined }));
             return;
           }
 
@@ -685,7 +755,7 @@ const BuildOrchestrator = () => {
           reportCrash(statusText);
         });
 
-        // Give it a moment to start and check if it stayed alive
+        // Give it a moment to start and check if it stayed alive.
         setTimeout(() => {
           if (child.pid && child.exitCode === null) {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
@@ -695,13 +765,6 @@ const BuildOrchestrator = () => {
             if (activeChildrenRef.current) {
               activeChildrenRef.current.push(child);
             }
-            // Detach the child and its pipes so the orchestrator can exit cleanly
-            // once the build is finished. We keep the startup listeners above for
-            // launch-time diagnostics, but we do not want the live backend/stdout
-            // handles to keep the parent event loop open forever.
-            child.stdout?.unref?.();
-            child.stderr?.unref?.();
-            child.unref(); // Allow parent to exit
             resolved = true;
             resolve(true);
           } else {
@@ -711,7 +774,7 @@ const BuildOrchestrator = () => {
             resolved = true;
             resolve(false);
           }
-        }, 2000);
+        }, safeDelayMs(backgroundStartGraceMs, 500));
 
       } catch (error: any) {
         addLog(chalk.red(`Error starting ${description}: ${error.message}`));
@@ -808,8 +871,8 @@ const BuildOrchestrator = () => {
           return false;
         }
   
-        // Give the backend a moment to start listening
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Give the backend process a short moment before active readiness polling.
+        await new Promise(resolve => setTimeout(resolve, safeDelayMs(backgroundStartGraceMs, 500)));
   
         // Wait for backend readiness
         addLog(chalk.blue(`Waiting for backend to be ready...`));
@@ -945,8 +1008,12 @@ sleep 0.5
     echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
     exit 1
   fi
-  echo "Checking Rust syntax..."
-  cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
+  if [ "${strictStartupValidation ? '1' : '0'}" = "1" ]; then
+    echo "Checking Rust syntax..."
+    cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
+  else
+    echo "Skipping separate cargo check; cargo build will validate Rust backend compilation."
+  fi
   `,
           description: 'Validating Rust backend code',
           isBackground: false,
@@ -971,18 +1038,24 @@ sleep 0.5
         },
       {
         index: 3,
-        command: `
-set -euo pipefail
-REDIS_PORT=6379
-DATA_DIR='.redis_data'
-mkdir -p "$DATA_DIR"
-if command -v redis-server >/dev/null 2>&1; then
-  exec redis-server --port $REDIS_PORT --dir "$DATA_DIR" --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb
-else
-  echo "redis-server is required on PATH"
-  exit 1
-fi
-`,
+        command: {
+          executable: 'redis-server',
+          args: [
+            '--port',
+            '6379',
+            '--dir',
+            '.redis_data',
+            '--daemonize',
+            'no',
+            '--appendonly',
+            'yes',
+            '--save',
+            '60',
+            '1',
+            '--dbfilename',
+            'dump.rdb',
+          ],
+        },
         description: 'Starting Redis database server',
         isBackground: true,
         pidKey: 'redisPid' as const,
@@ -1029,7 +1102,7 @@ exit 0
       },
       {
         index: 5,
-        command: 'npm run build:wasm -- --force',
+        command: 'npm run build:wasm',
         description: 'Building WASM SIMD module',
         isBackground: false,
         pidKey: undefined,
@@ -1038,7 +1111,7 @@ exit 0
         index: 6,
         command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
-if npm run decrypt-modules >/dev/null 2>&1; then
+if npm run decrypt-modules-if-needed >/dev/null 2>&1; then
   if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
     echo "${encryptedModulesStatus.success}"
     exit 0
@@ -1064,7 +1137,7 @@ exit 1
       },
       {
         index: 8,
-        command: isNativeWindows ? 'npx vite dev --host --force' : 'node_modules/.bin/vite dev --host --force',
+        command: isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
@@ -1095,9 +1168,14 @@ exit 1
         success = await startBackgroundProcess(step.command, step.description, 'vitePid');
       } else {
         const _stepIndex = step.index;
-        const result = await executeCommand(step.command, stepLabel);
-        success = result.success;
-        commandOutput = result.output;
+        if (typeof step.command !== 'string') {
+          appendErrorDetail(`${stepLabel}: foreground steps require a shell command string`);
+          success = false;
+        } else {
+          const result = await executeCommand(step.command, stepLabel);
+          success = result.success;
+          commandOutput = result.output;
+        }
       }
 
       if (success) {
@@ -1137,9 +1215,9 @@ exit 1
         currentStep: step.index + 1,
       }));
 
-      // Small delay between steps for visual clarity
+      // Small delay between steps for visual clarity.
       await new Promise(resolve => {
-        const timeout = setTimeout(resolve, 500);
+        const timeout = setTimeout(resolve, safeDelayMs(stepSettleDelayMs, 100));
         if (shutdownRequestedRef.current) {
           clearTimeout(timeout);
           resolve(undefined);
@@ -1426,6 +1504,15 @@ exit 1
     };
   }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
 
+  useEffect(() => {
+    const shouldStayAttached =
+      allComplete && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    if (!shouldStayAttached) return;
+
+    const keepAlive = setInterval(() => {}, 60_000);
+    return () => clearInterval(keepAlive);
+  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid]);
+
   const [expandedOutputStep, setExpandedOutputStep] = useState<number | null>(null);
 
   const toggleOutput = useCallback((index: number) => {
@@ -1572,16 +1659,39 @@ async function runNonTtyBuild() {
   const appendErrorDetail = (msg: string) => {
     errorDetails.push(msg);
   };
+  const cleanup = () => {
+    for (const child of activeChildren) {
+      try {
+        if (child.pid) {
+          process.kill(-child.pid, 'SIGTERM');
+        }
+      } catch {
+        try {
+          child.kill('SIGTERM');
+        } catch {}
+      }
+    }
+    terminateKnownDevProcesses();
+  };
+
+  process.once('SIGINT', () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    cleanup();
+    process.exit(143);
+  });
 
   const executeCommandNonTty = (command: string, description: string): Promise<{ success: boolean; output: string }> => {
     return new Promise((resolve) => {
       try {
-        const child = spawn(command, [], {
+        const child = trackLaunchedChild(spawn(command, [], {
           shell: true,
           cwd: './',
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,
-        });
+        }));
         activeChildren.push(child);
         let stdout = '';
         let stderr = '';
@@ -1611,15 +1721,24 @@ async function runNonTtyBuild() {
     });
   };
 
-  const startBackgroundProcessNonTty = (command: string, description: string): Promise<boolean> => {
+  const startBackgroundProcessNonTty = (command: BackgroundCommand, description: string): Promise<boolean> => {
+    const isRustBackendBinary =
+      typeof command === 'string' &&
+      /(^|\/|\\)n-apt-backend(\.exe)?$/.test(command.trim());
+    const executable = typeof command === 'string' ? command : command.executable;
+    const args = typeof command === 'string' ? [] : command.args;
+    const shouldUseShell = typeof command === 'string' && !isRustBackendBinary;
     return new Promise((resolve) => {
       try {
-        const child = spawn(command, [], {
-          shell: true,
+        if (description.toLowerCase().includes('redis')) {
+          fs.mkdirSync('.redis_data', { recursive: true });
+        }
+        const child = trackLaunchedChild(spawn(executable, args, {
+          shell: shouldUseShell,
           stdio: 'pipe',
           detached: true,
           cwd: './',
-        });
+        }));
         activeChildren.push(child);
         child.on('error', (err) => {
           appendErrorDetail(`${description}: ${err.message}`);
@@ -1627,12 +1746,11 @@ async function runNonTtyBuild() {
         });
         setTimeout(() => {
           if (child.pid && child.exitCode === null) {
-            child.unref();
             resolve(true);
           } else {
             resolve(false);
           }
-        }, 2000);
+        }, safeDelayMs(backgroundStartGraceMs, 500));
       } catch (err: any) {
         appendErrorDetail(`${description}: ${err.message}`);
         resolve(false);
@@ -1669,7 +1787,11 @@ async function runNonTtyBuild() {
       run: () => {
         pruneIncrementalCache();
         return executeCommandNonTty(
-          isNativeWindows ? 'echo Config validation skipped' : `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
+          isNativeWindows
+            ? 'echo Config validation skipped'
+            : strictStartupValidation
+              ? `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`
+              : 'echo "Skipping separate cargo check; cargo build will validate Rust backend compilation."',
           'Validating Rust backend code'
         );
       }
@@ -1692,7 +1814,24 @@ async function runNonTtyBuild() {
       index: 3,
       description: 'Starting Redis database server',
       run: () => startBackgroundProcessNonTty(
-        `redis-server --port 6379 --dir .redis_data --daemonize no --appendonly yes --save 60 1 --dbfilename dump.rdb`,
+        {
+          executable: 'redis-server',
+          args: [
+            '--port',
+            '6379',
+            '--dir',
+            '.redis_data',
+            '--daemonize',
+            'no',
+            '--appendonly',
+            'yes',
+            '--save',
+            '60',
+            '1',
+            '--dbfilename',
+            'dump.rdb',
+          ],
+        },
         'Starting Redis database server'
       )
     },
@@ -1707,14 +1846,14 @@ async function runNonTtyBuild() {
     {
       index: 5,
       description: 'Building WASM SIMD module',
-      run: () => executeCommandNonTty('npm run build:wasm -- --force', 'Building WASM SIMD module')
+      run: () => executeCommandNonTty('npm run build:wasm', 'Building WASM SIMD module')
     },
     {
       index: 6,
       description: 'Building N-APT Encrypted Modules',
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Encrypted modules skipped' : `
-          if npm run decrypt-modules >/dev/null 2>&1; then
+          if npm run decrypt-modules-if-needed >/dev/null 2>&1; then
             if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
               exit 0
             fi
@@ -1748,7 +1887,7 @@ async function runNonTtyBuild() {
         const startRes = await startBackgroundProcessNonTty(startCommand, 'Rust backend');
         if (!startRes) return { success: false, output: '' };
 
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, safeDelayMs(backgroundStartGraceMs, 500)));
 
         const waitCommand = isNativeWindows ? 'echo skipped' : `bash -lc '
           MAX_RETRIES=30
@@ -1771,7 +1910,7 @@ async function runNonTtyBuild() {
       index: 8,
       description: 'Starting frontend server',
       run: () => startBackgroundProcessNonTty(
-        isNativeWindows ? 'npx vite dev --host --force' : 'node_modules/.bin/vite dev --host --force',
+        isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
         'Starting frontend server'
       )
     }
@@ -1807,7 +1946,7 @@ async function runNonTtyBuild() {
     open: 'http://localhost:5173',
   });
   console.log('✓ Finished building and running at http://localhost:5173');
-  process.exit(0);
+  await new Promise(() => {});
 }
 
 // Main execution
@@ -1823,21 +1962,36 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   // Enter alternate screen buffer to prevent scrolling/jumping bugs in terminal
   process.stdout.write('\x1b[?1049h');
+  const keepAlive = setInterval(() => {}, 60_000);
+  let shutdownHandled = false;
 
   const cleanup = () => {
+    clearInterval(keepAlive);
     process.stdout.write('\x1b[?1049l');
+  };
+
+  const handleProcessSignal = (exitCode: number) => {
+    if (shutdownHandled) return;
+    shutdownHandled = true;
+    terminateKnownDevProcesses();
+    cleanup();
+    process.exit(exitCode);
   };
 
   // Ensure we exit alternate screen buffer on process exit or crash
   process.on('exit', cleanup);
+  process.once('SIGINT', () => handleProcessSignal(130));
+  process.once('SIGTERM', () => handleProcessSignal(143));
 
   process.on('uncaughtException', (err) => {
+    terminateKnownDevProcesses();
     cleanup();
     console.error('Uncaught Exception:', err);
     process.exit(1);
   });
 
   process.on('unhandledRejection', (reason) => {
+    terminateKnownDevProcesses();
     cleanup();
     console.error('Unhandled Rejection:', reason);
     process.exit(1);

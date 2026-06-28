@@ -385,7 +385,17 @@ impl websocket_server::WebSocketServer {
     // and device work never compete with the main HTTP runtime.
     let _sdr_thread = Self::spawn_sdr_thread(websocket_server.clone(), cmd_rx);
 
-    axum::serve(listener, app).await?;
+    let shutdown_state = websocket_server.get_shared_state();
+    let shutdown_signal = async move {
+      while !shutdown_state.shutdown.load(Ordering::Relaxed)
+      {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+      }
+    };
+
+    axum::serve(listener, app)
+      .with_graceful_shutdown(shutdown_signal)
+      .await?;
 
     Ok(())
   }
@@ -430,10 +440,9 @@ pub async fn run_server() -> Result<()> {
 
     info!("Shutdown signal received, signaling I/O thread...");
     shutdown_shared.shutdown.store(true, Ordering::Relaxed);
-    // Give the I/O thread time to close the device cleanly
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    info!("Exiting.");
-    std::process::exit(0);
+    // Give the I/O thread time to observe the shutdown flag and unwind.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    info!("Shutdown signal propagated.");
   });
 
   // HTTP server runs in the main thread, WebSocket server runs in a spawned thread (handled in run_server)

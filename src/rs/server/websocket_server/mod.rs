@@ -32,6 +32,10 @@ pub use sources::{
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 
+fn should_stop_streaming(shared_state: &SharedState) -> bool {
+  shared_state.shutdown.load(Ordering::Relaxed)
+}
+
 fn should_synthesize_mock_tx_monitor_frame(
   active_source_id: &str,
   tx_is_active: bool,
@@ -73,6 +77,15 @@ mod tests {
     assert!(!should_hold_mock_tx_standby_stream(
       "mock-apt", false, false
     ));
+  }
+
+  #[test]
+  fn shutdown_flag_stops_streaming() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    assert!(!should_stop_streaming(&shared));
+    shared.shutdown.store(true, Ordering::Relaxed);
+    assert!(should_stop_streaming(&shared));
   }
 }
 
@@ -201,6 +214,10 @@ impl WebSocketServer {
     }
 
     loop {
+      if shared_state.shutdown.load(Ordering::Relaxed) {
+        info!("Shutdown flag observed, stopping SDR streaming thread");
+        break;
+      }
       let start_time = Instant::now();
       // 1. Process pending commands
       //
@@ -1498,6 +1515,8 @@ impl WebSocketServer {
         tokio::time::sleep(target_duration - elapsed).await;
       }
     }
+
+    Ok(())
   }
 
   pub fn get_shared_state(&self) -> Arc<SharedState> {
