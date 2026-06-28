@@ -938,7 +938,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       expect(mockWsConnection.sendTransmitMode).toHaveBeenLastCalledWith(
         true,
         "Mock Tx SDR",
-        expect.objectContaining({ sampleRateHz: 2_400_000 }),
+        expect.objectContaining({ bandwidthHz: 2_400_000 }),
       );
       mockWsConnection.sendTransmitMode.mockClear();
 
@@ -966,7 +966,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
         "Mock Tx SDR",
         expect.objectContaining({
           serialNumber: "mock-tx",
-          sampleRateHz: 218_000,
+          bandwidthHz: 218_000,
         }),
       );
     } finally {

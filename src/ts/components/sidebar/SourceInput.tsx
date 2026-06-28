@@ -260,10 +260,26 @@ const FileActionButton = styled(DeviceActionButton)`
 `;
 
 const ActionHint = styled.span`
+  display: block;
   color: ${({ theme }) => theme.textSecondary};
   font-size: 9px;
   line-height: 1;
   opacity: 0.65;
+`;
+
+const ActionLabel = styled.span`
+  display: block;
+  line-height: 1.05;
+  white-space: nowrap;
+`;
+
+const TxModeActionButton = styled(DeviceActionButton)`
+  gap: 2px;
+  line-height: 1;
+
+  ${ActionLabel} {
+    font-size: 11px;
+  }
 `;
 
 interface SourceInputProps {
@@ -611,8 +627,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       {isHalfDuplexRxActive(device) ? "Resume Rx" : "Pause Rx"}
                     </DeviceActionButton>
                   ) : !isHalfDuplex && device.status?.onAction ? (
-                    <DeviceActionButton
-                      type="button"
+                    isTxCapable ? (
+                      <TxModeActionButton
+                        type="button"
+                      aria-label={actionLabel}
                       $active={isSelectedDevice}
                       $danger={isTransmittingDevice}
                       $opacity={fileModeOpacity}
@@ -620,15 +638,46 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         event.stopPropagation();
                         device.status?.onAction?.();
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          device.status?.onAction?.();
+                        }
+                      }}
+                      onKeyUp={(event) => {
+                        if (event.key === " " || event.key === "Spacebar") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          device.status?.onAction?.();
+                        }
+                      }}
                       title={device.status.actionTitle}
                     >
-                      {actionLabel}
-                      {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
-                    </DeviceActionButton>
+                        <ActionLabel>{actionLabel}</ActionLabel>
+                        <ActionHint>[Space]</ActionHint>
+                      </TxModeActionButton>
+                    ) : (
+                      <DeviceActionButton
+                        type="button"
+                        $active={isSelectedDevice}
+                        $danger={isTransmittingDevice}
+                        $opacity={fileModeOpacity}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          device.status?.onAction?.();
+                        }}
+                        title={device.status.actionTitle}
+                      >
+                        {actionLabel}
+                        {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
+                      </DeviceActionButton>
+                    )
                   ) : null}
                   {isHalfDuplex && onToggleDeviceTxMode ? (
-                    <DeviceActionButton
+                    <TxModeActionButton
                       type="button"
+                      aria-label="Start Tx"
                       $active={isSelectedDevice}
                       $danger={isTransmittingDevice}
                       $opacity={fileModeOpacity}
@@ -638,8 +687,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       }}
                       title="Start Tx"
                     >
-                      Start Tx
-                    </DeviceActionButton>
+                      <ActionLabel>Start Tx</ActionLabel>
+                      <ActionHint>[Space]</ActionHint>
+                      <ActionHint>start/stop transmit mode</ActionHint>
+                    </TxModeActionButton>
                   ) : null}
                 </DeviceActions>
               </DevicePill>

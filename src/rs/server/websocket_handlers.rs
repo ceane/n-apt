@@ -832,10 +832,11 @@ pub fn handle_message(
 
       *shared.sdr_settings.lock().unwrap() = sdr_settings.clone();
 
-      let mut tx_power = crate::safety::get_approx_output_power(
+      let max_tx_power = crate::safety::get_approx_output_power(
         sdr_settings.gain.hackrf_vga_gain.unwrap_or(0.0),
         sdr_settings.gain.hackrf_amp_enable.unwrap_or(false),
       );
+      let mut tx_power = message.power_dbm.unwrap_or(max_tx_power).min(max_tx_power);
       if safety_enabled && safety_limit == "min" {
         tx_power = -70.0;
       }
@@ -861,6 +862,7 @@ pub fn handle_message(
         tx_signal: Some(tx_signal),
         center_frequency_hz: Some(sdr_settings.center_frequency as u64),
         sample_rate_hz: Some(sdr_settings.sample_rate as u64),
+        bandwidth_hz: Some(tx_bw),
         tx_ifft_size: message.tx_ifft_size,
         power_dbm: Some(tx_power),
         lna_gain_db: sdr_settings.gain.hackrf_lna_gain,

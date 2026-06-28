@@ -1312,8 +1312,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             undefined,
           bandwidthHz:
             txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
-          sampleRateHz:
-            txSampleRateHz ?? source.sdr?.settings?.sample_rate ?? undefined,
           ifftSize: txIfftSize,
           powerDbm: txPowerDbm ?? undefined,
           vgaGainDb:
@@ -1448,7 +1446,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         serialNumber: source.serial_number?.trim() || txTargetDeviceId,
         centerFrequencyHz: txCenterFrequencyHz,
         bandwidthHz: txSampleRateHz,
-        sampleRateHz: txSampleRateHz,
         ifftSize: txIfftSize,
         powerDbm: txPowerDbm,
         vgaGainDb: txVgaGain,

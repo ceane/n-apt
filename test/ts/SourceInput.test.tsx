@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
 import SourceInput from "../../src/ts/components/sidebar/SourceInput";
 
@@ -346,6 +346,7 @@ describe("SourceInput", () => {
   });
 
   it("labels idle tx-capable device actions as Start Tx", () => {
+    const onAction = jest.fn();
     render(
       <TestWrapper>
         <SourceInput
@@ -361,7 +362,7 @@ describe("SourceInput", () => {
                 label: "connected",
                 actionLabel: "Start Tx",
                 actionTitle: "Start transmit mode",
-                onAction: jest.fn(),
+                onAction,
               },
             },
           ]}
@@ -378,6 +379,13 @@ describe("SourceInput", () => {
     expect(
       within(txRow).getByRole("button", { name: /start tx/i }),
     ).toBeInTheDocument();
+    expect(within(txRow).getByText("[Space]")).toBeInTheDocument();
+
+    fireEvent.keyUp(within(txRow).getByRole("button", { name: /start tx/i }), {
+      key: " ",
+      code: "Space",
+    });
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 
   it("shows half-duplex stats and separate Rx/Tx controls for HackRF-style devices", () => {

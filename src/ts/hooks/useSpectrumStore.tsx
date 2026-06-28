@@ -2055,7 +2055,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
       const settings = {
         centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
-        sampleRateHz: reduxSpectrumState.txSampleRateHz,
+        bandwidthHz: reduxSpectrumState.txSampleRateHz,
         powerDbm: reduxSpectrumState.txPowerDbm,
         vgaGainDb: reduxSpectrumState.txVgaGain,
         txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,

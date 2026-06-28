@@ -1388,7 +1388,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             transmittingTxSource.id,
           centerFrequencyHz: txCenterFrequencyHz,
           bandwidthHz: txSampleRateHz,
-          sampleRateHz: txSampleRateHz,
           powerDbm: txPowerDbm,
           txSignal,
         },
@@ -1654,7 +1653,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={
-                  isSelectedMockTxTransmitting ? false : manualVisualizerPaused
+                  isSelectedMockTxSource && !isSelectedMockTxTransmitting
+                    ? true
+                    : isSelectedMockTxTransmitting
+                      ? false
+                      : manualVisualizerPaused
                 }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}

@@ -401,7 +401,7 @@ describe("SpectrumRoute file mode", () => {
       ]?.[0];
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
-      signalLabel: "APT",
+      signalLabel: "WIFI",
       visibleMinHz: 0,
       visibleMaxHz: 4_372_000,
       txCenterHz: 2_186_000,
@@ -416,6 +416,155 @@ describe("SpectrumRoute file mode", () => {
       title: "Start Tx to transmit",
     });
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+  });
+
+  it("keeps Mock Tx standby paused until transmit starts", async () => {
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 2048,
+        displayMode: "fft",
+        powerScale: "dBm",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 135_500_000, max: 138_700_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -100,
+        fftMaxDb: 30,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-tx",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "connected",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        deviceInfo: null,
+        backend: "mock_tx",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+      },
+      effectiveFrames: [],
+      effectiveSdrSettings: { sample_rate: 3_200_000 },
+      sampleRateHzEffective: 3_200_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-tx",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock_tx",
+        deviceInfo: null,
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: null },
+        spectrumFrames: [],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock Tx SDR",
+      deviceProfile: {
+        kind: "mock_tx",
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+      sources: [],
+    } as any;
+
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_tx",
+      },
+      websocket: {
+        ...websocketSlice(undefined, { type: "@@INIT" as any }),
+        sourceStatuses: { "mock-tx": "connected" },
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.isPaused).toBe(true);
+    expect(visualizerProps.placeholderState).toMatchObject({
+      title: "Start Tx to transmit",
+    });
   });
 
   it("keeps the live mock tx monitor centered on tx center instead of frame metadata", async () => {
@@ -746,7 +895,7 @@ describe("SpectrumRoute file mode", () => {
       expect(sendTransmitMode).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
-        expect.objectContaining({ sampleRateHz: 2_400_000 }),
+        expect.objectContaining({ bandwidthHz: 2_400_000 }),
       );
       sendTransmitMode.mockClear();
 
@@ -772,9 +921,9 @@ describe("SpectrumRoute file mode", () => {
         expect.objectContaining({
           serialNumber: "mock-tx",
           centerFrequencyHz: 137_100_000,
-          sampleRateHz: 873_000,
+          bandwidthHz: 873_000,
           powerDbm: -18,
-          txSignal: "apt",
+          txSignal: "wifi",
         }),
       );
     } finally {

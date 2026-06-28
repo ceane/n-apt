@@ -6,6 +6,9 @@ pub struct MockTxParams {
   pub sample_rate_hz: f64,
   pub bandwidth_hz: f64,
   pub tx_ifft_size: usize,
+  /// Seed for per-frame subcarrier phase randomization (OFDM signals).
+  /// When non-zero, each value produces a visually distinct OFDM symbol.
+  pub phase_seed: u64,
 }
 
 pub fn canonical_mock_tx_signal_key(signal_name: &str) -> String {
@@ -18,6 +21,22 @@ pub fn canonical_mock_tx_signal_key(signal_name: &str) -> String {
     "dsharp" => "d_sharp".to_string(),
     other => other.to_string(),
   }
+}
+
+/// Deterministic hash mapping (bin, seed) → [0, 2π) for OFDM subcarrier
+/// phase randomization. Different seeds produce visually distinct symbols.
+fn subcarrier_phase_hash(bin: u64, seed: u64) -> f64 {
+  let mut x = bin
+    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    .wrapping_add(seed);
+  x ^= x >> 30;
+  x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+  x ^= x >> 27;
+  x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+  x ^= x >> 31;
+  ((x >> 11) as f64 / ((1u64 << 53) as f64))
+    * 2.0
+    * std::f64::consts::PI
 }
 
 pub fn generate_mock_tx_samples_ifft(
@@ -90,8 +109,14 @@ pub fn generate_mock_tx_samples_ifft(
           1.0 - 0.985 * smooth
         };
 
-        let phase =
+        let base_phase =
           std::f64::consts::PI * (centered as f64).powi(2) / num_bins as f64;
+        let phase = if params.phase_seed != 0 {
+          base_phase
+            + subcarrier_phase_hash(k as u64, params.phase_seed)
+        } else {
+          base_phase
+        };
         let (sin_p, cos_p) = phase.sin_cos();
         spectrum[wrapped_bin] = Complex::new(
           (cos_p as f32) * amp as f32,

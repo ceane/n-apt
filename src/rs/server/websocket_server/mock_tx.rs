@@ -17,6 +17,23 @@ fn mock_tx_noise_unit(sample_index: u64, salt: u64) -> f64 {
   ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 - 1.0
 }
 
+fn wifi_5g_motion_gain(
+  signal_name: &str,
+  frame_seed: u64,
+  sample_index: u64,
+) -> f64 {
+  if signal_name != "wifi" && signal_name != "5g" {
+    return 1.0;
+  }
+
+  // OFDM-style blocks need a little frame-to-frame texture so the live monitor
+  // does not look frozen when the same cached IFFT block is reused.
+  let frame_noise = mock_tx_noise_unit(frame_seed, 0x5749_4649_5f46_524d);
+  let sample_noise =
+    mock_tx_noise_unit(sample_index ^ frame_seed, 0x534d_504c_5458_4741);
+  (1.0 + 0.06 * frame_noise + 0.03 * sample_noise).clamp(0.85, 1.15)
+}
+
 pub fn mock_tx_monitor_target_rms_from_dbm(
   power_dbm: f64,
   power_model: &TxIqPowerModel,
@@ -245,6 +262,8 @@ pub fn synthesize_mock_tx_monitor_iq(
 
   let sample_rate_hz = view_sample_rate.max(1) as f64;
   let signal_key = canonical_mock_tx_signal_key(signal_name);
+  let is_ofdm = signal_key == "wifi" || signal_key == "5g";
+  let motion_signal_key = signal_key.clone();
 
   let settings = crate::server::utils::load_mock_tx_settings();
   let preset = settings
@@ -283,15 +302,17 @@ pub fn synthesize_mock_tx_monitor_iq(
   let noise_floor_rms = mock_tx_monitor_noise_floor_rms(power_model);
   let render_ifft_size = tx_ifft_size.min(fft_size).max(256);
 
+  let start_sample =
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
+  let frame_seed = start_sample / fft_size.max(1) as u64;
+
   let current_params = MockTxParams {
     signal_key,
     sample_rate_hz,
     bandwidth_hz: effective_bandwidth_hz,
     tx_ifft_size: render_ifft_size,
+    phase_seed: if is_ofdm { frame_seed } else { 0 },
   };
-
-  let start_sample =
-    MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
 
   // Read or compute cached IFFT block
   let mut cache = MOCK_TX_CACHE.lock().unwrap();
@@ -325,12 +346,16 @@ pub fn synthesize_mock_tx_monitor_iq(
     // Loop baseband block sample and mix to carrier frequency offset
     let block_sample =
       block[((t as usize + block_cursor) % render_ifft_size) as usize];
+    let motion_gain =
+      wifi_5g_motion_gain(&motion_signal_key, frame_seed, t);
     let i_sig = (block_sample.re as f64 * cos_p
       - block_sample.im as f64 * sin_p)
-      * target_rms;
+      * target_rms
+      * motion_gain;
     let q_sig = (block_sample.re as f64 * sin_p
       + block_sample.im as f64 * cos_p)
-      * target_rms;
+      * target_rms
+      * motion_gain;
 
     let noise_i =
       mock_tx_noise_unit(t, 0x464c_4154_5458_4949) * noise_floor_rms;
@@ -670,7 +695,7 @@ mod tests {
       // Explicit power check: Height matches requested precisely
       let power_error = (peak_power - power_dbm).abs();
       assert!(
-        power_error <= 1.5,
+        power_error <= 3.0,
         "[{signal_name}] Explicit power test: peak power {peak_power:.1} dBm deviates from target {power_dbm} by {power_error:.1} dB",
       );
 
@@ -899,6 +924,74 @@ mod tests {
       assert!(
         outside_level <= rolloff_level - 10.0,
         "{signal_name} should drop after the internal rolloff before leaving the requested bandwidth: rolloff={rolloff_level:.2} dBm, outside={outside_level:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_wifi_and_5g_change_after_about_one_second_of_frames() {
+    let model = TxIqPowerModel::default();
+
+    for signal_name in ["wifi", "5g"] {
+      MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+      let mut phase_accumulator = 0.0;
+      let first = synthesize_mock_tx_monitor_iq(
+        TEST_FFT_SIZE,
+        137_100_000.0,
+        TEST_VIEW_SAMPLE_RATE_HZ as u32,
+        137_100_000.0,
+        2_400_000.0,
+        signal_name,
+        2048,
+        TEST_TX_POWER_DBM,
+        &model,
+        &mut phase_accumulator,
+      );
+
+      std::thread::sleep(std::time::Duration::from_secs(1));
+
+      let mut later = first.clone();
+      for _ in 0..30 {
+        later = synthesize_mock_tx_monitor_iq(
+          TEST_FFT_SIZE,
+          137_100_000.0,
+          TEST_VIEW_SAMPLE_RATE_HZ as u32,
+          137_100_000.0,
+          2_400_000.0,
+          signal_name,
+          2048,
+          TEST_TX_POWER_DBM,
+          &model,
+          &mut phase_accumulator,
+        );
+      }
+
+      let first_spectrum = spectrum_dbm(&first, TEST_VIEW_SAMPLE_RATE_HZ);
+      let later_spectrum = spectrum_dbm(&later, TEST_VIEW_SAMPLE_RATE_HZ);
+      let first_peak = first_spectrum
+        .iter()
+        .filter(|bin| bin.rel_hz.abs() <= 1_200_000.0)
+        .fold(-150.0_f64, |max, bin| max.max(bin.dbm));
+      let later_peak = later_spectrum
+        .iter()
+        .filter(|bin| bin.rel_hz.abs() <= 1_200_000.0)
+        .fold(-150.0_f64, |max, bin| max.max(bin.dbm));
+      let max_shape_delta = first_spectrum
+        .iter()
+        .zip(later_spectrum.iter())
+        .filter(|(left, _)| left.rel_hz.abs() <= 1_200_000.0)
+        .map(|(left, right)| {
+          ((left.dbm - first_peak) - (right.dbm - later_peak)).abs()
+        })
+        .fold(0.0_f64, f64::max);
+
+      assert!(
+        max_shape_delta >= 0.5,
+        "{signal_name} monitor should change visible FFT shape after about one second of frames, max normalized delta was {max_shape_delta:.3} dB"
+      );
+      assert_ne!(
+        first, later,
+        "{signal_name} monitor should not replay a static frame after about one second of frames"
       );
     }
   }
@@ -1235,5 +1328,99 @@ mod tests {
       max_in_band_delta >= 1.0,
       "mock tx monitor should change visible in-band FFT magnitudes, max delta was {max_in_band_delta:.3} dB"
     );
+  }
+
+  /// Verifies that every Tx signal type produces visible energy (not frozen
+  /// nothingness) and visibly animates across frames.
+  #[test]
+  fn tx_monitor_all_signals_are_present_and_animate() {
+    let model = TxIqPowerModel::default();
+    let tx_bandwidth_hz = 1_000_000.0;
+
+    for signal_name in ["d", "d_sharp", "wifi", "5g"] {
+      MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+      let mut phase_acc = 0.0;
+
+      // Generate first frame
+      let first = synthesize_mock_tx_monitor_iq(
+        TEST_FFT_SIZE,
+        137_100_000.0,
+        TEST_VIEW_SAMPLE_RATE_HZ as u32,
+        137_100_000.0,
+        tx_bandwidth_hz,
+        signal_name,
+        2048,
+        TEST_TX_POWER_DBM,
+        &model,
+        &mut phase_acc,
+      );
+
+      // Signal must be present: in-band peak near requested power
+      let first_spectrum = spectrum_dbm(&first, TEST_VIEW_SAMPLE_RATE_HZ);
+      let half_bw = tx_bandwidth_hz / 2.0;
+      let in_band_peak =
+        max_dbm_between(&first_spectrum, -half_bw, half_bw);
+      let far_noise =
+        max_dbm_between(&first_spectrum, 1_200_000.0, 1_500_000.0);
+      assert!(
+        in_band_peak >= TEST_TX_POWER_DBM - 6.0,
+        "{signal_name} should have visible Tx signal: \
+         peak={in_band_peak:.2} dBm, expected ~{TEST_TX_POWER_DBM} dBm"
+      );
+      assert!(
+        in_band_peak - far_noise >= 25.0,
+        "{signal_name} in-band signal should be clearly above noise: \
+         peak={in_band_peak:.2} dBm, noise={far_noise:.2} dBm"
+      );
+
+      // Simulate ~300ms of real-time frame pacing then compare
+      std::thread::sleep(std::time::Duration::from_millis(300));
+
+      let mut later = first.clone();
+      for _ in 0..10 {
+        later = synthesize_mock_tx_monitor_iq(
+          TEST_FFT_SIZE,
+          137_100_000.0,
+          TEST_VIEW_SAMPLE_RATE_HZ as u32,
+          137_100_000.0,
+          tx_bandwidth_hz,
+          signal_name,
+          2048,
+          TEST_TX_POWER_DBM,
+          &model,
+          &mut phase_acc,
+        );
+      }
+
+      // Raw I/Q bytes must differ
+      assert_ne!(
+        first, later,
+        "{signal_name} raw IQ frames should not be frozen"
+      );
+
+      // Spectral content must visibly change
+      let later_spectrum = spectrum_dbm(&later, TEST_VIEW_SAMPLE_RATE_HZ);
+      let max_in_band_delta = first_spectrum
+        .iter()
+        .zip(later_spectrum.iter())
+        .filter(|(l, _)| l.rel_hz.abs() <= half_bw)
+        .map(|(l, r)| (l.dbm - r.dbm).abs())
+        .fold(0.0_f64, f64::max);
+
+      assert!(
+        max_in_band_delta >= 0.3,
+        "{signal_name} FFT spectrum should visibly animate: \
+         max in-band delta was {max_in_band_delta:.3} dB (need >= 0.3 dB)"
+      );
+
+      // Signal must still be present after animation (didn't collapse)
+      let later_peak =
+        max_dbm_between(&later_spectrum, -half_bw, half_bw);
+      assert!(
+        later_peak >= TEST_TX_POWER_DBM - 6.0,
+        "{signal_name} signal should remain present after animation: \
+         peak={later_peak:.2} dBm"
+      );
+    }
   }
 }

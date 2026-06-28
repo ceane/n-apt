@@ -683,6 +683,7 @@ impl WebSocketServer {
             tx_signal,
             center_frequency_hz,
             sample_rate_hz,
+            bandwidth_hz,
             tx_ifft_size,
             power_dbm,
             lna_gain_db,
@@ -722,9 +723,9 @@ impl WebSocketServer {
               *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
                 center_frequency_hz as f64;
             }
-            if let Some(sample_rate_hz) = sample_rate_hz {
+            if let Some(bandwidth_hz) = bandwidth_hz {
               *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() =
-                sample_rate_hz as f64;
+                bandwidth_hz;
             }
             if let Some(tx_ifft_size) = tx_ifft_size {
               *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;

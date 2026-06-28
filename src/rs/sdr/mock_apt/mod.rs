@@ -264,8 +264,37 @@ fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
       .and_then(|preset| preset.bandwidth_hz)
       .unwrap_or(sample_rate_hz / 5.0)
       .max(1.0)
-      .min(sample_rate_hz),
+    .min(sample_rate_hz),
   }
+}
+
+fn mock_apt_motion_unit(sample_index: u64, salt: u64) -> f64 {
+  let mut x = sample_index
+    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    .wrapping_add(salt);
+  x ^= x >> 30;
+  x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+  x ^= x >> 27;
+  x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+  x ^= x >> 31;
+  ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 - 1.0
+}
+
+fn wifi_5g_motion_gain(
+  signal_name: &str,
+  frame_seed: u64,
+  sample_index: u64,
+) -> f64 {
+  if signal_name != "wifi" && signal_name != "5g" {
+    return 1.0;
+  }
+
+  // OFDM-like transmit blocks need a little frame-to-frame texture so the
+  // signal does not look frozen when the same cached block is reused.
+  let frame_noise = mock_apt_motion_unit(frame_seed, 0x5749_4649_5f46_524d);
+  let sample_noise =
+    mock_apt_motion_unit(sample_index ^ frame_seed, 0x534d_504c_5458_4741);
+  (1.0 + 0.06 * frame_noise + 0.03 * sample_noise).clamp(0.85, 1.15)
 }
 
 /// Lightweight snapshot for tracking mock APT generation cost.
@@ -1303,11 +1332,18 @@ impl MockAptDevice {
             } else {
               tx_preset.bandwidth_hz
             };
+            let is_ofdm =
+              tx_signal == "wifi" || tx_signal == "5g";
             let current_params = MockTxParams {
               signal_key: tx_signal.clone(),
               sample_rate_hz: sample_rate,
               bandwidth_hz: bw,
               tx_ifft_size: render_ifft_size,
+              phase_seed: if is_ofdm {
+                self.frame_log_counter
+              } else {
+                0
+              },
             };
             let mut cache = MOCK_TX_CACHE.lock().unwrap();
             if cache.params.as_ref() != Some(&current_params)
@@ -1320,6 +1356,7 @@ impl MockAptDevice {
             let block = cache.samples.clone();
             drop(cache);
             let block_cursor = (self.frame_log_counter as usize) % render_ifft_size;
+            let frame_seed = self.frame_log_counter;
 
             let mut max_peak = 0.0_f64;
             for s in &block {
@@ -1342,14 +1379,18 @@ impl MockAptDevice {
 
               let block_sample =
                 block[((t as usize + block_cursor) % render_ifft_size) as usize];
+              let motion_gain =
+                wifi_5g_motion_gain(&tx_signal, frame_seed, t);
               let i_sig = (block_sample.re as f64 * cos_p
                 - block_sample.im as f64 * sin_p)
                 * amp
-                * scale;
+                * scale
+                * motion_gain;
               let q_sig = (block_sample.re as f64 * sin_p
                 + block_sample.im as f64 * cos_p)
                 * amp
-                * scale;
+                * scale
+                * motion_gain;
 
               self.i_accumulator[j] += i_sig;
               self.q_accumulator[j] += q_sig;

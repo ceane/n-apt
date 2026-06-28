@@ -154,6 +154,7 @@ pub enum SdrCommand {
     tx_signal: Option<String>,
     center_frequency_hz: Option<u64>,
     sample_rate_hz: Option<u64>,
+    bandwidth_hz: Option<f64>,
     tx_ifft_size: Option<usize>,
     power_dbm: Option<f64>,
     lna_gain_db: Option<f64>,
@@ -265,7 +266,9 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "bandwidthHz",
-    alias = "txBandwidthHz"
+    alias = "txBandwidthHz",
+    default,
+    deserialize_with = "deserialize_optional_integer_hz"
   )]
   pub bandwidth: Option<u64>,
   #[serde(
@@ -431,6 +434,8 @@ pub struct WebSocketMessage {
   pub tx_hop_rate_hz: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txHopEnabled")]
   pub tx_hop_enabled: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "powerDbm")]
+  pub power_dbm: Option<f64>,
   /// Hardware frequency range info (get_hardware_info)
   #[serde(
     skip_serializing_if = "Option::is_none",

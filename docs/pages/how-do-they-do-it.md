@@ -1,12 +1,5 @@
 *(This is a clear work in progress, expect updates.)*
 
-> "And it's not safe, no, it's not safe
-> Baby, this a dangerous game for you
-> But, baby, this is all child's play to me
-> And I don't need you blaming me like"
-
-*Tyla - SHE DID IT AGAIN ft. Zara Larsson*
-
 <!-- ```Canvas::TriangulationMap
 ```
 
@@ -1162,6 +1155,14 @@ It's still a mystery to me how they are able to do haptics and physiological exp
 Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
 
 These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there is a lot more going on behind the scenes for every "bit" of computer to biology to computer data derived from these signals.
+
+
+### One important note: Quantiziation
+
+There are two ways to save both processing power and data by quantitizing the signal:
+
+- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 instead of u16
+- (2) Using a smaller IFFT size, meaning the signal getting sliced by 2048 points instead of full fidelity (millions)
 
 <br />
 
