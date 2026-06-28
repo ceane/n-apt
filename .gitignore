@@ -69,6 +69,9 @@ redis/backups
 *.pdb
 *.profraw
 **/*.rs.bk
+/test_*
+/tmp_*
+/temp_*
 
 # Rust toolchain files
 rust-toolchain

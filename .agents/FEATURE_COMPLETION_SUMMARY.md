@@ -1,14 +1,20 @@
-# Signals Site Integration Feature Summary
+# Walkthrough - Transmit (Tx) Stability and Phase Continuous Synthesis
 
-We integrated the Signals Interactive Site into the N-APT application.
+We have diagnosed and resolved two critical issues related to mock Transmit (Tx) functionality and interaction:
+
+1. **Panning spectral spikes and I/Q garble**: Discovered that calculating the mock Tx receiver phase using the absolute sample cursor index `t_f` multiplied by the relative frequency `phase_step` caused major phase jumps and discontinuities at frame boundaries when the relative frequency changed during panning or zooming. This has been resolved by storing a persistent `mock_tx_phase_accumulator` inside `SharedState` on the Rust backend, and incrementally updating the phase sample-by-sample.
+2. **Frontend-induced backend crashes**: Guarded drag interaction callbacks in [TxSliderOverlay.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/TxSliderOverlay.tsx) to prevent `NaN` values from propagating to React state, Redux store, and the backend.
 
 ## Changes Made
-1. **Extracted Assets**: Unzipped `Signals Interactive Site.zip` into `src/md-signals`.
-2. **Context Creation**: Created [LearnSignalsContext.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/contexts/LearnSignalsContext.tsx) to manage active chapter and onboarding/intro states between the sidebar and the main content.
-3. **Sidebar Navigation**: Built [LearnSignalsSidebar.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/sidebar/LearnSignalsSidebar.tsx) using the main application design system and styled-components, listing each interactive chapter.
-4. **Content View**: Added [LearnSignalsRoute.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/LearnSignalsRoute.tsx) that lazy-loads chapters and imports the site's styles.
-5. **Vite & TypeScript Config**: Updated [tsconfig.json](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/tsconfig.json) and [vite.config.js](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/vite.config.js) to resolve `@n-apt/md-signals/*` imports and typecheck them smoothly (added `// @ts-nocheck` to signals site files to prevent strict TS failures).
-6. **Main Navigation**: Registered `Learn Signals` in the main [MainLayout.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/MainLayout.tsx) sidebar tabs and registered the `/learn-signals` path in [Routes.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/Routes.tsx).
-7. **Auth Page Integration**: 
-   - Added `/learn-signals` as a public route in [AuthenticationRoute.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/routes/AuthenticationRoute.tsx) so users can explore the signals site without authentication.
-   - Added a button linking to `/learn-signals` on the login/auth page UI.
+
+### Backend (Rust)
+- Added `mock_tx_phase_accumulator: Mutex<f64>` to `SharedState` in [shared_state.rs](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/rs/server/shared_state.rs).
+- Modified `synthesize_mock_tx_monitor_iq` in [websocket_server.rs](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/rs/server/websocket_server.rs) to accept `phase_accumulator: &mut f64` and accumulate the phase step sample-by-sample, keeping it normalized.
+- Updated all test suites and main loops calling `synthesize_mock_tx_monitor_iq` to correctly thread the phase accumulator.
+
+### Frontend (React)
+- Added robust `Number.isFinite` validations in [TxSliderOverlay.tsx](file:///Users/ceanelamerez/Documents/codescratch.nosync/n-apt/src/ts/components/TxSliderOverlay.tsx) to block any potential `NaN` values resulting from pointer computations from dispatching.
+
+## Verification Results
+- **Rust Backend**: All unit and integration tests successfully compile and pass, with all performance/regression testing passing.
+- **Frontend App**: All type checks and Jest test runs pass successfully.

@@ -1302,9 +1302,60 @@ exit 1
 
     let watcher: fs.FSWatcher | null = null;
     let rebuildTimeout: NodeJS.Timeout | null = null;
+    let rebuildStableCheck: NodeJS.Timeout | null = null;
     let isRebuilding = false;
+    let pendingReloadPath: string | null = null;
 
     const srcRsPath = path.resolve('src/rs');
+
+    const getWatchedSourceSnapshot = () => {
+      const snapshot: Array<{ path: string; mtimeMs: number; size: number }> = [];
+      const candidates = [
+        pendingReloadPath,
+        'Cargo.toml',
+        'src/rs',
+      ].filter((value): value is string => Boolean(value));
+
+      for (const candidate of candidates) {
+        const absolute = path.resolve(candidate);
+        try {
+          const stat = fs.statSync(absolute);
+          snapshot.push({
+            path: absolute,
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+          });
+        } catch {
+          // Ignore missing files; Cargo will report the real failure if needed.
+        }
+      }
+
+      return snapshot;
+    };
+
+    const waitForStableSave = async (pathHint: string | null) => {
+      const settleMs = 900;
+      const sampleA = getWatchedSourceSnapshot();
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+      const sampleB = getWatchedSourceSnapshot();
+
+      const stable = sampleA.length === sampleB.length && sampleA.every((entry, index) => {
+        const next = sampleB[index];
+        return next
+          && next.path === entry.path
+          && next.mtimeMs === entry.mtimeMs
+          && next.size === entry.size;
+      });
+
+      if (!stable) {
+        addLog(chalk.yellow(
+          `[Watcher] Source changes are still settling${pathHint ? ` (${pathHint})` : ''}; waiting before rebuild...`
+        ));
+        return false;
+      }
+
+      return true;
+    };
 
     const triggerRebuild = async () => {
       if (isRebuilding) return;
@@ -1390,10 +1441,27 @@ exit 1
         const ext = path.extname(filename);
         const basename = path.basename(filename);
         if (ext === '.rs' || basename === 'Cargo.toml') {
+          pendingReloadPath = path.join(srcRsPath, filename);
           if (rebuildTimeout) clearTimeout(rebuildTimeout);
+          if (rebuildStableCheck) clearTimeout(rebuildStableCheck);
           rebuildTimeout = setTimeout(() => {
-            void triggerRebuild();
-          }, 300); // 300ms debounce
+            rebuildStableCheck = setTimeout(async () => {
+              if (await waitForStableSave(pendingReloadPath)) {
+                pendingReloadPath = null;
+                void triggerRebuild();
+              } else {
+                if (rebuildTimeout) clearTimeout(rebuildTimeout);
+                rebuildTimeout = setTimeout(() => {
+                  rebuildStableCheck = setTimeout(async () => {
+                    if (await waitForStableSave(pendingReloadPath)) {
+                      pendingReloadPath = null;
+                      void triggerRebuild();
+                    }
+                  }, 0);
+                }, 450);
+              }
+            }, 0);
+          }, 900); // wait for editors that write temp files / multi-step saves
         }
       });
       addLog(chalk.blue('[Watcher] Watching Rust source files for changes...'));
@@ -1404,6 +1472,7 @@ exit 1
     return () => {
       if (watcher) watcher.close();
       if (rebuildTimeout) clearTimeout(rebuildTimeout);
+      if (rebuildStableCheck) clearTimeout(rebuildStableCheck);
     };
   }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
 
