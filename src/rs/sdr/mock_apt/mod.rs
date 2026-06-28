@@ -1462,15 +1462,19 @@ impl MockAptDevice {
         }
       }
       let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
-      constrain_mock_apt_tx_overlay_to_bandwidth(
-        &mut self.i_accumulator[..fft_size],
-        &mut self.q_accumulator[..fft_size],
-        &before_tx_i,
-        &before_tx_q,
-        active_tx_overlay_center_hz - center_freq,
-        tx_bandwidth_hz,
-        sample_rate,
-      );
+      let needs_bandwidth_constraint =
+        tx_signal == "wifi" || tx_signal == "5g" || tx_signal == "noise";
+      if needs_bandwidth_constraint {
+        constrain_mock_apt_tx_overlay_to_bandwidth(
+          &mut self.i_accumulator[..fft_size],
+          &mut self.q_accumulator[..fft_size],
+          &before_tx_i,
+          &before_tx_q,
+          active_tx_overlay_center_hz - center_freq,
+          tx_bandwidth_hz,
+          sample_rate,
+        );
+      }
     }
 
     // Apply noise, clip and quantize (Sequential to keep RNG identical).
