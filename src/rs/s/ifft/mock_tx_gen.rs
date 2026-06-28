@@ -112,7 +112,7 @@ pub fn generate_mock_tx_samples_ifft(
         } else {
           let t =
             ((x - shoulder_start) / (1.0 - shoulder_start)).clamp(0.0, 1.0);
-          (1.0 - t).powi(3)
+          (1.0 - t).powf(2.8).max(0.004)
         };
 
         let base_phase =

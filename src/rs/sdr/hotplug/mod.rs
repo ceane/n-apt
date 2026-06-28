@@ -1,4 +1,4 @@
-#[cfg(has_hackrf)]
+#[cfg(all(test, has_hackrf))]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
 use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use crate::server::shared_state::{
@@ -8,7 +8,7 @@ use crate::server::shared_state::{
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
-#[cfg(has_hackrf)]
+#[cfg(all(test, has_hackrf))]
 use std::os::raw::c_int;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -172,7 +172,7 @@ fn supported_usb_device_present() -> bool {
   matches!(supported_usb_device_count(), Ok(count) if count > 0)
 }
 
-#[cfg(has_hackrf)]
+#[cfg(all(test, has_hackrf))]
 fn is_supported_hackrf_board_id(board_id: c_int) -> bool {
   matches!(
     board_id,
@@ -287,6 +287,7 @@ pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn should_probe_for_hotplug(device_type: &str) -> bool {
   device_type.to_ascii_lowercase().contains("mock")
 }

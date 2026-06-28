@@ -32,6 +32,7 @@ pub use sources::{
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 
+#[cfg(test)]
 fn should_stop_streaming(shared_state: &SharedState) -> bool {
   shared_state.shutdown.load(Ordering::Relaxed)
 }

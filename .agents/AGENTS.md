@@ -81,7 +81,7 @@ npm run server:dev   # Dev with auto-reload
 npm run server:build # Build only
 
 # Rust checks
-cargo check           # Always run cargo check after Rust changes, NEVER SKIP AFTER RUST CHANGES, ENSURE IT COMPILES CORRECTLY
+cargo check           # Always run cargo check after Rust changes or when asked to check Rust warnings/errors, NEVER SKIP AFTER RUST CHANGES, ENSURE IT COMPILES CORRECTLY
 cargo check --bin n-apt-backend  # Check the backend crate
 
 # Rust tests

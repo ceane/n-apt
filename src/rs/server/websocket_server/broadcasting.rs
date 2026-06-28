@@ -1,8 +1,10 @@
 use super::sources::{
   active_source_id, build_device_profile, build_source_info_snapshot,
 };
+#[cfg(not(test))]
 use crate::sdr::hotplug::supported_usb_device_count;
 use crate::server::shared_state::SharedState;
+#[cfg(not(test))]
 use log::warn;
 use std::sync::atomic::Ordering;
 use tokio::sync::broadcast;

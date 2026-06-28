@@ -110,38 +110,36 @@ fn clamp_quantized_iq_to_bandwidth(
   let fft = planner.plan_fft_forward(sample_count);
   let ifft = planner.plan_fft_inverse(sample_count);
 
-  for _ in 0..3 {
-    let mut iq: Vec<Complex<f32>> = frame
-      .chunks_exact(2)
-      .map(|sample| {
-        Complex::new(
-          (sample[0] as f32 - 128.0) / 128.0,
-          (sample[1] as f32 - 128.0) / 128.0,
-        )
-      })
-      .collect();
-    fft.process(&mut iq);
+  let mut iq: Vec<Complex<f32>> = frame
+    .chunks_exact(2)
+    .map(|sample| {
+      Complex::new(
+        (sample[0] as f32 - 128.0) / 128.0,
+        (sample[1] as f32 - 128.0) / 128.0,
+      )
+    })
+    .collect();
+  fft.process(&mut iq);
 
-    for (index, bin) in iq.iter_mut().enumerate() {
-      let bin_hz = if index <= sample_count / 2 {
-        index as f64 * bin_width_hz
-      } else {
-        -((sample_count - index) as f64 * bin_width_hz)
-      };
-      if (bin_hz - rel_center_hz).abs() > half_width_hz + guard_hz {
-        *bin = Complex::new(0.0, 0.0);
-      }
+  for (index, bin) in iq.iter_mut().enumerate() {
+    let bin_hz = if index <= sample_count / 2 {
+      index as f64 * bin_width_hz
+    } else {
+      -((sample_count - index) as f64 * bin_width_hz)
+    };
+    if (bin_hz - rel_center_hz).abs() > half_width_hz + guard_hz {
+      *bin = Complex::new(0.0, 0.0);
     }
+  }
 
-    ifft.process(&mut iq);
-    let scale = 1.0 / sample_count as f32;
-    for (index, sample) in iq.iter().enumerate() {
-      let sample = *sample * scale;
-      frame[index * 2] =
-        quantize_mock_tx_iq(sample.re as f64, index as u64, MOCK_TX_I_DITHER_KEY);
-      frame[index * 2 + 1] =
-        quantize_mock_tx_iq(sample.im as f64, index as u64, MOCK_TX_Q_DITHER_KEY);
-    }
+  ifft.process(&mut iq);
+  let scale = 1.0 / sample_count as f32;
+  for (index, sample) in iq.iter().enumerate() {
+    let sample = *sample * scale;
+    frame[index * 2] =
+      quantize_mock_tx_iq(sample.re as f64, index as u64, MOCK_TX_I_DITHER_KEY);
+    frame[index * 2 + 1] =
+      quantize_mock_tx_iq(sample.im as f64, index as u64, MOCK_TX_Q_DITHER_KEY);
   }
 }
 
@@ -944,12 +942,13 @@ mod tests {
   #[test]
   fn tx_monitor_wifi_and_5g_change_after_about_one_second_of_frames() {
     let model = TxIqPowerModel::default();
+    let animation_fft_size = 8192;
 
     for signal_name in ["wifi", "5g"] {
       MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
       let mut phase_accumulator = 0.0;
       let first = synthesize_mock_tx_monitor_iq(
-        TEST_FFT_SIZE,
+        animation_fft_size,
         137_100_000.0,
         TEST_VIEW_SAMPLE_RATE_HZ as u32,
         137_100_000.0,
@@ -961,12 +960,10 @@ mod tests {
         &mut phase_accumulator,
       );
 
-      std::thread::sleep(std::time::Duration::from_secs(1));
-
       let mut later = first.clone();
       for _ in 0..30 {
         later = synthesize_mock_tx_monitor_iq(
-          TEST_FFT_SIZE,
+          animation_fft_size,
           137_100_000.0,
           TEST_VIEW_SAMPLE_RATE_HZ as u32,
           137_100_000.0,
@@ -1434,9 +1431,6 @@ mod tests {
         "{signal_name} in-band signal should be clearly above noise: \
          peak={in_band_peak:.2} dBm, noise={far_noise:.2} dBm"
       );
-
-      // Simulate ~300ms of real-time frame pacing then compare
-      std::thread::sleep(std::time::Duration::from_millis(300));
 
       let mut later = first.clone();
       for _ in 0..10 {
