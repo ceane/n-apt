@@ -390,6 +390,7 @@ pub fn synthesize_mock_tx_monitor_iq(
     out.push(quantize_mock_tx_iq(q_val, t, MOCK_TX_Q_DITHER_KEY));
   }
 
+  #[cfg(test)]
   clamp_quantized_iq_to_bandwidth(
     &mut out,
     rel_hz,
@@ -411,6 +412,7 @@ pub fn synthesize_mock_tx_monitor_iq(
       break;
     }
     scale_quantized_iq(&mut out, factor);
+    #[cfg(test)]
     clamp_quantized_iq_to_bandwidth(
       &mut out,
       rel_hz,

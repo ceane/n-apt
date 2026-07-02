@@ -45,9 +45,10 @@ pub fn generate_mock_tx_samples_ifft(
 
   let key = params.signal_key.as_str();
   let bin_spacing = params.sample_rate_hz / params.tx_ifft_size as f64;
-  // Use floor instead of round to ensure the generated signal never exceeds the requested bandwidth,
-  // preventing it from spilling outside the frontend's visual marker lines when sliding.
-  let num_bins = (params.bandwidth_hz / bin_spacing).floor().max(1.0) as usize;
+  // Use floor instead of round to ensure the generated signal never exceeds the requested bandwidth.
+  // We do not use .max(1.0) because if the requested bandwidth is smaller than a single bin,
+  // generating a signal anyway would cause it to spill outside the frontend's visual markers.
+  let num_bins = (params.bandwidth_hz / bin_spacing).floor() as usize;
 
   let half_bins = num_bins / 2;
 
@@ -58,7 +59,7 @@ pub fn generate_mock_tx_samples_ifft(
       (params.bandwidth_hz / 90_000.0).ceil() as usize + 2
     }
     .clamp(2, 18);
-    let spike_count = max_harmonics.min(half_bins.max(1));
+    let spike_count = max_harmonics.min(half_bins);
 
     for n in 0..spike_count {
       let harmonic = n + 1;
