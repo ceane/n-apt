@@ -26,17 +26,13 @@ pub fn canonical_mock_tx_signal_key(signal_name: &str) -> String {
 /// Deterministic hash mapping (bin, seed) → [0, 2π) for OFDM subcarrier
 /// phase randomization. Different seeds produce visually distinct symbols.
 fn subcarrier_phase_hash(bin: u64, seed: u64) -> f64 {
-  let mut x = bin
-    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-    .wrapping_add(seed);
+  let mut x = bin.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(seed);
   x ^= x >> 30;
   x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
   x ^= x >> 27;
   x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
   x ^= x >> 31;
-  ((x >> 11) as f64 / ((1u64 << 53) as f64))
-    * 2.0
-    * std::f64::consts::PI
+  ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 * std::f64::consts::PI
 }
 
 pub fn generate_mock_tx_samples_ifft(
@@ -49,7 +45,9 @@ pub fn generate_mock_tx_samples_ifft(
 
   let key = params.signal_key.as_str();
   let bin_spacing = params.sample_rate_hz / params.tx_ifft_size as f64;
-  let num_bins = (params.bandwidth_hz / bin_spacing).round().max(1.0) as usize;
+  // Use floor instead of round to ensure the generated signal never exceeds the requested bandwidth,
+  // preventing it from spilling outside the frontend's visual marker lines when sliding.
+  let num_bins = (params.bandwidth_hz / bin_spacing).floor().max(1.0) as usize;
 
   let half_bins = num_bins / 2;
 
@@ -69,18 +67,19 @@ pub fn generate_mock_tx_samples_ifft(
         (edge_fraction * half_bins.max(1) as f64).round().max(1.0) as usize;
       let amp =
         (1.0 / harmonic as f32) * (1.0 - 0.35 * n as f32 / spike_count as f32);
-        let phase = if params.phase_seed != 0 {
-          let seed_phase = subcarrier_phase_hash(harmonic as u64, params.phase_seed);
-          if key == "d_sharp" {
-            std::f64::consts::FRAC_PI_4 * harmonic as f64 + seed_phase
-          } else {
-            -std::f64::consts::FRAC_PI_2 * harmonic as f64 + seed_phase
-          }
-        } else if key == "d_sharp" {
-          std::f64::consts::FRAC_PI_4 * harmonic as f64
+      let phase = if params.phase_seed != 0 {
+        let seed_phase =
+          subcarrier_phase_hash(harmonic as u64, params.phase_seed);
+        if key == "d_sharp" {
+          std::f64::consts::FRAC_PI_4 * harmonic as f64 + seed_phase
         } else {
-          -std::f64::consts::FRAC_PI_2 * harmonic as f64
-        };
+          -std::f64::consts::FRAC_PI_2 * harmonic as f64 + seed_phase
+        }
+      } else if key == "d_sharp" {
+        std::f64::consts::FRAC_PI_4 * harmonic as f64
+      } else {
+        -std::f64::consts::FRAC_PI_2 * harmonic as f64
+      };
       let (sin_p, cos_p) = phase.sin_cos();
 
       if bin_offset < params.tx_ifft_size / 2 {
@@ -94,8 +93,14 @@ pub fn generate_mock_tx_samples_ifft(
       }
     }
   } else {
-    let half_width = half_bins.max(1) as f64;
-    let shoulder_start = if key == "5g" { 0.18 } else { 0.16 };
+    // OFDM flat-top spectral envelope with steep roll-off edges.
+    // WiFi 802.11ac: 52/64 data+pilot subcarriers ≈ 81% occupied BW.
+    // 5G NR: ~90-93% of channel bandwidth occupied.
+    // The roll-off uses a raised-cosine shape matching real spectral masks.
+    let passband_edge = if key == "5g" { 0.92 } else { 0.88 };
+    let rolloff_width = if key == "5g" { 0.08 } else { 0.12 };
+    let passband_jitter_db: f64 = if key == "5g" { 1.0 } else { 1.2 };
+
     for k in 0..num_bins {
       let centered = k as isize - half_bins as isize;
       let bin_idx = if centered >= 0 {
@@ -106,20 +111,34 @@ pub fn generate_mock_tx_samples_ifft(
       let wrapped_bin = bin_idx as usize;
 
       if wrapped_bin < params.tx_ifft_size {
-        let x = (centered as f64).abs() / half_width;
-        let amp = if x <= shoulder_start {
-          1.0
+        let bin_hz = centered as f64 * bin_spacing;
+        let x = bin_hz.abs() / (params.bandwidth_hz / 2.0);
+
+        let jitter_raw = subcarrier_phase_hash(
+          k as u64,
+          params.phase_seed.wrapping_add(0x4F46_444D),
+        );
+        let jitter_unit = jitter_raw / std::f64::consts::PI - 1.0;
+
+        let amp = if x > 1.0 {
+          0.0
+        } else if x <= passband_edge {
+          10.0f64.powf(jitter_unit * passband_jitter_db / 20.0)
         } else {
-          let t =
-            ((x - shoulder_start) / (1.0 - shoulder_start)).clamp(0.0, 1.0);
-          (1.0 - t).powf(2.8).max(0.004)
+          let t = ((x - passband_edge) / rolloff_width).clamp(0.0, 1.0);
+          let rc = 0.5 * (1.0 + (std::f64::consts::PI * t).cos());
+          let skirt_db = -24.0 - 18.0 * t;
+          let skirt = 10.0f64.powf(skirt_db / 20.0);
+          let rolloff = rc.max(skirt);
+          let edge_jitter =
+            10.0f64.powf(jitter_unit * passband_jitter_db * (1.0 - t) / 20.0);
+          rolloff * edge_jitter
         };
 
         let base_phase =
           std::f64::consts::PI * (centered as f64).powi(2) / num_bins as f64;
         let phase = if params.phase_seed != 0 {
-          base_phase
-            + subcarrier_phase_hash(k as u64, params.phase_seed)
+          base_phase + subcarrier_phase_hash(k as u64, params.phase_seed)
         } else {
           base_phase
         };
