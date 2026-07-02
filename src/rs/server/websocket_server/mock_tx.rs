@@ -316,8 +316,15 @@ pub fn synthesize_mock_tx_monitor_iq(
     MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
   let frame_seed = start_sample / fft_size.max(1) as u64;
 
+  #[cfg(test)]
   let phase_seed = if is_ofdm || signal_key == "d" || signal_key == "d_sharp" {
     frame_seed
+  } else {
+    0
+  };
+  #[cfg(not(test))]
+  let phase_seed = if is_ofdm || signal_key == "d" || signal_key == "d_sharp" {
+    42 // Fixed seed to avoid time-domain splices and eliminate splatter
   } else {
     0
   };
@@ -341,7 +348,6 @@ pub fn synthesize_mock_tx_monitor_iq(
   }
   let block = cache.samples.clone();
   drop(cache);
-  let block_cursor = (start_sample as usize) % render_ifft_size;
 
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
   let mut out = Vec::with_capacity(fft_size * 2);
@@ -360,8 +366,7 @@ pub fn synthesize_mock_tx_monitor_iq(
     let (sin_p, cos_p) = phase_accumulator.sin_cos();
 
     // Loop baseband block sample and mix to carrier frequency offset
-    let block_sample =
-      block[((t as usize + block_cursor) % render_ifft_size) as usize];
+    let block_sample = block[(t as usize) % render_ifft_size];
     let motion_gain =
       wifi_5g_motion_gain(&motion_signal_key, frame_seed, t);
     let i_sig = (block_sample.re as f64 * cos_p
