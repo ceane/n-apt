@@ -844,7 +844,15 @@ export function useDraw2DFFTSignal() {
       ctx.textAlign = "center";
       ctx.fillStyle = "rgba(255, 218, 92, 1)";
       ctx.font = "700 12px JetBrains Mono, monospace";
-      ctx.fillText(slider.signalLabel ?? "TX", centerX, labelY);
+      const signalLabel =
+        slider.signalLabel === "wifi"
+          ? "Mock WiFi"
+          : slider.signalLabel === "d_sharp"
+            ? "D#"
+            : slider.signalLabel === "5g"
+              ? "Mock 5G"
+              : slider.signalLabel ?? "TX";
+      ctx.fillText(signalLabel, centerX, labelY);
 
       const hasTxPowerDot =
         powerScale === "dBm" &&

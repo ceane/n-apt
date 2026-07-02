@@ -406,6 +406,114 @@ describe("Redux WebSocket Migration", () => {
       expect(websocketState.queuedMessages).toEqual([]);
     });
 
+    it("clears cached spectrum frames when the active source changes to a stale placeholder", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      const cachedSpectrumFrame = {
+        id: "cached-frame",
+        label: "cached-frame",
+        min_hz: 1,
+        max_hz: 2,
+        description: "cached spectrum frame",
+      };
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "mock-apt",
+          activeSourceMode: "live",
+          deviceState: "connected",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "mock",
+              status: "connected",
+              loading_attempt: 0,
+              loading_attempt_max: 0,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              sdr: {
+                max_sample_rate: 2_400_000,
+                sample_rate_options: [2_400_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                },
+              },
+            },
+          ],
+          sourceStatuses: { "mock-apt": "connected" },
+          channels: [cachedSpectrumFrame as any],
+          maxSampleRateHz: 2_400_000,
+          sampleRateOptions: [2_400_000],
+          sampleRateHz: 2_400_000,
+          sdrSettings: {
+            sample_rate: 2_400_000,
+            center_frequency: 137_100_000,
+          } as any,
+          sdrLimitMarkers: [],
+        }),
+      );
+      middlewareStore.dispatch(setSpectrumFrames([cachedSpectrumFrame as any]));
+      liveDataRef.current = [cachedSpectrumFrame as any];
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "hackrf-one",
+          activeSourceMode: "live",
+          deviceState: "stale",
+          deviceLoadingReason: null,
+          sources: [
+            {
+              id: "hackrf-one",
+              name: "HackRF One",
+              kind: "hackrf_one",
+              capability: "tx_rx",
+              status: "stale",
+              loading_attempt: 0,
+              loading_attempt_max: 0,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              sdr: {
+                max_sample_rate: 20_000_000,
+                sample_rate_options: [2_400_000, 10_000_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                },
+              },
+            },
+          ],
+          sourceStatuses: { "hackrf-one": "stale" },
+          channels: [],
+          maxSampleRateHz: 20_000_000,
+          sampleRateOptions: [2_400_000, 10_000_000],
+          sampleRateHz: 2_400_000,
+          sdrSettings: {
+            sample_rate: 2_400_000,
+            center_frequency: 137_100_000,
+          } as any,
+          sdrLimitMarkers: [],
+        }),
+      );
+
+      const websocketState = middlewareStore.getState().websocket;
+
+      expect(liveDataRef.current).toBeNull();
+      expect(websocketState.spectrumFrames).toEqual([]);
+    });
+
     it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
@@ -676,7 +784,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "tx_mode",
           data: {
-            txMode: true,
+            active_mode: "tx",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
@@ -695,7 +803,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "tx_mode",
           data: {
-            txMode: false,
+            active_mode: "rx",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
@@ -908,7 +1016,7 @@ describe("Redux WebSocket Migration", () => {
       ).toBe(false);
     });
 
-    it("sends pause messages with a source_id", () => {
+    it("sends pause messages with mode metadata", () => {
       const send = jest.fn();
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
         readyState: WebSocket.OPEN,
@@ -948,6 +1056,8 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           isPaused: true,
           sourceId: "mock-apt",
+          duplexMode: "half_duplex",
+          activeMode: "rx",
         },
       });
 
@@ -956,6 +1066,65 @@ describe("Redux WebSocket Migration", () => {
           type: "pause",
           paused: true,
           source_id: "mock-apt",
+          duplex_mode: "half_duplex",
+          active_mode: "rx",
+        }),
+      );
+    });
+
+    it("sends tx_mode messages with active_mode", () => {
+      const send = jest.fn();
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
+        readyState: WebSocket.OPEN,
+        close: jest.fn(),
+        send,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+      }));
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws",
+          aesKey: null,
+          enabled: true,
+        },
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "tx_mode",
+          data: {
+            active_mode: "tx",
+            txDevice: "Mock Tx SDR",
+            serialNumber: "mock-tx",
+          },
+        },
+      });
+
+      expect(send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: "tx_mode",
+          active_mode: "tx",
+          txDevice: "Mock Tx SDR",
+          serialNumber: "mock-tx",
         }),
       );
     });
@@ -1470,7 +1639,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "tx_mode",
           data: {
-            txMode: true,
+            active_mode: "tx",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },

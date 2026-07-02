@@ -1263,49 +1263,6 @@ impl WebSocketServer {
                   }
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
-              } else if !crate::sdr::hotplug::is_recovery_budget_exhausted(
-                recovery_count,
-                super::shared_state::MAX_RECOVERY_ATTEMPTS,
-              ) {
-                shared_state
-                  .recovery_attempts
-                  .fetch_add(1, Ordering::Relaxed);
-                shared_state.set_device_state("loading", Some("restart"));
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-
-                warn!(
-                  "Attempting recovery after read error (attempt {} of {})...",
-                  recovery_count + 1,
-                  super::shared_state::MAX_RECOVERY_ATTEMPTS
-                );
-                if let Err(reset_err) = processor.reset_buffer() {
-                  warn!(
-                    "Buffer reset during read-error recovery failed: {}",
-                    reset_err
-                  );
-                }
-                if let Err(reinit_err) = processor.initialize() {
-                  warn!(
-                    "Re-init during read-error recovery failed: {}",
-                    reinit_err
-                  );
-                } else {
-                  // Don't declare "connected" yet — the next health-check
-                  // or successful frame read will confirm recovery.
-                  info!("Read-error re-init succeeded, awaiting health confirmation...");
-                  hotplug_state.last_hardware_swap = Some(Instant::now());
-                }
-              } else {
-                warn!(
-                    "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
-                    super::shared_state::MAX_RECOVERY_ATTEMPTS,
-                    hotplug_state.exhausted_recovery_cooldown
-                  );
-                shared_state.set_device_state("disconnected", None);
-                broadcast_device_status(&shared_state, &_broadcast_tx);
-                hotplug_state.last_failure_at = Some(Instant::now());
-                tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown)
-                  .await;
               }
 
               // Brief settle regardless
@@ -1318,53 +1275,59 @@ impl WebSocketServer {
                   streak, supported_device_present,
                 );
               if supported_device_present {
-                shared_state.set_device_state("loading", Some("restart"));
-                broadcast_device_status(&shared_state, &_broadcast_tx);
+                if !crate::sdr::hotplug::is_recovery_budget_exhausted(
+                  recovery_count,
+                  super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                ) {
+                  shared_state.set_device_state("loading", Some("restart"));
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
 
-                match crate::sdr::SdrDeviceFactory::create_device() {
-                  Ok(new_device)
-                    if !new_device
-                      .device_type()
-                      .to_ascii_lowercase()
-                      .contains("mock") =>
-                  {
-                    if let Err(swap_e) = processor.swap_device(new_device) {
-                      error!(
-                        "Failed to swap to preferred device on read error: {}",
-                        swap_e
+                  match crate::sdr::SdrDeviceFactory::create_device() {
+                    Ok(new_device)
+                      if !new_device
+                        .device_type()
+                        .to_ascii_lowercase()
+                        .contains("mock") =>
+                    {
+                      if let Err(swap_e) = processor.swap_device(new_device) {
+                        error!(
+                          "Failed to swap to preferred device on read error: {}",
+                          swap_e
+                        );
+                        shared_state.set_device_state("loading", Some("restart"));
+                        shared_state
+                          .set_device_backend_error(processor.get_error());
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                      } else {
+                        info!("Read-error swap succeeded. Awaiting first healthy frame.");
+                        shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
+                        shared_state
+                          .set_device_backend_error(processor.get_error());
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                        hotplug_state.last_hardware_swap = Some(Instant::now());
+                      }
+                    }
+                    _ => {
+                      warn!(
+                        "Read-error restart did not return a real device while USB is still present; keeping device in recovery"
                       );
-                    } else {
-                      shared_state.update_device_status(
-                        true,
-                        processor.get_device_info(),
-                        build_device_profile(processor.device_type()),
-                      );
+                      shared_state.set_device_state("loading", Some("restart"));
                       shared_state
                         .set_device_backend_error(processor.get_error());
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }
                   }
-                  _ => {
-                    let mock_device =
-                      crate::sdr::SdrDeviceFactory::create_mock_device();
-                    if let Err(swap_e) = processor.swap_device(mock_device) {
-                      error!(
-                        "Failed to swap to mock on read error: {}",
-                        swap_e
-                      );
-                    } else {
-                      shared_state.update_device_status(
-                        false,
-                        processor.get_device_info(),
-                        build_device_profile(processor.device_type()),
-                      );
-                      shared_state
-                        .set_device_backend_error(processor.get_error());
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
-                      hotplug_state.last_hardware_swap = Some(Instant::now());
-                    }
-                  }
+                } else {
+                  warn!(
+                      "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
+                      super::shared_state::MAX_RECOVERY_ATTEMPTS,
+                      hotplug_state.exhausted_recovery_cooldown
+                    );
+                  shared_state.set_device_state("disconnected", None);
+                  broadcast_device_status(&shared_state, &_broadcast_tx);
+                  hotplug_state.last_failure_at = Some(Instant::now());
+                  tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown).await;
                 }
               } else {
                 let was_hackrf = processor.device_type() == "hackrf_one";
@@ -1399,6 +1362,7 @@ impl WebSocketServer {
                 }
               }
               hotplug_state.last_failure_at = Some(Instant::now());
+              tokio::time::sleep(Duration::from_millis(250)).await;
             }
           }
         }

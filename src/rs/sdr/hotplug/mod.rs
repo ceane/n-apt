@@ -286,6 +286,13 @@ pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
   !device_type.to_ascii_lowercase().contains("mock")
 }
 
+pub(crate) fn should_hold_recovery_for_usb_present_device(
+  device_type: &str,
+  supported_device_present: bool,
+) -> bool {
+  supported_device_present && should_enter_hardware_recovery(device_type)
+}
+
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) fn should_probe_for_hotplug(device_type: &str) -> bool {
@@ -633,10 +640,10 @@ pub async fn handle_real_hardware_health(
       }
     } else {
       warn!(
-        "Recovery budget exhausted ({} attempts). Holding disconnected for {:?} before trying again.",
+        "Recovery budget exhausted ({} attempts). Holding device recovery for {:?} before trying again.",
         MAX_RECOVERY_ATTEMPTS, state.exhausted_recovery_cooldown
       );
-      shared_state.set_device_state("disconnected", None);
+      shared_state.set_device_state("loading", Some("restart"));
       broadcast_device_status(shared_state, broadcast_tx);
       state.last_failure_at = Some(Instant::now());
       tokio::time::sleep(state.exhausted_recovery_cooldown).await;
@@ -675,7 +682,10 @@ pub async fn handle_real_hardware_health(
         state.last_failure_at = Some(Instant::now());
         info!("Fell back to mock mode after confirmed unplug");
       }
-    } else {
+    } else if should_hold_recovery_for_usb_present_device(
+      processor.device_type(),
+      supported_device_present,
+    ) {
       warn!(
         "Supported device still on USB but unhealthy. Attempting full restart..."
       );
@@ -686,15 +696,7 @@ pub async fn handle_real_hardware_health(
         Ok(new_device) if !new_device.device_type().contains("Mock") => {
           if let Err(e) = processor.swap_device(new_device) {
             error!("Full restart swap failed: {}", e);
-            let mock_device = SdrDeviceFactory::create_mock_device();
-            if let Err(me) = processor.swap_device(mock_device) {
-              error!("Emergency mock fallback also failed: {}", me);
-            }
-            shared_state.update_device_status(
-              false,
-              processor.get_device_info(),
-              build_device_profile(processor.device_type()),
-            );
+            shared_state.set_device_state("loading", Some("restart"));
             broadcast_device_status(shared_state, broadcast_tx);
           } else {
             shared_state.update_device_status(
@@ -708,15 +710,10 @@ pub async fn handle_real_hardware_health(
           }
         }
         _ => {
-          let mock_device = SdrDeviceFactory::create_mock_device();
-          if let Err(me) = processor.swap_device(mock_device) {
-            error!("Mock fallback after restart failure: {}", me);
-          }
-          shared_state.update_device_status(
-            false,
-            processor.get_device_info(),
-            build_device_profile(processor.device_type()),
+          warn!(
+            "Full restart did not return a real device while USB is still present; keeping device in recovery"
           );
+          shared_state.set_device_state("loading", Some("restart"));
           broadcast_device_status(shared_state, broadcast_tx);
           state.last_hardware_swap = Some(Instant::now());
         }
@@ -840,6 +837,22 @@ mod tests {
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("USB LED"));
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("firmware"));
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("15-20 seconds"));
+  }
+
+  #[test]
+  fn real_device_present_on_usb_should_stay_in_recovery() {
+    assert!(should_hold_recovery_for_usb_present_device(
+      "hackrf_one",
+      true
+    ));
+    assert!(should_hold_recovery_for_usb_present_device("rtl-sdr", true));
+    assert!(!should_hold_recovery_for_usb_present_device(
+      "hackrf_one",
+      false
+    ));
+    assert!(!should_hold_recovery_for_usb_present_device(
+      "mock_apt", true
+    ));
   }
 
   #[test]

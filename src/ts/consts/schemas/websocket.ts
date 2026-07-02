@@ -11,6 +11,7 @@ export { type GeolocationData };
 export type DeviceState =
   | "connected"
   | "loading"
+  | "loose"
   | "disconnected"
   | "stale"
   | "error"
@@ -209,9 +210,13 @@ export interface DeviceProfile {
 
 export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
 
+export type DeviceActiveMode = "rx" | "tx" | "rx_tx";
+export type DeviceDuplexMode = "half_duplex";
+
 export type SourceStatus =
   | "connected"
   | "loading"
+  | "loose"
   | "disconnected"
   | "stale"
   | "error"
@@ -341,7 +346,39 @@ export type WebSocketMessage =
       bandwidth_center_frequency?: number;
     }
   | ChannelsMessage
-  | { type: "pause"; paused: boolean; source_id: string }
+  | {
+      type: "pause";
+      paused: boolean;
+      source_id: string;
+      duplex_mode?: DeviceDuplexMode;
+      active_mode?: DeviceActiveMode;
+    }
+  | {
+      type: "tx_mode";
+      active_mode: DeviceActiveMode;
+      txDevice?: string;
+      serialNumber?: string;
+      centerFrequencyHz?: number;
+      bandwidthHz?: number;
+      sampleRateHz?: number;
+      ifftSize?: number;
+      powerDbm?: number;
+      lnaGainDb?: number;
+      vgaGainDb?: number;
+      ampEnabled?: boolean;
+      tunerAgc?: boolean;
+      rtlAgc?: boolean;
+      ppm?: number;
+      txSafetyEnabled?: boolean;
+      txSafetyLimit?: string;
+      txSignal?: string;
+      txHopEnabled?: boolean;
+      txHopType?: string;
+      txHopStartFrequencyHz?: number;
+      txHopEndFrequencyHz?: number;
+      txHopChannels?: string[];
+      txHopRateHz?: number;
+    }
   | { type: "gain"; gain: number }
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)

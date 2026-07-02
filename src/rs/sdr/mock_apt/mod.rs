@@ -264,7 +264,7 @@ fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
       .and_then(|preset| preset.bandwidth_hz)
       .unwrap_or(sample_rate_hz / 5.0)
       .max(1.0)
-    .min(sample_rate_hz),
+      .min(sample_rate_hz),
   }
 }
 
@@ -1337,18 +1337,13 @@ impl MockAptDevice {
             } else {
               tx_preset.bandwidth_hz
             };
-            let is_ofdm =
-              tx_signal == "wifi" || tx_signal == "5g";
+            let is_ofdm = tx_signal == "wifi" || tx_signal == "5g";
             let current_params = MockTxParams {
               signal_key: tx_signal.clone(),
               sample_rate_hz: sample_rate,
               bandwidth_hz: bw,
               tx_ifft_size: render_ifft_size,
-              phase_seed: if is_ofdm {
-                self.frame_log_counter
-              } else {
-                0
-              },
+              phase_seed: if is_ofdm { self.frame_log_counter } else { 0 },
             };
             let mut cache = MOCK_TX_CACHE.lock().unwrap();
             if cache.params.as_ref() != Some(&current_params)
@@ -1360,7 +1355,8 @@ impl MockAptDevice {
             }
             let block = cache.samples.clone();
             drop(cache);
-            let block_cursor = (self.frame_log_counter as usize) % render_ifft_size;
+            let block_cursor =
+              (self.frame_log_counter as usize) % render_ifft_size;
             let frame_seed = self.frame_log_counter;
 
             let mut max_peak = 0.0_f64;
@@ -1382,10 +1378,9 @@ impl MockAptDevice {
               let phase = phase_step * t as f64;
               let (sin_p, cos_p) = phase.sin_cos();
 
-              let block_sample =
-                block[((t as usize + block_cursor) % render_ifft_size) as usize];
-              let motion_gain =
-                wifi_5g_motion_gain(&tx_signal, frame_seed, t);
+              let block_sample = block
+                [((t as usize + block_cursor) % render_ifft_size) as usize];
+              let motion_gain = wifi_5g_motion_gain(&tx_signal, frame_seed, t);
               let i_sig = (block_sample.re as f64 * cos_p
                 - block_sample.im as f64 * sin_p)
                 * amp

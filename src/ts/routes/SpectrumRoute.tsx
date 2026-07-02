@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useMemo,
@@ -60,6 +61,69 @@ import {
 } from "@n-apt/utils/frequency";
 import { estimateHackrfTotalGainDb } from "@n-apt/utils/hackrfCalibration";
 
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
+};
+
+const getLatestLiveFrame = (value: any): any | null => {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[value.length - 1] : null;
+  }
+  return value ?? null;
+};
+
+const hasRenderableFramePayload = (frame: any): boolean => {
+  if (!frame) return false;
+  const iqData = frame.iq_data;
+  const waveform = frame.waveform;
+  const data = frame.data;
+  return !!(
+    (iqData && iqData.length > 0) ||
+    (waveform && waveform.length > 0) ||
+    (data && data.length > 0)
+  );
+};
+
+const hasMockTxPreviewFrame = ({
+  data,
+  centerFrequencyHz,
+}: {
+  data: any;
+  centerFrequencyHz: number | null | undefined;
+}): boolean => {
+  const frame = getLatestLiveFrame(data);
+  if (!hasRenderableFramePayload(frame)) return false;
+  if (frame?.is_mock_apt === true) return false;
+  if (
+    typeof centerFrequencyHz !== "number" ||
+    !Number.isFinite(centerFrequencyHz)
+  ) {
+    return false;
+  }
+
+  const frameCenterHz =
+    typeof frame.center_frequency_hz === "number"
+      ? frame.center_frequency_hz
+      : typeof frame.centerFrequencyHz === "number"
+        ? frame.centerFrequencyHz
+        : null;
+  if (typeof frameCenterHz !== "number" || !Number.isFinite(frameCenterHz)) {
+    return false;
+  }
+  return Math.abs(frameCenterHz - centerFrequencyHz) <= 1;
+};
+
 const resolveMockTxMonitorSampleRateHz = (
   ...candidates: Array<number | null | undefined>
 ): number => {
@@ -81,12 +145,14 @@ export const getMockTxPreviewRequestKey = ({
   sampleRateHz,
   signal,
   powerDbm,
+  ifftSize,
 }: {
   sourceId?: string | null;
   centerFrequencyHz?: number | null;
   sampleRateHz?: number | null;
   signal?: string | null;
   powerDbm?: number | null;
+  ifftSize?: number | null;
 }) =>
   JSON.stringify({
     sourceId: sourceId ?? null,
@@ -104,7 +170,68 @@ export const getMockTxPreviewRequestKey = ({
       typeof powerDbm === "number" && Number.isFinite(powerDbm)
         ? Number(powerDbm.toFixed(3))
         : null,
+    ifftSize:
+      typeof ifftSize === "number" && Number.isFinite(ifftSize)
+        ? Math.round(ifftSize)
+        : null,
   });
+
+export const resolveLiveDevicePlaceholderState = ({
+  deviceState,
+  sourceLabel,
+  loadingAttempt,
+  loadingAttemptMax,
+}: {
+  deviceState: string | null;
+  sourceLabel: string;
+  loadingAttempt?: number | null;
+  loadingAttemptMax?: number | null;
+}): CanvasPlaceholderState | null => {
+  if (
+    deviceState !== "loading" &&
+    deviceState !== "loose" &&
+    deviceState !== "stale" &&
+    deviceState !== "disconnected"
+  ) {
+    return null;
+  }
+
+  if (deviceState === "disconnected") {
+    return {
+      kind: "disconnected",
+      sourceLabel,
+      message:
+        "The device disconnected. The backend is retrying the connection.",
+    };
+  }
+
+  const normalizedAttempt =
+    typeof loadingAttempt === "number" && Number.isFinite(loadingAttempt)
+      ? Math.max(0, Math.floor(loadingAttempt))
+      : 0;
+  const normalizedAttemptMax =
+    typeof loadingAttemptMax === "number" &&
+    Number.isFinite(loadingAttemptMax) &&
+    loadingAttemptMax > 0
+      ? Math.floor(loadingAttemptMax)
+      : 0;
+
+  const message =
+    deviceState === "loose"
+      ? "USB briefly dropped; waiting for the device to settle."
+      : deviceState === "stale"
+        ? "The device is still visible but has not produced a fresh frame yet."
+        : normalizedAttempt > 0
+          ? `Attempting to restart the device... (${normalizedAttempt}/${normalizedAttemptMax || "?"})`
+          : "The device is restarting; this can take 20-30 seconds for HackRF One.";
+
+  return {
+    kind: "loading",
+    paneLabel: "device",
+    sourceLabel,
+    message,
+  };
+};
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
@@ -450,12 +577,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.txCenterFrequencyHz,
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
+  const txIfftSize = useAppSelector((state) => state.spectrum.txIfftSize);
   const showTxSlider = useAppSelector(
     (state) => state.spectrum.showTxSlider ?? true,
   );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
   const sourceStatuses = useAppSelector(
     (state) => state.websocket.sourceStatuses,
+  );
+  const dataFrameCounter = useAppSelector(
+    (state) => state.websocket.dataFrameCounter,
   );
   const getTxSliderDefaults = useCallback(
     (range: FrequencyRange) => {
@@ -513,6 +644,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const storeDispatch = dispatch as React.Dispatch<any>;
   const selectedSourceKind = selectedSource?.kind?.toLowerCase?.() ?? "";
   const selectedSourceObjectId = selectedSource?.id ?? "";
+  const previousLiveSourceIdRef = useRef<string | null>(
+    selectedSourceId || null,
+  );
+  const hasInitializedLiveSourceRef = useRef(false);
+  const emptyLiveDataRef = useRef<any>(null);
+  emptyLiveDataRef.current = null;
+  const isSwitchingLiveSource =
+    state.sourceMode === "live" &&
+    hasInitializedLiveSourceRef.current &&
+    previousLiveSourceIdRef.current !== (selectedSourceId || null);
   const isSelectedMockTxSource =
     isConnected &&
     !!selectedSource &&
@@ -1352,6 +1493,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     setHasPlayedAtLeastOnce(false);
   }, [selectedSourceId]);
 
+  useLayoutEffect(() => {
+    if (state.sourceMode !== "live") {
+      previousLiveSourceIdRef.current = selectedSourceId || null;
+      return;
+    }
+    const nextSourceId = selectedSourceId || null;
+    if (!hasInitializedLiveSourceRef.current) {
+      hasInitializedLiveSourceRef.current = true;
+      previousLiveSourceIdRef.current = nextSourceId;
+      return;
+    }
+    if (previousLiveSourceIdRef.current !== nextSourceId) {
+      dataRef.current = null;
+    }
+    previousLiveSourceIdRef.current = nextSourceId;
+  }, [dataRef, selectedSourceId, state.sourceMode]);
+
   useEffect(() => {
     if (isSelectedMockTxTransmitting) {
       setHasPlayedAtLeastOnce(true);
@@ -1433,9 +1591,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         sampleRateHz: txSampleRateHz,
         signal: txSignal,
         powerDbm: txPowerDbm,
+        ifftSize: txIfftSize,
       }),
     [
       selectedSourceId,
+      txIfftSize,
       txCenterFrequencyHz,
       txPowerDbm,
       txSampleRateHz,
@@ -1444,7 +1604,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
 
   useEffect(() => {
-    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
+    if (
+      !isSelectedMockTxSource ||
+      isSelectedMockTxTransmitting ||
+      !isConnected ||
+      isSwitchingLiveSource
+    ) {
       lastMockTxPreviewRequestKeyRef.current = null;
       return;
     }
@@ -1452,15 +1617,43 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       return;
     }
     lastMockTxPreviewRequestKeyRef.current = mockTxPreviewRequestKey;
-    reduxDispatch(requestNextLiveFrame());
+    dataRef.current = null;
+    reduxDispatch(
+      requestNextLiveFrame({
+        txSettings: {
+          centerFrequencyHz: txCenterFrequencyHz,
+          bandwidthHz: txSampleRateHz,
+          powerDbm: txPowerDbm,
+          txSignal,
+          txIfftSize,
+        },
+      }),
+    );
   }, [
+    dataRef,
+    isConnected,
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
+    isSwitchingLiveSource,
     mockTxPreviewRequestKey,
     reduxDispatch,
+    txCenterFrequencyHz,
+    txIfftSize,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
   ]);
 
-  const fftDataRef = dataRef;
+  const shouldSuppressLiveData = isSwitchingLiveSource;
+  const fftDataRef = shouldSuppressLiveData ? emptyLiveDataRef : dataRef;
+  const hasMockTxPreview = useMemo(
+    () =>
+      hasMockTxPreviewFrame({
+        data: shouldSuppressLiveData ? null : dataRef.current,
+        centerFrequencyHz: txCenterFrequencyHz,
+      }),
+    [dataFrameCounter, dataRef, shouldSuppressLiveData, txCenterFrequencyHz],
+  );
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
     if (
       !isSelectedMockTxSource ||
@@ -1470,7 +1663,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       return null;
     }
     return {
-      kind: "idle",
+      kind: "top-bar",
       title: "Start Tx to transmit",
       sourceLabel:
         selectedSource?.name ??
@@ -1482,9 +1675,34 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
     hasPlayedAtLeastOnce,
+    hasMockTxPreview,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
   ]);
+  const deviceRecoveryPlaceholderState =
+    useMemo<CanvasPlaceholderState | null>(() => {
+      const sourceLabel =
+        selectedSourceDerived.deviceName ??
+        selectedSourceDerived.backend ??
+        "device";
+      return resolveLiveDevicePlaceholderState({
+        deviceState:
+          selectedSourceDerived.deviceState ?? selectedSource?.status ?? null,
+        sourceLabel,
+        loadingAttempt: selectedSource?.loading_attempt,
+        loadingAttemptMax: selectedSource?.loading_attempt_max,
+      });
+    }, [
+      selectedSource?.loading_attempt,
+      selectedSource?.loading_attempt_max,
+      selectedSource?.status,
+      selectedSourceDerived.backend,
+      selectedSourceDerived.deviceName,
+      selectedSourceDerived.deviceState,
+    ]);
+  const livePlaceholderState =
+    mockTxPlaceholderState ?? deviceRecoveryPlaceholderState;
+  const isDeviceRecovering = deviceRecoveryPlaceholderState !== null;
   const handleVizPanChange = useCallback(
     (nextPan: number) => {
       if (
@@ -1550,7 +1768,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   showTxSlider && canShowTxSlider
                     ? {
                         visible: true,
-                        signalLabel: String(txSignal).toUpperCase(),
+                        signalLabel: resolveTxSignalDisplayLabel(txSignal),
                         powerDbm: txPowerDbm,
                         visibleMinHz:
                           txSliderDefaults?.visibleMinHz ??
@@ -1655,11 +1873,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={
-                  isSelectedMockTxSource && !isSelectedMockTxTransmitting
-                    ? true
-                    : isSelectedMockTxTransmitting
-                      ? false
-                      : manualVisualizerPaused
+                  isSelectedMockTxTransmitting
+                    ? false
+                    : manualVisualizerPaused
                 }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}
@@ -1667,7 +1883,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 isDeviceConnected={
                   isConnected &&
                   (isSelectedMockTxSource ||
-                    selectedSourceDerived.deviceState === "connected")
+                    selectedSourceDerived.deviceState === "connected" ||
+                    isDeviceRecovering)
                 }
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}
@@ -1681,7 +1898,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   selectedSourceDerived.backend ??
                   "device"
                 }
-                placeholderState={mockTxPlaceholderState}
+                placeholderState={livePlaceholderState}
                 isStandby={
                   isSelectedMockTxSource && !isSelectedMockTxTransmitting
                 }

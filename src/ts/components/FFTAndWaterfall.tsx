@@ -28,6 +28,21 @@ type FFTAndWaterfallProps = FFTCanvasProps & {
   onLoadingStateChange?: (isLoading: boolean) => void;
 };
 
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
+};
+
 const Container = styled.div`
   flex: 1;
   display: flex;
@@ -191,6 +206,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const isGlobalLoading = !!(
       awaitingDeviceData ||
       placeholderErrorReason ||
+      props.placeholderState ||
       isFftCanvasLoading
     );
 
@@ -271,7 +287,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         : Math.max(1, Math.min(120_000, span));
       return {
         visible: true,
-        signalLabel: String(txSignal).toUpperCase(),
+        signalLabel: resolveTxSignalDisplayLabel(txSignal),
         powerDbm: txPowerDbm,
         visibleMinHz,
         visibleMaxHz,
@@ -379,7 +395,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
-            placeholderState={props.placeholderState}
+            placeholderState={
+              props.placeholderState?.kind === "top-bar"
+                ? { ...props.placeholderState, kind: "overlay-only" }
+                : props.placeholderState
+            }
           />
         </Left>
         <SlidersRail>

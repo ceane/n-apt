@@ -5,6 +5,8 @@ import {
   shouldSyncVisualizerPauseToBackend,
   shouldPauseSourceOnSwitch,
   shouldResumePausedRxSourceOnSelection,
+  shouldAutoResumeVisualizerOnDeviceRecovery,
+  isHalfDuplexSourceInfo,
   isLiveVisualizerPathname,
   resolveEffectiveSourcePaused,
 } from "@n-apt/hooks/useSpectrumStore";
@@ -126,6 +128,27 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe(false);
   });
 
+  it("treats half-duplex sources as manual pause targets even when they can transmit", () => {
+    expect(
+      isHalfDuplexSourceInfo({
+        id: "hackrf-one",
+        name: "HackRF One",
+        capability: "tx_rx",
+        duplex_mode: "Half-Duplex",
+        status: "connected",
+      } as any),
+    ).toBe(true);
+    expect(
+      isHalfDuplexSourceInfo({
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        capability: "tx_rx",
+        duplex_mode: "Simplex",
+        status: "connected",
+      } as any),
+    ).toBe(false);
+  });
+
   it("treats demodulate as leaving the live visualizer", () => {
     expect(isLiveVisualizerPathname("/")).toBe(true);
     expect(isLiveVisualizerPathname("/visualizer")).toBe(true);
@@ -175,6 +198,38 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
           paused: true,
         } as any,
         true,
+      ),
+    ).toBe(false);
+  });
+
+  it("resumes a recovered HackRF source when the outage was temporary and the user did not pause it", () => {
+    expect(
+      shouldAutoResumeVisualizerOnDeviceRecovery(
+        {
+          id: "hackrf-one",
+          name: "HackRF One",
+          capability: "tx_rx",
+          status: "connected",
+        } as any,
+        false,
+        "connected",
+        "loading",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not resume a recovered source that the user manually paused", () => {
+    expect(
+      shouldAutoResumeVisualizerOnDeviceRecovery(
+        {
+          id: "hackrf-one",
+          name: "HackRF One",
+          capability: "tx_rx",
+          status: "connected",
+        } as any,
+        true,
+        "connected",
+        "loading",
       ),
     ).toBe(false);
   });

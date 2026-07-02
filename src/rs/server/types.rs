@@ -398,8 +398,10 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "txMode")]
-  pub tx_mode: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "activeMode")]
+  pub active_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "duplexMode")]
+  pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
   pub tx_device: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -910,6 +912,8 @@ impl Default for TxIqPowerModel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDeviceConfig {
+  #[serde(default)]
+  pub duplex_mode: Option<String>,
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
   pub fft_display: Option<SdrFftDisplayConfig>,

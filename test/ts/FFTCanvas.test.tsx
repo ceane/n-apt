@@ -21,6 +21,7 @@ import { createRef } from "react";
 
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
+const drawSpectrumMock = jest.fn(() => true);
 
 // Mock useAuthentication to avoid auth errors during state init
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -55,7 +56,7 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
 
 jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
   useSpectrumRenderer: () => ({
-    drawSpectrum: jest.fn(() => true),
+    drawSpectrum: drawSpectrumMock,
     cleanup: cleanupSpectrumMock,
   }),
 }));
@@ -292,6 +293,235 @@ describe("FFTCanvas Component", () => {
         "The server was disconnected due to being manually exited or an error.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows a disconnected placeholder when the websocket is still connected", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: { waveform: null } }}
+                isDeviceConnected={true}
+                placeholderState={{
+                  kind: "disconnected",
+                  sourceLabel: "Live SDR",
+                  message:
+                    "The device disconnected. The backend is retrying the connection.",
+                }}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      await screen.findByText("Device Disconnected"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The device disconnected. The backend is retrying the connection.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("clears cached live frames when an explicit placeholder replaces the spectrum", async () => {
+    drawSpectrumMock.mockClear();
+
+    const liveFrame = {
+      waveform: new Float32Array(1024).fill(-42),
+    };
+    const onCanvasLoadingChange = jest.fn();
+
+    const { rerender } = render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                onCanvasLoadingChange={onCanvasLoadingChange}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+    drawSpectrumMock.mockClear();
+
+    rerender(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: liveFrame }}
+                frequencyRange={{ min: 134_914_000, max: 139_286_000 }}
+                centerFrequencyHz={137_100_000}
+                onCanvasLoadingChange={onCanvasLoadingChange}
+                placeholderState={{
+                  kind: "idle",
+                  title: "Start Tx to transmit",
+                  sourceLabel: "Mock Tx SDR",
+                  message: "Start Tx to view backend-generated monitor I/Q.",
+                }}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(onCanvasLoadingChange).toHaveBeenCalledWith(true);
+    });
+    expect(screen.getByText("Standby")).toBeInTheDocument();
+    expect(
+      screen.getByText("Start Tx to transmit"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Start Tx to view backend-generated monitor I/Q."),
+    ).toBeInTheDocument();
+    drawSpectrumMock.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(drawSpectrumMock).not.toHaveBeenCalled();
+  });
+
+  it("renders a requested Mock Tx preview frame while standby is paused", async () => {
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockReturnValueOnce(
+      new Float32Array([7, 8, 9]),
+    );
+
+    const previewFrame = {
+      type: "spectrum",
+      data_type: "iq_raw",
+      is_mock_apt: false,
+      center_frequency_hz: 137_100_000,
+      sample_rate: 2_400_000,
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+    };
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: previewFrame }}
+                frequencyRange={{ min: 135_900_000, max: 138_300_000 }}
+                centerFrequencyHz={137_100_000}
+                isPaused={true}
+                isStandby={true}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+
+    const drawSpectrumCalls = drawSpectrumMock.mock
+      .calls as unknown as Array<[{ waveform?: ArrayLike<number> }]>;
+    const renderedWaveform =
+      drawSpectrumCalls[drawSpectrumCalls.length - 1]?.[0]?.waveform;
+    const processIqCalls = processIqToDbmSpectrumMock.mock
+      .calls as unknown as Array<[ArrayLike<number>]>;
+    expect(processIqToDbmSpectrumMock).toHaveBeenCalled();
+    expect(Array.from(processIqCalls[0]?.[0] ?? [])).toEqual(
+      Array.from(previewFrame.iq_data),
+    );
+    const renderedValues = Array.from(renderedWaveform ?? []);
+    expect(renderedValues.length).toBeGreaterThan(0);
+    expect(Math.min(...renderedValues)).toBeGreaterThan(0);
+    expect(screen.queryByText("Start Tx to transmit")).not.toBeInTheDocument();
+  });
+
+  it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+    const processedSpectrum = new Float32Array([
+      -80, -81, -55, -20, -20, -20, -54, -82, -79,
+    ]);
+    processIqToDbmSpectrumMock.mockReturnValue(
+      processedSpectrum,
+    );
+
+    const previewFrame = {
+      type: "spectrum",
+      data_type: "iq_raw",
+      is_mock_apt: false,
+      center_frequency_hz: 137_100_000,
+      sample_rate: 2_400_000,
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+    };
+    const renderCanvas = (txSampleRateHz: number) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: previewFrame }}
+                frequencyRange={{ min: 135_900_000, max: 138_300_000 }}
+                centerFrequencyHz={137_100_000}
+                isPaused={true}
+                isStandby={true}
+                placeholderState={{
+                  kind: "top-bar",
+                  title: "Start Tx to transmit",
+                  sourceLabel: "Mock Tx SDR",
+                }}
+                txSlider={{
+                  visible: true,
+                  visibleMinHz: 135_900_000,
+                  visibleMaxHz: 138_300_000,
+                  txCenterHz: 137_100_000,
+                  txSampleRateHz,
+                  signalLabel: "Mock WiFi",
+                  powerDbm: -18,
+                }}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    const { rerender } = render(renderCanvas(2_400_000));
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+    drawSpectrumMock.mockClear();
+
+    rerender(renderCanvas(600_000));
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+
+    const drawSpectrumCalls = drawSpectrumMock.mock
+      .calls as unknown as Array<[{ waveform?: ArrayLike<number> }]>;
+    const renderedWaveform =
+      drawSpectrumCalls[drawSpectrumCalls.length - 1]?.[0]?.waveform;
+    const renderedValues = Array.from(renderedWaveform ?? []);
+
+    expect(renderedValues).toEqual(Array.from(processedSpectrum));
   });
 
   it("preserves a restored waterfall snapshot across mount, unmount, and remount", async () => {

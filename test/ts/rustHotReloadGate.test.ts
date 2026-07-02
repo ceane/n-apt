@@ -7,12 +7,12 @@ describe("Rust hot reload gate", () => {
 
     const gate = createRustHotReloadGate(1000);
 
-    gate.recordChange(0);
+    gate.recordChange(undefined, 0);
     expect(gate.shouldAttemptValidation(0)).toBe(false);
     expect(gate.shouldAttemptValidation(999)).toBe(false);
     expect(gate.shouldAttemptValidation(1000)).toBe(true);
 
-    gate.recordChange(1200);
+    gate.recordChange(undefined, 1200);
     expect(gate.shouldAttemptValidation(1999)).toBe(false);
     expect(gate.shouldAttemptValidation(2200)).toBe(true);
 
@@ -85,5 +85,16 @@ describe("Rust hot reload gate", () => {
       expect.any(String),
     );
     expect(result.stage).toBe("restarted");
+  });
+
+  it("builds a targeted rust backend stop command for hot reload", () => {
+    const {
+      buildRustBackendStopCommand,
+    } = require("../../src/ts/utils/rustHotReloadGate");
+
+    expect(buildRustBackendStopCommand(38510, "darwin")).toContain("38510");
+    expect(buildRustBackendStopCommand(38510, "win32")).toContain("38510");
+    expect(buildRustBackendStopCommand(38510, "darwin")).not.toContain("pkill");
+    expect(buildRustBackendStopCommand(38510, "win32")).not.toContain("pkill");
   });
 });

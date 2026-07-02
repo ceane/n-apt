@@ -210,6 +210,7 @@ fn source_status_for_entry(
   } else if is_active_source {
     match device_state {
       "loading" => "loading",
+      "loose" => "loading",
       "disconnected" => "disconnected",
       "stale" => "stale",
       "error" => "error",
@@ -256,6 +257,7 @@ fn build_source_payload(
   name: String,
   kind: &str,
   device_state: &str,
+  device_loading_reason: Option<String>,
   loading_attempt: u32,
   loading_attempt_max: u32,
   serial_number: String,
@@ -281,14 +283,20 @@ fn build_source_payload(
     .and_then(|device_cfg| device_cfg.fft_display.as_ref())
     .map(|display| display.resolve_markers())
     .unwrap_or_default();
+  let duplex_mode = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.duplex_mode.as_deref());
 
   serde_json::json!({
     "id": source_id,
     "name": name,
     "kind": kind,
     "capability": source_capability_for_kind(kind),
+    "duplex_mode": duplex_mode,
     "status": source_status_for_entry(is_active_source, paused, device_state, kind),
     "paused": paused,
+    "device_loading_reason": device_loading_reason,
     "loading_attempt": loading_attempt,
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
@@ -394,6 +402,7 @@ fn build_active_source_payload(
   shared: &SharedState,
   source_id: String,
   device_state: &str,
+  device_loading_reason: Option<String>,
   loading_attempt: u32,
   loading_attempt_max: u32,
 ) -> serde_json::Value {
@@ -417,6 +426,7 @@ fn build_active_source_payload(
     device_name,
     &device_profile.kind,
     device_state,
+    device_loading_reason,
     loading_attempt,
     loading_attempt_max,
     device_serial,
@@ -452,6 +462,7 @@ fn build_mock_tx_source_payload(
     } else {
       "connected"
     },
+    None,
     0,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "mock-tx".to_string(),
@@ -482,6 +493,7 @@ fn build_mock_apt_source_payload(shared: &SharedState) -> serde_json::Value {
     "Mock APT SDR".to_string(),
     "mock_apt",
     "connected",
+    None,
     0,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
     "mock-apt".to_string(),
@@ -525,6 +537,7 @@ fn enumerate_rtl_sdr_sources(
       source_name,
       "rtl-sdr",
       "connected",
+      None,
       0,
       crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
       serial,
@@ -588,6 +601,7 @@ fn enumerate_hackrf_sources(
         source_name,
         "hackrf_one",
         "connected",
+        None,
         0,
         crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
         serial_number,
@@ -613,6 +627,8 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
     device_connected,
     &shared.device_state.lock().unwrap(),
   );
+  let device_loading_reason =
+    shared.device_loading_reason.lock().unwrap().clone();
   let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
   let paused = shared.is_paused.load(Ordering::SeqCst);
   let mut sources = Vec::new();
@@ -621,6 +637,7 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
     shared,
     active_source_id.clone(),
     &device_state,
+    device_loading_reason,
     device_loading_attempt,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
   );

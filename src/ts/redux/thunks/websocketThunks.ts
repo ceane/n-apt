@@ -81,16 +81,68 @@ export const sendFrequencyRange = createAsyncThunk(
   },
 );
 
+export interface RequestNextLiveFrameOptions {
+  txSettings?: {
+    centerFrequencyHz?: number | null;
+    bandwidthHz?: number | null;
+    powerDbm?: number | null;
+    txSignal?: string | null;
+    txIfftSize?: number | null;
+  };
+}
+
+const buildRequestNextFrameData = (
+  options?: RequestNextLiveFrameOptions,
+): Record<string, unknown> => {
+  const txSettings = options?.txSettings;
+  if (!txSettings) return {};
+  const data: Record<string, unknown> = {};
+  if (
+    typeof txSettings.centerFrequencyHz === "number" &&
+    Number.isFinite(txSettings.centerFrequencyHz)
+  ) {
+    data.centerFrequencyHz = Math.round(txSettings.centerFrequencyHz);
+  }
+  if (
+    typeof txSettings.bandwidthHz === "number" &&
+    Number.isFinite(txSettings.bandwidthHz)
+  ) {
+    const bandwidthHz = Math.round(txSettings.bandwidthHz);
+    data.bandwidthHz = bandwidthHz;
+  }
+  if (
+    typeof txSettings.powerDbm === "number" &&
+    Number.isFinite(txSettings.powerDbm)
+  ) {
+    data.powerDbm = txSettings.powerDbm;
+  }
+  if (typeof txSettings.txSignal === "string" && txSettings.txSignal.trim()) {
+    data.txSignal = txSettings.txSignal;
+  }
+  if (
+    typeof txSettings.txIfftSize === "number" &&
+    Number.isFinite(txSettings.txIfftSize)
+  ) {
+    data.txIfftSize = Math.round(txSettings.txIfftSize);
+  }
+  return data;
+};
+
 export const requestNextLiveFrame = createAsyncThunk(
   "websocket/requestNextLiveFrame",
-  async (_, { dispatch, getState }) => {
+  async (
+    options: RequestNextLiveFrameOptions | undefined,
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {},
+          data: {
+            ...buildRequestNextFrameData(options),
+          },
         },
       });
     }
@@ -99,14 +151,19 @@ export const requestNextLiveFrame = createAsyncThunk(
 
 export const requestNextPausedFrame = createAsyncThunk(
   "websocket/requestNextPausedFrame",
-  async (_, { dispatch, getState }) => {
+  async (
+    options: RequestNextLiveFrameOptions | undefined,
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {},
+          data: {
+            ...buildRequestNextFrameData(options),
+          },
         },
       });
     }

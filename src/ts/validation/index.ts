@@ -31,6 +31,8 @@ export {
   SdrSettingsConfigSchema,
   DeviceProfileSchema,
   SourceCapabilitySchema,
+  DeviceActiveModeSchema,
+  DeviceDuplexModeSchema,
   SourceStatusSchema,
   SourceSdrSettingsSchema,
   SourceInfoSchema,

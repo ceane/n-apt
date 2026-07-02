@@ -4,6 +4,7 @@ use log::{debug, info};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -15,6 +16,8 @@ const HACKRF_MIN_SAMPLE_RATE: u32 = 2_000_000;
 const HACKRF_RX_QUEUE_DEPTH: usize = 8;
 const HACKRF_BLOCK_SIZE: usize = 16_384;
 const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
+const HACKRF_RX_START_RETRY_ATTEMPTS: usize = 5;
+const HACKRF_RX_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 struct RxContext {
   tx: Sender<Vec<u8>>,
@@ -40,7 +43,7 @@ pub struct HackRfDevice {
   rx_queue: Receiver<Vec<u8>>,
   #[allow(dead_code)]
   async_thread: Option<JoinHandle<()>>,
-  rx_context: Option<*mut std::os::raw::c_void>,
+  rx_context: Option<Arc<RxContext>>,
   last_error: Option<String>,
   sample_rate: u32,
   center_frequency: u32,
@@ -133,6 +136,16 @@ impl HackRfDevice {
     }
   }
 
+  fn rx_context_ptr(&mut self) -> *mut std::os::raw::c_void {
+    if self.rx_context.is_none() {
+      let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+      self.rx_queue = rx;
+      self.rx_context = Some(Arc::new(RxContext { tx }));
+    }
+
+    Arc::as_ptr(self.rx_context.as_ref().expect("rx context")) as *mut _
+  }
+
   fn set_sample_rate_inner(&mut self, rate: u32) -> Result<()> {
     let clamped = rate.clamp(HACKRF_MIN_SAMPLE_RATE, HACKRF_MAX_SAMPLE_RATE);
     let ret =
@@ -152,39 +165,45 @@ impl HackRfDevice {
       return Ok(());
     }
 
-    let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
-    let ctx = Box::new(RxContext { tx });
-    let ctx_ptr = Box::into_raw(ctx) as *mut std::os::raw::c_void;
-    let ret = unsafe {
-      ffi::hackrf_start_rx(self.dev, Some(hackrf_rx_callback), ctx_ptr)
-    };
-    if ret != 0 {
-      unsafe {
-        drop(Box::from_raw(ctx_ptr as *mut RxContext));
+    let ctx_ptr = self.rx_context_ptr();
+    let mut last_ret = 0;
+    for attempt in 1..=HACKRF_RX_START_RETRY_ATTEMPTS {
+      last_ret = unsafe {
+        ffi::hackrf_start_rx(self.dev, Some(hackrf_rx_callback), ctx_ptr)
+      };
+      if last_ret == 0 {
+        self.streaming_started = true;
+        self.last_error = None;
+        return Ok(());
       }
-      return Err(anyhow!("Failed to start HackRF One RX streaming"));
+
+      if attempt < HACKRF_RX_START_RETRY_ATTEMPTS {
+        std::thread::sleep(HACKRF_RX_START_RETRY_DELAY);
+      }
     }
 
-    self.rx_queue = rx;
-    self.rx_context = Some(ctx_ptr);
-    self.streaming_started = true;
-    Ok(())
+    self.last_error = Some(format!(
+      "Failed to start HackRF One RX streaming after {} attempt(s) (last error code: {})",
+      HACKRF_RX_START_RETRY_ATTEMPTS,
+      last_ret
+    ));
+    Err(anyhow!("Failed to start HackRF One RX streaming"))
   }
 
-  fn cleanup_inner(&mut self) {
+  fn stop_streaming(&mut self) {
     if self.streaming_started {
       let _ = unsafe { ffi::hackrf_stop_rx(self.dev) };
       self.streaming_started = false;
     }
-    if let Some(ctx_ptr) = self.rx_context.take() {
-      unsafe {
-        drop(Box::from_raw(ctx_ptr as *mut RxContext));
-      }
-    }
+  }
+
+  fn cleanup_inner(&mut self) {
+    self.stop_streaming();
     if !self.dev.is_null() {
       let _ = unsafe { ffi::hackrf_close(self.dev) };
       self.dev = ptr::null_mut();
     }
+    let _ = self.rx_context.take();
     let _ = unsafe { ffi::hackrf_exit() };
   }
 }
@@ -368,15 +387,7 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn reset_buffer(&mut self) -> Result<()> {
-    if self.streaming_started {
-      let _ = unsafe { ffi::hackrf_stop_rx(self.dev) };
-      self.streaming_started = false;
-    }
-    if let Some(ctx_ptr) = self.rx_context.take() {
-      unsafe {
-        drop(Box::from_raw(ctx_ptr as *mut RxContext));
-      }
-    }
+    self.stop_streaming();
     self.ensure_streaming()?;
     Ok(())
   }
@@ -461,5 +472,56 @@ mod tests {
   fn applies_ppm_correction_by_adjusting_tune_frequency() {
     assert_eq!(apply_ppm_correction(100_000_000, 0), 100_000_000);
     assert_eq!(apply_ppm_correction(100_000_000, 10), 100_001_000);
+  }
+
+  fn retry_value_then_succeed<T, F>(attempts: usize, mut f: F) -> T
+  where
+    F: FnMut(usize) -> Option<T>,
+  {
+    for attempt in 1..=attempts {
+      if let Some(value) = f(attempt) {
+        return value;
+      }
+    }
+
+    panic!("expected helper to succeed within attempt budget");
+  }
+
+  #[test]
+  fn retries_rx_start_until_success() {
+    let result = retry_value_then_succeed(5, |attempt| {
+      if attempt < 3 {
+        None
+      } else {
+        Some(attempt)
+      }
+    });
+
+    assert_eq!(result, 3);
+  }
+
+  #[test]
+  fn rx_context_is_reused_across_restart_cycles() {
+    let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    let mut device = HackRfDevice {
+      dev: ptr::null_mut(),
+      rx_queue: rx,
+      async_thread: None,
+      rx_context: None,
+      last_error: None,
+      sample_rate: HACKRF_MIN_SAMPLE_RATE,
+      center_frequency: 0,
+      requested_center_frequency: 0,
+      ppm: 0,
+      iq_buffer: Vec::new(),
+      streaming_started: false,
+      serial_number: String::new(),
+    };
+
+    let first_ptr = device.rx_context_ptr();
+    let second_ptr = device.rx_context_ptr();
+
+    assert_eq!(first_ptr, second_ptr);
+    assert!(device.rx_context.is_some());
   }
 }

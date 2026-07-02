@@ -33,4 +33,51 @@ describe("requestNextLiveFrame thunk", () => {
       ),
     ).toBe(true);
   });
+
+  it("sends Tx bandwidth without overriding the preview sample rate", async () => {
+    const seen: any[] = [];
+    const captureMiddleware = () => (next: any) => (action: any) => {
+      seen.push(action);
+      return next(action);
+    };
+
+    const store = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+        spectrum: spectrumSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          captureMiddleware,
+        ),
+    });
+
+    store.dispatch({ type: "websocket/setConnected" });
+    await store.dispatch(
+      requestNextLiveFrame({
+        txSettings: {
+          centerFrequencyHz: 137_100_000,
+          bandwidthHz: 2_400_000,
+          powerDbm: -18,
+          txSignal: "wifi",
+          txIfftSize: 8192,
+        },
+      }) as any,
+    );
+
+    const data = seen.find(
+      (action) =>
+        action?.type === "websocket/sendMessage" &&
+        action?.payload?.type === "request_next_frame",
+    )?.payload?.data;
+
+    expect(data).toMatchObject({
+      centerFrequencyHz: 137_100_000,
+      bandwidthHz: 2_400_000,
+      powerDbm: -18,
+      txSignal: "wifi",
+      txIfftSize: 8192,
+    });
+    expect(data).not.toHaveProperty("sampleRateHz");
+  });
 });

@@ -1205,8 +1205,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return [
       { value: "d", label: "D" },
       { value: "d_sharp", label: "D#" },
-      { value: "wifi", label: "WiFi" },
-      { value: "5g", label: "5G" },
+      { value: "wifi", label: "Mock WiFi" },
+      { value: "5g", label: "Mock 5G" },
     ];
   }, [mockTxSource]);
 
@@ -1582,6 +1582,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                   ? "#19d97d"
                   : undefined,
             label: source.status ?? undefined,
+            paused: source.paused,
             loading: source.status === "loading",
             loadingLabel:
               source.status === "loading"

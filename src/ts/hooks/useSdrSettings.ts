@@ -546,7 +546,24 @@ export const useSdrSettings = ({
     }
 
     if (sdrSettings?.fft?.default_size) {
-      setFftSize(sdrSettings.fft.default_size);
+      const defaultFftSize = sdrSettings.fft.default_size;
+      const currentSampleRate =
+        currentSampleRateHz ?? stateRef.current.sampleRateHz ?? maxSampleRate;
+      const defaultFrameRate = getLogicalMaxFrameRate(
+        currentSampleRate,
+        defaultFftSize,
+        sdrSettings,
+      );
+      dispatch(
+        setSdrSettingsBundle({
+          fftSize: defaultFftSize,
+          fftFrameRate: defaultFrameRate,
+        }),
+      );
+      sendCurrentSettings({
+        fftSize: defaultFftSize,
+        frameRate: defaultFrameRate,
+      });
     }
     if (sdrSettings?.gain?.tuner_gain !== undefined) {
       setGain(sdrSettings.gain.tuner_gain);
@@ -585,6 +602,50 @@ export const useSdrSettings = ({
     setPpm,
     setRtlAGC,
     setTunerAGC,
+    currentSampleRateHz,
+    dispatch,
+    maxSampleRate,
+    sendCurrentSettings,
+  ]);
+
+  useEffect(() => {
+    const defaultFftSize = sdrSettings?.fft?.default_size;
+    const currentSampleRate =
+      currentSampleRateHz ?? state.sampleRateHz ?? maxSampleRate;
+    if (
+      deviceType !== "hackrf_one" ||
+      !defaultFftSize ||
+      !Number.isFinite(currentSampleRate) ||
+      currentSampleRate <= 0 ||
+      state.fftSize <= currentSampleRate
+    ) {
+      return;
+    }
+
+    const defaultFrameRate = getLogicalMaxFrameRate(
+      currentSampleRate,
+      defaultFftSize,
+      sdrSettings,
+    );
+    dispatch(
+      setSdrSettingsBundle({
+        fftSize: defaultFftSize,
+        fftFrameRate: defaultFrameRate,
+      }),
+    );
+    sendCurrentSettings({
+      fftSize: defaultFftSize,
+      frameRate: defaultFrameRate,
+    });
+  }, [
+    currentSampleRateHz,
+    deviceType,
+    dispatch,
+    maxSampleRate,
+    sdrSettings,
+    sendCurrentSettings,
+    state.fftSize,
+    state.sampleRateHz,
   ]);
 
   useEffect(() => {
@@ -593,6 +654,18 @@ export const useSdrSettings = ({
       setFftFrameRate(maxFrameRate);
     }
   }, [maxFrameRate, setFftFrameRate]);
+
+  useEffect(() => {
+    if (
+      deviceType !== "hackrf_one" ||
+      maxFrameRate <= 1 ||
+      state.fftFrameRate > 1
+    ) {
+      return;
+    }
+
+    setFftFrameRate(maxFrameRate);
+  }, [deviceType, maxFrameRate, setFftFrameRate, state.fftFrameRate]);
 
   return {
     ...state,

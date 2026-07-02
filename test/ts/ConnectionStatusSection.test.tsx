@@ -35,6 +35,21 @@ describe("ConnectionStatusSection file mode", () => {
     expect(onFileProcess).toHaveBeenCalled();
   });
 
+  it("shows a stale placeholder instead of the pause button", () => {
+    render(
+      <TestWrapper>
+        <ConnectionStatusSection
+          {...baseProps}
+          deviceState="stale"
+          onPauseToggle={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: /stale/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /pause/i })).not.toBeInTheDocument();
+  });
+
   it("shows the file not processed state once a file is selected", () => {
     render(
       <TestWrapper>

@@ -37,7 +37,7 @@ describe("SourceInput", () => {
       .closest('[role="button"]');
     expect(deviceRow).not.toBeNull();
     expect(
-      within(deviceRow as HTMLElement).getByRole("button", { name: "Start Tx" }),
+      within(deviceRow as HTMLElement).getByRole("button", { name: "Stop Tx" }),
     ).toBeInTheDocument();
   });
 
@@ -113,6 +113,43 @@ describe("SourceInput", () => {
     expect(screen.getByText("Mock APT SDR")).toBeInTheDocument();
     expect(screen.getByText("HackRF One #2")).toBeInTheDocument();
     expect(screen.getByText("File Selection")).toBeInTheDocument();
+  });
+
+  it("hides the mock APT fallback when a real hardware source is available", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "connected" },
+            },
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              backend: "mock_apt",
+              capability: "mock",
+              duplex_mode: "Simplex",
+              status: { label: "connected" },
+            },
+          ]}
+          selectedDeviceId="hackrf-1"
+          onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("HackRF One")).toBeInTheDocument();
+    expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
+    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
   });
 
   it("reduces sticky live source mode to the selected source row", () => {
@@ -254,7 +291,7 @@ describe("SourceInput", () => {
       .closest('[role="button"]') as HTMLElement;
     expect(txRow).not.toBeNull();
     expect(
-      within(txRow).getByRole("button", { name: "Start Tx" }),
+      within(txRow).getByRole("button", { name: "Stop Tx" }),
     ).toBeInTheDocument();
   });
 
@@ -421,9 +458,66 @@ describe("SourceInput", () => {
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
     expect(deviceRow).not.toBeNull();
-    expect(within(deviceRow).getByRole("button", { name: /resume rx/i })).toBeInTheDocument();
+    const rxButton = within(deviceRow).getByRole("button", {
+      name: /pause rx/i,
+    });
+    expect(rxButton).toBeInTheDocument();
+    expect(within(rxButton).getByText("[Space]")).toBeInTheDocument();
     expect(
       within(deviceRow).getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
+    expect(within(deviceRow).queryByText("start/stop transmit mode")).not.toBeInTheDocument();
+  });
+
+  it("mutes the inactive half-duplex Tx mode and switches it on double click", () => {
+    const onToggleDeviceTxMode = jest.fn();
+
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: {
+                label: "connected",
+                paused: false,
+                onAction: jest.fn(),
+              },
+            },
+          ]}
+          selectedDeviceId="hackrf-1"
+          onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={onToggleDeviceTxMode}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    expect(deviceRow).not.toBeNull();
+
+    const txButton = within(deviceRow).getByRole("button", {
+      name: "Start Tx",
+    });
+    const rxButton = within(deviceRow).getByRole("button", {
+      name: /pause rx/i,
+    });
+
+    expect(txButton).toHaveStyle({ opacity: "0.45" });
+    expect(rxButton).toHaveStyle({ opacity: "1" });
+
+    fireEvent.click(txButton);
+    expect(onToggleDeviceTxMode).not.toHaveBeenCalled();
+
+    fireEvent.doubleClick(txButton);
+    expect(onToggleDeviceTxMode).toHaveBeenCalledTimes(1);
   });
 });

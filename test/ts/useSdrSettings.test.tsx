@@ -422,6 +422,121 @@ describe("useSdrSettings", () => {
     localStorage.removeItem("napt-spectrum-view-v1:mock-device");
   });
 
+  it("resets stale HackRF fft size that would collapse the display to 1fps", async () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 4_194_304,
+        fftWindow: "Rectangular",
+        fftFrameRate: 1,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    const Harness = () => {
+      useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftSize).toBe(16_384);
+    });
+    expect(store.getState().spectrum.fftFrameRate).toBe(48);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        fftSize: 16_384,
+        frameRate: 48,
+      }),
+    );
+  });
+
+  it("resets stale HackRF 1fps frame rate when the fft size is otherwise valid", async () => {
+    localStorage.setItem(
+      "napt-spectrum-view-v1:hackrf_one",
+      JSON.stringify({
+        fftSize: 262_144,
+      }),
+    );
+
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 262_144,
+        fftWindow: "Rectangular",
+        fftFrameRate: 1,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    const Harness = () => {
+      useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftFrameRate).toBe(12);
+    });
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        frameRate: 12,
+      }),
+    );
+
+    localStorage.removeItem("napt-spectrum-view-v1:hackrf_one");
+  });
+
   it("does not re-enable HackRF baseband filtering when sample rate changes while disabled", () => {
     const store = configureStore({
       reducer: {

@@ -76,8 +76,7 @@ fn ensure_test_password() {
   }
 }
 
-async fn setup_test_server()
--> (TestServer, Arc<AppState>, RedisGuard) {
+async fn setup_test_server() -> (TestServer, Arc<AppState>, RedisGuard) {
   ensure_test_password();
   let (redis_url, guard) = spawn_test_redis();
 

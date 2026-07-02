@@ -191,6 +191,7 @@ const DeviceActionButton = styled.button<{
   $active?: boolean;
   $opacity?: number;
   $danger?: boolean;
+  $muted?: boolean;
 }>`
   display: inline-flex;
   align-items: center;
@@ -224,7 +225,7 @@ const DeviceActionButton = styled.button<{
   cursor: pointer;
   box-shadow: none;
   user-select: none;
-  opacity: ${({ $opacity = 1 }) => $opacity};
+  opacity: ${({ $opacity = 1, $muted = false }) => ($muted ? 0.45 : $opacity)};
   transition:
     transform 0.16s ease,
     background-color 0.16s ease,
@@ -264,7 +265,10 @@ const ActionHint = styled.span`
   color: ${({ theme }) => theme.textSecondary};
   font-size: 9px;
   line-height: 1;
+  max-width: 58px;
   opacity: 0.65;
+  overflow-wrap: anywhere;
+  white-space: normal;
 `;
 
 const ActionLabel = styled.span`
@@ -276,6 +280,7 @@ const ActionLabel = styled.span`
 const TxModeActionButton = styled(DeviceActionButton)`
   gap: 2px;
   line-height: 1;
+  padding: 7px;
 
   ${ActionLabel} {
     font-size: 11px;
@@ -439,13 +444,39 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     }
     return capability?.toLowerCase().includes("tx") ? "Tx" : "Rx";
   };
-  const sourceDevices = devices ?? [];
+  const sourceDevicesRaw = devices ?? [];
+  const isMockDevice = (device: (typeof sourceDevicesRaw)[number]) =>
+    device.capability === "mock" ||
+    device.id === "mock-apt" ||
+    device.id === "mock-tx" ||
+    device.name.toLowerCase().includes("mock") ||
+    device.backend?.toLowerCase().includes("mock") === true;
+  const isDeviceConnected = (device: (typeof sourceDevicesRaw)[number]) => {
+    const label = device.status?.label?.toLowerCase?.() ?? "";
+    return (
+      label !== "disconnected" &&
+      label !== "offline" &&
+      label !== "stale" &&
+      label !== "error"
+    );
+  };
+  const hasConnectedHardwareSource = sourceDevicesRaw.some(
+    (device) => !isMockDevice(device) && isDeviceConnected(device),
+  );
+  const sourceDevices = hasConnectedHardwareSource
+    ? sourceDevicesRaw.filter(
+        (device) =>
+          !isMockDevice(device) ||
+          device.id === selectedDeviceId ||
+          device.status?.label?.toLowerCase?.() === "transmitting",
+      )
+    : sourceDevicesRaw;
   const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
     device.backend?.toLowerCase().includes("hackrf") === true ||
     device.name.toLowerCase().includes("hackrf") === true;
   const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
-    device.status?.label !== "transmitting";
+    device.status?.paused === false;
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
     device.status?.label?.toLowerCase?.() === "transmitting";
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
@@ -480,20 +511,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 
   const selectedDevice =
     sourceDevices.find((device) => device.id === selectedDeviceId) ?? null;
-  const isMockDevice = (device: (typeof sourceDevices)[number]) =>
-    device.name.toLowerCase().includes("mock") ||
-    device.backend?.toLowerCase().includes("mock") === true;
   const spaceBoundDevice =
     sourceDevices.find((device) => device.id === spaceBoundDeviceId) ?? null;
-  const isDeviceConnected = (device: (typeof sourceDevices)[number]) => {
-    const label = device.status?.label?.toLowerCase?.() ?? "";
-    return (
-      label !== "disconnected" &&
-      label !== "offline" &&
-      label !== "stale" &&
-      label !== "error"
-    );
-  };
   const connectedDevice =
     sourceDevices.find((device) => isDeviceConnected(device)) ?? null;
   const stickyDevice =
@@ -617,43 +636,45 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                     <DeviceActionButton
                       type="button"
                       $active={isSelectedDevice}
+                      $muted={isTransmittingDevice}
                       $opacity={fileModeOpacity}
                       onClick={(event) => {
                         event.stopPropagation();
                         onToggleDeviceRxPause(device.id);
                       }}
-                      title={isHalfDuplexRxActive(device) ? "Resume Rx" : "Pause Rx"}
+                      title={isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
                     >
-                      {isHalfDuplexRxActive(device) ? "Resume Rx" : "Pause Rx"}
+                      {isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
+                      {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : !isHalfDuplex && device.status?.onAction ? (
                     isTxCapable ? (
                       <TxModeActionButton
                         type="button"
-                      aria-label={actionLabel}
-                      $active={isSelectedDevice}
-                      $danger={isTransmittingDevice}
-                      $opacity={fileModeOpacity}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        device.status?.onAction?.();
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
+                        aria-label={actionLabel}
+                        $active={isSelectedDevice}
+                        $danger={isTransmittingDevice}
+                        $opacity={fileModeOpacity}
+                        onClick={(event) => {
                           event.stopPropagation();
                           device.status?.onAction?.();
-                        }
-                      }}
-                      onKeyUp={(event) => {
-                        if (event.key === " " || event.key === "Spacebar") {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          device.status?.onAction?.();
-                        }
-                      }}
-                      title={device.status.actionTitle}
-                    >
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            device.status?.onAction?.();
+                          }
+                        }}
+                        onKeyUp={(event) => {
+                          if (event.key === " " || event.key === "Spacebar") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            device.status?.onAction?.();
+                          }
+                        }}
+                        title={device.status.actionTitle}
+                      >
                         <ActionLabel>{actionLabel}</ActionLabel>
                         <ActionHint>[Space]</ActionHint>
                       </TxModeActionButton>
@@ -677,19 +698,34 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   {isHalfDuplex && onToggleDeviceTxMode ? (
                     <TxModeActionButton
                       type="button"
-                      aria-label="Start Tx"
+                      aria-label={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
                       $active={isSelectedDevice}
                       $danger={isTransmittingDevice}
+                      $muted={!isTransmittingDevice}
                       $opacity={fileModeOpacity}
-                      onClick={(event) => {
+                      onDoubleClick={(event) => {
                         event.stopPropagation();
                         onToggleDeviceTxMode(device.id);
                       }}
-                      title="Start Tx"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onToggleDeviceTxMode(device.id);
+                        }
+                      }}
+                      onKeyUp={(event) => {
+                        if (event.key === " " || event.key === "Spacebar") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onToggleDeviceTxMode(device.id);
+                        }
+                      }}
+                      title={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
                     >
-                      <ActionLabel>Start Tx</ActionLabel>
-                      <ActionHint>[Space]</ActionHint>
-                      <ActionHint>start/stop transmit mode</ActionHint>
+                      <ActionLabel>
+                        {isTransmittingDevice ? "Stop Tx" : "Start Tx"}
+                      </ActionLabel>
                     </TxModeActionButton>
                   ) : null}
                 </DeviceActions>

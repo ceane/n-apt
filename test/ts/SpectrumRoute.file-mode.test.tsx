@@ -10,6 +10,7 @@ import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
 import themeSlice from "../../src/ts/redux/slices/themeSlice";
 import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
 import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
+import { incrementDataFrameCounter } from "../../src/ts/redux/slices/websocketSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
@@ -19,6 +20,7 @@ import {
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
 } from "../../src/ts/redux/slices/spectrumSlice";
+import { requestNextLiveFrame } from "../../src/ts/redux/thunks/websocketThunks";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { THEME_TOKENS } from "../../src/ts/consts";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
@@ -94,6 +96,16 @@ jest.mock("@n-apt/components/TxSliderOverlay", () => ({
   default: () => <div data-testid="tx-slider-overlay" />,
 }));
 
+jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
+  const actual = jest.requireActual(
+    "../../src/ts/redux/thunks/websocketThunks",
+  );
+  return {
+    ...actual,
+    requestNextLiveFrame: jest.fn(() => ({ type: "mock/requestNextLiveFrame" })),
+  };
+});
+
 jest.mock("@n-apt/hooks/useSnapshotListener", () => ({
   useSnapshotListener: jest.fn(),
   buildSnapshotSettingsLabel: jest.fn(() => "mock-settings-label"),
@@ -138,6 +150,7 @@ describe("SpectrumRoute file mode", () => {
   beforeEach(() => {
     fftPlaybackCanvasMock.mockClear();
     fftAndWaterfallMock.mockClear();
+    jest.mocked(requestNextLiveFrame).mockClear();
   });
 
   it("forwards zoom and temporal resolution state to file playback", async () => {
@@ -241,7 +254,7 @@ describe("SpectrumRoute file mode", () => {
 
     const store = createStore();
 
-    render(
+    const { rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -381,7 +394,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    render(
+    const { rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -401,7 +414,7 @@ describe("SpectrumRoute file mode", () => {
       ]?.[0];
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
-      signalLabel: "WIFI",
+      signalLabel: "Mock WiFi",
       visibleMinHz: 0,
       visibleMaxHz: 4_372_000,
       txCenterHz: 2_186_000,
@@ -412,10 +425,356 @@ describe("SpectrumRoute file mode", () => {
     expect(visualizerProps.isDeviceConnected).toBe(true);
     expect(visualizerProps.dataRef.current?.iq_data).toBeUndefined();
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "idle",
+      kind: "top-bar",
       title: "Start Tx to transmit",
+      sourceLabel: "Mock Tx SDR",
+      message: "Start Tx to view backend-generated monitor I/Q.",
     });
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+  });
+
+  it("clears the stale mock apt frame and requests a fresh mock tx frame on source switch", async () => {
+    const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
+    requestNextLiveFrameMock.mockClear();
+
+    const liveFrame = {
+      type: "spectrum",
+      data_type: "iq_raw",
+      center_frequency_hz: 137_100_000,
+      sample_rate: 4_372_000,
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+    };
+    const dataRef = { current: liveFrame as any };
+
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 16384,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 137_000_000, max: 138_000_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-apt",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "mock",
+        status: "connected",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock APT SDR",
+        deviceProfile: {
+          kind: "mock_apt",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        deviceInfo: "Mock APT SDR",
+        backend: "mock_apt",
+        maxSampleRateHz: 4_372_000,
+        sampleRateOptions: [],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+      },
+      effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
+      effectiveSdrSettings: { sample_rate: 4_372_000 },
+      sampleRateHzEffective: 4_372_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-apt",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock_apt",
+        deviceInfo: "Mock APT SDR",
+        deviceName: "Mock APT SDR",
+        deviceProfile: null,
+        maxSampleRateHz: 4_372_000,
+        sampleRateOptions: [],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+        sdrLimitMarkers: [],
+        dataRef,
+        spectrumFrames: [],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock APT SDR",
+      deviceProfile: null,
+      sources: [
+        {
+          id: "mock-apt",
+          name: "Mock APT SDR",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "connected",
+        },
+      ],
+    } as any;
+
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_apt",
+        txCenterFrequencyHz: 137_100_000,
+      },
+    });
+    const dispatchSpy = jest.spyOn(store, "dispatch");
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+    expect(dataRef.current).toBe(liveFrame);
+
+    const switchedValue = {
+      ...mockValue,
+      selectedSourceId: "mock-tx",
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "connected",
+      } as any,
+      selectedSourceDerived: {
+        ...mockValue.selectedSourceDerived,
+        deviceName: "Mock Tx SDR",
+        backend: "mock_tx",
+      },
+      wsConnection: {
+        ...mockValue.wsConnection,
+        activeSourceId: "mock-tx",
+        deviceName: "Mock Tx SDR",
+        backend: "mock_tx",
+        dataRef,
+      },
+      sources: [
+        {
+          id: "mock-tx",
+          name: "Mock Tx SDR",
+          kind: "mock_tx",
+          capability: "tx",
+          status: "connected",
+        },
+      ],
+    };
+
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={switchedValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(requestNextLiveFrameMock).toHaveBeenCalled();
+    });
+    expect(dataRef.current).toBeNull();
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "top-bar",
+      title: "Start Tx to transmit",
+      sourceLabel: "Mock Tx SDR",
+      message: "Start Tx to view backend-generated monitor I/Q.",
+    });
+    expect(dispatchSpy.mock.calls.flat()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "mock/requestNextLiveFrame" }),
+      ]),
+    );
+  });
+
+  it("shows device recovery instead of server down while HackRF is restarting", async () => {
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 2048,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 137_000_000, max: 138_000_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 30,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "hackrf_one-1",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "hackrf_one-1",
+        name: "HackRF One",
+        kind: "hackrf_one",
+        capability: "tx_rx",
+        status: "loading",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "loading",
+        deviceName: "HackRF One",
+        deviceProfile: {
+          kind: "hackrf_one",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        deviceInfo: "HackRF One",
+        backend: "hackrf_one",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+      },
+      effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
+      effectiveSdrSettings: { sample_rate: 3_200_000 },
+      sampleRateHzEffective: 3_200_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "hackrf_one-1",
+        deviceState: "loading",
+        deviceLoadingReason: "restart",
+        isPaused: false,
+        serverPaused: false,
+        backend: "hackrf_one",
+        deviceInfo: "HackRF One",
+        deviceName: "HackRF One",
+        deviceProfile: null,
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [],
+        sampleRateHz: 3_200_000,
+        sdrSettings: { sample_rate: 3_200_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: null },
+        spectrumFrames: [],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "HackRF One",
+      deviceProfile: null,
+      sources: [],
+    } as any;
+
+    const store = createStore();
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.isDeviceConnected).toBe(true);
+    expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "loading",
+      sourceLabel: "HackRF One",
+      paneLabel: "device",
+    });
   });
 
   it("keeps Mock Tx standby paused until transmit starts", async () => {
@@ -543,7 +902,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    render(
+    const { rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -561,9 +920,17 @@ describe("SpectrumRoute file mode", () => {
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
-    expect(visualizerProps.isPaused).toBe(true);
+    expect(visualizerProps.isStandby).toBe(true);
     expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "top-bar",
       title: "Start Tx to transmit",
+    });
+    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+      txSettings: expect.objectContaining({
+        centerFrequencyHz: 137_100_000,
+        bandwidthHz: 2_400_000,
+        txSignal: "wifi",
+      }),
     });
   });
 
@@ -702,7 +1069,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    render(
+    const { rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -740,6 +1107,336 @@ describe("SpectrumRoute file mode", () => {
         sampleRateHz: 2_400_000,
       }),
     );
+  });
+
+  it("uses Tx settings as the Mock Tx standby preview source of truth", async () => {
+    const staleMockWifiFrame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      center_frequency_hz: 137_100_000,
+      sample_rate: 3_400_000,
+      timestamp: 1,
+      iq_data: new Uint8Array(4096).fill(128),
+    };
+    const mockValue = {
+      state: {
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        isStitchPaused: false,
+        fftSize: 16384,
+        displayMode: "fft",
+        powerScale: "dB",
+        snapshotGridPreference: true,
+        displayTemporalResolution: "medium",
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+        activeSignalArea: "A",
+        vizZoom: 1,
+        vizZoomFloor: 1,
+        vizZoomFloorPan: 0,
+        vizPanOffset: 0,
+        fftMinDb: -120,
+        fftMaxDb: 0,
+        fftWindow: "Rectangular",
+        autoZoomStability: false,
+        fftFrameRate: 60,
+        showSpikeOverlay: false,
+        heterodyningVerifyRequestId: 0,
+        heterodyningHighlightedBins: [],
+        isWaterfallCleared: false,
+        selectedFilesCount: 0,
+      },
+      dispatch: jest.fn(),
+      fftVisualizerMachine: {} as any,
+      manualVisualizerPaused: false,
+      setManualVisualizerPaused: jest.fn(),
+      selectedSourceId: "mock-tx",
+      setSelectedSourceId: jest.fn(),
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "connected",
+      } as any,
+      selectedSourceDerived: {
+        deviceState: "connected",
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        deviceInfo: null,
+        backend: "mock_tx",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [4_372_000],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+      },
+      effectiveFrames: [],
+      effectiveSdrSettings: { sample_rate: 4_372_000 },
+      sampleRateHzEffective: 4_372_000,
+      signalAreaBounds: null,
+      lastSentPauseRef: { current: null },
+      wsConnection: {
+        isConnected: true,
+        activeSourceId: "mock-tx",
+        deviceState: "connected",
+        deviceLoadingReason: null,
+        isPaused: false,
+        serverPaused: false,
+        backend: "mock_tx",
+        deviceInfo: null,
+        deviceName: "Mock Tx SDR",
+        deviceProfile: {
+          kind: "mock_tx",
+          is_rtl_sdr: false,
+          supports_approx_dbm: true,
+          supports_raw_iq_stream: true,
+        },
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [4_372_000],
+        sampleRateHz: 4_372_000,
+        sdrSettings: { sample_rate: 4_372_000 },
+        sdrLimitMarkers: [],
+        dataRef: { current: staleMockWifiFrame },
+        spectrumFrames: [staleMockWifiFrame],
+        sources: [],
+        captureStatus: { status: "idle" },
+        error: null,
+        cryptoCorrupted: false,
+        sendFrequencyRange: jest.fn(),
+        sendPauseCommand: jest.fn(),
+        sendSettings: jest.fn(),
+        sendRestartDevice: jest.fn(),
+        sendCaptureCommand: jest.fn(),
+        sendScanCommand: jest.fn(),
+        sendDemodulateCommand: jest.fn(),
+        sendTrainingCommand: jest.fn(),
+        sendPowerScaleCommand: jest.fn(),
+        sendTransmitMode: jest.fn(),
+      },
+      toggleVisualizerPause: jest.fn(),
+      cryptoCorrupted: false,
+      deviceName: "Mock Tx SDR",
+      deviceProfile: {
+        kind: "mock_tx",
+        is_rtl_sdr: false,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+      sources: [],
+    } as any;
+
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        deviceKind: "mock_tx",
+        txCenterFrequencyHz: 137_100_000,
+        txSampleRateHz: 2_400_000,
+      },
+      websocket: {
+        ...websocketSlice(undefined, { type: "@@INIT" as any }),
+        sourceStatuses: { "mock-tx": "connected" },
+      },
+    });
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const visualizerProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(visualizerProps.frequencyRange).toEqual({
+      min: 134_914_000,
+      max: 139_286_000,
+    });
+    expect(visualizerProps.centerFrequencyHz).toBe(137_100_000);
+    expect(visualizerProps.hardwareSampleRateHz).toBe(4_372_000);
+    expect(visualizerProps.txSlider).toMatchObject({
+      visible: true,
+      visibleMinHz: 134_914_000,
+      visibleMaxHz: 139_286_000,
+      txCenterHz: 137_100_000,
+      txSampleRateHz: 2_400_000,
+    });
+    expect(visualizerProps.isStandby).toBe(true);
+    expect(visualizerProps.dataRef.current).toBeNull();
+    expect(visualizerProps.placeholderState).toMatchObject({
+      kind: "top-bar",
+      title: "Start Tx to transmit",
+    });
+    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+      txSettings: {
+        centerFrequencyHz: 137_100_000,
+        bandwidthHz: 2_400_000,
+        powerDbm: -18,
+        txSignal: "wifi",
+        txIfftSize: 2048,
+      },
+    });
+
+    const mockTxPreviewFrame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      is_mock_apt: false,
+      center_frequency_hz: 137_100_000,
+      sample_rate: 2_400_000,
+      timestamp: 2,
+      iq_data: new Uint8Array(4096).fill(128),
+    };
+    mockValue.wsConnection.dataRef.current = mockTxPreviewFrame;
+    act(() => {
+      store.dispatch(incrementDataFrameCounter());
+    });
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      const nextVisualizerProps =
+        fftAndWaterfallMock.mock.calls[
+          fftAndWaterfallMock.mock.calls.length - 1
+        ]?.[0];
+      expect(nextVisualizerProps.placeholderState).toMatchObject({
+        kind: "top-bar",
+        title: "Start Tx to transmit",
+      });
+      expect(nextVisualizerProps.isStandby).toBe(true);
+      expect(nextVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
+      expect(nextVisualizerProps.txSlider).toMatchObject({
+        visible: true,
+        signalLabel: "Mock WiFi",
+        txCenterHz: 137_100_000,
+        txSampleRateHz: 2_400_000,
+      });
+    });
+
+    act(() => {
+      store.dispatch(setTxSampleRateHz(3_400_000));
+    });
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      const narrowedVisualizerProps =
+        fftAndWaterfallMock.mock.calls[
+          fftAndWaterfallMock.mock.calls.length - 1
+        ]?.[0];
+      expect(narrowedVisualizerProps.txSlider).toMatchObject({
+        txCenterHz: 137_100_000,
+        txSampleRateHz: 3_400_000,
+      });
+      expect(narrowedVisualizerProps.placeholderState).toMatchObject({
+        kind: "top-bar",
+        title: "Start Tx to transmit",
+      });
+      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+    });
+    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+      txSettings: {
+        centerFrequencyHz: 137_100_000,
+        bandwidthHz: 3_400_000,
+        powerDbm: -18,
+        txSignal: "wifi",
+        txIfftSize: 2048,
+      },
+    });
+
+    const widenedMockTxPreviewFrame = {
+      ...mockTxPreviewFrame,
+      timestamp: 3,
+      sample_rate: 3_400_000,
+    };
+    mockValue.wsConnection.dataRef.current = widenedMockTxPreviewFrame;
+    act(() => {
+      store.dispatch(incrementDataFrameCounter());
+    });
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      const widenedVisualizerProps =
+        fftAndWaterfallMock.mock.calls[
+          fftAndWaterfallMock.mock.calls.length - 1
+        ]?.[0];
+      expect(widenedVisualizerProps.dataRef.current).toBe(
+        widenedMockTxPreviewFrame,
+      );
+    });
+
+    act(() => {
+      store.dispatch(setTxSampleRateHz(1_400_000));
+    });
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      const narrowedVisualizerProps =
+        fftAndWaterfallMock.mock.calls[
+          fftAndWaterfallMock.mock.calls.length - 1
+        ]?.[0];
+      expect(narrowedVisualizerProps.txSlider).toMatchObject({
+        txCenterHz: 137_100_000,
+        txSampleRateHz: 1_400_000,
+      });
+      expect(narrowedVisualizerProps.placeholderState).toMatchObject({
+        kind: "top-bar",
+        title: "Start Tx to transmit",
+      });
+      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+    });
+    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+      txSettings: {
+        centerFrequencyHz: 137_100_000,
+        bandwidthHz: 1_400_000,
+        powerDbm: -18,
+        txSignal: "wifi",
+        txIfftSize: 2048,
+      },
+    });
   });
 
   it("syncs canvas Tx bandwidth changes to the active backend transmitter while viewing Mock APT", async () => {

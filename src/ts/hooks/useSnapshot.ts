@@ -411,7 +411,52 @@ async function recordCanvasFramesToVideo(
 // THEME constant removed - now computed dynamically inside useSnapshot hook
 
 function getDbUnit(data: SnapshotData): "dB" | "dBm" {
+  if (data.powerScale === "dBm") return "dBm";
+  if (data.powerScale === "dB") return "dB";
   return data.dbMax > 20 ? "dBm" : "dB";
+}
+
+type SignalAreaBounds = Record<string, { min: number; max: number }>;
+
+function formatVisibleChannels(
+  range: Range,
+  signalAreaBounds?: SignalAreaBounds | null,
+): string | null {
+  if (!signalAreaBounds) return null;
+
+  const visibleChannels = Object.entries(signalAreaBounds)
+    .map(([name, bounds]) => {
+      const channelMin = Math.min(bounds.min, bounds.max);
+      const channelMax = Math.max(bounds.min, bounds.max);
+      if (
+        !Number.isFinite(channelMin) ||
+        !Number.isFinite(channelMax) ||
+        !(channelMax > channelMin)
+      ) {
+        return null;
+      }
+
+      const visibleMin = Math.max(channelMin, range.min);
+      const visibleMax = Math.min(channelMax, range.max);
+      if (!(visibleMax > visibleMin)) return null;
+
+      const isWhole =
+        range.min <= channelMin + 1 && range.max >= channelMax - 1;
+      const channelLabel = name.trim()
+        ? name.trim().toUpperCase()
+        : "Unknown";
+      return {
+        min: channelMin,
+        label: `${channelLabel} (${isWhole ? "whole" : "partial"})`,
+      };
+    })
+    .filter(
+      (entry): entry is { min: number; label: string } => entry !== null,
+    )
+    .sort((a, b) => a.min - b.min);
+
+  if (!visibleChannels.length) return null;
+  return `Channels ${visibleChannels.map((channel) => channel.label).join(", ")}`;
 }
 
 export function buildSnapshotStatsLines({
@@ -426,6 +471,7 @@ export function buildSnapshotStatsLines({
   gainLabel,
   modeLabel,
   activeSignalAreaBounds,
+  signalAreaBounds,
   hardwareSampleRateHz,
   showGeolocation,
   geolocation,
@@ -442,6 +488,7 @@ export function buildSnapshotStatsLines({
   gainLabel?: string;
   modeLabel?: string;
   activeSignalAreaBounds?: { min: number; max: number } | null;
+  signalAreaBounds?: SignalAreaBounds | null;
   hardwareSampleRateHz?: number;
   showGeolocation?: boolean;
   geolocation?: { lat: string; lon: string } | null;
@@ -467,11 +514,13 @@ export function buildSnapshotStatsLines({
     whole ||
     (allowInferredWholeChannel && (wholeBySpan || wholeBySampleRate));
 
-  const channelLabel = channelName
-    ? isWholeChannel
-      ? `Whole Channel ${channelName}`
-      : `Onscreen / partial Channel ${channelName}`
-    : "Onscreen";
+  const channelLabel =
+    formatVisibleChannels(range, signalAreaBounds) ??
+    (channelName
+      ? isWholeChannel
+        ? `Whole Channel ${channelName}`
+        : `Onscreen / partial Channel ${channelName}`
+      : "Onscreen");
   const fftWindowLabel =
     fftWindow && fftWindow !== "Rectangular" ? ` | Window: ${fftWindow}` : "";
   const gainValue = Number.isFinite(gain ?? Number.NaN)
@@ -620,9 +669,10 @@ function renderToDC(
   activeSignalAreaLabel?: string,
 ): void {
   const vertRange = 10;
-  const startLabel = Math.floor((data.dbMax + 0.1) / vertRange) * vertRange;
-  const markers = [];
+  const startLabel = Math.floor(data.dbMax / vertRange) * vertRange;
+  const markers = [data.dbMax];
   for (let line = startLabel; line >= data.dbMin - 1; line -= vertRange) {
+    if (Math.abs(line - data.dbMax) < 0.1) continue;
     markers.push(line);
   }
   const unit = getDbUnit(data);
@@ -1686,6 +1736,7 @@ export function buildFastSpectrumCanvas(
   options?: {
     showStats?: boolean;
     activeSignalArea?: string;
+    signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
     sourceName?: string;
     sdrSettingsLabel?: string;
@@ -1725,6 +1776,7 @@ export function buildFastSpectrumCanvas(
           (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
+        signalAreaBounds: options?.signalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
         fftSize:
@@ -1995,6 +2047,7 @@ export function buildFastWaterfallCanvas(
   options?: {
     showStats?: boolean;
     activeSignalArea?: string;
+    signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
     sourceName?: string;
     sdrSettingsLabel?: string;
@@ -2031,6 +2084,7 @@ export function buildFastWaterfallCanvas(
             (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
           channelName: options?.activeSignalArea,
           activeSignalAreaBounds: options?.activeSignalAreaBounds,
+          signalAreaBounds: options?.signalAreaBounds,
           whole: false,
           hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
           fftSize:
@@ -2172,6 +2226,7 @@ export function buildFastWaterfallCanvas(
           (snapshotData?.isDeviceConnected ? "SDR" : "Offline"),
         channelName: options?.activeSignalArea,
         activeSignalAreaBounds: options?.activeSignalAreaBounds,
+        signalAreaBounds: options?.signalAreaBounds,
         whole: false,
         hardwareSampleRateHz: snapshotData?.hardwareSampleRateHz,
         fftSize:
@@ -2308,6 +2363,7 @@ export function useSnapshot(
       options?: {
         showStats?: boolean;
         activeSignalArea?: string;
+        signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
         sourceName?: string;
         sdrSettingsLabel?: string;
@@ -2532,6 +2588,7 @@ export function useSnapshot(
               deviceName: options.sourceName,
               channelName: options.activeSignalArea,
               activeSignalAreaBounds: options.activeSignalAreaBounds,
+              signalAreaBounds: options.signalAreaBounds,
               whole: options.whole,
               hardwareSampleRateHz: data.hardwareSampleRateHz,
               fftSize: data.fftSize,
@@ -2630,6 +2687,7 @@ export function useSnapshot(
                 deviceName: options.sourceName,
                 channelName: options.activeSignalArea,
                 activeSignalAreaBounds: options.activeSignalAreaBounds,
+                signalAreaBounds: options.signalAreaBounds,
                 whole: options.whole,
                 hardwareSampleRateHz: currentData.hardwareSampleRateHz,
                 fftSize: currentData.fftSize,
@@ -3652,6 +3710,7 @@ export function useSnapshot(
       options?: {
         showStats?: boolean;
         activeSignalArea?: string;
+        signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
         getActiveSignalArea?: () => string;
         getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
@@ -3701,6 +3760,7 @@ export function useSnapshot(
           activeSignalArea: options?.getActiveSignalArea
             ? options.getActiveSignalArea()
             : options?.activeSignalArea,
+          signalAreaBounds: options?.signalAreaBounds,
           activeSignalAreaBounds: options?.getActiveSignalAreaBounds
             ? options.getActiveSignalAreaBounds()
             : options?.activeSignalAreaBounds,
@@ -3811,6 +3871,7 @@ export function useSnapshot(
               activeSignalArea: options?.getActiveSignalArea
                 ? options.getActiveSignalArea()
                 : options?.activeSignalArea,
+              signalAreaBounds: options?.signalAreaBounds,
               activeSignalAreaBounds: options?.getActiveSignalAreaBounds
                 ? options.getActiveSignalAreaBounds()
                 : options?.activeSignalAreaBounds,
@@ -3914,6 +3975,7 @@ export function useSnapshot(
       options?: {
         showStats?: boolean;
         activeSignalArea?: string;
+        signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
         sourceName?: string;
         sdrSettingsLabel?: string;

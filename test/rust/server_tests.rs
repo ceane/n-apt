@@ -2,6 +2,8 @@ use axum_test::TestServer;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::types::DeviceProfile;
+use n_apt_backend::server::websocket_server::build_source_info_snapshot;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
 use serial_test::serial;
@@ -71,8 +73,62 @@ fn ensure_test_password() {
   }
 }
 
-async fn setup_test_server()
--> (TestServer, Arc<AppState>, RedisGuard) {
+#[test]
+#[serial]
+fn source_info_reports_hackrf_duplex_mode() {
+  ensure_test_password();
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+  shared.update_device_status(
+    true,
+    "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
+    DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    },
+  );
+
+  let snapshot = build_source_info_snapshot(&shared);
+  let sources = snapshot["sources"].as_array().expect("sources array");
+  let active = sources
+    .iter()
+    .find(|source| source["kind"].as_str() == Some("hackrf_one"))
+    .expect("active HackRF source");
+
+  assert_eq!(active["name"], "HackRF One");
+  assert_eq!(active["capability"], "tx_rx");
+  assert_eq!(active["duplex_mode"], "Half-duplex");
+}
+
+#[test]
+#[serial]
+fn source_info_reports_loose_hardware_as_loading() {
+  ensure_test_password();
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+  shared.update_device_status(
+    true,
+    "HackRF One".to_string(),
+    DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    },
+  );
+  shared.set_device_state("loose", None);
+
+  let snapshot = build_source_info_snapshot(&shared);
+  let sources = snapshot["sources"].as_array().expect("sources array");
+  let active = sources
+    .iter()
+    .find(|source| source["kind"].as_str() == Some("hackrf_one"))
+    .expect("active HackRF source");
+
+  assert_eq!(active["status"], "loading");
+}
+
+async fn setup_test_server() -> (TestServer, Arc<AppState>, RedisGuard) {
   ensure_test_password();
   let (redis_url, guard) = spawn_test_redis();
 

@@ -153,12 +153,16 @@ export const SourceCapabilitySchema = z.enum(["rx", "tx", "tx_rx", "mock"]);
 export const SourceStatusSchema = z.enum([
   "connected",
   "loading",
+  "loose",
   "disconnected",
   "stale",
   "error",
   "transmitting",
   "streaming",
 ]);
+
+export const DeviceActiveModeSchema = z.enum(["rx", "tx", "rx_tx"]);
+export const DeviceDuplexModeSchema = z.enum(["half_duplex"]);
 
 export const SourceSdrSettingsSchema = z.object({
   fft_size: z.number().optional(),
@@ -349,7 +353,36 @@ export const WebSocketMessageSchema = z.union([
     type: z.literal("pause"),
     paused: z.boolean(),
     source_id: z.string(),
+    duplex_mode: DeviceDuplexModeSchema.optional(),
+    active_mode: DeviceActiveModeSchema.optional(),
   }),
+  z
+    .object({
+      type: z.literal("tx_mode"),
+      active_mode: DeviceActiveModeSchema,
+      txDevice: z.string().optional(),
+      serialNumber: z.string().optional(),
+      centerFrequencyHz: z.number().optional(),
+      bandwidthHz: z.number().optional(),
+      sampleRateHz: z.number().optional(),
+      ifftSize: z.number().int().optional(),
+      powerDbm: z.number().optional(),
+      lnaGainDb: z.number().optional(),
+      vgaGainDb: z.number().optional(),
+      ampEnabled: z.boolean().optional(),
+      tunerAgc: z.boolean().optional(),
+      rtlAgc: z.boolean().optional(),
+      ppm: z.number().int().optional(),
+      txSafetyEnabled: z.boolean().optional(),
+      txSafetyLimit: z.string().optional(),
+      txSignal: z.string().optional(),
+      txHopEnabled: z.boolean().optional(),
+      txHopType: z.string().optional(),
+      txHopStartFrequencyHz: z.number().optional(),
+      txHopEndFrequencyHz: z.number().optional(),
+      txHopChannels: z.array(z.string()).optional(),
+      txHopRateHz: z.number().optional(),
+    }),
   z.object({
     type: z.literal("gain"),
     gain: z.number(),

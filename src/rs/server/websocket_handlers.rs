@@ -28,9 +28,7 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
   let canonical = canonical_mock_tx_signal_key(signal_name.unwrap_or("wifi"));
   match canonical.as_str() {
-    "d" | "d_sharp" | "wifi" | "5g" | "tone" | "noise" | "custom" => {
-      canonical
-    }
+    "d" | "d_sharp" | "wifi" | "5g" | "tone" | "noise" | "custom" => canonical,
     _ => "wifi".to_string(),
   }
 }
@@ -40,6 +38,55 @@ fn is_mock_tx_device_label(device: &str) -> bool {
   normalized == "mock tx"
     || normalized == "mock tx device"
     || normalized == "mock tx sdr"
+}
+
+fn apply_mock_tx_preview_settings(
+  message: &WebSocketMessage,
+  shared: &Arc<SharedState>,
+) {
+  let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+
+  if let Some(center_frequency) = message.center_frequency {
+    let center_hz = center_frequency.round().clamp(1.0, u32::MAX as f64);
+    sdr_settings.center_frequency = center_hz as u32;
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = center_hz;
+  }
+
+  if let Some(sample_rate) = message.sample_rate {
+    if sample_rate.is_finite() && sample_rate > 0.0 {
+      sdr_settings.sample_rate = sample_rate.round() as u32;
+    }
+  }
+
+  if let Some(bandwidth_hz) = message.bandwidth {
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = bandwidth_hz as f64;
+  }
+
+  if let Some(power_dbm) = message.power_dbm {
+    if power_dbm.is_finite() {
+      *crate::safety::TX_POWER_DBM.lock().unwrap() = power_dbm;
+    }
+  }
+
+  if let Some(tx_ifft_size) = message.tx_ifft_size {
+    *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
+  }
+
+  if message.tx_signal.is_some() {
+    let tx_signal = normalize_tx_signal(message.tx_signal.as_deref());
+    *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal;
+  }
+
+  *shared.sdr_settings.lock().unwrap() = sdr_settings;
+}
+
+fn is_tx_mode_active_mode(active_mode: Option<&str>) -> bool {
+  matches!(
+    active_mode
+      .map(|mode| mode.trim().to_ascii_lowercase())
+      .as_deref(),
+    Some("tx") | Some("rx_tx")
+  )
 }
 
 fn resolve_live_center_frequency(
@@ -478,6 +525,7 @@ pub fn handle_message(
       }
     }
     "request_next_frame" => {
+      apply_mock_tx_preview_settings(&message, shared);
       shared.allow_next_paused_frame.store(true, Ordering::SeqCst);
       let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
     }
@@ -695,15 +743,16 @@ pub fn handle_message(
       }
     }
     "tx_mode" => {
-      let enabled = message.tx_mode.unwrap_or(false);
+      let active_mode = message.active_mode.as_deref();
+      let enabled = is_tx_mode_active_mode(active_mode);
       let device = message
         .tx_device
         .clone()
         .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
       let is_mock_tx_device = is_mock_tx_device_label(&device);
       info!(
-        "Received tx_mode message: enabled={}, device={}",
-        enabled, device
+        "Received tx_mode message: active_mode={:?}, enabled={}, device={}",
+        active_mode, enabled, device
       );
       let serial_number = if is_mock_tx_device {
         MOCK_TX_SOURCE_ID.to_string()
@@ -836,7 +885,8 @@ pub fn handle_message(
         sdr_settings.gain.hackrf_vga_gain.unwrap_or(0.0),
         sdr_settings.gain.hackrf_amp_enable.unwrap_or(false),
       );
-      let mut tx_power = message.power_dbm.unwrap_or(max_tx_power).min(max_tx_power);
+      let mut tx_power =
+        message.power_dbm.unwrap_or(max_tx_power).min(max_tx_power);
       if safety_enabled && safety_limit == "min" {
         tx_power = -70.0;
       }
@@ -1350,7 +1400,7 @@ mod tests {
     let enable: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
-        "txMode":true,
+        "active_mode":"tx",
         "txDevice":"Mock Tx SDR",
         "centerFrequencyHz":1600000,
         "bandwidthHz":3200000,
@@ -1414,7 +1464,7 @@ mod tests {
     let disable: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
-        "txMode":false,
+        "active_mode":"rx",
         "txDevice":"Mock Tx SDR"
       }"#,
     )
@@ -1455,6 +1505,60 @@ mod tests {
 
   #[test]
   #[serial]
+  fn request_next_frame_applies_mock_tx_preview_settings_without_transmitting()
+  {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 0.0;
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 0.0;
+    *crate::safety::TX_POWER_DBM.lock().unwrap() = 0.0;
+    *crate::safety::TX_SIGNAL.lock().unwrap() = String::new();
+    *crate::safety::TX_IFFT_SIZE.lock().unwrap() = 2048;
+    crate::safety::TX_TRANSMITTING
+      .store(false, std::sync::atomic::Ordering::Relaxed);
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"request_next_frame",
+        "centerFrequencyHz":137100000,
+        "bandwidthHz":2400000,
+        "powerDbm":-18,
+        "txSignal":"wifi",
+        "txIfftSize":8192
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("expected RequestNextFrame command");
+    match cmd {
+      SdrCommand::RequestNextFrame => {}
+      other => panic!("unexpected command: {:?}", other),
+    }
+    assert!(shared
+      .allow_next_paused_frame
+      .load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!shared
+      .mock_tx_transmitting
+      .load(std::sync::atomic::Ordering::Relaxed));
+    assert!(!crate::safety::TX_TRANSMITTING
+      .load(std::sync::atomic::Ordering::Relaxed));
+    assert_eq!(
+      *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap(),
+      137_100_000.0
+    );
+    assert_eq!(*crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(), 2_400_000.0);
+    assert_eq!(*crate::safety::TX_POWER_DBM.lock().unwrap(), -18.0);
+    assert_eq!(crate::safety::TX_SIGNAL.lock().unwrap().as_str(), "wifi");
+    assert_eq!(*crate::safety::TX_IFFT_SIZE.lock().unwrap(), 8192);
+  }
+
+  #[test]
+  #[serial]
   fn tx_mode_disable_without_bandwidth_keeps_existing_tx_bandwidth() {
     let shared = test_shared_state();
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
@@ -1463,7 +1567,7 @@ mod tests {
     let message: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
-        "txMode":false,
+        "active_mode":"rx",
         "txDevice":"Mock Tx SDR"
       }"#,
     )
@@ -1497,7 +1601,7 @@ mod tests {
     let message: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
-        "txMode":true,
+        "active_mode":"tx",
         "txDevice":"Mock Tx SDR"
       }"#,
     )
@@ -1524,10 +1628,7 @@ mod tests {
       other => panic!("unexpected command: {:?}", other),
     }
 
-    assert_eq!(
-      crate::safety::TX_SIGNAL.lock().unwrap().as_str(),
-      "wifi"
-    );
+    assert_eq!(crate::safety::TX_SIGNAL.lock().unwrap().as_str(), "wifi");
   }
 
   #[test]
@@ -1539,7 +1640,7 @@ mod tests {
     let message: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"tx_mode",
-        "txMode":true,
+        "active_mode":"tx",
         "txDevice":"Mock Tx SDR",
         "txSignal":"apt"
       }"#,
@@ -1552,10 +1653,7 @@ mod tests {
       .recv_timeout(Duration::from_millis(100))
       .expect("expected SetTransmitMode command");
     match cmd {
-      SdrCommand::SetTransmitMode {
-        tx_signal,
-        ..
-      } => {
+      SdrCommand::SetTransmitMode { tx_signal, .. } => {
         assert_eq!(tx_signal.as_deref(), Some("wifi"));
       }
       other => panic!("unexpected command: {:?}", other),
@@ -1612,7 +1710,9 @@ mod tests {
       r#"{
         "type":"pause",
         "paused":true,
-        "source_id":"other-source"
+        "source_id":"other-source",
+        "duplex_mode":"half_duplex",
+        "active_mode":"rx"
       }"#,
     )
     .unwrap();
@@ -1626,7 +1726,9 @@ mod tests {
       r#"{
         "type":"pause",
         "paused":true,
-        "source_id":"mock-apt"
+        "source_id":"mock-apt",
+        "duplex_mode":"half_duplex",
+        "active_mode":"rx"
       }"#,
     )
     .unwrap();

@@ -14,6 +14,7 @@ import {
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
+import { computeMaxFrameRate } from "@n-apt/utils/signals";
 
 const Section = styled.div`
   display: grid;
@@ -244,6 +245,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
     return Array.from(rates).sort((a, b) => a - b);
   }, [sampleRateOptions, sampleRateOptionsOverride]);
+  const logicalMaxFrameRate =
+    Number.isFinite(sampleRate) && sampleRate > 0 && fftSize > 0
+      ? computeMaxFrameRate(sampleRate, fftSize, maxFrameRate)
+      : maxFrameRate;
   const wholeChannelValue = React.useMemo(() => {
     if (
       typeof wholeChannelSampleRate !== "number" ||
@@ -343,7 +348,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                 />
               }
               tooltipTitle="Frame Rate"
-              tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+              tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${logicalMaxFrameRate} fps based on current FFT size and bandwidth capacity.`}
             >
               <InputGroup>
                 <SettingInput
@@ -353,7 +358,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     const val = Math.max(
                       1,
                       Math.min(
-                        maxFrameRate,
+                        logicalMaxFrameRate,
                         Math.floor(Number(e.target.value) || 1),
                       ),
                     );
@@ -369,7 +374,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     const next = Math.max(
                       1,
                       Math.min(
-                        maxFrameRate,
+                        logicalMaxFrameRate,
                         Math.floor((fftFrameRate || 0) + delta),
                       ),
                     );
@@ -377,7 +382,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     scheduleCoupledAdjustment("frameRate", fftSize, next);
                   }}
                   min="1"
-                  max={maxFrameRate}
+                  max={logicalMaxFrameRate}
                 />
                 <UnitLabel>fps</UnitLabel>
               </InputGroup>

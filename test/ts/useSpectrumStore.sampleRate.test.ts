@@ -1,5 +1,7 @@
 import {
+  buildPersistedSourceViewState,
   resolveEffectiveLiveSampleRateHz,
+  normalizePersistedSourceViewState,
   selectLiveSampleRateForSync,
 } from "@n-apt/hooks/useSpectrumStore";
 
@@ -46,5 +48,35 @@ describe("selectLiveSampleRateForSync", () => {
         maxSampleRateHz: 20_000_000,
       }),
     ).toBe(20_000_000);
+  });
+
+  it("persists and restores the selected sample rate for a source view", () => {
+    const persisted = buildPersistedSourceViewState({
+      fftSize: 262_144,
+      fftWindow: "Rectangular",
+      fftFrameRate: 12,
+      gain: 49.6,
+      hackrfLnaGain: 0,
+      hackrfVgaGain: 30,
+      hackrfAmpEnabled: false,
+      hackrfBasebandBandwidth: 5_200_000,
+      ppm: 1,
+      tunerAGC: false,
+      rtlAGC: false,
+      sampleRateHz: 5_200_000,
+      lastKnownRanges: {},
+      displayMode: "fft",
+      fftAvgEnabled: false,
+      fftSmoothEnabled: false,
+      wfSmoothEnabled: false,
+    } as any);
+
+    expect(persisted.sampleRateHz).toBe(5_200_000);
+    expect(
+      normalizePersistedSourceViewState({
+        ...persisted,
+        sampleRateHz: 5_200_000,
+      }),
+    ).toEqual(expect.objectContaining({ sampleRateHz: 5_200_000 }));
   });
 });

@@ -19,6 +19,7 @@ import {
 } from './buildStatus';
 import {
   createRustHotReloadGate,
+  buildRustBackendStopCommand,
   runRustHotReloadValidation,
 } from '@n-apt/utils/rustHotReloadGate';
 
@@ -1379,15 +1380,49 @@ exit 1
 
   // Watcher for Rust source files (Hot Reloading)
   useEffect(() => {
-    const canWatch = allComplete && buildState.vitePid && buildState.rustPid && buildState.redisPid;
+    const canWatch = buildState.vitePid && buildState.redisPid;
     if (!canWatch) return;
 
     let watcher: fs.FSWatcher | null = null;
     let rebuildTimeout: NodeJS.Timeout | null = null;
     let isRebuilding = false;
-    const hotReloadGate = createRustHotReloadGate(1200);
+    let pendingRebuild = false;
+    let currentCountdown = 3;
+    const hotReloadGate = createRustHotReloadGate(3000);
 
     const srcRsPath = path.resolve('src/rs');
+
+    const scheduleRebuild = () => {
+      if (isRebuilding) {
+        pendingRebuild = true;
+        return;
+      }
+      
+      const updateCountdownStatus = (seconds: number) => {
+        const files = hotReloadGate.getChangedFiles();
+        const fileList = files.length > 2 ? `${files.length} files` : files.join(', ');
+        updateProcessStatus(7, 'warning', `Changed: ${fileList}. Rebuilding in ${seconds}s...`, 'Rust changes detected');
+      };
+      
+      if (rebuildTimeout) {
+        updateCountdownStatus(currentCountdown);
+        return;
+      }
+      
+      currentCountdown = 3;
+      updateCountdownStatus(currentCountdown);
+
+      rebuildTimeout = setInterval(() => {
+        currentCountdown -= 1;
+        if (currentCountdown <= 0) {
+          clearInterval(rebuildTimeout!);
+          rebuildTimeout = null;
+          void triggerRebuild();
+        } else {
+          updateCountdownStatus(currentCountdown);
+        }
+      }, 1000);
+    };
 
     const restartRustBackend = async () => {
       addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
@@ -1395,21 +1430,26 @@ exit 1
       if (buildState.rustPid) {
         try {
           intentionalRustKillRef.current = true;
-          process.kill(-buildState.rustPid, 'SIGTERM');
+          process.kill(buildState.rustPid, 'SIGTERM');
         } catch {
           try {
-            process.kill(buildState.rustPid, 'SIGTERM');
+            process.kill(-buildState.rustPid, 'SIGTERM');
           } catch {}
         }
       }
 
-      try {
-        if (process.platform === 'win32') {
-          spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
-        } else {
-          spawnSync('pkill -9 -f n-apt-backend', { shell: true });
+      if (buildState.rustPid) {
+        const stopCommand = buildRustBackendStopCommand(buildState.rustPid);
+        const stopResult = spawnSync(stopCommand, {
+          shell: true,
+          cwd: './',
+          stdio: 'ignore',
+        });
+
+        if (stopResult.status !== 0) {
+          addLog(chalk.yellow(`[Watcher] Rust backend stop command exited with code ${stopResult.status ?? 'unknown'}`));
         }
-      } catch {}
+      }
 
       const startCommand = isNativeWindows
         ? 'target\\dev-fast\\n-apt-backend.exe'
@@ -1424,8 +1464,13 @@ exit 1
     };
 
     const triggerRebuild = async () => {
-      if (isRebuilding) return;
+      if (isRebuilding) {
+        pendingRebuild = true;
+        return;
+      }
       isRebuilding = true;
+      pendingRebuild = false;
+      hotReloadGate.clear();
 
       try {
         fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: true }));
@@ -1445,11 +1490,21 @@ exit 1
           'Checking Rust backend',
           7
         ),
-        cargoBuild: () => executeForegroundCommand(
-          buildCommand,
-          'Building Rust backend',
-          7
-        ),
+        cargoBuild: async () => {
+          const binPath = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : 'target/dev-fast/n-apt-backend';
+          try {
+            if (fs.existsSync(binPath)) {
+              fs.renameSync(binPath, `${binPath}.old`);
+            }
+          } catch (err: any) {
+            addLog(chalk.yellow(`[Watcher] Could not rename old binary: ${err.message}`));
+          }
+          return executeForegroundCommand(
+            buildCommand,
+            'Building Rust backend',
+            7
+          );
+        },
         restart: restartRustBackend,
         log: addLog,
         updateStatus: (status, message, label) => {
@@ -1474,6 +1529,10 @@ exit 1
       }
 
       isRebuilding = false;
+      if (pendingRebuild) {
+        pendingRebuild = false;
+        scheduleRebuild();
+      }
     };
 
     try {
@@ -1482,15 +1541,8 @@ exit 1
         const ext = path.extname(filename);
         const basename = path.basename(filename);
         if (ext === '.rs' || basename === 'Cargo.toml') {
-          hotReloadGate.recordChange();
-          if (rebuildTimeout) clearTimeout(rebuildTimeout);
-          rebuildTimeout = setTimeout(() => {
-            if (hotReloadGate.shouldAttemptValidation()) {
-              void triggerRebuild();
-            } else {
-              addLog(chalk.yellow('[Watcher] Rust source changes detected; waiting for edits to settle...'));
-            }
-          }, 1200);
+          hotReloadGate.recordChange(filename);
+          scheduleRebuild();
         }
       });
       addLog(chalk.blue('[Watcher] Watching Rust source files for changes...'));
@@ -1500,9 +1552,9 @@ exit 1
 
     return () => {
       if (watcher) watcher.close();
-      if (rebuildTimeout) clearTimeout(rebuildTimeout);
+      if (rebuildTimeout) clearInterval(rebuildTimeout);
     };
-  }, [allComplete, buildState.vitePid, buildState.rustPid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
+  }, [buildState.vitePid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
 
   useEffect(() => {
     const shouldStayAttached =

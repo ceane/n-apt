@@ -37,6 +37,30 @@ const baseProps = {
 };
 
 describe("SignalDisplaySection sample rate selector", () => {
+  it("caps the logical frame-rate control from the live sample rate", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRate={3_200_000}
+          maxFrameRate={16}
+          fftSize={262144}
+          fftFrameRate={16}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const frameRateRow = screen.getAllByText("Frame rate (logical)")[0].closest(
+      "div",
+    )?.parentElement as HTMLElement;
+    const frameRateInput = within(frameRateRow).getByRole(
+      "spinbutton",
+    ) as HTMLInputElement;
+
+    expect(frameRateInput).toHaveAttribute("max", "12");
+  });
+
   it("shows whole-channel as an explicit option while keeping numeric selections sticky", () => {
     const onSampleRateChange = jest.fn();
     const { rerender } = render(

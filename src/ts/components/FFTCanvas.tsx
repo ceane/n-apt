@@ -121,6 +121,21 @@ const isMockTxIdentity = ({
   );
 };
 
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
+};
+
 const isMockAptIdentity = ({
   deviceKind,
   backend,
@@ -943,6 +958,7 @@ export type SnapshotData = {
   frequencyRange: FrequencyRange;
   dbMin: number;
   dbMax: number;
+  powerScale?: "dB" | "dBm";
   fftSize?: number;
   fftWindow?: string;
   centerFrequencyHz: number;
@@ -1098,6 +1114,9 @@ const FFTCanvas = memo(
         explicitPlaceholderState.title === "Start Tx to transmit"
       );
     }, [explicitIsStandby, explicitPlaceholderState]);
+    const explicitPlaceholderStateRef =
+      useRef<CanvasPlaceholderState | null>(explicitPlaceholderState);
+    explicitPlaceholderStateRef.current = explicitPlaceholderState;
     const pendingTxSliderDispatchRef = useRef<{
       centerHz?: number;
       sampleRateHz?: number;
@@ -1169,7 +1188,7 @@ const FFTCanvas = memo(
       return {
         visible: true,
         isTransmitting: isTransmittingGlobal,
-        signalLabel: String(reduxTxSignal).toUpperCase(),
+        signalLabel: resolveTxSignalDisplayLabel(reduxTxSignal),
         powerDbm: reduxTxPowerDbm,
         visibleMinHz,
         visibleMaxHz,
@@ -1480,8 +1499,8 @@ const FFTCanvas = memo(
     }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
     const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
       const txModeLabel = txModeDeviceName
-        ? `Tx Mode / ${txModeDeviceName}`
-        : undefined;
+        ? `${txModeDeviceName} > ${resolveTxSignalDisplayLabel(reduxTxSignal)}`
+        : resolveTxSignalDisplayLabel(reduxTxSignal);
 
       if (canvasStatusRow) {
         return {
@@ -1506,6 +1525,7 @@ const FFTCanvas = memo(
       effectiveFftSize,
       fftWindow,
       hardwareSampleRateHz,
+      reduxTxSignal,
       txModeDeviceName,
     ]);
     const validatedDbRange = useMemo(
@@ -1568,9 +1588,23 @@ const FFTCanvas = memo(
     const clampedVizRangeRef = useRef<FrequencyRange>(currentVisualRange);
     clampedVizRangeRef.current = currentVisualRange;
 
-    const fftAvgEnabled = useAppSelector(
+    const storeFftAvgEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftAvgEnabled,
     );
+    const isMockTxActiveSource = useAppSelector(
+      (state) => {
+        const activeSrc = state.websocket.sources?.find(
+          (s) => s.id === state.websocket.activeSource
+        );
+        if (!activeSrc) return false;
+        return isMockTxIdentity({
+          deviceKind: activeSrc.device_kind,
+          backend: activeSrc.backend,
+          deviceName: activeSrc.name,
+        }) && activeSrc.status !== "transmitting";
+      }
+    );
+    const fftAvgEnabled = isPaused || isMockTxActiveSource ? false : storeFftAvgEnabled;
     const fftSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftSmoothEnabled,
     );
@@ -1627,7 +1661,7 @@ const FFTCanvas = memo(
 
     const canvasPlaceholderState =
       useMemo<CanvasPlaceholderState | null>(() => {
-        if (isStandby) {
+        if (isStandby && !explicitPlaceholderState) {
           return null;
         }
         if (explicitPlaceholderState) {
@@ -1671,6 +1705,7 @@ const FFTCanvas = memo(
         awaitingDeviceData,
         explicitPlaceholderState,
         isDeviceConnected,
+        isStandby,
       ]);
 
     const demodFocusOverlay = useMemo(() => {
@@ -1996,6 +2031,59 @@ const FFTCanvas = memo(
     const activeScaleDbMax = vizDbMax;
     const gpuProcessingDevice = webgpuDeviceRef.current;
 
+    const clearSpectrumBackbuffer = useCallback(() => {
+      const resetCanvas = (canvas: HTMLCanvasElement | null) => {
+        if (!canvas) return;
+        const width = canvas.width;
+        const height = canvas.height;
+        if (width > 0 && height > 0) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      };
+
+      const clearGpuCanvas = (canvas: HTMLCanvasElement | null) => {
+        const device = webgpuDeviceRef.current;
+        const format = webgpuFormatRef.current;
+        if (!canvas || !device || !format) return;
+
+        try {
+          const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
+          if (!context) return;
+          context.configure({ device, format, alphaMode: "premultiplied" });
+          const encoder = device.createCommandEncoder();
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view: context.getCurrentTexture().createView(),
+                clearValue: { r: 0.04, g: 0.04, b: 0.04, a: 1 },
+                loadOp: "clear",
+                storeOp: "store",
+              },
+            ],
+          });
+          pass.end();
+          device.queue.submit([encoder.finish()]);
+        } catch {
+          resetCanvas(canvas);
+        }
+      };
+
+      resetCanvas(spectrumGpuCanvasRef.current);
+      resetCanvas(waterfallGpuCanvasRef.current);
+      clearGpuCanvas(spectrumGpuCanvasRef.current);
+      clearGpuCanvas(waterfallGpuCanvasRef.current);
+      clearOverlayCanvas(spectrumOverlayCanvasRef.current);
+      clearOverlayCanvas(waterfallOverlayCanvasRef.current);
+    }, [
+      spectrumGpuCanvasRef,
+      spectrumOverlayCanvasRef,
+      waterfallGpuCanvasRef,
+      waterfallOverlayCanvasRef,
+      webgpuDeviceRef,
+      webgpuFormatRef,
+    ]);
+
     // Temporal frames ring buffer refs
     const temporalFramePoolRef = useRef<Float32Array[]>([]);
     const temporalWriteIndexRef = useRef(0);
@@ -2212,6 +2300,31 @@ const FFTCanvas = memo(
     }, [awaitingDeviceData, onRenderableFrameChange, placeholderErrorReason]);
 
     useEffect(() => {
+      if (
+        !explicitPlaceholderState ||
+        explicitPlaceholderState.kind === "top-bar" ||
+        explicitPlaceholderState.kind === "overlay-only"
+      ) {
+        return;
+      }
+
+      setHasRenderedSpectrumFrame(false);
+      onRenderableFrameChange?.(false);
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      frameBufferRef.current = [];
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      clearSpectrumBackbuffer();
+    }, [
+      clearSpectrumBackbuffer,
+      explicitPlaceholderState,
+      onRenderableFrameChange,
+    ]);
+
+    useEffect(() => {
       onCanvasLoadingChange?.(isLoadingPlaceholder);
     }, [isLoadingPlaceholder, onCanvasLoadingChange]);
 
@@ -2386,8 +2499,37 @@ const FFTCanvas = memo(
         const showErrorPlaceholder =
           !!placeholderErrorReason ||
           (!isDeviceConnected && !hasRenderableFrame);
+        const currentExplicitPlaceholderState =
+          explicitPlaceholderStateRef.current;
+        const hasExplicitPlaceholder = !!currentExplicitPlaceholderState;
+        const isExplicitStandbyPlaceholder =
+          hasExplicitPlaceholder &&
+          currentExplicitPlaceholderState?.kind === "idle";
 
-        if ((showLoadingPlaceholder || showErrorPlaceholder) && !isStandby) {
+        if (isExplicitStandbyPlaceholder) {
+          lastProcessedDataRef.current = null;
+          lastProcessedFrameSignatureRef.current = null;
+          frameBufferRef.current = [];
+          renderWaveformRef.current = null;
+          waveformFloatRef.current = null;
+          fullChannelWaveformRef.current = null;
+          fullChannelRangeRef.current = null;
+          frequencyRangeRef.current = frequencyRange;
+          centerFreqRef.current = centerFrequencyHz;
+          clearSpectrumBackbuffer();
+          clearOverlayCanvas(spectrumOverlayCanvas);
+          clearOverlayCanvas(waterfallOverlayCanvas);
+          return;
+        }
+
+        if (
+          showLoadingPlaceholder ||
+          showErrorPlaceholder ||
+          (hasExplicitPlaceholder &&
+            !isExplicitStandbyPlaceholder &&
+            currentExplicitPlaceholderState?.kind !== "top-bar")
+        ) {
+          clearSpectrumBackbuffer();
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
 
@@ -2397,6 +2539,16 @@ const FFTCanvas = memo(
               const dpr = window.devicePixelRatio || 1;
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
+            }
+          }
+
+          if (waterfallOverlayCanvas) {
+            const ctx = waterfallOverlayCanvas.getContext("2d");
+            if (ctx) {
+              const dpr = window.devicePixelRatio || 1;
+              const logicalW = waterfallOverlayCanvas.width / dpr;
+              const logicalH = waterfallOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
             }
           }
@@ -2412,6 +2564,7 @@ const FFTCanvas = memo(
         const fftWindowChanged =
           previousFftWindowRef.current !== (fftWindow ?? "Rectangular");
         const hasNewData =
+          !isExplicitStandbyPlaceholder &&
           !isPaused &&
           currentFrame &&
           getLiveFrameSignature(currentFrame) !==
@@ -2420,6 +2573,7 @@ const FFTCanvas = memo(
             !!(currentFrame as any).waveform ||
             !!(currentFrame as any).data);
         const shouldReprocessCurrentFrame = !!(
+          !isExplicitStandbyPlaceholder &&
           currentFrame &&
           (getLiveFrameSignature(currentFrame) ===
             lastProcessedFrameSignatureRef.current ||
@@ -2759,7 +2913,10 @@ const FFTCanvas = memo(
         }
 
         if (isStandby) {
-          if (!hasRenderedSpectrumFrame) {
+          if (
+            !renderWaveformRef.current ||
+            renderWaveformRef.current.length === 0
+          ) {
             const previewWaveform = new Float32Array(effectiveFftSize).fill(
               FFT_MIN_DB,
             );
@@ -2772,28 +2929,27 @@ const FFTCanvas = memo(
             waveformFloatRef.current = renderWaveformRef.current;
           }
 
-          // Set frequencyRangeRef.current if not set or zeroed
-          if (
-            (!frequencyRangeRef.current ||
-              frequencyRangeRef.current.min === 0) &&
-            frequencyRange
-          ) {
+          if (frequencyRange) {
             frequencyRangeRef.current = frequencyRange;
           }
+          centerFreqRef.current = centerFrequencyHz;
 
-          // Render frozen waterfall to preserve frames (just like pause)
+          // Explicit standby placeholders must not preserve the previous source's waterfall.
           const waterfallDevice = webgpuDeviceRef.current;
           const waterfallFormat = webgpuFormatRef.current;
           if (waterfallGpuCanvas && waterfallDevice && waterfallFormat) {
+            const standbyWaterfallData = isExplicitStandbyPlaceholder
+              ? new Float32Array(effectiveFftSize).fill(FFT_MIN_DB)
+              : new Float32Array(0);
             drawWebGPUFIFOWaterfall({
               canvas: waterfallGpuCanvas,
               device: waterfallDevice,
               format: waterfallFormat,
-              fftData: new Float32Array(0),
+              fftData: standbyWaterfallData,
               fftMin: activeScaleDbMinRef.current,
               fftMax: activeScaleDbMaxRef.current,
               driftAmount: 0,
-              freeze: true,
+              freeze: !isExplicitStandbyPlaceholder,
               colormap: colormapRef.current,
               colormapName: waterfallThemeRef.current,
             });
@@ -4145,6 +4301,7 @@ const FFTCanvas = memo(
         frequencyRange: { ...frequencyRangeCurrent },
         dbMin: roundDbValue(vizDbMinRef.current),
         dbMax: roundDbValue(vizDbMaxRef.current),
+        powerScale: effectivePowerScaleRef.current,
         fftSize: effectiveFftSize,
         fftWindow: fftWindow ?? "Rectangular",
         centerFrequencyHz: centerFreqRef.current,
@@ -4381,8 +4538,10 @@ const FFTCanvas = memo(
                               {isTransmittingGlobal && <TxBlinkingDot />}
                               Tx
                             </div>
-                            <TxSliderMetaText style={{ textTransform: "uppercase" }}>
-                              {txSliderVisualMetrics?.signalLabel || "Unknown"}
+                            <TxSliderMetaText>
+                              {txModeDeviceName
+                                ? `${txModeDeviceName} > ${txSliderVisualMetrics?.signalLabel || "Unknown"}`
+                                : txSliderVisualMetrics?.signalLabel || "Unknown"}
                             </TxSliderMetaText>
                           </div>
                         </TxSliderVisualLabel>

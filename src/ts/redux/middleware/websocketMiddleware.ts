@@ -11,6 +11,7 @@ import {
   queueMessage,
   clearQueuedMessages,
   incrementDataFrameCounter,
+  setSpectrumFrames,
 } from "../slices/websocketSlice";
 import {
   setSignalAreaAndRange,
@@ -174,6 +175,19 @@ const normalizeTxIdentity = (value: unknown): string =>
         .replace(/[\s_-]+/g, "")
     : "";
 
+const normalizeDeviceActiveMode = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "rx" || normalized === "tx" || normalized === "rx_tx"
+    ? normalized
+    : null;
+};
+
+const isTxModeActiveMode = (value: unknown): boolean => {
+  const normalized = normalizeDeviceActiveMode(value);
+  return normalized === "tx" || normalized === "rx_tx";
+};
+
 const isMockTxIdentity = (value: unknown): boolean => {
   const normalized = normalizeTxIdentity(value);
   return normalized === "mocktx" || normalized === "mocktxsdr";
@@ -211,7 +225,7 @@ const applyOptimisticTransmitStatus = (
   getState: () => any,
   data: Record<string, unknown>,
 ) => {
-  const enabled = Boolean(data.txMode);
+  const enabled = isTxModeActiveMode(data.active_mode);
   const websocketState = getState().websocket;
   const currentSources: SourceInfo[] = websocketState.sources ?? [];
   if (currentSources.length === 0) {
@@ -315,6 +329,7 @@ const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 let lastFrameRequestTime = 0;
+let pendingTrailingFrameRequestTimeout: ReturnType<typeof setTimeout> | null = null;
 const FRAME_REQUEST_THROTTLE_MS = 100;
 const RETUNE_CENTER_TOLERANCE_HZ = 10;
 const RETUNE_WATCHDOG_GRACE_MS = 500;
@@ -574,6 +589,49 @@ const getPausedValue = (payload: unknown): boolean | null => {
   return null;
 };
 
+const getPauseDuplexMode = (payload: unknown): string | null => {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "duplexMode" in payload &&
+    typeof (payload as { duplexMode?: unknown }).duplexMode === "string" &&
+    (payload as { duplexMode: string }).duplexMode.trim().length > 0
+  ) {
+    return (payload as { duplexMode: string }).duplexMode;
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "duplex_mode" in payload &&
+    typeof (payload as { duplex_mode?: unknown }).duplex_mode === "string" &&
+    (payload as { duplex_mode: string }).duplex_mode.trim().length > 0
+  ) {
+    return (payload as { duplex_mode: string }).duplex_mode;
+  }
+
+  return null;
+};
+
+const getPauseActiveMode = (payload: unknown): string | null => {
+  const normalized = normalizeDeviceActiveMode(
+    payload &&
+      typeof payload === "object" &&
+      "activeMode" in payload
+      ? (payload as { activeMode?: unknown }).activeMode
+      : undefined,
+  );
+  if (normalized) return normalized;
+
+  return normalizeDeviceActiveMode(
+    payload &&
+      typeof payload === "object" &&
+      "active_mode" in payload
+      ? (payload as { active_mode?: unknown }).active_mode
+      : undefined,
+  );
+};
+
 const getPauseSourceId = (payload: unknown): string | null => {
   if (
     payload &&
@@ -713,6 +771,18 @@ const shouldSuppressDuplicateFrequencyRangeSend = (
   lastFrequencyRangeSendKey = requestKey;
   lastFrequencyRangeSendAt = now;
   return false;
+};
+
+const shouldClearStaleSpectrumFrames = (
+  deviceState: DeviceState | null | undefined,
+): boolean =>
+  deviceState === "loading" ||
+  deviceState === "stale" ||
+  deviceState === "disconnected";
+
+const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
+  liveDataRef.current = null;
+  dispatch(setSpectrumFrames([]));
 };
 
 const checkRetuneWatchdog = (frameCenterHz: number) => {
@@ -941,7 +1011,7 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.active_source !== previousActiveSourceId) {
-        liveDataRef.current = [];
+        clearLiveSpectrumFrames(dispatch);
         pendingDataUpdate = null;
       }
       const activeSource =
@@ -953,6 +1023,9 @@ const processMessage = (
       const derived = activeSource
         ? deriveLegacyStateFromSource(activeSource)
         : {};
+      if ('deviceState' in derived && shouldClearStaleSpectrumFrames(derived.deviceState as any)) {
+        clearLiveSpectrumFrames(dispatch);
+      }
       const sourceStatuses = Object.fromEntries(
         parsedData.sources.map((source: SourceInfo) => [
           source.id,
@@ -982,7 +1055,7 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.source_id !== previousActiveSourceId) {
-        liveDataRef.current = [];
+        clearLiveSpectrumFrames(dispatch);
         pendingDataUpdate = null;
       }
       const updates: any = {
@@ -1000,6 +1073,9 @@ const processMessage = (
       const derived = activeSource
         ? deriveLegacyStateFromSource(activeSource)
         : {};
+      if ('deviceState' in derived && shouldClearStaleSpectrumFrames(derived.deviceState as any)) {
+        clearLiveSpectrumFrames(dispatch);
+      }
 
       const combinedUpdates = {
         ...updates,
@@ -1096,6 +1172,13 @@ const processMessage = (
         updates.deviceState = mapSourceStatusToDeviceState(parsedData.status);
         updates.deviceLoadingReason =
           parsedData.status === "loading" ? "connect" : null;
+        if (
+          parsedData.status === "loading" ||
+          parsedData.status === "stale" ||
+          parsedData.status === "disconnected"
+        ) {
+          clearLiveSpectrumFrames(dispatch);
+        }
       }
       applyStatusUpdates(dispatch, getState, updates);
     } catch (e) {
@@ -1614,7 +1697,19 @@ const createWebSocketMiddleware =
             console.debug(
               "[WebSocket Middleware] Throttling redundant frame request",
             );
+            if (pendingTrailingFrameRequestTimeout) {
+              clearTimeout(pendingTrailingFrameRequestTimeout);
+            }
+            pendingTrailingFrameRequestTimeout = setTimeout(() => {
+              pendingTrailingFrameRequestTimeout = null;
+              dispatch(action);
+            }, FRAME_REQUEST_THROTTLE_MS - (now - lastFrameRequestTime));
             return next(action);
+          }
+
+          if (pendingTrailingFrameRequestTimeout) {
+            clearTimeout(pendingTrailingFrameRequestTimeout);
+            pendingTrailingFrameRequestTimeout = null;
           }
 
           if (!shouldAcceptPausedFrameRequest()) {
@@ -1652,19 +1747,43 @@ const createWebSocketMiddleware =
           wsInstance.ws &&
           wsInstance.ws.readyState === WebSocket.OPEN
         ) {
-          wsInstance.ws.send(
-            JSON.stringify({
-              type: "pause",
-              paused: isPaused,
-              source_id: sourceId,
-            }),
-          );
+          const pausePayload: Record<string, unknown> = {
+            type: "pause",
+            paused: isPaused,
+            source_id: sourceId,
+          };
+          const duplexMode = getPauseDuplexMode(action.payload);
+          const activeMode = getPauseActiveMode(action.payload);
+          if (duplexMode) {
+            pausePayload.duplex_mode = duplexMode;
+          }
+          if (activeMode) {
+            pausePayload.active_mode = activeMode;
+          }
+          wsInstance.ws.send(JSON.stringify(pausePayload));
         }
 
         return next({
           ...action,
           payload: isPaused,
         });
+      }
+
+      case "websocket/updateDeviceState": {
+        const previousState = getState().websocket;
+        const previousActiveSourceId = previousState.activeSourceId;
+        const result = next(action);
+        const nextState = getState().websocket;
+        const activeSourceChanged =
+          typeof nextState.activeSourceId === "string" &&
+          nextState.activeSourceId !== previousActiveSourceId;
+        if (
+          activeSourceChanged ||
+          shouldClearStaleSpectrumFrames(nextState.deviceState)
+        ) {
+          clearLiveSpectrumFrames(dispatch);
+        }
+        return result;
       }
 
       default:

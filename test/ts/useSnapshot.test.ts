@@ -6,6 +6,7 @@ import {
   buildSnapshotStatsLines,
   buildFastSpectrumCanvas,
   buildFastWaterfallCanvas,
+  renderSpectrumSnapshotCanvas,
   renderWaterfallSnapshotCanvas,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
@@ -141,6 +142,106 @@ describe("dbToColor", () => {
   it("clamps out-of-range dB values gracefully", () => {
     expect(() => dbToColor(-200, -120, 0, mockColormap)).not.toThrow();
     expect(() => dbToColor(50, -120, 0, mockColormap)).not.toThrow();
+  });
+});
+
+describe("renderSpectrumSnapshotCanvas", () => {
+  it("uses the explicit dBm power scale for axis labels", () => {
+    global.clearCanvasCalls?.();
+
+    renderSpectrumSnapshotCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        waveform: new Float32Array([-100, -95, -90, -85]),
+        fullChannelWaveform: null,
+        dbMin: -120,
+        dbMax: -10,
+        powerScale: "dBm",
+        centerFrequencyHz: 1_618_000,
+        isDeviceConnected: true,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        waterfallTextureSnapshot: null,
+        waterfallTextureMeta: null,
+        waterfallBuffer: null,
+        waterfallDims: null,
+        webgpuEnabled: false,
+        colormap: [],
+      } as any,
+      { min: 18_000, max: 3_218_000 },
+      true,
+      320,
+      180,
+      undefined,
+      [],
+      undefined,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+    );
+
+    const fillTextCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText",
+    );
+    expect(
+      fillTextCalls.some((call: any) => String(call.args[0]).includes("dBm")),
+    ).toBe(true);
+  });
+
+  it("shows the exact top dBm bound when it is not on a 10dB marker", () => {
+    global.clearCanvasCalls?.();
+
+    renderSpectrumSnapshotCanvas(
+      {
+        frequencyRange: { min: 4_750_000, max: 23_000_000 },
+        waveform: new Float32Array([-55, -48, -60, -42]),
+        fullChannelWaveform: null,
+        dbMin: -70,
+        dbMax: -25,
+        powerScale: "dBm",
+        centerFrequencyHz: 13_875_000,
+        isDeviceConnected: true,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        waterfallTextureSnapshot: null,
+        waterfallTextureMeta: null,
+        waterfallBuffer: null,
+        waterfallDims: null,
+        webgpuEnabled: false,
+        colormap: [],
+      } as any,
+      { min: 4_750_000, max: 23_000_000 },
+      true,
+      1506,
+      750,
+      undefined,
+      [],
+      undefined,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#00d5ff",
+        shadow: "#063b44",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+    );
+
+    const fillTextCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText",
+    );
+    expect(fillTextCalls.map((call: any) => call.args[0])).toContain(
+      "-25dBm",
+    );
   });
 });
 
@@ -598,6 +699,46 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines[3]).toBe("Whole Channel B");
+  });
+
+  it("lists each channel visible in the snapshot range", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 20_500_000, max: 30_000_000 },
+      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "C",
+      activeSignalAreaBounds: { min: 20_000_000, max: 25_000_000 },
+      signalAreaBounds: {
+        c: { min: 20_000_000, max: 25_000_000 },
+        b: { min: 25_000_000, max: 30_000_000 },
+        a: { min: 30_000_000, max: 35_000_000 },
+      },
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Channels C (partial), B (whole)");
+  });
+
+  it("marks a straddled channel partial when only part of it is visible", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 22_000_000, max: 27_000_000 },
+      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "C",
+      signalAreaBounds: {
+        c: { min: 20_000_000, max: 25_000_000 },
+        b: { min: 25_000_000, max: 30_000_000 },
+      },
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Channels C (partial), B (partial)");
   });
 
   it("does not infer whole-channel just because an RTL-SDR snapshot spans the hardware sample rate", () => {

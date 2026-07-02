@@ -23,18 +23,35 @@ export type RustHotReloadValidationResult =
 
 export function createRustHotReloadGate(quietWindowMs: number) {
   let lastChangeAt = -Infinity;
+  const changedFiles = new Set<string>();
 
   return {
-    recordChange(at = Date.now()) {
+    recordChange(filename?: string, at = Date.now()) {
       lastChangeAt = at;
+      if (filename) changedFiles.add(filename);
     },
     shouldAttemptValidation(now = Date.now()) {
       return Number.isFinite(lastChangeAt) && now - lastChangeAt >= quietWindowMs;
     },
     clear() {
       lastChangeAt = -Infinity;
+      changedFiles.clear();
     },
+    getChangedFiles() {
+      return Array.from(changedFiles);
+    }
   };
+}
+
+export function buildRustBackendStopCommand(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === "win32") {
+    return `taskkill /PID ${pid} /T /F`;
+  }
+
+  return `kill -TERM -${pid} || kill -TERM ${pid}`;
 }
 
 export async function runRustHotReloadValidation(

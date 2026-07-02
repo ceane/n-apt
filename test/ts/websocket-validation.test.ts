@@ -29,9 +29,21 @@ describe("WebSocket Validation System", () => {
         type: "pause",
         paused: false,
         source_id: "mock-apt",
+        duplex_mode: "half_duplex",
+        active_mode: "rx",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should validate tx_mode messages using active_mode", () => {
+      expect(
+        validateWebSocketMessage({
+          type: "tx_mode",
+          active_mode: "rx_tx",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
     });
 
     test("should reject invalid WebSocket messages", () => {

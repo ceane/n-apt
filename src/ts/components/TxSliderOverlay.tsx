@@ -35,7 +35,6 @@ const OverlayCard = styled.div`
 const Header = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   min-width: 0;
   pointer-events: auto;
@@ -55,12 +54,24 @@ const Title = styled.div`
 const Badge = styled.span`
   font-size: 10px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   color: ${(props) => props.theme.primary};
   background: ${(props) => `${props.theme.primary}14`};
   border: 1px solid ${(props) => `${props.theme.primary}33`};
   border-radius: 999px;
   padding: 4px 8px;
+`;
+
+const SignalRow = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 `;
 
 const Body = styled.div`
@@ -383,8 +394,12 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             <Signal size={13} strokeWidth={2} />
             Tx Slider
           </Title>
-          <Badge>{signalLabel}</Badge>
         </Header>
+        <SignalRow>
+          <Badge>Tx</Badge>
+          <span>{">"}</span>
+          <span>{signalLabel}</span>
+        </SignalRow>
         <Body>
           <BandTrack
             ref={trackRef}

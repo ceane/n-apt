@@ -363,6 +363,12 @@ export const ConnectionStatusSection: React.FC<
       backend.includes("mock"));
   const isServerConnectedButNoDevice =
     isConnected && deviceState === "connected" && isMockBackend;
+  const staleStateLabel =
+    deviceState === "stale"
+      ? "Stale…"
+      : deviceState === "disconnected"
+        ? "Disconnected"
+        : null;
   return (
     <>
       <ConnectionStatusContainer>
@@ -489,6 +495,20 @@ export const ConnectionStatusSection: React.FC<
                 title="Device is being initialized..."
               >
                 Loading…
+              </WarningButton>
+            ) : staleStateLabel ? (
+              <WarningButton
+                $paused={false}
+                $isDisabled
+                onClick={() => {}}
+                disabled={true}
+                title={
+                  deviceState === "stale"
+                    ? "Device is stale and waiting for a fresh frame..."
+                    : "Device disconnected."
+                }
+              >
+                {staleStateLabel}
               </WarningButton>
             ) : (
               !hidePauseButton && (

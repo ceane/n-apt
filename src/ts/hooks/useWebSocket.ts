@@ -902,7 +902,7 @@ export const useWebSocket = (
       ws.send(
         JSON.stringify({
           type: "tx_mode",
-          txMode: enabled,
+          active_mode: enabled ? "tx" : "rx",
           txDevice: device,
           ...roundedSettings,
         }),

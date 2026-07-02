@@ -871,6 +871,11 @@ impl SdrProcessor {
     if let Some(requested_rate) = frame_rate {
       let max_rate =
         Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate);
+      let requested_rate = if is_hackrf && requested_rate == 1 && max_rate > 1 {
+        max_rate
+      } else {
+        requested_rate
+      };
       let clamped_rate = requested_rate.clamp(1, max_rate);
       if clamped_rate != requested_rate {
         warn!(
@@ -1783,6 +1788,7 @@ mod hackrf_settings_tests {
   struct RecordingDevice {
     calls: Arc<Mutex<Vec<String>>>,
     sample_rate: u32,
+    max_sample_rate: u32,
     center_frequency: u32,
   }
 
@@ -1867,6 +1873,14 @@ mod hackrf_settings_tests {
 
     fn get_sample_rate(&self) -> u32 {
       self.sample_rate
+    }
+
+    fn get_max_sample_rate(&mut self) -> u32 {
+      if self.max_sample_rate > 0 {
+        self.max_sample_rate
+      } else {
+        self.sample_rate
+      }
     }
 
     fn reset_buffer(&mut self) -> Result<()> {
@@ -1972,5 +1986,27 @@ mod hackrf_settings_tests {
       *calls.lock().unwrap(),
       vec!["tuner_bandwidth:0".to_string(),],
     );
+  }
+
+  #[test]
+  fn apply_settings_promotes_hackrf_one_fps_to_logical_max_frame_rate() {
+    let device = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(262_144),
+        frame_rate: Some(1),
+        sample_rate: Some(3_200_000),
+        ..Default::default()
+      })
+      .expect("apply settings");
+
+    assert_eq!(processor.display_frame_rate, 12);
   }
 }
