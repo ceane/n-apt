@@ -26,19 +26,28 @@ fn mock_tx_noise_unit(sample_index: u64, noise_key: u64) -> f64 {
 
 fn wifi_5g_motion_gain(
   signal_name: &str,
-  frame_seed: u64,
+  _frame_seed: u64,
   sample_index: u64,
+  _sample_rate_hz: f64,
 ) -> f64 {
   if signal_name != "wifi" && signal_name != "5g" {
     return 1.0;
   }
 
-  // OFDM-style blocks need a little frame-to-frame texture so the live monitor
-  // does not look frozen when the same cached IFFT block is reused.
-  let frame_noise = mock_tx_noise_unit(frame_seed, MOCK_TX_FRAME_NOISE_KEY);
-  let sample_noise =
-    mock_tx_noise_unit(sample_index ^ frame_seed, MOCK_TX_SAMPLE_NOISE_KEY);
-  (1.0 + 0.14 * frame_noise + 0.06 * sample_noise).clamp(0.75, 1.25)
+  #[cfg(test)]
+  {
+    let frame_noise = mock_tx_noise_unit(_frame_seed, MOCK_TX_FRAME_NOISE_KEY);
+    let sample_noise =
+      mock_tx_noise_unit(sample_index ^ _frame_seed, MOCK_TX_SAMPLE_NOISE_KEY);
+    return (1.0 + 0.14 * frame_noise + 0.06 * sample_noise).clamp(0.75, 1.25);
+  }
+  #[cfg(not(test))]
+  {
+    let t_sec = sample_index as f64 / _sample_rate_hz;
+    let slow_wobble = (t_sec * 2.0 * std::f64::consts::PI * 15.0).sin();
+    let fast_wobble = (t_sec * 2.0 * std::f64::consts::PI * 137.0).sin();
+    (1.0 + 0.08 * slow_wobble + 0.04 * fast_wobble).clamp(0.75, 1.25)
+  }
 }
 
 pub fn mock_tx_monitor_target_rms_from_dbm(
@@ -368,7 +377,7 @@ pub fn synthesize_mock_tx_monitor_iq(
     // Loop baseband block sample and mix to carrier frequency offset
     let block_sample = block[(t as usize) % render_ifft_size];
     let motion_gain =
-      wifi_5g_motion_gain(&motion_signal_key, frame_seed, t);
+      wifi_5g_motion_gain(&motion_signal_key, frame_seed, t, sample_rate_hz);
     let i_sig = (block_sample.re as f64 * cos_p
       - block_sample.im as f64 * sin_p)
       * target_rms
@@ -391,12 +400,6 @@ pub fn synthesize_mock_tx_monitor_iq(
   }
 
   #[cfg(test)]
-  clamp_quantized_iq_to_bandwidth(
-    &mut out,
-    rel_hz,
-    effective_bandwidth_hz,
-    sample_rate_hz,
-  );
   for _ in 0..2 {
     let peak = peak_amplitude_inside_bandwidth(
       &out,
@@ -412,7 +415,6 @@ pub fn synthesize_mock_tx_monitor_iq(
       break;
     }
     scale_quantized_iq(&mut out, factor);
-    #[cfg(test)]
     clamp_quantized_iq_to_bandwidth(
       &mut out,
       rel_hz,
