@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --no-deprecation`.trim();
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Static, Text, useAnimation, useApp, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
 import os from 'node:os';
 import chalk from 'chalk';
@@ -23,8 +23,13 @@ import {
   runRustHotReloadValidation,
 } from '@n-apt/utils/rustHotReloadGate';
 
-dotenv.config({ path: '.env.local' });
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+const hasInteractiveTty = Boolean(isMainModule && process.stdin.isTTY && process.stdout.isTTY);
+
+dotenv.config({ path: '.env.local', quiet: true });
+dotenv.config({ quiet: true });
 
 const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   const failing: FailingServices[] = [];
@@ -84,8 +89,6 @@ const pruneIncrementalCache = (addLog?: (msg: string) => void) => {
   }
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const rustBackendFeatureArgs =
   process.platform === 'darwin' ? '--features mock_apt_metal' : '';
 const launchedChildren = new Set<ReturnType<typeof spawn>>();
@@ -148,7 +151,6 @@ interface BuildState {
   isBuilding: boolean;
   errorCount: number;
   startTime: number;
-  spinnerFrame: number;
   vitePid?: number;
   rustPid?: number;
   redisPid?: number;
@@ -173,6 +175,21 @@ const describeBackgroundCommand = (command: BackgroundCommand) =>
 
 // Simple spinner animation
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+const useSpinnerFrame = (isActive: boolean) => {
+  const { frame } = useAnimation({
+    interval: 100,
+    isActive,
+  });
+
+  return spinnerFrames[frame % spinnerFrames.length];
+};
+
+const SpinnerText = ({ isActive = true }: { isActive?: boolean }) => {
+  const spinner = useSpinnerFrame(isActive);
+
+  return <Text color="blue">{spinner}</Text>;
+};
 
 const accentColors = {
   vite: '#8B71D9',
@@ -231,21 +248,37 @@ const Logo = () => (
   </Box>
 );
 
+const staticHeaderItems = [{ id: 'header' }];
+
+const StaticHeader = () => (
+  <Box flexDirection="column">
+    <Logo />
+
+    <Box flexDirection="column" marginTop={1} alignItems="flex-start">
+      <Text color="white" bold>N-APT / 📉 General purpose SDR visualizer and studio tailored for N-APT signals</Text>
+      <Text color="white" bold italic>(The NSA's neurotechnology 🧠 via radio waves and telecommunications infrastructure)</Text>
+      <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
+      <Text color="gray">Press 'q' or ESC to exit</Text>
+    </Box>
+  </Box>
+);
+
 // Process Step Component
-const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutput }: {
+const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
   process: ProcessStatus;
   isActive: boolean;
-  spinnerFrame: number;
   showOutput?: boolean;
   onToggleOutput?: () => void;
 }) => {
+  const spinner = useSpinnerFrame(isActive && process.status === 'running');
+
   const getStatusIcon = () => {
     switch (process.status) {
-      case 'pending': return chalk.gray('○');
-      case 'running': return chalk.blue(spinnerFrames[spinnerFrame % spinnerFrames.length]);
-      case 'success': return chalk.green('✓');
-      case 'warning': return chalk.yellow('⚠');
-      case 'error': return chalk.red('✗');
+      case 'pending': return '○';
+      case 'running': return spinner;
+      case 'success': return '✓';
+      case 'warning': return '⚠';
+      case 'error': return '✗';
       default: return '○';
     }
   };
@@ -283,10 +316,13 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
   return (
     <Box flexDirection="column" marginBottom={0}>
       <Box flexDirection="row">
+        <Box width={2} flexShrink={0}>
+          <Text color={getStatusColor()}>{getStatusIcon()}</Text>
+        </Box>
+        <Text color={getStatusColor()}>
+          {process.label ?? getStatusText()}
+        </Text>
         <Text>
-          <Text color={getStatusColor()}>
-            {getStatusIcon()} {process.label ?? getStatusText()}
-          </Text>
           {process.name === 'Swapping Redis Database' ? (
             <Text color={accentColors.redis}> Redis.</Text>
           ) : processSuffixes[process.name] && (
@@ -300,9 +336,6 @@ const ProcessStep = ({ process, isActive, spinnerFrame, showOutput, onToggleOutp
             </Text>
           )}
         </Text>
-        {isActive && process.status === 'running' && (
-          <Text color="blue"> {spinnerFrames[spinnerFrame % spinnerFrames.length]}</Text>
-        )}
         {process.status === 'success' && isLongRunning && process.buildOutput && process.buildOutput.length > 0 && onToggleOutput && (
           <Text color="gray" bold> {showOutput ? '▼' : '▶'} </Text>
         )}
@@ -348,8 +381,7 @@ const BuildOrchestrator = () => {
     currentStep: 0,
     isBuilding: false,
     errorCount: 0,
-    startTime: Date.now(),
-    spinnerFrame: 0,
+    startTime: 0,
     vitePid: undefined,
     rustPid: undefined,
     redisPid: undefined,
@@ -359,6 +391,7 @@ const BuildOrchestrator = () => {
     activeBuildOutputStep: undefined,
   });
   const [liveDeviceState, setLiveDeviceState] = useState<string | null>(null);
+  const [completedRuntimeSeconds, setCompletedRuntimeSeconds] = useState<number | null>(null);
   const metalBackendStatusRef = useRef<string | null>(null);
 
   const addLog = useCallback((_message: string) => {
@@ -388,8 +421,13 @@ const BuildOrchestrator = () => {
     if (isRedisWarning) return;
 
     setBuildState(prev => {
-      const warningDetails = [...prev.warningDetails, trimmed].slice(-6);
-      return { ...prev, warningDetails, warningCount: warningDetails.length };
+      const warningLines = trimmed
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => /^warning:/i.test(line));
+      const detailsToAdd = warningLines.length > 0 ? warningLines : [trimmed];
+      const warningDetails = [...prev.warningDetails, ...detailsToAdd].slice(-6);
+      return { ...prev, warningDetails, warningCount: prev.warningCount + detailsToAdd.length };
     });
   }, []);
 
@@ -423,10 +461,17 @@ const BuildOrchestrator = () => {
   }, []);
 
   const appendBuildOutput = useCallback((stepIndex: number, line: string) => {
+    const lines = line
+      .split(/\r?\n/)
+      .map(item => item.trim())
+      .filter(item => item && !/^warning:/i.test(item));
+
+    if (lines.length === 0) return;
+
     setBuildState(prev => {
       const processes = [...prev.processes];
       const process = { ...processes[stepIndex] };
-      const buildOutput = process.buildOutput ? [...process.buildOutput, line] : [line];
+      const buildOutput = process.buildOutput ? [...process.buildOutput, ...lines] : lines;
       process.buildOutput = buildOutput.slice(-50);
       processes[stepIndex] = process;
       return { ...prev, processes };
@@ -578,6 +623,9 @@ const BuildOrchestrator = () => {
             } else {
               stdout = stdout.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
             }
+            if (/warning:/i.test(chunk)) {
+              appendWarningDetail(chunk);
+            }
             appendBuildOutput(stepIndex, chunk.trim());
             addLog(chunk.trim());
           });
@@ -589,6 +637,9 @@ const BuildOrchestrator = () => {
               stderr += chunk.slice(0, MAX_OUTPUT_CHARS - stderr.length);
             } else {
               stderr = stderr.slice(-MAX_OUTPUT_CHARS / 2) + chunk.slice(-MAX_OUTPUT_CHARS / 2);
+            }
+            if (/warning:/i.test(chunk)) {
+              appendWarningDetail(chunk);
             }
             appendBuildOutput(stepIndex, chunk.trim());
             addLog(chalk.red(chunk.trim()));
@@ -922,7 +973,17 @@ exit 1
     try {
       fs.writeFileSync('.rebuild_status.json', JSON.stringify({ rebuilding: false }));
     } catch {}
-    setBuildState(prev => ({ ...prev, isBuilding: true }));
+    const buildStartTime = Date.now();
+    setCompletedRuntimeSeconds(null);
+    setBuildState(prev => ({
+      ...prev,
+      isBuilding: true,
+      startTime: buildStartTime,
+      errorCount: 0,
+      warningCount: 0,
+      errorDetails: [],
+      warningDetails: [],
+    }));
     
     // Check if services were already running before this build
     hadServicesRef.current = !!(buildState.vitePid || buildState.rustPid);
@@ -1263,23 +1324,12 @@ exit 1
     }
   }, [runBuild, buildState.isBuilding, buildState.currentStep]);
 
-  // Spinner animation
-  useEffect(() => {
-    if (buildState.isBuilding) {
-      const interval = setInterval(() => {
-        setBuildState(prev => ({
-          ...prev,
-          spinnerFrame: (prev.spinnerFrame + 1) % spinnerFrames.length
-        }));
-      }, 100);
-      return () => clearInterval(interval);
-    }
-  }, [buildState.isBuilding]);
-
   const hasErrors = buildState.processes.some(p => p.status === 'error');
   const hasCompilationErrors = buildState.errorDetails.length > 0;
   const allComplete = buildState.processes.every(p => p.status === 'success' || p.status === 'error');
-  const runtimeSeconds = Math.floor((Date.now() - buildState.startTime) / 1000);
+  const runtimeSeconds = buildState.startTime > 0
+    ? Math.max(0, Math.floor((Date.now() - buildState.startTime) / 1000))
+    : 0;
   const runtimeSummary = getRuntimeSummaryState({
     hasErrors,
     hasCompilationErrors,
@@ -1297,6 +1347,18 @@ exit 1
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
   const redisPidText = buildState.redisPid ?? '—';
+
+  useEffect(() => {
+    if (!allComplete || completedRuntimeSeconds !== null) {
+      return;
+    }
+
+    setCompletedRuntimeSeconds(runtimeSeconds);
+  }, [
+    allComplete,
+    completedRuntimeSeconds,
+    runtimeSeconds,
+  ]);
 
   // Note: If Do Not Disturb is enabled or Terminal lacks notification permissions,
   // the system notification won't fire. Open http://localhost:5173 manually in that case.
@@ -1573,14 +1635,11 @@ exit 1
 
   return (
     <Box flexDirection="column" padding={1}>
-      <Logo />
-
-      <Box flexDirection="column" marginTop={1} alignItems="flex-start">
-        <Text color="white" bold>N-APT / 📉 General purpose SDR visualizer and studio tailored for N-APT signals</Text>
-        <Text color="white" bold italic>(The NSA's neurotechnology 🧠 via radio waves and telecommunications infrastructure)</Text>
-        <Text color="white">Read more at https://github.com/ceane/n-apt</Text>
-        <Text color="gray">Press 'q' or ESC to exit</Text>
-      </Box>
+      <Static items={staticHeaderItems}>
+        {item => (
+          <StaticHeader key={item.id} />
+        )}
+      </Static>
 
       <Box flexDirection="column" marginTop={1} gap={0}>
         {buildState.processes.map((process, index) => (
@@ -1588,7 +1647,6 @@ exit 1
             key={index}
             process={process}
             isActive={index === buildState.currentStep && buildState.isBuilding}
-            spinnerFrame={buildState.spinnerFrame}
             showOutput={expandedOutputStep === index}
             onToggleOutput={() => toggleOutput(index)}
           />
@@ -1596,10 +1654,9 @@ exit 1
       </Box>
 
       {buildState.isBuilding && (
-        <Box marginTop={1}>
-          <Text color="blue">
-            {spinnerFrames[buildState.spinnerFrame % spinnerFrames.length]} Building in progress...
-          </Text>
+        <Box marginTop={1} flexDirection="row">
+          <SpinnerText />
+          <Text color="blue"> Building in progress...</Text>
         </Box>
       )}
 
@@ -1673,7 +1730,7 @@ exit 1
                     <Text color="red">✗ {buildState.errorCount} errors</Text>{'   '}
                     <Text color="yellow">▲ {buildState.warningCount} warnings</Text>
                   </Text>
-                  <Text color="gray">running in {runtimeSeconds}s</Text>
+                  <Text color="gray">running in {completedRuntimeSeconds ?? runtimeSeconds}s</Text>
                 </Box>
               </Box>
             </Box>
@@ -2002,24 +2059,19 @@ async function runNonTtyBuild() {
 }
 
 // Main execution
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-
-  if (!hasTty) {
+if (isMainModule) {
+  if (!hasInteractiveTty) {
     runNonTtyBuild().catch((err) => {
       console.error('Non-TTY Build Error:', err);
       process.exit(1);
     });
   } else {
 
-  // Enter alternate screen buffer to prevent scrolling/jumping bugs in terminal
-  process.stdout.write('\x1b[?1049h');
   const keepAlive = setInterval(() => {}, 60_000);
   let shutdownHandled = false;
 
   const cleanup = () => {
     clearInterval(keepAlive);
-    process.stdout.write('\x1b[?1049l');
   };
 
   const handleProcessSignal = (exitCode: number) => {
@@ -2030,7 +2082,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(exitCode);
   };
 
-  // Ensure we exit alternate screen buffer on process exit or crash
+  // Ensure we stop background timers and children on process exit or crash.
   process.on('exit', cleanup);
   process.once('SIGINT', () => handleProcessSignal(130));
   process.once('SIGTERM', () => handleProcessSignal(143));
@@ -2049,7 +2101,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   });
 
-  render(<BuildOrchestrator />);
+  render(<BuildOrchestrator />, {
+    incrementalRendering: true,
+    maxFps: 10,
+  });
   }
 }
 
