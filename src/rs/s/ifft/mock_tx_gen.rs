@@ -97,10 +97,12 @@ pub fn generate_mock_tx_samples_ifft(
     // OFDM flat-top spectral envelope with steep roll-off edges.
     // WiFi 802.11ac: 52/64 data+pilot subcarriers ≈ 81% occupied BW.
     // 5G NR: ~90-93% of channel bandwidth occupied.
-    // The roll-off uses a raised-cosine shape matching real spectral masks.
-    let passband_edge = if key == "5g" { 0.92 } else { 0.88 };
-    let rolloff_width = if key == "5g" { 0.08 } else { 0.12 };
-    let passband_jitter_db: f64 = if key == "5g" { 1.0 } else { 1.2 };
+    // The roll-off uses a raised-cosine shape matching real spectral masks,
+    // but starts slightly earlier than the nominal occupied bandwidth so the
+    // visible shoulder is not mistaken for a square-edged block.
+    let passband_edge = if key == "5g" { 0.62 } else { 0.58 };
+    let rolloff_width = if key == "5g" { 0.38 } else { 0.40 };
+    let passband_jitter_db: f64 = if key == "5g" { 0.75 } else { 0.9 };
 
     for k in 0..num_bins {
       let centered = k as isize - half_bins as isize;
@@ -128,7 +130,7 @@ pub fn generate_mock_tx_samples_ifft(
         } else {
           let t = ((x - passband_edge) / rolloff_width).clamp(0.0, 1.0);
           let rc = 0.5 * (1.0 + (std::f64::consts::PI * t).cos());
-          let skirt_db = -24.0 - 18.0 * t;
+          let skirt_db = -34.0 - 28.0 * t;
           let skirt = 10.0f64.powf(skirt_db / 20.0);
           let rolloff = rc.max(skirt);
           let edge_jitter =

@@ -218,6 +218,25 @@ export const shouldAutoResumeVisualizerOnDeviceRecovery = (
 export const isLiveVisualizerPathname = (pathname: string): boolean =>
   pathname === "/" || pathname === "/visualizer";
 
+export const shouldSendSelectSource = ({
+  isConnected,
+  sourceMode,
+  selectedSourceId,
+  activeSourceId,
+  availableSourceIds,
+}: {
+  isConnected: boolean;
+  sourceMode: SourceMode;
+  selectedSourceId: string;
+  activeSourceId: string;
+  availableSourceIds: string[];
+}): boolean =>
+  sourceMode === "live" &&
+  isConnected &&
+  selectedSourceId.length > 0 &&
+  selectedSourceId !== activeSourceId &&
+  availableSourceIds.includes(selectedSourceId);
+
 export const resolveEffectiveSourcePaused = ({
   backendPaused,
   localPaused,
@@ -1372,15 +1391,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [dispatch, selectedSourceId, selectedSourceViewKey]);
 
     useEffect(() => {
-      if (state.sourceMode !== "live") {
-        pendingSourceSwitchRef.current = null;
-        return;
-      }
-
+      const availableSourceIds = Array.isArray(websocketSources)
+        ? websocketSources.map((source) => source.id)
+        : [];
       if (
-        !isConnected ||
-        !selectedSourceId ||
-        selectedSourceId === activeSourceId
+        !shouldSendSelectSource({
+          isConnected,
+          sourceMode: state.sourceMode,
+          selectedSourceId,
+          activeSourceId,
+          availableSourceIds,
+        })
       ) {
         pendingSourceSwitchRef.current = null;
         return;
@@ -1399,6 +1420,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxDispatch,
       selectedSourceId,
       state.sourceMode,
+      websocketSources,
     ]);
 
     useEffect(() => {

@@ -56,6 +56,44 @@ fn should_hold_mock_tx_standby_stream(
     && !requested_single_frame
 }
 
+fn is_async_sample_timeout_error(error: &anyhow::Error) -> bool {
+  error.chain().any(|cause| {
+    cause
+      .to_string()
+      .contains("Timeout waiting for async SDR samples")
+  })
+}
+
+fn should_fallback_to_mock_on_early_read_error(
+  error: &anyhow::Error,
+  streak: u32,
+  supported_device_present: bool,
+) -> bool {
+  streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD
+    && !supported_device_present
+    && !is_async_sample_timeout_error(error)
+}
+
+fn should_restart_real_device_reader_on_read_error(
+  error: &anyhow::Error,
+  streak: u32,
+  recovery_count: u32,
+) -> bool {
+  streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
+    && is_async_sample_timeout_error(error)
+    && !crate::sdr::hotplug::is_recovery_budget_exhausted(
+      recovery_count,
+      super::shared_state::MAX_RECOVERY_ATTEMPTS,
+    )
+}
+
+fn should_fallback_to_mock_on_threshold_read_error(
+  error: &anyhow::Error,
+  supported_device_present: bool,
+) -> bool {
+  !supported_device_present && !is_async_sample_timeout_error(error)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -87,6 +125,44 @@ mod tests {
     assert!(!should_stop_streaming(&shared));
     shared.shutdown.store(true, Ordering::Relaxed);
     assert!(should_stop_streaming(&shared));
+  }
+
+  #[test]
+  fn async_sample_timeout_does_not_force_early_mock_fallback() {
+    let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
+
+    assert!(!should_fallback_to_mock_on_early_read_error(
+      &error, 1, false
+    ));
+  }
+
+  #[test]
+  fn non_timeout_read_error_without_usb_still_forces_early_mock_fallback() {
+    let error = anyhow::anyhow!("USB read failed");
+
+    assert!(should_fallback_to_mock_on_early_read_error(
+      &error, 1, false
+    ));
+  }
+
+  #[test]
+  fn async_sample_timeout_at_threshold_restarts_real_reader() {
+    let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
+
+    assert!(should_restart_real_device_reader_on_read_error(
+      &error,
+      super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+      0
+    ));
+  }
+
+  #[test]
+  fn async_sample_timeout_without_usb_does_not_force_threshold_mock_fallback() {
+    let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
+
+    assert!(!should_fallback_to_mock_on_threshold_read_error(
+      &error, false
+    ));
   }
 }
 
@@ -742,8 +818,7 @@ impl WebSocketServer {
                 center_frequency_hz as f64;
             }
             if let Some(bandwidth_hz) = bandwidth_hz {
-              *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() =
-                bandwidth_hz;
+              *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = bandwidth_hz;
             }
             if let Some(tx_ifft_size) = tx_ifft_size {
               *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
@@ -1092,6 +1167,25 @@ impl WebSocketServer {
                 };
                 let monitor_sample_rate = sample_rate.max(settings.sample_rate.max(1));
                 sample_rate = monitor_sample_rate;
+                let effective_bandwidth_hz = if tx_bandwidth_hz > 0.0 {
+                  tx_bandwidth_hz.min(monitor_sample_rate as f64).max(1.0)
+                } else {
+                  settings.sample_rate as f64
+                };
+                let bin_spacing_hz = monitor_sample_rate as f64
+                  / tx_ifft_size.max(1) as f64;
+                debug!(
+                  "mock_tx_monitor_frame: source={}, requested_single_frame={}, center_hz={:.0}, tx_center_hz={:.0}, previous_bandwidth_hz={:.0}, requested_bandwidth_hz={:.0}, effective_bandwidth_hz={effective_bandwidth_hz:.0}, monitor_sample_rate_hz={}, tx_ifft_size={}, bin_spacing_hz={bin_spacing_hz:.2}, tx_power_dbm={tx_power_dbm:.1}, tx_signal={}",
+                  active_source_id,
+                  requested_single_frame,
+                  center_frequency,
+                  tx_center_hz,
+                  *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(),
+                  tx_bandwidth_hz,
+                  monitor_sample_rate,
+                  tx_ifft_size,
+                  tx_signal,
+                );
                 let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
                   current_fft_size,
                   center_frequency as f64,
@@ -1227,7 +1321,11 @@ impl WebSocketServer {
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
               let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
-              if !supported_device_present {
+              if should_fallback_to_mock_on_early_read_error(
+                &e,
+                streak,
+                supported_device_present,
+              ) {
                 warn!(
                   "Supported USB device unplugged after read error. Falling back to mock immediately."
                 );
@@ -1263,18 +1361,57 @@ impl WebSocketServer {
                   }
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
+              } else if !supported_device_present
+                && is_async_sample_timeout_error(&e)
+              {
+                debug!(
+                  "Async SDR sample timeout occurred before disconnect threshold; keeping real device in recovery"
+                );
               }
 
               // Brief settle regardless
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
-              // Threshold reached — immediate fallback
+              // Threshold reached: restart stalled readers before falling back.
               let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
               warn!(
                   "Read-error threshold reached (streak={}). Supported USB device present={}.",
                   streak, supported_device_present,
                 );
-              if supported_device_present {
+              if should_restart_real_device_reader_on_read_error(
+                &e,
+                streak,
+                recovery_count,
+              ) {
+                shared_state.set_device_state("loading", Some("restart"));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                match processor.initialize() {
+                  Ok(()) => {
+                    info!(
+                      "Restarted current SDR async reader after sample timeout. Awaiting first healthy frame."
+                    );
+                    shared_state
+                      .recovery_attempts
+                      .fetch_add(1, Ordering::Relaxed);
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                    hotplug_state.last_hardware_swap = Some(Instant::now());
+                  }
+                  Err(restart_e) => {
+                    error!(
+                      "Failed to restart current SDR async reader after sample timeout: {}",
+                      restart_e
+                    );
+                    shared_state.set_device_backend_error(Some(format!(
+                      "Async SDR sample reader restart failed: {}",
+                      restart_e
+                    )));
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                  }
+                }
+              } else if supported_device_present {
                 if !crate::sdr::hotplug::is_recovery_budget_exhausted(
                   recovery_count,
                   super::shared_state::MAX_RECOVERY_ATTEMPTS,
@@ -1294,13 +1431,16 @@ impl WebSocketServer {
                           "Failed to swap to preferred device on read error: {}",
                           swap_e
                         );
-                        shared_state.set_device_state("loading", Some("restart"));
+                        shared_state
+                          .set_device_state("loading", Some("restart"));
                         shared_state
                           .set_device_backend_error(processor.get_error());
                         broadcast_device_status(&shared_state, &_broadcast_tx);
                       } else {
                         info!("Read-error swap succeeded. Awaiting first healthy frame.");
-                        shared_state.recovery_attempts.fetch_add(1, Ordering::Relaxed);
+                        shared_state
+                          .recovery_attempts
+                          .fetch_add(1, Ordering::Relaxed);
                         shared_state
                           .set_device_backend_error(processor.get_error());
                         broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -1327,9 +1467,13 @@ impl WebSocketServer {
                   shared_state.set_device_state("disconnected", None);
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_failure_at = Some(Instant::now());
-                  tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown).await;
+                  tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown)
+                    .await;
                 }
-              } else {
+              } else if should_fallback_to_mock_on_threshold_read_error(
+                &e,
+                supported_device_present,
+              ) {
                 let was_hackrf = processor.device_type() == "hackrf_one";
                 shared_state.set_device_state("disconnected", None);
                 if was_hackrf {
@@ -1360,6 +1504,13 @@ impl WebSocketServer {
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
                 }
+              } else {
+                warn!(
+                  "Async SDR sample timeout reached read-error threshold without reliable USB presence; keeping real device in recovery"
+                );
+                shared_state.set_device_state("loading", Some("restart"));
+                shared_state.set_device_backend_error(Some(e.to_string()));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
               }
               hotplug_state.last_failure_at = Some(Instant::now());
               tokio::time::sleep(Duration::from_millis(250)).await;

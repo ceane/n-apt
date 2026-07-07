@@ -48,6 +48,16 @@ const NumericInput = styled.input`
   padding: 4px 6px;
   width: 92px;
   text-align: right;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    color: ${(props) => props.theme.textSecondary};
+    border-color: ${(props) => props.theme.border};
+    background-color: ${(props) => props.theme.mode === "light"
+      ? "rgba(255, 255, 255, 0.65)"
+      : "rgba(255, 255, 255, 0.03)"};
+  }
 `;
 
 const Select = styled.select`
@@ -176,6 +186,14 @@ const HopFieldControl = styled.div`
   gap: 8px;
 `;
 
+const HopValueText = styled.span`
+  font-size: 12px;
+  font-weight: 500;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
+  white-space: nowrap;
+`;
+
 const IconLabel = ({
   icon: Icon,
   text,
@@ -221,6 +239,7 @@ export interface TxSettingsSectionProps {
   signal: string;
   bandwidthHz?: number;
   sampleRateHz?: number;
+  rxSampleRateHz?: number;
   maxBandwidthHz?: number | null;
   maxSampleRateHz?: number | null;
   fftSize?: number;
@@ -265,6 +284,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   signal,
   bandwidthHz,
   sampleRateHz,
+  rxSampleRateHz,
   maxBandwidthHz,
   maxSampleRateHz = 20_000_000,
   fftSize = 2048,
@@ -344,6 +364,29 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   const selectedLabels = React.useMemo(() => {
     return (hopChannels || []).map((ch) => ch.toUpperCase());
   }, [hopChannels]);
+
+  const effectiveRxSampleRateHz =
+    typeof rxSampleRateHz === "number" && Number.isFinite(rxSampleRateHz)
+      ? rxSampleRateHz
+      : typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? sampleRateHz
+        : typeof maxSampleRateHz === "number" && Number.isFinite(maxSampleRateHz)
+          ? maxSampleRateHz
+          : null;
+  const hopBandwidthHz =
+    hopType === "range"
+      ? Math.max(0, hopEndFrequencyHz - hopStartFrequencyHz)
+      : selectedLabels.reduce((total, label) => {
+          const channel = channelsList.find(
+            (ch) => ch.label.toUpperCase() === label,
+          );
+          return total + Math.max(0, (channel?.max ?? 0) - (channel?.min ?? 0));
+        }, 0);
+  const isHopRateDisabled =
+    typeof effectiveRxSampleRateHz === "number" &&
+    Number.isFinite(effectiveRxSampleRateHz) &&
+    hopBandwidthHz > 0 &&
+    hopBandwidthHz <= effectiveRxSampleRateHz;
 
   const handleChannelsChange = (nextLabels: string[]) => {
     onHopChannelsChange(nextLabels.map((l) => l.toLowerCase()));
@@ -595,6 +638,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   };
 
   const handleHopRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isHopRateDisabled) return;
     const val = e.target.value.trim();
     setLocalHopRate(val);
     const num = Number(val);
@@ -604,6 +648,10 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   };
 
   const handleHopRateBlur = () => {
+    if (isHopRateDisabled) {
+      setLocalHopRate(hopRateHz.toString());
+      return;
+    }
     const num = Number(localHopRate);
     if (Number.isFinite(num) && localHopRate !== "") {
       const clamped = Math.max(1, Math.min(1000, num));
@@ -658,6 +706,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   };
 
   const handleHopRateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isHopRateDisabled) return;
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
@@ -808,6 +857,26 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
 
             <HopFieldRow>
               <HopFieldLabel>
+                Rx Sample Rate
+                <Tooltip
+                  title="Rx Sample Rate"
+                  content="The receive sample rate available to the hopping transmitter. When the hop span fills the sample rate, hopping is disabled."
+                />
+              </HopFieldLabel>
+              <HopFieldControl>
+                <HopValueText>
+                  {effectiveRxSampleRateHz !== null
+                    ? formatFrequency(effectiveRxSampleRateHz, {
+                        precisionMHz: 3,
+                        trimTrailingZeros: true,
+                      })
+                    : "N/A"}
+                </HopValueText>
+              </HopFieldControl>
+            </HopFieldRow>
+
+            <HopFieldRow>
+              <HopFieldLabel>
                 Hop rate
                 <Tooltip
                   title="Hop Rate"
@@ -822,6 +891,13 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                     onChange={handleHopRateChange}
                     onBlur={handleHopRateBlur}
                     onKeyDown={handleHopRateKeyDown}
+                    disabled={isHopRateDisabled}
+                    aria-disabled={isHopRateDisabled}
+                    title={
+                      isHopRateDisabled
+                        ? "Disabled because the hop bandwidth is within the current Rx sample rate"
+                        : undefined
+                    }
                   />
                   <UnitSuffix>Hz</UnitSuffix>
                 </InlineField>

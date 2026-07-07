@@ -7,6 +7,7 @@ import { TxSettingsSection } from "../../src/ts/components/sidebar/TxSettingsSec
 describe("TxSettingsSection", () => {
   const defaultProps = {
     signal: "apt",
+    bandwidthHz: 2_400_000,
     sampleRateHz: 5_200_000,
     maxSampleRateHz: 20_000_000,
     centerFrequencyHz: 137_100_000,
@@ -77,6 +78,52 @@ describe("TxSettingsSection", () => {
     expect(defaultProps.onHopRateHzChange).toHaveBeenLastCalledWith(10);
   });
 
+  it("shows the Rx sample rate above hop rate", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByText("Rx Sample Rate").length).toBeGreaterThan(0);
+    expect(screen.getByText(/5\.2\s*MHz/)).toBeInTheDocument();
+    expect(screen.getByText("Hop rate")).toBeInTheDocument();
+  });
+
+  it("disables hop rate when the Tx bandwidth fills the Rx sample rate", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopStartFrequencyHz={0}
+          hopEndFrequencyHz={5_200_000}
+        />
+      </TestWrapper>,
+    );
+
+    const hopRateLabel = screen.getByText("Hop rate");
+    const hopRateRow = hopRateLabel.closest("div")!;
+    const hopRateInput = within(hopRateRow).getByRole("textbox");
+    expect(hopRateInput).toBeDisabled();
+  });
+
+  it("disables hop rate when hopping channels with only one selected channel", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopType="channels"
+          hopChannels={["a"]}
+        />
+      </TestWrapper>,
+    );
+
+    const hopRateLabel = screen.getByText("Hop rate");
+    const hopRateRow = hopRateLabel.closest("div")!;
+    const hopRateInput = within(hopRateRow).getByRole("textbox");
+    expect(hopRateInput).toBeDisabled();
+  });
+
   it("labels the transmit button as Stop Tx while transmitting", () => {
     render(
       <TestWrapper>
@@ -122,6 +169,7 @@ describe("TxSettingsSection", () => {
         <TxSettingsSection
           {...defaultProps}
           sampleRateHz={20_000_000}
+          bandwidthHz={20_000_000}
           ifftSize={512}
           ifftSizeOptions={[512, 1024, 2048, 4096]}
         />

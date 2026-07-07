@@ -25,11 +25,17 @@ const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
   &::after {
     content: "";
     position: absolute;
-    top: 2px;
+    top: ${(props) => (props.$hasInnerLabel ? "2px" : "3px")};
     left: ${(props) =>
-      props.$active ? (props.$hasInnerLabel ? "38px" : "16px") : "2px"};
-    width: 16px;
-    height: 16px;
+      props.$active
+        ? props.$hasInnerLabel
+          ? "38px"
+          : "17px"
+        : props.$hasInnerLabel
+          ? "2px"
+          : "3px"};
+    width: ${(props) => (props.$hasInnerLabel ? "16px" : "12px")};
+    height: ${(props) => (props.$hasInnerLabel ? "16px" : "12px")};
     background-color: white;
     border-radius: 50%;
     transition: left 0.2s ease;

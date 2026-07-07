@@ -195,6 +195,7 @@ impl SharedState {
       );
     }
     *self.device_state.lock().unwrap() = if connected {
+      *self.device_loading_reason.lock().unwrap() = None;
       "connected".to_string()
     } else {
       "disconnected".to_string()

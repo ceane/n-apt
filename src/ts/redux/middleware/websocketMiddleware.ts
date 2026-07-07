@@ -921,6 +921,10 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
     cleanupSourceIqSocket();
     return;
   }
+  if (wsInstance.ws?.readyState !== WebSocket.OPEN) {
+    cleanupSourceIqSocket();
+    return;
+  }
 
   const state = getState().websocket;
   const activeSourceId = state.activeSourceId;
@@ -1461,6 +1465,7 @@ const createWebSocketMiddleware =
         if (hasReusableSocket) {
           if (existingSocket?.readyState === WebSocket.OPEN) {
             dispatch(setConnected());
+            syncSourceIqSocket(dispatch, getState);
           } else {
             dispatch(setConnecting());
           }
@@ -1499,6 +1504,7 @@ const createWebSocketMiddleware =
               }
               dispatch(setConnected());
               wsInstance.reconnectAttempts = 0;
+              syncSourceIqSocket(dispatch, getState);
 
               // Send queued messages
               const state = getState();
@@ -1782,6 +1788,9 @@ const createWebSocketMiddleware =
           shouldClearStaleSpectrumFrames(nextState.deviceState)
         ) {
           clearLiveSpectrumFrames(dispatch);
+        }
+        if (activeSourceChanged) {
+          syncSourceIqSocket(dispatch, getState);
         }
         return result;
       }

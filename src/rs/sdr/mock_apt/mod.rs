@@ -1,8 +1,18 @@
-//! Mock APT SDR Device Implementation
+//! Mock APT SDR Device Implementation.
 //!
-//! Provides a simulated SDR device that generates realistic signals for testing and demonstration.
-//! Uses bin-based frequency modeling for consistent FFT placement and dynamic signal behavior.
-//! Reads configuration from signals.yaml for signal parameters and variation settings.
+//! This device does not stream a single precomputed I/Q recording. Instead, it
+//! synthesizes the requested FFT frame on demand each time `read_samples_sync`
+//! is called.
+//!
+//! The signal layout is initialized from `signals.yaml` into an in-memory set of
+//! mock carriers, then each frame is generated from that state using the current
+//! center frequency, sample rate, gain, and realism settings. This keeps the
+//! output responsive to tuning changes while still allowing seeded, repeatable
+//! generation when desired.
+//!
+//! A separate small cache is used only for selected Mock Tx overlays
+//! (`wifi`/`5g`/related modes) so those blocks can be reused when the transmit
+//! parameters are unchanged. That cache is not the main Mock APT I/Q source.
 
 use crate::s::fft::types::RawSamples;
 use crate::s::ifft::mock_tx_gen::{
@@ -10,6 +20,10 @@ use crate::s::ifft::mock_tx_gen::{
 };
 use std::sync::Mutex;
 
+/// Cached Mock Tx synthesis state.
+///
+/// This cache exists only for transmit overlay generation. The main Mock APT
+/// receive path still recomputes the requested frame on every read.
 struct MockTxBuffer {
   params: Option<MockTxParams>,
   samples: Vec<Complex<f32>>,
@@ -48,14 +62,18 @@ use metal_backend::MockAptMetalBackend;
 #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
 use std::sync::OnceLock;
 
-/// Mock APT signal configuration
+/// One configured mock carrier in the simulated spectrum.
 #[derive(Debug, Clone)]
 struct MockAptSignalConfig {
   center_frequency_hz: f64,
   strength_db: f64,
 }
 
-/// Mock APT SDR device implementation
+/// Mock APT SDR device implementation.
+///
+/// The device stores a persistent signal model, but the output samples are
+/// generated per request. That means tuning, gain, ppm, and RF realism options
+/// are applied at read time rather than being baked into a static capture.
 pub struct MockAptDevice {
   center_freq: u32,
   sample_rate: u32,
@@ -378,12 +396,17 @@ impl MockAptDevice {
     "Mock APT SDR"
   }
 
-  /// Create a new mock APT SDR device
+  /// Create a new mock APT SDR device.
+  ///
+  /// The signal configuration is loaded once at construction, but the I/Q
+  /// frames themselves are synthesized on demand.
   pub fn new() -> Self {
     Self::new_with_rng(StdRng::from_rng(&mut ::rand::rng()))
   }
 
-  /// Create a new mock APT SDR device with a fixed seed for deterministic output
+  /// Create a new mock APT SDR device with a fixed seed for deterministic output.
+  ///
+  /// This makes the signal layout and subsequent frame generation repeatable.
   pub fn new_with_seed(seed: u64) -> Self {
     Self::new_with_rng(StdRng::seed_from_u64(seed))
   }
@@ -453,7 +476,11 @@ impl MockAptDevice {
     }
   }
 
-  /// Create initial signals based on configuration
+  /// Create initial signals based on configuration.
+  ///
+  /// This builds the persistent carrier set used by the runtime generator. It
+  /// does not allocate a full waveform buffer; the actual I/Q samples are still
+  /// produced lazily per frame.
   fn create_signals_with_rng(
     mock_settings: &crate::server::types::MockAptSignalsConfig,
     rng_source: &mut impl rand::Rng,
@@ -982,6 +1009,11 @@ fn add_bandlimited_mock_tx_noise_overlay(
 #[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
+  /// Synthesize one I/Q frame synchronously.
+  ///
+  /// This is the hot path: it computes the requested `fft_size` samples from
+  /// the current device state, applies noise and quantization, then returns the
+  /// resulting bytes. No global capture buffer is replayed here.
   pub fn read_samples_sync(&mut self, fft_size: usize) -> Result<RawSamples> {
     if fft_size == 0 {
       return Err(anyhow::anyhow!("FFT size cannot be 0"));

@@ -6,6 +6,7 @@ import {
   shouldPauseSourceOnSwitch,
   shouldResumePausedRxSourceOnSelection,
   shouldAutoResumeVisualizerOnDeviceRecovery,
+  shouldSendSelectSource,
   isHalfDuplexSourceInfo,
   isLiveVisualizerPathname,
   resolveEffectiveSourcePaused,
@@ -231,6 +232,18 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         "connected",
         "loading",
       ),
+    ).toBe(false);
+  });
+
+  it("does not send a stale missing source id after hotplug inventory changes", () => {
+    expect(
+      shouldSendSelectSource({
+        isConnected: true,
+        sourceMode: "live",
+        selectedSourceId: "rtl-sdr-removed",
+        activeSourceId: "hackrf_one-connected",
+        availableSourceIds: ["hackrf_one-connected", "mock-apt"],
+      }),
     ).toBe(false);
   });
 });

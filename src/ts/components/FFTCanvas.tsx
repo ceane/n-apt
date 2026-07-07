@@ -1588,23 +1588,9 @@ const FFTCanvas = memo(
     const clampedVizRangeRef = useRef<FrequencyRange>(currentVisualRange);
     clampedVizRangeRef.current = currentVisualRange;
 
-    const storeFftAvgEnabled = useAppSelector(
+    const fftAvgEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftAvgEnabled,
     );
-    const isMockTxActiveSource = useAppSelector(
-      (state) => {
-        const activeSrc = state.websocket.sources?.find(
-          (s) => s.id === state.websocket.activeSource
-        );
-        if (!activeSrc) return false;
-        return isMockTxIdentity({
-          deviceKind: activeSrc.device_kind,
-          backend: activeSrc.backend,
-          deviceName: activeSrc.name,
-        }) && activeSrc.status !== "transmitting";
-      }
-    );
-    const fftAvgEnabled = isPaused || isMockTxActiveSource ? false : storeFftAvgEnabled;
     const fftSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftSmoothEnabled,
     );

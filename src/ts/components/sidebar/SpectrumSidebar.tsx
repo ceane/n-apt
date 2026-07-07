@@ -2613,6 +2613,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 }
                 hopRateHz={txHopRateHz}
                 onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
+                rxSampleRateHz={
+                  activeChannelSampleRate ??
+                  sampleRateHzLocal ??
+                  liveSdrSettingsToUse?.sample_rate ??
+                  maxSampleRate
+                }
               />
             </Collapsible>
           ) : null}

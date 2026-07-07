@@ -206,28 +206,28 @@ signals:
         channel: "a"
         center_frequency_hz: !frequency 137.1MHz
         sample_rate_hz: !frequency 2.4MHz
-        bandwidth_hz: !frequency 1.1MHz
+        bandwidth_hz: !frequency 1.5MHz
         description: "A continuous sawtooth/triangle-like wave spectrum."
       d_sharp:
         label: "D#"
         channel: "a"
         center_frequency_hz: !frequency 137.1MHz
-        sample_rate_hz: !frequency 1MHz
-        bandwidth_hz: !frequency 1.1MHz
+        sample_rate_hz: !frequency 1.5MHz
+        bandwidth_hz: !frequency 1.5MHz
         description: "A narrow sawtooth-like wave variant."
       wifi:
         label: "Mock WiFi"
         channel: "c"
         center_frequency_hz: !frequency 13.875MHz
-        sample_rate_hz: !frequency 3.2MHz
-        bandwidth_hz: !frequency 1MHz
+        sample_rate_hz: !frequency 3MHz
+        bandwidth_hz: !frequency 3MHz
         description: "An OFDM-like emulated WiFi block with flat-top passband and steep roll-off edges."
       5g:
         label: "Mock 5G"
         channel: "b"
         center_frequency_hz: !frequency 137.1MHz
-        sample_rate_hz: !frequency 2.4MHz
-        bandwidth_hz: !frequency 2MHz
+        sample_rate_hz: !frequency 3MHz
+        bandwidth_hz: !frequency 3MHz
         description: "An OFDM-like emulated 5G NR block with flat-top passband and steep roll-off edges."
 
   triangulation:

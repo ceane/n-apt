@@ -133,6 +133,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
     const wsState = useAppSelector((reduxState) => reduxState.websocket);
+    const liveDataFrameCounter = useAppSelector(
+      (reduxState) => reduxState.websocket.dataFrameCounter,
+    );
 
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
@@ -143,9 +146,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
       useState(true);
     const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
-    const currentFrame = Array.isArray(props.dataRef.current)
-      ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
-      : props.dataRef.current;
+    const currentFrame = useMemo(() => {
+      const currentData = props.dataRef.current;
+      return Array.isArray(currentData)
+        ? (currentData[currentData.length - 1] ?? null)
+        : currentData;
+    }, [props.dataRef, liveDataFrameCounter]);
     const hasIncomingData = !!(
       currentFrame &&
       ((currentFrame.iq_data?.length ?? 0) > 0 ||

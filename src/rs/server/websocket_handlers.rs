@@ -22,6 +22,7 @@ use super::websocket_server::{
   resolve_stream_key_source_id,
 };
 use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
+use crate::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 
@@ -45,6 +46,7 @@ fn apply_mock_tx_preview_settings(
   shared: &Arc<SharedState>,
 ) {
   let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+  let previous_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
 
   if let Some(center_frequency) = message.center_frequency {
     let center_hz = center_frequency.round().clamp(1.0, u32::MAX as f64);
@@ -60,6 +62,16 @@ fn apply_mock_tx_preview_settings(
 
   if let Some(bandwidth_hz) = message.bandwidth {
     *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = bandwidth_hz as f64;
+    debug!(
+      "mock_tx_preview bandwidth update: previous_bandwidth_hz={previous_bandwidth_hz:.0}, requested_bandwidth_hz={bandwidth_hz:.0}, tx_signal={}, tx_center_hz={:.0}, tx_ifft_size={}",
+      crate::safety::TX_SIGNAL.lock().unwrap().as_str(),
+      *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap(),
+      *crate::safety::TX_IFFT_SIZE.lock().unwrap(),
+    );
+    if bandwidth_hz as f64 > 0.0 && previous_bandwidth_hz > bandwidth_hz as f64
+    {
+      MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    }
   }
 
   if let Some(power_dbm) = message.power_dbm {
@@ -209,10 +221,27 @@ pub async fn source_iq_ws_upgrade_handler(
   let spectrum_tx = state.spectrum_tx.clone();
 
   ws.on_upgrade(move |socket| {
-    handle_source_iq_connection(socket, shared, spectrum_tx, enc_key, source_id)
+    handle_source_iq_connection(
+      socket,
+      shared,
+      spectrum_tx,
+      enc_key,
+      source_id,
+      stream_key,
+    )
   })
 }
 
+/// Send an encrypted I/Q frame as a binary websocket message.
+///
+/// The payload is intentionally binary instead of JSON because these frames can
+/// be large and arrive frequently. Keeping the transport as a compact binary
+/// buffer reduces serialization overhead, lowers bandwidth usage, and avoids
+/// the extra allocations and parsing cost that would come with large JSON
+/// blobs on the hot streaming path.
+///
+/// Frame layout:
+/// `[timestamp:8][center_freq:8][data_type:4][sample_rate:4][encrypted_payload...]`
 async fn send_encrypted_iq_frame(
   ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
   enc_key: &[u8; 32],
@@ -237,6 +266,7 @@ async fn send_encrypted_iq_frame(
     })?;
   binary_payload.extend_from_slice(&encrypted_iq);
 
+  // Binary frames keep the hot data path compact and avoid JSON encoding costs.
   ws_sender
     .send(Message::Binary(binary_payload.into()))
     .await
@@ -255,12 +285,83 @@ fn should_send_source_iq_frame(
   matches!(source_id, "mock-tx" | "mock-apt") && tx_transmitting
 }
 
+fn source_kind_hint_from_id(source_id: &str) -> Option<&'static str> {
+  if source_id.starts_with("rtl-sdr") || source_id.starts_with("rtl_sdr") {
+    return Some("rtl-sdr");
+  }
+  if source_id.starts_with("hackrf_one") || source_id.starts_with("hackrf") {
+    return Some("hackrf_one");
+  }
+  None
+}
+
+fn source_iq_subscription_matches_active_source(
+  shared: &SharedState,
+  source_id: &str,
+  stream_key: &str,
+) -> bool {
+  let active_id = active_source_id(shared);
+  if active_id == source_id {
+    return true;
+  }
+
+  let snapshot = build_source_info_snapshot(shared);
+  let Some(sources) = snapshot["sources"].as_array() else {
+    return false;
+  };
+  let active_source = sources
+    .iter()
+    .find(|source| source["id"].as_str() == Some(active_id.as_str()));
+  if active_source
+    .and_then(|source| source["stream_key"].as_str())
+    .is_some_and(|active_stream_key| active_stream_key == stream_key)
+  {
+    return true;
+  }
+
+  let requested_source = sources
+    .iter()
+    .find(|source| source["id"].as_str() == Some(source_id));
+  let Some(active_source) = active_source else {
+    return false;
+  };
+
+  let active_kind = active_source["kind"].as_str().unwrap_or("");
+  let requested_kind = requested_source
+    .and_then(|source| source["kind"].as_str())
+    .or_else(|| source_kind_hint_from_id(source_id))
+    .unwrap_or("");
+  if active_kind.starts_with("mock")
+    || requested_kind.starts_with("mock")
+    || active_kind != requested_kind
+  {
+    return false;
+  }
+
+  let active_serial =
+    active_source["serial_number"].as_str().unwrap_or("").trim();
+  let requested_serial = requested_source
+    .and_then(|source| source["serial_number"].as_str())
+    .unwrap_or("")
+    .trim();
+  if !active_serial.is_empty() && active_serial == requested_serial {
+    return true;
+  }
+
+  sources
+    .iter()
+    .filter(|source| source["kind"].as_str() == Some(active_kind))
+    .count()
+    == 1
+}
+
 pub async fn handle_source_iq_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   enc_key: [u8; 32],
   source_id: String,
+  stream_key: String,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut spectrum_rx = spectrum_tx.subscribe();
@@ -273,7 +374,7 @@ pub async fn handle_source_iq_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
-            if active_source_id(&shared) != source_id {
+            if !source_iq_subscription_matches_active_source(&shared, &source_id, &stream_key) {
               continue;
             }
             let allow_next_paused_frame = shared
@@ -1162,12 +1263,15 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
-    should_send_source_iq_frame,
+    apply_mock_tx_preview_settings, handle_message, live_tune_is_out_of_bounds,
+    resolve_live_center_frequency, should_send_source_iq_frame,
+    source_iq_subscription_matches_active_source,
   };
   use crate::server::shared_state::SharedState;
-  use crate::server::types::{SdrCommand, WebSocketMessage};
+  use crate::server::types::{DeviceProfile, SdrCommand, WebSocketMessage};
+  use crate::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
   use serial_test::serial;
+  use std::sync::atomic::Ordering;
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
@@ -1559,6 +1663,28 @@ mod tests {
 
   #[test]
   #[serial]
+  fn request_next_frame_resets_mock_tx_cursor_when_bandwidth_decreases() {
+    let shared = test_shared_state();
+
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(1234, Ordering::Relaxed);
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"request_next_frame",
+        "bandwidthHz":1200000
+      }"#,
+    )
+    .unwrap();
+
+    apply_mock_tx_preview_settings(&message, &shared);
+
+    assert_eq!(*crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(), 1_200_000.0);
+    assert_eq!(MOCK_TX_MONITOR_SAMPLE_CURSOR.load(Ordering::Relaxed), 0);
+  }
+
+  #[test]
+  #[serial]
   fn tx_mode_disable_without_bandwidth_keeps_existing_tx_bandwidth() {
     let shared = test_shared_state();
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
@@ -1688,6 +1814,88 @@ mod tests {
     assert!(should_send_source_iq_frame("mock-tx", false, false, false));
     assert!(!should_send_source_iq_frame("mock-tx", true, false, false));
     assert!(should_send_source_iq_frame("mock-apt", true, false, true));
+  }
+
+  #[test]
+  fn source_iq_subscription_accepts_the_active_rtl_source() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      true,
+      "RTL-SDR v4".to_string(),
+      DeviceProfile {
+        kind: "rtl-sdr".to_string(),
+        is_rtl_sdr: true,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+    shared.update_device_usb_strings(
+      "00000001".to_string(),
+      "RTLSDRBlog".to_string(),
+      "Blog V4".to_string(),
+    );
+
+    assert!(source_iq_subscription_matches_active_source(
+      &shared,
+      "rtl-sdr-00000001",
+      "00000001"
+    ));
+    assert!(!source_iq_subscription_matches_active_source(
+      &shared, "mock-apt", "mock-apt"
+    ));
+  }
+
+  #[test]
+  fn source_iq_subscription_accepts_active_rtl_stream_key_alias() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      true,
+      "RTL-SDR v4".to_string(),
+      DeviceProfile {
+        kind: "rtl-sdr".to_string(),
+        is_rtl_sdr: true,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+    shared.update_device_usb_strings(
+      "00000001".to_string(),
+      "RTLSDRBlog".to_string(),
+      "Blog V4".to_string(),
+    );
+
+    assert!(source_iq_subscription_matches_active_source(
+      &shared,
+      "rtl-sdr-stale-id",
+      "00000001"
+    ));
+  }
+
+  #[test]
+  fn source_iq_subscription_accepts_pre_serial_rtl_socket_after_id_stabilizes()
+  {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      true,
+      "RTL-SDR v4".to_string(),
+      DeviceProfile {
+        kind: "rtl-sdr".to_string(),
+        is_rtl_sdr: true,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+      },
+    );
+    shared.update_device_usb_strings(
+      "00000001".to_string(),
+      "RTLSDRBlog".to_string(),
+      "Blog V4".to_string(),
+    );
+
+    assert!(source_iq_subscription_matches_active_source(
+      &shared,
+      "rtl-sdr-0",
+      "rtl-sdr-0"
+    ));
   }
 
   #[test]

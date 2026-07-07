@@ -293,10 +293,13 @@ pub fn synthesize_mock_tx_monitor_iq(
   let target_bandwidth_hz = if tx_bandwidth_hz > 0.0 {
     tx_bandwidth_hz
   } else {
-    preset.and_then(|p| p.bandwidth_hz).unwrap_or(sample_rate_hz)
+    preset
+      .and_then(|p| p.bandwidth_hz)
+      .unwrap_or(sample_rate_hz)
   };
 
-  let tx_occupied_bandwidth_hz = target_bandwidth_hz.min(sample_rate_hz).max(1.0);
+  let tx_occupied_bandwidth_hz =
+    target_bandwidth_hz.min(sample_rate_hz).max(1.0);
   let effective_bandwidth_hz = tx_occupied_bandwidth_hz;
 
   let offset_hz = preset.and_then(|p| p.offset_hz).unwrap_or(0.0);
@@ -397,6 +400,28 @@ pub fn synthesize_mock_tx_monitor_iq(
 
     out.push(quantize_mock_tx_iq(i_val, t, MOCK_TX_I_DITHER_KEY));
     out.push(quantize_mock_tx_iq(q_val, t, MOCK_TX_Q_DITHER_KEY));
+  }
+
+  #[cfg(not(test))]
+  {
+    let peak = peak_amplitude_inside_bandwidth(
+      &out,
+      rel_hz,
+      effective_bandwidth_hz,
+      sample_rate_hz,
+    );
+    if peak > 0.0 {
+      let factor = (target_rms / peak).clamp(0.5, 1.4);
+      if (factor - 1.0).abs() > 0.02 {
+        scale_quantized_iq(&mut out, factor);
+        clamp_quantized_iq_to_bandwidth(
+          &mut out,
+          rel_hz,
+          effective_bandwidth_hz,
+          sample_rate_hz,
+        );
+      }
+    }
   }
 
   #[cfg(test)]
@@ -657,6 +682,53 @@ mod tests {
   }
 
   #[test]
+  fn tx_monitor_bandwidth_drop_keeps_first_frame_within_new_bandwidth() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+
+    let _wide_frame = synthesize_mock_tx_monitor_iq(
+      TEST_FFT_SIZE,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut 0.0,
+    );
+
+    let narrow_frame = synthesize_mock_tx_monitor_iq(
+      TEST_FFT_SIZE,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      1_200_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut 0.0,
+    );
+
+    let spectrum = spectrum_dbm(&narrow_frame, 3_200_000.0);
+    let narrow_half_bw = 1_200_000.0 / 2.0;
+    let outside_dbm =
+      max_dbm_between(&spectrum, narrow_half_bw + 200_000.0, 1_400_000.0).max(
+        max_dbm_between(&spectrum, -1_400_000.0, -(narrow_half_bw + 200_000.0)),
+      );
+    let center_dbm = max_dbm_between(&spectrum, -50_000.0, 50_000.0);
+
+    assert!(
+      outside_dbm <= center_dbm - 35.0,
+      "first frame after bandwidth decrease should stay inside the new \
+       bandwidth: center={center_dbm:.2} dBm, outside={outside_dbm:.2} dBm"
+    );
+  }
+
+  #[test]
   fn tx_monitor_generated_signals_have_flat_noise_floor_and_constrained_shape()
   {
     for signal_name in ["d", "d_sharp", "wifi", "5g"] {
@@ -899,7 +971,9 @@ mod tests {
         spectrum
           .iter()
           .enumerate()
-          .filter(|(idx, bin)| idx % 32 == 0 && bin.rel_hz.abs() <= half_width_hz * 0.30)
+          .filter(|(idx, bin)| {
+            idx % 32 == 0 && bin.rel_hz.abs() <= half_width_hz * 0.30
+          })
           .map(|(_, bin)| bin.dbm),
       );
       let flat_top = sorted_dbm(
@@ -1438,8 +1512,7 @@ mod tests {
       // Signal must be present: in-band peak near requested power
       let first_spectrum = spectrum_dbm(&first, TEST_VIEW_SAMPLE_RATE_HZ);
       let half_bw = tx_bandwidth_hz / 2.0;
-      let in_band_peak =
-        max_dbm_between(&first_spectrum, -half_bw, half_bw);
+      let in_band_peak = max_dbm_between(&first_spectrum, -half_bw, half_bw);
       let far_noise =
         max_dbm_between(&first_spectrum, 1_200_000.0, 1_500_000.0);
       assert!(
@@ -1491,8 +1564,7 @@ mod tests {
       );
 
       // Signal must still be present after animation (didn't collapse)
-      let later_peak =
-        max_dbm_between(&later_spectrum, -half_bw, half_bw);
+      let later_peak = max_dbm_between(&later_spectrum, -half_bw, half_bw);
       assert!(
         later_peak >= TEST_TX_POWER_DBM - 6.0,
         "{signal_name} signal should remain present after animation: \

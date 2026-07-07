@@ -16,6 +16,7 @@ const waterfallCanvasMock = jest.fn((_props?: any) => (
 let mockedSourceMode: "live" | "file" = "live";
 let mockedSpectrumState: Record<string, unknown> = {};
 let mockedWebsocketState: Record<string, unknown> = {};
+let selectorResults: unknown[] = [];
 
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -45,8 +46,8 @@ jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
 }));
 
 jest.mock("@n-apt/redux", () => ({
-  useAppSelector: (selector: any) =>
-    selector({
+  useAppSelector: (selector: any) => {
+    const result = selector({
       spectrum: {
         fftAvgEnabled: false,
         fftSmoothEnabled: false,
@@ -76,7 +77,10 @@ jest.mock("@n-apt/redux", () => ({
         sources: [],
         ...mockedWebsocketState,
       },
-    }),
+    });
+    selectorResults.push(result);
+    return result;
+  },
   useAppDispatch: () => jest.fn(),
   spectrumActions: {
     setFftAvgEnabled: jest.fn(),
@@ -92,6 +96,7 @@ describe("FFTAndWaterfall", () => {
     mockedSourceMode = "live";
     mockedSpectrumState = {};
     mockedWebsocketState = {};
+    selectorResults = [];
     fftCanvasMock.mockClear();
     fftCanvasMountSpy.mockClear();
     fftCanvasUnmountSpy.mockClear();
@@ -322,6 +327,25 @@ describe("FFTAndWaterfall", () => {
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBeNull();
+  });
+
+  it("subscribes to the live data frame counter so ref-only frames clear the placeholder", () => {
+    mockedWebsocketState = {
+      dataFrameCounter: 7,
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    expect(selectorResults).toContain(7);
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

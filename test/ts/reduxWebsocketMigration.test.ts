@@ -42,6 +42,12 @@ global.WebSocket = jest.fn(() => ({
   onerror: null,
   onmessage: null,
 })) as any;
+Object.assign(global.WebSocket, {
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3,
+});
 
 describe("Redux WebSocket Migration", () => {
   let store: ReturnType<typeof configureStore>;
@@ -597,6 +603,356 @@ describe("Redux WebSocket Migration", () => {
 
       expect(sockets.map((socket) => socket.url)).toContain(
         "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+      );
+    });
+
+    it("opens a per-source IQ WebSocket when reconnect reuses an open control socket", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isConnected: true,
+          connectionStatus: "connected",
+          activeSourceId: "rtl-sdr-00000001",
+          sources: [
+            {
+              id: "rtl-sdr-00000001",
+              name: "RTL-SDR v4",
+              kind: "rtl-sdr",
+              capability: "rx",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "00000001",
+              stream_key_kind: "serial",
+              serial_number: "00000001",
+              manufacturer: "RTLSDRBlog",
+              product: "RTL-SDR Blog V4",
+              sdr: {
+                max_sample_rate: 3_200_000,
+                sample_rate_options: [3_200_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 3_200_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        } as any),
+      );
+
+      const payload = {
+        url: "ws://localhost/ws?token=session-token",
+        aesKey: {} as CryptoKey,
+        enabled: true,
+      };
+      middlewareStore.dispatch({ type: "websocket/connect", payload });
+      sockets[0].onopen?.();
+      middlewareStore.dispatch({ type: "websocket/connect", payload });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/00000001/iq?token=session-token",
+      );
+    });
+
+    it("opens a per-source IQ WebSocket when the control socket opens after source state is already ready", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isConnected: true,
+          connectionStatus: "connected",
+          activeSourceId: "rtl-sdr-00000001",
+          sources: [
+            {
+              id: "rtl-sdr-00000001",
+              name: "RTL-SDR v4",
+              kind: "rtl-sdr",
+              capability: "rx",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "00000001",
+              stream_key_kind: "serial",
+              serial_number: "00000001",
+              manufacturer: "RTLSDRBlog",
+              product: "RTL-SDR Blog V4",
+              sdr: {
+                max_sample_rate: 3_200_000,
+                sample_rate_options: [3_200_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 3_200_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        } as any),
+      );
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/00000001/iq?token=session-token",
+      );
+    });
+
+    it("waits for the control socket to open before opening a per-source IQ WebSocket", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.CONNECTING,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isConnected: true,
+          connectionStatus: "connected",
+          activeSourceId: "rtl-sdr-00000001",
+          sources: [
+            {
+              id: "rtl-sdr-00000001",
+              name: "RTL-SDR v4",
+              kind: "rtl-sdr",
+              capability: "rx",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "00000001",
+              stream_key_kind: "serial",
+              serial_number: "00000001",
+              manufacturer: "RTLSDRBlog",
+              product: "RTL-SDR Blog V4",
+              sdr: {
+                max_sample_rate: 3_200_000,
+                sample_rate_options: [3_200_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 3_200_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        } as any),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toEqual([
+        "ws://localhost/ws?token=session-token",
+      ]);
+
+      sockets[0].readyState = WebSocket.OPEN;
+      sockets[0].onopen?.();
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/00000001/iq?token=session-token",
+      );
+    });
+
+    it("retargets the per-source IQ WebSocket when active source state changes", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "rtl-sdr-00000001",
+          sources: [
+            {
+              id: "rtl-sdr-00000001",
+              name: "RTL-SDR v4",
+              kind: "rtl-sdr",
+              capability: "rx",
+              status: "streaming",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              supports_raw_iq_stream: true,
+              stream_key: "00000001",
+              stream_key_kind: "serial",
+              serial_number: "00000001",
+              manufacturer: "RTLSDRBlog",
+              product: "RTL-SDR Blog V4",
+              sdr: {
+                max_sample_rate: 3_200_000,
+                sample_rate_options: [3_200_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 3_200_000,
+                  center_frequency: 137_100_000,
+                  gain: 0,
+                },
+              },
+            },
+          ],
+        } as any),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/00000001/iq?token=session-token",
       );
     });
 
