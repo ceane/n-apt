@@ -25,6 +25,7 @@
 
     /* Path mapping */
     "paths": {
+      "@ladle/react": ["./src/types/ladle-react"],
       "@n-apt/webmcp/*": ["./src/ts/agents/webmcp/*"],
       "@n-apt/tracked-interactive/*": ["./src/tracked-interactive/*"],
       "@n-apt/*": ["./src/ts/*"],
