@@ -13,11 +13,12 @@ const MOCK_TX_I_DITHER_KEY: u64 = 0x544d_4f4e_4951_4949;
 const MOCK_TX_Q_DITHER_KEY: u64 = 0x544d_4f4e_4951_5151;
 const MOCK_TX_FLAT_I_NOISE_KEY: u64 = 0x464c_4154_5458_4949;
 const MOCK_TX_FLAT_Q_NOISE_KEY: u64 = 0x464c_4154_5458_5151;
+const MOCK_TX_QUANT_I_NOISE_KEY: u64 = 0x5155_414e_5458_4949;
+const MOCK_TX_QUANT_Q_NOISE_KEY: u64 = 0x5155_414e_5458_5151;
 // Keep enough one-code ADC excursions in every monitor frame that the FFT sees
-// a noise process rather than one or two isolated impulses. One sixteenth of
-// an offset-binary u8 code yields roughly 3% non-neutral scalar samples after
-// stochastic quantization, while remaining near the displayed receiver floor.
-const MOCK_TX_MIN_QUANTIZED_NOISE_AMPLITUDE: f64 = 1.0 / (128.0 * 16.0);
+// a noise process rather than one or two isolated impulses. This is output
+// quantization support, separate from the configured receiver-noise RMS.
+const MOCK_TX_QUANTIZATION_SUPPORT_AMPLITUDE: f64 = 1.0 / (128.0 * 16.0);
 
 fn mock_tx_noise_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
@@ -29,6 +30,17 @@ fn mock_tx_noise_unit(sample_index: u64, noise_key: u64) -> f64 {
   x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
   x ^= x >> 31;
   ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 - 1.0
+}
+
+fn mock_tx_monitor_output_noise(
+  sample_index: u64,
+  receiver_noise_key: u64,
+  quantization_noise_key: u64,
+  receiver_noise_rms: f64,
+) -> f64 {
+  mock_tx_noise_unit(sample_index, receiver_noise_key) * receiver_noise_rms
+    + mock_tx_noise_unit(sample_index, quantization_noise_key)
+      * MOCK_TX_QUANTIZATION_SUPPORT_AMPLITUDE
 }
 
 fn wifi_5g_motion_gain(
@@ -211,11 +223,10 @@ pub fn resolve_mock_tx_noise_floor_db() -> f64 {
 }
 
 pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
-  let configured_rms = mock_tx_monitor_target_rms_from_dbm(
+  mock_tx_monitor_target_rms_from_dbm(
     resolve_mock_tx_noise_floor_db(),
     power_model,
-  );
-  configured_rms.max(MOCK_TX_MIN_QUANTIZED_NOISE_AMPLITUDE)
+  )
 }
 
 use std::sync::Mutex;
@@ -461,17 +472,22 @@ pub fn synthesize_mock_tx_monitor_iq(
 
   // Generate output frame with noise added AFTER signal filtering/scaling
   let mut out = Vec::with_capacity(fft_size * 2);
-  let frame_noise_key = frame_seed.wrapping_mul(0xD1B5_4A32_D192_ED03);
   for j in 0..fft_size {
     let t = start_sample + j as u64;
     let sig = signal_iq[j];
 
-    let noise_i =
-      mock_tx_noise_unit(t, MOCK_TX_FLAT_I_NOISE_KEY ^ frame_noise_key)
-        * noise_floor_rms;
-    let noise_q =
-      mock_tx_noise_unit(t, MOCK_TX_FLAT_Q_NOISE_KEY ^ frame_noise_key)
-        * noise_floor_rms;
+    let noise_i = mock_tx_monitor_output_noise(
+      t,
+      MOCK_TX_FLAT_I_NOISE_KEY,
+      MOCK_TX_QUANT_I_NOISE_KEY,
+      noise_floor_rms,
+    );
+    let noise_q = mock_tx_monitor_output_noise(
+      t,
+      MOCK_TX_FLAT_Q_NOISE_KEY,
+      MOCK_TX_QUANT_Q_NOISE_KEY,
+      noise_floor_rms,
+    );
 
     let i_val = sig.re + noise_i;
     let q_val = sig.im + noise_q;
@@ -677,10 +693,18 @@ mod tests {
     (0..sample_count)
       .flat_map(|j| {
         let t = j as u64;
-        let noise_i =
-          mock_tx_noise_unit(t, MOCK_TX_FLAT_I_NOISE_KEY) * noise_floor_rms;
-        let noise_q =
-          mock_tx_noise_unit(t, MOCK_TX_FLAT_Q_NOISE_KEY) * noise_floor_rms;
+        let noise_i = mock_tx_monitor_output_noise(
+          t,
+          MOCK_TX_FLAT_I_NOISE_KEY,
+          MOCK_TX_QUANT_I_NOISE_KEY,
+          noise_floor_rms,
+        );
+        let noise_q = mock_tx_monitor_output_noise(
+          t,
+          MOCK_TX_FLAT_Q_NOISE_KEY,
+          MOCK_TX_QUANT_Q_NOISE_KEY,
+          noise_floor_rms,
+        );
         [
           quantize_mock_tx_iq(noise_i, t, MOCK_TX_I_DITHER_KEY),
           quantize_mock_tx_iq(noise_q, t, MOCK_TX_Q_DITHER_KEY),
@@ -1813,6 +1837,75 @@ mod tests {
   }
 
   #[test]
+  fn test_mock_tx_noise_floor_rms_preserves_configured_power() {
+    let model = TxIqPowerModel::default();
+    let configured = mock_tx_monitor_target_rms_from_dbm(
+      resolve_mock_tx_noise_floor_db(),
+      &model,
+    );
+
+    assert_eq!(
+      mock_tx_monitor_noise_floor_rms(&model),
+      configured,
+      "receiver noise RMS must preserve the configured dBm value; ADC quantization support belongs in the output stage"
+    );
+  }
+
+  #[test]
+  fn test_mock_tx_offscreen_noise_is_continuous_across_frame_boundaries() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
+    let model = TxIqPowerModel::default();
+    let mut phase = 0.0;
+
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    let whole = synthesize_mock_tx_monitor_iq(
+      4096,
+      143_117_000.0,
+      18_250_000,
+      132_197_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase,
+    );
+
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    phase = 0.0;
+    let first = synthesize_mock_tx_monitor_iq(
+      2048,
+      143_117_000.0,
+      18_250_000,
+      132_197_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase,
+    );
+    let second = synthesize_mock_tx_monitor_iq(
+      2048,
+      143_117_000.0,
+      18_250_000,
+      132_197_000.0,
+      2_400_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut phase,
+    );
+    let split: Vec<u8> = first.into_iter().chain(second).collect();
+
+    assert_eq!(
+      split, whole,
+      "offscreen receiver noise must depend only on absolute sample index, not frame boundaries"
+    );
+  }
+
+  #[test]
   fn test_mock_tx_offscreen_has_no_coherent_tx_residual_after_noise_removal() {
     let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
@@ -1896,10 +1989,7 @@ mod tests {
   #[test]
   fn test_mock_tx_offscreen_transition_has_no_frame_dependent_tone_comb() {
     let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
-    let mut model = TxIqPowerModel::default();
-    // Keep the deterministic receiver noise above the 8-bit quantizer floor so
-    // the test observes its spectral shape rather than an all-zero fixture.
-    model.calibration_db = -60.0;
+    let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     let mut phase = 0.0;
 
@@ -2087,10 +2177,18 @@ mod tests {
     let expected: Vec<u8> = (0..1024)
       .flat_map(|j| {
         let t = j as u64;
-        let noise_i =
-          mock_tx_noise_unit(t, MOCK_TX_FLAT_I_NOISE_KEY) * noise_floor_rms;
-        let noise_q =
-          mock_tx_noise_unit(t, MOCK_TX_FLAT_Q_NOISE_KEY) * noise_floor_rms;
+        let noise_i = mock_tx_monitor_output_noise(
+          t,
+          MOCK_TX_FLAT_I_NOISE_KEY,
+          MOCK_TX_QUANT_I_NOISE_KEY,
+          noise_floor_rms,
+        );
+        let noise_q = mock_tx_monitor_output_noise(
+          t,
+          MOCK_TX_FLAT_Q_NOISE_KEY,
+          MOCK_TX_QUANT_Q_NOISE_KEY,
+          noise_floor_rms,
+        );
         [
           quantize_mock_tx_iq(noise_i, t, MOCK_TX_I_DITHER_KEY),
           quantize_mock_tx_iq(noise_q, t, MOCK_TX_Q_DITHER_KEY),
