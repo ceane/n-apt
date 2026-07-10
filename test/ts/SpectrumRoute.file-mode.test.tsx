@@ -1284,7 +1284,9 @@ describe("SpectrumRoute file mode", () => {
     expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
+        viewCenterHz: 137_100_000,
         bandwidthHz: 2_400_000,
+        sampleRateHz: 4_372_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1364,7 +1366,9 @@ describe("SpectrumRoute file mode", () => {
     expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
+        viewCenterHz: 137_100_000,
         bandwidthHz: 3_400_000,
+        sampleRateHz: 4_372_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1431,7 +1435,9 @@ describe("SpectrumRoute file mode", () => {
     expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
+        viewCenterHz: 137_100_000,
         bandwidthHz: 1_400_000,
+        sampleRateHz: 4_372_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1592,7 +1598,10 @@ describe("SpectrumRoute file mode", () => {
       expect(sendTransmitMode).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
-        expect.objectContaining({ bandwidthHz: 2_400_000 }),
+        expect.objectContaining({
+          bandwidthHz: 2_400_000,
+          sampleRateHz: 4_372_000,
+        }),
       );
       sendTransmitMode.mockClear();
 
@@ -1619,6 +1628,7 @@ describe("SpectrumRoute file mode", () => {
           serialNumber: "mock-tx",
           centerFrequencyHz: 137_100_000,
           bandwidthHz: 873_000,
+          sampleRateHz: 4_372_000,
           powerDbm: -18,
           txSignal: "wifi",
         }),

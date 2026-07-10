@@ -84,7 +84,9 @@ export const sendFrequencyRange = createAsyncThunk(
 export interface RequestNextLiveFrameOptions {
   txSettings?: {
     centerFrequencyHz?: number | null;
+    viewCenterHz?: number | null;
     bandwidthHz?: number | null;
+    sampleRateHz?: number | null;
     powerDbm?: number | null;
     txSignal?: string | null;
     txIfftSize?: number | null;
@@ -104,11 +106,23 @@ const buildRequestNextFrameData = (
     data.centerFrequencyHz = Math.round(txSettings.centerFrequencyHz);
   }
   if (
+    typeof txSettings.viewCenterHz === "number" &&
+    Number.isFinite(txSettings.viewCenterHz)
+  ) {
+    data.viewCenterHz = Math.round(txSettings.viewCenterHz);
+  }
+  if (
     typeof txSettings.bandwidthHz === "number" &&
     Number.isFinite(txSettings.bandwidthHz)
   ) {
     const bandwidthHz = Math.round(txSettings.bandwidthHz);
     data.bandwidthHz = bandwidthHz;
+  }
+  if (
+    typeof txSettings.sampleRateHz === "number" &&
+    Number.isFinite(txSettings.sampleRateHz)
+  ) {
+    data.sample_rate = Math.round(txSettings.sampleRateHz);
   }
   if (
     typeof txSettings.powerDbm === "number" &&

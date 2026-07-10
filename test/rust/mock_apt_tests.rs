@@ -210,6 +210,7 @@ mod tests {
 
   #[test]
   fn test_read_samples_length() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new();
     let fft_size = 1024;
     let result = device.read_samples(fft_size);
@@ -224,6 +225,7 @@ mod tests {
 
   #[test]
   fn test_read_samples_values_in_range() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new();
     let samples = device.read_samples(512).unwrap();
     // All u8 values are inherently 0..=255, but verify none are missing
@@ -234,6 +236,7 @@ mod tests {
 
   #[test]
   fn test_read_samples_varies_between_frames() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new();
     let frame1 = device.read_samples(256).unwrap();
     let frame2 = device.read_samples(256).unwrap();
@@ -244,6 +247,7 @@ mod tests {
 
   #[test]
   fn test_read_samples_different_fft_sizes() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
     let mut device = MockAptDevice::new();
     for &size in &[128, 256, 1024, 4096] {
       let result = device.read_samples(size);

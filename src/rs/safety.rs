@@ -17,7 +17,8 @@ pub static TX_HOP_CHANNELS_MASK: AtomicU32 = AtomicU32::new(0); // Bit 0 = A, Bi
 pub static TX_HOP_RATE_HZ: Mutex<f64> = Mutex::new(1.0);
 pub static TX_POWER_DBM: Mutex<f64> = Mutex::new(0.0);
 pub static TX_SIGNAL: Mutex<String> = Mutex::new(String::new());
-pub static TX_CENTER_FREQUENCY_HZ: Mutex<f64> = Mutex::new(0.0);
+pub static TX_CENTER_FREQUENCY_HZ: Mutex<f64> = Mutex::new(137_100_000.0);
+pub static TX_MONITOR_VIEW_CENTER_HZ: Mutex<f64> = Mutex::new(137_100_000.0);
 pub static TX_BANDWIDTH_HZ: Mutex<f64> = Mutex::new(0.0);
 pub static TX_IFFT_SIZE: Mutex<usize> = Mutex::new(2048);
 

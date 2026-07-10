@@ -75,6 +75,7 @@ export type WebSocketData = {
     txSettings: {
       serialNumber: string;
       centerFrequencyHz?: number | null;
+      viewCenterHz?: number | null;
       bandwidthHz?: number | null;
       sampleRateHz?: number | null;
       ifftSize?: number | null;
@@ -846,6 +847,7 @@ export const useWebSocket = (
       txSettings: {
         serialNumber: string;
         centerFrequencyHz?: number | null;
+        viewCenterHz?: number | null;
         bandwidthHz?: number | null;
         sampleRateHz?: number | null;
         ifftSize?: number | null;

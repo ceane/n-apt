@@ -12,3 +12,7 @@
 - Any temporary files, mockups, or experimental scripts MUST be named explicitly using prefixes like `temp_`, `tmp_`, `test_`, or `fix_` (e.g., `temp_debug_helper.js`, `fix_build_error.sh`) or end with `.diff` (e.g., `patch.diff`) so that they are automatically excluded by Git.
 - Avoid committing any random scratch files. Keep the git workspace clean.
 
+## Automated Testing
+
+- When viewing the site via automated testing, you must visit from `localhost`. `127.0.0.1` is blocked.
+

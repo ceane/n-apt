@@ -475,7 +475,7 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
   });
 
-  it("continues dragging the canvas TX slider past the visible track edge", () => {
+  it("lets canvas TX slider body dragging reach the visible track edge", () => {
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
@@ -502,10 +502,10 @@ describe("useFrequencyDrag Hook", () => {
       mockOnTxCenterFrequencyChange.mock.calls[
         mockOnTxCenterFrequencyChange.mock.calls.length - 1
       ]?.[0];
-    expect(lastCenter).toBeGreaterThan(110);
+    expect(lastCenter).toBe(110);
   });
 
-  it("retunes the hardware window when TX drag crosses the visible edge", () => {
+  it("pans the hardware window in steps when TX body drag pushes past the visible edge", () => {
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
@@ -533,7 +533,12 @@ describe("useFrequencyDrag Hook", () => {
       mockOnFrequencyRangeChange.mock.calls[
         mockOnFrequencyRangeChange.mock.calls.length - 1
       ]?.[0];
-    expect(lastRange.min).toBeGreaterThan(100);
+    expect(lastRange).toEqual({ min: 101, max: 111 });
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBe(110);
   });
 
   it("clamps TX drag at 0 Hz instead of emitting negative frequencies", () => {
@@ -566,7 +571,8 @@ describe("useFrequencyDrag Hook", () => {
       mockOnTxCenterFrequencyChange.mock.calls[
         mockOnTxCenterFrequencyChange.mock.calls.length - 1
       ]?.[0];
-    expect(lastCenter).toBe(0);
+    // Band width=2, clamped with start at 0 → center = 1
+    expect(lastCenter).toBe(1);
   });
 
   it("routes wheel and double click to the canvas TX slider", () => {

@@ -366,6 +366,7 @@ const BuildOrchestrator = () => {
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
   const buildStartedRef = useRef(false);
   const intentionalRustKillRef = useRef(false);
+  const hotReloadCancelledRef = useRef(false);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
@@ -493,6 +494,7 @@ const BuildOrchestrator = () => {
     }
 
     shutdownRequestedRef.current = true;
+    hotReloadCancelledRef.current = true;
     setBuildState(prev => ({
       ...prev,
       isBuilding: false,
@@ -1487,6 +1489,11 @@ exit 1
     };
 
     const restartRustBackend = async () => {
+      if (hotReloadCancelledRef.current || shutdownRequestedRef.current) {
+        addLog(chalk.yellow('[Watcher] Rust hot reload cancelled; skipping restart.'));
+        return false;
+      }
+
       addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
       
       if (buildState.rustPid) {
@@ -1513,6 +1520,30 @@ exit 1
         }
       }
 
+      const waitForBackendToStop = async (timeoutMs = 8000) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          try {
+            const response = await fetch('http://localhost:8765/status', {
+              method: 'GET',
+              cache: 'no-store',
+            });
+            if (!response.ok) {
+              return true;
+            }
+          } catch {
+            return true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return false;
+      };
+
+      const backendStopped = await waitForBackendToStop();
+      if (!backendStopped) {
+        addLog(chalk.yellow('[Watcher] Rust backend still appears bound to 8765; proceeding with restart anyway.'));
+      }
+
       const startCommand = isNativeWindows
         ? 'target\\dev-fast\\n-apt-backend.exe'
         : './target/dev-fast/n-apt-backend';
@@ -1526,6 +1557,15 @@ exit 1
     };
 
     const triggerRebuild = async () => {
+      if (hotReloadCancelledRef.current || shutdownRequestedRef.current) {
+        if (rebuildTimeout) {
+          clearInterval(rebuildTimeout);
+          rebuildTimeout = null;
+        }
+        pendingRebuild = false;
+        return;
+      }
+
       if (isRebuilding) {
         pendingRebuild = true;
         return;
@@ -1572,6 +1612,7 @@ exit 1
         updateStatus: (status, message, label) => {
           updateProcessStatus(7, status, message, label);
         },
+        isCancelled: () => hotReloadCancelledRef.current || shutdownRequestedRef.current,
       });
 
       try {
@@ -1613,6 +1654,7 @@ exit 1
     }
 
     return () => {
+      hotReloadCancelledRef.current = true;
       if (watcher) watcher.close();
       if (rebuildTimeout) clearInterval(rebuildTimeout);
     };

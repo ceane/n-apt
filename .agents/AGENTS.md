@@ -8,7 +8,7 @@ This file provides guidance for AI coding agents working on N-APT (RF spectrum a
   - DO NOT RERUN OR START THE DEV SERVER FOR CHANGES (I usually have it running and there's hotreload both Vite and Rust)!
   - DO NOT RUN `npm run build`, only build the markdown `npm run build:markdown` after article changes
   - DO NOT USE BROWSER AUTOMATION TO TEST!
-- If testing the frontend app, the site is at http://localhost:5173 AND the password is in the .env.local
+- If testing the frontend app, the site is at http://localhost:5173 (always use `localhost`, `127.0.0.1` is blocked) AND the password is in the .env.local
   - Prefer to inspect code and reason its mechanics versus code and test in the browser
 - If inspecting the Rust app, the rust log is at /tmp/rust_log.txt
 - If inspecting the Tx logs, the logs are in /tmp/n-apt/tx_log.txt

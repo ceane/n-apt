@@ -8,8 +8,10 @@ import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
 import { Collapsible, Tooltip } from "@n-apt/components/ui";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
 import {
   clampFrequencyRangeToBounds,
+  findRangeContainingFrequency,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
@@ -257,6 +259,10 @@ const Divider = styled.hr`
   margin: 8px 0 12px;
 `;
 
+const OtherChannelInfoBox = styled(ActiveChannelInfoBox)`
+  margin-top: 8px;
+`;
+
 export type ChannelsVariant = "demod" | "spectrum";
 
 interface ChannelsProps {
@@ -409,6 +415,16 @@ export const Channels: React.FC<ChannelsProps> = ({
     if (!Array.isArray(frames)) return [];
     return frames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames, websocketChannels]);
+  const currentFrequencyRange = state.frequencyRange;
+  const currentCenterFrequencyHz = calculateCenterFrequency(currentFrequencyRange);
+  const channelRanges = useMemo(
+    () => channels.map((ch) => ({ min: ch.min_hz, max: ch.max_hz })),
+    [channels],
+  );
+  const channelForCurrentCenter = findRangeContainingFrequency(
+    currentCenterFrequencyHz ?? Number.NaN,
+    channelRanges,
+  );
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
@@ -488,6 +504,21 @@ export const Channels: React.FC<ChannelsProps> = ({
   const iqDataRateMBps = formatBWperSec(bandwidthMBps * iqSize);
   const formattedDataBandwidth = formatBWperSec(bandwidthMBps);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
+  const shouldShowOtherChannel =
+    typeof currentCenterFrequencyHz === "number" &&
+    Number.isFinite(currentCenterFrequencyHz) &&
+    !channelForCurrentCenter;
+  const otherChannelFrequencyLabel =
+    typeof currentCenterFrequencyHz === "number" &&
+    Number.isFinite(currentCenterFrequencyHz)
+      ? formatFrequency(currentCenterFrequencyHz)
+      : "X.X MHz";
+  const otherChannelRangeLabel =
+    currentFrequencyRange &&
+    Number.isFinite(currentFrequencyRange.min) &&
+    Number.isFinite(currentFrequencyRange.max)
+      ? `${formatFrequency(currentFrequencyRange.min)} - ${formatFrequency(currentFrequencyRange.max)}`
+      : "Outside known channel ranges";
 
   if (variant === "spectrum") {
     return (
@@ -582,7 +613,7 @@ export const Channels: React.FC<ChannelsProps> = ({
         </ChannelsSpectrumGrid>
 
         {/* Active Channel Description & Stats Box */}
-        {activeFrame && (
+        {activeFrame && !shouldShowOtherChannel && (
           <ActiveChannelInfoBox>
             <Collapsible title="Channel Description">
               {activeDescription ? (
@@ -614,6 +645,29 @@ export const Channels: React.FC<ChannelsProps> = ({
               </Collapsible>
             </Collapsible>
           </ActiveChannelInfoBox>
+        )}
+        {shouldShowOtherChannel && (
+          <OtherChannelInfoBox>
+            <Collapsible title="Channel Description">
+              <br />
+              <ActiveChannelInfoTitle>Other...</ActiveChannelInfoTitle>
+              <ActiveChannelDescription>
+                {otherChannelRangeLabel}
+              </ActiveChannelDescription>
+              <Divider />
+              <ActiveChannelBandwidthList>
+                Center Frequency ={" "}
+                <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
+                <br />
+                Sample Rate ={" "}
+                <MonoValue>
+                  {channelSampleRateHz
+                    ? formatFrequency(channelSampleRateHz)
+                    : "X.X MHz"}
+                </MonoValue>
+              </ActiveChannelBandwidthList>
+            </Collapsible>
+          </OtherChannelInfoBox>
         )}
       </ChannelsSection>
     );
@@ -769,6 +823,24 @@ export const Channels: React.FC<ChannelsProps> = ({
               : "X.X MHz"}
           </SampleRateValue>
         </SampleRateLabel>
+        {shouldShowOtherChannel && (
+          <OtherChannelInfoBox>
+            <ActiveChannelInfoTitle>Other...</ActiveChannelInfoTitle>
+            <ActiveChannelDescription>
+              {otherChannelRangeLabel}
+            </ActiveChannelDescription>
+            <ActiveChannelBandwidthList>
+              Center Frequency = <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
+              <br />
+              Sample Rate ={" "}
+              <MonoValue>
+                {channelSampleRateHz
+                  ? formatFrequency(channelSampleRateHz)
+                  : "X.X MHz"}
+              </MonoValue>
+            </ActiveChannelBandwidthList>
+          </OtherChannelInfoBox>
+        )}
       </ChannelsDemodBody>
     </ChannelsSection>
   );

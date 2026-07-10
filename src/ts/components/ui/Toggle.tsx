@@ -4,18 +4,18 @@ import styled from "styled-components";
 const ToggleContainer = styled.div<{ $disabled?: boolean }>`
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
   opacity: ${(props) => (props.$disabled ? 0.6 : 1)};
   user-select: none;
 `;
 
 const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
-  width: ${(props) => (props.$hasInnerLabel ? "56px" : "32px")};
-  height: ${(props) => (props.$hasInnerLabel ? "20px" : "18px")};
+  width: ${(props) => (props.$hasInnerLabel ? "44px" : "32px")};
+  height: ${(props) => (props.$hasInnerLabel ? "18px" : "18px")};
   background-color: ${(props) =>
     props.$active ? props.theme.primary : props.theme.borderHover};
-  border-radius: 10px;
+  border-radius: 999px;
   position: relative;
   transition: background-color 0.2s ease;
   pointer-events: auto;
@@ -29,13 +29,13 @@ const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
     left: ${(props) =>
       props.$active
         ? props.$hasInnerLabel
-          ? "38px"
+          ? "26px"
           : "17px"
         : props.$hasInnerLabel
           ? "2px"
           : "3px"};
-    width: ${(props) => (props.$hasInnerLabel ? "16px" : "12px")};
-    height: ${(props) => (props.$hasInnerLabel ? "16px" : "12px")};
+    width: ${(props) => (props.$hasInnerLabel ? "13px" : "12px")};
+    height: ${(props) => (props.$hasInnerLabel ? "13px" : "12px")};
     background-color: white;
     border-radius: 50%;
     transition: left 0.2s ease;
@@ -53,7 +53,7 @@ const Label = styled.span`
 
 const InnerLabel = styled.span<{ $active: boolean }>`
   font-family: ${(props) => props.theme.typography.mono};
-  font-size: 9px;
+  font-size: 7px;
   font-weight: 700;
   color: white;
   position: absolute;
@@ -61,9 +61,13 @@ const InnerLabel = styled.span<{ $active: boolean }>`
   transform: translateY(-50%);
   user-select: none;
   pointer-events: none;
-  left: ${(props) => (props.$active ? "8px" : "auto")};
-  right: ${(props) => (!props.$active ? "8px" : "auto")};
+  left: ${(props) => (props.$active ? "5px" : "auto")};
+  right: ${(props) => (!props.$active ? "5px" : "auto")};
   text-transform: uppercase;
+`;
+
+const ToggleText = styled.div`
+  margin-right: 8px;
 `;
 
 export interface ToggleProps {
@@ -129,7 +133,7 @@ export const Toggle: React.FC<ToggleProps> = ({
       aria-disabled={disabled}
       tabIndex={disabled ? -1 : 0}
     >
-      {labelPosition === "left" && renderLabel()}
+      {labelPosition === "left" && <ToggleText>{renderLabel()}</ToggleText>}
       <Switch $active={$active} $hasInnerLabel={showInnerLabel}>
         {showInnerLabel && (
           <InnerLabel $active={$active}>{$active ? "ON" : "OFF"}</InnerLabel>

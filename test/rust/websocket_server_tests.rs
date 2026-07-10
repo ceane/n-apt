@@ -65,7 +65,9 @@ fn restart_status_payload_reports_attempt_budget() {
 #[test]
 #[serial]
 fn broadcast_device_status_includes_websocket_payload_fields() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -114,7 +116,9 @@ fn broadcast_device_status_includes_websocket_payload_fields() {
 #[test]
 #[serial]
 fn broadcast_device_status_suppresses_duplicate_snapshots() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -143,7 +147,9 @@ fn broadcast_device_status_suppresses_duplicate_snapshots() {
 #[test]
 #[serial]
 fn broadcast_active_source_uses_frontend_contract_fields() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -166,7 +172,9 @@ fn broadcast_active_source_uses_frontend_contract_fields() {
 #[test]
 #[serial]
 fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -200,7 +208,9 @@ fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
 #[test]
 #[serial]
 fn source_info_reports_active_hackrf_as_transmitting_when_tx_is_active() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -234,7 +244,9 @@ fn source_info_reports_active_hackrf_as_transmitting_when_tx_is_active() {
 #[test]
 #[serial]
 fn source_info_snapshot_contains_all_sources() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -261,7 +273,9 @@ fn source_info_snapshot_contains_all_sources() {
 #[test]
 #[serial]
 fn paused_active_sources_do_not_report_streaming_status() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -282,7 +296,9 @@ fn paused_active_sources_do_not_report_streaming_status() {
 #[test]
 #[serial]
 fn source_info_snapshot_includes_mock_tx_device() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -312,7 +328,9 @@ fn source_info_snapshot_includes_mock_tx_device() {
 #[test]
 #[serial]
 fn resolves_stream_key_to_source_id_from_snapshot() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");
@@ -886,7 +904,9 @@ fn mock_tx_monitor_synthesis_is_lightweight_for_realtime_streaming() {
 #[test]
 #[serial]
 fn source_info_snapshot_hides_disabled_mock_tx_device() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   let original_dir = std::env::current_dir().expect("current dir");
   let unique = std::time::SystemTime::now()
@@ -924,7 +944,9 @@ fn source_info_snapshot_hides_disabled_mock_tx_device() {
 #[test]
 #[serial]
 fn mock_tx_profile_becomes_active_tx_source() {
-  let _guard = n_apt_backend::server::utils::cwd_lock().lock().expect("cwd lock");
+  let _guard = n_apt_backend::server::utils::cwd_lock()
+    .lock()
+    .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   let shared = SharedState::new("redis://127.0.0.1:6379");

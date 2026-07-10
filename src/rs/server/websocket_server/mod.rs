@@ -56,6 +56,13 @@ fn should_hold_mock_tx_standby_stream(
     && !requested_single_frame
 }
 
+fn should_apply_transmit_settings_to_receiver(
+  is_mock_tx_device: bool,
+  _active_kind: &str,
+) -> bool {
+  !is_mock_tx_device
+}
+
 fn is_async_sample_timeout_error(error: &anyhow::Error) -> bool {
   error.chain().any(|cause| {
     cause
@@ -115,6 +122,18 @@ mod tests {
     assert!(!should_hold_mock_tx_standby_stream("mock-tx", true, false));
     assert!(!should_hold_mock_tx_standby_stream(
       "mock-apt", false, false
+    ));
+  }
+
+  #[test]
+  fn mock_tx_transmit_coordinates_do_not_retune_receiver() {
+    assert!(!should_apply_transmit_settings_to_receiver(true, "mock_tx"));
+    assert!(!should_apply_transmit_settings_to_receiver(
+      true, "mock_apt"
+    ));
+    assert!(should_apply_transmit_settings_to_receiver(
+      false,
+      "hackrf_one"
     ));
   }
 
@@ -826,7 +845,23 @@ impl WebSocketServer {
             let was_transmitting =
               crate::safety::TX_TRANSMITTING.swap(enabled, Ordering::Relaxed);
 
-            if !is_mock_tx_device || active_kind == "mock_tx" {
+            // For mock tx devices, seed sdr_settings.center_frequency so the
+            // very first monitor frame uses the correct view center before any
+            // request_next_frame arrives.
+            if is_mock_tx_device && enabled && !was_transmitting {
+              if let Some(center_frequency_hz) = center_frequency_hz {
+                let mut settings = shared_state.sdr_settings.lock().unwrap();
+                let center_hz = center_frequency_hz.min(u32::MAX as u64);
+                settings.center_frequency = center_hz as u32;
+                *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() =
+                  center_hz as f64;
+              }
+            }
+
+            if should_apply_transmit_settings_to_receiver(
+              is_mock_tx_device,
+              &active_kind,
+            ) {
               if let Some(center_frequency_hz) = center_frequency_hz {
                 let mut processor = sdr_processor.lock().await;
                 processor.queue_center_frequency(
@@ -1120,7 +1155,14 @@ impl WebSocketServer {
 
               let current_fft_size = processor.fft_processor.config().fft_size;
               let timestamp = chrono::Utc::now().timestamp_millis();
-              let mut center_frequency = processor.get_center_frequency();
+              let mut center_frequency = if let Some(pending) = processor.frame.pending_freq.take() {
+                if let Err(e) = processor.set_center_frequency(pending) {
+                  log::warn!("Failed to apply pending frequency in websocket loop: {}", e);
+                }
+                pending
+              } else {
+                processor.get_center_frequency()
+              };
               let active_source_id = active_source_id(&cloned_shared);
               let tx_is_active = crate::safety::TX_TRANSMITTING
                 .load(std::sync::atomic::Ordering::Relaxed);
@@ -1158,10 +1200,15 @@ impl WebSocketServer {
                   *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
                 let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
                 let tx_iq_power_model = mock_tx::resolve_mock_tx_iq_power_model();
-                center_frequency = if tx_center_hz > 0.0 {
+                let tx_view_center_hz = *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap();
+                // Use TX_MONITOR_VIEW_CENTER_HZ as the view center.
+                // apply_mock_tx_preview_settings writes the frontend's display
+                // center (mockMonitorCenterHz) here on every request_next_frame,
+                // keeping it stable during slider drags while tx_center_hz moves.
+                center_frequency = if tx_view_center_hz > 0.0 {
+                  tx_view_center_hz.round().clamp(1.0, u32::MAX as f64) as u32
+                } else if tx_center_hz > 0.0 {
                   tx_center_hz.round().clamp(1.0, u32::MAX as f64) as u32
-                } else if center_frequency == 0 {
-                  settings.center_frequency
                 } else {
                   center_frequency
                 };
@@ -1185,6 +1232,13 @@ impl WebSocketServer {
                   monitor_sample_rate,
                   tx_ifft_size,
                   tx_signal,
+                );
+                log::info!(
+                  "mock_tx_monitor_frame: center_frequency={}, tx_center_hz={}, sample_rate={}, tx_bandwidth_hz={}",
+                  center_frequency,
+                  tx_center_hz,
+                  sample_rate,
+                  tx_bandwidth_hz
                 );
                 let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
                   current_fft_size,

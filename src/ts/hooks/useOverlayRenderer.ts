@@ -46,6 +46,7 @@ export interface TxSliderOverlayState {
   txCenterHz: number;
   txSampleRateHz: number;
   isTransmitting?: boolean;
+  deviceLabel?: string;
   signalLabel?: string;
   powerDbm?: number;
 }
@@ -1221,7 +1222,14 @@ export function useOverlayRenderer() {
       const valueWidth = ctx.measureText(valueLabel).width;
       ctx.font = "9px JetBrains Mono";
       const hintWidth = hintLabel ? ctx.measureText(hintLabel).width : 0;
-      const textWidth = isHeld ? valueWidth + 16 + hintWidth : valueWidth;
+      const hasLockDot =
+        powerScale === "dBm" &&
+        typeof snapDbm === "number" &&
+        Number.isFinite(snapDbm);
+      const lockDotWidth = hasLockDot ? 12 : 0;
+      const textWidth = isHeld
+        ? valueWidth + 16 + hintWidth + lockDotWidth
+        : valueWidth + lockDotWidth;
 
       const ix = Math.round(yPos);
 
@@ -1241,6 +1249,7 @@ export function useOverlayRenderer() {
           : Math.min(bottomRectY, fftAreaMax.y - rectHeight - 4);
 
       // 1. Draw dashed line across the full plot width
+      ctx.save();
       ctx.strokeStyle = canvasTheme.powerLineColor;
       ctx.lineWidth = 1.5;
       ctx.setLineDash([5, 5]);
@@ -1249,23 +1258,17 @@ export function useOverlayRenderer() {
       ctx.lineTo(fftAreaMax.x, ix);
       ctx.stroke();
 
-      if (
-        powerScale === "dBm" &&
-        typeof snapDbm === "number" &&
-        Number.isFinite(snapDbm)
-      ) {
+      if (hasLockDot) {
         const snapY = fftAreaMax.y - (snapDbm - fftMin) * scaleFactor;
         if (snapY >= FFT_AREA_MIN.y && snapY <= fftAreaMax.y) {
           const snapX = FFT_AREA_MIN.x + 2;
-          ctx.save();
           ctx.fillStyle = canvasTheme.powerLineColor;
           ctx.strokeStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.9);
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(snapX, Math.round(snapY), 3.5, 0, Math.PI * 2);
+          ctx.arc(snapX, Math.round(snapY), 4, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-          ctx.restore();
         }
       }
 
@@ -1290,12 +1293,26 @@ export function useOverlayRenderer() {
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.font = "12px JetBrains Mono";
-      ctx.fillText(valueLabel, rectX + paddingX, rectY + rectHeight / 2);
+      const textStartX = rectX + paddingX + (hasLockDot ? 12 : 0);
+      if (hasLockDot) {
+        const dotX = rectX + paddingX + 4;
+        const dotY = rectY + rectHeight / 2;
+        ctx.save();
+        ctx.fillStyle = canvasTheme.powerLineColor;
+        ctx.strokeStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.9);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.fillText(valueLabel, textStartX, rectY + rectHeight / 2);
       if (isHeld && hintLabel) {
         ctx.font = "9px JetBrains Mono";
         ctx.fillText(
           hintLabel,
-          rectX + paddingX + valueWidth + 16,
+          textStartX + valueWidth + 16,
           rectY + rectHeight / 2,
         );
       }

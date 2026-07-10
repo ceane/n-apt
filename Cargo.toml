@@ -214,7 +214,8 @@ opt-level = 3
 debug = 1
 debug-assertions = false
 overflow-checks = false
-codegen-units = 8
+codegen-units = 1
+incremental = false
 
 [profile.release]
 opt-level = 3
@@ -223,3 +224,8 @@ codegen-units = 1
 panic = "unwind"
 strip = true
 overflow-checks = false
+
+[[bin]]
+name = "test_fft"
+path = "src/rs/bin/test_fft.rs"
+

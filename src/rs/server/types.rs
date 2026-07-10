@@ -302,6 +302,8 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "viewCenterHz")]
+  pub view_center_hz: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]

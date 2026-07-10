@@ -13,6 +13,7 @@ export type RustHotReloadValidationDependencies = {
     message?: string,
     label?: string,
   ) => void;
+  isCancelled?: () => boolean;
 };
 
 export type RustHotReloadValidationResult =
@@ -57,7 +58,16 @@ export function buildRustBackendStopCommand(
 export async function runRustHotReloadValidation(
   deps: RustHotReloadValidationDependencies,
 ): Promise<RustHotReloadValidationResult> {
+  if (deps.isCancelled?.()) {
+    deps.log("[Watcher] Rust hot reload cancelled before validation started.");
+    return { stage: "check_failed", check: { success: false, output: "cancelled" } };
+  }
+
   const check = await deps.cargoCheck();
+  if (deps.isCancelled?.()) {
+    deps.log("[Watcher] Rust hot reload cancelled after cargo check.");
+    return { stage: "check_failed", check };
+  }
   if (!check.success) {
     deps.log("[Watcher] cargo check failed; keeping old binary running.");
     deps.updateStatus(
@@ -69,6 +79,10 @@ export async function runRustHotReloadValidation(
   }
 
   const build = await deps.cargoBuild();
+  if (deps.isCancelled?.()) {
+    deps.log("[Watcher] Rust hot reload cancelled after cargo build.");
+    return { stage: "build_failed", check, build };
+  }
   if (!build.success) {
     deps.log("[Watcher] cargo build failed; keeping old binary running.");
     deps.updateStatus(
@@ -80,6 +94,10 @@ export async function runRustHotReloadValidation(
   }
 
   const restarted = await deps.restart();
+  if (deps.isCancelled?.()) {
+    deps.log("[Watcher] Rust hot reload cancelled before restart.");
+    return { stage: "restart_failed", check, build };
+  }
   if (!restarted) {
     deps.log("[Watcher] Rust backend restart failed.");
     deps.updateStatus("error", "Failed to restart Rust backend", "Rust backend failed");

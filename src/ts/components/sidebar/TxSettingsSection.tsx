@@ -959,7 +959,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         </InlineWarning>
       )}
       <Row
-        label="Power"
+        label="Power (Absolute)"
         tooltip="The target transmission power in dBm. 8-bit I/Q has a quantized RMS floor determined by the active FFT size and the one-LSB sample step. Requests below that floor are rounded up to the next whole dBm; increase FFT size to represent lower powers."
         tooltipTitle="Output Power"
       >

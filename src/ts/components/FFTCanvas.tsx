@@ -39,7 +39,6 @@ import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/components/ui/CanvasPlaceholder";
-import { Tooltip } from "@n-apt/components/ui/Tooltip";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
@@ -78,10 +77,7 @@ import {
   peakResampleWaterfallRow,
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
-import {
-  clampCenteredFrequencyRangeToZeroHz,
-  roundDbValue,
-} from "@n-apt/utils/frequency";
+import { roundDbValue } from "@n-apt/utils/frequency";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import {
   TX_SLIDER_ROW_HEIGHT,
@@ -414,38 +410,6 @@ const HighlightOverlay = memo(styled.div`
   pointer-events: none;
 `);
 
-const TxSliderInfoLayer = memo(styled.div`
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 0;
-  height: ${TX_SLIDER_ROW_HEIGHT}px;
-  z-index: 135;
-  pointer-events: none;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-`);
-
-const TxInfoTrigger = styled.button`
-  pointer-events: auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.surface}cc;
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 9px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: help;
-  padding: 0;
-  line-height: 1;
-`;
-
 const TxSliderVisualRow = memo(styled.div`
   position: absolute;
   left: 0;
@@ -466,13 +430,13 @@ const TxSliderVisualRow = memo(styled.div`
 
 const TxSliderVisualLabel = styled.div`
   padding-left: 14px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 4px;
   z-index: 1;
 `;
 
@@ -515,7 +479,8 @@ const TxBlinkingDot = styled.div`
 const TxSliderMetaText = styled.span`
   position: absolute;
   left: 50px;
-  font-size: 10px;
+  top: -9px;
+  font-size: 11px;
   font-weight: 500;
   color: ${({ theme }) => theme.colors.textSecondary};
   opacity: 0.85;
@@ -528,7 +493,7 @@ const TxSliderVisualTrack = styled.div`
   position: absolute;
   left: 50px;
   right: 40px;
-  top: 0;
+  top: 8px;
   bottom: 0;
   z-index: 1;
 `;
@@ -1114,6 +1079,22 @@ const FFTCanvas = memo(
         explicitPlaceholderState.title === "Start Tx to transmit"
       );
     }, [explicitIsStandby, explicitPlaceholderState]);
+    const canTransmit = useMemo(() => {
+      return (
+        reduxDeviceKind === "hackrf_one" ||
+        reduxDeviceKind === "mock_tx" ||
+        reduxDeviceKind === "tx_rx" ||
+        reduxDeviceKind === "tx"
+      );
+    }, [reduxDeviceKind]);
+    const txModeDeviceName = useMemo(() => {
+      return resolveTxModeDeviceName(
+        reduxWebsocketSources,
+        deviceName,
+        canTransmit,
+        isStandby,
+      );
+    }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
     const explicitPlaceholderStateRef =
       useRef<CanvasPlaceholderState | null>(explicitPlaceholderState);
     explicitPlaceholderStateRef.current = explicitPlaceholderState;
@@ -1159,12 +1140,6 @@ const FFTCanvas = memo(
     }, []);
     const effectiveTxSlider = useMemo(() => {
       if (txSlider?.visible) return txSlider;
-      const canTransmit =
-        reduxDeviceKind === "hackrf_one" ||
-        reduxDeviceKind === "mock_tx" ||
-        reduxDeviceKind === "tx_rx" ||
-        reduxDeviceKind === "tx" ||
-        reduxDeviceKind === "mock";
       if (!reduxShowTxSlider || !canTransmit) return null;
       if (
         !frequencyRange ||
@@ -1188,6 +1163,7 @@ const FFTCanvas = memo(
       return {
         visible: true,
         isTransmitting: isTransmittingGlobal,
+        deviceLabel: txModeDeviceName ?? undefined,
         signalLabel: resolveTxSignalDisplayLabel(reduxTxSignal),
         powerDbm: reduxTxPowerDbm,
         visibleMinHz,
@@ -1201,6 +1177,7 @@ const FFTCanvas = memo(
       };
     }, [
       frequencyRange,
+      canTransmit,
       reduxDeviceKind,
       reduxShowTxSlider,
       reduxTxCenterFrequencyHz,
@@ -1332,12 +1309,9 @@ const FFTCanvas = memo(
         const trackRight = Math.max(trackLeft + 80, plotRight);
         const trackWidth = Math.max(1, trackRight - trackLeft);
         const visibleSpan = visualRange.max - visualRange.min;
-        const { min: bandMin, max: bandMax } =
-          clampCenteredFrequencyRangeToZeroHz(
-            slider.txCenterHz,
-            slider.txSampleRateHz,
-          );
-        const bandwidth = Math.max(1, bandMax - bandMin);
+        const bandwidth = Math.max(1, slider.txSampleRateHz);
+        const bandMin = slider.txCenterHz - bandwidth / 2;
+        const bandMax = slider.txCenterHz + bandwidth / 2;
         const toX = (hz: number) =>
           trackLeft + ((hz - visualRange.min) / visibleSpan) * trackWidth;
         const rawBandLeft = toX(bandMin);
@@ -1480,27 +1454,12 @@ const FFTCanvas = memo(
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
-    const canTransmit = useMemo(() => {
-      return (
-        reduxDeviceKind === "hackrf_one" ||
-        reduxDeviceKind === "mock_tx" ||
-        reduxDeviceKind === "tx_rx" ||
-        reduxDeviceKind === "tx" ||
-        reduxDeviceKind === "mock"
-      );
-    }, [reduxDeviceKind]);
-    const txModeDeviceName = useMemo(() => {
-      return resolveTxModeDeviceName(
-        reduxWebsocketSources,
-        deviceName,
-        canTransmit,
-        isStandby,
-      );
-    }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
     const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
-      const txModeLabel = txModeDeviceName
-        ? `${txModeDeviceName} > ${resolveTxSignalDisplayLabel(reduxTxSignal)}`
-        : resolveTxSignalDisplayLabel(reduxTxSignal);
+      const txModeLabel = canTransmit
+        ? txModeDeviceName
+          ? `${txModeDeviceName} > ${resolveTxSignalDisplayLabel(reduxTxSignal)}`
+          : resolveTxSignalDisplayLabel(reduxTxSignal)
+        : null;
 
       if (canvasStatusRow) {
         return {
@@ -1520,6 +1479,7 @@ const FFTCanvas = memo(
         ...(txModeLabel ? { txModeLabel } : {}),
       };
     }, [
+      canTransmit,
       canvasStatusRow,
       displayTemporalResolution,
       effectiveFftSize,
@@ -1776,27 +1736,6 @@ const FFTCanvas = memo(
       };
     }, [selectionRange]);
 
-    const txSliderTooltipContent = useMemo(() => {
-      if (!effectiveTxSlider?.visible || canvasPlaceholderState) return null;
-      const formatHz = (hz: number) => {
-        if (!Number.isFinite(hz)) return "Unknown";
-        const abs = Math.abs(hz);
-        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(3)} MHz`;
-        if (abs >= 1_000) return `${(hz / 1_000).toFixed(0)} kHz`;
-        return `${Math.round(hz)} Hz`;
-      };
-      const power =
-        typeof effectiveTxSlider.powerDbm === "number" &&
-        Number.isFinite(effectiveTxSlider.powerDbm)
-          ? `${effectiveTxSlider.powerDbm.toFixed(0)} dBm`
-          : "Unknown";
-      return [
-        `Center: ${formatHz(effectiveTxSlider.txCenterHz)}`,
-        `Bandwidth: ${formatHz(effectiveTxSlider.txSampleRateHz)}`,
-        `Power: ${power}`,
-      ].join("\n");
-    }, [effectiveTxSlider]);
-
     const txSliderVisualMetrics = useMemo(() => {
       const slider = effectiveTxSlider;
       if (
@@ -1815,12 +1754,9 @@ const FFTCanvas = memo(
       const span = visualMax - visualMin;
       if (span <= 0) return null;
 
-      const { min: rawBandStart, max: rawBandEnd } =
-        clampCenteredFrequencyRangeToZeroHz(
-          slider.txCenterHz,
-          slider.txSampleRateHz,
-        );
-      const bandwidth = Math.max(1, rawBandEnd - rawBandStart);
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const rawBandStart = slider.txCenterHz - bandwidth / 2;
+      const rawBandEnd = slider.txCenterHz + bandwidth / 2;
       const center = (rawBandStart + rawBandEnd) / 2;
       const bandStart = Math.max(visualMin, rawBandStart);
       const bandEnd = Math.min(visualMax, rawBandEnd);
@@ -1857,6 +1793,12 @@ const FFTCanvas = memo(
         bandwidthFormatted: `| ${formatHz(bandwidth)} |`,
       };
     }, [effectiveTxSlider, currentVisualRange]);
+    const txSliderDisplayLabel = useMemo(() => {
+      if (!txSliderVisualMetrics) return null;
+      return txModeDeviceName
+        ? `${txModeDeviceName} > ${txSliderVisualMetrics.signalLabel || "Unknown"}`
+        : txSliderVisualMetrics.signalLabel || "Unknown";
+    }, [txModeDeviceName, txSliderVisualMetrics]);
 
     const handleOffscreenIndicatorClick = useCallback(
       (e: React.MouseEvent) => {
@@ -4482,7 +4424,7 @@ const FFTCanvas = memo(
                     )}
                     {txSliderVisualMetrics && !compact ? (
                       <TxSliderVisualRow data-testid="tx-slider-visual-row">
-                         <TxSliderVisualLabel>
+                        <TxSliderVisualLabel>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", height: "18px" }}>
                             <TxSliderLockButton
                               type="button"
@@ -4508,26 +4450,7 @@ const FFTCanvas = memo(
                               )}
                             </TxSliderLockButton>
                             <TxSliderMetaText>
-                              {txModeDeviceName || "Device"}
-                            </TxSliderMetaText>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", height: "18px", paddingLeft: "2px" }}>
-                            <div
-                              style={{
-                                position: "relative",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                width: "16px",
-                                justifyContent: "center",
-                              }}
-                            >
-                              {isTransmittingGlobal && <TxBlinkingDot />}
-                              Tx
-                            </div>
-                            <TxSliderMetaText>
-                              {txModeDeviceName
-                                ? `${txModeDeviceName} > ${txSliderVisualMetrics?.signalLabel || "Unknown"}`
-                                : txSliderVisualMetrics?.signalLabel || "Unknown"}
+                              {txSliderDisplayLabel}
                             </TxSliderMetaText>
                           </div>
                         </TxSliderVisualLabel>
@@ -4563,14 +4486,7 @@ const FFTCanvas = memo(
                                   <TxSliderVisualPower
                                     $isTransmitting={isTransmittingGlobal}
                                   >
-                                    {effectivePowerScale === "dBm" ? (
-                                      <TxSliderVisualPowerDot
-                                        aria-hidden="true"
-                                        $isTransmitting={isTransmittingGlobal}
-                                      />
-                                    ) : (
-                                      "·"
-                                    )}
+                                    {"·"}
                                     {txSliderVisualMetrics.powerLabel}
                                   </TxSliderVisualPower>
                                 ) : null}
@@ -4603,17 +4519,6 @@ const FFTCanvas = memo(
                         </TxSliderVisualTrack>
                         <span aria-hidden="true" />
                       </TxSliderVisualRow>
-                    ) : null}
-                    {txSliderTooltipContent ? (
-                      <TxSliderInfoLayer>
-                        <Tooltip
-                          title="Tx Slider"
-                          content={txSliderTooltipContent}
-                          trigger={
-                            <TxInfoTrigger type="button">i</TxInfoTrigger>
-                          }
-                        />
-                      </TxSliderInfoLayer>
                     ) : null}
                   </CanvasWrapper>
                 </SpectrumRow>

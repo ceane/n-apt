@@ -22,7 +22,6 @@ use super::websocket_server::{
   resolve_stream_key_source_id,
 };
 use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
-use crate::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 
@@ -54,6 +53,11 @@ fn apply_mock_tx_preview_settings(
     *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = center_hz;
   }
 
+  if let Some(view_center_hz) = message.view_center_hz {
+    let view_hz = view_center_hz.round().clamp(1.0, u32::MAX as f64);
+    *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = view_hz;
+  }
+
   if let Some(sample_rate) = message.sample_rate {
     if sample_rate.is_finite() && sample_rate > 0.0 {
       sdr_settings.sample_rate = sample_rate.round() as u32;
@@ -68,10 +72,6 @@ fn apply_mock_tx_preview_settings(
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap(),
       *crate::safety::TX_IFFT_SIZE.lock().unwrap(),
     );
-    if bandwidth_hz as f64 > 0.0 && previous_bandwidth_hz > bandwidth_hz as f64
-    {
-      MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
-    }
   }
 
   if let Some(power_dbm) = message.power_dbm {
@@ -861,8 +861,27 @@ pub fn handle_message(
         shared.device_serial.lock().unwrap().clone()
       };
       let mut sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+      let mut tx_center_frequency_hz = if is_mock_tx_device {
+        let current_tx_center =
+          *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
+        if current_tx_center > 0.0 {
+          current_tx_center.round() as u64
+        } else {
+          sdr_settings.center_frequency as u64
+        }
+      } else {
+        sdr_settings.center_frequency as u64
+      };
       if let Some(center_frequency) = message.center_frequency {
-        sdr_settings.center_frequency = center_frequency as u32;
+        let center_hz = center_frequency.round().clamp(1.0, u32::MAX as f64);
+        tx_center_frequency_hz = center_hz as u64;
+        if !is_mock_tx_device {
+          sdr_settings.center_frequency = center_hz as u32;
+        }
+      }
+      if let Some(view_center_hz) = message.view_center_hz {
+        let view_hz = view_center_hz.round().clamp(1.0, u32::MAX as f64);
+        *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = view_hz;
       }
       if let Some(sample_rate) = message.sample_rate {
         sdr_settings.sample_rate = sample_rate.round() as u32;
@@ -963,7 +982,7 @@ pub fn handle_message(
           sdr_settings.gain.hackrf_amp_enable = Some(false);
         } else {
           let max_dist = if safety_limit == "person" { 1.0 } else { 3.0 };
-          let freq = sdr_settings.center_frequency as f64;
+          let freq = tx_center_frequency_hz as f64;
           let limit_dbm =
             crate::safety::calculate_room_power_limit(freq, max_dist);
           let safe_gains = crate::safety::get_max_safe_vga_and_amp(limit_dbm);
@@ -993,7 +1012,7 @@ pub fn handle_message(
       }
       *crate::safety::TX_POWER_DBM.lock().unwrap() = tx_power;
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
-        sdr_settings.center_frequency as f64;
+        tx_center_frequency_hz as f64;
       let current_tx_bandwidth_hz =
         *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
       let tx_bw = match message.bandwidth {
@@ -1016,7 +1035,7 @@ pub fn handle_message(
         device: device.clone(),
         serial_number: serial_number.clone(),
         tx_signal: Some(tx_signal),
-        center_frequency_hz: Some(sdr_settings.center_frequency as u64),
+        center_frequency_hz: Some(tx_center_frequency_hz),
         sample_rate_hz: Some(sdr_settings.sample_rate as u64),
         bandwidth_hz: Some(tx_bw),
         tx_ifft_size: message.tx_ifft_size,
@@ -1034,7 +1053,7 @@ pub fn handle_message(
           TxLogEntry::start(
             device.clone(),
             serial_number,
-            Some(sdr_settings.center_frequency as u64),
+            Some(tx_center_frequency_hz),
             Some(sdr_settings.sample_rate as u64),
             Some(sdr_settings.gain.tuner_gain),
             sdr_settings.gain.hackrf_lna_gain,
@@ -1048,7 +1067,7 @@ pub fn handle_message(
           TxLogEntry::start(
             device.clone(),
             serial_number,
-            Some(sdr_settings.center_frequency as u64),
+            Some(tx_center_frequency_hz),
             Some(sdr_settings.sample_rate as u64),
             Some(sdr_settings.gain.tuner_gain),
             sdr_settings.gain.hackrf_lna_gain,
@@ -1263,15 +1282,12 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    apply_mock_tx_preview_settings, handle_message, live_tune_is_out_of_bounds,
-    resolve_live_center_frequency, should_send_source_iq_frame,
-    source_iq_subscription_matches_active_source,
+    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
+    should_send_source_iq_frame, source_iq_subscription_matches_active_source,
   };
   use crate::server::shared_state::SharedState;
   use crate::server::types::{DeviceProfile, SdrCommand, WebSocketMessage};
-  use crate::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
   use serial_test::serial;
-  use std::sync::atomic::Ordering;
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
@@ -1486,6 +1502,8 @@ mod tests {
       "N-APT".to_string(),
       "Mock APT SDR".to_string(),
     );
+    let initial_rx_center_frequency =
+      shared.sdr_settings.lock().unwrap().center_frequency;
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
     let mut broadcast_rx = broadcast_tx.subscribe();
     let mut next_source_info = || -> serde_json::Value {
@@ -1545,6 +1563,11 @@ mod tests {
       }
       other => panic!("unexpected command: {:?}", other),
     }
+    assert_eq!(
+      shared.sdr_settings.lock().unwrap().center_frequency,
+      initial_rx_center_frequency,
+      "Mock Tx coordinate updates must not retune the receiver/VFO"
+    );
 
     assert!(shared
       .mock_tx_transmitting
@@ -1659,28 +1682,6 @@ mod tests {
     assert_eq!(*crate::safety::TX_POWER_DBM.lock().unwrap(), -18.0);
     assert_eq!(crate::safety::TX_SIGNAL.lock().unwrap().as_str(), "wifi");
     assert_eq!(*crate::safety::TX_IFFT_SIZE.lock().unwrap(), 8192);
-  }
-
-  #[test]
-  #[serial]
-  fn request_next_frame_resets_mock_tx_cursor_when_bandwidth_decreases() {
-    let shared = test_shared_state();
-
-    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
-    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(1234, Ordering::Relaxed);
-
-    let message: WebSocketMessage = serde_json::from_str(
-      r#"{
-        "type":"request_next_frame",
-        "bandwidthHz":1200000
-      }"#,
-    )
-    .unwrap();
-
-    apply_mock_tx_preview_settings(&message, &shared);
-
-    assert_eq!(*crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(), 1_200_000.0);
-    assert_eq!(MOCK_TX_MONITOR_SAMPLE_CURSOR.load(Ordering::Relaxed), 0);
   }
 
   #[test]

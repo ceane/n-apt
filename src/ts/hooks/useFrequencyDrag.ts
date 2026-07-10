@@ -8,6 +8,11 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import {
+  computeEdgeResizedBand,
+  getPointerOffsetWithinBandHz,
+  computeBandPanWithEdgePanning,
+} from "@n-apt/utils/edgePanning";
 
 const LIVE_STATUS_ROW_HEIGHT = 56;
 
@@ -19,7 +24,7 @@ export type CanvasTxSliderState = {
   txSampleRateHz: number;
   isTransmitting?: boolean;
   powerDbm?: number;
-  onCenterFrequencyChange?: (valueHz: number) => void;
+  onCenterFrequencyChange?: (valueHz: number, isDragging?: boolean) => void;
   onSampleRateChange?: (valueHz: number) => void;
   onOptionsRequest?: () => void;
 };
@@ -122,7 +127,6 @@ export function useFrequencyDrag({
   const isTxSliderDraggingRef = useRef(false);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const txSliderBodyDragOffsetHzRef = useRef(0);
-  const followTxSliderCenterRef = useRef<(centerHz: number) => void>(() => {});
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -293,20 +297,24 @@ export function useFrequencyDrag({
     );
   };
 
+  /** Return the currently visible frequency range.
+   *  `clampedVizRangeRef` is updated every render frame by the FFT
+   *  canvas and already includes zoom + pan, so return it directly.
+   *  Fall back to computing from the frequency range ref + zoom/pan
+   *  when the clamped ref is unavailable. */
   const getTxVisualRange = (slider: CanvasTxSliderState) => {
-    const hardwareBounds = clampedVizRangeRef?.current || {
-      min: slider.visibleMinHz,
-      max: slider.visibleMaxHz,
-    };
+    if (clampedVizRangeRef?.current) {
+      return clampedVizRangeRef.current;
+    }
     const zoom = vizZoomRef?.current ?? 1;
     const pan = vizPanOffsetRef?.current ?? 0;
-    const fullSpan = hardwareBounds.max - hardwareBounds.min;
+    const range = frequencyRangeRef.current;
+    const fullSpan = range.max - range.min;
     const visualSpan = fullSpan / zoom;
-    const hardwareCenter = (hardwareBounds.min + hardwareBounds.max) / 2;
-    const visualCenter = hardwareCenter + pan;
+    const center = (range.min + range.max) / 2 + pan;
     return {
-      min: visualCenter - visualSpan / 2,
-      max: visualCenter + visualSpan / 2,
+      min: center - visualSpan / 2,
+      max: center + visualSpan / 2,
     };
   };
 
@@ -328,13 +336,19 @@ export function useFrequencyDrag({
     return visualRange.min + frac * (visualRange.max - visualRange.min);
   };
 
-  const clampTxCenterHz = (centerHz: number) => {
+  const clampTxBandCenterHz = (centerHz: number, bandwidthHz: number) => {
     const minHz = Math.max(0, hardwareSpectrumBounds?.min ?? 0);
     const maxHz =
       hardwareSpectrumBounds && Number.isFinite(hardwareSpectrumBounds.max)
         ? hardwareSpectrumBounds.max
         : Number.POSITIVE_INFINITY;
-    return Math.max(minHz, Math.min(maxHz, centerHz));
+    const halfBandwidth =
+      Number.isFinite(bandwidthHz) && bandwidthHz > 0 ? bandwidthHz / 2 : 0;
+    const minCenter = minHz + halfBandwidth;
+    const maxCenter = Number.isFinite(maxHz)
+      ? Math.max(minCenter, maxHz - halfBandwidth)
+      : Number.POSITIVE_INFINITY;
+    return Math.max(minCenter, Math.min(maxCenter, centerHz));
   };
 
   const updateTxSliderFromPointer = (clientX: number) => {
@@ -357,40 +371,144 @@ export function useFrequencyDrag({
     const currentMax = slider.txCenterHz + currentBandwidth / 2;
     const minBandwidth = Math.min(25_000, Math.max(1, visibleSpan * 0.01));
     const maxBandwidth = Math.max(minBandwidth, visibleSpan);
+    const visualRange = getTxVisualRange(slider);
+    const geometry = getTxSliderGeometry(canvasRect);
+    const canvasX = clientX - canvasRect.left;
     let nextMin = currentMin;
     let nextMax = currentMax;
 
     if (handle === "left") {
-      nextMin = Math.min(pointerHz, currentMax - minBandwidth);
+      const nextBand = computeEdgeResizedBand({
+        visibleMinHz: visualRange.min,
+        visibleMaxHz: visualRange.max,
+        startHz: currentMin,
+        endHz: currentMax,
+        pointerHz,
+        activeHandle: "left",
+        minSpanHz: minBandwidth,
+      });
+      nextMin = nextBand.startHz;
+      nextMax = nextBand.endHz;
     } else if (handle === "right") {
-      nextMax = Math.max(pointerHz, currentMin + minBandwidth);
+      const nextBand = computeEdgeResizedBand({
+        visibleMinHz: visualRange.min,
+        visibleMaxHz: visualRange.max,
+        startHz: currentMin,
+        endHz: currentMax,
+        pointerHz,
+        activeHandle: "right",
+        minSpanHz: minBandwidth,
+      });
+      nextMin = nextBand.startHz;
+      nextMax = nextBand.endHz;
     } else {
-      const half = currentBandwidth / 2;
-      const nextBodyCenter = pointerHz + txSliderBodyDragOffsetHzRef.current;
-      nextMin = nextBodyCenter - half;
-      nextMax = nextBodyCenter + half;
+      // Body drag: slide band across visible range, edge-pan at edges.
+      const clampedPointerHz = getTxSliderFrequencyForX(
+        clientX - canvasRect.left,
+        canvasRect,
+        true,
+      );
+      if (clampedPointerHz === null) return;
+
+      const stepHz = getTxEdgePanStepHz(visualRange.max - visualRange.min);
+      const nextBand = computeBandPanWithEdgePanning({
+        visibleMinHz: visualRange.min,
+        visibleMaxHz: visualRange.max,
+        startHz: currentMin,
+        endHz: currentMax,
+        pointerHz: clampedPointerHz,
+        pointerOffsetHz: txSliderBodyDragOffsetHzRef.current,
+        hardwareMinHz: hardwareSpectrumBounds?.min,
+        hardwareMaxHz: hardwareSpectrumBounds?.max,
+        stepHz,
+      });
+
+      nextMin = nextBand.startHz;
+      nextMax = nextBand.endHz;
+
+      // If the visible range changed, pan the spectrum (i.e. notify the app)
+      if (
+        nextBand.visibleMinHz !== visualRange.min ||
+        nextBand.visibleMaxHz !== visualRange.max
+      ) {
+        if (onFrequencyRangeChange) {
+          const nextRange = {
+            min: nextBand.visibleMinHz,
+            max: nextBand.visibleMaxHz,
+          };
+          frequencyRangeRef.current = nextRange;
+          onFrequencyRangeChange(nextRange);
+        }
+        // Recalculate drag offset so it doesn't jump on the next move
+        txSliderBodyDragOffsetHzRef.current = clampedPointerHz - nextMin;
+      }
     }
 
     let nextBandwidth = Math.max(
       minBandwidth,
       Math.min(maxBandwidth, nextMax - nextMin),
     );
-    let nextCenter = clampTxCenterHz((nextMin + nextMax) / 2);
+    let nextCenter =
+      handle === "body"
+        ? (nextMin + nextMax) / 2
+        : clampTxBandCenterHz((nextMin + nextMax) / 2, nextBandwidth);
 
     slider.txSampleRateHz = nextBandwidth;
     slider.txCenterHz = nextCenter;
     slider.onSampleRateChange?.(nextBandwidth);
-    slider.onCenterFrequencyChange?.(nextCenter);
-    followTxSliderCenterRef.current(nextCenter);
+    slider.onCenterFrequencyChange?.(nextCenter, true);
     onDragRepaint?.();
+  };
+
+  const getTxEdgePanStepHz = (visualSpanHz: number) => {
+    if (!Number.isFinite(visualSpanHz) || visualSpanHz <= 0) return 0;
+    if (visualSpanHz >= 5_000_000) {
+      return Math.min(1_000_000, Math.max(500_000, visualSpanHz * 0.1));
+    }
+    return Math.max(1, visualSpanHz * 0.1);
   };
 
   const panTxSliderByHz = (deltaHz: number) => {
     const slider = txSliderRef?.current;
     if (!isTxSliderReady(slider)) return;
-    const nextCenter = clampTxCenterHz(slider.txCenterHz + deltaHz);
+
+    const visualRange = getTxVisualRange(slider);
+    const bandwidth = Math.max(1, slider.txSampleRateHz);
+    const currentMin = slider.txCenterHz - bandwidth / 2;
+    const currentMax = slider.txCenterHz + bandwidth / 2;
+
+    const stepHz = getTxEdgePanStepHz(visualRange.max - visualRange.min);
+    const nextBand = computeBandPanWithEdgePanning({
+      visibleMinHz: visualRange.min,
+      visibleMaxHz: visualRange.max,
+      startHz: currentMin + deltaHz,
+      endHz: currentMax + deltaHz,
+      pointerHz: currentMin + deltaHz,
+      pointerOffsetHz: 0,
+      hardwareMinHz: hardwareSpectrumBounds?.min,
+      hardwareMaxHz: hardwareSpectrumBounds?.max,
+      stepHz,
+    });
+
+    const nextCenter = nextBand.centerHz;
+
+    // If the visible range changed, pan the spectrum
+    if (
+      nextBand.visibleMinHz !== visualRange.min ||
+      nextBand.visibleMaxHz !== visualRange.max
+    ) {
+      if (onFrequencyRangeChange) {
+        const nextRange = {
+          min: nextBand.visibleMinHz,
+          max: nextBand.visibleMaxHz,
+        };
+        frequencyRangeRef.current = nextRange;
+        onFrequencyRangeChange(nextRange);
+      }
+    }
+
     slider.txCenterHz = nextCenter;
-    slider.onCenterFrequencyChange?.(nextCenter);
+    slider.onCenterFrequencyChange?.(nextCenter, true);
     onDragRepaint?.();
   };
 
@@ -678,73 +796,6 @@ export function useFrequencyDrag({
       }
       return true;
     };
-
-    const maybeFollowTxSliderCenter = (centerHz: number) => {
-      const slider = txSliderRef?.current;
-      if (!isTxSliderReady(slider)) return;
-
-      const visualRange = getTxVisualRange(slider);
-      const visualSpan = visualRange.max - visualRange.min;
-      if (!Number.isFinite(visualSpan) || visualSpan <= 0) return;
-
-      const margin = Math.max(1, visualSpan * 0.03);
-      let rangeShiftHz = 0;
-      if (centerHz > visualRange.max - margin) {
-        rangeShiftHz = centerHz - (visualRange.max - margin);
-      } else if (centerHz < visualRange.min + margin) {
-        rangeShiftHz = centerHz - (visualRange.min + margin);
-      }
-
-      if (!Number.isFinite(rangeShiftHz) || Math.abs(rangeShiftHz) < 0.001) {
-        return;
-      }
-
-      const zoom = vizZoomRef?.current ?? 1;
-      const currentPan = vizPanOffsetRef?.current ?? 0;
-
-      if (zoom > 1 && onVizPanChange) {
-        const nextPan = currentPan + rangeShiftHz;
-        if (maybeRetuneHardwareWindow({ nextPan, zoom })) return;
-
-        const clampedPan = clampVizPan(
-          nextPan,
-          frequencyRangeRef.current,
-          zoom,
-          hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
-        );
-        onVizPanChange(clampedPan);
-        if (vizPanOffsetRef) {
-          vizPanOffsetRef.current = clampedPan;
-        }
-        if (
-          autoZoomStabilityRef?.current &&
-          (vizZoomFloorRef?.current ?? 1) > 1
-        ) {
-          onVizZoomFloorPanChange?.(clampedPan);
-        }
-        return;
-      }
-
-      if (onFrequencyRangeChange) {
-        const currentRange = frequencyRangeRef.current;
-        const nextRange = clampWheelRangeToHardwareBounds({
-          min: currentRange.min + rangeShiftHz,
-          max: currentRange.max + rangeShiftHz,
-        });
-        frequencyRangeRef.current = nextRange;
-        onFrequencyRangeChange(nextRange);
-        return;
-      }
-
-      if (onVizPanChange) {
-        const clampedPan = Math.max(0, currentPan + rangeShiftHz);
-        onVizPanChange(clampedPan);
-        if (vizPanOffsetRef) {
-          vizPanOffsetRef.current = clampedPan;
-        }
-      }
-    };
-    followTxSliderCenterRef.current = maybeFollowTxSliderCenter;
 
     const updateContainerRect = () => {
       const container = getContainer();
@@ -1353,7 +1404,13 @@ export function useFrequencyDrag({
                 false,
               );
               txSliderBodyDragOffsetHzRef.current =
-                pointerHz === null ? 0 : slider.txCenterHz - pointerHz;
+                pointerHz === null
+                  ? 0
+                  : getPointerOffsetWithinBandHz(
+                      pointerHz,
+                      slider.txCenterHz -
+                        Math.max(1, slider.txSampleRateHz) / 2,
+                    );
             } else {
               txSliderBodyDragOffsetHzRef.current = 0;
             }
@@ -2132,7 +2189,6 @@ export function useFrequencyDrag({
         selectionBoxRef.current.remove();
         selectionBoxRef.current = null;
       }
-      followTxSliderCenterRef.current = () => {};
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMoveForCursor);
       container.removeEventListener("pointerleave", handlePointerLeave);

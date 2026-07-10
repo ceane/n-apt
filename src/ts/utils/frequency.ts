@@ -192,6 +192,37 @@ export const clampFrequencyRangeToBounds = (
   return { min, max };
 };
 
+export const isFrequencyWithinRange = (
+  frequencyHz: number,
+  range: FrequencyRange | null | undefined,
+): boolean => {
+  if (
+    !range ||
+    !Number.isFinite(frequencyHz) ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max)
+  ) {
+    return false;
+  }
+
+  const min = Math.min(range.min, range.max);
+  const max = Math.max(range.min, range.max);
+  return frequencyHz >= min && frequencyHz <= max;
+};
+
+export const findRangeContainingFrequency = <T extends FrequencyRange>(
+  frequencyHz: number,
+  ranges: readonly T[] | null | undefined,
+): T | null => {
+  if (!Array.isArray(ranges) || !Number.isFinite(frequencyHz)) {
+    return null;
+  }
+
+  return (
+    ranges.find((range) => isFrequencyWithinRange(frequencyHz, range)) ?? null
+  );
+};
+
 export const clampBandwidthWithMinSpan = (
   startHz: number,
   endHz: number,

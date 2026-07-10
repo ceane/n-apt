@@ -1171,11 +1171,12 @@ export type SpectrumStoreContextValue = {
     sendTransmitMode: (
       enabled: boolean,
       device: string,
-      txSettings: {
-        serialNumber: string;
-        centerFrequencyHz?: number | null;
-        bandwidthHz?: number | null;
-        sampleRateHz?: number | null;
+        txSettings: {
+          serialNumber: string;
+          centerFrequencyHz?: number | null;
+          viewCenterHz?: number | null;
+          bandwidthHz?: number | null;
+          sampleRateHz?: number | null;
         ifftSize?: number | null;
         powerDbm?: number | null;
         lnaGainDb?: number | null;
@@ -1663,6 +1664,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         txSettings: {
           serialNumber: string;
           centerFrequencyHz?: number | null;
+          viewCenterHz?: number | null;
           bandwidthHz?: number | null;
           sampleRateHz?: number | null;
           ifftSize?: number | null;

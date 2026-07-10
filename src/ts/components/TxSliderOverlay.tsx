@@ -2,15 +2,16 @@ import React, { useEffect, useMemo, useRef } from "react";
 import styled from "styled-components";
 import { Signal } from "lucide-react";
 import {
-  clampCenteredFrequencyRangeToZeroHz,
-  clampFrequencyHz,
-} from "@n-apt/utils/frequency";
+  computeEdgeResizedBand,
+  getPointerOffsetWithinBandHz,
+  computeBandPanWithEdgePanning,
+} from "@n-apt/utils/edgePanning";
 
 const OverlayRoot = styled.div`
   position: absolute;
   left: 18px;
   right: 18px;
-  bottom: 96px;
+  bottom: 106px;
   z-index: 160;
   pointer-events: none;
   user-select: none;
@@ -19,7 +20,7 @@ const OverlayRoot = styled.div`
 const OverlayCard = styled.div`
   pointer-events: auto;
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -52,8 +53,13 @@ const Title = styled.div`
 `;
 
 const Badge = styled.span`
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: none;
   color: ${(props) => props.theme.primary};
   background: ${(props) => `${props.theme.primary}14`};
@@ -62,21 +68,15 @@ const Badge = styled.span`
   padding: 4px 8px;
 `;
 
-const SignalRow = styled.div`
-  display: inline-flex;
+const LabelRow = styled.div`
+  display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
 `;
 
 const Body = styled.div`
   display: grid;
-  gap: 6px;
+  gap: 8px;
   pointer-events: auto;
 `;
 
@@ -147,14 +147,16 @@ const Hint = styled.div`
 `;
 
 export interface TxSliderOverlayProps {
+  deviceLabel?: string;
   signalLabel: string;
   visibleMinHz: number;
   visibleMaxHz: number;
   txCenterHz: number;
   txSampleRateHz: number;
   powerDbm?: number;
-  onCenterFrequencyChange?: (valueHz: number) => void;
+  onCenterFrequencyChange?: (valueHz: number, isDragging?: boolean) => void;
   onSampleRateChange?: (valueHz: number) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
 }
 
 const formatHz = (value: number) => {
@@ -165,6 +167,7 @@ const formatHz = (value: number) => {
 };
 
 export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
+  deviceLabel,
   signalLabel,
   visibleMinHz,
   visibleMaxHz,
@@ -173,11 +176,15 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
   powerDbm = 0,
   onCenterFrequencyChange,
   onSampleRateChange,
+  onFrequencyRangeChange,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
+  const draggingModeRef = useRef<"band" | "edge" | null>(null);
   const draggingHandleRef = useRef<"left" | "right" | null>(null);
+  const draggingOffsetHzRef = useRef(0);
+  const lastEmittedCenterHzRef = useRef<number | null>(null);
   const latestDragStateRef = useRef({
     visibleMinHz,
     visibleMaxHz,
@@ -251,47 +258,75 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             return;
           }
 
-          const { min: currentStart, max: currentEnd } =
-            clampCenteredFrequencyRangeToZeroHz(txCenterHz, txSampleRateHz);
-          const currentCenter = (currentStart + currentEnd) / 2;
+          const halfSpan = Math.max(0, txSampleRateHz / 2);
+          const currentStart = txCenterHz - halfSpan;
+          const currentEnd = txCenterHz + halfSpan;
 
           if (event.type === "pointerdown") {
             const distToLeft = Math.abs(pointerFreq - currentStart);
             const distToRight = Math.abs(pointerFreq - currentEnd);
-            draggingHandleRef.current =
-              distToLeft < distToRight ? "left" : "right";
+            const hzPerPx = span / rect.width;
+            const handleHitHz = Math.max(12 * hzPerPx, 1);
+            const isInsideBand =
+              pointerFreq >= currentStart && pointerFreq <= currentEnd;
+            const isOnLeftHandle = distToLeft <= handleHitHz;
+            const isOnRightHandle = distToRight <= handleHitHz;
+
+            if (isInsideBand && !isOnLeftHandle && !isOnRightHandle) {
+              draggingModeRef.current = "band";
+              draggingHandleRef.current = null;
+              draggingOffsetHzRef.current = getPointerOffsetWithinBandHz(
+                pointerFreq,
+                currentStart,
+              );
+            } else {
+              draggingModeRef.current = "edge";
+              draggingHandleRef.current =
+                distToLeft < distToRight ? "left" : "right";
+              draggingOffsetHzRef.current = 0;
+            }
           }
 
-          const activeHandle = draggingHandleRef.current;
-          if (!activeHandle) return;
+          const nextBand =
+            draggingModeRef.current === "band"
+              ? computeBandPanWithEdgePanning({
+                  visibleMinHz,
+                  visibleMaxHz,
+                  startHz: currentStart,
+                  endHz: currentEnd,
+                  pointerHz: pointerFreq,
+                  pointerOffsetHz: draggingOffsetHzRef.current,
+                })
+              : draggingHandleRef.current
+                ? computeEdgeResizedBand({
+                    visibleMinHz,
+                    visibleMaxHz,
+                    startHz: currentStart,
+                    endHz: currentEnd,
+                    pointerHz: pointerFreq,
+                    activeHandle: draggingHandleRef.current,
+                  })
+                : null;
+          if (!nextBand) return;
 
-          if (activeHandle === "left") {
-            const nextStart = Math.max(
-              visibleMinHz,
-              Math.min(pointerFreq, currentEnd - 100_000),
-            );
-            const nextSampleRate = currentEnd - nextStart;
-            const nextCenter = nextStart + nextSampleRate / 2;
-            if (
-              Number.isFinite(nextSampleRate) &&
-              Number.isFinite(nextCenter)
-            ) {
-              onSampleRateChange?.(Math.round(nextSampleRate));
-              onCenterFrequencyChange?.(Math.round(nextCenter));
-            }
-          } else {
-            const nextEnd = Math.max(
-              currentStart + 100_000,
-              Math.min(pointerFreq, visibleMaxHz),
-            );
-            const nextSampleRate = nextEnd - currentStart;
-            const nextCenter = currentStart + nextSampleRate / 2;
-            if (
-              Number.isFinite(nextSampleRate) &&
-              Number.isFinite(nextCenter)
-            ) {
-              onSampleRateChange?.(Math.round(nextSampleRate));
-              onCenterFrequencyChange?.(Math.round(nextCenter));
+          if (
+            Number.isFinite(nextBand.sampleRateHz) &&
+            Number.isFinite(nextBand.centerHz)
+          ) {
+            onSampleRateChange?.(nextBand.sampleRateHz);
+            onCenterFrequencyChange?.(nextBand.centerHz, true);
+            lastEmittedCenterHzRef.current = nextBand.centerHz;
+            if ("visibleMinHz" in nextBand) {
+              const panResult = nextBand as any;
+              if (
+                panResult.visibleMinHz !== visibleMinHz ||
+                panResult.visibleMaxHz !== visibleMaxHz
+              ) {
+                onFrequencyRangeChange?.({
+                  min: panResult.visibleMinHz,
+                  max: panResult.visibleMaxHz,
+                });
+              }
             }
           }
         };
@@ -308,8 +343,19 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
           event.type === "pointerup" ||
           event.type === "pointercancel"
         ) {
+          if (draggingRef.current) {
+            const finalFreq =
+              lastEmittedCenterHzRef.current ?? latestDragStateRef.current.txCenterHz;
+            latestDragStateRef.current.onCenterFrequencyChange?.(
+              finalFreq,
+              false
+            );
+          }
           draggingRef.current = false;
+          draggingModeRef.current = null;
           draggingHandleRef.current = null;
+          draggingOffsetHzRef.current = 0;
+          lastEmittedCenterHzRef.current = null;
           (event.target as HTMLElement | null)?.releasePointerCapture?.(
             event.pointerId,
           );
@@ -351,10 +397,9 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
 
   const band = useMemo(() => {
     const span = Math.max(1, visibleMaxHz - visibleMinHz);
-    const { min: start, max: end } = clampCenteredFrequencyRangeToZeroHz(
-      txCenterHz,
-      txSampleRateHz,
-    );
+    const halfSpan = Math.max(0, txSampleRateHz / 2);
+    const start = txCenterHz - halfSpan;
+    const end = txCenterHz + halfSpan;
     const center = (start + end) / 2;
     const left = ((start - visibleMinHz) / span) * 100;
     const right = ((end - visibleMinHz) / span) * 100;
@@ -370,6 +415,9 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
       centerHz: center,
     };
   }, [txCenterHz, txSampleRateHz, visibleMaxHz, visibleMinHz]);
+  const displayLabel = deviceLabel
+    ? `${deviceLabel} > ${signalLabel}`
+    : signalLabel;
 
   return (
     <OverlayRoot
@@ -395,11 +443,9 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             Tx Slider
           </Title>
         </Header>
-        <SignalRow>
-          <Badge>Tx</Badge>
-          <span>{">"}</span>
-          <span>{signalLabel}</span>
-        </SignalRow>
+        <LabelRow>
+          <Badge>{displayLabel}</Badge>
+        </LabelRow>
         <Body>
           <BandTrack
             ref={trackRef}

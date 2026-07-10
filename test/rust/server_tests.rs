@@ -2,14 +2,17 @@ use axum_test::TestServer;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
-use n_apt_backend::server::types::DeviceProfile;
+use n_apt_backend::server::types::{DeviceProfile, TxIqPowerModel};
 use n_apt_backend::server::websocket_server::build_source_info_snapshot;
+use n_apt_backend::server::websocket_server::mock_tx::synthesize_mock_tx_monitor_iq;
 use n_apt_backend::server::websocket_server::WebSocketServer;
+use n_apt_backend::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
 use n_apt_backend::session::SessionStore;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::process::{Child, Command};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use url::Url;
@@ -71,6 +74,48 @@ fn ensure_test_password() {
       std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
     }
   }
+}
+
+fn frontend_iq_power_at(frame: &[u8], rel_hz: f64, sample_rate_hz: f64) -> f64 {
+  let mut acc_i = 0.0;
+  let mut acc_q = 0.0;
+  for (index, sample) in frame.chunks_exact(2).enumerate() {
+    let i = (sample[0] as f64 - 128.0) / 127.0;
+    let q = (sample[1] as f64 - 128.0) / 127.0;
+    let phase =
+      -2.0 * std::f64::consts::PI * rel_hz * index as f64 / sample_rate_hz;
+    let (sin_phase, cos_phase) = phase.sin_cos();
+    acc_i += i * cos_phase - q * sin_phase;
+    acc_q += i * sin_phase + q * cos_phase;
+  }
+  acc_i * acc_i + acc_q * acc_q
+}
+
+#[test]
+#[serial]
+fn mock_tx_monitor_places_positive_offsets_on_frontend_positive_axis() {
+  let model = TxIqPowerModel::default();
+  MOCK_TX_MONITOR_SAMPLE_CURSOR.store(100_000, Ordering::Relaxed);
+  let frame = synthesize_mock_tx_monitor_iq(
+    4096,
+    137_100_000.0,
+    4_000_000,
+    138_100_000.0,
+    500_000.0,
+    "wifi",
+    4096,
+    -18.0,
+    &model,
+    &mut 0.0,
+  );
+
+  let positive_power = frontend_iq_power_at(&frame, 1_000_000.0, 4_000_000.0);
+  let negative_power = frontend_iq_power_at(&frame, -1_000_000.0, 4_000_000.0);
+
+  assert!(
+    positive_power > negative_power * 4.0,
+    "Tx above view center should render to the right: positive={positive_power}, negative={negative_power}"
+  );
 }
 
 #[test]

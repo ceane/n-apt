@@ -87,6 +87,41 @@ describe("Rust hot reload gate", () => {
     expect(result.stage).toBe("restarted");
   });
 
+  it("stops before restart when cancelled during validation", async () => {
+    const { runRustHotReloadValidation } = require("../../src/ts/utils/rustHotReloadGate");
+
+    const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
+      () => Promise<{ success: boolean; output: string }>
+    >;
+    cargoCheck.mockResolvedValue({ success: true, output: "check ok" });
+    let cancelled = false;
+    const cargoBuild = jest.fn(async () => {
+      cancelled = true;
+      return { success: true, output: "build ok" };
+    }) as unknown as jest.MockedFunction<
+      () => Promise<{ success: boolean; output: string }>
+    >;
+    const restart = jest.fn() as unknown as jest.MockedFunction<() => Promise<boolean>>;
+    const log = jest.fn();
+    const updateStatus = jest.fn();
+
+    const result = await runRustHotReloadValidation({
+      cargoCheck,
+      cargoBuild,
+      restart,
+      log,
+      updateStatus,
+      isCancelled: () => cancelled,
+    });
+
+    cancelled = true;
+
+    expect(cargoCheck).toHaveBeenCalledTimes(1);
+    expect(cargoBuild).toHaveBeenCalledTimes(1);
+    expect(restart).not.toHaveBeenCalled();
+    expect(result.stage).toBe("build_failed");
+  });
+
   it("builds a targeted rust backend stop command for hot reload", () => {
     const {
       buildRustBackendStopCommand,
