@@ -46,6 +46,14 @@ export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
   current: [],
 };
 
+// Tracks the requested/selected source during transition to filter out old frames
+let requestedSourceId: string | null = null;
+
+
+/** Keep the client frame gate aligned with the server's active-source mode. */
+export const isSourceModePaused = (sourceMode: unknown): boolean =>
+  sourceMode === "file";
+
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
   b: Record<string, unknown> | null | undefined,
@@ -127,7 +135,7 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const tunerGain =
     typeof sourceGain === "number" ? sourceGain : sourceGain?.tuner_gain;
   return {
-    deviceState: sourceStatus === "streaming" ? "connected" : sourceStatus,
+    deviceState: sourceStatus,
     deviceLoadingReason: sourceStatus === "loading" ? "connect" : null,
     backend: source.kind,
     deviceInfo: source.name,
@@ -161,9 +169,6 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
 const mapSourceStatusToDeviceState = (
   status: SourceInfo["status"],
 ): DeviceState => {
-  if (status === "streaming") {
-    return "connected";
-  }
   return status;
 };
 
@@ -329,7 +334,8 @@ const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 let lastFrameRequestTime = 0;
-let pendingTrailingFrameRequestTimeout: ReturnType<typeof setTimeout> | null = null;
+let pendingTrailingFrameRequestTimeout: ReturnType<typeof setTimeout> | null =
+  null;
 const FRAME_REQUEST_THROTTLE_MS = 100;
 const RETUNE_CENTER_TOLERANCE_HZ = 10;
 const RETUNE_WATCHDOG_GRACE_MS = 500;
@@ -615,18 +621,14 @@ const getPauseDuplexMode = (payload: unknown): string | null => {
 
 const getPauseActiveMode = (payload: unknown): string | null => {
   const normalized = normalizeDeviceActiveMode(
-    payload &&
-      typeof payload === "object" &&
-      "activeMode" in payload
+    payload && typeof payload === "object" && "activeMode" in payload
       ? (payload as { activeMode?: unknown }).activeMode
       : undefined,
   );
   if (normalized) return normalized;
 
   return normalizeDeviceActiveMode(
-    payload &&
-      typeof payload === "object" &&
-      "active_mode" in payload
+    payload && typeof payload === "object" && "active_mode" in payload
       ? (payload as { active_mode?: unknown }).active_mode
       : undefined,
   );
@@ -776,8 +778,6 @@ const shouldSuppressDuplicateFrequencyRangeSend = (
 const shouldClearStaleSpectrumFrames = (
   deviceState: DeviceState | null | undefined,
 ): boolean =>
-  deviceState === "loading" ||
-  deviceState === "stale" ||
   deviceState === "disconnected";
 
 const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
@@ -916,6 +916,22 @@ const cleanupSourceIqSocket = () => {
   sourceIqWsInstance.sourceId = null;
 };
 
+export const shouldAcceptSourceIqSocketMessage = ({
+  socketIsCurrent,
+  socketSourceId,
+  activeSourceId,
+  requestedSourceId = null,
+}: {
+  socketIsCurrent: boolean;
+  socketSourceId: string;
+  activeSourceId: string | null;
+  requestedSourceId?: string | null;
+}): boolean =>
+  socketIsCurrent &&
+  socketSourceId.length > 0 &&
+  socketSourceId === activeSourceId &&
+  (requestedSourceId === null || socketSourceId === requestedSourceId);
+
 const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {
     cleanupSourceIqSocket();
@@ -960,14 +976,61 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   sourceIqWsInstance.url = nextUrl;
   sourceIqWsInstance.sourceId = activeSource.id;
   sourceIqWsInstance.reconnectTimeout = null;
+  const socketSourceId = activeSource.id;
+  console.info("[source-switch] opening I/Q socket", {
+    sourceId: socketSourceId,
+    streamKey: activeSource.stream_key ?? socketSourceId,
+  });
+
+  ws.onopen = () => {
+    console.info("[source-switch] I/Q socket connected for", socketSourceId);
+    if (socketSourceId === "mock-tx") {
+      const state = getState();
+      const isTransmitting =
+        state.websocket.sources?.find((s: any) => s.id === "mock-tx")
+          ?.status === "transmitting" ||
+        state.websocket.sourceStatuses?.["mock-tx"] === "transmitting";
+      if (!isTransmitting) {
+        const txSettings = state.spectrum;
+        const viewSampleRateHz = state.waterfall?.frequencyRange
+          ? state.waterfall.frequencyRange.max - state.waterfall.frequencyRange.min
+          : undefined;
+        if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+          console.info("[source-switch] requesting initial mock-tx standby frame");
+          wsInstance.ws.send(
+            JSON.stringify({
+              type: "request_next_frame",
+              centerFrequencyHz: txSettings.txCenterFrequencyHz,
+              viewCenterHz: txSettings.txCenterFrequencyHz,
+              bandwidthHz: txSettings.txSampleRateHz,
+              sample_rate: viewSampleRateHz,
+              powerDbm: txSettings.txPowerDbm,
+              txSignal: txSettings.txSignal,
+              txIfftSize: txSettings.txIfftSize,
+            }),
+          );
+        }
+      }
+    }
+  };
 
   ws.onmessage = async (event) => {
-    if (event.data instanceof ArrayBuffer && wsInstance.aesKey) {
+    if (
+      event.data instanceof ArrayBuffer &&
+      wsInstance.aesKey &&
+      shouldAcceptSourceIqSocketMessage({
+        socketIsCurrent: sourceIqWsInstance.ws === ws,
+        socketSourceId,
+        activeSourceId: getState().websocket.activeSourceId,
+        requestedSourceId,
+      })
+    ) {
       await processBinaryMessage(
         dispatch,
         getState,
         event.data,
         wsInstance.aesKey,
+        socketSourceId,
       );
     }
   };
@@ -1015,7 +1078,17 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.active_source !== previousActiveSourceId) {
-        clearLiveSpectrumFrames(dispatch);
+        console.info("[source-switch] server source_info", {
+          previousActiveSourceId,
+          activeSourceId: parsedData.active_source,
+          sources: parsedData.sources.map((source: SourceInfo) => ({
+            id: source.id,
+            status: source.status,
+            streamKey: source.stream_key ?? null,
+          })),
+        });
+      }
+      if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
       }
       const activeSource =
@@ -1027,7 +1100,10 @@ const processMessage = (
       const derived = activeSource
         ? deriveLegacyStateFromSource(activeSource)
         : {};
-      if ('deviceState' in derived && shouldClearStaleSpectrumFrames(derived.deviceState as any)) {
+      if (
+        "deviceState" in derived &&
+        shouldClearStaleSpectrumFrames(derived.deviceState as any)
+      ) {
         clearLiveSpectrumFrames(dispatch);
       }
       const sourceStatuses = Object.fromEntries(
@@ -1036,9 +1112,13 @@ const processMessage = (
           source.status,
         ]),
       );
+      if (parsedData.active_source === requestedSourceId) {
+        requestedSourceId = null;
+      }
       const updates: any = {
         activeSourceId: parsedData.active_source,
         activeSourceMode: parsedData.active_source_mode,
+        isPaused: isSourceModePaused(parsedData.active_source_mode),
         sources: parsedData.sources,
         sourceStatuses,
         ...derived,
@@ -1059,12 +1139,22 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.source_id !== previousActiveSourceId) {
-        clearLiveSpectrumFrames(dispatch);
+        console.info("[source-switch] server active_source", {
+          previousActiveSourceId,
+          activeSourceId: parsedData.source_id,
+          sourceMode: parsedData.source_mode,
+        });
+      }
+      if (parsedData.source_id !== previousActiveSourceId) {
         pendingDataUpdate = null;
+      }
+      if (parsedData.source_id === requestedSourceId) {
+        requestedSourceId = null;
       }
       const updates: any = {
         activeSourceId: parsedData.source_id,
         activeSourceMode: parsedData.source_mode,
+        isPaused: isSourceModePaused(parsedData.source_mode),
       };
 
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
@@ -1077,7 +1167,10 @@ const processMessage = (
       const derived = activeSource
         ? deriveLegacyStateFromSource(activeSource)
         : {};
-      if ('deviceState' in derived && shouldClearStaleSpectrumFrames(derived.deviceState as any)) {
+      if (
+        "deviceState" in derived &&
+        shouldClearStaleSpectrumFrames(derived.deviceState as any)
+      ) {
         clearLiveSpectrumFrames(dispatch);
       }
 
@@ -1141,6 +1234,12 @@ const processMessage = (
     }
 
     try {
+      if (parsedData.status === "loading") {
+        console.info("[source-switch] server accepted", {
+          sourceId: parsedData.source_id,
+          status: parsedData.status,
+        });
+      }
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const nextSources = currentSources.map((source) =>
         source.id === parsedData.source_id
@@ -1251,6 +1350,12 @@ const processMessage = (
       return;
     }
 
+    if (parsedData.code === "source_switch_failed") {
+      console.error("[source-switch] rejected by server", {
+        sourceId: parsedData.source_id,
+        message: parsedData.message,
+      });
+    }
     dispatch(setError(parsedData.message));
     return;
   }
@@ -1374,10 +1479,16 @@ const processMessage = (
 // Binary message processing
 const processBinaryMessage = async (
   dispatch: Dispatch,
-  _getState: () => any,
+  getState: () => any,
   buffer: ArrayBuffer,
   aesKey: CryptoKey,
+  sourceId: string,
 ) => {
+  const activeSourceId = getState().websocket.activeSourceId;
+  if (sourceId !== activeSourceId) {
+    return;
+  }
+
   try {
     const view = new DataView(buffer);
 
@@ -1392,6 +1503,12 @@ const processBinaryMessage = async (
 
     // Decrypt the binary payload
     const decryptedBytes = await decryptBinaryPayload(aesKey, encryptedPayload);
+    // Decryption is asynchronous. A source switch may have completed while
+    // this frame was in flight, so verify the immutable socket identity again
+    // before allowing an old device's IQ bytes into the live frame ref.
+    if (sourceId !== getState().websocket.activeSourceId) {
+      return;
+    }
     if (dataType !== 1) {
       console.warn("Ignoring unexpected non-IQ binary payload", {
         dataType,
@@ -1428,7 +1545,7 @@ const processBinaryMessage = async (
 
     if (dataBatchFrame === null) {
       dataBatchFrame = window.requestAnimationFrame(() =>
-        processBatchedData(dispatch, _getState),
+        processBatchedData(dispatch, getState),
       );
     }
   } catch (e) {
@@ -1525,11 +1642,13 @@ const createWebSocketMiddleware =
               // Binary fast-path for spectrum data
               if (event.data instanceof ArrayBuffer) {
                 if (wsInstance.aesKey) {
+                  const activeSourceId = getState().websocket.activeSourceId;
                   await processBinaryMessage(
                     dispatch,
                     getState,
                     event.data,
                     wsInstance.aesKey,
+                    activeSourceId ?? "",
                   );
                 }
                 return;
@@ -1706,10 +1825,13 @@ const createWebSocketMiddleware =
             if (pendingTrailingFrameRequestTimeout) {
               clearTimeout(pendingTrailingFrameRequestTimeout);
             }
-            pendingTrailingFrameRequestTimeout = setTimeout(() => {
-              pendingTrailingFrameRequestTimeout = null;
-              dispatch(action);
-            }, FRAME_REQUEST_THROTTLE_MS - (now - lastFrameRequestTime));
+            pendingTrailingFrameRequestTimeout = setTimeout(
+              () => {
+                pendingTrailingFrameRequestTimeout = null;
+                dispatch(action);
+              },
+              FRAME_REQUEST_THROTTLE_MS - (now - lastFrameRequestTime),
+            );
             return next(action);
           }
 
@@ -1726,12 +1848,28 @@ const createWebSocketMiddleware =
           allowNextPausedFrame = true;
         }
 
+        if (type === "select_source") {
+          requestedSourceId = (normalizedData?.source_id as string | null) ?? null;
+        }
+
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+          if (type === "select_source") {
+            console.info("[source-switch] control message sent", {
+              sourceId: normalizedData?.source_id ?? null,
+              activeSourceId: getState().websocket.activeSourceId,
+            });
+          }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
         } else if (type === "tx_mode" || type === "request_next_frame") {
           allowNextPausedFrame = false;
           resetPausedFrameRequestGate();
         } else {
+          if (type === "select_source") {
+            console.warn("[source-switch] control socket unavailable; queued", {
+              sourceId: normalizedData?.source_id ?? null,
+              readyState: wsInstance.ws?.readyState ?? null,
+            });
+          }
           // Queue the message for when connection is restored
           dispatch(queueMessage({ type, data: normalizedData }));
         }

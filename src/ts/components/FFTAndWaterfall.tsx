@@ -142,7 +142,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
-    const [isFftCanvasLoading, setIsFftCanvasLoading] = useState(true);
+    const [isFftCanvasLoading, setIsFftCanvasLoading] = useState(false);
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
       useState(true);
     const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
@@ -243,12 +243,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     useEffect(() => {
       if (
         sourceMode === "live" &&
+        shouldShowLoadingPlaceholder &&
         (awaitingDeviceData || placeholderErrorReason)
       ) {
         setHasRenderableFrame(false);
         setIsFftCanvasLoading(true);
       }
-    }, [awaitingDeviceData, placeholderErrorReason, sourceMode]);
+    }, [awaitingDeviceData, placeholderErrorReason, sourceMode, shouldShowLoadingPlaceholder]);
 
     useEffect(() => {
       props.onLoadingStateChange?.(shouldShowLoadingPlaceholder);
@@ -373,13 +374,17 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               interactionDisabled={isGlobalLoading}
               awaitingDeviceData={
                 sourceMode === "live"
-                  ? awaitingDeviceData || !hasLiveFrame
-                  : awaitingDeviceData
+                  ? (shouldShowLoadingPlaceholder ? awaitingDeviceData || !hasLiveFrame : false)
+                  : (shouldShowLoadingPlaceholder ? awaitingDeviceData : false)
               }
               placeholderSourceLabel={props.placeholderSourceLabel}
               placeholderPaneLabel="FFT"
               placeholderErrorReason={placeholderErrorReason}
-              placeholderState={props.placeholderState}
+              placeholderState={
+                props.placeholderState?.kind === "loading" && !shouldShowLoadingPlaceholder
+                  ? undefined
+                  : props.placeholderState
+              }
               onRenderableFrameChange={setHasRenderableFrame}
               onCanvasLoadingChange={setIsFftCanvasLoading}
               waterfallCanvasBindings={waterfallCanvasBindings}
@@ -395,16 +400,18 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             heterodyningHighlightedBins={props.heterodyningHighlightedBins}
             awaitingDeviceData={
               sourceMode === "live"
-                ? awaitingDeviceData || !hasRenderableFrame
-                : awaitingDeviceData
+                ? (shouldShowLoadingPlaceholder ? awaitingDeviceData || !hasRenderableFrame : false)
+                : (shouldShowLoadingPlaceholder ? awaitingDeviceData : false)
             }
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
             placeholderState={
-              props.placeholderState?.kind === "top-bar"
-                ? { ...props.placeholderState, kind: "overlay-only" }
-                : props.placeholderState
+              props.placeholderState?.kind === "loading" && !shouldShowLoadingPlaceholder
+                ? undefined
+                : (props.placeholderState?.kind === "top-bar"
+                    ? { ...props.placeholderState, kind: "overlay-only" }
+                    : props.placeholderState)
             }
           />
         </Left>
