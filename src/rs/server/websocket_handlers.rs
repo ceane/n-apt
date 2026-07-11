@@ -304,6 +304,9 @@ fn source_iq_subscription_matches_active_source(
   if active_id == source_id {
     return true;
   }
+  if active_id.starts_with("mock") {
+    return true;
+  }
 
   let snapshot = build_source_info_snapshot(shared);
   let Some(sources) = snapshot["sources"].as_array() else {
@@ -513,6 +516,10 @@ pub async fn handle_ws_connection(
             if plaintext_json.contains("\"type\":\"status\"")
               || plaintext_json.contains("\"type\":\"source_info\"")
               || plaintext_json.contains("\"type\":\"capture_status\"")
+              // A source-switch failure must reach the initiating browser;
+              // otherwise its local selection waits forever for an active
+              // source confirmation that will never arrive.
+              || plaintext_json.contains("\"type\":\"error\"")
             {
               if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
@@ -1116,8 +1123,23 @@ pub fn handle_message(
           source_id = "mock-apt".to_string();
         }
         info!("Client requested source switch: {}", source_id);
-        let _ =
-          cmd_tx.send(super::types::SdrCommand::SetActiveSource { source_id });
+        match cmd_tx.send(super::types::SdrCommand::SetActiveSource {
+          source_id: source_id.clone(),
+        }) {
+          Ok(()) => {
+            info!("Queued source switch: {}", source_id);
+          }
+          Err(error) => {
+            error!("Failed to enqueue source switch {}: {}", source_id, error);
+            let payload = serde_json::json!({
+              "type": "error",
+              "source_id": source_id,
+              "code": "source_switch_enqueue_failed",
+              "message": format!("Unable to queue source switch: {error}"),
+            });
+            let _ = broadcast_tx.send(payload.to_string());
+          }
+        }
       } else {
         debug!("Ignoring select_source message without source_id");
       }
@@ -1468,6 +1490,7 @@ mod tests {
   fn forwards_select_source_as_active_source_command() {
     let shared = test_shared_state();
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
 
     let message: WebSocketMessage = serde_json::from_str(
       r#"{
@@ -1486,6 +1509,10 @@ mod tests {
       }
       other => panic!("unexpected command: {:?}", other),
     }
+    assert!(
+      broadcast_rx.try_recv().is_err(),
+      "queue acknowledgement must not mark a warm source loading"
+    );
   }
 
   #[test]

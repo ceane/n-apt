@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,7 +22,8 @@ pub mod sources;
 pub use broadcasting::{
   broadcast_active_source, broadcast_channels, broadcast_device_status,
   broadcast_signal_display_settings, broadcast_source_status,
-  build_channels_snapshot, reconcile_stale_device_snapshot,
+  broadcast_source_status_for_id, build_channels_snapshot,
+  reconcile_stale_device_snapshot,
 };
 pub use mock_tx::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
 pub use sources::{
@@ -31,6 +33,20 @@ pub use sources::{
 };
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+
+fn broadcast_source_switch_error(
+  broadcast_tx: &broadcast::Sender<String>,
+  source_id: &str,
+  error: &anyhow::Error,
+) {
+  let payload = serde_json::json!({
+    "type": "error",
+    "source_id": source_id,
+    "code": "source_switch_failed",
+    "message": format!("Unable to activate {source_id}: {error}"),
+  });
+  let _ = broadcast_tx.send(payload.to_string());
+}
 
 #[cfg(test)]
 fn should_stop_streaming(shared_state: &SharedState) -> bool {
@@ -81,17 +97,37 @@ fn should_fallback_to_mock_on_early_read_error(
     && !is_async_sample_timeout_error(error)
 }
 
+#[cfg(test)]
 fn should_restart_real_device_reader_on_read_error(
   error: &anyhow::Error,
   streak: u32,
-  recovery_count: u32,
+  _recovery_count: u32,
 ) -> bool {
   streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
     && is_async_sample_timeout_error(error)
-    && !crate::sdr::hotplug::is_recovery_budget_exhausted(
-      recovery_count,
-      super::shared_state::MAX_RECOVERY_ATTEMPTS,
-    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaderRecoveryAction {
+  RestartReader,
+  ReopenDevice,
+  FallbackToMock,
+}
+
+fn resolve_reader_recovery_action(
+  is_async_timeout: bool,
+  streak: u32,
+  supported_device_present: bool,
+) -> ReaderRecoveryAction {
+  if is_async_timeout
+    && streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
+  {
+    ReaderRecoveryAction::RestartReader
+  } else if supported_device_present {
+    ReaderRecoveryAction::ReopenDevice
+  } else {
+    ReaderRecoveryAction::FallbackToMock
+  }
 }
 
 fn should_fallback_to_mock_on_threshold_read_error(
@@ -99,6 +135,158 @@ fn should_fallback_to_mock_on_threshold_read_error(
   supported_device_present: bool,
 ) -> bool {
   !supported_device_present && !is_async_sample_timeout_error(error)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceLifecyclePhase {
+  Connected,
+  Loading,
+  Streaming,
+  Standby,
+}
+
+impl std::fmt::Display for SourceLifecyclePhase {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      SourceLifecyclePhase::Connected => write!(f, "Connected"),
+      SourceLifecyclePhase::Loading => write!(f, "Loading"),
+      SourceLifecyclePhase::Streaming => write!(f, "Streaming"),
+      SourceLifecyclePhase::Standby => write!(f, "Standby"),
+    }
+  }
+}
+
+fn source_phase_on_select(is_warm: bool, is_mock: bool) -> SourceLifecyclePhase {
+  if is_warm {
+    SourceLifecyclePhase::Streaming
+  } else if is_mock {
+    SourceLifecyclePhase::Standby
+  } else {
+    SourceLifecyclePhase::Loading
+  }
+}
+
+fn prepare_selected_source_for_rx(
+  shared: &SharedState,
+  source_id: &str,
+  phase: SourceLifecyclePhase,
+) {
+  shared.set_active_source_pause_state(source_id, false);
+  if phase == SourceLifecyclePhase::Loading {
+    shared.set_device_state("loading", Some("connect"));
+  }
+}
+
+fn take_next_warm_source<T>(
+  warm_sources: &mut HashMap<String, T>,
+) -> Option<(String, T)> {
+  let source_id = warm_sources.keys().min().cloned()?;
+  warm_sources
+    .remove(&source_id)
+    .map(|device| (source_id, device))
+}
+
+fn warmable_hardware_source_ids(
+  snapshot: &serde_json::Value,
+  active_source_id: &str,
+) -> Vec<String> {
+  let mut source_ids = snapshot["sources"]
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter_map(|source| {
+      let id = source["id"].as_str()?;
+      let kind = source["kind"].as_str()?;
+      (id != active_source_id
+        && matches!(kind, "rtl-sdr" | "rtl_sdr" | "hackrf_one" | "hackrf"))
+      .then(|| id.to_string())
+    })
+    .collect::<Vec<_>>();
+  source_ids.sort();
+  source_ids.dedup();
+  source_ids
+}
+
+fn prewarm_attached_hardware_sources(
+  processor: &SdrProcessor,
+  shared_state: &SharedState,
+  warm_devices: &mut HashMap<String, Box<dyn crate::sdr::SdrDevice>>,
+) {
+  let active_id = active_source_id(shared_state);
+  let snapshot = build_source_info_snapshot(shared_state);
+  for source_id in warmable_hardware_source_ids(&snapshot, &active_id) {
+    if warm_devices.contains_key(&source_id) {
+      continue;
+    }
+
+    match open_device_for_source_id(&source_id) {
+      Ok(mut device) => match initialize_warm_source(device.as_mut()) {
+        Ok(()) => {
+          info!("Pre-warmed attached SDR source {}", source_id);
+          warm_devices.insert(source_id, device);
+        }
+        Err(error) => {
+          warn!("Failed to pre-warm SDR source {}: {}", source_id, error);
+        }
+      },
+      Err(error) => {
+        warn!(
+          "Failed to open attached SDR source {} for warm pool: {}",
+          source_id, error
+        );
+      }
+    }
+  }
+
+  debug!(
+    "Warm pool contains {} attached source(s) while {} is active",
+    warm_devices.len(),
+    processor.device_type()
+  );
+}
+
+fn initialize_warm_source(
+  device: &mut dyn crate::sdr::SdrDevice,
+) -> Result<()> {
+  device.initialize()?;
+  if !device.is_rx_active() {
+    return Err(anyhow::anyhow!(
+      "{} initialized without an active RX reader",
+      device.device_type()
+    ));
+  }
+  device.flush_read_queue();
+  Ok(())
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct SourceLifecycleModel {
+  phases: HashMap<String, SourceLifecyclePhase>,
+}
+
+#[cfg(test)]
+impl SourceLifecycleModel {
+  fn select(&mut self, source_id: &str, is_warm: bool) -> SourceLifecyclePhase {
+    let is_mock = source_id.starts_with("mock");
+    let phase = source_phase_on_select(is_warm, is_mock);
+    self.phases.insert(source_id.to_string(), phase);
+    phase
+  }
+
+  fn first_frame(&mut self, source_id: &str) -> SourceLifecyclePhase {
+    self
+      .phases
+      .insert(source_id.to_string(), SourceLifecyclePhase::Streaming);
+    SourceLifecyclePhase::Streaming
+  }
+
+  fn switch_away(&mut self, source_id: &str) -> SourceLifecyclePhase {
+    self
+      .phases
+      .insert(source_id.to_string(), SourceLifecyclePhase::Standby);
+    SourceLifecyclePhase::Standby
+  }
 }
 
 #[cfg(test)]
@@ -147,6 +335,101 @@ mod tests {
   }
 
   #[test]
+  fn selecting_a_source_opens_its_rx_gate_until_the_first_frame() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.set_active_source_pause_state("hackrf-one", true);
+
+    prepare_selected_source_for_rx(
+      &shared,
+      "hackrf-one",
+      SourceLifecyclePhase::Loading,
+    );
+
+    assert!(!shared.is_source_paused("hackrf-one"));
+    assert!(!shared.is_paused.load(Ordering::SeqCst));
+    assert_eq!(&*shared.device_state.lock().unwrap(), "loading");
+  }
+
+  #[test]
+  fn warm_source_pool_reuses_devices_in_stable_order() {
+    let mut warm = HashMap::from([
+      ("rtl-sdr-b".to_string(), 2),
+      ("hackrf_one-a".to_string(), 1),
+    ]);
+
+    assert_eq!(
+      take_next_warm_source(&mut warm),
+      Some(("hackrf_one-a".to_string(), 1))
+    );
+    assert_eq!(
+      take_next_warm_source(&mut warm),
+      Some(("rtl-sdr-b".to_string(), 2))
+    );
+    assert!(take_next_warm_source(&mut warm).is_none());
+  }
+
+  #[test]
+  fn startup_warm_pool_includes_every_non_active_hardware_source() {
+    let snapshot = serde_json::json!({
+      "sources": [
+        {"id": "rtl-sdr-a", "kind": "rtl-sdr"},
+        {"id": "hackrf_one-b", "kind": "hackrf_one"},
+        {"id": "mock-apt", "kind": "mock_apt"}
+      ]
+    });
+
+    assert_eq!(
+      warmable_hardware_source_ids(&snapshot, "rtl-sdr-a"),
+      vec!["hackrf_one-b".to_string()]
+    );
+  }
+
+  #[test]
+  fn hardware_sources_load_once_then_stream_across_repeated_warm_switches() {
+    let mut lifecycle = SourceLifecycleModel::default();
+
+    assert_eq!(
+      lifecycle.select("rtl", false),
+      SourceLifecyclePhase::Loading
+    );
+    assert_eq!(
+      lifecycle.first_frame("rtl"),
+      SourceLifecyclePhase::Streaming
+    );
+    assert_eq!(lifecycle.switch_away("rtl"), SourceLifecyclePhase::Standby);
+
+    assert_eq!(
+      lifecycle.select("hackrf", false),
+      SourceLifecyclePhase::Loading
+    );
+    assert_eq!(
+      lifecycle.first_frame("hackrf"),
+      SourceLifecyclePhase::Streaming
+    );
+    assert_eq!(
+      lifecycle.switch_away("hackrf"),
+      SourceLifecyclePhase::Standby
+    );
+
+    for _ in 0..4 {
+      assert_eq!(
+        lifecycle.select("rtl", true),
+        SourceLifecyclePhase::Streaming
+      );
+      assert_eq!(lifecycle.switch_away("rtl"), SourceLifecyclePhase::Standby);
+      assert_eq!(
+        lifecycle.select("hackrf", true),
+        SourceLifecyclePhase::Streaming
+      );
+      assert_eq!(
+        lifecycle.switch_away("hackrf"),
+        SourceLifecyclePhase::Standby
+      );
+    }
+  }
+
+  #[test]
   fn async_sample_timeout_does_not_force_early_mock_fallback() {
     let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
 
@@ -173,6 +456,37 @@ mod tests {
       super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
       0
     ));
+    assert!(should_restart_real_device_reader_on_read_error(
+      &error,
+      super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+      super::super::shared_state::MAX_RECOVERY_ATTEMPTS,
+    ));
+  }
+
+  #[test]
+  fn repeated_rtl_timeouts_restart_the_reader_without_reopening_usb() {
+    let threshold = super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD;
+    let mut actions = Vec::new();
+    for streak in threshold..threshold + 3 {
+      actions.push(resolve_reader_recovery_action(true, streak, true));
+    }
+
+    assert_eq!(
+      actions,
+      vec![
+        ReaderRecoveryAction::RestartReader,
+        ReaderRecoveryAction::RestartReader,
+        ReaderRecoveryAction::RestartReader,
+      ]
+    );
+    assert_eq!(
+      resolve_reader_recovery_action(false, threshold, true),
+      ReaderRecoveryAction::ReopenDevice
+    );
+    assert_eq!(
+      resolve_reader_recovery_action(false, threshold, false),
+      ReaderRecoveryAction::FallbackToMock
+    );
   }
 
   #[test]
@@ -273,6 +587,8 @@ impl WebSocketServer {
     let mut hotplug_state = crate::sdr::hotplug::HotplugState::new();
     let mut target_fps: u32 = 30; // sensible default until first frame
     let mut allow_next_paused_frame = false;
+    let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
+      HashMap::new();
 
     // ── Channel hot-reload state ──────────────────────────────────────
     // Track the last known signals.yaml modification time so we can
@@ -307,6 +623,16 @@ impl WebSocketServer {
           tokio::time::sleep(Duration::from_millis(250)).await;
         }
       }
+
+      // Keep every other attached receiver open with its bounded RX reader
+      // alive. Stopping RTL here and restarting it on selection recreates the
+      // libusb interface-claim race that prewarming is meant to eliminate.
+      prewarm_attached_hardware_sources(
+        &processor,
+        &shared_state,
+        &mut warm_devices,
+      );
+      broadcast_device_status(&shared_state, &_broadcast_tx);
     }
 
     loop {
@@ -376,6 +702,7 @@ impl WebSocketServer {
             );
           }
           crate::server::types::SdrCommand::SetActiveSource { source_id } => {
+            info!("Dequeued source switch command: requested={}", source_id);
             let mut processor = sdr_processor.lock().await;
             let current_source_id = active_source_id(&shared_state);
             if current_source_id == source_id {
@@ -388,63 +715,126 @@ impl WebSocketServer {
             }
 
             info!("Switching active source to {}", source_id);
-            shared_state.set_device_state("loading", Some("connect"));
-            broadcast_device_status(&shared_state, &_broadcast_tx);
+            let was_warm = warm_devices.contains_key(&source_id);
+            let is_mock = source_id.starts_with("mock");
+            let selection_phase = source_phase_on_select(was_warm, is_mock);
+            if selection_phase == SourceLifecyclePhase::Loading {
+              shared_state.set_device_state("loading", Some("connect"));
+              broadcast_source_status_for_id(
+                &shared_state,
+                &_broadcast_tx,
+                &source_id,
+                "loading",
+              );
+            }
 
-            match open_device_for_source_id(&source_id) {
+            let next_device = match warm_devices.remove(&source_id) {
+              // `swap_device_keep_warm` owns initialization. Initializing
+              // here as well restarts an RTL async reader twice, leaving the
+              // just-selected warm source in its loading state.
+              Some(device) => {
+                info!("Reusing warm SDR source {}", source_id);
+                Ok(device)
+              }
+              None => open_device_for_source_id(&source_id),
+            };
+
+            match next_device {
               Ok(new_device) => {
-                if let Err(e) = processor.swap_device(new_device) {
-                  error!(
-                    "Failed to swap SDR processor to source {}: {}",
-                    source_id, e
+                let mut swap_result =
+                  processor.swap_device_keep_warm(new_device);
+                if swap_result.is_err() && was_warm {
+                  warn!(
+                    "Warm SDR source {} did not resume; reopening once",
+                    source_id
                   );
-                  shared_state.update_device_status(
-                    !processor.is_mock(),
-                    processor.get_device_info(),
-                    build_device_profile(processor.device_type()),
-                  );
-                  shared_state.update_device_usb_strings(
-                    processor.get_serial_number(),
-                    processor.get_manufacturer(),
-                    processor.get_product(),
-                  );
-                  shared_state.set_device_backend_error(processor.get_error());
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                } else {
-                  let next_device_profile = if source_id == "mock-tx" {
-                    build_device_profile("mock_tx")
-                  } else {
-                    build_device_profile(processor.device_type())
-                  };
-                  let next_device_info = if source_id == "mock-tx" {
-                    MOCK_TX_DISPLAY_NAME.to_string()
-                  } else {
-                    processor.get_device_info()
-                  };
-                  let next_device_connected =
-                    source_id == "mock-tx" || !processor.is_mock();
-                  shared_state.update_device_status(
-                    next_device_connected,
-                    next_device_info,
-                    next_device_profile,
-                  );
-                  if source_id == "mock-tx" {
-                    shared_state.update_device_usb_strings(
-                      "mock-tx".to_string(),
-                      "N-APT".to_string(),
-                      MOCK_TX_DISPLAY_NAME.to_string(),
+                  swap_result = open_device_for_source_id(&source_id)
+                    .and_then(|device| processor.swap_device_keep_warm(device));
+                }
+
+                match swap_result {
+                  Err(e) => {
+                    error!(
+                      "Failed to swap SDR processor to source {}: {}",
+                      source_id, e
                     );
-                  } else {
+                    shared_state.update_device_status(
+                      !processor.is_mock(),
+                      processor.get_device_info(),
+                      build_device_profile(processor.device_type()),
+                    );
                     shared_state.update_device_usb_strings(
                       processor.get_serial_number(),
                       processor.get_manufacturer(),
                       processor.get_product(),
                     );
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
+                    broadcast_source_switch_error(
+                      &_broadcast_tx,
+                      &source_id,
+                      &e,
+                    );
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
-                  shared_state.set_device_backend_error(processor.get_error());
-                  shared_state.sync_active_source_pause_state(&source_id);
-                  broadcast_device_status(&shared_state, &_broadcast_tx);
-                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                  Ok(previous_device) => {
+                    if !current_source_id.starts_with("mock-") {
+                      warm_devices
+                        .insert(current_source_id.clone(), previous_device);
+                    }
+                    let next_device_profile = if source_id == "mock-tx" {
+                      build_device_profile("mock_tx")
+                    } else {
+                      build_device_profile(processor.device_type())
+                    };
+                    let next_device_info = if source_id == "mock-tx" {
+                      MOCK_TX_DISPLAY_NAME.to_string()
+                    } else {
+                      processor.get_device_info()
+                    };
+                    let next_device_connected =
+                      source_id == "mock-tx" || !processor.is_mock();
+                    shared_state.update_device_status(
+                      next_device_connected,
+                      next_device_info,
+                      next_device_profile,
+                    );
+                    if source_id == "mock-tx" {
+                      shared_state.update_device_usb_strings(
+                        "mock-tx".to_string(),
+                        "N-APT".to_string(),
+                        MOCK_TX_DISPLAY_NAME.to_string(),
+                      );
+                    } else {
+                      shared_state.update_device_usb_strings(
+                        processor.get_serial_number(),
+                        processor.get_manufacturer(),
+                        processor.get_product(),
+                      );
+                    }
+                    shared_state
+                      .set_device_backend_error(processor.get_error());
+                    if source_id == "mock-tx" || source_id == "mock-apt" {
+                      shared_state
+                        .set_active_source_pause_state(&source_id, false);
+                    } else {
+                      prepare_selected_source_for_rx(
+                        &shared_state,
+                        &source_id,
+                        selection_phase,
+                      );
+                    }
+                    info!(
+                      "Source switch committed: requested={}, active={}, device_type={}, serial={}, rx_active={}",
+                      source_id,
+                      active_source_id(&shared_state),
+                      processor.device_type(),
+                      processor.get_serial_number(),
+                      processor.is_rx_active(),
+                    );
+                    broadcast_device_status(&shared_state, &_broadcast_tx);
+                    hotplug_state.last_hardware_swap = Some(Instant::now());
+                  }
                 }
               }
               Err(e) => {
@@ -466,6 +856,14 @@ impl WebSocketServer {
                   "Failed to switch to source {}: {}",
                   source_id, e
                 )));
+                warn!(
+                  "Source switch open failed: requested={}, active remains={}, device_type={}, error={}",
+                  source_id,
+                  active_source_id(&shared_state),
+                  processor.device_type(),
+                  e,
+                );
+                broadcast_source_switch_error(&_broadcast_tx, &source_id, &e);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
               }
             }
@@ -1031,6 +1429,45 @@ impl WebSocketServer {
         >= super::shared_state::HEALTH_CHECK_INTERVAL
       {
         let mut processor = sdr_processor.lock().await;
+        if processor.is_mock() {
+          if let Some((source_id, warm_device)) =
+            take_next_warm_source(&mut warm_devices)
+          {
+            match processor.swap_device_keep_warm(warm_device) {
+              Ok(previous_mock) => {
+                drop(previous_mock);
+                info!(
+                  "Restored warm SDR source {} instead of reopening USB",
+                  source_id
+                );
+                shared_state.update_device_status(
+                  true,
+                  processor.get_device_info(),
+                  build_device_profile(processor.device_type()),
+                );
+                shared_state.update_device_usb_strings(
+                  processor.get_serial_number(),
+                  processor.get_manufacturer(),
+                  processor.get_product(),
+                );
+                prepare_selected_source_for_rx(
+                  &shared_state,
+                  &source_id,
+                  SourceLifecyclePhase::Streaming,
+                );
+                shared_state.set_device_backend_error(processor.get_error());
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+                hotplug_state.last_hardware_swap = Some(Instant::now());
+              }
+              Err(e) => {
+                warn!(
+                  "Warm SDR source {} could not resume ({}); falling back to USB discovery",
+                  source_id, e
+                );
+              }
+            }
+          }
+        }
         crate::sdr::hotplug::maybe_attach_hotplugged_device(
           &hotplug_monitor,
           &mut hotplug_state,
@@ -1413,6 +1850,7 @@ impl WebSocketServer {
                     shared_state
                       .set_device_backend_error(processor.get_error());
                   }
+                  shared_state.set_active_source_pause_state("mock-apt", false);
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
               } else if !supported_device_present
@@ -1432,11 +1870,19 @@ impl WebSocketServer {
                   "Read-error threshold reached (streak={}). Supported USB device present={}.",
                   streak, supported_device_present,
                 );
-              if should_restart_real_device_reader_on_read_error(
-                &e,
-                streak,
-                recovery_count,
+              if matches!(
+                resolve_reader_recovery_action(
+                  is_async_sample_timeout_error(&e),
+                  streak,
+                  supported_device_present,
+                ),
+                ReaderRecoveryAction::RestartReader
               ) {
+                // A sample timeout means the current reader stalled; it does
+                // not mean the USB device should be reopened. Keep the
+                // existing handle, restart its reader, and reserve the device
+                // recovery budget for an actual handle replacement.
+                shared_state.recovery_attempts.store(0, Ordering::Relaxed);
                 shared_state.set_device_state("loading", Some("restart"));
                 broadcast_device_status(&shared_state, &_broadcast_tx);
 
@@ -1446,8 +1892,11 @@ impl WebSocketServer {
                       "Restarted current SDR async reader after sample timeout. Awaiting first healthy frame."
                     );
                     shared_state
-                      .recovery_attempts
-                      .fetch_add(1, Ordering::Relaxed);
+                      .health_failure_streak
+                      .store(0, Ordering::Relaxed);
+                    let active_id = active_source_id(&shared_state);
+                    shared_state
+                      .set_active_source_pause_state(&active_id, false);
                     shared_state
                       .set_device_backend_error(processor.get_error());
                     broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -1458,10 +1907,97 @@ impl WebSocketServer {
                       "Failed to restart current SDR async reader after sample timeout: {}",
                       restart_e
                     );
-                    shared_state.set_device_backend_error(Some(format!(
-                      "Async SDR sample reader restart failed: {}",
-                      restart_e
-                    )));
+                    let supported_device_present = matches!(
+                      crate::sdr::hotplug::supported_usb_device_count(),
+                      Ok(count) if count > 0
+                    );
+                    if !supported_device_present {
+                      warn!(
+                        "USB device disappeared while restarting reader; falling back to Mock APT"
+                      );
+                      if let Err(swap_e) = processor.swap_device(
+                        crate::sdr::SdrDeviceFactory::create_mock_device(),
+                      ) {
+                        error!(
+                          "Failed to swap to mock after reader loss: {}",
+                          swap_e
+                        );
+                      } else {
+                        shared_state.update_device_status(
+                          false,
+                          processor.get_device_info(),
+                          build_device_profile(processor.device_type()),
+                        );
+                        shared_state
+                          .set_active_source_pause_state("mock-apt", false);
+                      }
+                      shared_state.set_device_backend_error(Some(format!(
+                        "Async SDR sample reader restart failed after USB removal: {}",
+                        restart_e
+                      )));
+                    } else {
+                      // A failed restart means the current USB handle is no
+                      // longer trustworthy (the common unplug/replug case
+                      // can leave the old handle present while its interface
+                      // has already been detached). Reopen the real device
+                      // immediately instead of retrying the same stale
+                      // handle forever on the loading placeholder.
+                      shared_state.set_device_state("loading", Some("restart"));
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      match processor.cleanup() {
+                        Err(cleanup_e) => {
+                          warn!(
+                            "Deferring RTL-SDR reopen until the old reader stops: {}",
+                            cleanup_e
+                          );
+                          shared_state.set_device_backend_error(Some(
+                            format!(
+                              "Async SDR sample reader restart failed; waiting for USB reader shutdown: {}",
+                              cleanup_e
+                            ),
+                          ));
+                        }
+                        Ok(()) => {
+                          match crate::sdr::SdrDeviceFactory::create_device() {
+                            Ok(new_device)
+                              if !new_device
+                                .device_type()
+                                .to_ascii_lowercase()
+                                .contains("mock") =>
+                            {
+                              if let Err(swap_e) =
+                                processor.swap_device(new_device)
+                              {
+                                error!("Failed to reopen device after reader restart failure: {}", swap_e);
+                                shared_state.set_device_backend_error(Some(
+                                  swap_e.to_string(),
+                                ));
+                              } else {
+                                info!("Reopened SDR after stale reader restart failure");
+                                shared_state
+                                  .recovery_attempts
+                                  .store(0, Ordering::Relaxed);
+                                let active_id = active_source_id(&shared_state);
+                                shared_state.set_active_source_pause_state(
+                                  &active_id, false,
+                                );
+                                hotplug_state.last_hardware_swap =
+                                  Some(Instant::now());
+                                shared_state.set_device_backend_error(
+                                  processor.get_error(),
+                                );
+                              }
+                            }
+                            _ => {
+                              shared_state.set_device_backend_error(Some(format!(
+                              "Async SDR sample reader restart failed; no supported device available: {}",
+                              restart_e
+                            )));
+                            }
+                          }
+                        }
+                      }
+                    }
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                 }
@@ -1472,6 +2008,30 @@ impl WebSocketServer {
                 ) {
                   shared_state.set_device_state("loading", Some("restart"));
                   broadcast_device_status(&shared_state, &_broadcast_tx);
+
+                  let cleanup_ready = match processor.cleanup() {
+                    Ok(()) => true,
+                    Err(cleanup_e) => {
+                      // Do not reopen the USB interface while a cancelled
+                      // RTL async reader is still unwinding.  Retrying the
+                      // open in that window is what causes claim-interface
+                      // failures and the permanent loading placeholder.
+                      warn!(
+                        "SDR handle is still stopping; deferring replacement: {}",
+                        cleanup_e
+                      );
+                      shared_state.set_device_state("loading", Some("restart"));
+                      shared_state
+                        .set_device_backend_error(Some(cleanup_e.to_string()));
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      hotplug_state.last_hardware_swap = Some(Instant::now());
+                      false
+                    }
+                  };
+
+                  if !cleanup_ready {
+                    continue;
+                  }
 
                   match crate::sdr::SdrDeviceFactory::create_device() {
                     Ok(new_device)
@@ -1495,6 +2055,9 @@ impl WebSocketServer {
                         shared_state
                           .recovery_attempts
                           .fetch_add(1, Ordering::Relaxed);
+                        let active_id = active_source_id(&shared_state);
+                        shared_state
+                          .set_active_source_pause_state(&active_id, false);
                         shared_state
                           .set_device_backend_error(processor.get_error());
                         broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -1555,6 +2118,7 @@ impl WebSocketServer {
                     shared_state
                       .set_device_backend_error(processor.get_error());
                   }
+                  shared_state.set_active_source_pause_state("mock-apt", false);
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                   hotplug_state.last_hardware_swap = Some(Instant::now());
                 }

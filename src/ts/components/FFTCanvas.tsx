@@ -77,6 +77,7 @@ import {
   peakResampleWaterfallRow,
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
+import { flushWebGpuPresentation } from "@n-apt/utils/webgpuStreamReset";
 import { roundDbValue } from "@n-apt/utils/frequency";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import {
@@ -879,6 +880,8 @@ export interface FFTCanvasProps {
   awaitingDeviceData?: boolean | string;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
+  /** Increments at a source/reconnect boundary to discard stale GPU output. */
+  webGpuStreamResetEpoch?: number;
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
   demodulationCenterFreqHz?: number | null;
   demodulationRangeHz?: number | null;
@@ -1018,6 +1021,7 @@ const FFTCanvas = memo(
       awaitingDeviceData = false,
       visualizerMachine,
       visualizerSessionKey = "default",
+      webGpuStreamResetEpoch = 0,
       waterfallCanvasBindings,
       compact = false,
       nodePreview = false,
@@ -1095,8 +1099,9 @@ const FFTCanvas = memo(
         isStandby,
       );
     }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
-    const explicitPlaceholderStateRef =
-      useRef<CanvasPlaceholderState | null>(explicitPlaceholderState);
+    const explicitPlaceholderStateRef = useRef<CanvasPlaceholderState | null>(
+      explicitPlaceholderState,
+    );
     explicitPlaceholderStateRef.current = explicitPlaceholderState;
     const pendingTxSliderDispatchRef = useRef<{
       centerHz?: number;
@@ -1237,6 +1242,8 @@ const FFTCanvas = memo(
       useState(false);
 
     const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
+    const [fontLoadedTrigger, setFontLoadedTrigger] = useState(0);
+
     const powerLineDbRef = useRef<number | null>(null);
     const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
@@ -1395,6 +1402,7 @@ const FFTCanvas = memo(
     const latestVisualizerMachineRef = useRef(visualizerMachine);
     const latestVisualizerSessionKeyRef = useRef(visualizerSessionKey);
     const lastVisualizerAutoPersistAtRef = useRef(0);
+    const lastWebGpuStreamResetEpochRef = useRef(webGpuStreamResetEpoch);
 
     useEffect(() => {
       latestVisualizerMachineRef.current = visualizerMachine;
@@ -1603,7 +1611,8 @@ const FFTCanvas = memo(
     vizPanOffsetRef.current = vizPanOffset;
 
     const isLoadingPlaceholder =
-      !placeholderErrorReason && !hasRenderedSpectrumFrame;
+      !placeholderErrorReason &&
+      explicitPlaceholderState?.kind === "loading";
 
     const canvasPlaceholderState =
       useMemo<CanvasPlaceholderState | null>(() => {
@@ -1954,53 +1963,39 @@ const FFTCanvas = memo(
       resampleParamsBufferRef,
       gpuBufferPoolRef,
     });
+
+    // Trigger redraw once fonts are fully loaded to prevent serif font fallback glitch in Safari
+    useEffect(() => {
+      if (typeof document !== "undefined" && document.fonts) {
+        document.fonts.ready.then(() => {
+          if (overlayDirtyRef.current) {
+            overlayDirtyRef.current.grid = true;
+            overlayDirtyRef.current.markers = true;
+          }
+          setFontLoadedTrigger((prev) => prev + 1);
+          forceRenderRef.current?.();
+        });
+      }
+    }, [overlayDirtyRef]);
+
     const spectrumWebgpuEnabled = webgpuEnabled;
     const activeScaleDbMin = vizDbMin;
     const activeScaleDbMax = vizDbMax;
     const gpuProcessingDevice = webgpuDeviceRef.current;
 
     const clearSpectrumBackbuffer = useCallback(() => {
-      const resetCanvas = (canvas: HTMLCanvasElement | null) => {
-        if (!canvas) return;
-        const width = canvas.width;
-        const height = canvas.height;
-        if (width > 0 && height > 0) {
-          canvas.width = width;
-          canvas.height = height;
-        }
-      };
-
-      const clearGpuCanvas = (canvas: HTMLCanvasElement | null) => {
-        const device = webgpuDeviceRef.current;
-        const format = webgpuFormatRef.current;
-        if (!canvas || !device || !format) return;
-
-        try {
-          const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
-          if (!context) return;
-          context.configure({ device, format, alphaMode: "premultiplied" });
-          const encoder = device.createCommandEncoder();
-          const pass = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: context.getCurrentTexture().createView(),
-                clearValue: { r: 0.04, g: 0.04, b: 0.04, a: 1 },
-                loadOp: "clear",
-                storeOp: "store",
-              },
-            ],
-          });
-          pass.end();
-          device.queue.submit([encoder.finish()]);
-        } catch {
-          resetCanvas(canvas);
-        }
-      };
-
-      resetCanvas(spectrumGpuCanvasRef.current);
-      resetCanvas(waterfallGpuCanvasRef.current);
-      clearGpuCanvas(spectrumGpuCanvasRef.current);
-      clearGpuCanvas(waterfallGpuCanvasRef.current);
+      const device = webgpuDeviceRef.current;
+      const format = webgpuFormatRef.current;
+      flushWebGpuPresentation({
+        canvas: spectrumGpuCanvasRef.current,
+        device,
+        format,
+      });
+      flushWebGpuPresentation({
+        canvas: waterfallGpuCanvasRef.current,
+        device,
+        format,
+      });
       clearOverlayCanvas(spectrumOverlayCanvasRef.current);
       clearOverlayCanvas(waterfallOverlayCanvasRef.current);
     }, [
@@ -3707,6 +3702,30 @@ const FFTCanvas = memo(
       forceRender();
     }, [selectionRange, forceRender, overlayDirtyRef]);
 
+    // A warm source switch can retain the previous spectrum frame by design,
+    // but its device limits must never carry across with it. Destroy only the
+    // marker texture and repaint; the waveform remains visible until the new
+    // source produces its first I/Q frame.
+    useEffect(() => {
+      markersOverlayRendererRef.current?.destroy();
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      clearOverlayCanvas(spectrumOverlayCanvasNode);
+      forceRender();
+    }, [
+      clearOverlayCanvas,
+      deviceBackend,
+      deviceName,
+      deviceProfile?.is_rtl_sdr,
+      deviceProfile?.kind,
+      forceRender,
+      hardwareSampleRateHz,
+      limitMarkers,
+      markersOverlayRendererRef,
+      overlayDirtyRef,
+      spectrumOverlayCanvasNode,
+    ]);
+
     const { restoreWaveformFromStorage, ensurePausedFrame } = usePauseLogic({
       isPaused,
       renderWaveformRef,
@@ -3880,6 +3899,31 @@ const FFTCanvas = memo(
       restoreVisualizerSessionSnapshot,
       visualizerMachine,
       visualizerSessionKey,
+    ]);
+
+    // Hotplug can reconnect to the same source id, so a session-key change is
+    // not enough to protect against presenting old I/Q. This explicit epoch
+    // clears CPU history, the circular waterfall texture, and both WebGPU
+    // presentation surfaces before the replacement stream's first frame.
+    useEffect(() => {
+      if (lastWebGpuStreamResetEpochRef.current === webGpuStreamResetEpoch) {
+        return;
+      }
+      lastWebGpuStreamResetEpochRef.current = webGpuStreamResetEpoch;
+      visualizerMachine?.clear(visualizerSessionKey);
+      clearLocalVisualizerSession();
+      lastIncomingFrameRef.current = null;
+      setHasRenderedSpectrumFrame(false);
+      onRenderableFrameChange?.(false);
+      clearSpectrumBackbuffer();
+      forceRenderRef.current?.();
+    }, [
+      clearLocalVisualizerSession,
+      clearSpectrumBackbuffer,
+      onRenderableFrameChange,
+      visualizerMachine,
+      visualizerSessionKey,
+      webGpuStreamResetEpoch,
     ]);
 
     // Effect: On mount: restore visualizer state from machine if available.
@@ -4425,7 +4469,14 @@ const FFTCanvas = memo(
                     {txSliderVisualMetrics && !compact ? (
                       <TxSliderVisualRow data-testid="tx-slider-visual-row">
                         <TxSliderVisualLabel>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", height: "18px" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              height: "18px",
+                            }}
+                          >
                             <TxSliderLockButton
                               type="button"
                               onClick={() =>

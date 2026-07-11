@@ -119,6 +119,62 @@ const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
   );
 };
 
+export const resolveSelectedSourceIdForInventory = ({
+  selectedSourceId,
+  activeSourceId,
+  sources,
+}: {
+  selectedSourceId: string;
+  activeSourceId: string;
+  sources: SourceInfo[];
+}): string => {
+  if (sources.length === 0) return "";
+  const selected = sources.find((source) => source.id === selectedSourceId);
+  const hardwareSources = sources.filter((source) => !isMockSourceInfo(source));
+  const targetHardware =
+    hardwareSources.find((source) => source.id === activeSourceId) ??
+    hardwareSources.find(
+      (source) =>
+        source.status === "loading" ||
+        source.status === "streaming" ||
+        source.status === "connected",
+    );
+
+  if (targetHardware && (!selected || isMockSourceInfo(selected))) {
+    return targetHardware.id;
+  }
+  if (
+    selected &&
+    selected.status === "disconnected" &&
+    activeSourceId.startsWith("mock")
+  ) {
+    return activeSourceId;
+  }
+  if (selected) return selected.id;
+  return (
+    sources.find((source) => source.id === activeSourceId)?.id ?? sources[0].id
+  );
+};
+
+/**
+ * The sidebar selection is an intent; the active source is the server's
+ * confirmation of which I/Q subscription is actually delivering frames.
+ * Never let optimistic selection metadata relabel an in-flight stream.
+ */
+export const resolveStreamingSourceForDisplay = ({
+  selectedSourceId,
+  activeSourceId,
+  sources,
+}: {
+  selectedSourceId: string;
+  activeSourceId: string;
+  sources: SourceInfo[];
+}): SourceInfo | null =>
+  sources.find((source) => source.id === activeSourceId) ??
+  sources.find((source) => source.id === selectedSourceId) ??
+  sources[0] ??
+  null;
+
 const resolveDeviceActiveMode = (
   source: SourceInfo | null | undefined,
 ): DeviceActiveMode => {
@@ -188,7 +244,8 @@ export const shouldResumePausedRxSourceOnSelection = (
   !!source &&
   !manuallyPaused &&
   source.paused === true &&
-  !isTxCapableSourceInfo(source);
+  (!isTxCapableSourceInfo(source) ||
+    (isHalfDuplexSourceInfo(source) && source.status !== "transmitting"));
 
 const isRecoverableLiveSourceStatus = (
   status: string | null | undefined,
@@ -437,6 +494,7 @@ const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
   "fftMinDb",
   "fftMaxDb",
   "fftSize",
+  "fftFrameRate",
   "fftWindow",
   "showSpikeOverlay",
   "gain",
@@ -484,6 +542,14 @@ export const normalizePersistedSourceViewState = (
   }
   return next;
 };
+
+export const resolveSourceSwitchDisplaySettings = (
+  restored: Partial<SpectrumState> | null | undefined,
+  current: Partial<SpectrumState>,
+): Partial<SpectrumState> => ({
+  ...current,
+  ...normalizePersistedSourceViewState(restored),
+});
 
 export type SpectrumAction =
   | { type: "SET_SIGNAL_AREA"; area: string }
@@ -781,9 +847,9 @@ export const resolveEffectiveLiveSampleRateHz = ({
   maxSampleRateHz?: number | null;
 }): number | null => {
   const candidates = [
-    localSampleRateHz,
     websocketSampleRateHz,
     sdrSettingsSampleRateHz,
+    localSampleRateHz,
     maxSampleRateHz,
   ];
 
@@ -1171,12 +1237,12 @@ export type SpectrumStoreContextValue = {
     sendTransmitMode: (
       enabled: boolean,
       device: string,
-        txSettings: {
-          serialNumber: string;
-          centerFrequencyHz?: number | null;
-          viewCenterHz?: number | null;
-          bandwidthHz?: number | null;
-          sampleRateHz?: number | null;
+      txSettings: {
+        serialNumber: string;
+        centerFrequencyHz?: number | null;
+        viewCenterHz?: number | null;
+        bandwidthHz?: number | null;
+        sampleRateHz?: number | null;
         ifftSize?: number | null;
         powerDbm?: number | null;
         lnaGainDb?: number | null;
@@ -1265,6 +1331,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
     const pendingSourceSwitchRef = useRef<string | null>(null);
+    const sourceSwitchTimeoutRef = useRef<number | null>(null);
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const previousSelectedSourceIdRef = useRef<string | null>(null);
@@ -1310,9 +1377,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       () => getSourceViewStorageKeyForSource(selectedSource),
       [selectedSource],
     );
+    const streamingSource = useMemo(
+      () =>
+        resolveStreamingSourceForDisplay({
+          selectedSourceId,
+          activeSourceId,
+          sources: effectiveWebsocketSources,
+        }),
+      [activeSourceId, effectiveWebsocketSources, selectedSourceId],
+    );
     const selectedSourceDerived = useMemo(
-      () => deriveSourceDerivedState(selectedSource),
-      [selectedSource],
+      () => deriveSourceDerivedState(streamingSource),
+      [streamingSource],
     );
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
@@ -1324,42 +1400,30 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const reduxSpectrumState = useAppSelector((s) => s.spectrum);
 
     useEffect(() => {
-      const availableSourceIds = Array.isArray(websocketSources)
-        ? websocketSources.map((source) => source.id)
-        : [];
-
-      if (availableSourceIds.length === 0) {
-        if (selectedSourceId.length > 0) {
-          setSelectedSourceId("");
-        }
-        return;
-      }
-
-      const hasSelectedSource =
-        selectedSourceId.length > 0 &&
-        availableSourceIds.includes(selectedSourceId);
-      const selectedSourceCandidate = hasSelectedSource
-        ? websocketSources.find((source) => source.id === selectedSourceId)
-        : null;
-      const loadingHardwareSource = websocketSources.find(
-        (source) => source.status === "loading" && !isMockSourceInfo(source),
-      );
-      if (
-        loadingHardwareSource &&
-        (!selectedSourceCandidate || isMockSourceInfo(selectedSourceCandidate))
-      ) {
-        setSelectedSourceId(loadingHardwareSource.id);
-        return;
-      }
-      const fallbackSourceId = activeSourceId || availableSourceIds[0] || "";
-
-      if (!hasSelectedSource && fallbackSourceId) {
-        setSelectedSourceId(fallbackSourceId);
+      const nextSourceId = resolveSelectedSourceIdForInventory({
+        selectedSourceId,
+        activeSourceId,
+        sources: websocketSources,
+      });
+      if (nextSourceId !== selectedSourceId) {
+        setSelectedSourceId(nextSourceId);
       }
     }, [activeSourceId, selectedSourceId, websocketSources]);
 
     useEffect(() => {
       if (!selectedSourceId || !selectedSourceViewKey) {
+        return;
+      }
+
+      // Source-specific controls must change with the active I/Q stream, not
+      // with a click that the backend has not accepted yet. Otherwise a RTL
+      // sample rate/options can be painted over HackRF frames during a warm
+      // switch.
+      if (
+        state.sourceMode === "live" &&
+        activeSourceId.length > 0 &&
+        selectedSourceId !== activeSourceId
+      ) {
         return;
       }
 
@@ -1375,8 +1439,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       if (previousSourceViewKey !== selectedSourceViewKey) {
-        const restoredState = normalizePersistedSourceViewState(
+        const restoredState = resolveSourceSwitchDisplaySettings(
           loadStoredJson<Partial<SpectrumState>>(selectedSourceViewKey),
+          {},
         );
         skipNextSourceViewPersistRef.current = selectedSourceViewKey;
         if (Object.keys(restoredState).length > 0) {
@@ -1384,12 +1449,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             type: "SET_SDR_SETTINGS_BUNDLE",
             settings: restoredState,
           });
+          reduxDispatch(setSdrSettingsBundleAction(restoredState));
         }
         selectedSourceViewKeyRef.current = selectedSourceViewKey;
       }
 
       saveSelectedSourceId(selectedSourceId);
-    }, [dispatch, selectedSourceId, selectedSourceViewKey]);
+    }, [
+      activeSourceId,
+      dispatch,
+      reduxDispatch,
+      selectedSourceId,
+      selectedSourceViewKey,
+      state.sourceMode,
+    ]);
 
     useEffect(() => {
       const availableSourceIds = Array.isArray(websocketSources)
@@ -1404,7 +1477,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           availableSourceIds,
         })
       ) {
-        pendingSourceSwitchRef.current = null;
+        // Keep a completed request long enough for the confirmation effect to
+        // report it. Clear only requests that can no longer be completed.
+        if (selectedSourceId !== activeSourceId) {
+          pendingSourceSwitchRef.current = null;
+        }
         return;
       }
 
@@ -1413,16 +1490,55 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       liveDataRef.current = [];
+      console.info("[source-switch] requested", {
+        selectedSourceId,
+        activeSourceId,
+        selectedStatus: selectedSource?.status ?? null,
+      });
       reduxDispatch(sendSelectSourceThunk(selectedSourceId));
       pendingSourceSwitchRef.current = selectedSourceId;
+      if (sourceSwitchTimeoutRef.current !== null) {
+        window.clearTimeout(sourceSwitchTimeoutRef.current);
+      }
+      sourceSwitchTimeoutRef.current = window.setTimeout(() => {
+        if (pendingSourceSwitchRef.current === selectedSourceId) {
+          console.warn("[source-switch] confirmation timed out", {
+            requestedSourceId: selectedSourceId,
+            activeSourceId: activeSourceId || null,
+          });
+        }
+      }, 3_000);
     }, [
       activeSourceId,
       isConnected,
       reduxDispatch,
+      selectedSource,
       selectedSourceId,
       state.sourceMode,
       websocketSources,
     ]);
+
+    useEffect(() => {
+      const pendingSourceId = pendingSourceSwitchRef.current;
+      if (!pendingSourceId || pendingSourceId !== activeSourceId) {
+        return;
+      }
+      pendingSourceSwitchRef.current = null;
+      if (sourceSwitchTimeoutRef.current !== null) {
+        window.clearTimeout(sourceSwitchTimeoutRef.current);
+        sourceSwitchTimeoutRef.current = null;
+      }
+      console.info("[source-switch] confirmed", { activeSourceId });
+    }, [activeSourceId]);
+
+    useEffect(
+      () => () => {
+        if (sourceSwitchTimeoutRef.current !== null) {
+          window.clearTimeout(sourceSwitchTimeoutRef.current);
+        }
+      },
+      [],
+    );
 
     useEffect(() => {
       if (!selectedSourceId || !selectedSourceViewKey) {
@@ -1879,11 +1995,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
       }
 
-      if (isTxCapableSourceInfo(selectedSource)) {
-        syncSelectedSourcePauseState(selectedSourceId);
-        return;
-      }
-
       if (
         shouldResumePausedRxSourceOnSelection(
           selectedSource,
@@ -1896,6 +2007,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           [selectedSourceId]: false,
         }));
         wsConnection.sendPauseCommand(false, selectedSourceId);
+        syncSelectedSourcePauseState(selectedSourceId);
+        return;
+      }
+
+      if (isTxCapableSourceInfo(selectedSource)) {
         syncSelectedSourcePauseState(selectedSourceId);
         return;
       }
@@ -2099,7 +2215,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       const isLiveSource = state.sourceMode === "live";
       const isPausedForPreview = manualVisualizerPaused && isConnected;
-      const isSwitchingSource = activeSourceId !== null && selectedSourceId !== null && activeSourceId !== selectedSourceId;
+      const isSwitchingSource =
+        activeSourceId !== null &&
+        selectedSourceId !== null &&
+        activeSourceId !== selectedSourceId;
 
       if (!isLiveSource || !isPausedForPreview || isSwitchingSource) {
         if (pausedPreviewTimeoutRef.current !== null) {
@@ -2372,6 +2491,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const hydratedBackendSampleRateRef = useRef(false);
 
+    useEffect(() => {
+      hydratedBackendSampleRateRef.current = false;
+      hasInitializedBackendSettingsRef.current = false;
+    }, [activeSourceId, selectedSourceViewKey]);
+
     // Hydrate sample rate from backend once. After user interaction, the
     // frontend is authoritative because sample-rate changes are one-way.
     useEffect(() => {
@@ -2421,10 +2545,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       storeDispatch,
     ]);
 
-    const effectiveFrames: SpectrumFrame[] =
-      !isConnected
-        ? []
-        : Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
+    const effectiveFrames: SpectrumFrame[] = !isConnected
+      ? []
+      : Array.isArray(wsSpectrumFrames) && wsSpectrumFrames.length > 0
         ? wsSpectrumFrames
         : Array.isArray(cachedFrames)
           ? cachedFrames
