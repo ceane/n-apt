@@ -73,6 +73,18 @@ describe("fftVisualizerMachine", () => {
     expect(machine.getState("s1").status).toBe("empty");
   });
 
+  test("discards the stale unmount snapshot after a hotplug reset", () => {
+    const machine = createFFTVisualizerMachine();
+    machine.persist("rtl-sdr-v4", createMockSnapshot());
+
+    machine.discardNextPersist("rtl-sdr-v4");
+    machine.persist("rtl-sdr-v4", createMockSnapshot());
+
+    expect(machine.restore("rtl-sdr-v4")).toBeNull();
+    machine.persist("rtl-sdr-v4", createMockSnapshot());
+    expect(machine.getState("rtl-sdr-v4").status).toBe("ready");
+  });
+
   test("persist with null clears the session", () => {
     const machine = createFFTVisualizerMachine();
     machine.persist("s1", createMockSnapshot());

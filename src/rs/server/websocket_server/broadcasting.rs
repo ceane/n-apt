@@ -12,25 +12,51 @@ use tokio::sync::broadcast;
 pub const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
-pub fn broadcast_source_status(
+pub fn build_source_status_payload(
+  source_id: &str,
+  status: &str,
+  loading_attempt: u32,
+) -> serde_json::Value {
+  serde_json::json!({
+    "type": "status",
+    "source_id": source_id,
+    "status": status,
+    "loading_attempt": loading_attempt,
+    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+  })
+}
+
+pub fn broadcast_source_status_for_id(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
+  source_id: &str,
   status: &str,
 ) {
-  let payload = serde_json::json!({
-    "type": "status",
-    "source_id": active_source_id(shared),
-    "status": status,
-    "loading_attempt": shared.recovery_attempts.load(Ordering::Relaxed),
-    "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-  });
-  let payload = payload.to_string();
+  let payload = build_source_status_payload(
+    source_id,
+    status,
+    shared.recovery_attempts.load(Ordering::Relaxed),
+  )
+  .to_string();
   let mut last_payload = shared.last_broadcast_status.lock().unwrap();
   if last_payload.as_ref() == Some(&payload) {
     return;
   }
   *last_payload = Some(payload.clone());
   let _ = broadcast_tx.send(payload);
+}
+
+pub fn broadcast_source_status(
+  shared: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+  status: &str,
+) {
+  broadcast_source_status_for_id(
+    shared,
+    broadcast_tx,
+    &active_source_id(shared),
+    status,
+  );
 }
 
 pub fn broadcast_channels(
@@ -152,4 +178,17 @@ pub fn broadcast_active_source(
     "source_mode": if paused { "file" } else { "live" },
   });
   let _ = broadcast_tx.send(payload.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn targeted_loading_status_names_the_source_being_opened() {
+    let payload =
+      build_source_status_payload("hackrf_one-serial", "loading", 0);
+    assert_eq!(payload["source_id"], "hackrf_one-serial");
+    assert_eq!(payload["status"], "loading");
+  }
 }

@@ -23,6 +23,14 @@ struct RxContext {
   tx: Sender<Vec<u8>>,
 }
 
+fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
+  let mut drained = 0;
+  while rx.try_recv().is_ok() {
+    drained += 1;
+  }
+  drained
+}
+
 fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
   if freq_hz == 0 || ppm == 0 {
     return freq_hz;
@@ -236,6 +244,12 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
+  fn enter_standby(&mut self) -> Result<()> {
+    self.stop_streaming();
+    self.flush_read_queue();
+    Ok(())
+  }
+
   fn is_ready(&self) -> bool {
     !self.dev.is_null()
   }
@@ -386,6 +400,11 @@ impl SdrDevice for HackRfDevice {
     HACKRF_MAX_SAMPLE_RATE
   }
 
+  fn flush_read_queue(&mut self) {
+    drain_rx_queue(&self.rx_queue);
+    self.iq_buffer.clear();
+  }
+
   fn reset_buffer(&mut self) -> Result<()> {
     self.stop_streaming();
     self.ensure_streaming()?;
@@ -405,6 +424,13 @@ impl SdrDevice for HackRfDevice {
       return true;
     }
 
+    unsafe { ffi::hackrf_is_streaming(self.dev) == 1 }
+  }
+
+  fn is_rx_active(&self) -> bool {
+    if self.dev.is_null() {
+      return false;
+    }
     unsafe { ffi::hackrf_is_streaming(self.dev) == 1 }
   }
 
@@ -523,5 +549,15 @@ mod tests {
 
     assert_eq!(first_ptr, second_ptr);
     assert!(device.rx_context.is_some());
+  }
+
+  #[test]
+  fn warm_rx_queue_is_drained_before_display_resumes() {
+    let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    tx.send(vec![1, 2]).unwrap();
+    tx.send(vec![3, 4]).unwrap();
+
+    assert_eq!(drain_rx_queue(&rx), 2);
+    assert!(rx.try_recv().is_err());
   }
 }

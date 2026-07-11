@@ -18,9 +18,9 @@
 
 [⠿ TDLR at the bottom](#tdlr)
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim.
+<span class="dropcap">I</span>n this article, I break down my working hypothesis based on **thousands of hours of real experience** trapped by the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This article is based on real events in which the agency's side showed it's extreme, parental-psychopathic like tendencies.  Here is not an account of what happened (you'll have to check my X), but an article dedicated to breaking down the math and mechanics behind the real experience as a victim.
 
-To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process-obsessive dogma empowers loopholes and cracks that can be exploited.
+To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process or leaglese-obsessive dogma empowers loopholes and cracks that can be exploited.
 
 ```Canvas::HeroASCII
 ```
@@ -29,9 +29,9 @@ What I learned was that the element of surprise and total ignornace long-reinfor
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
-**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic).** For a long time, energy, compute power and other tools.
+**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic)**. 
 
-This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
+This article is my own **technical and scientific-oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
 *National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
@@ -1226,7 +1226,10 @@ TODO
 
 ```React::DaysSince
 ```
-*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the forumla in the table above.[^data-estimate]*
+*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.[^data-estimate]*
+
+† **Min** formula assumes Channels A and B divided by 65,536 FFT size, and Channel C (strongly assumed to be vision) at 1:1, with u8 integers at 8-bits I/Q.  
+‡ **Max** formula assumes spectrum at full (1:1) sample fidelity and 16-bit I/Q.
 
 
 ![The EFF's Headquarters in San Francisco](/images/11_5_2025.jpeg)

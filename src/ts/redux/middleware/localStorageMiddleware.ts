@@ -45,7 +45,10 @@ export const normalizePersistedTxSignalKey = (value: unknown): string => {
     return "wifi";
   }
 
-  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   switch (normalized) {
     case "":
     case "apt":

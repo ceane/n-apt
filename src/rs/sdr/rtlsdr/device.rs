@@ -9,6 +9,10 @@ use log::{debug, info, warn};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
 use std::thread::{self, JoinHandle};
 
 use super::ffi;
@@ -19,6 +23,13 @@ pub struct RtlSdrDevice {
   device_index: u32,
   rx_queue: Option<Receiver<Vec<u8>>>,
   async_thread: Option<JoinHandle<()>>,
+  /// Set while a cancelled async reader is still unwinding in librtlsdr.
+  ///
+  /// We must not close or reuse the device handle until that reader has
+  /// returned.  Closing it early leaves libusb with a live transfer pointing
+  /// at the old interface and makes the next hotplug open stall with
+  /// `usb_claim_interface error -3`.
+  reader_stop_pending: Option<Arc<AtomicBool>>,
   iq_overflow: Vec<u8>,
   max_sample_rate_cache: Option<u32>,
   last_error: Option<String>,
@@ -64,16 +75,49 @@ extern "C" fn c_read_async_cb(
 unsafe impl Send for RtlSdrDevice {}
 
 impl RtlSdrDevice {
-  fn stop_async_reader(&mut self) {
+  /// Cancel the reader and report whether the handle is safe to reuse.
+  ///
+  /// Cancellation itself is intentionally non-blocking.  On macOS/libusb the
+  /// `rtlsdr_read_async` thread can take a short time to return after cancel;
+  /// callers must wait for the returned `false` state to become complete
+  /// before closing or reopening the USB handle.
+  fn stop_async_reader(&mut self) -> bool {
+    if let Some(done) = &self.reader_stop_pending {
+      if !done.load(Ordering::Acquire) {
+        return false;
+      }
+      self.reader_stop_pending = None;
+    }
+
     if let Some(handle) = self.async_thread.take() {
       let _ = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
-      let _ = handle.join();
+      if handle.is_finished() {
+        let _ = handle.join();
+      } else {
+        let done = Arc::new(AtomicBool::new(false));
+        let done_for_joiner = Arc::clone(&done);
+        thread::spawn(move || {
+          let _ = handle.join();
+          done_for_joiner.store(true, Ordering::Release);
+        });
+        self.reader_stop_pending = Some(done);
+        self.rx_queue = None;
+        return false;
+      }
     }
 
     self.rx_queue = None;
+    true
   }
 
   fn start_async_reader(&mut self) -> Result<()> {
+    if let Some(done) = &self.reader_stop_pending {
+      if !done.load(Ordering::Acquire) {
+        return Err(anyhow!("RTL-SDR async reader is still stopping"));
+      }
+      self.reader_stop_pending = None;
+    }
+
     self.reset_buffer()?;
 
     let (tx, rx) = bounded::<Vec<u8>>(1024);
@@ -199,6 +243,7 @@ impl RtlSdrDevice {
       device_index: index,
       rx_queue: None,
       async_thread: None,
+      reader_stop_pending: None,
       iq_overflow: Vec::new(),
       max_sample_rate_cache: None,
       last_error: None,
@@ -631,7 +676,31 @@ impl Drop for RtlSdrDevice {
     if !self.dev.is_null() {
       info!("Closing RTL-SDR device #{}...", self.device_index);
 
-      self.stop_async_reader();
+      if !self.stop_async_reader() {
+        // Drop cannot return an error.  Give the cancelled reader a bounded
+        // chance to unwind before closing the handle; closing first is a
+        // use-after-free in librtlsdr/libusb and is the source of reconnect
+        // stalls.  If cancellation is genuinely wedged, leak the handle
+        // rather than corrupting the next device open.
+        let deadline =
+          std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while self
+          .reader_stop_pending
+          .as_ref()
+          .map(|done| !done.load(Ordering::Acquire))
+          .unwrap_or(false)
+          && std::time::Instant::now() < deadline
+        {
+          thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        if !self.stop_async_reader() {
+          warn!(
+            "RTL-SDR reader did not stop before drop; leaving device handle open"
+          );
+          return;
+        }
+      }
 
       let ret = unsafe { ffi::rtlsdr_close(self.dev) };
       if ret != 0 {
@@ -673,12 +742,27 @@ impl SdrDevice for RtlSdrDevice {
     // or dead but the join handle has not yet observed it, cancel the old
     // stream and start a fresh one instead of treating the device as already
     // initialized.
-    self.stop_async_reader();
+    if !self.stop_async_reader() {
+      return Err(anyhow!("RTL-SDR async reader is still stopping"));
+    }
     self.start_async_reader()
+  }
+
+  fn enter_standby(&mut self) -> Result<()> {
+    if !self.stop_async_reader() {
+      return Err(anyhow!("RTL-SDR async reader is still stopping"));
+    }
+    self.iq_overflow.clear();
+    Ok(())
   }
 
   fn is_ready(&self) -> bool {
     !self.dev.is_null()
+      && !self
+        .reader_stop_pending
+        .as_ref()
+        .map(|done| !done.load(Ordering::Acquire))
+        .unwrap_or(false)
       && self
         .async_thread
         .as_ref()
@@ -837,8 +921,11 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn cleanup(&mut self) -> Result<()> {
-    // Device is automatically cleaned up by Drop trait
-    Ok(())
+    if self.stop_async_reader() {
+      Ok(())
+    } else {
+      Err(anyhow!("RTL-SDR async reader is still stopping"))
+    }
   }
 
   /// Check if the RTL-SDR device is still operational.
@@ -864,6 +951,15 @@ impl SdrDevice for RtlSdrDevice {
       return false;
     }
 
+    if self
+      .reader_stop_pending
+      .as_ref()
+      .map(|done| !done.load(Ordering::Acquire))
+      .unwrap_or(false)
+    {
+      return false;
+    }
+
     if let Some(handle) = &self.async_thread {
       if handle.is_finished() {
         // Thread died prematurely (often due to LIBUSB_ERROR_NO_DEVICE)
@@ -872,6 +968,23 @@ impl SdrDevice for RtlSdrDevice {
     }
 
     true
+  }
+
+  fn is_rx_active(&self) -> bool {
+    if self.dev.is_null()
+      || self
+        .reader_stop_pending
+        .as_ref()
+        .map(|done| !done.load(Ordering::Acquire))
+        .unwrap_or(false)
+    {
+      return false;
+    }
+    self
+      .async_thread
+      .as_ref()
+      .map(|handle| !handle.is_finished())
+      .unwrap_or(false)
   }
 
   fn get_error(&self) -> Option<String> {
@@ -898,6 +1011,7 @@ mod tests {
       device_index: 0,
       rx_queue: None,
       async_thread: Some(handle),
+      reader_stop_pending: None,
       iq_overflow: Vec::new(),
       max_sample_rate_cache: None,
       last_error: None,
@@ -907,5 +1021,42 @@ mod tests {
     });
 
     assert!(!SdrDevice::is_ready(&*device));
+  }
+
+  #[test]
+  fn test_stop_async_reader_does_not_block_on_unfinished_thread() {
+    let handle = thread::spawn(|| {
+      thread::sleep(Duration::from_millis(20));
+    });
+
+    let mut device = ManuallyDrop::new(RtlSdrDevice {
+      dev: std::ptr::null_mut(),
+      device_index: 0,
+      rx_queue: None,
+      async_thread: Some(handle),
+      reader_stop_pending: None,
+      iq_overflow: Vec::new(),
+      max_sample_rate_cache: None,
+      last_error: None,
+      usb_serial: String::new(),
+      usb_manufacturer: String::new(),
+      usb_product: String::new(),
+    });
+
+    let start = std::time::Instant::now();
+    assert!(!device.stop_async_reader());
+
+    assert!(
+      start.elapsed() < Duration::from_millis(500),
+      "stop_async_reader blocked on unfinished thread"
+    );
+    assert!(device.async_thread.is_none());
+    assert!(!SdrDevice::is_healthy(&*device));
+    assert!(
+      SdrDevice::cleanup(&mut *device).is_err(),
+      "cleanup must not report the USB handle reusable while the reader is pending"
+    );
+    thread::sleep(Duration::from_millis(30));
+    assert!(SdrDevice::cleanup(&mut *device).is_ok());
   }
 }

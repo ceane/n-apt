@@ -318,9 +318,7 @@ describe("FFTCanvas Component", () => {
       </TestWrapper>,
     );
 
-    expect(
-      await screen.findByText("Device Disconnected"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Device Disconnected")).toBeInTheDocument();
     expect(
       screen.getByText(
         "The device disconnected. The backend is retrying the connection.",
@@ -385,9 +383,7 @@ describe("FFTCanvas Component", () => {
       expect(onCanvasLoadingChange).toHaveBeenCalledWith(true);
     });
     expect(screen.getByText("Standby")).toBeInTheDocument();
-    expect(
-      screen.getByText("Start Tx to transmit"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Start Tx to transmit")).toBeInTheDocument();
     expect(
       screen.getByText("Start Tx to view backend-generated monitor I/Q."),
     ).toBeInTheDocument();
@@ -399,9 +395,7 @@ describe("FFTCanvas Component", () => {
   it("renders a requested Mock Tx preview frame while standby is paused", async () => {
     drawSpectrumMock.mockClear();
     processIqToDbmSpectrumMock.mockClear();
-    processIqToDbmSpectrumMock.mockReturnValueOnce(
-      new Float32Array([7, 8, 9]),
-    );
+    processIqToDbmSpectrumMock.mockReturnValueOnce(new Float32Array([7, 8, 9]));
 
     const previewFrame = {
       type: "spectrum",
@@ -435,8 +429,9 @@ describe("FFTCanvas Component", () => {
       expect(drawSpectrumMock).toHaveBeenCalled();
     });
 
-    const drawSpectrumCalls = drawSpectrumMock.mock
-      .calls as unknown as Array<[{ waveform?: ArrayLike<number> }]>;
+    const drawSpectrumCalls = drawSpectrumMock.mock.calls as unknown as Array<
+      [{ waveform?: ArrayLike<number> }]
+    >;
     const renderedWaveform =
       drawSpectrumCalls[drawSpectrumCalls.length - 1]?.[0]?.waveform;
     const processIqCalls = processIqToDbmSpectrumMock.mock
@@ -457,9 +452,7 @@ describe("FFTCanvas Component", () => {
     const processedSpectrum = new Float32Array([
       -80, -81, -55, -20, -20, -20, -54, -82, -79,
     ]);
-    processIqToDbmSpectrumMock.mockReturnValue(
-      processedSpectrum,
-    );
+    processIqToDbmSpectrumMock.mockReturnValue(processedSpectrum);
 
     const previewFrame = {
       type: "spectrum",
@@ -515,8 +508,9 @@ describe("FFTCanvas Component", () => {
       expect(drawSpectrumMock).toHaveBeenCalled();
     });
 
-    const drawSpectrumCalls = drawSpectrumMock.mock
-      .calls as unknown as Array<[{ waveform?: ArrayLike<number> }]>;
+    const drawSpectrumCalls = drawSpectrumMock.mock.calls as unknown as Array<
+      [{ waveform?: ArrayLike<number> }]
+    >;
     const renderedWaveform =
       drawSpectrumCalls[drawSpectrumCalls.length - 1]?.[0]?.waveform;
     const renderedValues = Array.from(renderedWaveform ?? []);

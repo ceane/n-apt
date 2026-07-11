@@ -206,7 +206,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
   }
 
   return {
-    deviceState: source.status === "streaming" ? "connected" : source.status,
+    deviceState: source.status,
     deviceName: source.name,
     deviceProfile: {
       kind: getDeviceKindFromSource(source),

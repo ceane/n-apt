@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, type DragEvent } from "react";
 import styled from "styled-components";
+import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 
 const SourceInputWrapper = styled.div`
@@ -253,6 +254,18 @@ const DeviceActions = styled.div`
   max-width: 170px;
 `;
 
+const DeviceLoadingState = styled.div`
+  width: 130px;
+  min-height: 65px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: ${({ theme }) => theme.warning};
+  font-size: 10px;
+  text-align: center;
+`;
+
 const FileActionButton = styled(DeviceActionButton)`
   width: 65px;
   aspect-ratio: 1;
@@ -467,7 +480,6 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     ? sourceDevicesRaw.filter(
         (device) =>
           !isMockDevice(device) ||
-          device.id === selectedDeviceId ||
           device.status?.label?.toLowerCase?.() === "transmitting",
       )
     : sourceDevicesRaw;
@@ -632,7 +644,21 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   </DevicePillMeta>
                 </DevicePillMain>
                 <DeviceActions>
-                  {isHalfDuplex && onToggleDeviceRxPause ? (
+                  {device.status?.loading ? (
+                    <DeviceLoadingState
+                      role="status"
+                      aria-label={
+                        device.status.loadingLabel ?? "Loading device"
+                      }
+                    >
+                      <Loader2
+                        size={15}
+                        className="animate-spin"
+                        aria-hidden="true"
+                      />
+                      {device.status.loadingLabel ?? "Loading…"}
+                    </DeviceLoadingState>
+                  ) : isHalfDuplex && onToggleDeviceRxPause ? (
                     <DeviceActionButton
                       type="button"
                       $active={isSelectedDevice}
@@ -642,7 +668,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         event.stopPropagation();
                         onToggleDeviceRxPause(device.id);
                       }}
-                      title={isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
+                      title={
+                        isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"
+                      }
                     >
                       {isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
@@ -691,11 +719,15 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         title={device.status.actionTitle}
                       >
                         {actionLabel}
-                        {showDeviceSpaceHint && <ActionHint>[Space]</ActionHint>}
+                        {showDeviceSpaceHint && (
+                          <ActionHint>[Space]</ActionHint>
+                        )}
                       </DeviceActionButton>
                     )
                   ) : null}
-                  {isHalfDuplex && onToggleDeviceTxMode ? (
+                  {!device.status?.loading &&
+                  isHalfDuplex &&
+                  onToggleDeviceTxMode ? (
                     <TxModeActionButton
                       type="button"
                       aria-label={isTransmittingDevice ? "Stop Tx" : "Start Tx"}

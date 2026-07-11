@@ -1,9 +1,21 @@
 import { describe, expect, it, jest } from "@jest/globals";
 
 describe("Rust hot reload gate", () => {
+  it("animates the spinner whenever a process is running", () => {
+    const {
+      isProcessSpinnerActive,
+    } = require("../../src/ts/utils/rustHotReloadGate");
+
+    expect(isProcessSpinnerActive("running")).toBe(true);
+    expect(isProcessSpinnerActive("warning")).toBe(false);
+    expect(isProcessSpinnerActive("success")).toBe(false);
+  });
+
   it("waits for a quiet window before reporting readiness", () => {
     jest.useFakeTimers();
-    const { createRustHotReloadGate } = require("../../src/ts/utils/rustHotReloadGate");
+    const {
+      createRustHotReloadGate,
+    } = require("../../src/ts/utils/rustHotReloadGate");
 
     const gate = createRustHotReloadGate(1000);
 
@@ -20,7 +32,9 @@ describe("Rust hot reload gate", () => {
   });
 
   it("stops after cargo check fails", async () => {
-    const { runRustHotReloadValidation } = require("../../src/ts/utils/rustHotReloadGate");
+    const {
+      runRustHotReloadValidation,
+    } = require("../../src/ts/utils/rustHotReloadGate");
 
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
@@ -29,7 +43,9 @@ describe("Rust hot reload gate", () => {
     const cargoBuild = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
     >;
-    const restart = jest.fn() as unknown as jest.MockedFunction<() => Promise<boolean>>;
+    const restart = jest.fn() as unknown as jest.MockedFunction<
+      () => Promise<boolean>
+    >;
     const log = jest.fn();
     const updateStatus = jest.fn();
 
@@ -53,7 +69,9 @@ describe("Rust hot reload gate", () => {
   });
 
   it("checks, builds, then restarts on success", async () => {
-    const { runRustHotReloadValidation } = require("../../src/ts/utils/rustHotReloadGate");
+    const {
+      runRustHotReloadValidation,
+    } = require("../../src/ts/utils/rustHotReloadGate");
 
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
@@ -63,7 +81,9 @@ describe("Rust hot reload gate", () => {
       () => Promise<{ success: boolean; output: string }>
     >;
     cargoBuild.mockResolvedValue({ success: true, output: "build ok" });
-    const restart = jest.fn() as unknown as jest.MockedFunction<() => Promise<boolean>>;
+    const restart = jest.fn() as unknown as jest.MockedFunction<
+      () => Promise<boolean>
+    >;
     restart.mockResolvedValue(true);
     const log = jest.fn();
     const updateStatus = jest.fn();
@@ -81,14 +101,46 @@ describe("Rust hot reload gate", () => {
     expect(restart).toHaveBeenCalledTimes(1);
     expect(updateStatus).toHaveBeenCalledWith(
       "success",
-      "Rust backend running...",
+      "Running new build",
       expect.any(String),
     );
     expect(result.stage).toBe("restarted");
+    expect(updateStatus.mock.calls).toEqual([
+      ["running", "Checking Rust backend...", "Checking Rust backend"],
+      ["running", "Building Rust backend...", "Building Rust backend"],
+      ["running", "Restarting Rust backend...", "Restarting Rust backend"],
+      ["success", "Running new build", "Rust backend reloaded"],
+    ]);
+  });
+
+  it("reports a restart exception as a failed restart", async () => {
+    const {
+      runRustHotReloadValidation,
+    } = require("../../src/ts/utils/rustHotReloadGate");
+    const updateStatus = jest.fn();
+
+    const result = await runRustHotReloadValidation({
+      cargoCheck: async () => ({ success: true, output: "check ok" }),
+      cargoBuild: async () => ({ success: true, output: "build ok" }),
+      restart: async () => {
+        throw new Error("address already in use");
+      },
+      log: jest.fn(),
+      updateStatus,
+    });
+
+    expect(result.stage).toBe("restart_failed");
+    expect(updateStatus).toHaveBeenLastCalledWith(
+      "error",
+      "Failed to restart Rust backend: address already in use",
+      "Rust backend failed",
+    );
   });
 
   it("stops before restart when cancelled during validation", async () => {
-    const { runRustHotReloadValidation } = require("../../src/ts/utils/rustHotReloadGate");
+    const {
+      runRustHotReloadValidation,
+    } = require("../../src/ts/utils/rustHotReloadGate");
 
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
@@ -101,7 +153,9 @@ describe("Rust hot reload gate", () => {
     }) as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
     >;
-    const restart = jest.fn() as unknown as jest.MockedFunction<() => Promise<boolean>>;
+    const restart = jest.fn() as unknown as jest.MockedFunction<
+      () => Promise<boolean>
+    >;
     const log = jest.fn();
     const updateStatus = jest.fn();
 

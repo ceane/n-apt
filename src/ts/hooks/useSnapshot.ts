@@ -442,17 +442,13 @@ function formatVisibleChannels(
 
       const isWhole =
         range.min <= channelMin + 1 && range.max >= channelMax - 1;
-      const channelLabel = name.trim()
-        ? name.trim().toUpperCase()
-        : "Unknown";
+      const channelLabel = name.trim() ? name.trim().toUpperCase() : "Unknown";
       return {
         min: channelMin,
         label: `${channelLabel} (${isWhole ? "whole" : "partial"})`,
       };
     })
-    .filter(
-      (entry): entry is { min: number; label: string } => entry !== null,
-    )
+    .filter((entry): entry is { min: number; label: string } => entry !== null)
     .sort((a, b) => a.min - b.min);
 
   if (!visibleChannels.length) return null;

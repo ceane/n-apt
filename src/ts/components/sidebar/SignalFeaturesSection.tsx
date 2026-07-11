@@ -88,13 +88,14 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
     ? selectedFilesCount > 0
       ? "Yes"
       : "No"
-    : deviceState === "connected"
+    : deviceState === "connected" || deviceState === "streaming"
       ? "Yes"
       : "No";
 
   const classificationDisabled = isFileSource
     ? selectedFilesCount === 0
-    : !isConnected || deviceState !== "connected";
+    : !isConnected ||
+      (deviceState !== "connected" && deviceState !== "streaming");
 
   return (
     <Section>

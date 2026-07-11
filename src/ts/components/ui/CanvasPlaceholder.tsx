@@ -128,37 +128,67 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
   if (state.kind === "idle" || state.kind === "top-bar") {
     const isTopBar = state.kind === "top-bar";
     return (
-      <PlaceholderOverlay 
-        $idle 
-        role="status" 
+      <PlaceholderOverlay
+        $idle
+        role="status"
         aria-live="polite"
-        style={isTopBar ? {
-          alignItems: "flex-start",
-          paddingTop: "12px",
-        } : undefined}
+        style={
+          isTopBar
+            ? {
+                alignItems: "flex-start",
+                paddingTop: "12px",
+              }
+            : undefined
+        }
       >
-        <PlaceholderCard style={isTopBar ? {
-          width: "auto",
-          maxWidth: "100%",
-          padding: "8px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: "24px",
-          justifyContent: "space-between",
-          textAlign: "left",
-          background: "rgba(6, 9, 15, 0.75)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: "8px",
-        } : undefined}>
-          <div style={isTopBar ? { display: "flex", alignItems: "baseline", gap: "12px" } : undefined}>
-            <PlaceholderKicker style={isTopBar ? { marginBottom: 0 } : undefined}>Standby</PlaceholderKicker>
-            <PlaceholderTitle style={isTopBar ? { fontSize: "14px" } : undefined}>{state.title}</PlaceholderTitle>
+        <PlaceholderCard
+          style={
+            isTopBar
+              ? {
+                  width: "auto",
+                  maxWidth: "100%",
+                  padding: "8px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "24px",
+                  justifyContent: "space-between",
+                  textAlign: "left",
+                  background: "rgba(6, 9, 15, 0.75)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "8px",
+                }
+              : undefined
+          }
+        >
+          <div
+            style={
+              isTopBar
+                ? { display: "flex", alignItems: "baseline", gap: "12px" }
+                : undefined
+            }
+          >
+            <PlaceholderKicker
+              style={isTopBar ? { marginBottom: 0 } : undefined}
+            >
+              Standby
+            </PlaceholderKicker>
+            <PlaceholderTitle
+              style={isTopBar ? { fontSize: "14px" } : undefined}
+            >
+              {state.title}
+            </PlaceholderTitle>
           </div>
-          {isTopBar && <PlaceholderSource style={{ marginTop: 0, fontSize: "12px" }}>from {sourceLabel}</PlaceholderSource>}
+          {isTopBar && (
+            <PlaceholderSource style={{ marginTop: 0, fontSize: "12px" }}>
+              from {sourceLabel}
+            </PlaceholderSource>
+          )}
           {state.message && !isTopBar ? (
             <PlaceholderBody>{state.message}</PlaceholderBody>
           ) : null}
-          {!isTopBar && <PlaceholderSource>from {sourceLabel}</PlaceholderSource>}
+          {!isTopBar && (
+            <PlaceholderSource>from {sourceLabel}</PlaceholderSource>
+          )}
         </PlaceholderCard>
       </PlaceholderOverlay>
     );
@@ -206,14 +236,20 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
       <PlaceholderCard>
         <PlaceholderKicker $error>Error</PlaceholderKicker>
         <PlaceholderTitle $error>
-          {state.kind === "error" && state.reason === "Server down" ? "Server Down" : state.kind === "error" ? `Error / ${state.reason}` : "Error"}
+          {state.kind === "error" && state.reason === "Server down"
+            ? "Server Down"
+            : state.kind === "error"
+              ? `Error / ${state.reason}`
+              : "Error"}
         </PlaceholderTitle>
         <PlaceholderBody>
           {state.kind === "error" && state.reason === "Server down"
             ? state.message ||
               "The server was disconnected due to being manually exited or an error."
             : state.message ||
-              (state.kind === "error" ? `Can't playback from ${sourceLabel}. Reason: ${state.reason}` : "An error occurred")}
+              (state.kind === "error"
+                ? `Can't playback from ${sourceLabel}. Reason: ${state.reason}`
+                : "An error occurred")}
         </PlaceholderBody>
       </PlaceholderCard>
     </PlaceholderOverlay>

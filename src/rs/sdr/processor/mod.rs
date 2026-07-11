@@ -491,13 +491,117 @@ impl SdrProcessor {
   }
 
   /// Swap out the fundamental SDR device during execution (e.g. mock -> real)
-  pub fn swap_device(&mut self, mut device: Box<dyn SdrDevice>) -> Result<()> {
-    device.initialize()?;
-    self.device = device;
+  pub fn swap_device_keep_warm(
+    &mut self,
+    mut device: Box<dyn SdrDevice>,
+  ) -> Result<Box<dyn SdrDevice>> {
+    // A device returned by an earlier warm swap may deliberately still have
+    // its reader running. Restarting it here can turn an immediate RTL resume
+    // into an async-reader shutdown race. Initial startup-prewarmed devices
+    // report inactive and are initialized normally.
+    if !device.is_rx_active() {
+      device.initialize()?;
+    }
+    let previous_device = std::mem::replace(&mut self.device, device);
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
     self.current_ppm = u32::MAX;
+
+    // Push current config to the new hardware
+    let settings = crate::server::utils::load_sdr_settings();
+    self.apply_settings(crate::server::types::SdrProcessorSettings {
+      gain: Some(settings.gain.tuner_gain),
+      ppm: Some(settings.ppm as u32),
+      tuner_agc: Some(settings.gain.tuner_agc),
+      rtl_agc: Some(settings.gain.rtl_agc),
+      ..Default::default()
+    })?;
+    self.set_center_frequency(settings.center_frequency)?;
+
+    info!(
+      "SDR processor swapped and synchronized to {}",
+      self.device.device_type()
+    );
+
+    self.frame.retune_cooldown_until =
+      if self.device.device_type().contains("Mock") {
+        None
+      } else {
+        Some(std::time::Instant::now() + std::time::Duration::from_millis(500))
+      };
+    self.frame.post_retune_discard_frames =
+      self.post_retune_discard_frame_count();
+    self.flush_read_queue();
+
+    // Do not synchronously stop the previous receiver here. In particular,
+    // hackrf_stop_rx can block in firmware and prevent the caller from ever
+    // publishing the newly active source. The caller owns the returned handle
+    // in its warm pool; keeping its bounded reader alive is intentional, and
+    // this processor flushes that device's queued samples when it is selected
+    // again.
+    Ok(previous_device)
+  }
+
+  /// Swap devices and release the previous handle.
+  pub fn swap_device(&mut self, device: Box<dyn SdrDevice>) -> Result<()> {
+    let mut previous_device = std::mem::replace(&mut self.device, device);
+
+    // Reset tracked state to force re-application to new hardware
+    self.current_gain_db = -1.0;
+    self.current_ppm = u32::MAX;
+
+    // RTL-SDR's async reader owns a live libusb transfer until its thread has
+    // actually returned.  Retire that device synchronously so a fast
+    // unplug/replug cannot open the replacement while the old interface is
+    // still claimed.  Other device implementations retain the historical
+    // bounded, background retirement because some firmware can block in
+    // standby for seconds.
+    let retire_synchronously = previous_device
+      .device_type()
+      .to_ascii_lowercase()
+      .contains("rtl");
+    if retire_synchronously {
+      let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(2);
+      loop {
+        match previous_device.enter_standby() {
+          Ok(()) => {
+            drop(previous_device);
+            break;
+          }
+          Err(e) if std::time::Instant::now() < deadline => {
+            log::debug!(
+              "RTL-SDR is still stopping before swap; retrying standby: {}",
+              e
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+          }
+          Err(e) => {
+            return Err(anyhow::anyhow!(
+              "RTL-SDR did not finish stopping before swap: {}",
+              e
+            ));
+          }
+        }
+      }
+    } else {
+      // Perform standby and cleanup of the old device in a background thread
+      std::thread::spawn(move || {
+        if let Err(e) = previous_device.enter_standby() {
+          log::warn!("Error placing swapped device into standby: {}", e);
+        }
+        // previous_device is dropped here at the end of the thread, releasing USB
+      });
+    }
+
+    // Briefly yield in the main thread to allow the background thread to release USB.
+    // If the device hangs, we won't block the swap (>500ms), but for normal cases
+    // this 150ms is more than enough for libusb/FFI to free the interface.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // Initialize the new device now that the old interface is released
+    self.device.initialize()?;
 
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
@@ -566,6 +670,11 @@ impl SdrProcessor {
   /// Check if the device is ready for reading
   pub fn is_ready(&self) -> bool {
     self.device.is_ready()
+  }
+
+  /// Whether the underlying device currently has an active Rx reader.
+  pub fn is_rx_active(&self) -> bool {
+    self.device.is_rx_active()
   }
 
   /// Read and process one frame from the device
@@ -1811,6 +1920,11 @@ mod hackrf_settings_tests {
       Ok(())
     }
 
+    fn enter_standby(&mut self) -> Result<()> {
+      self.record("standby");
+      Ok(())
+    }
+
     fn is_ready(&self) -> bool {
       true
     }
@@ -1888,6 +2002,7 @@ mod hackrf_settings_tests {
     }
 
     fn cleanup(&mut self) -> Result<()> {
+      self.record("cleanup");
       Ok(())
     }
 
@@ -1989,6 +2104,36 @@ mod hackrf_settings_tests {
   }
 
   #[test]
+  fn warm_swap_returns_the_previous_device_without_waiting_for_standby() {
+    let first = RecordingDevice::default();
+    let first_calls = first.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    first_calls.lock().unwrap().clear();
+
+    let previous = processor
+      .swap_device_keep_warm(Box::new(RecordingDevice::default()))
+      .expect("warm swap");
+
+    assert!(!first_calls.lock().unwrap().contains(&"standby".to_string()));
+    assert_eq!(previous.device_type(), "hackrf_one");
+    assert_eq!(processor.device_type(), "hackrf_one");
+  }
+
+  #[test]
+  fn cleanup_releases_the_current_device_before_a_replacement_open() {
+    let device = RecordingDevice::default();
+    let calls = device.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+    calls.lock().unwrap().clear();
+
+    processor.cleanup().expect("cleanup current device");
+
+    assert!(calls.lock().unwrap().contains(&"cleanup".to_string()));
+  }
+
+  #[test]
   fn apply_settings_promotes_hackrf_one_fps_to_logical_max_frame_rate() {
     let device = RecordingDevice {
       sample_rate: 3_200_000,
@@ -2008,5 +2153,97 @@ mod hackrf_settings_tests {
       .expect("apply settings");
 
     assert_eq!(processor.display_frame_rate, 12);
+  }
+
+  #[test]
+  fn test_swap_device_does_not_block_on_hanging_standby() {
+    struct HangingDevice;
+    impl SdrDevice for HangingDevice {
+      fn device_type(&self) -> &'static str {
+        "hanging_device"
+      }
+      fn get_device_info(&self) -> String {
+        "Hanging Device".to_string()
+      }
+      fn initialize(&mut self) -> Result<()> {
+        Ok(())
+      }
+      fn enter_standby(&mut self) -> Result<()> {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        Ok(())
+      }
+      fn is_ready(&self) -> bool {
+        true
+      }
+      fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples> {
+        Ok(RawSamples {
+          data: vec![0; fft_size * 2],
+          sample_rate: 1_000_000,
+        })
+      }
+      fn set_sample_rate(&mut self, _rate: u32) -> Result<()> {
+        Ok(())
+      }
+      fn set_center_frequency(&mut self, _freq: u32) -> Result<()> {
+        Ok(())
+      }
+      fn set_gain(&mut self, _gain: f64) -> Result<()> {
+        Ok(())
+      }
+      fn set_ppm(&mut self, _ppm: u32) -> Result<()> {
+        Ok(())
+      }
+      fn set_tuner_agc(&mut self, _enabled: bool) -> Result<()> {
+        Ok(())
+      }
+      fn set_rtl_agc(&mut self, _enabled: bool) -> Result<()> {
+        Ok(())
+      }
+      fn set_offset_tuning(&mut self, _enabled: bool) -> Result<()> {
+        Ok(())
+      }
+      fn set_tuner_bandwidth(&mut self, _bw: u32) -> Result<()> {
+        Ok(())
+      }
+      fn set_direct_sampling(&mut self, _mode: u8) -> Result<()> {
+        Ok(())
+      }
+      fn get_center_frequency(&self) -> u32 {
+        1_000_000
+      }
+      fn get_sample_rate(&self) -> u32 {
+        1_000_000
+      }
+      fn get_max_sample_rate(&mut self) -> u32 {
+        1_000_000
+      }
+      fn reset_buffer(&mut self) -> Result<()> {
+        Ok(())
+      }
+      fn cleanup(&mut self) -> Result<()> {
+        Ok(())
+      }
+      fn is_healthy(&self) -> bool {
+        true
+      }
+      fn is_rx_active(&self) -> bool {
+        true
+      }
+      fn get_error(&self) -> Option<String> {
+        None
+      }
+    }
+
+    let mut processor =
+      SdrProcessor::with_device(Box::new(HangingDevice)).expect("processor");
+    let start = std::time::Instant::now();
+    processor
+      .swap_device(Box::new(RecordingDevice::default()))
+      .expect("swap");
+
+    assert!(
+      start.elapsed() < std::time::Duration::from_millis(500),
+      "swap_device blocked on hanging enter_standby"
+    );
   }
 }

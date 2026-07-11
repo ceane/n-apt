@@ -169,9 +169,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>
         )}
-        <StyledContentArea>
-          {children}
-        </StyledContentArea>
+        <StyledContentArea>{children}</StyledContentArea>
       </MainLayoutContainer>
     </>
   );

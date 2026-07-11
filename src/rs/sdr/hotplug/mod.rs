@@ -18,12 +18,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use crate::server::websocket_server::{
-  broadcast_device_status, build_device_profile,
+  active_source_id, broadcast_device_status, build_device_profile,
 };
 
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
-const USB_SETTLE_GRACE_PERIOD: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
 pub struct HotplugState {
@@ -345,18 +344,6 @@ pub async fn drain_hotplug_events(
     }
     state.last_seen_device_count = current_count;
     if current_count == 0 && !processor.is_mock() {
-      let missing_since = state.missing_since.get_or_insert_with(Instant::now);
-      let elapsed = missing_since.elapsed();
-      if elapsed < USB_SETTLE_GRACE_PERIOD {
-        info!(
-          "Supported USB device missing; entering loose state for {:?} before disconnect",
-          USB_SETTLE_GRACE_PERIOD
-        );
-        shared_state.set_device_state("loose", None);
-        broadcast_device_status(shared_state, broadcast_tx);
-        return;
-      }
-
       let _ =
         disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
       state.missing_since = None;
@@ -494,6 +481,11 @@ async fn attach_real_device(
     processor.get_manufacturer(),
     processor.get_product(),
   );
+  // A reconnect is an automatic resume. Clear any stale pause bit left by
+  // the pre-disconnect source so the first fresh Rx frame is not gated behind
+  // a second user Pause/Resume click.
+  let active_id = active_source_id(shared_state);
+  shared_state.set_active_source_pause_state(&active_id, false);
   broadcast_device_status(shared_state, broadcast_tx);
   Ok(())
 }
@@ -523,6 +515,7 @@ async fn disconnect_to_mock(
     String::new(),
     String::new(),
   );
+  shared_state.set_active_source_pause_state("mock-apt", false);
   broadcast_device_status(shared_state, broadcast_tx);
   state.last_failure_at = Some(Instant::now());
   Ok(())
@@ -563,16 +556,8 @@ pub async fn handle_real_hardware_health(
   let warming_up_after_success =
     is_warming_up && has_post_swap_success(state, shared_state);
   if processor.is_healthy() || warming_up_after_success {
-    let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
-    if prev > 0 {
-      info!("Device health restored after {} failure(s)", prev);
-      shared_state
-        .health_failure_streak
-        .store(0, Ordering::Relaxed);
-      shared_state.recovery_attempts.store(0, Ordering::Relaxed);
-      shared_state.set_device_state("connected", None);
-      broadcast_device_status(shared_state, broadcast_tx);
-    }
+    // The read loop itself resets the streak via record_successful_read()
+    // once a healthy frame is actually processed.
     return;
   }
 
@@ -583,7 +568,14 @@ pub async fn handle_real_hardware_health(
     streak, DISCONNECT_FAILURE_THRESHOLD, recovery_count, MAX_RECOVERY_ATTEMPTS
   );
 
-  if streak < DISCONNECT_FAILURE_THRESHOLD {
+  // Once an RTL async reader has exited, its libusb handle may look present
+  // even after a physical unplug/replug. Re-initializing that handle just
+  // recreates the loading-placeholder loop; force the full open path instead.
+  let rtl_reader_inactive =
+    processor.device_type().to_ascii_lowercase().contains("rtl")
+      && !processor.is_rx_active();
+
+  if streak < DISCONNECT_FAILURE_THRESHOLD && !rtl_reader_inactive {
     let supported_device_present = supported_usb_device_present();
     if !supported_device_present {
       warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
@@ -613,6 +605,7 @@ pub async fn handle_real_hardware_health(
             HACKRF_DISCONNECT_ADVISORY.to_string(),
           ));
         }
+        shared_state.set_active_source_pause_state("mock-apt", false);
         broadcast_device_status(shared_state, broadcast_tx);
       }
       return;
@@ -678,6 +671,7 @@ pub async fn handle_real_hardware_health(
             HACKRF_DISCONNECT_ADVISORY.to_string(),
           ));
         }
+        shared_state.set_active_source_pause_state("mock-apt", false);
         broadcast_device_status(shared_state, broadcast_tx);
         state.last_failure_at = Some(Instant::now());
         info!("Fell back to mock mode after confirmed unplug");
@@ -692,6 +686,24 @@ pub async fn handle_real_hardware_health(
       let _ = stop_capture(processor);
       shared_state.set_device_state("loading", Some("restart"));
       broadcast_device_status(shared_state, broadcast_tx);
+      let cleanup_ready = match processor.cleanup() {
+        Ok(()) => true,
+        Err(e) => {
+          // An RTL async reader may still be unwinding after cancellation.
+          // Never open a replacement while it owns the libusb interface.
+          warn!(
+            "SDR handle is still stopping; deferring full restart: {}",
+            e
+          );
+          shared_state.set_device_backend_error(Some(e.to_string()));
+          broadcast_device_status(shared_state, broadcast_tx);
+          state.last_hardware_swap = Some(Instant::now());
+          false
+        }
+      };
+      if !cleanup_ready {
+        return;
+      }
       match SdrDeviceFactory::create_device() {
         Ok(new_device) if !new_device.device_type().contains("Mock") => {
           if let Err(e) = processor.swap_device(new_device) {
@@ -704,6 +716,8 @@ pub async fn handle_real_hardware_health(
               processor.get_device_info(),
               build_device_profile(processor.device_type()),
             );
+            let active_id = active_source_id(shared_state);
+            shared_state.set_active_source_pause_state(&active_id, false);
             broadcast_device_status(shared_state, broadcast_tx);
             state.last_hardware_swap = Some(Instant::now());
             info!("Full device restart succeeded");

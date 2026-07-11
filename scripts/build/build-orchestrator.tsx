@@ -20,6 +20,7 @@ import {
 import {
   createRustHotReloadGate,
   buildRustBackendStopCommand,
+  isProcessSpinnerActive,
   runRustHotReloadValidation,
 } from '@n-apt/utils/rustHotReloadGate';
 
@@ -270,7 +271,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
   showOutput?: boolean;
   onToggleOutput?: () => void;
 }) => {
-  const spinner = useSpinnerFrame(isActive && process.status === 'running');
+  const spinner = useSpinnerFrame(isProcessSpinnerActive(process.status));
 
   const getStatusIcon = () => {
     switch (process.status) {
@@ -750,7 +751,15 @@ const BuildOrchestrator = () => {
           if (isViteRecovery) {
             clearErrorDetails('Vite');
           } else if (/error/i.test(output)) {
-            appendErrorDetail(output);
+            const isTransientProxyError = pidKey === 'vitePid' && (
+              output.includes('http proxy error') ||
+              output.includes('ECONNREFUSED') ||
+              output.includes('ECONNRESET') ||
+              output.includes('AggregateError')
+            );
+            if (!isTransientProxyError) {
+              appendErrorDetail(output);
+            }
           }
         });
 

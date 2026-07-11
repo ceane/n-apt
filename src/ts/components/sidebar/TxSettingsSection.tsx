@@ -54,9 +54,10 @@ const NumericInput = styled.input`
     cursor: not-allowed;
     color: ${(props) => props.theme.textSecondary};
     border-color: ${(props) => props.theme.border};
-    background-color: ${(props) => props.theme.mode === "light"
-      ? "rgba(255, 255, 255, 0.65)"
-      : "rgba(255, 255, 255, 0.03)"};
+    background-color: ${(props) =>
+      props.theme.mode === "light"
+        ? "rgba(255, 255, 255, 0.65)"
+        : "rgba(255, 255, 255, 0.03)"};
   }
 `;
 
@@ -370,7 +371,8 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       ? rxSampleRateHz
       : typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
         ? sampleRateHz
-        : typeof maxSampleRateHz === "number" && Number.isFinite(maxSampleRateHz)
+        : typeof maxSampleRateHz === "number" &&
+            Number.isFinite(maxSampleRateHz)
           ? maxSampleRateHz
           : null;
   const hopBandwidthHz =

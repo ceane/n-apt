@@ -42,7 +42,8 @@ export const computeEdgeResizedBand = ({
   const hi = Math.max(visibleMinHz, visibleMaxHz);
   const safeStart = Number.isFinite(startHz) ? startHz : lo;
   const safeEnd = Number.isFinite(endHz) ? endHz : hi;
-  const safeMinSpan = Number.isFinite(minSpanHz) && minSpanHz > 0 ? minSpanHz : 1;
+  const safeMinSpan =
+    Number.isFinite(minSpanHz) && minSpanHz > 0 ? minSpanHz : 1;
   const boundedPointer = clampFrequencyHz(pointerHz, lo, hi);
 
   if (activeHandle === "left") {
@@ -218,12 +219,13 @@ export const computeBandPanWithEdgePanning = ({
   let nextVisibleMaxHz = hi;
 
   if (requestedStart < lo) {
-    const shift = typeof stepHz === "number" ? stepHz : (lo - requestedStart);
+    const shift = typeof stepHz === "number" ? stepHz : lo - requestedStart;
     nextVisibleMinHz = lo - shift;
     nextVisibleMaxHz = hi - shift;
     overflowHz = -shift;
   } else if (requestedStart > maxStart) {
-    const shift = typeof stepHz === "number" ? stepHz : (requestedStart - maxStart);
+    const shift =
+      typeof stepHz === "number" ? stepHz : requestedStart - maxStart;
     nextVisibleMinHz = lo + shift;
     nextVisibleMaxHz = hi + shift;
     overflowHz = shift;
@@ -246,7 +248,11 @@ export const computeBandPanWithEdgePanning = ({
 
   // Calculate final band position relative to the (possibly shifted) visible range
   const finalMaxStart = nextVisibleMaxHz - span;
-  const nextStart = clampFrequencyHz(requestedStart, nextVisibleMinHz, finalMaxStart);
+  const nextStart = clampFrequencyHz(
+    requestedStart,
+    nextVisibleMinHz,
+    finalMaxStart,
+  );
 
   return {
     ...buildResult(nextStart, nextStart + span),
@@ -255,4 +261,3 @@ export const computeBandPanWithEdgePanning = ({
     overflowHz,
   };
 };
-

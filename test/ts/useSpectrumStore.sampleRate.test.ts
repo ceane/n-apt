@@ -1,9 +1,23 @@
 import {
   buildPersistedSourceViewState,
+  resolveSourceSwitchDisplaySettings,
   resolveEffectiveLiveSampleRateHz,
   normalizePersistedSourceViewState,
   selectLiveSampleRateForSync,
 } from "@n-apt/hooks/useSpectrumStore";
+
+describe("resolveSourceSwitchDisplaySettings", () => {
+  it("restores the selected RTL-SDR sample and frame rates together", () => {
+    expect(
+      resolveSourceSwitchDisplaySettings(
+        { sampleRateHz: 3_200_000, fftFrameRate: 30 },
+        { sampleRateHz: 20_000_000, fftFrameRate: 12 } as any,
+      ),
+    ).toEqual(
+      expect.objectContaining({ sampleRateHz: 3_200_000, fftFrameRate: 30 }),
+    );
+  });
+});
 
 describe("selectLiveSampleRateForSync", () => {
   it("prefers the live websocket sample rate while connected", () => {
@@ -28,15 +42,15 @@ describe("selectLiveSampleRateForSync", () => {
     ).toBe(3_200_000);
   });
 
-  it("uses the local user-selected sample rate over stale websocket and backend rates", () => {
+  it("uses the confirmed backend rate over a stale local whole-channel rate", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
-        localSampleRateHz: 5_000_000,
-        websocketSampleRateHz: 20_000_000,
-        sdrSettingsSampleRateHz: 20_000_000,
-        maxSampleRateHz: 20_000_000,
+        localSampleRateHz: 4_372_000,
+        websocketSampleRateHz: 3_200_000,
+        sdrSettingsSampleRateHz: 3_200_000,
+        maxSampleRateHz: 3_200_000,
       }),
-    ).toBe(5_000_000);
+    ).toBe(3_200_000);
   });
 
   it("falls back to websocket/backend rates when no local rate has been selected", () => {

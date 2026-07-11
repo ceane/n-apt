@@ -399,6 +399,20 @@ const ArticleContent = styled.article`
     font-size: clamp(1.3rem, 3vw, 1.8rem);
   }
 
+  .dropcap {
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(3.5rem, 8vw, 4.5rem);
+    float: left;
+    line-height: 0.8;
+    margin-top: 0.05em;
+    margin-right: 0.12em;
+    font-weight: 800;
+    background: linear-gradient(135deg, #9eaeff 0%, #acbaff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 20px rgba(158, 174, 255, 0.15);
+  }
+
   p,
   .markdown-para {
     margin: 1.2em 0;

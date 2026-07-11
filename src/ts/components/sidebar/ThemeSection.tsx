@@ -231,10 +231,7 @@ export const ThemeSection: React.FC = () => {
         </Row>
 
         <ResetWrapper>
-          <ResetButton
-            $variant="secondary"
-            onClick={handleResetTheme}
-          >
+          <ResetButton $variant="secondary" onClick={handleResetTheme}>
             Reset Theme to Defaults
           </ResetButton>
         </ResetWrapper>

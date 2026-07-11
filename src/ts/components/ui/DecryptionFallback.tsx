@@ -104,7 +104,8 @@ const InstructionRow = styled.div<{ $marginTop?: number }>`
   display: flex;
   align-items: center;
   gap: 6px;
-  ${(props) => props.$marginTop !== undefined && `margin-top: ${props.$marginTop}px;`}
+  ${(props) =>
+    props.$marginTop !== undefined && `margin-top: ${props.$marginTop}px;`}
 `;
 
 const InstructionContent = styled.div`
@@ -200,9 +201,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
         </InstructionRow>
-        <InstructionContent>
-          {troubleshooting}
-        </InstructionContent>
+        <InstructionContent>{troubleshooting}</InstructionContent>
       </Instructions>
 
       <ButtonRow>
@@ -213,10 +212,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           <RefreshCcw size={10} />
           Reload
         </ActionButton>
-        <ActionButton
-          $variant="secondary"
-          onClick={logout}
-        >
+        <ActionButton $variant="secondary" onClick={logout}>
           <Shield size={10} />
           Re-auth
         </ActionButton>

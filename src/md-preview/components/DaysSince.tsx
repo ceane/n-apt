@@ -74,6 +74,7 @@ const Value = styled.div`
   align-items: baseline;
   gap: 0.5rem;
   line-height: 1;
+  white-space: nowrap;
 
   span.unit {
     font-family: "KaTeX_Main", serif;
@@ -85,12 +86,61 @@ const Value = styled.div`
 
 const SubValue = styled.small`
   font-family: "KaTeX_Main", serif;
-  font-size: 1rem;
+  font-size: 0.8rem;
   color: var(--ds-text-dim);
-  margin-top: -0.2rem;
+  margin-top: 0.15rem;
+  display: block;
   font-style: italic;
   letter-spacing: 0.02em;
   line-height: 1.3;
+`;
+
+const SubLabel = styled.div`
+  font-family: "KaTeX_Main", serif;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ds-text-secondary);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+`;
+
+const FootnoteLabel = styled.div`
+  font-family: "KaTeX_Main", serif;
+  font-size: 0.7rem;
+  color: var(--ds-text-dim);
+  line-height: 1.4;
+  margin-top: -1rem;
+`;
+
+const MinMaxGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 0.25rem;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  ${Value} {
+    font-size: 1.15rem;
+
+    span.unit {
+      font-size: 0.85rem;
+    }
+  }
+`;
+
+const DataMinMaxGrid = styled(MinMaxGrid)`
+  ${Value} {
+    font-size: 1.7rem;
+
+    span.unit {
+      font-size: 1.1rem;
+    }
+  }
 `;
 
 const CostContainer = styled(DataContainer)`
@@ -261,6 +311,14 @@ export const DaysSince: React.FC = () => {
     return () => clearInterval(timer);
   }, [isInView]);
 
+  const spectrumHz = rateMbs * 8 * 1_000_000;
+  const bwA = spectrumHz * (4.35 / 27.76);
+  const bwB = spectrumHz * (5.16 / 27.76);
+  const bwC = spectrumHz * (18.25 / 27.76);
+  const minRateBytesSec = (bwA / 65536) + (bwB / 65536) + bwC;
+  const minRateMbs = minRateBytesSec / 1_000_000;
+  const maxRateMbs = (spectrumHz * 4) / 1_000_000; // 16-bit (2 bytes I + 2 bytes Q), full 1:1
+
   const stats = useMemo(() => {
     const totalMs = now.getTime() - START_DATE.getTime();
     const escalationMs = now.getTime() - ESCALATION_DATE.getTime();
@@ -278,21 +336,34 @@ export const DaysSince: React.FC = () => {
     };
   }, [now]);
 
-  const data = useMemo(() => {
-    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * rateMbs;
+  const formatGbVal = (gb: number) => {
+    if (gb >= 1_000_000_000) {
+      return { val: (gb / 1_000_000_000).toFixed(3), unit: 'EB' };
+    }
+    if (gb >= 1_000_000) {
+      return { val: (gb / 1_000_000).toFixed(3), unit: 'PB' };
+    }
+    if (gb >= 1000) {
+      return { val: (gb / 1000).toFixed(2), unit: 'TB' };
+    }
+    if (gb < 1) {
+      const mb = gb * 1000;
+      return { val: mb.toFixed(mb < 10 ? 1 : 0), unit: 'MB' };
+    }
+    return { val: gb.toFixed(1), unit: 'GB' };
+  };
 
-    if (totalMB >= Math.pow(1000, 4)) {
-      return { val: (totalMB / Math.pow(1000, 4)).toFixed(3), unit: 'EB' };
-    }
-    if (totalMB >= Math.pow(1000, 3)) {
-      return { val: (totalMB / Math.pow(1000, 3)).toFixed(3), unit: 'PB' };
-    }
-    if (totalMB >= Math.pow(1000, 2)) {
-      return { val: (totalMB / Math.pow(1000, 2)).toFixed(2), unit: 'TB' };
-    }
-    return { val: (totalMB / 1000).toFixed(2), unit: 'GB' };
-  }, [now, rateMbs]);
+  const dataMin = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalGB = (totalSeconds * minRateMbs) / 1000;
+    return formatGbVal(totalGB);
+  }, [now, minRateMbs]);
+
+  const dataMax = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalGB = (totalSeconds * maxRateMbs) / 1000;
+    return formatGbVal(totalGB);
+  }, [now, maxRateMbs]);
 
   const comparisonTypes = useMemo(() => {
     const options = [
@@ -322,40 +393,56 @@ export const DaysSince: React.FC = () => {
     return count.toFixed(0);
   };
 
-  const totalComparisonText = useMemo(() => {
+  const totalComparisonTextMin = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * rateMbs;
+    const totalMB = totalSeconds * minRateMbs;
     const count = totalMB / comparisonTypes.total.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.total.label}`;
-  }, [now, rateMbs, comparisonTypes.total]);
+  }, [now, minRateMbs, comparisonTypes.total]);
 
-  const dailyComparisonText = useMemo(() => {
-    const dailyMB = rateMbs * 86400;
+  const totalComparisonTextMax = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalMB = totalSeconds * maxRateMbs;
+    const count = totalMB / comparisonTypes.total.sizeMB;
+    return `or ${formatComparisonCount(count)} ${comparisonTypes.total.label}`;
+  }, [now, maxRateMbs, comparisonTypes.total]);
+
+  const dailyComparisonTextMin = useMemo(() => {
+    const dailyMB = minRateMbs * 86400;
     const count = dailyMB / comparisonTypes.daily.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.daily.label}`;
-  }, [rateMbs, comparisonTypes.daily]);
+  }, [minRateMbs, comparisonTypes.daily]);
 
-  const approxGB = useMemo(() => {
-    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * rateMbs) / 1000;
-    if (totalGB < 1000) return null;
+  const dailyComparisonTextMax = useMemo(() => {
+    const dailyMB = maxRateMbs * 86400;
+    const count = dailyMB / comparisonTypes.daily.sizeMB;
+    return `or ${formatComparisonCount(count)} ${comparisonTypes.daily.label}`;
+  }, [maxRateMbs, comparisonTypes.daily]);
 
-    if (totalGB >= 1000000) {
-      return `or approximately ${(totalGB / 1000000).toFixed(1)} million GB`;
-    }
-    return `or approximately ${new Intl.NumberFormat().format(Math.round(totalGB))} GB`;
-  }, [now, rateMbs]);
+  const dailyDataMin = useMemo(() => {
+    const dailyGB = (minRateMbs * 86400) / 1000;
+    return formatGbVal(dailyGB);
+  }, [minRateMbs]);
+
+  const dailyDataMax = useMemo(() => {
+    const dailyGB = (maxRateMbs * 86400) / 1000;
+    return formatGbVal(dailyGB);
+  }, [maxRateMbs]);
 
   const costs = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * rateMbs) / 1000;
-    const dailyGB = (rateMbs * 86400) / 1000;
+    const totalGBMin = (totalSeconds * minRateMbs) / 1000;
+    const totalGBMax = (totalSeconds * maxRateMbs) / 1000;
+    const dailyGBMin = (minRateMbs * 86400) / 1000;
+    const dailyGBMax = (maxRateMbs * 86400) / 1000;
 
     return {
-      total: `${formatCurrency(totalGB * 0.07)} – ${formatCurrency(totalGB * 0.12)}`,
-      daily: `${formatCurrency(dailyGB * 0.07)} – ${formatCurrency(dailyGB * 0.12)}`,
+      totalMin: `${formatCurrency(totalGBMin * 0.07)} – ${formatCurrency(totalGBMin * 0.12)}`,
+      totalMax: `${formatCurrency(totalGBMax * 0.07)} – ${formatCurrency(totalGBMax * 0.12)}`,
+      dailyMin: `${formatCurrency(dailyGBMin * 0.07)} – ${formatCurrency(dailyGBMin * 0.12)}`,
+      dailyMax: `${formatCurrency(dailyGBMax * 0.07)} – ${formatCurrency(dailyGBMax * 0.12)}`,
     };
-  }, [now, rateMbs]);
+  }, [now, minRateMbs, maxRateMbs]);
 
   return (
     <Container ref={containerRef}>
@@ -404,12 +491,24 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.3 }}
         >
           <Label>Data Intercepted Total</Label>
-          <Value>
-            <RollingCounter value={data.val} animateActive={isInView} />
-            <span className="unit">{data.unit}</span>
-          </Value>
-          {approxGB && <SubValue>{approxGB}</SubValue>}
-          <SubValue>{totalComparisonText}</SubValue>
+          <DataMinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dataMin.val} animateActive={isInView} />
+                <span className="unit">{dataMin.unit}</span>
+              </Value>
+              <SubValue>{totalComparisonTextMin}</SubValue>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dataMax.val} animateActive={isInView} />
+                <span className="unit">{dataMax.unit}</span>
+              </Value>
+              <SubValue>{totalComparisonTextMax}</SubValue>
+            </div>
+          </DataMinMaxGrid>
         </StatBox>
 
         <StatBox
@@ -418,11 +517,24 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.4 }}
         >
           <Label>Data Intercepted in 24HRS</Label>
-          <Value>
-            <RollingCounter value={Math.round(rateDayGb)} animateActive={isInView} />
-            <span className="unit">GB</span>
-          </Value>
-          <SubValue>{dailyComparisonText}</SubValue>
+          <DataMinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dailyDataMin.val} animateActive={isInView} />
+                <span className="unit">{dailyDataMin.unit}</span>
+              </Value>
+              <SubValue>{dailyComparisonTextMin}</SubValue>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dailyDataMax.val} animateActive={isInView} />
+                <span className="unit">{dailyDataMax.unit}</span>
+              </Value>
+              <SubValue>{dailyComparisonTextMax}</SubValue>
+            </div>
+          </DataMinMaxGrid>
         </StatBox>
       </DataContainer>
 
@@ -433,9 +545,20 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.5 }}
         >
           <Label>Data total Cost (to present)</Label>
-          <Value>
-            <RollingCounter value={costs.total} animateActive={isInView} />
-          </Value>
+          <MinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.totalMin} animateActive={isInView} />
+              </Value>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.totalMax} animateActive={isInView} />
+              </Value>
+            </div>
+          </MinMaxGrid>
         </StatBox>
 
         <StatBox
@@ -444,15 +567,27 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.6 }}
         >
           <Label>Data cost per Day</Label>
-          <Value>
-            <RollingCounter value={costs.daily} animateActive={isInView} />
-            <span className="unit">/day</span>
-          </Value>
+          <MinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.dailyMin} animateActive={isInView} />
+                <span className="unit">/day</span>
+              </Value>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.dailyMax} animateActive={isInView} />
+                <span className="unit">/day</span>
+              </Value>
+            </div>
+          </MinMaxGrid>
         </StatBox>
       </CostContainer>
 
       <SectionLabel style={{ marginTop: '-1rem', marginBottom: '0' }}>
-        Estimated Network Ingress/Egress Cost based on market rates
+        Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB)
       </SectionLabel>
     </Container>
   );

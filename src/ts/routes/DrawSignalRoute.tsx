@@ -276,6 +276,7 @@ export const DrawSignalRoute: React.FC = () => {
     webgpuFormatRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    overlayDirtyRef,
   } = useWebGPUInit({
     spectrumGpuCanvasRef: canvasRef,
     waterfallGpuCanvasRef,
@@ -334,6 +335,7 @@ export const DrawSignalRoute: React.FC = () => {
       hardwareSampleRateHz: sampleRateHzEffective ?? undefined,
       gridOverlayRenderer: gridOverlayRendererRef.current,
       markersOverlayRenderer: markersOverlayRendererRef.current,
+      overlayDirty: overlayDirtyRef.current,
     });
   }, [
     dimensions,
@@ -345,6 +347,7 @@ export const DrawSignalRoute: React.FC = () => {
     sampleRateHzEffective,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    overlayDirtyRef,
     drawSpectrum,
     isInitializingWebGPU,
   ]);
@@ -361,6 +364,10 @@ export const DrawSignalRoute: React.FC = () => {
             width: entry.contentRect.width,
             height: entry.contentRect.height,
           });
+          if (overlayDirtyRef.current) {
+            overlayDirtyRef.current.grid = true;
+            overlayDirtyRef.current.markers = true;
+          }
         }
       }
     });
@@ -371,8 +378,21 @@ export const DrawSignalRoute: React.FC = () => {
       height: container.clientHeight,
     });
 
+    if (overlayDirtyRef.current) {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    }
+
     return () => observer.disconnect();
-  }, [pageIndex]);
+  }, [pageIndex, overlayDirtyRef]);
+
+  // Mark overlays dirty when pageIndex, drawParams, or sample rate changes
+  useEffect(() => {
+    if (overlayDirtyRef.current) {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    }
+  }, [pageIndex, drawParams, sampleRateHzEffective, overlayDirtyRef]);
 
   // Sync render with dimensions and data
   useEffect(() => {

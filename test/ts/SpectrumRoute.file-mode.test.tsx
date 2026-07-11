@@ -102,7 +102,9 @@ jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
   );
   return {
     ...actual,
-    requestNextLiveFrame: jest.fn(() => ({ type: "mock/requestNextLiveFrame" })),
+    requestNextLiveFrame: jest.fn(() => ({
+      type: "mock/requestNextLiveFrame",
+    })),
   };
 });
 

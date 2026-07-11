@@ -602,19 +602,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
   const liveIsConnected = wsConnection.isConnected ?? isConnected;
-  const sourcesToUse = useMemo(
-    () => {
-      if (!liveIsConnected) {
-        return [];
-      }
-      return sources.length > 0
-        ? sources
-        : Array.isArray(wsConnection.sources) && wsConnection.sources.length > 0
-          ? wsConnection.sources
-          : websocketSources;
-    },
-    [liveIsConnected, sources, websocketSources, wsConnection.sources],
-  );
+  const sourcesToUse = useMemo(() => {
+    if (!liveIsConnected) {
+      return [];
+    }
+    return sources.length > 0
+      ? sources
+      : Array.isArray(wsConnection.sources) && wsConnection.sources.length > 0
+        ? wsConnection.sources
+        : websocketSources;
+  }, [liveIsConnected, sources, websocketSources, wsConnection.sources]);
 
   const liveBackend = selectedSourceDerived.backend ?? wsConnection.backend;
   const liveDeviceState =
@@ -1182,8 +1179,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         const signalObj = sig as any;
         presets[key.toLowerCase()] = {
           centerFrequencyHz: signalObj.center_frequency_hz ?? 0,
-          bandwidthHz:
-            signalObj.bandwidth_hz ?? signalObj.sample_rate_hz ?? 0,
+          bandwidthHz: signalObj.bandwidth_hz ?? signalObj.sample_rate_hz ?? 0,
         };
       }
       return presets;
@@ -1517,87 +1513,86 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     };
   }, []);
 
-  const sourceDevices = useMemo(
-    () => {
-      const mappedSources = sourcesToUse.map((source) => {
-        const isTransmitting = source.status === "transmitting";
-        const isStreaming = source.status === "streaming";
-        const isPaused = source.paused ?? false;
-        const supportsTx =
-          source.capability === "tx" || source.capability === "tx_rx";
-        const isMockSource = source.capability === "mock";
-        const isLiveConnected =
-          source.status === "connected" || isStreaming || isMockSource;
-        const canToggleStreaming = isLiveConnected;
-        const actionLabel =
-          isTransmitting || supportsTx
-            ? isTransmitting
-              ? "Stop Tx"
-              : "Start Tx"
-            : canToggleStreaming
-              ? isPaused
-                ? "Resume"
-                : "Pause"
-              : undefined;
-        const actionTitle =
-          isTransmitting || supportsTx
-            ? isTransmitting
-              ? "Stop transmit mode"
-              : "Start transmit mode"
-            : canToggleStreaming
-              ? isPaused
-                ? "Resume playback"
-                : "Pause playback"
-              : undefined;
-        const onAction =
-          isTransmitting || supportsTx
-            ? () => handleToggleTransmitMode(source.id, !isTransmitting)
-            : canToggleStreaming
-              ? () => toggleLiveVisualizerPause(source.id)
-              : undefined;
+  const sourceDevices = useMemo(() => {
+    const mappedSources = sourcesToUse.map((source) => {
+      const isTransmitting = source.status === "transmitting";
+      const isStreaming = source.status === "streaming";
+      const isPaused = source.paused ?? false;
+      const supportsTx =
+        source.capability === "tx" || source.capability === "tx_rx";
+      const isMockSource = source.capability === "mock";
+      const isLiveConnected =
+        source.status === "connected" || isStreaming || isMockSource;
+      const canToggleStreaming = isLiveConnected;
+      const actionLabel =
+        isTransmitting || supportsTx
+          ? isTransmitting
+            ? "Stop Tx"
+            : "Start Tx"
+          : canToggleStreaming
+            ? isPaused
+              ? "Resume"
+              : "Pause"
+            : undefined;
+      const actionTitle =
+        isTransmitting || supportsTx
+          ? isTransmitting
+            ? "Stop transmit mode"
+            : "Start transmit mode"
+          : canToggleStreaming
+            ? isPaused
+              ? "Resume playback"
+              : "Pause playback"
+            : undefined;
+      const onAction =
+        isTransmitting || supportsTx
+          ? () => handleToggleTransmitMode(source.id, !isTransmitting)
+          : canToggleStreaming
+            ? () => toggleLiveVisualizerPause(source.id)
+            : undefined;
 
-        return {
-          id: source.id,
-          name: source.name,
-          backend: source.kind,
-          capability: source.capability,
-          duplex_mode:
-            source.duplex_mode ??
-            (source.kind === "mock_apt" || source.id === "mock-apt"
+      return {
+        id: source.id,
+        name: source.name,
+        backend: source.kind,
+        capability: source.capability,
+        duplex_mode:
+          source.duplex_mode ??
+          (source.kind === "mock_apt" || source.id === "mock-apt"
+            ? "Simplex"
+            : source.kind === "mock_tx" || source.id === "mock-tx"
               ? "Simplex"
-              : source.kind === "mock_tx" || source.id === "mock-tx"
-                ? "Simplex"
-                : null),
-          summary: source.serial_number
-            ? `SN ${source.serial_number}`
-            : source.manufacturer
-              ? source.manufacturer
-              : undefined,
-          status: {
-            color: isTransmitting
-              ? "#19d9ff"
-              : isMockSource && isStreaming
-                ? "#ffb000"
-                : isStreaming
-                  ? "#19d97d"
-                  : undefined,
-            label: source.status ?? undefined,
-            paused: source.paused,
-            loading: source.status === "loading",
-            loadingLabel:
-              source.status === "loading"
-                ? `Loading ${source.name}`
+              : null),
+        summary: source.serial_number
+          ? `SN ${source.serial_number}`
+          : source.manufacturer
+            ? source.manufacturer
+            : undefined,
+        status: {
+          color: isTransmitting
+            ? "#19d9ff"
+            : isMockSource && isStreaming
+              ? "#ffb000"
+              : isStreaming
+                ? "#19d97d"
                 : undefined,
-            actionLabel,
-            actionTitle,
-            onAction,
-          },
-        };
-      });
-      return mappedSources;
-    },
-    [handleToggleTransmitMode, sourcesToUse, toggleLiveVisualizerPause],
-  );
+          label: source.status ?? undefined,
+          paused: source.paused,
+          loading: source.status === "loading",
+          loadingLabel:
+            source.status === "loading"
+              ? source.kind === "hackrf_one"
+                ? "Waiting for Rx…"
+                : `Loading ${source.name}…`
+              : undefined,
+          actionLabel,
+          actionTitle,
+          onAction,
+        },
+      };
+    });
+    return mappedSources;
+  }, [handleToggleTransmitMode, sourcesToUse, toggleLiveVisualizerPause]);
   const activeCaptureAreasSet = useMemo(
     () => new Set(activeCaptureAreas),
     [activeCaptureAreas],
@@ -2569,7 +2564,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 ampEnabled={hackrfAmpEnabled}
                 onSignalChange={handleTxSignalChange}
                 signalOptions={signalOptions}
-                onBandwidthChange={(value) => dispatch(setTxSampleRateHz(value))}
+                onBandwidthChange={(value) =>
+                  dispatch(setTxSampleRateHz(value))
+                }
                 onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
                 onCenterFrequencyChange={(value) =>
                   dispatch(setTxCenterFrequencyHz(value))

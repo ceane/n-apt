@@ -56,6 +56,11 @@ pub trait SdrDevice: Send {
   /// Initialize the device and prepare for operation
   fn initialize(&mut self) -> Result<()>;
 
+  /// Suspend sample transfers while retaining the open device handle.
+  fn enter_standby(&mut self) -> Result<()> {
+    Ok(())
+  }
+
   /// Check if device is ready for reading
   fn is_ready(&self) -> bool;
 
@@ -143,6 +148,11 @@ pub trait SdrDevice: Send {
   /// deciding to abandon the device and fall back to mock.
   fn is_healthy(&self) -> bool;
 
+  /// Check if the device is actively streaming/receiving samples (Rx active)
+  fn is_rx_active(&self) -> bool {
+    false
+  }
+
   /// Get the device serial number (empty string if unavailable)
   fn get_serial_number(&self) -> String {
     String::new()
@@ -168,8 +178,35 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
-    // Prefer HackRF One when both devices are present, then fall back to RTL-SDR,
-    // then finally to the mock device.
+    // Prefer opening the device that is physically connected according to USB snapshots.
+    let snapshots =
+      match crate::sdr::hotplug::scan_supported_usb_device_snapshots() {
+        Ok(s) => s,
+        Err(_) => Vec::new(),
+      };
+
+    let has_hackrf_connected =
+      snapshots.iter().any(|s| s.device_type == "hackrf_one");
+    let has_rtlsdr_connected =
+      snapshots.iter().any(|s| s.device_type == "rtl-sdr");
+
+    #[cfg(has_hackrf)]
+    {
+      if has_hackrf_connected {
+        if let Ok(device) = open_hackrf_with_retry() {
+          return Ok(device);
+        }
+      }
+    }
+
+    if has_rtlsdr_connected {
+      if let Ok(device) = crate::sdr::rtlsdr::RtlSdrDevice::open_first() {
+        log::info!("Using RTL-SDR device");
+        return Ok(Box::new(device));
+      }
+    }
+
+    // If snapshots scan is inconclusive or both are listed, try to open HackRF then RTL-SDR
     #[cfg(has_hackrf)]
     {
       if let Ok(device) = open_hackrf_with_retry() {

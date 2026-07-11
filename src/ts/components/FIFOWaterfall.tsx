@@ -380,11 +380,19 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
       const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
 
-      // Update canvas dimensions
-      canvas.width = renderWidth;
-      canvas.height = renderHeight;
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
+      // Update canvas dimensions only if they changed to avoid clearing the drawing buffer unnecessarily
+      if (canvas.width !== renderWidth) {
+        canvas.width = renderWidth;
+      }
+      if (canvas.height !== renderHeight) {
+        canvas.height = renderHeight;
+      }
+      if (canvas.style.width !== `${cssWidth}px`) {
+        canvas.style.width = `${cssWidth}px`;
+      }
+      if (canvas.style.height !== `${cssHeight}px`) {
+        canvas.style.height = `${cssHeight}px`;
+      }
 
       const showPlaceholder =
         !!placeholderErrorReason || !waveform || waveform.length === 0;

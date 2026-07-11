@@ -44,11 +44,7 @@ describe("requestNextPausedFrame thunk", () => {
         txSignal: "wifi",
         txIfftSize: 8192,
       },
-    })(
-      store.dispatch as any,
-      store.getState as any,
-      undefined,
-    );
+    })(store.dispatch as any, store.getState as any, undefined);
 
     expect(store.getActions()).toContainEqual({
       type: "websocket/sendMessage",

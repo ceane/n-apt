@@ -31,7 +31,9 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+    ).toBeInTheDocument();
     const deviceRow = screen
       .getByText("HackRF One #2")
       .closest('[role="button"]');
@@ -72,8 +74,10 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
-    expect(screen.getByText("Mock APT SDR")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
   });
 
   it("renders all sources when the source section is not sticky", () => {
@@ -149,7 +153,41 @@ describe("SourceInput", () => {
 
     expect(screen.getByText("HackRF One")).toBeInTheDocument();
     expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
-    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+    ).toBeInTheDocument();
+  });
+
+  it("drops a selected mock source from the list once hardware is available", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              backend: "mock_apt",
+              capability: "mock",
+              status: { label: "streaming" },
+            },
+            {
+              id: "rtl-1",
+              name: "RTL-SDR v4",
+              backend: "rtl-sdr",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+          ]}
+          selectedDeviceId="mock-apt"
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
+    expect(screen.getByText("RTL-SDR v4")).toBeInTheDocument();
   });
 
   it("reduces sticky live source mode to the selected source row", () => {
@@ -238,10 +276,12 @@ describe("SourceInput", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByTitle("Switch to HackRF One #2")).toBeInTheDocument();
     expect(screen.queryByText("File Selection")).not.toBeInTheDocument();
-    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+    ).toBeInTheDocument();
   });
 
-  it("keeps live and transmit actions available when transmit is active", () => {
+  it("drops mock receive actions when hardware transmit is active", () => {
     render(
       <TestWrapper>
         <SourceInput
@@ -279,13 +319,7 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    const mockRow = screen
-      .getByText("Mock APT SDR")
-      .closest('[role="button"]') as HTMLElement;
-    expect(mockRow).not.toBeNull();
-    expect(
-      within(mockRow).getByRole("button", { name: /pause/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
     const txRow = screen
       .getByText("HackRF One #2")
       .closest('[role="button"]') as HTMLElement;
@@ -453,7 +487,9 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Rx/Tx · Connected · Half-duplex")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+    ).toBeInTheDocument();
     const deviceRow = screen
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
@@ -466,7 +502,52 @@ describe("SourceInput", () => {
     expect(
       within(deviceRow).getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
-    expect(within(deviceRow).queryByText("start/stop transmit mode")).not.toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByText("start/stop transmit mode"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a loading spinner instead of an assumed Rx pause action", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: {
+                label: "loading",
+                loading: true,
+                loadingLabel: "Waiting for Rx…",
+                paused: false,
+              },
+            },
+          ]}
+          selectedDeviceId="hackrf-1"
+          onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    expect(
+      within(deviceRow).getByRole("status", { name: /waiting for rx/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByRole("button", { name: /pause rx/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByRole("button", { name: /start tx/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("mutes the inactive half-duplex Tx mode and switches it on double click", () => {

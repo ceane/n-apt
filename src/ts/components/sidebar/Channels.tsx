@@ -416,7 +416,9 @@ export const Channels: React.FC<ChannelsProps> = ({
     return frames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames, websocketChannels]);
   const currentFrequencyRange = state.frequencyRange;
-  const currentCenterFrequencyHz = calculateCenterFrequency(currentFrequencyRange);
+  const currentCenterFrequencyHz = calculateCenterFrequency(
+    currentFrequencyRange,
+  );
   const channelRanges = useMemo(
     () => channels.map((ch) => ({ min: ch.min_hz, max: ch.max_hz })),
     [channels],
@@ -830,7 +832,8 @@ export const Channels: React.FC<ChannelsProps> = ({
               {otherChannelRangeLabel}
             </ActiveChannelDescription>
             <ActiveChannelBandwidthList>
-              Center Frequency = <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
+              Center Frequency ={" "}
+              <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
               <br />
               Sample Rate ={" "}
               <MonoValue>

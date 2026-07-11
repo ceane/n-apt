@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from "react";
@@ -138,7 +139,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
           explicitPlaceholderState.title === "Start Tx to transmit"
         );
 
-  const placeholderState = (() => {
+  const placeholderState = useMemo(() => {
     if (explicitPlaceholderState) {
       return explicitPlaceholderState;
     }
@@ -164,7 +165,13 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     }
 
     return null;
-  })();
+  }, [
+    explicitPlaceholderState,
+    placeholderErrorReason,
+    placeholderSourceLabel,
+    placeholderPaneLabel,
+    awaitingDeviceData,
+  ]);
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const clearCanvas = useCallback((canvas: HTMLCanvasElement | null) => {

@@ -345,10 +345,11 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
         ) {
           if (draggingRef.current) {
             const finalFreq =
-              lastEmittedCenterHzRef.current ?? latestDragStateRef.current.txCenterHz;
+              lastEmittedCenterHzRef.current ??
+              latestDragStateRef.current.txCenterHz;
             latestDragStateRef.current.onCenterFrequencyChange?.(
               finalFreq,
-              false
+              false,
             );
           }
           draggingRef.current = false;

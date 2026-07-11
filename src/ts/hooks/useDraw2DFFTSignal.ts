@@ -108,7 +108,7 @@ export function drawLiveCanvasStatusRow(
   ctx.stroke();
 
   ctx.fillStyle = options.textColor ?? canvasTheme.textColor;
-  ctx.font = "11px JetBrains Mono";
+  ctx.font = "11px 'JetBrains Mono', monospace";
   ctx.textBaseline = "middle";
 
   const sampleRateText = `⌞ ${status.sampleRateLabel} ⌟`;
@@ -312,7 +312,7 @@ export function useDraw2DFFTSignal() {
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = textColor ?? canvasTheme.textColor;
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
@@ -442,7 +442,7 @@ export function useDraw2DFFTSignal() {
 
       if (visibleLimitMarkers.length > 0) {
         ctx.save();
-        ctx.font = "11px JetBrains Mono, monospace";
+        ctx.font = "11px 'JetBrains Mono', monospace";
         ctx.textBaseline = "top";
         ctx.lineWidth = Math.max(1, 1 / dpr);
 
@@ -487,7 +487,7 @@ export function useDraw2DFFTSignal() {
         ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
         ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
-        ctx.font = "10px JetBrains Mono";
+        ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
 
@@ -690,7 +690,7 @@ export function useDraw2DFFTSignal() {
 
           ctx.save();
           ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
-          ctx.font = "11px JetBrains Mono";
+          ctx.font = "11px 'JetBrains Mono', monospace";
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
           const tw = ctx.measureText(m.label).width;
@@ -816,7 +816,7 @@ export function useDraw2DFFTSignal() {
       ctx.fillStyle = canvasTheme.textColor;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.font = "12px JetBrains Mono, monospace";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.fillText("Tx", left + 14, trackY);
 
       ctx.strokeStyle = "rgba(148, 163, 184, 0.68)";
@@ -843,7 +843,7 @@ export function useDraw2DFFTSignal() {
 
       ctx.textAlign = "center";
       ctx.fillStyle = "rgba(255, 218, 92, 1)";
-      ctx.font = "700 12px JetBrains Mono, monospace";
+      ctx.font = "700 12px 'JetBrains Mono', monospace";
       const signalLabel =
         slider.signalLabel === "wifi"
           ? "Mock WiFi"
@@ -851,7 +851,7 @@ export function useDraw2DFFTSignal() {
             ? "D#"
             : slider.signalLabel === "5g"
               ? "Mock 5G"
-              : slider.signalLabel ?? "TX";
+              : (slider.signalLabel ?? "TX");
       ctx.fillText(signalLabel, centerX, labelY);
 
       const hasTxPowerDot =
@@ -864,7 +864,7 @@ export function useDraw2DFFTSignal() {
         Number.isFinite(slider.powerDbm)
       ) {
         ctx.fillStyle = "rgba(226, 232, 240, 0.86)";
-        ctx.font = "10px JetBrains Mono, monospace";
+        ctx.font = "10px 'JetBrains Mono', monospace";
         const powerLabel = `${slider.powerDbm.toFixed(0)} dBm`;
         ctx.fillText(powerLabel, centerX, powerY);
 

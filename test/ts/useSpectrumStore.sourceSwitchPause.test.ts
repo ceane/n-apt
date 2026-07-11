@@ -10,9 +10,46 @@ import {
   isHalfDuplexSourceInfo,
   isLiveVisualizerPathname,
   resolveEffectiveSourcePaused,
+  resolveStreamingSourceForDisplay,
+  resolveSelectedSourceIdForInventory,
 } from "@n-apt/hooks/useSpectrumStore";
 
 describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
+  it("keeps the confirmed streaming source's metadata during a pending selection", () => {
+    const hackrf = {
+      id: "hackrf-one",
+      name: "HackRF One",
+      kind: "hackrf_one",
+      status: "streaming",
+    } as any;
+    const rtl = {
+      id: "rtl-sdr-v4",
+      name: "RTL-SDR v4",
+      kind: "rtl_sdr",
+      status: "loading",
+    } as any;
+
+    expect(
+      resolveStreamingSourceForDisplay({
+        selectedSourceId: rtl.id,
+        activeSourceId: hackrf.id,
+        sources: [hackrf, rtl],
+      }),
+    ).toBe(hackrf);
+  });
+
+  it("moves selection off mock as soon as real hardware is available", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "rtl-1",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "rtl-1", kind: "rtl-sdr", capability: "rx" },
+        ] as any,
+      }),
+    ).toBe("rtl-1");
+  });
   it("resumes when the selected source is RX and the pause came from a source switch", () => {
     expect(
       shouldAutoResumeVisualizerOnSourceSwitch(
@@ -201,6 +238,22 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         true,
       ),
     ).toBe(false);
+  });
+
+  it("resumes a backend-paused half-duplex HackRF receiver when selected", () => {
+    expect(
+      shouldResumePausedRxSourceOnSelection(
+        {
+          id: "hackrf-one",
+          name: "HackRF One",
+          capability: "tx_rx",
+          duplex_mode: "half-duplex",
+          status: "connected",
+          paused: true,
+        } as any,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it("resumes a recovered HackRF source when the outage was temporary and the user did not pause it", () => {

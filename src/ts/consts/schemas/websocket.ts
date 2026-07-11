@@ -16,6 +16,7 @@ export type DeviceState =
   | "stale"
   | "error"
   | "transmitting"
+  | "streaming"
   | null;
 
 export type DeviceLoadingReason = "connect" | "restart" | null;

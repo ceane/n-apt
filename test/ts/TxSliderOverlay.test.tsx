@@ -23,9 +23,7 @@ describe("TxSliderOverlay", () => {
     );
 
     expect(
-      screen.getByText(
-        "120.0kHz sample rate · 0Hz center · -18.0 dBm target",
-      ),
+      screen.getByText("120.0kHz sample rate · 0Hz center · -18.0 dBm target"),
     ).toBeDefined();
     expect(screen.getByText("APT")).toBeDefined();
   });

@@ -246,8 +246,8 @@ describe("computeBandPannedWithOverflow", () => {
     const grabOffset = BANDWIDTH / 2;
     // Drag all the way left, past edge, then back to center
     const positions = [
-      95_000_000, 92_000_000, 89_200_000, 87_000_000,
-      89_200_000, 95_000_000, 100_000_000,
+      95_000_000, 92_000_000, 89_200_000, 87_000_000, 89_200_000, 95_000_000,
+      100_000_000,
     ];
 
     let currentStart = 98_000_000 - BANDWIDTH / 2;

@@ -14,7 +14,9 @@ import {
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
   buildSourceIqWebSocketUrl,
+  shouldAcceptSourceIqSocketMessage,
   normalizeFrequencyRangeMessageData,
+  isSourceModePaused,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -51,6 +53,21 @@ Object.assign(global.WebSocket, {
 
 describe("Redux WebSocket Migration", () => {
   let store: ReturnType<typeof configureStore>;
+
+  it("treats a live server-selected source as resumed", () => {
+    expect(isSourceModePaused("live")).toBe(false);
+    expect(isSourceModePaused("file")).toBe(true);
+  });
+
+  it("rejects a late frame from the source socket replaced by a switch", () => {
+    expect(
+      shouldAcceptSourceIqSocketMessage({
+        socketIsCurrent: false,
+        socketSourceId: "hackrf-one",
+        activeSourceId: "rtl-sdr-v4",
+      }),
+    ).toBe(false);
+  });
 
   beforeEach(() => {
     jest.useRealTimers();
@@ -954,6 +971,135 @@ describe("Redux WebSocket Migration", () => {
       expect(sockets.map((socket) => socket.url)).toContain(
         "ws://localhost/ws/source/00000001/iq?token=session-token",
       );
+    });
+
+    it("runs Mock APT to RTL hotplug through loading, socket replacement, and streaming", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+      const source = (
+        id: string,
+        kind: string,
+        status: string,
+        streamKey: string,
+        sampleRate: number,
+      ) => ({
+        id,
+        name: id,
+        kind,
+        capability: kind.startsWith("mock") ? "mock" : "rx",
+        status,
+        loading_attempt: status === "loading" ? 1 : 0,
+        loading_attempt_max: 2,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+        stream_key: streamKey,
+        stream_key_kind: "source_id",
+        serial_number: streamKey,
+        manufacturer: "test",
+        product: id,
+        sdr: {
+          max_sample_rate: sampleRate,
+          sample_rate_options: [sampleRate],
+          fft_display: { markers: [] },
+          settings: { sample_rate: sampleRate, center_frequency: 1_000_000 },
+        },
+      });
+      const middlewareStore = configureStore({
+        reducer: { websocket: websocketSlice, spectrum: spectrumSlice },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      const control = sockets[0];
+      const mock = source(
+        "mock-apt",
+        "mock_apt",
+        "streaming",
+        "mock-apt",
+        2_400_000,
+      );
+      const rtlLoading = source(
+        "rtl-sdr-v4",
+        "rtl-sdr",
+        "loading",
+        "rtl-v4",
+        3_200_000,
+      );
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "mock-apt",
+          active_source_mode: "live",
+          sources: [mock],
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const mockIqSocket = sockets[1];
+      liveDataRef.current = [{ iq_data: new Uint8Array([1, 2]) } as any];
+
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "rtl-sdr-v4",
+          active_source_mode: "live",
+          sources: [rtlLoading, mock],
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(mockIqSocket.close).toHaveBeenCalledTimes(1);
+      expect(liveDataRef.current).toBeNull();
+      expect(middlewareStore.getState().websocket.activeSourceId).toBe(
+        "rtl-sdr-v4",
+      );
+      expect(sockets[2].url).toBe(
+        "ws://localhost/ws/source/rtl-v4/iq?token=session-token",
+      );
+
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "rtl-sdr-v4",
+          active_source_mode: "live",
+          sources: [
+            { ...rtlLoading, status: "streaming", loading_attempt: 0 },
+            mock,
+          ],
+        }),
+      });
+      expect(
+        middlewareStore.getState().websocket.sourceStatuses["rtl-sdr-v4"],
+      ).toBe("streaming");
     });
 
     it("keeps transmitting source_info status in Redux after reconnect", async () => {

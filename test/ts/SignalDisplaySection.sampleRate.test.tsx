@@ -51,9 +51,9 @@ describe("SignalDisplaySection sample rate selector", () => {
       </TestWrapper>,
     );
 
-    const frameRateRow = screen.getAllByText("Frame rate (logical)")[0].closest(
-      "div",
-    )?.parentElement as HTMLElement;
+    const frameRateRow = screen
+      .getAllByText("Frame rate (logical)")[0]
+      .closest("div")?.parentElement as HTMLElement;
     const frameRateInput = within(frameRateRow).getByRole(
       "spinbutton",
     ) as HTMLInputElement;

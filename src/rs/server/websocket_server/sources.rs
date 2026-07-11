@@ -215,7 +215,7 @@ fn source_status_for_entry(
       "stale" => "stale",
       "error" => "error",
       "transmitting" => "transmitting",
-      _ => "connected",
+      _ => "streaming",
     }
   } else {
     "connected"
@@ -373,6 +373,32 @@ pub fn apply_stream_keys(sources: &mut [serde_json::Value]) {
       }
     }
   }
+}
+
+pub fn sort_sources_for_display(sources: &mut [serde_json::Value]) {
+  sources.sort_by(|left, right| {
+    let key = |source: &serde_json::Value| {
+      let kind = source["kind"].as_str().unwrap_or("");
+      let id = source["id"].as_str().unwrap_or("");
+      let mock_rank = u8::from(kind.starts_with("mock"));
+      (mock_rank, kind.to_string(), id.to_string())
+    };
+    key(left).cmp(&key(right))
+  });
+}
+
+pub fn remove_idle_mock_sources_for_hardware(
+  sources: &mut Vec<serde_json::Value>,
+  hardware_is_active: bool,
+) {
+  if !hardware_is_active {
+    return;
+  }
+  sources.retain(|source| {
+    let kind = source["kind"].as_str().unwrap_or("");
+    !kind.starts_with("mock")
+      || source["status"].as_str() == Some("transmitting")
+  });
 }
 
 pub(crate) fn stream_key_matches_source(
@@ -657,6 +683,14 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   {
     sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
   }
+  let hardware_is_active = !shared
+    .device_profile
+    .lock()
+    .unwrap()
+    .kind
+    .starts_with("mock");
+  remove_idle_mock_sources_for_hardware(&mut sources, hardware_is_active);
+  sort_sources_for_display(&mut sources);
   apply_stream_keys(&mut sources);
 
   serde_json::json!({
@@ -682,4 +716,42 @@ pub fn active_source_id(shared: &SharedState) -> String {
   }
 
   source_id_for_device(&device_profile.kind, None, 0)
+}
+
+#[cfg(test)]
+mod stable_source_order_tests {
+  use super::*;
+
+  #[test]
+  fn source_inventory_order_does_not_follow_the_active_source() {
+    let mut sources = vec![
+      serde_json::json!({"id": "rtl-sdr-b", "kind": "rtl-sdr"}),
+      serde_json::json!({"id": "hackrf_one-a", "kind": "hackrf_one"}),
+      serde_json::json!({"id": "mock-apt", "kind": "mock_apt"}),
+    ];
+
+    sort_sources_for_display(&mut sources);
+
+    assert_eq!(
+      sources
+        .iter()
+        .map(|source| source["id"].as_str().unwrap())
+        .collect::<Vec<_>>(),
+      vec!["hackrf_one-a", "rtl-sdr-b", "mock-apt"],
+    );
+  }
+
+  #[test]
+  fn mock_sources_are_removed_when_hardware_is_active() {
+    let mut sources = vec![
+      serde_json::json!({"id": "rtl-sdr-b", "kind": "rtl-sdr", "status": "connected"}),
+      serde_json::json!({"id": "mock-apt", "kind": "mock_apt", "status": "connected"}),
+      serde_json::json!({"id": "mock-tx", "kind": "mock_tx", "status": "connected"}),
+    ];
+
+    remove_idle_mock_sources_for_hardware(&mut sources, true);
+
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0]["id"], "rtl-sdr-b");
+  }
 }

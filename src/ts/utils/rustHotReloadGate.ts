@@ -18,9 +18,25 @@ export type RustHotReloadValidationDependencies = {
 
 export type RustHotReloadValidationResult =
   | { stage: "check_failed"; check: RustCommandResult }
-  | { stage: "build_failed"; check: RustCommandResult; build: RustCommandResult }
-  | { stage: "restart_failed"; check: RustCommandResult; build: RustCommandResult }
+  | {
+      stage: "build_failed";
+      check: RustCommandResult;
+      build: RustCommandResult;
+    }
+  | {
+      stage: "restart_failed";
+      check: RustCommandResult;
+      build: RustCommandResult;
+    }
   | { stage: "restarted"; check: RustCommandResult; build: RustCommandResult };
+
+export function isProcessSpinnerActive(status: string): boolean {
+  return status === "running";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export function createRustHotReloadGate(quietWindowMs: number) {
   let lastChangeAt = -Infinity;
@@ -32,7 +48,9 @@ export function createRustHotReloadGate(quietWindowMs: number) {
       if (filename) changedFiles.add(filename);
     },
     shouldAttemptValidation(now = Date.now()) {
-      return Number.isFinite(lastChangeAt) && now - lastChangeAt >= quietWindowMs;
+      return (
+        Number.isFinite(lastChangeAt) && now - lastChangeAt >= quietWindowMs
+      );
     },
     clear() {
       lastChangeAt = -Infinity;
@@ -40,7 +58,7 @@ export function createRustHotReloadGate(quietWindowMs: number) {
     },
     getChangedFiles() {
       return Array.from(changedFiles);
-    }
+    },
   };
 }
 
@@ -60,10 +78,23 @@ export async function runRustHotReloadValidation(
 ): Promise<RustHotReloadValidationResult> {
   if (deps.isCancelled?.()) {
     deps.log("[Watcher] Rust hot reload cancelled before validation started.");
-    return { stage: "check_failed", check: { success: false, output: "cancelled" } };
+    return {
+      stage: "check_failed",
+      check: { success: false, output: "cancelled" },
+    };
   }
 
-  const check = await deps.cargoCheck();
+  deps.updateStatus(
+    "running",
+    "Checking Rust backend...",
+    "Checking Rust backend",
+  );
+  let check: RustCommandResult;
+  try {
+    check = await deps.cargoCheck();
+  } catch (error) {
+    check = { success: false, output: errorMessage(error) };
+  }
   if (deps.isCancelled?.()) {
     deps.log("[Watcher] Rust hot reload cancelled after cargo check.");
     return { stage: "check_failed", check };
@@ -78,7 +109,17 @@ export async function runRustHotReloadValidation(
     return { stage: "check_failed", check };
   }
 
-  const build = await deps.cargoBuild();
+  deps.updateStatus(
+    "running",
+    "Building Rust backend...",
+    "Building Rust backend",
+  );
+  let build: RustCommandResult;
+  try {
+    build = await deps.cargoBuild();
+  } catch (error) {
+    build = { success: false, output: errorMessage(error) };
+  }
   if (deps.isCancelled?.()) {
     deps.log("[Watcher] Rust hot reload cancelled after cargo build.");
     return { stage: "build_failed", check, build };
@@ -93,17 +134,38 @@ export async function runRustHotReloadValidation(
     return { stage: "build_failed", check, build };
   }
 
-  const restarted = await deps.restart();
+  deps.updateStatus(
+    "running",
+    "Restarting Rust backend...",
+    "Restarting Rust backend",
+  );
+  let restarted = false;
+  try {
+    restarted = await deps.restart();
+  } catch (error) {
+    const message = errorMessage(error);
+    deps.log(`[Watcher] Rust backend restart threw: ${message}`);
+    deps.updateStatus(
+      "error",
+      `Failed to restart Rust backend: ${message}`,
+      "Rust backend failed",
+    );
+    return { stage: "restart_failed", check, build };
+  }
   if (deps.isCancelled?.()) {
     deps.log("[Watcher] Rust hot reload cancelled before restart.");
     return { stage: "restart_failed", check, build };
   }
   if (!restarted) {
     deps.log("[Watcher] Rust backend restart failed.");
-    deps.updateStatus("error", "Failed to restart Rust backend", "Rust backend failed");
+    deps.updateStatus(
+      "error",
+      "Failed to restart Rust backend",
+      "Rust backend failed",
+    );
     return { stage: "restart_failed", check, build };
   }
 
-  deps.updateStatus("success", "Rust backend running...", "Rust backend running...");
+  deps.updateStatus("success", "Running new build", "Rust backend reloaded");
   return { stage: "restarted", check, build };
 }

@@ -230,7 +230,7 @@ export function useOverlayRenderer() {
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = canvasTheme.textColor;
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
@@ -311,7 +311,7 @@ export function useOverlayRenderer() {
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = canvasTheme.textColor;
-      ctx.font = `${tickFontPx}px JetBrains Mono`;
+      ctx.font = `${tickFontPx}px 'JetBrains Mono', monospace`;
       ctx.textAlign = "center";
 
       // ── Collision Avoidance Setup ──────────────────────────────────────────
@@ -431,7 +431,7 @@ export function useOverlayRenderer() {
         ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
         ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
-        ctx.font = "10px JetBrains Mono";
+        ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.setLineDash([4, 4]);
@@ -619,7 +619,7 @@ export function useOverlayRenderer() {
 
       if (limitMarkers.length > 0 && viewBandwidth > 0) {
         ctx.save();
-        ctx.font = "11px JetBrains Mono, monospace";
+        ctx.font = "11px 'JetBrains Mono', monospace";
         ctx.textBaseline = "top";
         ctx.lineWidth = Math.max(1, 1 / dpr);
 
@@ -775,8 +775,8 @@ export function useOverlayRenderer() {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.font = nodePreview
-        ? "bold 10px JetBrains Mono"
-        : "bold 12px JetBrains Mono";
+        ? "bold 10px 'JetBrains Mono', monospace"
+        : "bold 12px 'JetBrains Mono', monospace";
 
       const labelWidth = Math.max(
         ctx.measureText(label).width,
@@ -810,7 +810,7 @@ export function useOverlayRenderer() {
       ctx.fillStyle = "#07111f"; // Dark text on light label bg
       ctx.fillText(label, labelX, plotTop + (nodePreview ? 6 : 13));
 
-      ctx.font = "bold 9px JetBrains Mono";
+      ctx.font = "bold 9px 'JetBrains Mono', monospace";
       ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
       ctx.fillText(subLabel, labelX, plotTop + (nodePreview ? 17 : 28));
 
@@ -1158,7 +1158,7 @@ export function useOverlayRenderer() {
         ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = canvasTheme.offsetTickLine;
         ctx.fillStyle = canvasTheme.offsetTickText;
-        ctx.font = "10px JetBrains Mono";
+        ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
 
@@ -1218,9 +1218,9 @@ export function useOverlayRenderer() {
       // Formulate label e.g., -35.4dBm or -35.4dB
       const valueLabel = `${powerLineDb.toFixed(1)}${powerScale}`;
       const hintLabel = isHeld ? "Click to release" : "";
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       const valueWidth = ctx.measureText(valueLabel).width;
-      ctx.font = "9px JetBrains Mono";
+      ctx.font = "9px 'JetBrains Mono', monospace";
       const hintWidth = hintLabel ? ctx.measureText(hintLabel).width : 0;
       const hasLockDot =
         powerScale === "dBm" &&
@@ -1292,7 +1292,7 @@ export function useOverlayRenderer() {
       ctx.fillStyle = canvasTheme.powerLineColor;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       const textStartX = rectX + paddingX + (hasLockDot ? 12 : 0);
       if (hasLockDot) {
         const dotX = rectX + paddingX + 4;
@@ -1309,7 +1309,7 @@ export function useOverlayRenderer() {
       }
       ctx.fillText(valueLabel, textStartX, rectY + rectHeight / 2);
       if (isHeld && hintLabel) {
-        ctx.font = "9px JetBrains Mono";
+        ctx.font = "9px 'JetBrains Mono', monospace";
         ctx.fillText(
           hintLabel,
           textStartX + valueWidth + 16,

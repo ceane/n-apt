@@ -239,9 +239,7 @@ describe("renderSpectrumSnapshotCanvas", () => {
     const fillTextCalls = (global as any).__CANVAS_CALLS__.filter(
       (call: any) => call.name === "fillText",
     );
-    expect(fillTextCalls.map((call: any) => call.args[0])).toContain(
-      "-25dBm",
-    );
+    expect(fillTextCalls.map((call: any) => call.args[0])).toContain("-25dBm");
   });
 });
 

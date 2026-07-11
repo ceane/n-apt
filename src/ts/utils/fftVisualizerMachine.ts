@@ -22,6 +22,8 @@ export interface FFTVisualizerMachine {
   persist: (sessionKey: string, snapshot: FFTVisualizerSnapshot | null) => void;
   restore: (sessionKey: string) => FFTVisualizerSnapshot | null;
   clear: (sessionKey: string) => void;
+  /** Drop the next persistence write from a canvas being unmounted on reset. */
+  discardNextPersist: (sessionKey: string) => void;
 }
 
 const cloneSnapshot = (
@@ -52,6 +54,7 @@ export const createFFTVisualizerMachine = (
   initialSnapshot: FFTVisualizerSnapshot | null = null,
 ): FFTVisualizerMachine => {
   const sessions = new Map<string, FFTVisualizerSnapshot | null>();
+  const discardNextPersist = new Set<string>();
 
   if (initialSnapshot) {
     sessions.set("default", cloneSnapshot(initialSnapshot));
@@ -66,6 +69,9 @@ export const createFFTVisualizerMachine = (
       };
     },
     persist: (sessionKey, snapshot) => {
+      if (discardNextPersist.delete(sessionKey)) {
+        return;
+      }
       if (!snapshot) {
         sessions.delete(sessionKey);
         return;
@@ -76,6 +82,10 @@ export const createFFTVisualizerMachine = (
     restore: (sessionKey) => cloneSnapshot(sessions.get(sessionKey) ?? null),
     clear: (sessionKey) => {
       sessions.delete(sessionKey);
+    },
+    discardNextPersist: (sessionKey) => {
+      sessions.delete(sessionKey);
+      discardNextPersist.add(sessionKey);
     },
   };
 };

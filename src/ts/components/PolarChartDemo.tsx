@@ -72,9 +72,7 @@ export const PolarChartDemo: React.FC = () => {
 
   return (
     <DemoWrapper>
-      <DemoTitle>
-        Polar Radio Wave Architecture
-      </DemoTitle>
+      <DemoTitle>Polar Radio Wave Architecture</DemoTitle>
       <DemoDescription>
         Modeling diffraction limits and lobe structures relative to antenna
         physical geometry.

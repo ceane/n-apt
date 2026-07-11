@@ -275,7 +275,7 @@ export function drawVfoAxis({
   ctx.save();
   ctx.setStroke(theme.tick, lineWidth);
   ctx.setFill(theme.label);
-  ctx.setFont(`${fontPx}px JetBrains Mono, monospace`);
+  ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
   ctx.setTextBaseline(textBaseline);
 
   if (showAxisLine) {
@@ -298,12 +298,12 @@ export function drawVfoAxis({
 
   if (centerLabel && showCenterLabel) {
     ctx.setFill(theme.center);
-    ctx.setFont(`bold ${centerFontPx}px JetBrains Mono, monospace`);
+    ctx.setFont(`bold ${centerFontPx}px 'JetBrains Mono', monospace`);
     ctx.setTextAlign("center");
     ctx.fillText(centerLabel, centerX, labelY);
     occupy(centerX, centerLabel, "center", centerReservePx);
     ctx.setFill(theme.label);
-    ctx.setFont(`${fontPx}px JetBrains Mono, monospace`);
+    ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
   }
 
   if (showCenterLine) {
