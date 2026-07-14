@@ -886,8 +886,11 @@ export function useOverlayRenderer() {
         ctx.stroke();
       }
 
-      // Draw yellow dotted center line using the center frequency line color
-      const centerX = (leftX + rightX) / 2;
+      const selectionCenterHz = (minFrequencyHz + maxFrequencyHz) / 2;
+      const centerX = Math.max(
+        plotLeft,
+        Math.min(plotRight, freqToX(selectionCenterHz)),
+      );
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 1.5 / (window.devicePixelRatio || 1));
       ctx.setLineDash([]);
@@ -1322,6 +1325,61 @@ export function useOverlayRenderer() {
     [],
   );
 
+  const drawZoomboxOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      zoombox:
+        | { startX: number; startY: number; currentX: number; currentY: number }
+        | null
+        | undefined,
+      nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+    ) => {
+      if (!zoombox) return;
+
+      const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const plotRight = nodePreview ? width : width - 40;
+      const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const plotBottom = nodePreview
+        ? height
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
+      const plotWidth = plotRight - plotLeft;
+      const plotHeight = plotBottom - plotTop;
+      if (plotWidth <= 0 || plotHeight <= 0) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(plotLeft, plotTop, plotWidth, plotHeight);
+      ctx.clip();
+
+      const left = Math.min(zoombox.startX, zoombox.currentX);
+      const top = Math.min(zoombox.startY, zoombox.currentY);
+      const boxWidth = Math.abs(zoombox.currentX - zoombox.startX);
+      const boxHeight = Math.abs(zoombox.currentY - zoombox.startY);
+
+      ctx.fillStyle = "rgba(56, 189, 248, 0.14)";
+      ctx.fillRect(left, top, boxWidth, boxHeight);
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.98)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(
+        left + 1,
+        top + 1,
+        Math.max(0, boxWidth - 2),
+        Math.max(0, boxHeight - 2),
+      );
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.beginPath();
+      ctx.moveTo(left + boxWidth / 2, top);
+      ctx.lineTo(left + boxWidth / 2, top + boxHeight);
+      ctx.stroke();
+      ctx.restore();
+    },
+    [],
+  );
+
   return {
     drawGridOnContext,
     drawMarkersOnContext,
@@ -1332,5 +1390,6 @@ export function useOverlayRenderer() {
     drawSpikeMarkersOnContext,
     drawZoomMarkersOnContext,
     drawPowerLineOnContext,
+    drawZoomboxOnContext,
   };
 }

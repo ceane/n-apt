@@ -275,4 +275,35 @@ describe("FrequencyInput", () => {
     fireEvent.blur(input);
     expect(input.value).toBe("2.5");
   });
+
+  it("preserves the unit on arrow key adjustments (preventing down-scaling trap)", async () => {
+    const onChange = jest.fn();
+    render(
+      <ControlledFrequencyInput valueHz={1_400_000} onChangeHz={onChange} />,
+    );
+    const input = screen.getByRole("textbox");
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+
+    expect(unitButton).toHaveTextContent("MHz");
+    expect(screen.getByDisplayValue("1.4")).toBeInTheDocument();
+
+    // Decrement by 1 MHz (since displayUnit is MHz, step is 1 MHz)
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenCalledWith(400_000);
+
+    // Unit should still be MHz, value should be 0.4
+    await waitFor(() => {
+      expect(unitButton).toHaveTextContent("MHz");
+      expect(screen.getByDisplayValue("0.4")).toBeInTheDocument();
+    });
+
+    // Increment back by 1 MHz
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenLastCalledWith(1_400_000);
+
+    await waitFor(() => {
+      expect(unitButton).toHaveTextContent("MHz");
+      expect(screen.getByDisplayValue("1.4")).toBeInTheDocument();
+    });
+  });
 });

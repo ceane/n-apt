@@ -90,6 +90,18 @@ describe("useFrequencyDrag Hook", () => {
       defaultOptions.vizPanOffsetRef.current = 0;
     if (defaultOptions.vizDbMinRef) defaultOptions.vizDbMinRef.current = -120;
     if (defaultOptions.vizDbMaxRef) defaultOptions.vizDbMaxRef.current = 0;
+    spectrumGpuCanvasRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 600,
+    });
+    spectrumContainerRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 600,
+    });
 
     // Mock window event listeners
     jest.spyOn(window, "addEventListener").mockImplementation((event, cb) => {
@@ -242,6 +254,58 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnVizZoomFloorChange).toHaveBeenCalled();
   });
 
+  it("commits a box zoom from the pointerup coordinates immediately", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    triggerPointerDown(100, 100);
+    triggerPointerUp(200, 200);
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    expect(mockOnVizZoomChange).toHaveBeenLastCalledWith(
+      expect.closeTo(9.1, 5),
+    );
+    expect(mockOnVizZoomFloorChange).toHaveBeenCalledWith(
+      expect.closeTo(9.1, 5),
+    );
+  });
+
+  it("creates the zoombox before pointermove so the overlay has a stable node", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+    const mockBox = document.createElement("div");
+    jest.spyOn(document, "createElement").mockReturnValue(mockBox);
+    (document.createElement as jest.Mock).mockClear();
+
+    triggerPointerDown(100, 100);
+
+    expect(document.createElement).toHaveBeenCalledWith("div");
+    expect(document.body.contains(mockBox)).toBe(true);
+    expect(mockBox.style.zIndex).toBe("2147483647");
+    expect(mockBox.style.transition).toBe("none");
+  });
+
+  it("updates the zoombox state during drag", () => {
+    const zoomboxStateRef = { current: null };
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        zoomboxStateRef,
+      }),
+    );
+
+    triggerPointerDown(100, 100);
+    triggerPointerMove(900, 550);
+
+    expect(zoomboxStateRef.current).toEqual({
+      startX: 100,
+      startY: 100,
+      currentX: 900,
+      currentY: 550,
+    });
+
+    triggerPointerUp(900, 550);
+    expect(zoomboxStateRef.current).toBeNull();
+  });
+
   it("should start a fresh range drag inside an existing selection unless resizing", () => {
     const selectionOptions = {
       ...defaultOptions,
@@ -266,6 +330,117 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnSelectionChange).toHaveBeenCalled();
     const secondCall = mockOnSelectionChange.mock.calls[0][0];
     expect(secondCall.min).toBeLessThan(secondCall.max);
+  });
+
+  it("moves the FFT node selection when dragging inside the existing band", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(600, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 105,
+      max: 107,
+    });
+  });
+
+  it("starts a new FFT node selection when dragging outside the existing band", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(200, 120);
+    triggerPointerMove(300, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 103,
+    });
+  });
+
+  it("keeps the FFT node selection draggable while its display edge-pans", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(1100, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 110,
+      max: 112,
+    });
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 112,
+    });
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps requesting spectrum while a selection drag is held at the FFT edge", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(995, 120);
+
+    const firstRequestedRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(firstRequestedRange).toBeDefined();
+    expect(animationFrames).toHaveLength(1);
+
+    act(() => animationFrames.shift()?.(1_000));
+    act(() => animationFrames.shift()?.(1_100));
+
+    const heldRequestedRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(heldRequestedRange.max).toBeGreaterThan(firstRequestedRange.max);
+    expect(heldRequestedRange.max - heldRequestedRange.min).toBeCloseTo(10);
+
+    triggerPointerUp(995, 120);
+    expect(window.cancelAnimationFrame).toHaveBeenCalled();
   });
 
   it("creates a range from right to left without anchoring at the center", () => {
@@ -338,6 +513,57 @@ describe("useFrequencyDrag Hook", () => {
     const next = mockOnSelectionChange.mock.calls[0][0];
     expect(next.min).toBeCloseTo(100, 2);
     expect(next.max).toBeCloseTo(110, 2);
+  });
+
+  it("keeps the whole FFT node selectable when React Flow scales it below the VFO threshold", () => {
+    spectrumGpuCanvasRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 150,
+    });
+    spectrumContainerRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 150,
+    });
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(150, 75);
+    triggerPointerMove(250, 75);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("edge-pans a React Flow FFT range by shifting its display range without visual overscroll", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        fullPlotSelection: true,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(900, 120);
+    triggerPointerMove(1200, 120);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 112,
+    });
+    expect(frequencyRangeRef.current).toEqual({ min: 102, max: 112 });
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
   });
 
   it("uses the latest selection range after rerendering", () => {

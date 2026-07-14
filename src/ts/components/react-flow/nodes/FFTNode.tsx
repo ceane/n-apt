@@ -7,7 +7,11 @@ import React, {
 } from "react";
 import { styled } from "styled-components";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { setPreviewRange } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  setFrequencyRange,
+  setPreviewRange,
+} from "@n-apt/redux/slices/spectrumSlice";
+import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { useNodeConnections, useNodes } from "@xyflow/react";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
@@ -23,36 +27,47 @@ interface FFTNodeProps {
   };
 }
 
-export function getDisplayRangeForSelection(
-  displayRange: FrequencyRange | undefined,
-  selectionRange: FrequencyRange | null | undefined,
-): FrequencyRange | undefined {
-  if (!displayRange) return undefined;
+export const getFftNodeDisplayCenterHz = ({
+  displayRange,
+  bandwidthCenterFreqHz,
+  fallbackCenterHz,
+}: {
+  displayRange?: FrequencyRange;
+  bandwidthCenterFreqHz?: number | null;
+  fallbackCenterHz: number;
+}): number => {
   if (
-    !selectionRange ||
-    !Number.isFinite(selectionRange.min) ||
-    !Number.isFinite(selectionRange.max) ||
-    selectionRange.max <= selectionRange.min
+    displayRange &&
+    Number.isFinite(displayRange.min) &&
+    Number.isFinite(displayRange.max) &&
+    displayRange.max > displayRange.min
   ) {
-    return displayRange;
+    return (displayRange.min + displayRange.max) / 2;
   }
+  return bandwidthCenterFreqHz ?? fallbackCenterHz;
+};
 
-  const span = displayRange.max - displayRange.min;
-  if (!Number.isFinite(span) || span <= 0) return displayRange;
+export const getFftNodeResolvedRange = ({
+  requestedRange,
+  frameRange,
+}: {
+  requestedRange?: FrequencyRange | null;
+  frameRange?: FrequencyRange | null;
+}): FrequencyRange | undefined => {
+  const isValidRange = (
+    range?: FrequencyRange | null,
+  ): range is FrequencyRange =>
+    !!range &&
+    Number.isFinite(range.min) &&
+    Number.isFinite(range.max) &&
+    range.max > range.min;
 
-  let offset = 0;
-  if (selectionRange.min < displayRange.min) {
-    offset = selectionRange.min - displayRange.min;
-  } else if (selectionRange.max > displayRange.max) {
-    offset = selectionRange.max - displayRange.max;
-  }
-
-  if (offset === 0) return displayRange;
-  return {
-    min: displayRange.min + offset,
-    max: displayRange.max + offset,
-  };
-}
+  return isValidRange(requestedRange)
+    ? requestedRange
+    : isValidRange(frameRange)
+      ? frameRange
+      : undefined;
+};
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -106,6 +121,9 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
+  );
+  const selectedDeviceName = useAppSelector(
+    (state) => state.websocket.deviceName,
   );
   const initialFrame = Array.isArray(liveDataRef.current)
     ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
@@ -182,17 +200,22 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
         : liveDataRef.current;
       dataRef.current = liveFrame;
 
-      // Derive range from the actual frame metadata (center_frequency_hz + sample_rate)
-      let newRange: FrequencyRange | null = null;
-
+      // Prefer the requested range while a retune is in flight. Frame
+      // metadata can still describe the previous hardware window for several
+      // frames and must not snap the display back to that stale range.
+      let frameRange: FrequencyRange | undefined;
       if (liveFrame?.center_frequency_hz && liveFrame?.sample_rate) {
-        newRange = {
+        frameRange = {
           min: liveFrame.center_frequency_hz - liveFrame.sample_rate / 2,
           max: liveFrame.center_frequency_hz + liveFrame.sample_rate / 2,
         };
-      } else if (frequencyRange) {
-        newRange = frequencyRange;
-      } else {
+      }
+
+      let newRange = getFftNodeResolvedRange({
+        requestedRange: frequencyRange,
+        frameRange,
+      });
+      if (!newRange) {
         const fallbackCenter =
           bandwidthCenterFreqHz ??
           (demodCenterFreqHz && demodCenterFreqHz > 0
@@ -221,25 +244,42 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
 
   const frame = dataRef.current;
 
-  const effectiveDisplayRange = useMemo(() => {
-    return resolvedRange;
-  }, [resolvedRange]);
+  const effectiveDisplayRange = resolvedRange;
+  const selectionRange = previewRange || undefined;
 
-  const selectionRange = useMemo(() => {
-    return previewRange || undefined;
-  }, [previewRange]);
-
-  const currentCenterHz =
-    bandwidthCenterFreqHz ??
-    (effectiveDisplayRange
-      ? (effectiveDisplayRange.min + effectiveDisplayRange.max) / 2
-      : centerFrequencyHz);
-  const selectionCenterHz =
-    bandwidthCenterFreqHz ?? demodCenterFreqHz ?? currentCenterHz;
-
+  const currentCenterHz = getFftNodeDisplayCenterHz({
+    displayRange: effectiveDisplayRange,
+    bandwidthCenterFreqHz,
+    fallbackCenterHz: centerFrequencyHz,
+  });
   const handleSelectionChange = useCallback(
     (range: FrequencyRange) => {
       dispatch(setPreviewRange(range));
+    },
+    [dispatch],
+  );
+
+  const handleSelectionEdgePan = useCallback(
+    (range: FrequencyRange) => {
+      if (
+        !Number.isFinite(range.min) ||
+        !Number.isFinite(range.max) ||
+        range.max <= range.min
+      ) {
+        return;
+      }
+
+      // This node has no VFO. Publish the new hardware window so the source
+      // sends frames for the shifted range, then use that same range locally
+      // while the retune is in flight. Keeping both paths in sync prevents the
+      // status row from moving ahead of the plotted spectrum.
+      dispatch(setFrequencyRange(range));
+      dispatch(sendFrequencyRange(range));
+      setResolvedRange((current) =>
+        current?.min === range.min && current.max === range.max
+          ? current
+          : range,
+      );
     },
     [dispatch],
   );
@@ -312,10 +352,14 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           maxBandwidthHz={hardwareSpanHz}
           selectionRange={isSpanConnected ? selectionRange : undefined}
           selectionMode="range"
+          selectionEdgePanMode="frequency-range"
+          rangeSelectionInteraction="edit-existing"
           selectionDisabled={!isSpanConnected}
           bandwidthAlignment={previewAlignment}
+          onFrequencyRangeChange={handleSelectionEdgePan}
           onSelectionChange={handleSelectionChange}
           placeholderSourceLabel={data.label}
+          deviceName={selectedDeviceName ?? data.label}
         />
       </CanvasContainer>
     </NodeWrapper>

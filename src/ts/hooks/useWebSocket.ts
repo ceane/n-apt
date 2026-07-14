@@ -1,5 +1,6 @@
 import { useReducer, useEffect, useRef, useCallback } from "react";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
+import { isMockBackend } from "@n-apt/utils/deviceCapabilities";
 
 import {
   DeviceState,
@@ -158,15 +159,6 @@ const INITIAL_WS_STATE: WsState = {
   captureStatus: null,
   error: null,
   cryptoCorrupted: false,
-};
-
-const isMockBackend = (value: unknown): boolean => {
-  return (
-    typeof value === "string" &&
-    (value === "mock_apt" ||
-      value === "mock_apt_metal" ||
-      value.includes("mock"))
-  );
 };
 
 function wsReducer(state: WsState, action: WsAction): WsState {

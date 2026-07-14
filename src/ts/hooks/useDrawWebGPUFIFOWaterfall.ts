@@ -122,6 +122,9 @@ export interface WebGPUFIFOWaterfallOptions {
 export function useDrawWebGPUFIFOWaterfall() {
   const stateRef = useRef<WaterfallState | null>(null);
 
+  // Debug: Track first real data
+  const firstRealDataLoggedRef = useRef(false);
+
   const createColorTex = useCallback(
     (device: GPUDevice, colormap: number[][]): GPUTexture => {
       const w = colormap.length;
@@ -245,13 +248,24 @@ export function useDrawWebGPUFIFOWaterfall() {
         const needW = 4096;
         const needH = plotH;
 
-        // -- Resize texture IF PLOT HEIGHT changes --
+        // -- Resize texture IF PLOT HEIGHT changes OR force reset on source change --
         // (internal width is constant 4096)
-        if (needW !== s.texW || needH !== s.texH) {
+        const forceReset =
+          restoreTexture &&
+          restoreTexture.width > 0 &&
+          restoreTexture.height > 0 &&
+          (needW !== restoreTexture.width || needH !== restoreTexture.height);
+
+        if (needW !== s.texW || needH !== s.texH || forceReset) {
           const prevTex = s.dataTex;
           const prevW = s.texW;
           const prevH = s.texH;
-          const widthChanged = prevW !== needW;
+          const widthChanged = prevW !== needW || forceReset;
+
+          // When forceReset is true, break the circular buffer continuity
+          if (forceReset) {
+            s.writeRow = 0;
+          }
 
           s.texW = needW;
           s.texH = needH;
@@ -280,9 +294,9 @@ export function useDrawWebGPUFIFOWaterfall() {
             { width: s.texW, height: s.texH },
           );
 
-          if (prevTex && !widthChanged) {
+          if (prevTex && !widthChanged && !forceReset) {
             // Repack the circular buffer by display age so the visible history
-            // stays in the same order after a height change.
+            // stays in the same order after a height change (only for real size changes)
             const enc = device.createCommandEncoder();
             const prevRenderRow =
               prevH > 0 ? (s.writeRow - 1 + prevH) % prevH : 0;
@@ -305,6 +319,7 @@ export function useDrawWebGPUFIFOWaterfall() {
             device.queue.submit([enc.finish()]);
             s.writeRow = Math.min(s.writeRow, s.texH - 1);
           } else {
+            // Full reset triggered: start from a clean buffer
             s.writeRow = 0;
           }
           prevTex?.destroy();

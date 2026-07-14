@@ -285,6 +285,16 @@ fn should_send_source_iq_frame(
   matches!(source_id, "mock-tx" | "mock-apt") && tx_transmitting
 }
 
+fn source_iq_frame_matches_source(source_id: &str, is_mock_apt: bool) -> bool {
+  if source_id == "mock-tx" {
+    return !is_mock_apt;
+  }
+  if source_id.starts_with("mock") {
+    return is_mock_apt;
+  }
+  !is_mock_apt
+}
+
 fn source_kind_hint_from_id(source_id: &str) -> Option<&'static str> {
   if source_id.starts_with("rtl-sdr") || source_id.starts_with("rtl_sdr") {
     return Some("rtl-sdr");
@@ -304,7 +314,7 @@ fn source_iq_subscription_matches_active_source(
   if active_id == source_id {
     return true;
   }
-  if active_id.starts_with("mock") {
+  if active_id.starts_with("mock") && source_id.starts_with("mock") {
     return true;
   }
 
@@ -378,6 +388,9 @@ pub async fn handle_source_iq_connection(
         match spectrum_result {
           Ok(spectrum_data) => {
             if !source_iq_subscription_matches_active_source(&shared, &source_id, &stream_key) {
+              continue;
+            }
+            if !source_iq_frame_matches_source(&source_id, spectrum_data.is_mock_apt) {
               continue;
             }
             let allow_next_paused_frame = shared
@@ -1305,7 +1318,8 @@ pub fn handle_message(
 mod tests {
   use super::{
     handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
-    should_send_source_iq_frame, source_iq_subscription_matches_active_source,
+    should_send_source_iq_frame, source_iq_frame_matches_source,
+    source_iq_subscription_matches_active_source,
   };
   use crate::server::shared_state::SharedState;
   use crate::server::types::{DeviceProfile, SdrCommand, WebSocketMessage};
@@ -1845,6 +1859,14 @@ mod tests {
   }
 
   #[test]
+  fn source_iq_frames_must_match_the_subscribed_source_origin() {
+    assert!(source_iq_frame_matches_source("mock-apt", true));
+    assert!(!source_iq_frame_matches_source("rtl-sdr-00000001", true));
+    assert!(source_iq_frame_matches_source("rtl-sdr-00000001", false));
+    assert!(!source_iq_frame_matches_source("mock-apt", false));
+  }
+
+  #[test]
   fn source_iq_subscription_accepts_the_active_rtl_source() {
     let shared = test_shared_state();
     shared.update_device_status(
@@ -1870,6 +1892,30 @@ mod tests {
     ));
     assert!(!source_iq_subscription_matches_active_source(
       &shared, "mock-apt", "mock-apt"
+    ));
+  }
+
+  #[test]
+  fn source_iq_subscription_rejects_mock_active_for_hardware_subscription() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      crate::server::websocket_server::build_device_profile("mock_apt"),
+    );
+    shared.update_device_usb_strings(
+      "mock-apt".to_string(),
+      "N-APT".to_string(),
+      "Mock APT SDR".to_string(),
+    );
+
+    assert!(!source_iq_subscription_matches_active_source(
+      &shared,
+      "rtl-sdr-00000001",
+      "00000001"
+    ));
+    assert!(source_iq_subscription_matches_active_source(
+      &shared, "mock-tx", "mock-tx"
     ));
   }
 

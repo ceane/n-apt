@@ -10,6 +10,7 @@ import {
 } from "@n-apt/utils/frequency";
 import {
   computeEdgeResizedBand,
+  getBandDragMode,
   getPointerOffsetWithinBandHz,
   computeBandPanWithEdgePanning,
 } from "@n-apt/utils/edgePanning";
@@ -36,6 +37,13 @@ export interface FrequencyDragOptions {
   spectrumGpuCanvasNode?: HTMLCanvasElement | null;
   /** Container div wrapping the canvases (receives pointer events since canvas has pointer-events:none) */
   spectrumContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Mutable ref to store the live relative zoombox coordinates, keeping it out of React state. */
+  zoomboxStateRef?: React.MutableRefObject<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>;
   frequencyRangeRef: React.MutableRefObject<FrequencyRange>;
   spectrumWebgpuEnabled: boolean;
   activeSignalArea: string;
@@ -48,6 +56,10 @@ export interface FrequencyDragOptions {
   onSelectionChange?: (range: FrequencyRange) => void;
   /** Use the full canvas as the selectable plot area. React Flow FFT nodes render this way. */
   fullPlotSelection?: boolean;
+  /** Shift the displayed frequency range at selection edges instead of overscrolling FFT data. */
+  selectionEdgePanMode?: "visual" | "frequency-range";
+  /** Whether a plain drag inside an existing range edits that band or starts a new range. */
+  rangeSelectionInteraction?: "create-only" | "edit-existing";
   vizZoomRef?: React.MutableRefObject<number>;
   vizZoomFloorRef?: React.MutableRefObject<number>;
   vizPanOffsetRef?: React.MutableRefObject<number>;
@@ -86,6 +98,7 @@ export function useFrequencyDrag({
   spectrumGpuCanvasRef,
   spectrumGpuCanvasNode,
   spectrumContainerRef,
+  zoomboxStateRef,
   frequencyRangeRef,
   spectrumWebgpuEnabled,
   activeSignalArea,
@@ -95,6 +108,8 @@ export function useFrequencyDrag({
   selectionRange,
   onSelectionChange,
   fullPlotSelection = false,
+  selectionEdgePanMode = "visual",
+  rangeSelectionInteraction = "create-only",
   vizZoomRef,
   vizZoomFloorRef,
   vizPanOffsetRef,
@@ -141,6 +156,12 @@ export function useFrequencyDrag({
   const selectionDragModeRef = useRef<
     "create" | "move" | "resize-left" | "resize-right" | null
   >(null);
+  const selectionEdgePanFrameRef = useRef<number | null>(null);
+  const selectionEdgePanTimestampRef = useRef<number | null>(null);
+  const selectionEdgePanPointerRef = useRef<{
+    clientX: number;
+    canvasRect: DOMRect;
+  } | null>(null);
   const latestSelectionRangeRef = useRef<FrequencyRange | undefined>(
     selectionRange,
   );
@@ -641,6 +662,174 @@ export function useFrequencyDrag({
       return { min: bounds.min, max: bounds.max };
     };
 
+    const stopSelectionEdgePan = () => {
+      if (selectionEdgePanFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionEdgePanFrameRef.current);
+        selectionEdgePanFrameRef.current = null;
+      }
+      selectionEdgePanTimestampRef.current = null;
+      selectionEdgePanPointerRef.current = null;
+    };
+
+    const getSelectionEdgePanVelocity = (
+      clientX: number,
+      canvasRect: DOMRect,
+    ): number => {
+      if (
+        selectionEdgePanMode !== "frequency-range" ||
+        !fullPlotSelection ||
+        !onFrequencyRangeChange
+      ) {
+        return 0;
+      }
+
+      const plot = getPlotBounds(canvasRect);
+      const x = clientX - canvasRect.left;
+      const edgeZonePx = Math.min(32, plot.width / 4);
+      const visibleSpan =
+        frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+      if (edgeZonePx <= 0 || visibleSpan <= 0) return 0;
+
+      let direction = 0;
+      let strength = 0;
+      if (x <= plot.left + edgeZonePx) {
+        direction = -1;
+        strength = Math.min(1, (plot.left + edgeZonePx - x) / edgeZonePx);
+      } else if (x >= plot.right - edgeZonePx) {
+        direction = 1;
+        strength = Math.min(1, (x - (plot.right - edgeZonePx)) / edgeZonePx);
+      }
+
+      const dragMode = selectionDragModeRef.current;
+      if (
+        direction === 0 ||
+        (dragMode === "resize-left" && direction > 0) ||
+        (dragMode === "resize-right" && direction < 0)
+      ) {
+        return 0;
+      }
+
+      return direction * visibleSpan * 0.6 * strength;
+    };
+
+    const applySelectionEdgePan = (timestamp: number) => {
+      selectionEdgePanFrameRef.current = null;
+      const pointer = selectionEdgePanPointerRef.current;
+      const emitSelectionChange = latestOnSelectionChangeRef.current;
+      if (
+        !pointer ||
+        !isSelectionDraggingRef.current ||
+        !selectionDragModeRef.current ||
+        !emitSelectionChange ||
+        !onFrequencyRangeChange
+      ) {
+        stopSelectionEdgePan();
+        return;
+      }
+
+      const velocity = getSelectionEdgePanVelocity(
+        pointer.clientX,
+        pointer.canvasRect,
+      );
+      if (velocity === 0) {
+        stopSelectionEdgePan();
+        return;
+      }
+
+      const previousTimestamp = selectionEdgePanTimestampRef.current;
+      selectionEdgePanTimestampRef.current = timestamp;
+      if (previousTimestamp !== null) {
+        const elapsedSeconds = Math.min(
+          0.1,
+          Math.max(0, timestamp - previousTimestamp) / 1000,
+        );
+        const requestedShift = velocity * elapsedSeconds;
+        const currentRange = frequencyRangeRef.current;
+        const allowedBounds = getActiveSignalAreaBounds() ?? {
+          min: 0,
+          max: 10_000_000_000,
+        };
+        const rangeSpan = currentRange.max - currentRange.min;
+        const nextMin = Math.max(
+          allowedBounds.min,
+          Math.min(
+            allowedBounds.max - rangeSpan,
+            currentRange.min + requestedShift,
+          ),
+        );
+        const actualShift = nextMin - currentRange.min;
+
+        if (actualShift !== 0) {
+          const nextRange = { min: nextMin, max: nextMin + rangeSpan };
+          frequencyRangeRef.current = nextRange;
+          dragStartRangeRef.current = nextRange;
+          onFrequencyRangeChange(nextRange);
+
+          const currentSelection =
+            selectionDraftRangeRef.current ?? latestSelectionRangeRef.current;
+          if (currentSelection) {
+            const dragMode = selectionDragModeRef.current;
+            const shiftedSelection =
+              dragMode === "move"
+                ? {
+                    min: currentSelection.min + actualShift,
+                    max: currentSelection.max + actualShift,
+                  }
+                : dragMode === "resize-left"
+                  ? {
+                      min: currentSelection.min + actualShift,
+                      max: currentSelection.max,
+                    }
+                  : dragMode === "resize-right"
+                    ? {
+                        min: currentSelection.min,
+                        max: currentSelection.max + actualShift,
+                      }
+                    : actualShift < 0
+                      ? {
+                          min: currentSelection.min + actualShift,
+                          max: currentSelection.max,
+                        }
+                      : {
+                          min: currentSelection.min,
+                          max: currentSelection.max + actualShift,
+                        };
+            const nextSelection = clampSelectionToFrequencyRange(
+              shiftedSelection,
+              allowedBounds,
+            );
+            selectionDraftRangeRef.current = nextSelection;
+            if (liveDragSelectionRef) {
+              liveDragSelectionRef.current = nextSelection;
+            }
+            throttleDispatch(nextSelection);
+          }
+          onDragRepaint?.();
+        }
+      }
+
+      selectionEdgePanFrameRef.current = window.requestAnimationFrame(
+        applySelectionEdgePan,
+      );
+    };
+
+    const updateSelectionEdgePanPointer = (
+      clientX: number,
+      canvasRect: DOMRect,
+    ) => {
+      selectionEdgePanPointerRef.current = { clientX, canvasRect };
+      if (getSelectionEdgePanVelocity(clientX, canvasRect) === 0) {
+        stopSelectionEdgePan();
+        return;
+      }
+      if (selectionEdgePanFrameRef.current === null) {
+        selectionEdgePanTimestampRef.current = null;
+        selectionEdgePanFrameRef.current = window.requestAnimationFrame(
+          applySelectionEdgePan,
+        );
+      }
+    };
+
     const clampRangeToTuningBounds = (
       range: FrequencyRange,
     ): FrequencyRange => {
@@ -804,6 +993,75 @@ export function useFrequencyDrag({
       }
     };
 
+    const ensureSelectionBox = (container: HTMLElement) => {
+      const overlayHost = container.ownerDocument?.body ?? document.body;
+      if (selectionBoxRef.current) {
+        if (selectionBoxRef.current.parentNode !== overlayHost) {
+          overlayHost.appendChild(selectionBoxRef.current);
+        }
+        return selectionBoxRef.current;
+      }
+
+      const div = document.createElement("div");
+      // Keep the transient box outside the React-owned canvas subtree. React
+      // may reconcile that subtree while frames are arriving and remove an
+      // imperatively appended child, which makes the zoombox flash.
+      div.style.position = "fixed";
+      div.style.border = "2px solid rgba(56, 189, 248, 0.98)";
+      div.style.backgroundColor = "rgba(56, 189, 248, 0.14)";
+      div.style.boxShadow =
+        "inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 2px rgba(8, 47, 73, 0.9)";
+      div.style.pointerEvents = "none";
+      div.style.zIndex = "2147483647";
+      div.style.opacity = "1";
+      div.style.visibility = "visible";
+      div.style.transition = "none";
+      div.style.animation = "none";
+      div.style.willChange = "left, top, width, height";
+      div.style.display = "none";
+
+      const centerLine = document.createElement("div");
+      if (centerLine !== div) {
+        centerLine.style.position = "absolute";
+        centerLine.style.top = "0";
+        centerLine.style.bottom = "0";
+        centerLine.style.left = "50%";
+        centerLine.style.width = "2px";
+        centerLine.style.background = "rgba(255, 255, 255, 0.95)";
+        centerLine.style.boxShadow = "0 0 0 1px rgba(8, 47, 73, 0.9)";
+        centerLine.style.transform = "translateX(-50%)";
+        centerLine.style.pointerEvents = "none";
+        div.appendChild(centerLine);
+      }
+
+      overlayHost.appendChild(div);
+      selectionBoxRef.current = div;
+      return div;
+    };
+
+    const clearZoomboxCanvas = () => {
+      if (zoomboxStateRef) {
+        zoomboxStateRef.current = null;
+      }
+      onDragRepaint?.();
+    };
+
+    const drawZoomboxCanvas = (
+      rect: DOMRect,
+      start: { x: number; y: number },
+      current: { x: number; y: number },
+    ) => {
+      if (!zoomboxStateRef) return false;
+      const startX = start.x - rect.left;
+      const startY = start.y - rect.top;
+      const currentX = current.x - rect.left;
+      const currentY = current.y - rect.top;
+
+      zoomboxStateRef.current = { startX, startY, currentX, currentY };
+      onDragRepaint?.();
+      return true;
+    };
+
     const handlePointerMove = (e: PointerEvent) => {
       if (isTxSliderDraggingRef.current) {
         updateTxSliderFromPointer(e.clientX);
@@ -949,45 +1207,14 @@ export function useFrequencyDrag({
       if (isBoxDraggingRef.current) {
         boxCurrentRef.current = { x: e.clientX, y: e.clientY };
 
-        // Render box — reuse pre-created element, toggle display
-        if (!selectionBoxRef.current) {
-          const div = document.createElement("div");
-          if (div.style) {
-            div.style.position = "absolute";
-            div.style.border = "1px dashed rgba(37, 64, 105, 0.78)";
-            div.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
-            div.style.boxShadow =
-              "inset 0 0 0 1px rgba(255, 255, 255, 0.65), 0 0 0 1px rgba(37, 64, 105, 0.18)";
-            div.style.pointerEvents = "none";
-            div.style.zIndex = "100";
-            div.style.display = "block";
-
-            // Add center line
-            const centerLine = document.createElement("div");
-            if (centerLine && div !== centerLine) {
-              centerLine.style.position = "absolute";
-              centerLine.style.top = "0";
-              centerLine.style.bottom = "0";
-              centerLine.style.left = "50%";
-              centerLine.style.width = "2px";
-              centerLine.style.background = "rgba(37, 64, 105, 0.72)";
-              centerLine.style.boxShadow =
-                "0 0 0 1px rgba(255, 255, 255, 0.62)";
-              centerLine.style.transform = "translateX(-50%)";
-              centerLine.style.pointerEvents = "none";
-              div.appendChild(centerLine);
-            }
-          }
-          container.appendChild(div);
-          selectionBoxRef.current = div;
-        } else {
-          if (selectionBoxRef.current.parentNode !== container) {
-            container.appendChild(selectionBoxRef.current);
-          }
-          selectionBoxRef.current.style.display = "block";
+        if (
+          drawZoomboxCanvas(rect, boxStartRef.current, boxCurrentRef.current)
+        ) {
+          return;
         }
 
-        const div = selectionBoxRef.current;
+        const div = ensureSelectionBox(container);
+        div.style.display = "block";
         const startX = boxStartRef.current.x - rect.left;
         const startY = boxStartRef.current.y - rect.top;
         const currentX = boxCurrentRef.current.x - rect.left;
@@ -999,10 +1226,10 @@ export function useFrequencyDrag({
         const height = Math.abs(currentY - startY);
 
         // Clamp to container bounds
-        div.style.left = `${Math.max(0, left)}px`;
-        div.style.top = `${Math.max(0, top)}px`;
-        div.style.width = `${Math.min(rect.width - left, width)}px`;
-        div.style.height = `${Math.min(rect.height - top, height)}px`;
+        div.style.left = `${Math.min(boxStartRef.current.x, boxCurrentRef.current.x)}px`;
+        div.style.top = `${Math.min(boxStartRef.current.y, boxCurrentRef.current.y)}px`;
+        div.style.width = `${width}px`;
+        div.style.height = `${height}px`;
         return;
       }
 
@@ -1134,7 +1361,7 @@ export function useFrequencyDrag({
           next = clampEdgeToBounds(base.min, newMax, allowedBounds);
         }
 
-        // --- Clean Edge Panning Logic ---
+        // --- Edge panning ---
         const zoom = vizZoomRef?.current || 1;
         const fullSpan = bounds.max - bounds.min;
         const visualSpan = fullSpan / zoom;
@@ -1142,40 +1369,69 @@ export function useFrequencyDrag({
         const visualMin = centerFreq + currentPan - visualSpan / 2;
         const visualMax = centerFreq + currentPan + visualSpan / 2;
 
-        const margin = visualSpan * 0.03; // 3% edge threshold
-        let newPan = currentPan;
-        let shouldPan = false;
+        if (
+          selectionEdgePanMode === "frequency-range" &&
+          onFrequencyRangeChange
+        ) {
+          const edgePan = computeBandPanWithEdgePanning({
+            visibleMinHz: visualMin,
+            visibleMaxHz: visualMax,
+            startHz: next.min,
+            endHz: next.max,
+            pointerHz: pointerFreq,
+            pointerOffsetHz: pointerFreq - next.min,
+            hardwareMinHz: allowedBounds.min,
+            hardwareMaxHz: allowedBounds.max,
+          });
+          if (
+            edgePan.visibleMinHz !== visualMin ||
+            edgePan.visibleMaxHz !== visualMax
+          ) {
+            const shiftedRange = {
+              min: edgePan.visibleMinHz,
+              max: edgePan.visibleMaxHz,
+            };
+            frequencyRangeRef.current = shiftedRange;
+            dragStartRangeRef.current = shiftedRange;
+            onFrequencyRangeChange(shiftedRange);
+          }
+        } else {
+          const margin = visualSpan * 0.03; // 3% edge threshold
+          let newPan = currentPan;
+          let shouldPan = false;
 
-        // Push the pan offset if pointer hits the edge
-        if (pointerFreq > visualMax - margin) {
-          newPan += pointerFreq - (visualMax - margin);
-          shouldPan = true;
-        } else if (pointerFreq < visualMin + margin) {
-          newPan -= visualMin + margin - pointerFreq;
-          shouldPan = true;
-        }
+          // Push the pan offset if pointer hits the edge
+          if (pointerFreq > visualMax - margin) {
+            newPan += pointerFreq - (visualMax - margin);
+            shouldPan = true;
+          } else if (pointerFreq < visualMin + margin) {
+            newPan -= visualMin + margin - pointerFreq;
+            shouldPan = true;
+          }
 
-        if (shouldPan) {
-          if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
-            // Hardware window retuned and pan updated
-          } else if (onVizPanChange) {
-            // Limit panning bounds, but allow visual pan if full plot selection is active
-            const clampedPan = fullPlotSelection
-              ? Math.max(-centerFreq, newPan)
-              : clampVizPan(
-                  newPan,
-                  bounds,
-                  zoom,
-                  hardwareSpectrumBounds ??
-                    signalAreaBounds?.[activeSignalArea],
-                );
-            onVizPanChange(clampedPan);
-            if (vizPanOffsetRef) {
-              vizPanOffsetRef.current = clampedPan;
+          if (shouldPan) {
+            if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
+              // Hardware window retuned and pan updated
+            } else if (onVizPanChange) {
+              // Limit panning bounds, but allow visual pan if full plot selection is active
+              const clampedPan = fullPlotSelection
+                ? Math.max(-centerFreq, newPan)
+                : clampVizPan(
+                    newPan,
+                    bounds,
+                    zoom,
+                    hardwareSpectrumBounds ??
+                      signalAreaBounds?.[activeSignalArea],
+                  );
+              onVizPanChange(clampedPan);
+              if (vizPanOffsetRef) {
+                vizPanOffsetRef.current = clampedPan;
+              }
             }
           }
         }
 
+        updateSelectionEdgePanPointer(e.clientX, canvasRect);
         selectionDraftRangeRef.current = next;
         if (liveDragSelectionRef) {
           liveDragSelectionRef.current = next;
@@ -1454,10 +1710,14 @@ export function useFrequencyDrag({
       const height = rect.height;
       const y = e.clientY - rect.top;
       const vfoThreshold = getVfoInteractionHeight();
+      const isRangeSelectionArea = fullPlotSelection
+        ? y >= 0 && y <= height
+        : y < height - vfoThreshold;
 
       if (
         selectionMode === "range" &&
-        y < height - vfoThreshold &&
+        !disabled &&
+        isRangeSelectionArea &&
         latestOnSelectionChangeRef.current
       ) {
         const canvas = getActiveSpectrumCanvas();
@@ -1478,22 +1738,19 @@ export function useFrequencyDrag({
           );
           const existing =
             latestSelectionRangeRef.current ?? selectionDraftRangeRef.current;
-          const edgeThreshold = Math.max(fullRange * 0.01, 1);
-
           if (existing) {
-            // Plain click-drag always starts a fresh A-to-B selection. Hold Alt
-            // to move or resize the existing selection without stealing normal
-            // selection gestures near an edge.
-            if (e.altKey) {
-              if (Math.abs(freqAtClick - existing.min) <= edgeThreshold) {
-                selectionDragModeRef.current = "resize-left";
-              } else if (
-                Math.abs(freqAtClick - existing.max) <= edgeThreshold
-              ) {
-                selectionDragModeRef.current = "resize-right";
-              } else {
-                selectionDragModeRef.current = "move";
-              }
+            const bandDragMode = getBandDragMode({
+              pointerHz: freqAtClick,
+              startHz: existing.min,
+              endHz: existing.max,
+              hzPerPixel: fullRange / plot.width,
+            });
+            const shouldEditExisting =
+              (e.altKey || rangeSelectionInteraction === "edit-existing") &&
+              bandDragMode !== null;
+
+            if (shouldEditExisting) {
+              selectionDragModeRef.current = bandDragMode;
               selectionDragOriginFreqRef.current = freqAtClick;
               selectionDraftRangeRef.current = existing;
               isSelectionDraggingRef.current = true;
@@ -1505,10 +1762,8 @@ export function useFrequencyDrag({
               return;
             }
 
-            // Plain clicks inside an existing selection should begin a fresh
-            // drag from the cursor instead of reusing stale edges. This keeps
-            // the selection centered around the new gesture and avoids the
-            // "grow from the edge" feeling after prior selections.
+            // A pointer outside the editable band falls through to a fresh
+            // A-to-B selection instead of moving the previous range.
           }
 
           selectionDragModeRef.current = "create";
@@ -1528,6 +1783,11 @@ export function useFrequencyDrag({
         }
         return;
       }
+
+      // Full-plot range selectors, such as FFTNode, have no VFO or box-zoom
+      // interaction beneath the selection layer. Do not let a disabled or
+      // temporarily unbound selector fall through into those interactions.
+      if (selectionMode === "range" && fullPlotSelection) return;
 
       // Check if clicking inside the demodulation selection box
       if (
@@ -1581,12 +1841,19 @@ export function useFrequencyDrag({
         isBoxDraggingRef.current = true;
         boxStartRef.current = { x: e.clientX, y: e.clientY };
         boxCurrentRef.current = { x: e.clientX, y: e.clientY };
+        if (zoomboxStateRef) {
+          zoomboxStateRef.current = null;
+          onDragRepaint?.();
+        } else {
+          ensureSelectionBox(container);
+        }
         setPointerCaptureIfAvailable(container, e.pointerId);
       }
     };
 
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
+      stopSelectionEdgePan();
 
       if (isTxSliderDraggingRef.current) {
         isTxSliderDraggingRef.current = false;
@@ -1667,152 +1934,161 @@ export function useFrequencyDrag({
         isBoxDraggingRef.current = false;
         releasePointerCaptureIfAvailable(container, e.pointerId);
 
-        if (selectionBoxRef.current) {
-          const rect = container.getBoundingClientRect();
-          const startX = boxStartRef.current.x - rect.left;
-          const startY = boxStartRef.current.y - rect.top;
-          const currentX = boxCurrentRef.current.x - rect.left;
-          const currentY = boxCurrentRef.current.y - rect.top;
+        // Use the pointerup coordinates as the authoritative endpoint. A fast
+        // drag can reach pointerup before a pointermove creates the overlay,
+        // and the zoom should still commit without waiting for another frame.
+        boxCurrentRef.current = { x: e.clientX, y: e.clientY };
+        clearZoomboxCanvas();
+        const rect = container.getBoundingClientRect();
+        const startX = boxStartRef.current.x - rect.left;
+        const startY = boxStartRef.current.y - rect.top;
+        const currentX = boxCurrentRef.current.x - rect.left;
+        const currentY = boxCurrentRef.current.y - rect.top;
 
-          const boxWidth = Math.abs(currentX - startX);
-          const boxHeight = Math.abs(currentY - startY);
+        const boxWidth = Math.abs(currentX - startX);
+        const boxHeight = Math.abs(currentY - startY);
 
-          // Only zoom if the box is reasonably sized (avoid accidental clicks)
-          if (
-            boxWidth > 10 &&
-            boxHeight > 10 &&
-            onVizZoomChange &&
-            onVizPanChange &&
-            onFftDbLimitsChange
-          ) {
-            const zoom = vizZoomRef?.current || 1;
-            const fullRange =
-              frequencyRangeRef.current.max - frequencyRangeRef.current.min;
+        // Only zoom if the box is reasonably sized (avoid accidental clicks)
+        if (
+          boxWidth > 10 &&
+          boxHeight > 10 &&
+          onVizZoomChange &&
+          onVizPanChange &&
+          onFftDbLimitsChange
+        ) {
+          const zoom = vizZoomRef?.current || 1;
+          const fullRange =
+            frequencyRangeRef.current.max - frequencyRangeRef.current.min;
 
-            // Use the actual clamped visual range from the renderer for precise mapping
-            const currentVisualRange = clampedVizRangeRef?.current || {
-              min: frequencyRangeRef.current.min,
-              max: frequencyRangeRef.current.max,
-            };
-            const visualMin = currentVisualRange.min;
-            const visualRangeSpan =
-              currentVisualRange.max - currentVisualRange.min;
+          // Use the actual clamped visual range from the renderer for precise mapping
+          const currentVisualRange = clampedVizRangeRef?.current || {
+            min: frequencyRangeRef.current.min,
+            max: frequencyRangeRef.current.max,
+          };
+          const visualMin = currentVisualRange.min;
+          const visualRangeSpan =
+            currentVisualRange.max - currentVisualRange.min;
 
-            const left = Math.min(startX, currentX);
-            const top = Math.min(startY, currentY);
+          const left = Math.min(startX, currentX);
+          const top = Math.min(startY, currentY);
 
-            // Account for FFT plot area margins (in CSS pixels).
-            // The overlay renderer and 2D spectrum trace both use:
-            //   Left:   FFT_AREA_MIN.x = 50 CSS px
-            //   Top:    FFT_AREA_MIN.y = 20 CSS px
-            //   Right:  containerWidth - 40 CSS px
-            //   Bottom: containerHeight - 40 CSS px - live status row
-            const plotLeftCSS = 50;
-            const plotRightCSS = rect.width - 40;
-            const plotTopCSS = 20;
-            const plotBottomCSS = rect.height - 40 - getReservedBottomHeight();
-            const plotWidthCSS = plotRightCSS - plotLeftCSS;
-            const plotHeightCSS = plotBottomCSS - plotTopCSS;
+          // Account for FFT plot area margins (in CSS pixels).
+          // The overlay renderer and 2D spectrum trace both use:
+          //   Left:   FFT_AREA_MIN.x = 50 CSS px
+          //   Top:    FFT_AREA_MIN.y = 20 CSS px
+          //   Right:  containerWidth - 40 CSS px
+          //   Bottom: containerHeight - 40 CSS px - live status row
+          const plotLeftCSS = 50;
+          const plotRightCSS = rect.width - 40;
+          const plotTopCSS = 20;
+          const plotBottomCSS = rect.height - 40 - getReservedBottomHeight();
+          const plotWidthCSS = plotRightCSS - plotLeftCSS;
+          const plotHeightCSS = plotBottomCSS - plotTopCSS;
 
-            // Clamp selection coordinates to the plot area
-            const selLeft = Math.max(left, plotLeftCSS);
-            const selRight = Math.min(left + boxWidth, plotRightCSS);
-            const selTop = Math.max(top, plotTopCSS);
-            const selBottom = Math.min(top + boxHeight, plotBottomCSS);
+          // Clamp selection coordinates to the plot area
+          const selLeft = Math.max(left, plotLeftCSS);
+          const selRight = Math.min(left + boxWidth, plotRightCSS);
+          const selTop = Math.max(top, plotTopCSS);
+          const selBottom = Math.min(top + boxHeight, plotBottomCSS);
 
-            const clampedBoxWidth = selRight - selLeft;
-            const clampedBoxHeight = selBottom - selTop;
+          const clampedBoxWidth = selRight - selLeft;
+          const clampedBoxHeight = selBottom - selTop;
 
-            if (clampedBoxWidth < 5 || clampedBoxHeight < 5) {
-              // Too small after clamping to plot area
-              if (selectionBoxRef.current) {
-                selectionBoxRef.current.style.display = "none";
-              }
-              return;
+          if (clampedBoxWidth < 5 || clampedBoxHeight < 5) {
+            // Too small after clamping to plot area
+            if (selectionBoxRef.current) {
+              selectionBoxRef.current.style.display = "none";
             }
+            return;
+          }
 
-            // Map plot-area-relative coordinates to frequency
-            const freqFracLeft = (selLeft - plotLeftCSS) / plotWidthCSS;
-            const freqFracRight = (selRight - plotLeftCSS) / plotWidthCSS;
-            const newFreqMin = visualMin + freqFracLeft * visualRangeSpan;
-            const newFreqMax = visualMin + freqFracRight * visualRangeSpan;
+          // Map plot-area-relative coordinates to frequency
+          const freqFracLeft = (selLeft - plotLeftCSS) / plotWidthCSS;
+          const freqFracRight = (selRight - plotLeftCSS) / plotWidthCSS;
+          const newFreqMin = visualMin + freqFracLeft * visualRangeSpan;
+          const newFreqMax = visualMin + freqFracRight * visualRangeSpan;
 
-            // Zoom multiplier based on ratio of plot width to selection width
-            const newZoomMultiplier = plotWidthCSS / clampedBoxWidth;
-            const newZoomRaw = zoom * newZoomMultiplier;
-            const zoomFloor = vizZoomFloorRef?.current ?? 1;
-            const newZoom = clampVizZoom(newZoomRaw, zoomFloor);
+          // Zoom multiplier based on ratio of plot width to selection width
+          const newZoomMultiplier = plotWidthCSS / clampedBoxWidth;
+          const newZoomRaw = zoom * newZoomMultiplier;
+          const zoomFloor = vizZoomFloorRef?.current ?? 1;
+          const newZoom = clampVizZoom(newZoomRaw, zoomFloor);
 
-            // Calculate new pan to center the selection
-            const targetVisualCenter = (newFreqMin + newFreqMax) / 2;
-            const trueCenter =
-              (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
-              2;
-            let newPan = targetVisualCenter - trueCenter;
+          // Calculate new pan to center the selection
+          const targetVisualCenter = (newFreqMin + newFreqMax) / 2;
+          const trueCenter =
+            (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
+          let newPan = targetVisualCenter - trueCenter;
 
-            // Clamp pan
-            const clampedVisualRange = fullRange / newZoom;
-            const maxPan = fullRange / 2 - clampedVisualRange / 2;
-            newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+          // Clamp pan
+          const clampedVisualRange = fullRange / newZoom;
+          const maxPan = fullRange / 2 - clampedVisualRange / 2;
+          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
 
-            // Calculate dB bounds from plot-area-relative Y coordinates
-            const currentDbMax = vizDbMaxRef?.current ?? 0;
-            const currentDbMin = vizDbMinRef?.current ?? -120;
-            const dbRange = currentDbMax - currentDbMin;
+          // Calculate dB bounds from plot-area-relative Y coordinates
+          const currentDbMax = vizDbMaxRef?.current ?? 0;
+          const currentDbMin = vizDbMinRef?.current ?? -120;
+          const dbRange = currentDbMax - currentDbMin;
 
-            // Y is inverted: top of plot area = dbMax, bottom = dbMin
-            const dbFracTop = (selTop - plotTopCSS) / plotHeightCSS;
-            const dbFracBottom = (selBottom - plotTopCSS) / plotHeightCSS;
-            const newDbMax = Math.round(currentDbMax - dbFracTop * dbRange);
-            const newDbMin = Math.round(currentDbMax - dbFracBottom * dbRange);
+          // Y is inverted: top of plot area = dbMax, bottom = dbMin
+          const dbFracTop = (selTop - plotTopCSS) / plotHeightCSS;
+          const dbFracBottom = (selBottom - plotTopCSS) / plotHeightCSS;
+          const newDbMax = Math.round(currentDbMax - dbFracTop * dbRange);
+          const newDbMin = Math.round(currentDbMax - dbFracBottom * dbRange);
 
-            // Check if there is actual signal intersecting this box
-            let hasSignal = true;
-            if (renderWaveformRef?.current) {
-              const waveform = renderWaveformRef.current;
-              const totalBins = waveform.length;
-              const fullFreqMin = frequencyRangeRef.current.min;
-              const fullFreqMax = frequencyRangeRef.current.max;
-              const fullFreqSpan = fullFreqMax - fullFreqMin;
+          // Check if there is actual signal intersecting this box
+          let hasSignal = true;
+          if (renderWaveformRef?.current) {
+            const waveform = renderWaveformRef.current;
+            const totalBins = waveform.length;
+            const fullFreqMin = frequencyRangeRef.current.min;
+            const fullFreqMax = frequencyRangeRef.current.max;
+            const fullFreqSpan = fullFreqMax - fullFreqMin;
 
-              const binStart = Math.max(
-                0,
-                Math.floor(
-                  ((newFreqMin - fullFreqMin) / fullFreqSpan) * totalBins,
-                ),
-              );
-              const binEnd = Math.min(
-                totalBins - 1,
-                Math.ceil(
-                  ((newFreqMax - fullFreqMin) / fullFreqSpan) * totalBins,
-                ),
-              );
+            const binStart = Math.max(
+              0,
+              Math.floor(
+                ((newFreqMin - fullFreqMin) / fullFreqSpan) * totalBins,
+              ),
+            );
+            const binEnd = Math.min(
+              totalBins - 1,
+              Math.ceil(
+                ((newFreqMax - fullFreqMin) / fullFreqSpan) * totalBins,
+              ),
+            );
 
-              if (binStart <= binEnd) {
-                let maxSignal = -Infinity;
-                let minSignal = Infinity;
+            if (binStart <= binEnd) {
+              let maxSignal = -Infinity;
+              let minSignal = Infinity;
 
-                for (let i = binStart; i <= binEnd; i++) {
-                  const val = waveform[i];
-                  if (val > maxSignal) maxSignal = val;
-                  if (val < minSignal) minSignal = val;
-                }
-
-                if (maxSignal < newDbMin || minSignal > newDbMax) {
-                  hasSignal = false; // Box is completely above or below the signal
-                }
+              for (let i = binStart; i <= binEnd; i++) {
+                const val = waveform[i];
+                if (val > maxSignal) maxSignal = val;
+                if (val < minSignal) minSignal = val;
               }
-            }
 
-            if (hasSignal) {
-              onVizZoomFloorChange?.(newZoom);
-              onVizZoomFloorPanChange?.(newPan);
-              onVizZoomChange(newZoom);
-              onVizPanChange(newPan);
-              onFftDbLimitsChange(newDbMin, newDbMax);
+              if (maxSignal < newDbMin || minSignal > newDbMax) {
+                hasSignal = false; // Box is completely above or below the signal
+              }
             }
           }
 
+          if (hasSignal) {
+            // Hide the transient overlay before notifying React-driven
+            // consumers so their rerender cannot flash the old rectangle.
+            if (selectionBoxRef.current) {
+              selectionBoxRef.current.style.display = "none";
+            }
+            onVizZoomFloorChange?.(newZoom);
+            onVizZoomFloorPanChange?.(newPan);
+            onVizZoomChange(newZoom);
+            onVizPanChange(newPan);
+            onFftDbLimitsChange(newDbMin, newDbMax);
+          }
+        }
+
+        if (selectionBoxRef.current) {
           selectionBoxRef.current.style.display = "none";
         }
       }
@@ -1937,7 +2213,7 @@ export function useFrequencyDrag({
         y >= getTxSliderGeometry(rect).top &&
         y <= getTxSliderGeometry(rect).bottom;
 
-      const isOverVfo = y >= rect.height - vfoThreshold;
+      const isOverVfo = !fullPlotSelection && y >= rect.height - vfoThreshold;
 
       if (isOverTxSlider || isOverVfo) {
         if (
@@ -1959,6 +2235,7 @@ export function useFrequencyDrag({
     };
 
     const handleWheel = (e: WheelEvent) => {
+      if (fullPlotSelection) return;
       const container = getContainer();
       if (!container) return;
 
@@ -2178,6 +2455,7 @@ export function useFrequencyDrag({
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      stopSelectionEdgePan();
       if (dispatchTimeoutRef.current) {
         clearTimeout(dispatchTimeoutRef.current);
         dispatchTimeoutRef.current = null;
@@ -2207,6 +2485,7 @@ export function useFrequencyDrag({
     spectrumWebgpuEnabled,
     spectrumGpuCanvasRef,
     spectrumContainerRef,
+    zoomboxStateRef,
     spectrumGpuCanvasNode,
     frequencyRangeRef,
     vizZoomRef,
@@ -2222,6 +2501,9 @@ export function useFrequencyDrag({
     signalAreaBounds,
     renderWaveformRef,
     selectionMode,
+    selectionEdgePanMode,
+    rangeSelectionInteraction,
+    fullPlotSelection,
     txSliderEnabled,
     txSliderLocked,
   ]);

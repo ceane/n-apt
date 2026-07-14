@@ -2,8 +2,44 @@ import {
   computeBandPannedWithinTrack,
   computeBandPannedWithOverflow,
   computeEdgeResizedBand,
+  getBandDragMode,
   getPointerOffsetWithinBandHz,
 } from "../../src/ts/utils/edgePanning";
+
+describe("getBandDragMode", () => {
+  it("treats the middle of a selection as a whole-band drag", () => {
+    expect(
+      getBandDragMode({
+        pointerHz: 150,
+        startHz: 120,
+        endHz: 180,
+        hzPerPixel: 1,
+      }),
+    ).toBe("move");
+  });
+
+  it("returns null outside the selection and its handles", () => {
+    expect(
+      getBandDragMode({
+        pointerHz: 100,
+        startHz: 120,
+        endHz: 180,
+        hzPerPixel: 1,
+      }),
+    ).toBeNull();
+  });
+
+  it("chooses the nearest edge when both handles overlap", () => {
+    expect(
+      getBandDragMode({
+        pointerHz: 124,
+        startHz: 120,
+        endHz: 125,
+        hzPerPixel: 1,
+      }),
+    ).toBe("resize-right");
+  });
+});
 
 // ───── Edge resize ─────
 

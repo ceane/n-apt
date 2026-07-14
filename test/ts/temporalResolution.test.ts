@@ -5,6 +5,7 @@ import {
   getTemporalResolutionAlpha,
   getTemporalResolutionWindow,
 } from "../../src/ts/utils/temporalResolution";
+import { resetWebGpuStreamTemporalHistory } from "@n-apt/utils/webgpuStreamReset";
 
 describe("temporalResolution", () => {
   it("uses a direct copy for high temporal resolution", () => {
@@ -67,5 +68,15 @@ describe("temporalResolution", () => {
     );
 
     expect(Array.from(avg)).toEqual([5, 15]);
+  });
+
+  it("drops every retained frame at a source boundary", () => {
+    const framePool = [new Float32Array([1, 2]), new Float32Array([3, 4])];
+    const activeFrames = [framePool[1]];
+
+    resetWebGpuStreamTemporalHistory(framePool, activeFrames);
+
+    expect(framePool).toHaveLength(0);
+    expect(activeFrames).toHaveLength(0);
   });
 });

@@ -173,6 +173,26 @@ describe("useOverlayRenderer Hook", () => {
     expect(height).toBeCloseTo(96, 0);
   });
 
+  it("leaves the FFT node status row out of the spectrum canvas", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawSelectionOverlayOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 136_000_000, max: 138_000_000 },
+      {
+        minFrequencyHz: 135_900_000,
+        maxFrequencyHz: 138_300_000,
+      },
+      true,
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((call: any[]) => call[0]);
+    expect(labels).toEqual([]);
+    expect(mockCtx.lineTo).not.toHaveBeenCalledWith(expect.any(Number), 572);
+  });
+
   it("can suppress the live status row when another overlay owns the bottom band", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 

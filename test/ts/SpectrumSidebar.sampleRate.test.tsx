@@ -357,6 +357,34 @@ describe("SpectrumSidebar sample rate behavior", () => {
     window.localStorage.removeItem(TRANSMIT_WARNING_ACK_KEY);
   });
 
+  it("renders capture, snapshot, and notes sections beneath channels", () => {
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const channels = screen.getByTestId("channels");
+    const iqCapture = screen.getByTestId("iq-capture");
+    const snapshots = screen.getByTestId("snapshot-controls");
+    const notes = screen.getByRole("button", { name: /Hide Notes/ });
+
+    expect(
+      channels.compareDocumentPosition(iqCapture) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      iqCapture.compareDocumentPosition(snapshots) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      snapshots.compareDocumentPosition(notes) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("uses the active channel span for mock whole-channel mode instead of the mock device rate", async () => {
     mockLiveState = {
       ...mockLiveState,

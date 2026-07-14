@@ -1,6 +1,49 @@
 import { clampFrequencyHz } from "@n-apt/utils/frequency";
 
 export type EdgePanningHandle = "left" | "right";
+export type BandDragMode = "move" | "resize-left" | "resize-right";
+
+export interface BandDragModeInput {
+  pointerHz: number;
+  startHz: number;
+  endHz: number;
+  hzPerPixel: number;
+  handleHitPixels?: number;
+}
+
+export const getBandDragMode = ({
+  pointerHz,
+  startHz,
+  endHz,
+  hzPerPixel,
+  handleHitPixels = 10,
+}: BandDragModeInput): BandDragMode | null => {
+  if (
+    !Number.isFinite(pointerHz) ||
+    !Number.isFinite(startHz) ||
+    !Number.isFinite(endHz) ||
+    endHz <= startHz
+  ) {
+    return null;
+  }
+
+  const handleHitHz = Math.max(
+    Math.abs(hzPerPixel) * Math.max(0, handleHitPixels),
+    Number.EPSILON,
+  );
+  const distanceToLeft = Math.abs(pointerHz - startHz);
+  const distanceToRight = Math.abs(pointerHz - endHz);
+  const hitLeft = distanceToLeft <= handleHitHz;
+  const hitRight = distanceToRight <= handleHitHz;
+
+  if (hitLeft || hitRight) {
+    return hitLeft && (!hitRight || distanceToLeft <= distanceToRight)
+      ? "resize-left"
+      : "resize-right";
+  }
+
+  return pointerHz > startHz && pointerHz < endHz ? "move" : null;
+};
 
 export interface EdgePanningResult {
   startHz: number;

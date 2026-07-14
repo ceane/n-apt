@@ -1,10 +1,60 @@
 import {
+  getInitialHandledWebGpuResetEpoch,
+  getVisualizerLifecycleKey,
   getWebGpuStreamResetKey,
+  shouldPreservePresentationDuringFrameGap,
+  shouldRestoreWebGpuStreamState,
+  shouldAcceptWebGpuStreamFrame,
   shouldShowSourceHandoffOverlay,
   shouldFlushWebGpuStreamCache,
 } from "@n-apt/utils/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
+  test("preserves the last presentation during a connected frame-processing gap", () => {
+    expect(
+      shouldPreservePresentationDuringFrameGap({
+        hasPresentedFrame: true,
+        hasCurrentFrame: false,
+        isDeviceConnected: true,
+        hasExplicitPlaceholder: false,
+        hasPlaceholderError: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreservePresentationDuringFrameGap({
+        hasPresentedFrame: true,
+        hasCurrentFrame: false,
+        isDeviceConnected: true,
+        hasExplicitPlaceholder: true,
+        hasPlaceholderError: false,
+      }),
+    ).toBe(false);
+  });
+  test("replays a nonzero reset epoch when a canvas remounts", () => {
+    expect(getInitialHandledWebGpuResetEpoch(0)).toBe(0);
+    expect(getInitialHandledWebGpuResetEpoch(4)).toBe(3);
+  });
+
+  test("does not restore a visualizer snapshot into a reset stream", () => {
+    expect(shouldRestoreWebGpuStreamState(0)).toBe(true);
+    expect(shouldRestoreWebGpuStreamState(1)).toBe(false);
+  });
+
+  test("rejects an old source frame while waiting for the selected stream", () => {
+    expect(
+      shouldAcceptWebGpuStreamFrame({
+        expectedSourceId: "rtl-sdr-00000001",
+        frameSourceId: "mock-apt",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAcceptWebGpuStreamFrame({
+        expectedSourceId: "rtl-sdr-00000001",
+        frameSourceId: "rtl-sdr-00000001",
+      }),
+    ).toBe(true);
+  });
+
   test("holds one handoff overlay from selection until the new source frame arrives", () => {
     expect(
       shouldShowSourceHandoffOverlay({
@@ -38,7 +88,23 @@ describe("WebGPU stream reset", () => {
     ).not.toBe(getWebGpuStreamResetKey({ sourceId: "rtl-sdr-v4", epoch: 1 }));
   });
 
-  test("flushes cached renderer state for reconnect and confirmed source boundaries", () => {
+  test("keeps the canvas lifecycle stable across pause status changes", () => {
+    expect(
+      getVisualizerLifecycleKey({
+        sourceId: "hackrf-one",
+        epoch: 2,
+        status: "connected",
+      }),
+    ).toBe(
+      getVisualizerLifecycleKey({
+        sourceId: "hackrf-one",
+        epoch: 2,
+        status: "paused",
+      }),
+    );
+  });
+
+  test("advances the reset epoch only for same-source reconnect boundaries", () => {
     expect(
       shouldFlushWebGpuStreamCache(
         { sourceId: "hackrf_one-serial", status: "streaming" },
@@ -51,7 +117,7 @@ describe("WebGPU stream reset", () => {
         { sourceId: "hackrf_one-serial", status: "streaming" },
         { sourceId: "mock-apt", status: "disconnected" },
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldFlushWebGpuStreamCache(
@@ -65,6 +131,21 @@ describe("WebGPU stream reset", () => {
         { sourceId: "rtl-sdr-serial", status: "streaming" },
         { sourceId: "hackrf_one-serial", status: "connected" },
       ),
-    ).toBe(true);
+    ).toBe(false);
+
+    expect(
+      shouldFlushWebGpuStreamCache(
+        {
+          sourceId: "rtl-sdr-serial",
+          selectedSourceId: "rtl-sdr-serial",
+          status: "streaming",
+        },
+        {
+          sourceId: "rtl-sdr-serial",
+          selectedSourceId: "hackrf_one-serial",
+          status: "streaming",
+        },
+      ),
+    ).toBe(false);
   });
 });

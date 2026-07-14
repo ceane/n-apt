@@ -2,6 +2,7 @@ import React, { useRef, useCallback, type DragEvent } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
+import { isMockDevice } from "@n-apt/utils/deviceCapabilities";
 
 const SourceInputWrapper = styled.div`
   display: grid;
@@ -458,12 +459,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability?.toLowerCase().includes("tx") ? "Tx" : "Rx";
   };
   const sourceDevicesRaw = devices ?? [];
-  const isMockDevice = (device: (typeof sourceDevicesRaw)[number]) =>
-    device.capability === "mock" ||
-    device.id === "mock-apt" ||
-    device.id === "mock-tx" ||
-    device.name.toLowerCase().includes("mock") ||
-    device.backend?.toLowerCase().includes("mock") === true;
+  const isMockDeviceLocal = (device: (typeof sourceDevicesRaw)[number]) =>
+    isMockDevice({
+      capability: device.capability,
+      id: device.id,
+      name: device.name,
+      backend: device.backend,
+    });
   const isDeviceConnected = (device: (typeof sourceDevicesRaw)[number]) => {
     const label = device.status?.label?.toLowerCase?.() ?? "";
     return (
@@ -474,12 +476,12 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     );
   };
   const hasConnectedHardwareSource = sourceDevicesRaw.some(
-    (device) => !isMockDevice(device) && isDeviceConnected(device),
+    (device) => !isMockDeviceLocal(device) && isDeviceConnected(device),
   );
   const sourceDevices = hasConnectedHardwareSource
     ? sourceDevicesRaw.filter(
         (device) =>
-          !isMockDevice(device) ||
+          !isMockDeviceLocal(device) ||
           device.status?.label?.toLowerCase?.() === "transmitting",
       )
     : sourceDevicesRaw;

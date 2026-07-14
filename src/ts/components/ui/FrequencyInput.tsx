@@ -242,23 +242,33 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     }, [valueHz]);
 
     const handleUpdate = useCallback(
-      (newHz: number, forceRefreshUI = false) => {
+      (newHz: number, forceRefreshUI = false, preserveUnit = false) => {
         const cappedHz = clampFrequencyHz(newHz, minHz, maxHz);
         hzRef.current = cappedHz;
         prevValueHzRef.current = cappedHz;
         onChangeHz(cappedHz);
 
         if (forceRefreshUI) {
-          const { value, unit } = getOptimalFrequencyScale(cappedHz);
-          setDisplayUnit(unit);
-          setDisplayValue(
-            unit === "Hz"
-              ? formatFrequencyHz(cappedHz)
-              : trimNumericString(formatFrequencyValue(value)),
-          );
+          if (preserveUnit) {
+            const multiplier = getFrequencyUnitScale(displayUnit as any);
+            const val = cappedHz / multiplier;
+            setDisplayValue(
+              displayUnit === "Hz"
+                ? formatFrequencyHz(cappedHz)
+                : trimNumericString(formatFrequencyValue(val)),
+            );
+          } else {
+            const { value, unit } = getOptimalFrequencyScale(cappedHz);
+            setDisplayUnit(unit);
+            setDisplayValue(
+              unit === "Hz"
+                ? formatFrequencyHz(cappedHz)
+                : trimNumericString(formatFrequencyValue(value)),
+            );
+          }
         }
       },
-      [minHz, maxHz, onChangeHz],
+      [minHz, maxHz, onChangeHz, displayUnit],
     );
 
     const dragStartRef = useRef<{
@@ -311,7 +321,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
           const deltaHz = e.movementX * baseStep * multiplier;
           const newHz = hzRef.current + deltaHz;
-          handleUpdate(newHz, true);
+          handleUpdate(newHz, true, true);
         }
       },
       [displayUnit, handleUpdate],
@@ -356,6 +366,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
         handleUpdate(
           currentHz + direction * resolvedStepHz * shiftMultiplier,
+          true,
           true,
         );
       }

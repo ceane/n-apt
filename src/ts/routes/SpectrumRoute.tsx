@@ -33,7 +33,16 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
 import {
-  getWebGpuStreamResetKey,
+  isMockLiveSource as checkIsMockLiveSource,
+  isMockAptSource as checkIsMockAptSource,
+  getMockDeviceProfile,
+  isMockTxSource,
+  isMockAptDevice,
+  isMockDevice,
+} from "@n-apt/utils/deviceCapabilities";
+import {
+  getVisualizerLifecycleKey,
+  shouldAcceptWebGpuStreamFrame,
   shouldShowSourceHandoffOverlay,
   shouldFlushWebGpuStreamCache,
 } from "@n-apt/utils/webgpuStreamReset";
@@ -65,6 +74,7 @@ import {
   formatFrequency,
 } from "@n-apt/utils/frequency";
 import { estimateHackrfTotalGainDb } from "@n-apt/utils/hackrfCalibration";
+import { resolveDisplaySampleRateHz } from "@n-apt/utils/sdrSampleRateGuards";
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
   switch (signal) {
@@ -202,6 +212,10 @@ export const resolveLiveDevicePlaceholderState = ({
     deviceState !== "stale" &&
     deviceState !== "disconnected"
   ) {
+    return null;
+  }
+
+  if (hasPlayedAtLeastOnce && deviceState !== "disconnected") {
     return null;
   }
 
@@ -663,6 +677,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [activeSourceId, selectedSource, sources],
   );
   const streamingSourceId = streamingSource?.id ?? selectedSourceId;
+  const expectedVisualizerSourceId =
+    // Once the control channel has selected a source, its active stream ID is
+    // authoritative. A persisted selectedSourceId can refer to the previous
+    // USB instance after unplug/replug and would otherwise make the canvas
+    // discard valid frames from the newly active RTL-SDR.
+    streamingSourceId || selectedSourceId || null;
+  const acceptedFrameSampleRateHz = useMemo(() => {
+    const frame = getLatestLiveFrame(dataRef.current);
+    if (
+      !frame ||
+      !shouldAcceptWebGpuStreamFrame({
+        expectedSourceId: expectedVisualizerSourceId,
+        frameSourceId: frame.source_id,
+      })
+    ) {
+      return null;
+    }
+    return typeof frame.sample_rate === "number" &&
+      Number.isFinite(frame.sample_rate) &&
+      frame.sample_rate > 0
+      ? frame.sample_rate
+      : null;
+  }, [dataFrameCounter, dataRef, expectedVisualizerSourceId]);
   const previousLiveSourceIdRef = useRef<string | null>(
     streamingSourceId || null,
   );
@@ -672,12 +709,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const isSelectedMockTxSource =
     isConnected &&
     !!selectedSource &&
-    (selectedSourceId === "mock-tx" ||
-      selectedSourceObjectId === "mock-tx" ||
-      selectedSourceKind === "mock_tx" ||
-      selectedSourceKind === "mock-tx");
+    isMockTxSource({
+      id: selectedSourceId || selectedSourceObjectId,
+      kind: selectedSourceKind,
+    });
   const hasActiveSourceFrame =
-    hasPlayedAtLeastOnce && playedSourceId === (streamingSourceId || null);
+    hasPlayedAtLeastOnce &&
+    (playedSourceId ? playedSourceId.replace(/-\d+$/, "") : null) ===
+      (streamingSourceId ? streamingSourceId.replace(/-\d+$/, "") : null);
   const isSwitchingLiveSource = shouldShowSourceHandoffOverlay({
     sourceMode: state.sourceMode,
     selectedSourceId: selectedSourceId || null,
@@ -694,22 +733,30 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const previousWebGpuStreamIdentityRef = useRef<{
     sourceId: string | null;
     status: string | null;
+    selectedSourceId: string | null;
   } | null>(null);
   useEffect(() => {
+    // Track both identities so source selection remains distinguishable from a
+    // same-source reconnect. Selection already changes the lifecycle key.
     const nextIdentity = {
       sourceId: streamingSourceId || null,
       status: selectedSourceStatus,
+      selectedSourceId: selectedSourceId || null,
     };
+    const prevIdentity = previousWebGpuStreamIdentityRef.current;
+    const sourceChanged =
+      prevIdentity &&
+      (prevIdentity.sourceId !== nextIdentity.sourceId ||
+        prevIdentity.selectedSourceId !== nextIdentity.selectedSourceId);
+
     if (
-      shouldFlushWebGpuStreamCache(
-        previousWebGpuStreamIdentityRef.current,
-        nextIdentity,
-      )
+      sourceChanged ||
+      shouldFlushWebGpuStreamCache(prevIdentity, nextIdentity)
     ) {
       // The mutable frame ref bypasses Redux for performance, so clear it at
       // the same source boundary as the GPU presentation cache.
       dataRef.current = null;
-      fftVisualizerMachine.discardNextPersist(
+      fftVisualizerMachine?.discardNextPersist?.(
         getSourceViewStorageKeyForSource(streamingSource),
       );
       setWebGpuStreamResetEpoch((epoch) => epoch + 1);
@@ -721,74 +768,79 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     selectedSourceStatus,
     streamingSource,
     streamingSourceId,
+    selectedSourceId,
   ]);
   const isSelectedMockTxTransmitting =
     isSelectedMockTxSource && selectedSourceStatus === "transmitting";
-  const webGpuStreamResetKey = getWebGpuStreamResetKey({
-    sourceId: streamingSourceId || null,
+  // Use selectedSourceId for the reset key so it changes when user selects a new source,
+  // even before it becomes the active streaming source. This ensures GPU state resets
+  // during the loading phase when switching from mock to hardware.
+  const visualizerLifecycleKey = getVisualizerLifecycleKey({
+    sourceId: selectedSourceId || streamingSourceId || null,
     epoch: webGpuStreamResetEpoch,
+    status: selectedSourceStatus,
   });
   const visualizerSessionKey = useMemo(
-    () => getSourceViewStorageKeyForSource(streamingSource),
-    [streamingSource],
+    () => getSourceViewStorageKeyForSource(selectedSource ?? streamingSource),
+    [selectedSource, streamingSource],
   );
   const txCapableDeviceKind =
     selectedSourceDerived.deviceProfile?.kind ??
     deviceProfile?.kind ??
     deviceKind;
   const selectedSourceCapability = selectedSource?.capability?.toLowerCase?.();
-  const isMockLiveSource =
-    state.sourceMode === "live" &&
-    !!(
-      selectedSourceCapability === "mock" ||
-      selectedSource?.kind?.toLowerCase?.().includes("mock") ||
-      selectedSource?.name?.toLowerCase?.().includes("mock") ||
-      selectedSourceDerived.deviceProfile?.kind === "mock_tx" ||
-      deviceKind === "mock_tx" ||
-      selectedSourceDerived.backend?.toLowerCase?.().includes("mock")
-    );
-  const isMockAptSource =
-    state.sourceMode === "live" &&
-    !!(
-      selectedSource?.kind?.toLowerCase().includes("apt") ||
-      selectedSource?.id === "mock-apt" ||
-      selectedSourceDerived.backend?.toLowerCase().includes("apt")
-    );
+  const isMockLiveSource = checkIsMockLiveSource({
+    selectedSource,
+    backend: selectedSourceDerived.backend || deviceKind,
+    deviceName: selectedSource?.name,
+    sourceMode: state.sourceMode,
+  });
+  const isMockAptSource = checkIsMockAptSource({
+    selectedSource,
+    selectedSourceId,
+    backend: selectedSourceDerived.backend,
+    sourceMode: state.sourceMode,
+  });
   const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
-    if (!isMockLiveSource) return null;
-    if (isMockAptSource) {
-      return {
-        kind: "mock_apt",
-        is_rtl_sdr: true,
-        supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
-      };
-    }
-    return {
-      kind: "mock_tx",
-      is_rtl_sdr: false,
-      supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
-    };
-  }, [isMockLiveSource, isMockAptSource]);
+    return getMockDeviceProfile({
+      selectedSource,
+      selectedSourceId,
+      backend: selectedSourceDerived.backend || deviceKind,
+      deviceName: selectedSource?.name,
+      sourceMode: state.sourceMode,
+    });
+  }, [
+    selectedSource,
+    selectedSourceId,
+    selectedSourceDerived.backend,
+    deviceKind,
+    selectedSource?.name,
+    state.sourceMode,
+  ]);
   const fftDeviceProfile =
     mockTxDeviceProfile ?? selectedSourceDerived.deviceProfile ?? deviceProfile;
   const reduxDeviceKindSupportsTx =
     deviceKind === "hackrf_one" ||
-    deviceKind === "mock_tx" ||
+    isMockTxSource({ id: deviceKind, kind: deviceKind }) ||
     deviceKind === "tx_rx" ||
     deviceKind === "tx";
   const isRxOnlyMockSource =
     selectedSourceCapability === "mock" ||
-    selectedSourceDerived.deviceProfile?.kind === "mock_apt" ||
-    selectedSourceDerived.backend?.toLowerCase?.() === "mock_apt";
+    isMockAptDevice({
+      id:
+        selectedSourceDerived.deviceProfile?.kind ??
+        selectedSourceDerived.backend,
+      kind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        selectedSourceDerived.backend,
+    });
   const canShowTxSlider =
     !isRxOnlyMockSource &&
     (selectedSourceCapability === "tx" ||
       selectedSourceCapability === "tx_rx" ||
       reduxDeviceKindSupportsTx ||
       txCapableDeviceKind === "hackrf_one" ||
-      txCapableDeviceKind === "mock_tx" ||
+      isMockTxSource({ id: txCapableDeviceKind, kind: txCapableDeviceKind }) ||
       txCapableDeviceKind === "tx_rx" ||
       txCapableDeviceKind === "tx");
 
@@ -1331,17 +1383,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       };
 
       if (isSelectedMockTxTransmitting) {
-        sendTransmitMode?.(
-          true,
-          selectedSource?.name ?? selectedSourceId ?? "mock-tx",
-          {
-            serialNumber:
-              selectedSource?.serial_number?.trim() ||
-              selectedSourceId ||
-              "mock-tx",
-            ...txSettings,
-          },
-        );
+        const fallbackId =
+          selectedSourceId ||
+          (selectedSource &&
+          isMockTxSource({ id: selectedSource.id, kind: selectedSource.kind })
+            ? selectedSource.id
+            : "mock-tx");
+        sendTransmitMode?.(true, selectedSource?.name ?? fallbackId, {
+          serialNumber: selectedSource?.serial_number?.trim() || fallbackId,
+          ...txSettings,
+        });
         return;
       }
 
@@ -1639,7 +1690,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     ? calculateCenterFrequency(mockTxMonitorFrequencyRange)
     : centerFrequencyHz;
   const fftHardwareSampleRateHz =
-    mockTxMonitorSampleRateHz ?? sampleRateHzEffective ?? undefined;
+    mockTxMonitorSampleRateHz ??
+    resolveDisplaySampleRateHz({
+      frameSampleRateHz: acceptedFrameSampleRateHz,
+      configuredSampleRateHz:
+        selectedSourceDerived.sdrSettings?.min_receive_sample_rate ??
+        effectiveSdrSettings?.min_receive_sample_rate ??
+        selectedSourceDerived.sdrSettings?.sample_rate ??
+        effectiveSdrSettings?.sample_rate,
+      derivedSampleRateHz: sampleRateHzEffective,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind,
+      backend: selectedSourceDerived.backend ?? backend,
+      deviceName: selectedSourceDerived.deviceName ?? deviceName,
+      isRtlSdr:
+        selectedSourceDerived.deviceProfile?.is_rtl_sdr ??
+        deviceProfile?.is_rtl_sdr,
+    }) ??
+    undefined;
   const txSliderDefaults = fftFrequencyRange
     ? getTxSliderDefaults(fftFrequencyRange)
     : null;
@@ -1655,9 +1723,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         const status = sourceStatuses?.[source.id] ?? source.status;
         return (
           status === "transmitting" &&
-          (source.id === "mock-tx" ||
-            kind === "mock_tx" ||
-            kind === "mock-tx" ||
+          (isMockTxSource({ id: source.id, kind: source.kind }) ||
             capability === "tx" ||
             capability === "tx_rx")
         );
@@ -1673,14 +1739,27 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [streamingSourceId]);
 
   useEffect(() => {
+    const latestFrame = getLatestLiveFrame(dataRef.current);
+    const isCurrentSource = shouldAcceptWebGpuStreamFrame({
+      expectedSourceId: streamingSourceId,
+      frameSourceId: latestFrame?.source_id,
+    });
+    const hasFrame = !!(
+      latestFrame &&
+      isCurrentSource &&
+      hasRenderableFramePayload(latestFrame)
+    );
+
     if (
-      dataFrameCounter > lastFrameCounterOnSourceChangeRef.current &&
-      streamingSourceId !== "mock-tx"
+      streamingSourceId !== "mock-tx" &&
+      (hasFrame ||
+        (dataFrameCounter > lastFrameCounterOnSourceChangeRef.current &&
+          isCurrentSource))
     ) {
       setHasPlayedAtLeastOnce(true);
       setPlayedSourceId(streamingSourceId || null);
     }
-  }, [dataFrameCounter, streamingSourceId]);
+  }, [dataFrameCounter, dataRef, streamingSourceId]);
 
   useLayoutEffect(() => {
     if (state.sourceMode !== "live") {
@@ -1930,9 +2009,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       streamingSource?.name,
     ]);
   const livePlaceholderState =
+    deviceRecoveryPlaceholderState ??
     sourceHandoffPlaceholderState ??
-    mockTxPlaceholderState ??
-    deviceRecoveryPlaceholderState;
+    mockTxPlaceholderState;
   const isDeviceRecovering = deviceRecoveryPlaceholderState !== null;
   const handleVizPanChange = useCallback(
     (nextPan: number) => {
@@ -1994,7 +2073,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           fftCenterFrequencyHz !== null && (
             <>
               <FFTAndWaterfall
-                key={webGpuStreamResetKey}
+                key={visualizerLifecycleKey}
                 ref={fftCanvasRef}
                 txSlider={
                   showTxSlider && canShowTxSlider
@@ -2090,6 +2169,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   </>
                 }
                 dataRef={fftDataRef}
+                expectedSourceId={expectedVisualizerSourceId}
                 frequencyRange={fftFrequencyRange}
                 centerFrequencyHz={fftCenterFrequencyHz}
                 onCenterFrequencyDoubleClick={() =>

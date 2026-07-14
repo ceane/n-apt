@@ -24,6 +24,7 @@ import type {
   DeviceActiveMode,
 } from "@n-apt/consts/schemas/websocket";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { isMockDevice, isMockTxSource } from "@n-apt/utils/deviceCapabilities";
 import { buildWsUrl } from "@n-apt/services/auth";
 import { useLocation } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
@@ -89,7 +90,10 @@ import {
   loadSelectedSourceId,
   saveSelectedSourceId,
 } from "@n-apt/utils/sourcePersistence";
-import { clampRtlSdrFrequencyRangeToHardwareWindow } from "@n-apt/utils/sdrSampleRateGuards";
+import {
+  clampRtlSdrFrequencyRangeToHardwareWindow,
+  isRtlSdrDevice,
+} from "@n-apt/utils/sdrSampleRateGuards";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -112,11 +116,12 @@ const getPersistedNumber = (key: string): number | null => {
 
 const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
   if (!source) return false;
-  return (
-    source.capability === "mock" ||
-    source.kind?.toLowerCase?.().includes("mock") ||
-    source.name?.toLowerCase?.().includes("mock")
-  );
+  return isMockDevice({
+    capability: source.capability,
+    id: source.id,
+    name: source.name,
+    backend: source.kind,
+  });
 };
 
 export const resolveSelectedSourceIdForInventory = ({
@@ -186,16 +191,23 @@ const isTxCapableSourceInfo = (
 ): boolean => {
   if (!source) return false;
   const capability = source.capability?.toLowerCase?.() ?? "";
-  const kind = source.kind?.toLowerCase?.() ?? "";
   const id = source.id?.toLowerCase?.() ?? "";
   return (
     capability === "tx" ||
     capability === "tx_rx" ||
-    kind === "hackrf_one" ||
-    kind === "mock_tx" ||
-    kind === "mock-tx" ||
-    id === "mock-tx" ||
-    id.includes("hackrf_one")
+    id.includes("hackrf_one") ||
+    isMockTxSource({ id: source.id, kind: source.kind })
+  );
+};
+
+/** A paused-frame request is only a Mock Tx standby preview mechanism. */
+export const shouldRequestPausedPreview = (
+  source: SourceInfo | null | undefined,
+): boolean => {
+  if (!source) return false;
+  return (
+    isMockTxSource({ id: source.id, kind: source.kind }) &&
+    source.status !== "transmitting"
   );
 };
 
@@ -815,19 +827,46 @@ export const selectLiveSampleRateForSync = ({
   isConnected,
   websocketSampleRateHz,
   sdrSettingsSampleRateHz,
+  minReceiveSampleRateHz,
   maxSampleRateHz,
+  deviceKind,
+  backend,
+  deviceName,
+  isRtlSdr,
 }: {
   isConnected: boolean;
   websocketSampleRateHz?: number | null;
   sdrSettingsSampleRateHz?: number | null;
+  minReceiveSampleRateHz?: number | null;
   maxSampleRateHz?: number | null;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isRtlSdr?: boolean | null;
 }): number | null => {
-  const candidates = isConnected
-    ? [websocketSampleRateHz, sdrSettingsSampleRateHz, maxSampleRateHz]
-    : [sdrSettingsSampleRateHz, maxSampleRateHz];
+  const isRtlDevice = isRtlSdrDevice({
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr,
+  });
+  const candidates = isRtlDevice
+    ? [minReceiveSampleRateHz, sdrSettingsSampleRateHz, maxSampleRateHz]
+    : isConnected
+      ? [websocketSampleRateHz, sdrSettingsSampleRateHz, maxSampleRateHz]
+      : [sdrSettingsSampleRateHz, maxSampleRateHz];
+
+  const rtlMaximum =
+    isRtlDevice &&
+    typeof maxSampleRateHz === "number" &&
+    Number.isFinite(maxSampleRateHz) &&
+    maxSampleRateHz > 0
+      ? maxSampleRateHz
+      : null;
 
   for (const rate of candidates) {
     if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      if (rtlMaximum !== null && rate > rtlMaximum) continue;
       return rate;
     }
   }
@@ -839,22 +878,55 @@ export const resolveEffectiveLiveSampleRateHz = ({
   localSampleRateHz,
   websocketSampleRateHz,
   sdrSettingsSampleRateHz,
+  minReceiveSampleRateHz,
   maxSampleRateHz,
+  deviceKind,
+  backend,
+  deviceName,
+  isRtlSdr,
 }: {
   localSampleRateHz?: number | null;
   websocketSampleRateHz?: number | null;
   sdrSettingsSampleRateHz?: number | null;
+  minReceiveSampleRateHz?: number | null;
   maxSampleRateHz?: number | null;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isRtlSdr?: boolean | null;
 }): number | null => {
-  const candidates = [
-    websocketSampleRateHz,
-    sdrSettingsSampleRateHz,
-    localSampleRateHz,
-    maxSampleRateHz,
-  ];
+  const isRtlDevice = isRtlSdrDevice({
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr,
+  });
+  const candidates = isRtlDevice
+    ? [
+        minReceiveSampleRateHz,
+        sdrSettingsSampleRateHz,
+        localSampleRateHz,
+        maxSampleRateHz,
+        websocketSampleRateHz,
+      ]
+    : [
+        websocketSampleRateHz,
+        sdrSettingsSampleRateHz,
+        localSampleRateHz,
+        maxSampleRateHz,
+      ];
+
+  const rtlMaximum =
+    isRtlDevice &&
+    typeof maxSampleRateHz === "number" &&
+    Number.isFinite(maxSampleRateHz) &&
+    maxSampleRateHz > 0
+      ? maxSampleRateHz
+      : null;
 
   for (const rate of candidates) {
     if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      if (rtlMaximum !== null && rate > rtlMaximum) continue;
       return rate;
     }
   }
@@ -1490,11 +1562,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       liveDataRef.current = [];
-      console.info("[source-switch] requested", {
-        selectedSourceId,
-        activeSourceId,
-        selectedStatus: selectedSource?.status ?? null,
-      });
       reduxDispatch(sendSelectSourceThunk(selectedSourceId));
       pendingSourceSwitchRef.current = selectedSourceId;
       if (sourceSwitchTimeoutRef.current !== null) {
@@ -1502,10 +1569,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
       sourceSwitchTimeoutRef.current = window.setTimeout(() => {
         if (pendingSourceSwitchRef.current === selectedSourceId) {
-          console.warn("[source-switch] confirmation timed out", {
-            requestedSourceId: selectedSourceId,
-            activeSourceId: activeSourceId || null,
-          });
+          pendingSourceSwitchRef.current = null;
         }
       }, 3_000);
     }, [
@@ -1528,7 +1592,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         window.clearTimeout(sourceSwitchTimeoutRef.current);
         sourceSwitchTimeoutRef.current = null;
       }
-      console.info("[source-switch] confirmed", { activeSourceId });
     }, [activeSourceId]);
 
     useEffect(
@@ -2042,7 +2105,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       const currentLiveSourceId =
-        selectedSource?.id ?? activeSourceId ?? selectedSourceId ?? null;
+        activeSourceId ?? selectedSource?.id ?? selectedSourceId ?? null;
       if (!currentLiveSourceId) {
         return;
       }
@@ -2214,7 +2277,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const wasPausedForPreviewRef = useRef(false);
     useEffect(() => {
       const isLiveSource = state.sourceMode === "live";
-      const isPausedForPreview = manualVisualizerPaused && isConnected;
+      const isPausedForPreview =
+        manualVisualizerPaused &&
+        isConnected &&
+        shouldRequestPausedPreview(selectedSource);
       const isSwitchingSource =
         activeSourceId !== null &&
         selectedSourceId !== null &&
@@ -2290,6 +2356,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxSpectrumState.txSampleRateHz,
       reduxSpectrumState.txSignal,
       selectedSourceId,
+      selectedSource,
       state.frequencyRange,
       state.sourceMode,
       state.vizPanOffset,
@@ -2503,7 +2570,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         isConnected,
         websocketSampleRateHz: sampleRateHz,
         sdrSettingsSampleRateHz: sdrSettings?.sample_rate,
+        minReceiveSampleRateHz: sdrSettings?.min_receive_sample_rate,
         maxSampleRateHz,
+        deviceKind: deviceProfile?.kind,
+        backend,
+        deviceName,
+        isRtlSdr: deviceProfile?.is_rtl_sdr,
       });
       const hasValidLocalRate =
         typeof state.sampleRateHz === "number" &&
@@ -2540,6 +2612,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       sampleRateHz,
       maxSampleRateHz,
       isConnected,
+      deviceProfile?.kind,
+      deviceProfile?.is_rtl_sdr,
+      backend,
+      deviceName,
       state.sampleRateHz,
       state.minReceiveSampleRateHz,
       storeDispatch,
@@ -2560,7 +2636,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       localSampleRateHz: mergedState.sampleRateHz,
       websocketSampleRateHz: sampleRateHz,
       sdrSettingsSampleRateHz: effectiveSdrSettings?.sample_rate,
+      minReceiveSampleRateHz: effectiveSdrSettings?.min_receive_sample_rate,
       maxSampleRateHz,
+      deviceKind: deviceProfile?.kind,
+      backend,
+      deviceName,
+      isRtlSdr: deviceProfile?.is_rtl_sdr,
     });
 
     const signalAreaBounds = useMemo(() => {
@@ -2631,6 +2712,49 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastSentFrequencyRangeRef.current = null;
       }
     }, [deviceState, isConnected]);
+
+    // A persisted Whole Channel range can be wider than the RTL-SDR window.
+    // Normalize it as soon as the connected source reveals its real maximum;
+    // otherwise the old channel span survives the handoff as a fake rate.
+    useEffect(() => {
+      const currentRange = mergedState.frequencyRange;
+      if (
+        !isConnected ||
+        deviceState !== "connected" ||
+        !currentRange ||
+        !isRtlSdrDevice({
+          deviceKind: deviceProfile?.kind,
+          backend,
+          deviceName,
+          isRtlSdr: deviceProfile?.is_rtl_sdr,
+        })
+      ) {
+        return;
+      }
+
+      const nextRange = clampLiveFrequencyRange(currentRange);
+      if (
+        nextRange.min === currentRange.min &&
+        nextRange.max === currentRange.max
+      ) {
+        return;
+      }
+
+      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+      wsConnection.sendFrequencyRange(nextRange);
+      lastSentFrequencyRangeRef.current = nextRange;
+    }, [
+      backend,
+      clampLiveFrequencyRange,
+      deviceName,
+      deviceProfile?.is_rtl_sdr,
+      deviceProfile?.kind,
+      deviceState,
+      isConnected,
+      mergedState.frequencyRange,
+      storeDispatch,
+      wsConnection.sendFrequencyRange,
+    ]);
 
     // Initialize frequencyRange if either it is null or unset
     // based on the first available frame (usually area 'A')

@@ -150,6 +150,8 @@ export type ChannelsMessage = {
 
 export type IqRawFrame = {
   type: "spectrum";
+  /** Client-attached owner for source-scoped binary I/Q WebSockets. */
+  source_id?: string;
   is_mock_apt?: boolean;
   center_frequency_hz?: number;
   waveform_span_hz?: number | null;

@@ -10,6 +10,11 @@ import {
   resolveTxModeDeviceName,
   resolveLiveFrameRenderableFrequencyRange,
   shouldRenderWaterfallWithFrameOrRestore,
+  shouldCreatePausedFallbackWaveform,
+  resolveDemodFocusOverlay,
+  shouldDrawZoomMarkersForCanvas,
+  getNodePreviewSelectionBarLabels,
+  getNodePreviewVfoScaleTicks,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -87,6 +92,127 @@ describe("FFTCanvas Component", () => {
     isPaused: false,
     snapshotGridPreference: true,
   };
+
+  it("does not draw VFO zoom markers in an FFT node preview", () => {
+    expect(shouldDrawZoomMarkersForCanvas(true)).toBe(false);
+    expect(shouldDrawZoomMarkersForCanvas(false)).toBe(true);
+  });
+
+  it("uses only the selection overlay for FFT node range selection", () => {
+    expect(
+      resolveDemodFocusOverlay({
+        selectionMode: "range",
+        selectionRange: { min: 100, max: 110 },
+        demodulationCenterFreqHz: null,
+        demodulationRangeHz: null,
+        bandwidthAlignment: "centered",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps the FFT node selection status in a separate bottom row", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              nodePreview
+              selectionMode="range"
+              selectionRange={{ min: 101, max: 103 }}
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fft-node-selection-bar")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("fft-node-selection-bar")).toHaveAttribute(
+      "data-has-selection",
+      "true",
+    );
+    expect(screen.getByTestId("fft-node-mini-vfo")).toHaveAttribute(
+      "data-center",
+      "102 Hz",
+    );
+  });
+
+  it("keeps center and bandwidth labels visible before a selection exists", () => {
+    expect(
+      getNodePreviewSelectionBarLabels(undefined, {
+        min: 100_000_000,
+        max: 110_000_000,
+      }),
+    ).toEqual({ center: "○ 105.000 MHz", bandwidth: "| 10.000 MHz |" });
+  });
+
+  it("generates a compact frequency ruler for the FFT node VFO", () => {
+    expect(
+      getNodePreviewVfoScaleTicks({ min: 100_000_000, max: 110_000_000 }),
+    ).toEqual([
+      { frequencyHz: 100_000_000, positionPercent: 0 },
+      { frequencyHz: 102_000_000, positionPercent: 20 },
+      { frequencyHz: 104_000_000, positionPercent: 40 },
+      { frequencyHz: 106_000_000, positionPercent: 60 },
+      { frequencyHz: 108_000_000, positionPercent: 80 },
+      { frequencyHz: 110_000_000, positionPercent: 100 },
+    ]);
+  });
+
+  it("renders two compact FFT node stats rows", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas
+              {...defaultProps}
+              nodePreview
+              fftSize={65536}
+              hardwareSampleRateHz={1_000_000}
+              deviceName="Mock SDR"
+              selectionMode="range"
+              selectionRange={{ min: 101, max: 103 }}
+            />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fft-node-stats-selection")).toHaveTextContent(
+        "○ 102 Hz",
+      );
+    });
+    expect(screen.getByTestId("fft-node-stats-meta")).toHaveTextContent(
+      "FFT Size: 65,536",
+    );
+    expect(screen.getByTestId("fft-node-stats-meta")).toHaveTextContent(
+      "Sample Rate: 1.000 MHz",
+    );
+    expect(screen.getByTestId("fft-node-stats-meta")).toHaveTextContent(
+      "Mock SDR",
+    );
+  });
+
+  it("shows no bandwidth selection instead of using the full display range", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas {...defaultProps} nodePreview />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("fft-node-stats-selection")).toHaveTextContent(
+        "No current bandwidth selection",
+      );
+    });
+  });
 
   it("should render spectrum and waterfall sections", async () => {
     render(
@@ -444,6 +570,39 @@ describe("FFTCanvas Component", () => {
     expect(renderedValues.length).toBeGreaterThan(0);
     expect(Math.min(...renderedValues)).toBeGreaterThan(0);
     expect(screen.queryByText("Start Tx to transmit")).not.toBeInTheDocument();
+  });
+
+  it("does not process a frame owned by the previous source", async () => {
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{
+                  current: {
+                    source_id: "mock-apt",
+                    iq_data: new Uint8Array([128, 129, 127, 126]),
+                    center_frequency_hz: 2_186_000,
+                    sample_rate: 4_372_000,
+                  },
+                }}
+                expectedSourceId="rtl-sdr-00000001"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(processIqToDbmSpectrumMock).not.toHaveBeenCalled();
+    expect(drawSpectrumMock).not.toHaveBeenCalled();
   });
 
   it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {
@@ -1006,5 +1165,12 @@ describe("FFTCanvas Component", () => {
     expect(machine.restore("live")?.waterfallBuffer).toEqual(
       seededSnapshot.waterfallBuffer,
     );
+  });
+
+  it("does not replace an existing paused waveform with the black fallback", () => {
+    expect(
+      shouldCreatePausedFallbackWaveform(new Float32Array(1024).fill(-47)),
+    ).toBe(false);
+    expect(shouldCreatePausedFallbackWaveform(null)).toBe(true);
   });
 });

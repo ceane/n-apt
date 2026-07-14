@@ -77,4 +77,10 @@ extern "C" {
     buf_len: u32,
   ) -> c_int;
   pub fn rtlsdr_cancel_async(dev: *mut RtlSdrDev) -> c_int;
+
+  // Kernel driver handling
+  #[cfg(target_os = "linux")]
+  pub fn rtlsdr_kernel_driver_active(dev: *mut RtlSdrDev) -> c_int;
+  #[cfg(target_os = "linux")]
+  pub fn rtlsdr_detach_kernel_driver(dev: *mut RtlSdrDev) -> c_int;
 }

@@ -3,7 +3,31 @@ import {
   clampRtlSdrFrequencyRangeToHardwareWindow,
   resolveRenderableFrequencyRange,
   resolveCaptureAcquisitionMode,
+  resolveDisplaySampleRateHz,
 } from "@n-apt/utils/sdrSampleRateGuards";
+
+describe("resolveDisplaySampleRateHz", () => {
+  it("uses the configured RTL-SDR rate instead of a wider rendered frame rate", () => {
+    expect(
+      resolveDisplaySampleRateHz({
+        isRtlSdr: true,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 6_270_000,
+      }),
+    ).toBe(3_200_000);
+  });
+
+  it("uses an accepted RTL-SDR I/Q frame rate over stale settings", () => {
+    expect(
+      resolveDisplaySampleRateHz({
+        isRtlSdr: true,
+        frameSampleRateHz: 3_200_000,
+        configuredSampleRateHz: 6_270_000,
+        derivedSampleRateHz: 6_270_000,
+      }),
+    ).toBe(3_200_000);
+  });
+});
 
 describe("sdrSampleRateGuards", () => {
   it("blocks whole-channel snapshots for RTL-SDR even when stale UI state asks for them", () => {

@@ -229,7 +229,7 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
       .send(Arc::new(SpectrumData {
         message_type: "spectrum".to_string(),
         waveform: vec![],
-        is_mock_apt: false,
+        is_mock_apt: true,
         center_frequency_hz: Some(137_500_000),
         waveform_span_hz: None,
         timestamp: 123,

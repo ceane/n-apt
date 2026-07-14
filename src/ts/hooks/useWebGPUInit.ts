@@ -348,11 +348,16 @@ export function useWebGPUInit({
         });
         gpuBufferPoolRef.current.push(buffer);
       }
+
+      // Clean up any existing textures to force fresh initialization
+      if (shaderCache.isInitialized) {
+        shaderCache.clearCache();
+      }
     } catch (error) {
       console.error("WebGPU initialization failed:", error);
       setWebgpuReady(false);
     }
-  }, [webgpuReady, initializeResamplePipeline, gpuBufferPoolRef]);
+  }, [webgpuReady, initializeResamplePipeline, gpuBufferPoolRef, shaderCache]);
 
   useEffect(() => {
     if (!isInitialized) {
@@ -447,28 +452,32 @@ export function useWebGPUInit({
     const format = webgpuFormatRef.current;
     if (!device || !format) return;
 
+    // Reset all overlay renderers to force fresh initialization
+    if (!webgpuContextLostRef.current) {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      overlayDirtyRef.current.spikes = true;
+    }
+
     if (!gridOverlayRendererRef.current) {
       gridOverlayRendererRef.current = new OverlayTextureRenderer(
         device,
         format,
       );
-      overlayDirtyRef.current.grid = true;
     }
     if (!markersOverlayRendererRef.current) {
       markersOverlayRendererRef.current = new OverlayTextureRenderer(
         device,
         format,
       );
-      overlayDirtyRef.current.markers = true;
     }
     if (!spikesOverlayRendererRef.current) {
       spikesOverlayRendererRef.current = new OverlayTextureRenderer(
         device,
         format,
       );
-      overlayDirtyRef.current.spikes = true;
     }
-  }, [webgpuEnabled]);
+  }, [webgpuEnabled, webgpuDeviceRef.current, webgpuFormatRef.current]);
 
   return {
     isInitialized,

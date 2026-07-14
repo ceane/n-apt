@@ -94,7 +94,10 @@ signals:
 
         fft_sizes:
           - base: base_fft_sizes
-            fft_max: !pow2 22
+            # Keep HackRF's advertised live FFT range within the browser's
+            # safe processing limit. Larger FFTs produce payloads that can
+            # monopolize the frontend render loop and blank the canvases.
+            fft_max: !pow2 18
         gain_limits:
           lna_min: 0.0
           lna_max: 40.0

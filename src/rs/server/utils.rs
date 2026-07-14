@@ -470,7 +470,7 @@ pub fn resolve_fft_config(
 ) -> super::types::SdrFftConfig {
   let mut min_size: usize = 2048;
   let mut max_size: usize = if device_kind == "hackrf_one" {
-    4_194_304 // 2^22
+    262_144 // 2^18: maximum supported by the browser live visualizer
   } else {
     262_144 // 2^18
   };
@@ -2389,7 +2389,7 @@ mod save_tests {
     assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
 
     let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768), None);
-    assert_eq!(hackrf.max_size, 2_097_152);
+    assert_eq!(hackrf.max_size, 262_144);
     assert_eq!(hackrf.default_size, 32768);
   }
 }

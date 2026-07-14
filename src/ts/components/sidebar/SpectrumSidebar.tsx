@@ -95,6 +95,12 @@ import {
   isRtlSdrDevice,
   resolveCaptureAcquisitionMode,
 } from "@n-apt/utils/sdrSampleRateGuards";
+import {
+  supportsApproxDbm,
+  isMockLiveSource as checkIsMockLiveSource,
+  isMockAptSource as checkIsMockAptSource,
+  getMockDeviceProfile,
+} from "@n-apt/utils/deviceCapabilities";
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
@@ -645,41 +651,29 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
   const maxSampleRateHz =
     selectedSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
-  const isMockLiveSource =
-    sourceMode === "live" &&
-    !!(
-      selectedSource?.kind?.toLowerCase().includes("mock") ||
-      selectedSource?.capability === "mock" ||
-      liveBackend?.toLowerCase().includes("mock") ||
-      liveDeviceNameToUse?.toLowerCase().includes("mock")
-    );
+  const deviceIdentity = useMemo(
+    () => ({
+      selectedSource,
+      selectedSourceId,
+      backend: liveBackend,
+      deviceName: liveDeviceNameToUse,
+      sourceMode,
+    }),
+    [
+      selectedSource,
+      selectedSourceId,
+      liveBackend,
+      liveDeviceNameToUse,
+      sourceMode,
+    ],
+  );
 
-  const isMockAptSource =
-    sourceMode === "live" &&
-    !!(
-      selectedSource?.kind?.toLowerCase().includes("apt") ||
-      selectedSourceId === "mock-apt" ||
-      selectedSourceId === "mock_apt" ||
-      liveBackend?.toLowerCase().includes("apt")
-    );
+  const isMockLiveSource = checkIsMockLiveSource(deviceIdentity);
+  const isMockAptSource = checkIsMockAptSource(deviceIdentity);
 
   const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
-    if (!isMockLiveSource) return null;
-    if (isMockAptSource) {
-      return {
-        kind: "mock_apt",
-        is_rtl_sdr: true,
-        supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
-      };
-    }
-    return {
-      kind: "mock_tx",
-      is_rtl_sdr: false,
-      supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
-    };
-  }, [isMockLiveSource, isMockAptSource]);
+    return getMockDeviceProfile(deviceIdentity);
+  }, [deviceIdentity]);
   const liveDeviceProfileForDisplay =
     mockTxDeviceProfile ?? liveDeviceProfileToUse;
   const isHackrfOne =
@@ -696,6 +690,26 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (!liveDeviceProfileForDisplay?.kind) return;
     dispatch(setDeviceKind(liveDeviceProfileForDisplay.kind));
   }, [liveDeviceProfileForDisplay?.kind, dispatch]);
+
+  useEffect(() => {
+    const isPowerScaleSupported = supportsApproxDbm({
+      deviceProfile: liveDeviceProfileForDisplay,
+      backend: liveBackend,
+      sourceMode,
+    });
+
+    if (!isPowerScaleSupported && powerScale === "dBm") {
+      dispatch(setPowerScale("dB"));
+      storeDispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
+    }
+  }, [
+    liveDeviceProfileForDisplay,
+    liveBackend,
+    sourceMode,
+    powerScale,
+    dispatch,
+    storeDispatch,
+  ]);
   const mockResolved = useMemo(() => {
     if (!isMockLiveSource) return null;
     const spec = activeDeviceConfig?.sample_rate as SampleRateSpec | undefined;
@@ -2407,6 +2421,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             </ResetButton>
           </Section>
 
+          <Channels
+            variant="spectrum"
+            fileMode={false}
+            limitMarkers={limitMarkers}
+            rangeSlidersDisabled={visualizerLoading}
+          />
+
           <IQCaptureControlsSection
             activeCaptureAreas={activeCaptureAreas}
             availableCaptureAreas={availableCaptureAreas}
@@ -2537,13 +2558,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               )}
             </Section>
           </Collapsible>
-
-          <Channels
-            variant="spectrum"
-            fileMode={false}
-            limitMarkers={limitMarkers}
-            rangeSlidersDisabled={visualizerLoading}
-          />
 
           {isTxCapableSelectedSource ? (
             <Collapsible

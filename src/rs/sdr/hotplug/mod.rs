@@ -549,6 +549,14 @@ pub async fn handle_real_hardware_health(
     return;
   }
 
+  let current_state = shared_state.device_state.lock().unwrap().clone();
+  if current_state == "loading"
+    || current_state == "loose"
+    || current_state == "disconnected"
+  {
+    return;
+  }
+
   let is_warming_up = state
     .last_hardware_swap
     .map(|t| t.elapsed() < Duration::from_secs(5))

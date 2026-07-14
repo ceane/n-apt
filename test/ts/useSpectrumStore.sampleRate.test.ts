@@ -3,6 +3,7 @@ import {
   resolveSourceSwitchDisplaySettings,
   resolveEffectiveLiveSampleRateHz,
   normalizePersistedSourceViewState,
+  shouldRequestPausedPreview,
   selectLiveSampleRateForSync,
 } from "@n-apt/hooks/useSpectrumStore";
 
@@ -16,6 +17,28 @@ describe("resolveSourceSwitchDisplaySettings", () => {
     ).toEqual(
       expect.objectContaining({ sampleRateHz: 3_200_000, fftFrameRate: 30 }),
     );
+  });
+});
+
+describe("shouldRequestPausedPreview", () => {
+  it("does not request a preview frame for a paused RTL-SDR", () => {
+    expect(
+      shouldRequestPausedPreview({
+        id: "rtl-sdr-00000001",
+        kind: "rtl_sdr",
+        status: "connected",
+      } as any),
+    ).toBe(false);
+  });
+
+  it("keeps paused previews for Mock Tx standby", () => {
+    expect(
+      shouldRequestPausedPreview({
+        id: "mock-tx",
+        kind: "mock_tx",
+        status: "connected",
+      } as any),
+    ).toBe(true);
   });
 });
 
@@ -49,6 +72,34 @@ describe("selectLiveSampleRateForSync", () => {
         websocketSampleRateHz: 3_200_000,
         sdrSettingsSampleRateHz: 3_200_000,
         maxSampleRateHz: 3_200_000,
+      }),
+    ).toBe(3_200_000);
+  });
+
+  it("keeps RTL-SDR whole-channel state from inheriting a stale connected rate", () => {
+    expect(
+      resolveEffectiveLiveSampleRateHz({
+        localSampleRateHz: 4_372_000,
+        websocketSampleRateHz: 4_372_000,
+        sdrSettingsSampleRateHz: 3_200_000,
+        minReceiveSampleRateHz: 3_200_000,
+        maxSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        backend: "rtl-sdr",
+      }),
+    ).toBe(3_200_000);
+  });
+
+  it("caps an invalid RTL-SDR configured whole-channel rate at the device maximum", () => {
+    expect(
+      resolveEffectiveLiveSampleRateHz({
+        localSampleRateHz: 6_270_000,
+        websocketSampleRateHz: 6_270_000,
+        sdrSettingsSampleRateHz: 6_270_000,
+        minReceiveSampleRateHz: 6_270_000,
+        maxSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        backend: "rtl-sdr",
       }),
     ).toBe(3_200_000);
   });

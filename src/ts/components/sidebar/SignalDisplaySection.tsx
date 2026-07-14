@@ -15,6 +15,7 @@ import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
 import { computeMaxFrameRate } from "@n-apt/utils/signals";
+import { showsApproxDbmToggle } from "@n-apt/utils/deviceCapabilities";
 
 const Section = styled.div`
   display: grid;
@@ -216,13 +217,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   onDisplayModeChange: _onDisplayModeChange,
   scheduleCoupledAdjustment,
 }) => {
-  const showsApproxDbmToggle = deviceProfile
-    ? deviceProfile.supports_approx_dbm
-    : backend === "rtl_sdr" ||
-      backend === "rtl-sdr" ||
-      backend === "rtlsdr" ||
-      backend === "rtl-tcp" ||
-      backend === "rtltcp";
+  const showsApproxDbmToggleVal = showsApproxDbmToggle({
+    deviceProfile,
+    backend,
+  });
   const isRtlSdrDevice =
     deviceProfile?.kind === "rtl_sdr" ||
     backend === "rtl_sdr" ||
@@ -434,7 +432,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         </Row>
       )}
       {/* Device-specific power scale toggle - enabled when approximate dBm is supported */}
-      {(showsApproxDbmToggle || sourceMode === "file") &&
+      {(showsApproxDbmToggleVal || sourceMode === "file") &&
         variant !== "diagnostic" && (
           <Row
             label={<IconLabel icon={Zap} text="Power Scale" />}

@@ -1228,6 +1228,7 @@ TODO
 ```
 *The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.[^data-estimate]*
 
+\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB).
 † **Min** formula assumes Channels A and B divided by 65,536 FFT size, and Channel C (strongly assumed to be vision) at 1:1, with u8 integers at 8-bits I/Q.  
 ‡ **Max** formula assumes spectrum at full (1:1) sample fidelity and 16-bit I/Q.
 

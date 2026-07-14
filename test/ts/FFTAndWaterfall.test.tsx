@@ -16,7 +16,6 @@ const waterfallCanvasMock = jest.fn((_props?: any) => (
 let mockedSourceMode: "live" | "file" = "live";
 let mockedSpectrumState: Record<string, unknown> = {};
 let mockedWebsocketState: Record<string, unknown> = {};
-let selectorResults: unknown[] = [];
 
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -78,7 +77,6 @@ jest.mock("@n-apt/redux", () => ({
         ...mockedWebsocketState,
       },
     });
-    selectorResults.push(result);
     return result;
   },
   useAppDispatch: () => jest.fn(),
@@ -96,7 +94,6 @@ describe("FFTAndWaterfall", () => {
     mockedSourceMode = "live";
     mockedSpectrumState = {};
     mockedWebsocketState = {};
-    selectorResults = [];
     fftCanvasMock.mockClear();
     fftCanvasMountSpy.mockClear();
     fftCanvasUnmountSpy.mockClear();
@@ -193,6 +190,191 @@ describe("FFTAndWaterfall", () => {
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("keeps the rendered frame and controls available when pausing", () => {
+    const dataRef = { current: { waveform: new Float32Array([1, 2, 3]) } };
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+    });
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const pausedTransitionFftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      pausedTransitionFftProps.onRenderableFrameChange(false);
+    });
+
+    const pausedFftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const pausedSliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+    expect(pausedFftProps?.interactionDisabled).toBe(false);
+    expect(pausedFftProps?.awaitingDeviceData).toBe(false);
+    expect(pausedFftProps?.placeholderState).toBeFalsy();
+    expect(pausedSliderProps?.disabled).toBe(false);
+  });
+
+  it("does not re-enter loading when a rendered canvas pauses", () => {
+    const dataRef = { current: { waveform: new Float32Array([1, 2, 3]) } };
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const runningFftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      runningFftProps.onRenderableFrameChange(true);
+    });
+    expect(runningFftProps.onCanvasLoadingChange).toBeUndefined();
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const pausedFftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(pausedFftProps?.interactionDisabled).toBe(false);
+    expect(pausedFftProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("keeps FFT and waterfall loading together until the frame is rendered", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{
+          current: {
+            source_id: "rtl-sdr-1",
+            iq_data: new Uint8Array([128, 128]),
+          },
+        }}
+        expectedSourceId="rtl-sdr-1"
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(fftProps?.awaitingDeviceData).toBe(true);
+    expect(waterfallProps?.awaitingDeviceData).toBe(true);
+  });
+
+  it("labels an explicit loading placeholder for each pane", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "RTL-SDR v4",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(fftProps?.placeholderState).toMatchObject({ paneLabel: "FFT" });
+    expect(waterfallProps?.placeholderState).toMatchObject({
+      paneLabel: "Waterfall",
+    });
+  });
+
+  it("keeps the last frame available while a live FFT setting is applied", () => {
+    jest.useFakeTimers();
+    const dataRef = {
+      current: {
+        source_id: "hackrf-one",
+        iq_data: new Uint8Array([128, 129]),
+      },
+    };
+
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "HackRF One",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    jest.advanceTimersByTime(200);
+    expect(dataRef.current).not.toBeNull();
+    jest.useRealTimers();
   });
 
   it("passes Tx slider props on the first render when Redux says Tx is visible", () => {
@@ -327,25 +509,6 @@ describe("FFTAndWaterfall", () => {
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBeNull();
-  });
-
-  it("subscribes to the live data frame counter so ref-only frames clear the placeholder", () => {
-    mockedWebsocketState = {
-      dataFrameCounter: 7,
-    };
-
-    render(
-      <FFTAndWaterfall
-        dataRef={{ current: null }}
-        frequencyRange={{ min: 0, max: 4_372_000 }}
-        centerFrequencyHz={2_186_000}
-        activeSignalArea="A"
-        isPaused={false}
-        snapshotGridPreference={true}
-      />,
-    );
-
-    expect(selectorResults).toContain(7);
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

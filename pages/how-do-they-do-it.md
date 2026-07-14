@@ -1150,23 +1150,31 @@ It's still a mystery to me how they are able to do haptics and physiological exp
 
 ### Estimated data <a id="data-estimate"></a>
 
-*Corrected to assume 1 bit per cycle instead of 1 byte (8 bits) per cycle. The PHY representation of the carrier that translates into biology, in some contexts, can be considered 1 byte, as it is constant and precise power at the person, biology isn't simply responding to 0s or 1s, you can think of it as a 0 to 255 scale.*
+*Corrected to assume 1 bit per cycle instead of 1 byte (8 bits) per cycle. The PHY representation of the carrier that translates into biology, in some contexts, can be considered 1 byte, as it is constant and precise power at the person, biology isn't simply responding to 0s or 1s but a signal whose power is represented on a scale, potentially from 0 to 255.*
 
-Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
+Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up/down as in electronics)*.
 
-These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there is a lot more going on behind the scenes for every "bit" of computer to biology to computer data derived from these signals.
+These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there's a lot more going on behind the scenes for every "bit" of *computer to write-to read signal to biology and back* data derived from these signals.
 
 
-### One important note: Quantiziation
+#### One important note: Quantization
 
-There are two ways to save both processing power and data by quantitizing the signal:
+There are two ways to save both processing power and data by quantizatizing the signal:
 
-- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 instead of u16
-- (2) Using a smaller IFFT size, meaning the signal getting sliced by 2048 points instead of full fidelity (millions)
+- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 (0 to 255) instead of u16 (0 to 65,535)
+- (2) Using a smaller IFFT size, meaning the signal getting sliced by 65,535 points instead of full fidelity (millions of points)
+
+Quantization helps the agency reduce costs of ingres/egress data flow while also making it easier to conceal and offering obvious performance gains on active endpoints by processing less data, in addition to making more endpoints eligible for operation and less strained while operating.
+
+Not everything can be quantizatized or compressed, as relayed by the others (parolee and prisoners) and verified by me (asking "What's the color of...?", "What does that say...?") on the livestream from my brain. As conveyed under heavy moderation (the moderation is suffocating), the others had constant full fidelity vision, enough detail to see small text and marks and the folicles of my hair.
+
+Given this, some elements of the whole chain of signals, like vision, constantly streams content while I am awake. These parts of the signals are not compressed and fully occupy nearly every Hz of the spectrum, assumedly point for point.
+
+Quantitization is a data processing technique, not optimization around cycles like when I am resting or asleep (it even works in my dreams). That kind of compression comes later.
 
 <br />
 
-**Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]
+**Through the fiber cables to an endpoint (data through the network; most likely via ethernet infrastructure access and not via the internet)** [^data-estimate]
 
 <div data-data-estimate="network" class="table-tiny">
 
@@ -1179,7 +1187,7 @@ There are two ways to save both processing power and data by quantitizing the si
 
 </div>
 
-That's right! Just **sitting somewhere for 5 mins is over 1GB sof data** by minimum of physics!
+That's right! Just **sitting somewhere for 5 mins is over 1GBs of data** by minimum of physics!
 
 <br />
 <br />
@@ -1197,7 +1205,7 @@ That's right! Just **sitting somewhere for 5 mins is over 1GB sof data** by mini
 
 </div>
 
-Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
+Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice (and by three times more due to precise triangulation via intersection/concentration), in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
 So yes, sitting somewhere for 5 minutes, the network did over 1GB of data, but **the person receieved over 2GBs of data within that 5 minutes** because of technique's prerequisites!
 
@@ -1228,6 +1236,7 @@ TODO
 ```
 *The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.[^data-estimate]*
 
+\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB).
 † **Min** formula assumes Channels A and B divided by 65,536 FFT size, and Channel C (strongly assumed to be vision) at 1:1, with u8 integers at 8-bits I/Q.  
 ‡ **Max** formula assumes spectrum at full (1:1) sample fidelity and 16-bit I/Q.
 

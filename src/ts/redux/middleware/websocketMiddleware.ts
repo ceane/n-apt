@@ -20,6 +20,13 @@ import {
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import {
+  isMockDevice,
+  isMockBackend,
+  isMockTxSource,
+  isMockAptDevice,
+  isMockTxIdentity,
+} from "@n-apt/utils/deviceCapabilities";
+import {
   type DeviceState,
   type SourceErrorMessage,
   type SourceInfo,
@@ -48,7 +55,6 @@ export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
 
 // Tracks the requested/selected source during transition to filter out old frames
 let requestedSourceId: string | null = null;
-
 
 /** Keep the client frame gate aligned with the server's active-source mode. */
 export const isSourceModePaused = (sourceMode: unknown): boolean =>
@@ -117,14 +123,19 @@ const getDeviceKindFromSource = (source: SourceInfo): string => {
   ) {
     return kind;
   }
-  if (
-    kind.includes("mock_apt") ||
-    kind.includes("mock-apt") ||
-    source.id === "mock-apt"
-  ) {
+  if (isMockAptDevice({ id: source.id, kind: source.kind })) {
     return "mock_apt";
   }
-  if (capability === "mock" || kind.includes("mock")) return "mock_tx";
+  if (
+    isMockTxSource({ id: source.id, kind: source.kind }) ||
+    isMockDevice({
+      capability: source.capability,
+      id: source.id,
+      kind: source.kind,
+    })
+  ) {
+    return "mock_tx";
+  }
   if (capability.includes("tx")) return "tx";
   return source.kind;
 };
@@ -193,9 +204,8 @@ const isTxModeActiveMode = (value: unknown): boolean => {
   return normalized === "tx" || normalized === "rx_tx";
 };
 
-const isMockTxIdentity = (value: unknown): boolean => {
-  const normalized = normalizeTxIdentity(value);
-  return normalized === "mocktx" || normalized === "mocktxsdr";
+const isMockTxIdentityLocal = (value: unknown): boolean => {
+  return isMockTxIdentity(value);
 };
 
 const sourceMatchesTxRequest = (
@@ -220,8 +230,9 @@ const sourceMatchesTxRequest = (
   }
 
   return (
-    (isMockTxIdentity(data.serialNumber) || isMockTxIdentity(data.txDevice)) &&
-    (source.kind === "mock_tx" || source.id === "mock-tx")
+    (isMockTxIdentityLocal(data.serialNumber) ||
+      isMockTxIdentityLocal(data.txDevice)) &&
+    isMockTxSource({ id: source.id, kind: source.kind })
   );
 };
 
@@ -243,7 +254,7 @@ const applyOptimisticTransmitStatus = (
       (source) =>
         source.capability === "tx" ||
         source.capability === "tx_rx" ||
-        source.kind === "mock_tx",
+        isMockTxSource({ id: source.id, kind: source.kind }),
     );
   if (!targetSource) {
     return;
@@ -777,8 +788,7 @@ const shouldSuppressDuplicateFrequencyRangeSend = (
 
 const shouldClearStaleSpectrumFrames = (
   deviceState: DeviceState | null | undefined,
-): boolean =>
-  deviceState === "disconnected";
+): boolean => deviceState === "disconnected";
 
 const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
   liveDataRef.current = null;
@@ -856,15 +866,6 @@ const sameAesKeyReference = (
   next: CryptoKey | null,
 ): boolean => current === next;
 
-const isMockBackend = (value: unknown): boolean => {
-  return (
-    typeof value === "string" &&
-    (value === "mock_apt" ||
-      value === "mock_apt_metal" ||
-      value.includes("mock"))
-  );
-};
-
 const isMockDeviceStatus = (parsedData: Record<string, unknown>): boolean => {
   return (
     isMockBackend(parsedData.backend) ||
@@ -932,6 +933,21 @@ export const shouldAcceptSourceIqSocketMessage = ({
   socketSourceId === activeSourceId &&
   (requestedSourceId === null || socketSourceId === requestedSourceId);
 
+/**
+ * Do not create a new raw-I/Q transport while the device is recovering.
+ *
+ * The control socket remains the lifecycle owner and continues to report
+ * hotplug status. During USB recovery the raw stream may close, but opening a
+ * replacement every retry interval only creates a socket storm and can make
+ * the first post-reconnect payload miss the renderer. An already-open socket
+ * is intentionally allowed to remain warm; this gate only applies to new
+ * sockets.
+ */
+export const shouldOpenSourceIqSocket = (status: unknown): boolean =>
+  status === "connected" ||
+  status === "streaming" ||
+  status === "transmitting";
+
 const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {
     cleanupSourceIqSocket();
@@ -952,20 +968,29 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
     return;
   }
 
-  const nextUrl = buildSourceIqWebSocketUrl(wsInstance.url, activeSource);
-  if (!nextUrl) {
-    cleanupSourceIqSocket();
-    return;
-  }
-
   const existing = sourceIqWsInstance.ws;
   if (
     existing &&
-    sourceIqWsInstance.url === nextUrl &&
     sourceIqWsInstance.sourceId === activeSource.id &&
     (existing.readyState === WebSocket.CONNECTING ||
       existing.readyState === WebSocket.OPEN)
   ) {
+    return;
+  }
+
+  // A closed raw stream is expected while USB is settling. Wait for the
+  // source status to become usable instead of reopening it on every timeout.
+  if (!shouldOpenSourceIqSocket(activeSource.status)) {
+    if (sourceIqWsInstance.reconnectTimeout !== null) {
+      clearTimeout(sourceIqWsInstance.reconnectTimeout);
+      sourceIqWsInstance.reconnectTimeout = null;
+    }
+    return;
+  }
+
+  const nextUrl = buildSourceIqWebSocketUrl(wsInstance.url, activeSource);
+  if (!nextUrl) {
+    cleanupSourceIqSocket();
     return;
   }
 
@@ -977,13 +1002,8 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   sourceIqWsInstance.sourceId = activeSource.id;
   sourceIqWsInstance.reconnectTimeout = null;
   const socketSourceId = activeSource.id;
-  console.info("[source-switch] opening I/Q socket", {
-    sourceId: socketSourceId,
-    streamKey: activeSource.stream_key ?? socketSourceId,
-  });
 
   ws.onopen = () => {
-    console.info("[source-switch] I/Q socket connected for", socketSourceId);
     if (socketSourceId === "mock-tx") {
       const state = getState();
       const isTransmitting =
@@ -993,10 +1013,10 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
       if (!isTransmitting) {
         const txSettings = state.spectrum;
         const viewSampleRateHz = state.waterfall?.frequencyRange
-          ? state.waterfall.frequencyRange.max - state.waterfall.frequencyRange.min
+          ? state.waterfall.frequencyRange.max -
+            state.waterfall.frequencyRange.min
           : undefined;
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-          console.info("[source-switch] requesting initial mock-tx standby frame");
           wsInstance.ws.send(
             JSON.stringify({
               type: "request_next_frame",
@@ -1078,15 +1098,6 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.active_source !== previousActiveSourceId) {
-        console.info("[source-switch] server source_info", {
-          previousActiveSourceId,
-          activeSourceId: parsedData.active_source,
-          sources: parsedData.sources.map((source: SourceInfo) => ({
-            id: source.id,
-            status: source.status,
-            streamKey: source.stream_key ?? null,
-          })),
-        });
       }
       if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
@@ -1139,11 +1150,6 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.source_id !== previousActiveSourceId) {
-        console.info("[source-switch] server active_source", {
-          previousActiveSourceId,
-          activeSourceId: parsedData.source_id,
-          sourceMode: parsedData.source_mode,
-        });
       }
       if (parsedData.source_id !== previousActiveSourceId) {
         pendingDataUpdate = null;
@@ -1235,10 +1241,6 @@ const processMessage = (
 
     try {
       if (parsedData.status === "loading") {
-        console.info("[source-switch] server accepted", {
-          sourceId: parsedData.source_id,
-          status: parsedData.status,
-        });
       }
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const nextSources = currentSources.map((source) =>
@@ -1351,10 +1353,6 @@ const processMessage = (
     }
 
     if (parsedData.code === "source_switch_failed") {
-      console.error("[source-switch] rejected by server", {
-        sourceId: parsedData.source_id,
-        message: parsedData.message,
-      });
     }
     dispatch(setError(parsedData.message));
     return;
@@ -1526,6 +1524,7 @@ const processBinaryMessage = async (
 
     const spectrumData = {
       type: "spectrum",
+      source_id: sourceId,
       is_mock_apt: false,
       center_frequency_hz: centerFrequencyHz,
       waveform_span_hz: null,
@@ -1849,15 +1848,12 @@ const createWebSocketMiddleware =
         }
 
         if (type === "select_source") {
-          requestedSourceId = (normalizedData?.source_id as string | null) ?? null;
+          requestedSourceId =
+            (normalizedData?.source_id as string | null) ?? null;
         }
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
           if (type === "select_source") {
-            console.info("[source-switch] control message sent", {
-              sourceId: normalizedData?.source_id ?? null,
-              activeSourceId: getState().websocket.activeSourceId,
-            });
           }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
         } else if (type === "tx_mode" || type === "request_next_frame") {
@@ -1865,10 +1861,6 @@ const createWebSocketMiddleware =
           resetPausedFrameRequestGate();
         } else {
           if (type === "select_source") {
-            console.warn("[source-switch] control socket unavailable; queued", {
-              sourceId: normalizedData?.source_id ?? null,
-              readyState: wsInstance.ws?.readyState ?? null,
-            });
           }
           // Queue the message for when connection is restored
           dispatch(queueMessage({ type, data: normalizedData }));

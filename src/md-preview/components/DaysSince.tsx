@@ -28,8 +28,13 @@ const Container = styled.div`
 
 const TopRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 2rem;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
 `;
 
 const DataContainer = styled.div`
@@ -312,10 +317,11 @@ export const DaysSince: React.FC = () => {
   }, [isInView]);
 
   const spectrumHz = rateMbs * 8 * 1_000_000;
-  const bwA = spectrumHz * (4.35 / 27.76);
-  const bwB = spectrumHz * (5.16 / 27.76);
   const bwC = spectrumHz * (18.25 / 27.76);
-  const minRateBytesSec = (bwA / 65536) + (bwB / 65536) + bwC;
+  // Min rate assumes Channels A and B are processed via 65,536 FFTs streamed at 30 Hz (30 frames/s)
+  // using 8-bit magnitude (1 byte per bin), while Channel C is kept whole at 1:1 using 8-bit samples (1 byte/sample).
+  const fftFrameRate = 30; // 30 frames per second
+  const minRateBytesSec = (65536 * fftFrameRate * 1) + (65536 * fftFrameRate * 1) + bwC;
   const minRateMbs = minRateBytesSec / 1_000_000;
   const maxRateMbs = (spectrumHz * 4) / 1_000_000; // 16-bit (2 bytes I + 2 bytes Q), full 1:1
 
@@ -544,7 +550,7 @@ export const DaysSince: React.FC = () => {
           animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.5 }}
         >
-          <Label>Data total Cost (to present)</Label>
+          <Label>Data total Cost (to present)*</Label>
           <MinMaxGrid>
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
@@ -566,7 +572,7 @@ export const DaysSince: React.FC = () => {
           animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.6 }}
         >
-          <Label>Data cost per Day</Label>
+          <Label>Data cost per Day*</Label>
           <MinMaxGrid>
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
@@ -585,10 +591,6 @@ export const DaysSince: React.FC = () => {
           </MinMaxGrid>
         </StatBox>
       </CostContainer>
-
-      <SectionLabel style={{ marginTop: '-1rem', marginBottom: '0' }}>
-        Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB)
-      </SectionLabel>
     </Container>
   );
 };

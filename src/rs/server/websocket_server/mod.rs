@@ -156,7 +156,10 @@ impl std::fmt::Display for SourceLifecyclePhase {
   }
 }
 
-fn source_phase_on_select(is_warm: bool, is_mock: bool) -> SourceLifecyclePhase {
+fn source_phase_on_select(
+  is_warm: bool,
+  is_mock: bool,
+) -> SourceLifecyclePhase {
   if is_warm {
     SourceLifecyclePhase::Streaming
   } else if is_mock {
@@ -1737,7 +1740,7 @@ impl WebSocketServer {
             shared_state.record_successful_read();
             let current_state =
               shared_state.device_state.lock().unwrap().clone();
-            if current_state != "connected" {
+            if current_state == "disconnected" || current_state == "loading" {
               info!("First successful frame after recovery — confirming connected state");
               shared_state.update_device_status(
                 true,
@@ -1787,6 +1790,20 @@ impl WebSocketServer {
             warn!("Mock SDR read error (unexpected): {}", e);
             tokio::time::sleep(Duration::from_millis(100)).await;
           } else {
+            let current_state =
+              shared_state.device_state.lock().unwrap().clone();
+            if current_state == "loading"
+              || current_state == "loose"
+              || current_state == "disconnected"
+            {
+              debug!(
+                "Ignoring read error/timeout while device is in {} state: {}",
+                current_state, e
+              );
+              tokio::time::sleep(Duration::from_millis(100)).await;
+              continue;
+            }
+
             let streak = shared_state.record_health_failure();
             let recovery_count =
               shared_state.recovery_attempts.load(Ordering::Relaxed);

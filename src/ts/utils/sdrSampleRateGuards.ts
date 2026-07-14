@@ -15,6 +15,40 @@ interface DeviceIdentity {
 const normalize = (value?: string | null) =>
   value?.toLowerCase().replace(/[_\s]+/g, "-") ?? "";
 
+export const resolveDisplaySampleRateHz = ({
+  frameSampleRateHz,
+  configuredSampleRateHz,
+  derivedSampleRateHz,
+  ...identity
+}: DeviceIdentity & {
+  frameSampleRateHz?: number | null;
+  configuredSampleRateHz?: number | null;
+  derivedSampleRateHz?: number | null;
+}): number | null => {
+  const frameRate =
+    typeof frameSampleRateHz === "number" &&
+    Number.isFinite(frameSampleRateHz) &&
+    frameSampleRateHz > 0
+      ? frameSampleRateHz
+      : null;
+  const configured =
+    typeof configuredSampleRateHz === "number" &&
+    Number.isFinite(configuredSampleRateHz) &&
+    configuredSampleRateHz > 0
+      ? configuredSampleRateHz
+      : null;
+  const derived =
+    typeof derivedSampleRateHz === "number" &&
+    Number.isFinite(derivedSampleRateHz) &&
+    derivedSampleRateHz > 0
+      ? derivedSampleRateHz
+      : null;
+
+  return isRtlSdrDevice(identity)
+    ? (frameRate ?? configured ?? derived)
+    : (derived ?? configured);
+};
+
 export const isRtlSdrDevice = ({
   deviceKind,
   backend,

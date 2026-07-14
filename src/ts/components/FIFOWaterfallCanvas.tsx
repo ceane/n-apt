@@ -212,7 +212,13 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   );
 
   useEffect(() => {
-    if (!placeholderState) return;
+    if (
+      !placeholderState ||
+      placeholderState.kind === "overlay-only" ||
+      placeholderState.kind === "top-bar"
+    ) {
+      return;
+    }
     clearWaterfallCanvases();
   }, [clearWaterfallCanvases, placeholderState]);
 
