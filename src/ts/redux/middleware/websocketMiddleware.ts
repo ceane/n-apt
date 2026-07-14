@@ -978,6 +978,12 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
     return;
   }
 
+  // A source switch invalidates the previous source's raw stream even when
+  // the replacement source is still loading and cannot open its own socket.
+  if (existing && sourceIqWsInstance.sourceId !== activeSource.id) {
+    cleanupSourceIqSocket();
+  }
+
   // A closed raw stream is expected while USB is settling. Wait for the
   // source status to become usable instead of reopening it on every timeout.
   if (!shouldOpenSourceIqSocket(activeSource.status)) {

@@ -1082,9 +1082,7 @@ describe("Redux WebSocket Migration", () => {
       expect(middlewareStore.getState().websocket.activeSourceId).toBe(
         "rtl-sdr-v4",
       );
-      expect(sockets[2].url).toBe(
-        "ws://localhost/ws/source/rtl-v4/iq?token=session-token",
-      );
+      expect(sockets).toHaveLength(2);
 
       control.onmessage?.({
         data: JSON.stringify({
@@ -1100,6 +1098,9 @@ describe("Redux WebSocket Migration", () => {
       expect(
         middlewareStore.getState().websocket.sourceStatuses["rtl-sdr-v4"],
       ).toBe("streaming");
+      expect(sockets[2].url).toBe(
+        "ws://localhost/ws/source/rtl-v4/iq?token=session-token",
+      );
     });
 
     it("keeps transmitting source_info status in Redux after reconnect", async () => {
