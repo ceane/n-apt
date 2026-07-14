@@ -392,7 +392,7 @@ export const LIVE_CONTROL_DEFAULTS = {
   fftMinDb: -120,
   fftMaxDb: 0,
   fftWindow: "Rectangular",
-  gain: 49.6,
+  gain: 46.9,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,

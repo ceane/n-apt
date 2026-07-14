@@ -93,7 +93,7 @@ const initialState: WaterfallState = {
 
   stitchStatus: "",
   stitchTrigger: 0,
-  stitchSourceSettings: { gain: 10, ppm: 0 },
+  stitchSourceSettings: { gain: 46.9, ppm: 1 },
   isStitchPaused: false,
   activePlaybackMetadata: null,
   playbackChannels: [],

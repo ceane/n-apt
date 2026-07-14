@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use n_apt_backend::fft::{FFTProcessor, RawSamples, WindowType};
+use n_apt_backend::s::fft::{FFTProcessor, RawSamples, WindowType};
 use std::sync::Arc;
 
 fn fft_benchmark(c: &mut Criterion) {

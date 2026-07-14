@@ -1062,6 +1062,25 @@ mod tests {
   }
 
   #[test]
+  fn signals_yaml_defaults_rtl_sdr_to_max_gain_and_one_ppm() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let settings = load_sdr_settings();
+    let rtl = settings
+      .devices
+      .get("rtl_sdr")
+      .expect("rtl_sdr device config");
+
+    assert_eq!(settings.gain.tuner_gain, 46.9);
+    assert_eq!(settings.ppm, 1.0);
+    assert_eq!(
+      rtl.gain_limits.as_ref().and_then(|limits| limits.max),
+      Some(46.9)
+    );
+  }
+
+  #[test]
   fn preprocesses_sdr_sample_rate_tags_for_device_blocks() {
     let yaml = r#"
 signals:

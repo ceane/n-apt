@@ -55,6 +55,7 @@
     "preview:markdown": "vite preview --config vite.markdown.config.ts --port 4174",
     "dev": "npm --silent run decrypt-modules-if-needed && npm --silent run build_orchestrator",
     "build_orchestrator": "node --import tsx scripts/build/build-orchestrator.tsx",
+    "cli": "tsx scripts/cli/index.ts",
     "build:rust": "cargo build --bin n-apt-backend",
     "build:rust:release": "cargo build --release --bin n-apt-backend",
     "build:frontend": "vite build",

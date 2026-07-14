@@ -1135,7 +1135,9 @@ sleep 0.5
       },
       {
         index: 4,
-        command: isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
+        command: process.env.NAPT_CLI_STARTED === '1'
+          ? 'echo CLI startup: skipping optional Redis tower swap.'
+          : isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
 set -euo pipefail
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
@@ -1999,7 +2001,9 @@ async function runNonTtyBuild() {
       index: 4,
       description: 'Swapping Redis Database',
       run: () => executeCommandNonTty(
-        isNativeWindows ? 'echo Swap skipped' : `npm run towers:download:cached`,
+        process.env.NAPT_CLI_STARTED === '1' || isNativeWindows
+          ? 'echo CLI startup: skipping optional Redis tower swap.'
+          : `npm run towers:download:cached`,
         'Swapping Redis Database'
       )
     },

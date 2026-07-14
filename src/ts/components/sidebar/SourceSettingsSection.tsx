@@ -276,7 +276,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   stitchSourceSettings,
   isConnected,
   disableAgcControls = false,
-  maxGain = 49.6,
+  maxGain = 46.9,
   gainLimits,
   frequencyRangeMin,
   onPpmChange,

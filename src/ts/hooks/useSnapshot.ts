@@ -1636,7 +1636,7 @@ function buildLiveSpectrumSnapshotCanvas(
   );
 }
 
-function renderStatsRowCanvas(
+export function renderStatsRowCanvas(
   statsLines: string[],
   width: number,
   theme: SnapshotTheme,
@@ -1682,7 +1682,7 @@ function renderStatsRowCanvas(
 
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.font = `${baseFontSize}px monospace`;
+  ctx.font = `${baseFontSize}px "JetBrains Mono", monospace`;
 
   const drawLine = (line: string, x: number, y: number) => {
     ctx.fillStyle = markerMutedColor;

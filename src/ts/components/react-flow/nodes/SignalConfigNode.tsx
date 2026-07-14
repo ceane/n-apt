@@ -267,7 +267,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
 
   const clampGain = (val: number) => {
     if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(49.6, val));
+    return Math.max(0, Math.min(46.9, val));
   };
 
   const handlePpmChange = (raw: string) => {
@@ -582,7 +582,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
                   handleGainChange(Math.round(Number(e.target.value)))
                 }
                 min="0"
-                max="49.6"
+                max="46.9"
               />
               <UnitLabel>dB</UnitLabel>
             </InputGroup>

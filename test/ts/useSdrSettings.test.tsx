@@ -3,7 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import {
+  deriveStateFromConfig,
+  useSdrSettings,
+} from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
@@ -14,6 +17,13 @@ import spectrumSlice, {
 } from "@n-apt/redux/slices/spectrumSlice";
 
 const testApi = typeof jest !== "undefined" ? jest : (globalThis as any).vi;
+
+describe("N-APT SDR defaults", () => {
+  it("defaults RTL-SDR reception to 46.9 dB gain and 1 PPM", () => {
+    expect(deriveStateFromConfig(3_200_000, {}).gain).toBe(46.9);
+    expect(deriveStateFromConfig(3_200_000, {}).ppm).toBe(1);
+  });
+});
 
 testApi.mock("@n-apt/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,

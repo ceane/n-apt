@@ -31,7 +31,7 @@ signals:
     # SDR gain settings
     gain:
       # Tuner gain in dB
-      tuner_gain: !dB 49.6dB
+      tuner_gain: !dB 46.9dB
       # RTL-SDR gain mode
       rtl_agc: false
       # Tuner AGC
@@ -65,7 +65,7 @@ signals:
         sample_rate: !frequency 3.2MHz
         gain_limits:
           min: 0.0
-          max: 49.6
+          max: 46.9
           step: 0.1
         fft_display:
           markers:

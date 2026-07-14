@@ -152,7 +152,7 @@ export const deriveStateFromConfig = (
           ? fft.default_frame_rate
           : 0,
     gain:
-      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 49.6,
+      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 46.9,
     hackrfLnaGain:
       typeof gainConfig?.hackrf_lna_gain === "number"
         ? gainConfig.hackrf_lna_gain
@@ -168,7 +168,7 @@ export const deriveStateFromConfig = (
         : 3_200_000,
     tunerAGC: gainConfig?.tuner_agc ?? false,
     rtlAGC: gainConfig?.rtl_agc ?? false,
-    ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 0,
+    ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 1,
   };
 };
 

@@ -268,6 +268,10 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::capture_download_handler),
       )
       .route(
+        "/api/cli/snapshot-frame",
+        get(http_endpoints::cli_snapshot_frame_handler),
+      )
+      .route(
         "/api/towers/bounds",
         get(http_endpoints::towers_bounds_handler),
       )

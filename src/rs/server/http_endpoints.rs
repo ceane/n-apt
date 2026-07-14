@@ -24,6 +24,53 @@ use super::websocket_server::{
 };
 use crate::s::fft::anti_aliasing;
 
+#[derive(Debug, Deserialize)]
+pub struct CliSnapshotFramesQuery {
+  frames: Option<usize>,
+  fft_size: Option<usize>,
+}
+
+/// Returns a short history of current Rust SDR frames for the authenticated
+/// CLI snapshot harness. The endpoint exposes data only; image composition
+/// stays shared with the frontend's existing 2D snapshot renderers.
+pub async fn cli_snapshot_frame_handler(
+  State(state): State<Arc<super::AppState>>,
+  Query(query): Query<CliSnapshotFramesQuery>,
+) -> impl IntoResponse {
+  let mut receiver = state.spectrum_tx.subscribe();
+  let requested = query.frames.unwrap_or(1).clamp(1, 128);
+  let iq_bytes = query.fft_size.unwrap_or(4096).clamp(256, 262_144) * 2;
+  let mut frames = Vec::with_capacity(requested);
+  let collection = async {
+    while frames.len() < requested {
+      match receiver.recv().await {
+        Ok(frame) => {
+          let mut snapshot_frame = (*frame).clone();
+          snapshot_frame.waveform.clear();
+          snapshot_frame.iq_data.truncate(iq_bytes);
+          frames.push(snapshot_frame);
+        }
+        Err(error) => return Err(error),
+      }
+    }
+    Ok(())
+  };
+  let result = tokio::time::timeout(std::time::Duration::from_secs(4), collection).await;
+  if !frames.is_empty() {
+    return Json(frames).into_response();
+  }
+  match result {
+    Ok(Err(error)) => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      format!("Signal frames unavailable: {error}"),
+    ).into_response(),
+    _ => (
+      StatusCode::GATEWAY_TIMEOUT,
+      "Timed out waiting for signal frames",
+    ).into_response(),
+  }
+}
+
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
   const EARTH_RADIUS: f64 = 6371.0; // Earth's radius in kilometers
