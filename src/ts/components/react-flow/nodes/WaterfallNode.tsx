@@ -12,6 +12,7 @@ import { useAppSelector } from "@n-apt/redux";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { Slider } from "@n-apt/components/ui/Slider";
+import { resampleNearestInto } from "@n-apt/utils/resampleNearest";
 
 interface WaterfallNodeProps {
   data: {
@@ -157,6 +158,7 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
   const lastRefRef = useRef<unknown>(initialFrame);
   const lastIqRef = useRef(initialFrame?.iq_data);
   const lastTimestampRef = useRef(initialFrame?.timestamp);
+  const resampledWaterfallRef = useRef<Float32Array | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -231,6 +233,24 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
     (value: number) => setWaterfallDbMax(Math.max(value, waterfallDbMin + 5)),
     [waterfallDbMin],
   );
+  const performScalarResampling = useCallback(
+    (
+      input: ArrayLike<number>,
+      targetLength: number,
+      destination?: Float32Array,
+    ) => {
+      const currentOutput = destination ?? resampledWaterfallRef.current;
+      const output = resampleNearestInto(
+        input,
+        targetLength,
+        waterfallDbMin,
+        currentOutput ?? undefined,
+      );
+      resampledWaterfallRef.current = output;
+      return output;
+    },
+    [waterfallDbMin],
+  );
   const stopNodeDrag = useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
@@ -270,24 +290,7 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
           retuneSmear={1}
           isPaused={false}
           isVisible={true}
-          performScalarResampling={(input, targetLength) => {
-            if (targetLength <= 0) return [];
-            if (input.length === 0) {
-              return Array.from({ length: targetLength }, () => waterfallDbMin);
-            }
-            if (input.length === targetLength) {
-              return Array.from(input as ArrayLike<number>);
-            }
-            return Array.from({ length: targetLength }, (_, index) => {
-              const sourceIndex = Math.min(
-                input.length - 1,
-                Math.floor(
-                  (index / Math.max(1, targetLength - 1)) * (input.length - 1),
-                ),
-              );
-              return Number(input[sourceIndex] ?? waterfallDbMin);
-            });
-          }}
+          performScalarResampling={performScalarResampling}
           awaitingDeviceData={false}
           placeholderSourceLabel={data.label}
         />

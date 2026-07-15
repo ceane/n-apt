@@ -16,6 +16,10 @@ export function useFFTAnimation({
   const animationFrameRef = useRef<number | null>(null);
   const animationRunIdRef = useRef(0);
   const lastFrameTimeRef = useRef(0);
+  const onRenderFrameRef = useRef(onRenderFrame);
+  const onBecomeVisibleRef = useRef(onBecomeVisible);
+  onRenderFrameRef.current = onRenderFrame;
+  onBecomeVisibleRef.current = onBecomeVisible;
 
   // Dynamically adjust FPS based on paused state to save resources while keeping canvas alive
   const currentFPS = isPaused ? 15 : Math.max(targetFPS, 30);
@@ -30,51 +34,48 @@ export function useFFTAnimation({
 
   const isVisibleRef = useRef(true);
 
-  const animate = useCallback(
-    (force: boolean = false) => {
-      const runId = animationRunIdRef.current;
+  const animate = useCallback((force: boolean = false) => {
+    const runId = animationRunIdRef.current;
 
-      if (!isVisibleRef.current) {
-        animationFrameRef.current = null;
-        return;
-      }
+    if (!isVisibleRef.current) {
+      animationFrameRef.current = null;
+      return;
+    }
 
-      const now = performance.now();
-      const elapsed = now - lastFrameTimeRef.current;
+    const now = performance.now();
+    const elapsed = now - lastFrameTimeRef.current;
 
-      // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
-      if (force || elapsed >= frameRateLimiterRef.current - 4) {
-        // Adjust lastFrameTime by the interval to maintain cadence
-        // but don't let it drift too far behind actual time
-        if (force || elapsed > frameRateLimiterRef.current * 2) {
-          lastFrameTimeRef.current = now;
-        } else {
-          lastFrameTimeRef.current += frameRateLimiterRef.current;
-        }
-        onRenderFrame(runId, force);
-      }
-
-      // Keep the animation loop running even when paused to prevent blank canvases
-      // WebGPU and Canvas2D contexts can be lost or cleared if not actively presented,
-      // especially during window resizes or tab switches. Throttling FPS saves CPU.
-      if (animationRunIdRef.current === runId) {
-        animationFrameRef.current = requestAnimationFrame(() => {
-          if (animationRunIdRef.current === runId) {
-            animate(false);
-          }
-        });
+    // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
+    if (force || elapsed >= frameRateLimiterRef.current - 4) {
+      // Adjust lastFrameTime by the interval to maintain cadence
+      // but don't let it drift too far behind actual time
+      if (force || elapsed > frameRateLimiterRef.current * 2) {
+        lastFrameTimeRef.current = now;
       } else {
-        animationFrameRef.current = null;
+        lastFrameTimeRef.current += frameRateLimiterRef.current;
       }
-    },
-    [onRenderFrame],
-  );
+      onRenderFrameRef.current(runId, force);
+    }
+
+    // Keep the animation loop running even when paused to prevent blank canvases
+    // WebGPU and Canvas2D contexts can be lost or cleared if not actively presented,
+    // especially during window resizes or tab switches. Throttling FPS saves CPU.
+    if (animationRunIdRef.current === runId) {
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (animationRunIdRef.current === runId) {
+          animate(false);
+        }
+      });
+    } else {
+      animationFrameRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
       isVisibleRef.current = document.visibilityState === "visible";
       if (isVisibleRef.current) {
-        onBecomeVisible?.();
+        onBecomeVisibleRef.current?.();
         if (!animationFrameRef.current) {
           animationRunIdRef.current += 1;
           animate(true);
@@ -86,7 +87,7 @@ export function useFFTAnimation({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [animate, onBecomeVisible]);
+  }, [animate]);
 
   useEffect(() => {
     if (isVisibleRef.current) {
@@ -102,7 +103,7 @@ export function useFFTAnimation({
         animationFrameRef.current = null;
       }
     }
-  }, [isPaused, animate, onRenderFrame]);
+  }, [isPaused, animate]);
 
   useEffect(() => {
     return () => {

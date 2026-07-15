@@ -16,6 +16,7 @@ import {
   getNodePreviewSelectionBarLabels,
   getNodePreviewVfoScaleTicks,
   getCanvasPixelRatio,
+  shouldAccumulateFullChannelWaveform,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -93,6 +94,21 @@ describe("FFTCanvas Component", () => {
     isPaused: false,
     snapshotGridPreference: true,
   };
+
+  it("does not build a sparse full-channel cache for Mock APT", () => {
+    expect(
+      shouldAccumulateFullChannelWaveform({
+        isRtlSdr: false,
+        deviceKind: "mock_apt",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAccumulateFullChannelWaveform({
+        isRtlSdr: false,
+        deviceKind: "hackrf_one",
+      }),
+    ).toBe(true);
+  });
 
   it("does not draw VFO zoom markers in an FFT node preview", () => {
     expect(shouldDrawZoomMarkersForCanvas(true)).toBe(false);

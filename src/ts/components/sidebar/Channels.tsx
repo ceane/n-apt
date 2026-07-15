@@ -444,18 +444,13 @@ export const Channels: React.FC<ChannelsProps> = ({
     );
     const center = currentCenterFrequencyHz;
     if (typeof center === "number" && Number.isFinite(center)) {
-      const matchingCandidate = candidates.find((candidate) => {
-        const channel = channels.find(
-          (frame) =>
-            String(frame.label).toLowerCase() === candidate.toLowerCase(),
-        );
-        return (
-          !!channel &&
-          center >= channel.min_hz &&
-          center <= channel.max_hz
-        );
-      });
-      if (matchingCandidate) return matchingCandidate;
+      // The VFO range is authoritative while scrolling. The stored active
+      // label can lag behind it by a render (or remain stale after a free
+      // scroll), so derive the active channel directly from the center.
+      const matchingChannel = channels.find(
+        (channel) => center >= channel.min_hz && center <= channel.max_hz,
+      );
+      return matchingChannel?.label ?? "";
     }
     return candidates[0] ?? "A";
   }, [
@@ -582,6 +577,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                 channelSampleRateHz >= channelSpan
                   ? Math.min(3_200_000, channelSpan)
                   : channelSampleRateHz;
+              const isFrameActive =
+                String(activeSignalArea).toLowerCase() ===
+                String(label).toLowerCase();
 
               return (
                 <ReduxFrequencyRangeSlider
@@ -591,6 +589,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                   maxFreq={maxFreq}
                   disabled={rangeSlidersDisabled}
                   sampleRateHz={sliderSampleRateHz}
+                  isActive={isFrameActive}
                   isWholeChannelMode={isWholeChannelMode}
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
@@ -809,7 +808,9 @@ export const Channels: React.FC<ChannelsProps> = ({
         {/* Channel Buttons - Only show when Channel(s) is selected */}
         {!isManualMode &&
           channels.map((ch) => {
-            const isActive = state.activeSignalArea === ch.label;
+            const isActive =
+              String(activeSignalArea).toLowerCase() ===
+              String(ch.label).toLowerCase();
             const isChannelScanning =
               isScanning &&
               scanRange &&

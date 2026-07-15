@@ -32,6 +32,36 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfall", () => {
+  it("provides reusable typed output storage to optimized resamplers", async () => {
+    const resampler = jest.fn(
+      (
+        _data: ArrayLike<number>,
+        _targetLength: number,
+        output?: Float32Array,
+      ) => output ?? new Float32Array(0),
+    );
+
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={new Float32Array([-90, -70])}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+
+    await waitFor(() => expect(resampler).toHaveBeenCalled());
+    expect(resampler.mock.calls[0][2]).toBeInstanceOf(Float32Array);
+    expect(resampler.mock.calls[0][2]?.length).toBeGreaterThan(0);
+  });
+
   it("can force the Canvas2D renderer for embedded flow nodes", async () => {
     const { __mockDrawWebGPUFIFOWaterfall: drawWebGPU } = jest.requireMock(
       "@n-apt/hooks/useDrawWebGPUFIFOWaterfall",
@@ -82,13 +112,14 @@ describe("FIFOWaterfall", () => {
       },
     });
     const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, "getContext");
+    const waveform = new Float32Array([-90, -70]);
 
     const view = render(
       <ThemeProvider theme={mockTheme}>
         <FIFOWaterfall
           width={320}
           height={180}
-          waveform={new Float32Array([-90, -70])}
+          waveform={waveform}
           frequencyRange={{ min: 0, max: 1 }}
           retuneSmear={0}
           isPaused={false}
@@ -107,6 +138,7 @@ describe("FIFOWaterfall", () => {
       2,
     );
     expect(drawWebGPU.mock.calls[0][0].plotMargin).toEqual({ x: 0, y: 0 });
+    expect(drawWebGPU.mock.calls[0][0].fftData).toBe(waveform);
     await waitFor(() => expect(getContextSpy).toHaveBeenCalledWith("2d"));
     expect(view.container.querySelector("canvas")).toHaveAttribute(
       "data-renderer-error",

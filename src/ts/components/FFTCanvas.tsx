@@ -101,6 +101,7 @@ import {
   type DemodFocusOverlay,
 } from "@n-apt/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
+import { createFFTZoomProcessor } from "@n-apt/utils/rendering/fftZoom";
 
 type FrameRenderRangeInput = {
   currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
@@ -113,6 +114,9 @@ type FrameRenderRangeInput = {
   deviceName?: string | null;
   isRtlSdr?: boolean | null;
 };
+
+const EMPTY_FLOAT32_ARRAY = new Float32Array(0);
+const WATERFALL_BIN_COUNT = 4096;
 
 const isMockTxIdentity = ({
   deviceKind,
@@ -166,6 +170,25 @@ const isMockAptIdentity = ({
     normalizedName.includes("mock apt")
   );
 };
+
+/**
+ * Full-channel accumulation is only needed for hardware that delivers a
+ * channel through multiple tuned hops. Mock APT synthesizes the selected
+ * range directly; caching a partially covered range fills the rest with the
+ * floor and presents it as a signal gap.
+ */
+export const shouldAccumulateFullChannelWaveform = ({
+  isRtlSdr,
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  isRtlSdr?: boolean | null;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}): boolean =>
+  !isRtlSdr && !isMockAptIdentity({ deviceKind, backend, deviceName });
 
 export const resolveTxModeDeviceName = (
   sources: Array<{ status: string | null; name?: string | null }>,
@@ -233,23 +256,26 @@ export const getTxSpectrumRevisionKey = ({
   sampleRateHz?: number | null;
   signal?: string | null;
   powerDbm?: number | null;
-}) =>
-  JSON.stringify({
-    centerFrequencyHz:
-      typeof centerFrequencyHz === "number" &&
-      Number.isFinite(centerFrequencyHz)
-        ? Math.round(centerFrequencyHz)
-        : null,
-    sampleRateHz:
-      typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
-        ? Math.round(sampleRateHz)
-        : null,
-    signal: signal ?? null,
-    powerDbm:
-      typeof powerDbm === "number" && Number.isFinite(powerDbm)
-        ? Number(powerDbm.toFixed(3))
-        : null,
-  });
+}) => {
+  const center =
+    typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
+      ? Math.round(centerFrequencyHz)
+      : "n";
+  const sampleRate =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? Math.round(sampleRateHz)
+      : "n";
+  const normalizedSignal = signal ?? null;
+  const signalKey =
+    normalizedSignal === null
+      ? "n"
+      : `${normalizedSignal.length}:${normalizedSignal}`;
+  const power =
+    typeof powerDbm === "number" && Number.isFinite(powerDbm)
+      ? Math.round(powerDbm * 1000) / 1000
+      : "n";
+  return `${center}|${sampleRate}|${signalKey}|${power}`;
+};
 
 export const resolveLiveFrameRenderableFrequencyRange = ({
   currentFrame,
@@ -1643,15 +1669,29 @@ const FFTCanvas = memo(
     // Track canvas dimensions for cache management
     const spectrumWidthRef = useRef<number>(0);
     const spectrumHeightRef = useRef<number>(0);
+    const context2DCacheRef = useRef<WeakMap<
+      HTMLCanvasElement,
+      CanvasRenderingContext2D | null
+    > | null>(null);
+    if (!context2DCacheRef.current) {
+      context2DCacheRef.current = new WeakMap();
+    }
+    const getCached2DContext = useCallback((canvas: HTMLCanvasElement) => {
+      const cache = context2DCacheRef.current!;
+      if (cache.has(canvas)) return cache.get(canvas) ?? null;
+      const context = canvas.getContext("2d");
+      cache.set(canvas, context);
+      return context;
+    }, []);
 
     const clearOverlayCanvas = useCallback(
       (canvas: HTMLCanvasElement | null) => {
         if (!canvas) return;
-        const ctx = canvas.getContext("2d");
+        const ctx = getCached2DContext(canvas);
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
-      [],
+      [getCached2DContext],
     );
 
     const drawTxSliderOnContext = useCallback(
@@ -1726,7 +1766,7 @@ const FFTCanvas = memo(
     const drawLoadingPlaceholder = useCallback(
       (canvas: HTMLCanvasElement | null, fontOverride?: string) => {
         if (!canvas) return;
-        const ctx = canvas.getContext("2d");
+        const ctx = getCached2DContext(canvas);
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const dpr = getCanvasPixelRatio(
@@ -1747,13 +1787,14 @@ const FFTCanvas = memo(
         );
         ctx.restore();
       },
-      [canvasResolutionScale],
+      [canvasResolutionScale, getCached2DContext],
     );
 
     const lastWaterfallRowRef = useRef<Float32Array | null>(null);
     const pausedWaterfallRowRef = useRef<Float32Array | null>(null);
     const retuneTransitionRowRef = useRef<Float32Array | null>(null);
     const waterfallTextureSnapshotRef = useRef<Uint8Array | null>(null);
+    const waterfallRowBytesRef = useRef<Uint8Array | null>(null);
     const waterfallTextureMetaRef = useRef<{
       width: number;
       height: number;
@@ -2265,84 +2306,13 @@ const FFTCanvas = memo(
       ],
     );
 
-    // Compute zoomed visual frequency range and waveform slice
-    // When zoom > 1: shows a subset of bins (magnified view)
-    // When zoom < 1: pads the waveform with minimum dB values (zoomed out view)
-    const getZoomedData = useCallback(
-      (
-        fullWaveform: Float32Array,
-        fullRange: FrequencyRange,
-        zoom: number,
-        panOffset: number,
-      ): {
-        slicedWaveform: Float32Array;
-        visualRange: FrequencyRange;
-        clampedPan: number;
-      } => {
-        // Fast path: no zoom and no pan means show the full waveform unmodified
-        if (zoom === 1 && panOffset === 0) {
-          return {
-            slicedWaveform: fullWaveform,
-            visualRange: fullRange,
-            clampedPan: 0,
-          };
-        }
-
-        const totalBins = fullWaveform.length;
-        const visibleBins = Math.max(1, Math.floor(totalBins / zoom));
-
-        const fullSpan = fullRange.max - fullRange.min;
-        const halfSpan = fullSpan / (2 * zoom);
-
-        // The event handlers (useFrequencyDrag, useFFTHandlers) already properly clamp the pan
-        // based on the component's state (e.g. allowing full plot panning if edge-panning is active).
-        // Re-clamping here causes snap-back bugs when live frames arrive.
-        let clampedPan = panOffset;
-
-        const centerFreq = (fullRange.min + fullRange.max) / 2;
-        const visualCenter = centerFreq + clampedPan;
-
-        // Convert visual center frequency to bin index in the full waveform
-        const visualCenterBin = Math.round(
-          ((visualCenter - fullRange.min) / fullSpan) * totalBins,
-        );
-
-        let startBin = Math.round(visualCenterBin - visibleBins / 2);
-
-        const visualRange = {
-          min: visualCenter - halfSpan,
-          max: visualCenter + halfSpan,
-        };
-
-        let slicedWaveform: Float32Array;
-
-        // Pad with minimum dB values to fill the display if out of bounds or zoomed out
-        if (startBin < 0 || startBin + visibleBins > totalBins || zoom < 1) {
-          slicedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
-          const destOffset = Math.max(0, -startBin);
-          const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
-          const srcOffset = Math.max(0, startBin);
-
-          if (dataToCopy > 0 && srcOffset < totalBins) {
-            const validDataToCopy = Math.min(dataToCopy, totalBins - srcOffset);
-            if (validDataToCopy > 0) {
-              slicedWaveform.set(
-                fullWaveform.subarray(srcOffset, srcOffset + validDataToCopy),
-                destOffset,
-              );
-            }
-          }
-        } else {
-          // Extract the visible slice from the waveform
-          const validStart = Math.max(0, startBin);
-          const validEnd = Math.min(totalBins, startBin + visibleBins);
-          slicedWaveform = fullWaveform.slice(validStart, validEnd);
-        }
-
-        return { slicedWaveform, visualRange, clampedPan };
-      },
-      [],
-    );
+    const zoomProcessorRef = useRef<ReturnType<
+      typeof createFFTZoomProcessor
+    > | null>(null);
+    if (!zoomProcessorRef.current) {
+      zoomProcessorRef.current = createFFTZoomProcessor(FFT_MIN_DB);
+    }
+    const getZoomedData = zoomProcessorRef.current.process;
 
     // Ref to track snapshot grid preference (for 2D shadow renders)
     const snapshotGridPreferenceRef = useRef(true);
@@ -2447,7 +2417,11 @@ const FFTCanvas = memo(
     const temporalWriteIndexRef = useRef(0);
     const temporalActiveCountRef = useRef(0);
     const activeTemporalFramesRef = useRef<Float32Array[]>([]);
-    const lastTxSpectrumRevisionKeyRef = useRef<string | null>(null);
+    const hasTxSpectrumRevisionRef = useRef(false);
+    const lastTxCenterFrequencyHzRef = useRef<number | null>(null);
+    const lastTxSampleRateHzRef = useRef<number | null>(null);
+    const lastTxSignalRef = useRef<string | null>(null);
+    const lastTxPowerMilliDbmRef = useRef<number | null>(null);
 
     const resetTemporalAveragingState = useCallback(() => {
       resetWebGpuStreamTemporalHistory(
@@ -2468,38 +2442,55 @@ const FFTCanvas = memo(
       resetTemporalAveragingState();
     }, [resetTemporalAveragingState]);
 
-    const txSpectrumRevisionKey = useMemo(
-      () =>
-        getTxSpectrumRevisionKey({
-          centerFrequencyHz: reduxTxCenterFrequencyHz,
-          sampleRateHz: reduxTxSampleRateHz,
-          signal: reduxTxSignal,
-          powerDbm: reduxTxPowerDbm,
-        }),
-      [
-        reduxTxCenterFrequencyHz,
-        reduxTxSampleRateHz,
-        reduxTxSignal,
-        reduxTxPowerDbm,
-      ],
-    );
-
     useEffect(() => {
-      if (lastTxSpectrumRevisionKeyRef.current === null) {
-        lastTxSpectrumRevisionKeyRef.current = txSpectrumRevisionKey;
+      const centerFrequencyHz =
+        typeof reduxTxCenterFrequencyHz === "number" &&
+        Number.isFinite(reduxTxCenterFrequencyHz)
+          ? Math.round(reduxTxCenterFrequencyHz)
+          : null;
+      const sampleRateHz =
+        typeof reduxTxSampleRateHz === "number" &&
+        Number.isFinite(reduxTxSampleRateHz)
+          ? Math.round(reduxTxSampleRateHz)
+          : null;
+      const signal = reduxTxSignal ?? null;
+      const powerMilliDbm =
+        typeof reduxTxPowerDbm === "number" && Number.isFinite(reduxTxPowerDbm)
+          ? Math.round(reduxTxPowerDbm * 1000)
+          : null;
+
+      if (!hasTxSpectrumRevisionRef.current) {
+        hasTxSpectrumRevisionRef.current = true;
+        lastTxCenterFrequencyHzRef.current = centerFrequencyHz;
+        lastTxSampleRateHzRef.current = sampleRateHz;
+        lastTxSignalRef.current = signal;
+        lastTxPowerMilliDbmRef.current = powerMilliDbm;
+        return;
+      } else if (
+        lastTxCenterFrequencyHzRef.current === centerFrequencyHz &&
+        lastTxSampleRateHzRef.current === sampleRateHz &&
+        lastTxSignalRef.current === signal &&
+        lastTxPowerMilliDbmRef.current === powerMilliDbm
+      ) {
         return;
       }
-      if (lastTxSpectrumRevisionKeyRef.current === txSpectrumRevisionKey) {
-        return;
-      }
-      lastTxSpectrumRevisionKeyRef.current = txSpectrumRevisionKey;
+      lastTxCenterFrequencyHzRef.current = centerFrequencyHz;
+      lastTxSampleRateHzRef.current = sampleRateHz;
+      lastTxSignalRef.current = signal;
+      lastTxPowerMilliDbmRef.current = powerMilliDbm;
       invalidateSpectrumProcessingCaches();
       fullChannelWaveformRef.current = null;
       fullChannelRangeRef.current = null;
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
       forceRenderRef.current?.();
-    }, [invalidateSpectrumProcessingCaches, txSpectrumRevisionKey]);
+    }, [
+      invalidateSpectrumProcessingCaches,
+      reduxTxCenterFrequencyHz,
+      reduxTxSampleRateHz,
+      reduxTxSignal,
+      reduxTxPowerDbm,
+    ]);
 
     // Refs for volatile rendering parameters to stabilize callbacks
     const fftColorRef = useRef(fftColor);
@@ -2850,7 +2841,6 @@ const FFTCanvas = memo(
      */
     const onRenderFrame = useCallback(
       (_runId: number) => {
-        performance.clearMeasures();
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
         const spectrumOverlayCanvas = spectrumOverlayCanvasRef.current;
@@ -2950,7 +2940,7 @@ const FFTCanvas = memo(
           clearOverlayCanvas(waterfallOverlayCanvas);
 
           if (spectrumOverlayCanvas) {
-            const ctx = spectrumOverlayCanvas.getContext("2d");
+            const ctx = getCached2DContext(spectrumOverlayCanvas);
             if (ctx) {
               const dpr = getCanvasPixelRatio(
                 window.devicePixelRatio || 1,
@@ -2963,7 +2953,7 @@ const FFTCanvas = memo(
           }
 
           if (waterfallOverlayCanvas) {
-            const ctx = waterfallOverlayCanvas.getContext("2d");
+            const ctx = getCached2DContext(waterfallOverlayCanvas);
             if (ctx) {
               const dpr = getCanvasPixelRatio(
                 window.devicePixelRatio || 1,
@@ -3036,13 +3026,7 @@ const FFTCanvas = memo(
             spectrumOutputBufferRef.current ?? undefined,
           );
           spectrumOutputBufferRef.current = rawSpectrum;
-          const prev = renderWaveformRef.current;
-          if (!prev || prev.length !== rawSpectrum.length) {
-            renderWaveformRef.current = new Float32Array(rawSpectrum);
-          } else {
-            prev.set(rawSpectrum);
-          }
-          waveform = renderWaveformRef.current!;
+          waveform = rawSpectrum;
           pendingFftSizeChangeRef.current = false;
 
           // Validate waveform before processing
@@ -3059,7 +3043,13 @@ const FFTCanvas = memo(
             // from individual hop-sized I/Q chunks for intentional wide snapshots.
             // RTL-SDR must never synthesize a whole-channel buffer because its
             // hardware window is limited to the current 3.2MHz sample rate.
-            if (isRtlSdr) {
+            const shouldAccumulate = shouldAccumulateFullChannelWaveform({
+              isRtlSdr,
+              deviceKind: deviceProfile?.kind,
+              backend: deviceBackend,
+              deviceName,
+            });
+            if (!shouldAccumulate) {
               fullChannelWaveformRef.current = null;
               fullChannelRangeRef.current = null;
             } else {
@@ -3127,13 +3117,7 @@ const FFTCanvas = memo(
               fftFrameRate,
             );
             if (temporalWindow <= 1) {
-              // Fast path: single frame, no averaging needed. Reuse the render buffer.
-              const prev = renderWaveformRef.current;
-              if (!prev || prev.length !== waveform.length) {
-                renderWaveformRef.current = new Float32Array(waveform);
-              } else {
-                prev.set(waveform);
-              }
+              renderWaveformRef.current = waveform;
               temporalActiveCountRef.current = 0;
             } else {
               const pool = temporalFramePoolRef.current;
@@ -3143,7 +3127,7 @@ const FFTCanvas = memo(
               ) {
                 pool.length = 0;
                 for (let i = 0; i < temporalWindow; i++) {
-                  pool.push(new Float32Array(waveform.length));
+                  pool[i] = new Float32Array(waveform.length);
                 }
                 temporalWriteIndexRef.current = 0;
                 temporalActiveCountRef.current = 0;
@@ -3151,7 +3135,9 @@ const FFTCanvas = memo(
 
               const writeIdx = temporalWriteIndexRef.current;
               pool[writeIdx].set(waveform);
-              temporalWriteIndexRef.current = (writeIdx + 1) % temporalWindow;
+              const nextWriteIdx = writeIdx + 1;
+              temporalWriteIndexRef.current =
+                nextWriteIdx === temporalWindow ? 0 : nextWriteIdx;
               temporalActiveCountRef.current = Math.min(
                 temporalWindow,
                 temporalActiveCountRef.current + 1,
@@ -3160,16 +3146,18 @@ const FFTCanvas = memo(
               const activeFrames = activeTemporalFramesRef.current;
               const activeCount = temporalActiveCountRef.current;
               activeFrames.length = activeCount;
+              let readIdx = temporalWriteIndexRef.current - 1;
+              if (readIdx < 0) readIdx = temporalWindow - 1;
               for (let i = 0; i < activeCount; i++) {
-                const idx =
-                  (temporalWriteIndexRef.current - 1 - i + temporalWindow) %
-                  temporalWindow;
-                activeFrames[i] = pool[idx];
+                activeFrames[i] = pool[readIdx];
+                readIdx--;
+                if (readIdx < 0) readIdx = temporalWindow - 1;
               }
 
               if (
                 !renderWaveformRef.current ||
-                renderWaveformRef.current.length !== waveform.length
+                renderWaveformRef.current.length !== waveform.length ||
+                renderWaveformRef.current === waveform
               ) {
                 renderWaveformRef.current = new Float32Array(waveform.length);
               }
@@ -3225,13 +3213,7 @@ const FFTCanvas = memo(
             fftFrameRate,
           );
           if (temporalWindow <= 1) {
-            const prev = renderWaveformRef.current;
-            if (!prev || prev.length !== processedWaveform.length) {
-              renderWaveformRef.current = new Float32Array(processedWaveform);
-            } else {
-              prev.fill(0);
-              prev.set(processedWaveform);
-            }
+            renderWaveformRef.current = processedWaveform;
             temporalActiveCountRef.current = 0;
           } else {
             const pool = temporalFramePoolRef.current;
@@ -3241,7 +3223,7 @@ const FFTCanvas = memo(
             ) {
               pool.length = 0;
               for (let i = 0; i < temporalWindow; i++) {
-                pool.push(new Float32Array(processedWaveform.length));
+                pool[i] = new Float32Array(processedWaveform.length);
               }
               temporalWriteIndexRef.current = 0;
               temporalActiveCountRef.current = 0;
@@ -3249,7 +3231,9 @@ const FFTCanvas = memo(
 
             const writeIdx = temporalWriteIndexRef.current;
             pool[writeIdx].set(processedWaveform);
-            temporalWriteIndexRef.current = (writeIdx + 1) % temporalWindow;
+            const nextWriteIdx = writeIdx + 1;
+            temporalWriteIndexRef.current =
+              nextWriteIdx === temporalWindow ? 0 : nextWriteIdx;
             temporalActiveCountRef.current = Math.min(
               temporalWindow,
               temporalActiveCountRef.current + 1,
@@ -3258,16 +3242,18 @@ const FFTCanvas = memo(
             const activeFrames = activeTemporalFramesRef.current;
             const activeCount = temporalActiveCountRef.current;
             activeFrames.length = activeCount;
+            let readIdx = temporalWriteIndexRef.current - 1;
+            if (readIdx < 0) readIdx = temporalWindow - 1;
             for (let i = 0; i < activeCount; i++) {
-              const idx =
-                (temporalWriteIndexRef.current - 1 - i + temporalWindow) %
-                temporalWindow;
-              activeFrames[i] = pool[idx];
+              activeFrames[i] = pool[readIdx];
+              readIdx--;
+              if (readIdx < 0) readIdx = temporalWindow - 1;
             }
 
             if (
               !renderWaveformRef.current ||
-              renderWaveformRef.current.length !== processedWaveform.length
+              renderWaveformRef.current.length !== processedWaveform.length ||
+              renderWaveformRef.current === processedWaveform
             ) {
               renderWaveformRef.current = new Float32Array(
                 processedWaveform.length,
@@ -3282,7 +3268,6 @@ const FFTCanvas = memo(
           pendingFftSizeChangeRef.current = false;
         }
 
-        const waveform = renderWaveformRef.current;
         if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
           if (isPaused) {
             restoreWaveformFromStorageRef.current();
@@ -3521,7 +3506,7 @@ const FFTCanvas = memo(
 
           // Render overlays to 2D HTML canvas instead of WebGPU texture
           if (spectrumOverlayCanvas) {
-            const ctx = spectrumOverlayCanvas.getContext("2d");
+            const ctx = getCached2DContext(spectrumOverlayCanvas);
             if (ctx) {
               const dpr = getCanvasPixelRatio(
                 window.devicePixelRatio || 1,
@@ -3684,14 +3669,13 @@ const FFTCanvas = memo(
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
               // texture resets when zoom changes. The shader handles the final
               // mapping from 4096 bins to display pixels.
-              const FIXED_WATERFALL_BINS = 4096;
               // Ensure we have a persistent buffer for the fixed-width data
               if (
                 !waterfallCappedBufferRef.current ||
-                waterfallCappedBufferRef.current.length !== FIXED_WATERFALL_BINS
+                waterfallCappedBufferRef.current.length !== WATERFALL_BIN_COUNT
               ) {
                 waterfallCappedBufferRef.current = new Float32Array(
-                  FIXED_WATERFALL_BINS,
+                  WATERFALL_BIN_COUNT,
                 );
               }
               const processed = waterfallCappedBufferRef.current;
@@ -3705,7 +3689,6 @@ const FFTCanvas = memo(
                 processed,
               );
 
-              const rowsToDraw: Float32Array[] = [];
               let waterfallGpuRowBuffer: GPUBuffer | null = null;
 
               if (shouldUpdateWaterfallRow) {
@@ -3741,8 +3724,6 @@ const FFTCanvas = memo(
                   waterfallBins = retuneTransitionRowRef.current;
                 }
 
-                rowsToDraw.push(waterfallBins);
-
                 // Cache the last row for pause state and snapshots
                 if (
                   !lastWaterfallRowRef.current ||
@@ -3770,15 +3751,16 @@ const FFTCanvas = memo(
                   const history = heterodyningHistoryRef.current;
                   if (history.length === 0) {
                     for (let i = 0; i < maxHistory; i++) {
-                      history.push(new Float32Array(FIXED_WATERFALL_BINS));
+                      history.push(new Float32Array(WATERFALL_BIN_COUNT));
                     }
                     heterodyningWriteIndexRef.current = 0;
                     heterodyningHistoryCountRef.current = 0;
                   }
                   const writeIdx = heterodyningWriteIndexRef.current;
                   history[writeIdx].set(waterfallBins);
+                  const nextWriteIdx = writeIdx + 1;
                   heterodyningWriteIndexRef.current =
-                    (writeIdx + 1) % maxHistory;
+                    nextWriteIdx === maxHistory ? 0 : nextWriteIdx;
                   heterodyningHistoryCountRef.current = Math.min(
                     maxHistory,
                     heterodyningHistoryCountRef.current + 1,
@@ -3790,12 +3772,11 @@ const FFTCanvas = memo(
                 retuneDriftPxRef.current = 0;
                 retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
-                rowsToDraw.push(waterfallBins);
               }
 
               // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
               // for session persistence. Always 4096 bins wide × RGBA.
-              const textureBytesPerRow = FIXED_WATERFALL_BINS * 4;
+              const textureBytesPerRow = WATERFALL_BIN_COUNT * 4;
               const textureByteSize = textureBytesPerRow * waterfallDims.height;
               if (
                 !waterfallTextureSnapshotRef.current ||
@@ -3838,7 +3819,7 @@ const FFTCanvas = memo(
 
                 waterfallTextureSnapshotRef.current = newSnapshot;
                 waterfallTextureMetaRef.current = {
-                  width: FIXED_WATERFALL_BINS,
+                  width: WATERFALL_BIN_COUNT,
                   height: waterfallDims.height,
                   writeRow: newWriteRow,
                 };
@@ -3858,14 +3839,14 @@ const FFTCanvas = memo(
                 const restoreW = restoreTexture.width;
                 const restoreH = restoreTexture.height;
                 if (
-                  restoreW === FIXED_WATERFALL_BINS &&
+                  restoreW === WATERFALL_BIN_COUNT &&
                   restoreH === waterfallDims.height &&
                   restoreBytes.length === textureByteSize
                 ) {
                   // Exact match — bulk copy
                   snapshot.set(restoreBytes);
                 } else if (
-                  restoreW === FIXED_WATERFALL_BINS &&
+                  restoreW === WATERFALL_BIN_COUNT &&
                   restoreBytes.length >= restoreW * restoreH * 4
                 ) {
                   // Height may differ; repack chronologically to match WebGPU logic.
@@ -3910,19 +3891,28 @@ const FFTCanvas = memo(
                 shouldUpdateWaterfallRow &&
                 meta &&
                 snapshot &&
-                meta.width === FIXED_WATERFALL_BINS
+                meta.width === WATERFALL_BIN_COUNT
               ) {
-                for (const rowData of rowsToDraw) {
-                  const rowBytes = new Uint8Array(
-                    rowData.buffer,
-                    rowData.byteOffset,
-                    rowData.byteLength,
+                let rowBytes = waterfallRowBytesRef.current;
+                if (
+                  !rowBytes ||
+                  rowBytes.buffer !== waterfallBins.buffer ||
+                  rowBytes.byteOffset !== waterfallBins.byteOffset ||
+                  rowBytes.byteLength !== waterfallBins.byteLength
+                ) {
+                  rowBytes = new Uint8Array(
+                    waterfallBins.buffer,
+                    waterfallBins.byteOffset,
+                    waterfallBins.byteLength,
                   );
-                  const row = meta.writeRow % waterfallDims.height;
-                  const offset = row * textureBytesPerRow;
-                  snapshot.set(rowBytes, offset);
-                  meta.writeRow = (meta.writeRow + 1) % waterfallDims.height;
+                  waterfallRowBytesRef.current = rowBytes;
                 }
+                const row = meta.writeRow;
+                const offset = row * textureBytesPerRow;
+                snapshot.set(rowBytes, offset);
+                const nextWriteRow = row + 1;
+                meta.writeRow =
+                  nextWriteRow === waterfallDims.height ? 0 : nextWriteRow;
                 if (pendingWaterfallRestoreRef.current) {
                   pendingWaterfallRestoreRef.current = null;
                   restoredWaterfallRef.current = false;
@@ -3935,17 +3925,11 @@ const FFTCanvas = memo(
                 ) {
                   lastVisualizerAutoPersistAtRef.current = now;
                   visualizerMachine.persist(visualizerSessionKey, {
-                    waveform: renderWaveformRef.current
-                      ? new Float32Array(renderWaveformRef.current)
-                      : null,
-                    waterfallTextureSnapshot: new Uint8Array(snapshot),
-                    waterfallTextureMeta: { ...meta },
-                    waterfallBuffer: waterfallBufferRef.current
-                      ? new Uint8ClampedArray(waterfallBufferRef.current)
-                      : null,
-                    waterfallDims: waterfallDimsRef.current
-                      ? { ...waterfallDimsRef.current }
-                      : null,
+                    waveform: renderWaveformRef.current,
+                    waterfallTextureSnapshot: snapshot,
+                    waterfallTextureMeta: meta,
+                    waterfallBuffer: waterfallBufferRef.current,
+                    waterfallDims: waterfallDimsRef.current,
                   });
                 }
               }
@@ -3954,29 +3938,23 @@ const FFTCanvas = memo(
               const waterfallFormat = webgpuFormatRef.current;
               if (!waterfallDevice || !waterfallFormat) return;
 
-              rowsToDraw.forEach((rowData, index) => {
-                // Pass 4096 bins to hook — shader handles pixel mapping.
-                drawWebGPUFIFOWaterfall({
-                  canvas: waterfallGpuCanvas,
-                  device: waterfallDevice,
-                  format: waterfallFormat,
-                  fftData:
-                    waterfallGpuRowBuffer && index === rowsToDraw.length - 1
-                      ? new Float32Array(0)
-                      : rowData,
-                  fftDataBuffer:
-                    index === rowsToDraw.length - 1
-                      ? (waterfallGpuRowBuffer ?? undefined)
-                      : undefined,
-                  fftMin: activeScaleDbMinRef.current,
-                  fftMax: activeScaleDbMaxRef.current,
-                  driftAmount: 0,
-                  freeze: !shouldUpdateWaterfallRow,
-                  restoreTexture: index === 0 ? restoreTexture : undefined,
-                  wfSmooth: wfSmoothEnabledRef.current,
-                  colormap: colormapRef.current,
-                  colormapName: waterfallThemeRef.current,
-                });
+              // Pass 4096 bins to the hook; the shader maps bins to pixels.
+              drawWebGPUFIFOWaterfall({
+                canvas: waterfallGpuCanvas,
+                device: waterfallDevice,
+                format: waterfallFormat,
+                fftData: waterfallGpuRowBuffer
+                  ? EMPTY_FLOAT32_ARRAY
+                  : waterfallBins,
+                fftDataBuffer: waterfallGpuRowBuffer ?? undefined,
+                fftMin: activeScaleDbMinRef.current,
+                fftMax: activeScaleDbMaxRef.current,
+                driftAmount: 0,
+                freeze: !shouldUpdateWaterfallRow,
+                restoreTexture,
+                wfSmooth: wfSmoothEnabledRef.current,
+                colormap: colormapRef.current,
+                colormapName: waterfallThemeRef.current,
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -4563,7 +4541,7 @@ const FFTCanvas = memo(
             canvas.height = targetH;
             canvas.style.width = `${spectrumRect.width}px`;
             canvas.style.height = `${spectrumRect.height}px`;
-            canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+            getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
           }
         }
 
@@ -4592,7 +4570,7 @@ const FFTCanvas = memo(
             canvas.height = targetH;
             canvas.style.width = `${waterfallRect.width}px`;
             canvas.style.height = `${waterfallRect.height}px`;
-            canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+            getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
           }
         }
 
@@ -4806,7 +4784,12 @@ const FFTCanvas = memo(
       return {
         waveform: new Float32Array(waveform),
         fullChannelWaveform:
-          !isRtlSdr && fullChannelWaveformRef.current
+          shouldAccumulateFullChannelWaveform({
+            isRtlSdr,
+            deviceKind: deviceProfile?.kind,
+            backend: deviceBackend,
+            deviceName,
+          }) && fullChannelWaveformRef.current
             ? new Float32Array(fullChannelWaveformRef.current)
             : null,
         frequencyRange: { ...frequencyRangeCurrent },
@@ -4864,7 +4847,7 @@ const FFTCanvas = memo(
       const compositeCanvas = document.createElement("canvas");
       compositeCanvas.width = width;
       compositeCanvas.height = height;
-      const ctx = compositeCanvas.getContext("2d");
+      const ctx = getCached2DContext(compositeCanvas);
       if (!ctx) {
         return null;
       }

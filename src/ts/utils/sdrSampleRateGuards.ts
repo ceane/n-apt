@@ -59,18 +59,20 @@ export const clampSampleRateToSourceMaximum = (
   return sampleRateHz;
 };
 
+type DisplaySampleRateInput = DeviceIdentity & {
+  frameSampleRateHz?: number | null;
+  configuredSampleRateHz?: number | null;
+  derivedSampleRateHz?: number | null;
+  maxSampleRateHz?: number | null;
+};
+
 export const resolveDisplaySampleRateHz = ({
   frameSampleRateHz,
   configuredSampleRateHz,
   derivedSampleRateHz,
   maxSampleRateHz,
   ...identity
-}: DeviceIdentity & {
-  frameSampleRateHz?: number | null;
-  configuredSampleRateHz?: number | null;
-  derivedSampleRateHz?: number | null;
-  maxSampleRateHz?: number | null;
-}): number | null => {
+}: DisplaySampleRateInput): number | null => {
   const frameRate =
     typeof frameSampleRateHz === "number" &&
     Number.isFinite(frameSampleRateHz) &&
@@ -98,6 +100,36 @@ export const resolveDisplaySampleRateHz = ({
         candidates: [derived, configured],
         maxSampleRateHz,
       });
+};
+
+/**
+ * Resolve the display rate with the active live-control state taking
+ * precedence over a stale source floor or derived frame value. RTL-SDR keeps
+ * its frame-first safety behavior inside resolveDisplaySampleRateHz.
+ */
+export const resolveCanonicalDisplaySampleRateHz = ({
+  activeSampleRateHz,
+  ...input
+}: DisplaySampleRateInput & {
+  activeSampleRateHz?: number | null;
+}): number | null => {
+  const activeRate =
+    typeof activeSampleRateHz === "number" &&
+    Number.isFinite(activeSampleRateHz) &&
+    activeSampleRateHz > 0
+      ? activeSampleRateHz
+      : null;
+  const keepFrameFirstOrdering = isRtlSdrDevice(input);
+
+  return resolveDisplaySampleRateHz({
+    ...input,
+    derivedSampleRateHz:
+      !keepFrameFirstOrdering && activeRate !== null
+        ? activeRate
+        : input.derivedSampleRateHz,
+    configuredSampleRateHz:
+      activeRate ?? input.configuredSampleRateHz ?? null,
+  });
 };
 
 export const isRtlSdrDevice = ({

@@ -6,6 +6,7 @@ import {
   buildSnapshotStatsLines,
   buildFastSpectrumCanvas,
   buildFastWaterfallCanvas,
+  pinFastRecordingOptions,
   renderSpectrumSnapshotCanvas,
   renderWaterfallSnapshotCanvas,
   useSnapshot,
@@ -58,6 +59,28 @@ describe("fmtFreqTick", () => {
 
   it("keeps sub-MHz GHz ticks distinct", () => {
     expect(fmtFreqTick(1_000_500_000, 250_000)).toBe("1.0005GHz");
+  });
+});
+
+describe("pinFastRecordingOptions", () => {
+  it("freezes channel labels and bounds without freezing the frame axis", () => {
+    let area = "first";
+    let bounds = { min: 100, max: 200 };
+    const pinned = pinFastRecordingOptions({
+      activeSignalArea: area,
+      activeSignalAreaBounds: bounds,
+      signalAreaBounds: { first: bounds },
+      getActiveSignalArea: () => area,
+      getActiveSignalAreaBounds: () => bounds,
+    });
+
+    area = "second";
+    bounds = { min: 300, max: 400 };
+
+    expect(pinned.activeSignalArea).toBe("first");
+    expect(pinned.activeSignalAreaBounds).toEqual({ min: 100, max: 200 });
+    expect(pinned.getActiveSignalArea).toBeUndefined();
+    expect(pinned.getActiveSignalAreaBounds).toBeUndefined();
   });
 });
 

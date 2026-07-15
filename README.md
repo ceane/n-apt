@@ -365,6 +365,127 @@ npm run dev
 
 The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
+### Command-Line Captures
+
+The CLI can discover SDR devices, render signal snapshots, and record I/Q
+captures without opening or operating the frontend UI. Run commands from the
+repository root after completing the setup and installation steps above.
+
+If N-APT is not already running, the first CLI command starts the Rust backend
+and frontend server automatically and waits for them to become ready. Snapshot
+rendering uses a headless Playwright canvas, so Chromium must also be installed:
+
+```bash
+npx playwright install chromium
+```
+
+The CLI authenticates directly with the Rust backend using
+`UNSAFE_LOCAL_USER_PASSWORD` from `.env.local`. You can alternatively provide
+an existing token through `N_APT_SESSION_TOKEN`.
+
+#### Discover and select a device
+
+List the stable device IDs reported by the Rust backend:
+
+```bash
+npm run cli -- devices
+```
+
+Both capture commands accept `--device auto|<device-id>`. With the default
+`auto` behavior, the CLI uses the only connected physical SDR or falls back to
+Mock APT when no physical SDR is available. If multiple physical devices are
+connected, either pass an ID from `devices` or request an interactive list. The
+interactive list is useful when an RTL-SDR has no serial number:
+
+```bash
+npm run cli -- capture snapshot --interactive
+npm run cli -- capture iq --device rtl-sdr-serial-123
+npm run cli -- capture iq --device mock-apt
+```
+
+An explicitly requested unavailable device fails before capture begins. For an
+RTL-SDR, the CLI applies and confirms the N-APT receive defaults of 46.9 dB
+manual gain and 1 PPM before capturing.
+
+#### Take a snapshot
+
+This example produces a dark PNG with the spectrum, waterfall, grid, and stats:
+
+```bash
+npm run cli -- capture snapshot \
+  --device auto \
+  --waterfall \
+  --grid \
+  --stats \
+  --theme dark \
+  --output ./n-apt_snapshot.png
+```
+
+Snapshot options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--device auto\|<device-id>` | `auto` | Select a physical SDR or Mock APT source. |
+| `--interactive` | off | Show a numbered device list when `auto` finds multiple physical SDRs. |
+| `--waterfall` | off | Include the waterfall below the spectrum. |
+| `--grid` | off | Draw the frequency/power grid. |
+| `--stats` | off | Include capture and device statistics. |
+| `--theme dark\|light` | `dark` | Select snapshot colors. |
+| `--fft-size <points>` | `65536` | Use a power-of-two FFT size from 256 through 8,388,608. |
+| `--gain <dB>` | source default | Override the gain shown in snapshot metadata. |
+| `--ppm <value>` | source default | Override the PPM shown in snapshot metadata. |
+| `--output <path>` | `~/Downloads/n-apt_snapshot_<timestamp>.png` | Save the PNG at a specific path. |
+
+The snapshot is composed in a headless `<canvas>` using the CLI snapshot model
+and shared frontend drawing functions; it does not navigate through the app UI
+or require an interactive login.
+
+#### Record an I/Q capture
+
+Record the default one-second, encrypted `.napt` capture using Mock APT:
+
+```bash
+npm run cli -- capture iq \
+  --device mock-apt \
+  --duration 1 \
+  --output ./mock_apt_1s.napt
+```
+
+Record from a physical SDR around an explicit center frequency (values are in
+hertz):
+
+```bash
+npm run cli -- capture iq \
+  --device rtl-sdr-serial-123 \
+  --center-frequency 1618000 \
+  --sample-rate 3200000 \
+  --duration 1 \
+  --fft-size 65536 \
+  --output ./channel_a_capture.napt
+```
+
+I/Q capture options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--device auto\|<device-id>` | `auto` | Select a physical SDR or Mock APT source. |
+| `--interactive` | off | Show a numbered device list when `auto` finds multiple physical SDRs. |
+| `--center-frequency <Hz>` | `0` | Set the center of the captured sample-rate span. |
+| `--sample-rate <Hz>` | device default | Set the requested frequency-span width; Rust resolves the hardware rate. |
+| `--duration-mode timed\|manual` | `timed` | Select timed or manual acquisition. The CLI has no stop command yet, so another connected client must stop manual mode. |
+| `--duration <seconds>` | `1` | Set the timed capture duration. |
+| `--acquisition-mode stepwise\|interleaved\|whole_sample` | `stepwise` | Select the backend acquisition mode. |
+| `--fft-size <points>` | `65536` | Use a power-of-two FFT size from 256 through 8,388,608. |
+| `--file-type .napt\|.wav` | `.napt` | Select the output container. |
+| `--encrypted` | always on for `.napt` | Encrypt WAV output when requested; `.napt` files cannot be unencrypted. |
+| `--gain <dB>` | source default | Include a manual tuner-gain value in the capture request. |
+| `--ppm <value>` | source default | Include frequency correction in the capture request. |
+| `--output <path>` | `~/Downloads/<backend filename>` | Save the downloaded capture at a specific path. |
+
+The default 65,536-point FFT applies to both snapshot and I/Q commands. At
+8-bit interleaved I/Q, each complete FFT frame contains 65,536 complex samples
+and occupies 131,072 bytes (128 KiB) before `.napt` container overhead.
+
 **Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**
 
 > [!TIP]

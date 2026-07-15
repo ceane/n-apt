@@ -2294,6 +2294,53 @@ const downloadFastRecording = (
 
 export type FastRecordingTarget = "spectrum" | "waterfall";
 
+type FastRecordingOptions = {
+  showStats?: boolean;
+  activeSignalArea?: string;
+  signalAreaBounds?: Record<string, { min: number; max: number }> | null;
+  activeSignalAreaBounds?: { min: number; max: number } | null;
+  getActiveSignalArea?: () => string;
+  getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
+  sourceName?: string;
+  sdrSettingsLabel?: string;
+  gain?: number;
+  ppm?: number;
+  fftSize?: number | string;
+  getSdrSettingsLabel?: () => string | undefined;
+  getSourceName?: () => string | undefined;
+};
+
+export function pinFastRecordingOptions(
+  options: FastRecordingOptions,
+): FastRecordingOptions {
+  const activeSignalAreaBounds = options.getActiveSignalAreaBounds
+    ? options.getActiveSignalAreaBounds()
+    : options.activeSignalAreaBounds;
+  return {
+    ...options,
+    activeSignalArea:
+      options.getActiveSignalArea?.() ?? options.activeSignalArea,
+    activeSignalAreaBounds: activeSignalAreaBounds
+      ? { ...activeSignalAreaBounds }
+      : activeSignalAreaBounds,
+    signalAreaBounds: options.signalAreaBounds
+      ? Object.fromEntries(
+          Object.entries(options.signalAreaBounds).map(([name, bounds]) => [
+            name,
+            { ...bounds },
+          ]),
+        )
+      : options.signalAreaBounds,
+    sdrSettingsLabel:
+      options.getSdrSettingsLabel?.() ?? options.sdrSettingsLabel,
+    sourceName: options.getSourceName?.() ?? options.sourceName,
+    getActiveSignalArea: undefined,
+    getActiveSignalAreaBounds: undefined,
+    getSdrSettingsLabel: undefined,
+    getSourceName: undefined,
+  };
+}
+
 export type FastCanvases = {
   spectrumGpu: HTMLCanvasElement | null;
   spectrumOverlay: HTMLCanvasElement | null;
@@ -3352,7 +3399,7 @@ export function useSnapshot(
             );
 
             if (options.whole && options.getWholeChannelSegmentFrames) {
-              const renderedFrames: HTMLCanvasElement[] = [];
+              const recordedSegmentFrames: WholeChannelSnapshotSegment[][] = [];
               const expectedFrames = normalizeSnapshotVideoFrameRate(
                 options.videoFrameRate,
               );
@@ -3367,38 +3414,20 @@ export function useSnapshot(
                 if (!wholeChannelFrameSegments.length) {
                   continue;
                 }
-                dispatch(
-                  setSnapshotProgress({
-                    stage: "collecting",
-                    message: `Rendering stitched frame ${renderedFrames.length + 1} of ${expectedFrames}`,
-                    current: renderedFrames.length + 1,
-                    total: expectedFrames,
-                  }),
-                );
-                renderedFrames.push(
-                  await renderVideoFrameCanvas(
-                    wholeChannelFrameSegments[0].data,
-                    wholeChannelFrameSegments,
-                  ),
-                );
-                if (renderedFrames.length >= expectedFrames) {
+                recordedSegmentFrames.push(wholeChannelFrameSegments);
+                if (recordedSegmentFrames.length >= expectedFrames) {
                   break;
                 }
               }
 
               if (
-                !renderedFrames.length &&
+                !recordedSegmentFrames.length &&
                 options.wholeChannelSegments?.length
               ) {
-                renderedFrames.push(
-                  await renderVideoFrameCanvas(
-                    options.wholeChannelSegments[0].data,
-                    options.wholeChannelSegments,
-                  ),
-                );
+                recordedSegmentFrames.push(options.wholeChannelSegments);
               }
 
-              if (!renderedFrames.length) {
+              if (!recordedSegmentFrames.length) {
                 dispatch(
                   setSnapshotProgress({
                     stage: "error",
@@ -3409,6 +3438,24 @@ export function useSnapshot(
                 );
                 throw new Error(
                   "No stitched whole-channel frames were captured for video snapshot.",
+                );
+              }
+
+              const renderedFrames: HTMLCanvasElement[] = [];
+              for (const wholeChannelFrameSegments of recordedSegmentFrames) {
+                dispatch(
+                  setSnapshotProgress({
+                    stage: "encoding",
+                    message: `Rendering stitched frame ${renderedFrames.length + 1} of ${recordedSegmentFrames.length}`,
+                    current: renderedFrames.length + 1,
+                    total: recordedSegmentFrames.length,
+                  }),
+                );
+                renderedFrames.push(
+                  await renderVideoFrameCanvas(
+                    wholeChannelFrameSegments[0].data,
+                    wholeChannelFrameSegments,
+                  ),
                 );
               }
 
@@ -3703,21 +3750,7 @@ export function useSnapshot(
       getCanvasDimensions: () => { width: number; height: number },
       filenamePrefix: string,
       getCanvases: GetFastCanvases,
-      options?: {
-        showStats?: boolean;
-        activeSignalArea?: string;
-        signalAreaBounds?: Record<string, { min: number; max: number }> | null;
-        activeSignalAreaBounds?: { min: number; max: number } | null;
-        getActiveSignalArea?: () => string;
-        getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
-        sourceName?: string;
-        sdrSettingsLabel?: string;
-        gain?: number;
-        ppm?: number;
-        fftSize?: number | string;
-        getSdrSettingsLabel?: () => string | undefined;
-        getSourceName?: () => string | undefined;
-      },
+      options?: FastRecordingOptions,
     ) => {
       if (fastRecordingSessionRef.current) {
         stopFastRecording();
@@ -3729,17 +3762,11 @@ export function useSnapshot(
 
       const snapshotData = getSnapshotData();
       if (!snapshotData) return;
+      const pinnedOptions = pinFastRecordingOptions(options ?? {});
 
       const theme = buildSnapshotTheme(true);
       const dimensions = getCanvasDimensions();
       const initialCanvases = getCanvases();
-
-      const initialFrequencyRange = snapshotData.frequencyRange
-        ? { ...snapshotData.frequencyRange }
-        : null;
-      if (initialFrequencyRange) {
-        snapshotData.frequencyRange = initialFrequencyRange;
-      }
 
       let minFftSize = snapshotData.fftSize ?? 0;
       let fftSizeChanged = false;
@@ -3752,18 +3779,14 @@ export function useSnapshot(
         theme,
         initialCanvases,
         {
-          showStats: options?.showStats,
-          activeSignalArea: options?.getActiveSignalArea
-            ? options.getActiveSignalArea()
-            : options?.activeSignalArea,
-          signalAreaBounds: options?.signalAreaBounds,
-          activeSignalAreaBounds: options?.getActiveSignalAreaBounds
-            ? options.getActiveSignalAreaBounds()
-            : options?.activeSignalAreaBounds,
-          sourceName: options?.sourceName,
-          sdrSettingsLabel: options?.sdrSettingsLabel,
-          gain: options?.gain,
-          ppm: options?.ppm,
+          showStats: pinnedOptions.showStats,
+          activeSignalArea: pinnedOptions.activeSignalArea,
+          signalAreaBounds: pinnedOptions.signalAreaBounds,
+          activeSignalAreaBounds: pinnedOptions.activeSignalAreaBounds,
+          sourceName: pinnedOptions.sourceName,
+          sdrSettingsLabel: pinnedOptions.sdrSettingsLabel,
+          gain: pinnedOptions.gain,
+          ppm: pinnedOptions.ppm,
           fftSize: minFftSize || undefined,
         },
       );
@@ -3835,10 +3858,6 @@ export function useSnapshot(
         const currentSnapshotData = getSnapshotData();
         const currentCanvases = getCanvases();
         if (currentSnapshotData) {
-          if (initialFrequencyRange) {
-            currentSnapshotData.frequencyRange = initialFrequencyRange;
-          }
-
           const currentFftSize = currentSnapshotData.fftSize ?? 0;
           if (currentFftSize > 0) {
             if (minFftSize === 0) {
@@ -3863,22 +3882,14 @@ export function useSnapshot(
             currentTheme,
             currentCanvases,
             {
-              showStats: options?.showStats,
-              activeSignalArea: options?.getActiveSignalArea
-                ? options.getActiveSignalArea()
-                : options?.activeSignalArea,
-              signalAreaBounds: options?.signalAreaBounds,
-              activeSignalAreaBounds: options?.getActiveSignalAreaBounds
-                ? options.getActiveSignalAreaBounds()
-                : options?.activeSignalAreaBounds,
-              sdrSettingsLabel: options?.getSdrSettingsLabel
-                ? options.getSdrSettingsLabel()
-                : options?.sdrSettingsLabel,
-              sourceName: options?.getSourceName
-                ? options.getSourceName()
-                : options?.sourceName,
-              gain: options?.gain,
-              ppm: options?.ppm,
+              showStats: pinnedOptions.showStats,
+              activeSignalArea: pinnedOptions.activeSignalArea,
+              signalAreaBounds: pinnedOptions.signalAreaBounds,
+              activeSignalAreaBounds: pinnedOptions.activeSignalAreaBounds,
+              sdrSettingsLabel: pinnedOptions.sdrSettingsLabel,
+              sourceName: pinnedOptions.sourceName,
+              gain: pinnedOptions.gain,
+              ppm: pinnedOptions.ppm,
               fftSize: fftSizeToReport,
             },
           );

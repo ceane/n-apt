@@ -78,8 +78,9 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const vizZoom = state.vizZoom;
   const vizPanOffset = state.vizPanOffset;
   const isCurrentActive =
-    areaKey.length > 0 &&
-    areaKey.toLowerCase() === activeSignalArea?.toLowerCase();
+    isActive ??
+    (areaKey.length > 0 &&
+      areaKey.toLowerCase() === activeSignalArea?.toLowerCase());
   const span = maxFreq - minFreq;
   const safeSpan = Number.isFinite(span) && span > 0 ? span : 0;
   const requestedHardwareSpan =

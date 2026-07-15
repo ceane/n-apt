@@ -16,6 +16,7 @@ jest.mock("@n-apt/components/sidebar/FrequencyRangeSlider", () => ({
   default: ({
     label,
     onActivate,
+    isActive,
     forceFullWidth,
     minFreq,
     maxFreq,
@@ -32,6 +33,7 @@ jest.mock("@n-apt/components/sidebar/FrequencyRangeSlider", () => ({
       data-sample-rate-hz={String(sampleRateHz)}
       data-visible-min={String(visibleMin)}
       data-visible-max={String(visibleMax)}
+      data-is-active={String(!!isActive)}
     >
       {label}
     </button>
@@ -47,6 +49,54 @@ const theme = buildAppTheme({
 });
 
 describe("Channels", () => {
+  it("marks only the channel containing the current VFO center as active", () => {
+    const store = createTestStore();
+    const sendFrequencyRange = jest.fn();
+    const dispatch = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  // The active-area label is stale after VFO free-scrolling.
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 25_000_000, max: 29_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch,
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  {
+                    id: "b",
+                    label: "B",
+                    min_hz: 24_100_000,
+                    max_hz: 30_370_000,
+                  },
+                ],
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
+      "data-is-active",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
+      "data-is-active",
+      "true",
+    );
+  });
+
   it("sends a clamped integer-Hz range when activating a channel", () => {
     const store = createTestStore();
     store.dispatch(

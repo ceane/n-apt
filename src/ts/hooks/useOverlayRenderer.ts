@@ -95,7 +95,7 @@ const getDarkerColor = (colorStr: string) => {
   return "rgba(170, 30, 30, 0.8)";
 };
 
-const getCanvasThemeColors = () => ({
+const createCanvasThemeColors = () => ({
   gridColor: readCssColor("--color-fft-grid", FFT_GRID_COLOR),
   textColor: readCssColor("--color-fft-text", FFT_TEXT_COLOR),
   centerLineColor: readCssColor("--color-fft-center-line", CENTER_LINE_COLOR),
@@ -127,6 +127,20 @@ const getCanvasThemeColors = () => ({
   ),
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
+
+let cachedCanvasThemeColors: ReturnType<typeof createCanvasThemeColors> | null =
+  null;
+
+export const invalidateOverlayThemeColorCache = () => {
+  cachedCanvasThemeColors = null;
+};
+
+const getCanvasThemeColors = () => {
+  if (!cachedCanvasThemeColors) {
+    cachedCanvasThemeColors = createCanvasThemeColors();
+  }
+  return cachedCanvasThemeColors;
+};
 
 const applyOpacityToColor = (color: string, opacity: number) => {
   const alpha = Math.max(0, Math.min(1, opacity));
@@ -173,6 +187,9 @@ const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
  * Provides functions to draw grid and markers onto OffscreenCanvas contexts
  */
 export function useOverlayRenderer() {
+  // A React render is the invalidation boundary for CSS theme changes. Canvas
+  // draw callbacks can then reuse the parsed values for every animation frame.
+  invalidateOverlayThemeColorCache();
   // formatFrequencyHighRes moved to shared.ts
 
   const drawGridOnContext = useCallback(

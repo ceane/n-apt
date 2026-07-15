@@ -62,7 +62,7 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 import { estimateHackrfTotalGainDb } from "@n-apt/utils/hackrfCalibration";
-import { resolveDisplaySampleRateHz } from "@n-apt/utils/sdrSampleRateGuards";
+import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/utils/sdrSampleRateGuards";
 import {
   getLatestLiveFrame,
   resolveFrameReadiness,
@@ -1260,7 +1260,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     : centerFrequencyHz;
   const fftHardwareSampleRateHz =
     mockTxMonitorSampleRateHz ??
-    resolveDisplaySampleRateHz({
+    resolveCanonicalDisplaySampleRateHz({
+      activeSampleRateHz: state.sampleRateHz,
       frameSampleRateHz: acceptedFrameSampleRateHz,
       configuredSampleRateHz:
         selectedSourceDerived.sdrSettings?.min_receive_sample_rate ??

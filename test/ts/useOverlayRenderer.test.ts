@@ -1,5 +1,8 @@
 import { renderHook } from "@testing-library/react";
-import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
+import {
+  invalidateOverlayThemeColorCache,
+  useOverlayRenderer,
+} from "@n-apt/hooks/useOverlayRenderer";
 
 describe("useOverlayRenderer Hook", () => {
   const mockCtx = {
@@ -24,6 +27,35 @@ describe("useOverlayRenderer Hook", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    invalidateOverlayThemeColorCache();
+  });
+
+  it("caches parsed theme colors across draw calls", () => {
+    const computedStyleSpy = jest.spyOn(window, "getComputedStyle");
+    const { result } = renderHook(() => useOverlayRenderer());
+    const frequencyRange = { min: 90e6, max: 110e6 };
+
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+    );
+    const firstCallCount = computedStyleSpy.mock.calls.length;
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+    );
+
+    expect(firstCallCount).toBeGreaterThan(0);
+    expect(computedStyleSpy).toHaveBeenCalledTimes(firstCallCount);
+    computedStyleSpy.mockRestore();
   });
 
   it("should draw hardware sample rate lines when appropriate", () => {

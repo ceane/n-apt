@@ -134,15 +134,10 @@ const normalizeWindowType = (windowType?: string) => {
   }
 };
 
-type NormalizedWindowType = ReturnType<typeof normalizeWindowType>;
-
 type SpectrumScratch = {
-  real: Float32Array;
-  imag: Float32Array;
   paddedReal: Float32Array;
   paddedImag: Float32Array;
   bitReverse: Uint32Array;
-  window: Float32Array;
 };
 
 const windowCache = new Map<string, Float32Array>();
@@ -200,12 +195,9 @@ const getSpectrumScratch = (fftLen: number): SpectrumScratch => {
   if (cached) return cached;
 
   const scratch: SpectrumScratch = {
-    real: new Float32Array(fftLen),
-    imag: new Float32Array(fftLen),
     paddedReal: new Float32Array(fftLen),
     paddedImag: new Float32Array(fftLen),
     bitReverse: new Uint32Array(fftLen),
-    window: new Float32Array(fftLen),
   };
 
   const bits = Math.log2(fftLen);
@@ -230,6 +222,7 @@ export function computeIqToDbSpectrumScalar(
     offsetDb: number;
     windowType?: string;
   },
+  output?: Float32Array,
 ): Float32Array {
   const { fftSize, offsetDb, windowType } = options;
   const numSamples = Math.max(
@@ -239,26 +232,28 @@ export function computeIqToDbSpectrumScalar(
   const windowCoefficients = getWindowCoefficients(numSamples, windowType);
   const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
   const scratch = getSpectrumScratch(fftLen);
-  const { real, imag, paddedReal, paddedImag, bitReverse } = scratch;
+  const { paddedReal, paddedImag, bitReverse } = scratch;
   let windowSum = 0;
-
-  for (let i = 0; i < numSamples; i++) {
-    const windowVal = windowCoefficients[i];
-    real[i] = ((input[i * 2] - 128) / 128) * windowVal;
-    imag[i] = ((input[i * 2 + 1] - 128) / 128) * windowVal;
-    windowSum += windowVal;
-  }
 
   paddedReal.fill(0);
   paddedImag.fill(0);
-  paddedReal.set(real);
-  paddedImag.set(imag);
+  for (let i = 0; i < numSamples; i++) {
+    const windowVal = windowCoefficients[i];
+    const inputIndex = i * 2;
+    paddedReal[i] = ((input[inputIndex] - 128) / 128) * windowVal;
+    paddedImag[i] = ((input[inputIndex + 1] - 128) / 128) * windowVal;
+    windowSum += windowVal;
+  }
 
   for (let i = 0; i < fftLen; i++) {
     const j = bitReverse[i];
     if (j > i) {
-      [paddedReal[i], paddedReal[j]] = [paddedReal[j], paddedReal[i]];
-      [paddedImag[i], paddedImag[j]] = [paddedImag[j], paddedImag[i]];
+      const realValue = paddedReal[i];
+      paddedReal[i] = paddedReal[j];
+      paddedReal[j] = realValue;
+      const imagValue = paddedImag[i];
+      paddedImag[i] = paddedImag[j];
+      paddedImag[j] = imagValue;
     }
   }
 
@@ -292,20 +287,27 @@ export function computeIqToDbSpectrumScalar(
   }
 
   const normSq = Math.max(windowSum * windowSum, 1e-12);
-  const output = new Float32Array(fftLen);
-  for (let i = 0; i < fftLen; i++) {
-    const magSq =
-      (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
-    output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
-  }
-
+  const result =
+    output && output.length === fftLen ? output : new Float32Array(fftLen);
   const half = fftLen / 2;
-  const shifted = new Float32Array(fftLen);
-  for (let i = 0; i < fftLen; i++) {
-    shifted[(i + half) % fftLen] = output[i];
+  for (let i = 0; i < half; i++) {
+    const sourceIndex = i + half;
+    const magSq =
+      (paddedReal[sourceIndex] * paddedReal[sourceIndex] +
+        paddedImag[sourceIndex] * paddedImag[sourceIndex]) /
+      normSq;
+    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
+  }
+  for (let i = half; i < fftLen; i++) {
+    const sourceIndex = i - half;
+    const magSq =
+      (paddedReal[sourceIndex] * paddedReal[sourceIndex] +
+        paddedImag[sourceIndex] * paddedImag[sourceIndex]) /
+      normSq;
+    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
   }
 
-  return shifted;
+  return result;
 }
 
 const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
@@ -530,12 +532,16 @@ export function useWasmSimdMath(
         }
       }
 
-      const computed = computeIqToDbSpectrumScalar(input, {
-        fftSize: requestedFftSize,
-        offsetDb,
-        windowType,
-      });
-      return writeSpectrumOutput(computed, output);
+      const computed = computeIqToDbSpectrumScalar(
+        input,
+        {
+          fftSize: requestedFftSize,
+          offsetDb,
+          windowType,
+        },
+        output,
+      );
+      return computed;
     },
     [fftSize, isSimdAvailable],
   );
