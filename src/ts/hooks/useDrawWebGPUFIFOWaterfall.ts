@@ -109,6 +109,7 @@ export interface WebGPUFIFOWaterfallOptions {
   colormap?: number[][];
   colormapName?: string;
   backgroundColor?: string;
+  plotMargin?: { x: number; y: number };
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
@@ -121,6 +122,7 @@ export interface WebGPUFIFOWaterfallOptions {
 // ---------------------------------------------------------------------------
 export function useDrawWebGPUFIFOWaterfall() {
   const stateRef = useRef<WaterfallState | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
 
   // Debug: Track first real data
   const firstRealDataLoggedRef = useRef(false);
@@ -220,6 +222,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         colormap,
         colormapName,
         backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
+        plotMargin = { x: 40, y: 8 },
         fftSize,
         sampleRate,
         centerFrequencyHz,
@@ -231,6 +234,10 @@ export function useDrawWebGPUFIFOWaterfall() {
         try {
           stateRef.current = initState(canvas, device, format, colormap || []);
         } catch (e) {
+          lastErrorRef.current =
+            e instanceof Error
+              ? e.message
+              : "Unknown WebGPU initialization error";
           console.error("WebGPU waterfall init failed:", e);
           return false;
         }
@@ -240,8 +247,8 @@ export function useDrawWebGPUFIFOWaterfall() {
       try {
         // Canvas dimensions are already DPR-scaled by FFTCanvas resize handler
         const dpr = window.devicePixelRatio || 1;
-        const marginX = Math.round(40 * dpr);
-        const marginY = Math.round(8 * dpr);
+        const marginX = Math.round(plotMargin.x * dpr);
+        const marginY = Math.round(plotMargin.y * dpr);
         const plotH = Math.max(1, canvas.height - marginY * 2);
 
         // ALWAYS use 4096 bins internal width to avoid resets during zoom
@@ -563,8 +570,13 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.end();
         device.queue.submit([enc.finish()]);
 
+        lastErrorRef.current = null;
         return true;
       } catch (error) {
+        lastErrorRef.current =
+          error instanceof Error
+            ? error.message
+            : "Unknown WebGPU rendering error";
         console.error("WebGPU waterfall rendering failed:", error);
         return false;
       }
@@ -579,5 +591,6 @@ export function useDrawWebGPUFIFOWaterfall() {
     state?.uniformBuf?.destroy();
     stateRef.current = null;
   }, []);
-  return { drawWebGPUFIFOWaterfall, cleanup };
+  const getLastError = useCallback(() => lastErrorRef.current, []);
+  return { drawWebGPUFIFOWaterfall, cleanup, getLastError };
 }

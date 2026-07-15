@@ -487,10 +487,10 @@ const NodePreviewVfoTick = styled.div<{ $left: number; $active?: boolean }>`
   background: ${({ theme, $left, $active }) =>
     $active
       ? theme.colors.primary
-      : ($left === 0 || $left === 100)
+      : $left === 0 || $left === 100
         ? theme.colors.textPrimary
         : theme.colors.textMuted};
-  opacity: ${({ $left }) => (($left === 0 || $left === 100) ? 1.0 : 0.6)};
+  opacity: ${({ $left }) => ($left === 0 || $left === 100 ? 1.0 : 0.6)};
 `;
 
 const NodePreviewVfoTickLabel = styled.span<{
@@ -522,13 +522,13 @@ const NodePreviewVfoTickLabel = styled.span<{
   color: ${({ theme, $left, $active }) =>
     $active
       ? theme.colors.textPrimary
-      : ($left === 0 || $left === 100)
+      : $left === 0 || $left === 100
         ? theme.colors.textPrimary
         : theme.colors.textSecondary};
-  opacity: ${({ $left }) => (($left === 0 || $left === 100) ? 1.0 : 0.5)};
+  opacity: ${({ $left }) => ($left === 0 || $left === 100 ? 1.0 : 0.5)};
   font-size: 9px;
   font-weight: ${({ $active, $left }) =>
-    ($active || $left === 0 || $left === 100) ? 800 : 600};
+    $active || $left === 0 || $left === 100 ? 800 : 600};
   white-space: nowrap;
 `;
 
@@ -1096,6 +1096,8 @@ export interface FFTCanvasProps {
   compact?: boolean;
   /** Tighten FFT margins for small node previews */
   nodePreview?: boolean;
+  /** Multiplier applied to the backing-canvas pixel density. */
+  canvasResolutionScale?: number;
   /** Optional overlay rendered inside the FFT canvas wrapper */
   overlayContent?: ReactNode;
   /** Optional TX slider drawn into the bottom FFT status band. */
@@ -1202,6 +1204,21 @@ export const shouldCreatePausedFallbackWaveform = (
 
 export const shouldDrawZoomMarkersForCanvas = (nodePreview: boolean): boolean =>
   !nodePreview;
+
+export const getCanvasPixelRatio = (
+  devicePixelRatio: number,
+  resolutionScale = 1,
+): number => {
+  const safeDevicePixelRatio =
+    Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+      ? devicePixelRatio
+      : 1;
+  const safeResolutionScale =
+    Number.isFinite(resolutionScale) && resolutionScale > 0
+      ? resolutionScale
+      : 1;
+  return safeDevicePixelRatio * safeResolutionScale;
+};
 
 export const resolveDemodFocusOverlay = ({
   selectionMode,
@@ -1358,6 +1375,7 @@ const FFTCanvas = memo(
       waterfallCanvasBindings,
       compact = false,
       nodePreview = false,
+      canvasResolutionScale = 1,
       demodulationCenterFreqHz = null,
       demodulationRangeHz = null,
       selectionRange,
@@ -1707,7 +1725,10 @@ const FFTCanvas = memo(
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getCanvasPixelRatio(
+          window.devicePixelRatio || 1,
+          canvasResolutionScale,
+        );
         const logicalWidth = canvas.width / dpr;
         const logicalHeight = canvas.height / dpr;
         ctx.save();
@@ -1722,7 +1743,7 @@ const FFTCanvas = memo(
         );
         ctx.restore();
       },
-      [],
+      [canvasResolutionScale],
     );
 
     const lastWaterfallRowRef = useRef<Float32Array | null>(null);
@@ -2118,7 +2139,7 @@ const FFTCanvas = memo(
       const placedIntervals: { min: number; max: number }[] = [
         { min: centerMin, max: centerMax },
         { min: leftMin, max: leftMax },
-        { min: rightMin, max: rightMax }
+        { min: rightMin, max: rightMax },
       ];
 
       return nodePreviewVfoTicks.map((tick) => {
@@ -2132,7 +2153,7 @@ const FFTCanvas = memo(
         const labelMax = tick.positionPercent + tickWidthPercent / 2;
 
         const collides = placedIntervals.some(
-          (interval) => labelMin < interval.max && labelMax > interval.min
+          (interval) => labelMin < interval.max && labelMax > interval.min,
         );
 
         if (!collides) {
@@ -2927,7 +2948,10 @@ const FFTCanvas = memo(
           if (spectrumOverlayCanvas) {
             const ctx = spectrumOverlayCanvas.getContext("2d");
             if (ctx) {
-              const dpr = window.devicePixelRatio || 1;
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
@@ -2937,7 +2961,10 @@ const FFTCanvas = memo(
           if (waterfallOverlayCanvas) {
             const ctx = waterfallOverlayCanvas.getContext("2d");
             if (ctx) {
-              const dpr = window.devicePixelRatio || 1;
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
               const logicalW = waterfallOverlayCanvas.width / dpr;
               const logicalH = waterfallOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
@@ -3404,7 +3431,11 @@ const FFTCanvas = memo(
                 powerDbm?: number;
               })
             | null;
-          const bottomReservedPx = nodePreview ? 0 : (compact ? 0 : TX_SLIDER_ROW_HEIGHT);
+          const bottomReservedPx = nodePreview
+            ? 0
+            : compact
+              ? 0
+              : TX_SLIDER_ROW_HEIGHT;
           const markerOverlayOpacity =
             powerLineDbRef.current !== null ? 0.1 : 1;
           // Spectrum render (using unified hook)
@@ -3488,7 +3519,10 @@ const FFTCanvas = memo(
           if (spectrumOverlayCanvas) {
             const ctx = spectrumOverlayCanvas.getContext("2d");
             if (ctx) {
-              const dpr = window.devicePixelRatio || 1;
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
@@ -4030,6 +4064,7 @@ const FFTCanvas = memo(
         limitMarkers,
         compact,
         nodePreview,
+        canvasResolutionScale,
         selectionMode,
         bandwidthAlignment,
         visualizerMachine,
@@ -4491,7 +4526,10 @@ const FFTCanvas = memo(
       const gpuCanvas = spectrumGpuCanvasRef.current ?? spectrumGpuCanvasNode;
 
       const handleResize = () => {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getCanvasPixelRatio(
+          window.devicePixelRatio || 1,
+          canvasResolutionScale,
+        );
 
         // Use offsetWidth/offsetHeight instead of getBoundingClientRect() —
         // getBoundingClientRect() returns post-CSS-transform visual dimensions,
@@ -4620,6 +4658,7 @@ const FFTCanvas = memo(
       spectrumOverlayCanvasNode,
       waterfallGpuCanvasNode,
       waterfallOverlayCanvasNode,
+      canvasResolutionScale,
     ]);
 
     // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool
@@ -4921,7 +4960,12 @@ const FFTCanvas = memo(
                       false,
                       (frequencyRange.max - frequencyRange.min) / 6,
                     );
-                    const keySuffix = tick.positionPercent === 0 ? "min" : tick.positionPercent === 100 ? "max" : tick.frequencyHz.toString();
+                    const keySuffix =
+                      tick.positionPercent === 0
+                        ? "min"
+                        : tick.positionPercent === 100
+                          ? "max"
+                          : tick.frequencyHz.toString();
                     return [
                       <NodePreviewVfoTickLabel
                         key={`label-${keySuffix}`}

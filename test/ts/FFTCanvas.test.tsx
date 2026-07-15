@@ -15,6 +15,7 @@ import {
   shouldDrawZoomMarkersForCanvas,
   getNodePreviewSelectionBarLabels,
   getNodePreviewVfoScaleTicks,
+  getCanvasPixelRatio,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -96,6 +97,10 @@ describe("FFTCanvas Component", () => {
   it("does not draw VFO zoom markers in an FFT node preview", () => {
     expect(shouldDrawZoomMarkersForCanvas(true)).toBe(false);
     expect(shouldDrawZoomMarkersForCanvas(false)).toBe(true);
+  });
+
+  it("multiplies device pixel density for a sharper backing canvas", () => {
+    expect(getCanvasPixelRatio(2, 2)).toBe(4);
   });
 
   it("uses only the selection overlay for FFT node range selection", () => {
