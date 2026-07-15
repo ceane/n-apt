@@ -212,6 +212,10 @@ export const SourceInfoSchema = z.object({
   supports_raw_iq_stream: z.boolean(),
   stream_key: z.string().optional(),
   stream_key_kind: z.enum(["serial", "source_id"]).optional(),
+  iq_stream_protocols: z
+    .array(z.union([z.literal(1), z.literal(2)]))
+    .optional(),
+  stream_epoch: z.number().int().nonnegative().optional(),
   sdr: z.object({
     max_sample_rate: z.number(),
     sample_rate_options: z.array(z.number()),
@@ -239,6 +243,7 @@ export const ActiveSourceMessageSchema = z.object({
   type: z.literal("active_source"),
   source_id: z.string(),
   source_mode: z.enum(["live", "file"]),
+  stream_epoch: z.number().int().nonnegative().optional(),
 });
 
 export const SourceStatusMessageSchema = z.object({
@@ -247,6 +252,7 @@ export const SourceStatusMessageSchema = z.object({
   status: SourceStatusSchema,
   loading_attempt: z.number().int().nonnegative().optional(),
   loading_attempt_max: z.number().int().nonnegative().optional(),
+  stream_epoch: z.number().int().nonnegative().optional(),
 });
 
 export const SourceSdrSettingsMessageSchema = z.object({

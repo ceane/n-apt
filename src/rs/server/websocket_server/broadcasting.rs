@@ -16,6 +16,7 @@ pub fn build_source_status_payload(
   source_id: &str,
   status: &str,
   loading_attempt: u32,
+  stream_epoch: u64,
 ) -> serde_json::Value {
   serde_json::json!({
     "type": "status",
@@ -23,6 +24,7 @@ pub fn build_source_status_payload(
     "status": status,
     "loading_attempt": loading_attempt,
     "loading_attempt_max": crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    "stream_epoch": stream_epoch,
   })
 }
 
@@ -36,6 +38,7 @@ pub fn broadcast_source_status_for_id(
     source_id,
     status,
     shared.recovery_attempts.load(Ordering::Relaxed),
+    shared.current_stream_epoch(),
   )
   .to_string();
   let mut last_payload = shared.last_broadcast_status.lock().unwrap();
@@ -176,6 +179,7 @@ pub fn broadcast_active_source(
     "type": "active_source",
     "source_id": active_id,
     "source_mode": if paused { "file" } else { "live" },
+    "stream_epoch": shared.current_stream_epoch(),
   });
   let _ = broadcast_tx.send(payload.to_string());
 }
@@ -187,8 +191,9 @@ mod tests {
   #[test]
   fn targeted_loading_status_names_the_source_being_opened() {
     let payload =
-      build_source_status_payload("hackrf_one-serial", "loading", 0);
+      build_source_status_payload("hackrf_one-serial", "loading", 0, 7);
     assert_eq!(payload["source_id"], "hackrf_one-serial");
     assert_eq!(payload["status"], "loading");
+    assert_eq!(payload["stream_epoch"], 7);
   }
 }

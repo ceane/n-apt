@@ -93,6 +93,7 @@ import {
 import {
   clampRtlSdrFrequencyRangeToHardwareWindow,
   isRtlSdrDevice,
+  resolveSourceSampleRateHz,
 } from "@n-apt/utils/sdrSampleRateGuards";
 
 // Types
@@ -856,22 +857,7 @@ export const selectLiveSampleRateForSync = ({
       ? [websocketSampleRateHz, sdrSettingsSampleRateHz, maxSampleRateHz]
       : [sdrSettingsSampleRateHz, maxSampleRateHz];
 
-  const rtlMaximum =
-    isRtlDevice &&
-    typeof maxSampleRateHz === "number" &&
-    Number.isFinite(maxSampleRateHz) &&
-    maxSampleRateHz > 0
-      ? maxSampleRateHz
-      : null;
-
-  for (const rate of candidates) {
-    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
-      if (rtlMaximum !== null && rate > rtlMaximum) continue;
-      return rate;
-    }
-  }
-
-  return null;
+  return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
 
 export const resolveEffectiveLiveSampleRateHz = ({
@@ -916,22 +902,7 @@ export const resolveEffectiveLiveSampleRateHz = ({
         maxSampleRateHz,
       ];
 
-  const rtlMaximum =
-    isRtlDevice &&
-    typeof maxSampleRateHz === "number" &&
-    Number.isFinite(maxSampleRateHz) &&
-    maxSampleRateHz > 0
-      ? maxSampleRateHz
-      : null;
-
-  for (const rate of candidates) {
-    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
-      if (rtlMaximum !== null && rate > rtlMaximum) continue;
-      return rate;
-    }
-  }
-
-  return null;
+  return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
 
 export function spectrumReducer(

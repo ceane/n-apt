@@ -148,10 +148,8 @@ export type ChannelsMessage = {
   error?: string | null;
 };
 
-export type IqRawFrame = {
+type IqRawFramePayload = {
   type: "spectrum";
-  /** Client-attached owner for source-scoped binary I/Q WebSockets. */
-  source_id?: string;
   is_mock_apt?: boolean;
   center_frequency_hz?: number;
   waveform_span_hz?: number | null;
@@ -160,6 +158,25 @@ export type IqRawFrame = {
   sample_rate?: number;
   iq_data: Uint8Array;
 };
+
+/** Legacy in-memory or 24-byte v1 frame with client-scoped ownership. */
+export type IqRawFrameV1 = IqRawFramePayload & {
+  protocol_version?: 1;
+  source_id?: string;
+  stream_epoch?: undefined;
+  sequence?: undefined;
+};
+
+/** Negotiated v2 frame with explicit source and lifecycle ordering metadata. */
+export type IqRawFrameV2 = IqRawFramePayload & {
+  protocol_version: 2;
+  source_id: string;
+  stream_epoch: number;
+  sequence: number;
+};
+
+/** Compatible raw I/Q publication shape discriminated by wire protocol. */
+export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
 
 export type LiveFrameData = IqRawFrame;
 
@@ -264,6 +281,10 @@ export interface SourceInfo {
   supports_raw_iq_stream: boolean;
   stream_key?: string;
   stream_key_kind?: "serial" | "source_id";
+  /** Additive raw-I/Q wire versions supported by this source. */
+  iq_stream_protocols?: Array<1 | 2>;
+  /** Current source lifecycle generation for v2 frame validation. */
+  stream_epoch?: number;
   serial_number?: string;
   manufacturer?: string;
   product?: string;
@@ -309,6 +330,7 @@ export interface ActiveSourceMessage {
   type: "active_source";
   source_id: string;
   source_mode: "live" | "file";
+  stream_epoch?: number;
 }
 
 export interface SourceStatusMessage {
@@ -317,6 +339,7 @@ export interface SourceStatusMessage {
   status: Exclude<SourceStatus, null>;
   loading_attempt?: number;
   loading_attempt_max?: number;
+  stream_epoch?: number;
 }
 
 export interface SourceSdrSettingsMessage {

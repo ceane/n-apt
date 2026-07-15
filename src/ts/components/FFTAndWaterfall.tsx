@@ -141,6 +141,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
       useState(true);
+    const handleRenderableFrameChange = useCallback(
+      (hasFrame: boolean) => {
+        setHasRenderableFrame(hasFrame);
+        props.onRenderableFrameChange?.(hasFrame);
+      },
+      [props.onRenderableFrameChange],
+    );
     const awaitingFreshFrameRef = useRef(false);
     const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
     const currentFrame = Array.isArray(props.dataRef.current)
@@ -214,6 +221,24 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       ? awaitingDeviceData ||
         (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
       : false;
+
+    const sharedPlaceholderState = useMemo(() => {
+      if (props.placeholderState) return props.placeholderState;
+      if (!sharedAwaitingDeviceData) return null;
+      return {
+        kind: "loading" as const,
+        sourceLabel: props.placeholderSourceLabel,
+        paneLabel: "FFT",
+        message:
+          typeof sharedAwaitingDeviceData === "string"
+            ? sharedAwaitingDeviceData
+            : undefined,
+      };
+    }, [
+      props.placeholderSourceLabel,
+      props.placeholderState,
+      sharedAwaitingDeviceData,
+    ]);
 
     useEffect(() => {
       if (loadingPlaceholderTimeoutRef.current) {
@@ -379,14 +404,14 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               placeholderPaneLabel="FFT"
               placeholderErrorReason={placeholderErrorReason}
               placeholderState={
-                props.placeholderState?.kind === "loading" &&
+                sharedPlaceholderState?.kind === "loading" &&
                 !shouldShowLoadingPlaceholder
                   ? undefined
-                  : props.placeholderState?.kind === "loading"
-                    ? { ...props.placeholderState, paneLabel: "FFT" }
-                    : props.placeholderState
+                  : sharedPlaceholderState?.kind === "loading"
+                    ? { ...sharedPlaceholderState, paneLabel: "FFT" }
+                    : sharedPlaceholderState
               }
-              onRenderableFrameChange={setHasRenderableFrame}
+              onRenderableFrameChange={handleRenderableFrameChange}
               waterfallCanvasBindings={waterfallCanvasBindings}
             />
             {props.overlayContent ? props.overlayContent : null}
@@ -403,14 +428,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
             placeholderState={
-              props.placeholderState?.kind === "loading" &&
+              sharedPlaceholderState?.kind === "loading" &&
               !shouldShowLoadingPlaceholder
                 ? undefined
-                : props.placeholderState?.kind === "top-bar"
-                  ? { ...props.placeholderState, kind: "overlay-only" }
-                  : props.placeholderState?.kind === "loading"
-                    ? { ...props.placeholderState, paneLabel: "Waterfall" }
-                    : props.placeholderState
+                : sharedPlaceholderState?.kind === "loading"
+                  ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }
+                  : sharedPlaceholderState
             }
           />
         </Left>

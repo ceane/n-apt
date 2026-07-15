@@ -625,6 +625,15 @@ pub struct SpectrumData {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub waveform: Vec<f32>,
   pub is_mock_apt: bool,
+  /// Canonical owner captured when the frame is produced.
+  #[serde(default, skip_serializing_if = "String::is_empty")]
+  pub source_id: String,
+  /// Source presentation generation captured with the samples.
+  #[serde(default, skip_serializing_if = "is_zero_u64")]
+  pub stream_epoch: u64,
+  /// Monotonic frame number within `stream_epoch`.
+  #[serde(default, skip_serializing_if = "is_zero_u64")]
+  pub sequence: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub center_frequency_hz: Option<u32>,
   /// Actual span of the waveform in Hz (for live multi-hop captures)
@@ -643,6 +652,10 @@ pub struct SpectrumData {
   /// Raw I/Q data bytes (for dBm mode when data_type is "iq_raw")
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub iq_data: Vec<u8>,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+  *value == 0
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -1244,6 +1257,8 @@ pub struct AuthSessionRequest {
 #[derive(Deserialize)]
 pub struct WsQueryParams {
   pub token: String,
+  #[serde(default)]
+  pub iq_protocol: Option<u8>,
 }
 
 #[derive(Deserialize)]

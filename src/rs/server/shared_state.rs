@@ -1,6 +1,8 @@
 use redis::Commands;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{
+  AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -39,6 +41,12 @@ pub struct SharedState {
   pub is_paused: AtomicBool,
   /// Allow exactly one spectrum frame through while paused after a one-frame request
   pub allow_next_paused_frame: AtomicBool,
+  /// Monotonic presentation lifecycle for source-scoped v2 I/Q frames.
+  pub stream_epoch: AtomicU64,
+  /// Monotonic frame sequence reset whenever `stream_epoch` advances.
+  pub stream_sequence: AtomicU64,
+  /// Serializes epoch resets with frame identity allocation.
+  stream_identity_lock: Mutex<()>,
   /// Pause state tracked per source so switching sources does not bleed pause
   /// commands across unrelated devices.
   pub source_pause_states: Mutex<HashMap<String, bool>>,
@@ -126,6 +134,9 @@ impl SharedState {
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
       allow_next_paused_frame: AtomicBool::new(false),
+      stream_epoch: AtomicU64::new(1),
+      stream_sequence: AtomicU64::new(0),
+      stream_identity_lock: Mutex::new(()),
       source_pause_states: Mutex::new(HashMap::new()),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
@@ -167,6 +178,26 @@ impl SharedState {
       tx_hop_rate_hz: Mutex::new(1.0),
       mock_tx_phase_accumulator: Mutex::new(0.0),
     })
+  }
+
+  /// Return the current source-scoped I/Q lifecycle generation.
+  pub fn current_stream_epoch(&self) -> u64 {
+    self.stream_epoch.load(Ordering::Acquire)
+  }
+
+  /// Start a new source presentation generation and reset frame ordering.
+  pub fn begin_stream_epoch(&self) -> u64 {
+    let _identity_guard = self.stream_identity_lock.lock().unwrap();
+    self.stream_sequence.store(0, Ordering::Release);
+    self.stream_epoch.fetch_add(1, Ordering::AcqRel) + 1
+  }
+
+  /// Atomically allocate an epoch and its next monotonic v2 frame number.
+  pub fn next_stream_frame_identity(&self) -> (u64, u64) {
+    let _identity_guard = self.stream_identity_lock.lock().unwrap();
+    let epoch = self.stream_epoch.load(Ordering::Acquire);
+    let sequence = self.stream_sequence.fetch_add(1, Ordering::AcqRel) + 1;
+    (epoch, sequence)
   }
 
   /// Update device connection status and info string.
@@ -265,7 +296,15 @@ impl SharedState {
   /// This is the single source of truth for state transitions so the
   /// frontend always sees a consistent snapshot.
   pub fn set_device_state(&self, state: &str, loading_reason: Option<&str>) {
-    *self.device_state.lock().unwrap() = state.to_string();
+    let entered_loading = {
+      let mut current = self.device_state.lock().unwrap();
+      let entered = state == "loading" && current.as_str() != "loading";
+      *current = state.to_string();
+      entered
+    };
+    if entered_loading {
+      self.begin_stream_epoch();
+    }
     let is_loading = state == "loading";
     *self.device_loading.lock().unwrap() = is_loading;
     *self.device_loading_reason.lock().unwrap() =
@@ -389,8 +428,39 @@ fn unsafe_local_user_password() -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::unsafe_local_user_password;
+  use super::{unsafe_local_user_password, SharedState};
   use serial_test::serial;
+  use std::sync::atomic::Ordering;
+
+  #[test]
+  #[serial]
+  fn entering_loading_starts_one_new_stream_epoch() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let initial_epoch = shared.current_stream_epoch();
+    shared.stream_sequence.store(9, Ordering::Release);
+
+    shared.set_device_state("loading", Some("restart"));
+    assert_eq!(shared.current_stream_epoch(), initial_epoch + 1);
+    assert_eq!(shared.stream_sequence.load(Ordering::Acquire), 0);
+
+    shared.set_device_state("loading", Some("restart"));
+    assert_eq!(shared.current_stream_epoch(), initial_epoch + 1);
+  }
+
+  #[test]
+  #[serial]
+  fn frame_identity_is_monotonic_and_resets_with_the_epoch() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (epoch, first) = shared.next_stream_frame_identity();
+    let (same_epoch, second) = shared.next_stream_frame_identity();
+    assert_eq!(same_epoch, epoch);
+    assert_eq!(second, first + 1);
+
+    let next_epoch = shared.begin_stream_epoch();
+    assert_eq!(shared.next_stream_frame_identity(), (next_epoch, 1));
+  }
 
   #[test]
   #[serial]

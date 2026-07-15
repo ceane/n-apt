@@ -219,6 +219,7 @@ pub async fn source_iq_ws_upgrade_handler(
   let shared = state.shared.clone();
   let enc_key = shared.encryption_key;
   let spectrum_tx = state.spectrum_tx.clone();
+  let iq_protocol = IqStreamProtocol::from_requested(params.iq_protocol);
 
   ws.on_upgrade(move |socket| {
     handle_source_iq_connection(
@@ -228,6 +229,7 @@ pub async fn source_iq_ws_upgrade_handler(
       enc_key,
       source_id,
       stream_key,
+      iq_protocol,
     )
   })
 }
@@ -242,11 +244,10 @@ pub async fn source_iq_ws_upgrade_handler(
 ///
 /// Frame layout:
 /// `[timestamp:8][center_freq:8][data_type:4][sample_rate:4][encrypted_payload...]`
-async fn send_encrypted_iq_frame(
-  ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+fn encode_encrypted_iq_frame_v1(
   enc_key: &[u8; 32],
   spectrum_data: &super::types::SpectrumData,
-) -> Result<(), ()> {
+) -> Result<Vec<u8>, ()> {
   let timestamp: u64 = spectrum_data.timestamp as u64;
   let center_frequency: u64 =
     spectrum_data.center_frequency_hz.unwrap_or(0) as u64;
@@ -265,6 +266,112 @@ async fn send_encrypted_iq_frame(
       error!("I/Q data encryption failed");
     })?;
   binary_payload.extend_from_slice(&encrypted_iq);
+
+  Ok(binary_payload)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IqStreamProtocol {
+  V1,
+  V2,
+}
+
+impl IqStreamProtocol {
+  fn from_requested(requested: Option<u8>) -> Self {
+    if requested == Some(2) {
+      Self::V2
+    } else {
+      Self::V1
+    }
+  }
+}
+
+/// Encode the negotiated v2 I/Q envelope.
+///
+/// Layout: `NAPT`, version, flags, header length, source length, reserved,
+/// stream epoch, sequence, timestamp, center frequency, data type, sample
+/// rate, UTF-8 source ID, then the encrypted sample payload. The source and
+/// generation metadata let clients reject late async decryptions without
+/// modifying the checksum-sensitive waveform bytes.
+fn encode_encrypted_iq_frame_v2(
+  enc_key: &[u8; 32],
+  spectrum_data: &super::types::SpectrumData,
+  source_id: &str,
+  stream_epoch: u64,
+  sequence: u64,
+) -> Result<Vec<u8>, ()> {
+  const FIXED_HEADER_LEN: usize = 52;
+  let source_bytes = source_id.as_bytes();
+  let source_len = u16::try_from(source_bytes.len()).map_err(|_| ())?;
+  let header_len = FIXED_HEADER_LEN
+    .checked_add(source_bytes.len())
+    .and_then(|length| u16::try_from(length).ok())
+    .ok_or(())?;
+  let encrypted_iq =
+    crypto::encrypt_payload_binary(enc_key, &spectrum_data.iq_data).map_err(
+      |_| {
+        error!("I/Q data encryption failed");
+      },
+    )?;
+
+  let mut payload =
+    Vec::with_capacity(header_len as usize + encrypted_iq.len());
+  payload.extend_from_slice(b"NAPT");
+  payload.push(2);
+  payload.push(u8::from(spectrum_data.is_mock_apt));
+  payload.extend_from_slice(&header_len.to_le_bytes());
+  payload.extend_from_slice(&source_len.to_le_bytes());
+  payload.extend_from_slice(&0u16.to_le_bytes());
+  payload.extend_from_slice(&stream_epoch.to_le_bytes());
+  payload.extend_from_slice(&sequence.to_le_bytes());
+  payload.extend_from_slice(&(spectrum_data.timestamp as u64).to_le_bytes());
+  payload.extend_from_slice(
+    &(spectrum_data.center_frequency_hz.unwrap_or(0) as u64).to_le_bytes(),
+  );
+  payload.extend_from_slice(&1u32.to_le_bytes());
+  payload
+    .extend_from_slice(&spectrum_data.sample_rate.unwrap_or(0).to_le_bytes());
+  payload.extend_from_slice(source_bytes);
+  payload.extend_from_slice(&encrypted_iq);
+  Ok(payload)
+}
+
+fn encode_encrypted_iq_frame(
+  protocol: IqStreamProtocol,
+  enc_key: &[u8; 32],
+  spectrum_data: &super::types::SpectrumData,
+  source_id: &str,
+  stream_epoch: u64,
+  sequence: u64,
+) -> Result<Vec<u8>, ()> {
+  match protocol {
+    IqStreamProtocol::V1 => {
+      encode_encrypted_iq_frame_v1(enc_key, spectrum_data)
+    }
+    IqStreamProtocol::V2 => encode_encrypted_iq_frame_v2(
+      enc_key,
+      spectrum_data,
+      source_id,
+      stream_epoch,
+      sequence,
+    ),
+  }
+}
+
+async fn send_encrypted_iq_frame(
+  ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+  enc_key: &[u8; 32],
+  spectrum_data: &super::types::SpectrumData,
+  protocol: IqStreamProtocol,
+) -> Result<(), ()> {
+  let binary_payload = encode_encrypted_iq_frame(
+    protocol,
+    enc_key,
+    spectrum_data,
+    &spectrum_data.source_id,
+    spectrum_data.stream_epoch,
+    spectrum_data.sequence,
+  )?;
 
   // Binary frames keep the hot data path compact and avoid JSON encoding costs.
   ws_sender
@@ -293,6 +400,14 @@ fn source_iq_frame_matches_source(source_id: &str, is_mock_apt: bool) -> bool {
     return is_mock_apt;
   }
   !is_mock_apt
+}
+
+/// V2 ownership is explicit and never inferred from device or mock flags.
+fn source_iq_v2_frame_matches_source(
+  subscribed_source_id: &str,
+  frame_source_id: &str,
+) -> bool {
+  subscribed_source_id == frame_source_id
 }
 
 fn source_kind_hint_from_id(source_id: &str) -> Option<&'static str> {
@@ -368,13 +483,14 @@ fn source_iq_subscription_matches_active_source(
     == 1
 }
 
-pub async fn handle_source_iq_connection(
+pub(crate) async fn handle_source_iq_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   enc_key: [u8; 32],
   source_id: String,
   stream_key: String,
+  iq_protocol: IqStreamProtocol,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut spectrum_rx = spectrum_tx.subscribe();
@@ -390,7 +506,17 @@ pub async fn handle_source_iq_connection(
             if !source_iq_subscription_matches_active_source(&shared, &source_id, &stream_key) {
               continue;
             }
-            if !source_iq_frame_matches_source(&source_id, spectrum_data.is_mock_apt) {
+            if iq_protocol == IqStreamProtocol::V2
+              && !source_iq_v2_frame_matches_source(
+                &source_id,
+                &spectrum_data.source_id,
+              )
+            {
+              continue;
+            }
+            if iq_protocol == IqStreamProtocol::V1
+              && !source_iq_frame_matches_source(&source_id, spectrum_data.is_mock_apt)
+            {
               continue;
             }
             let allow_next_paused_frame = shared
@@ -408,7 +534,12 @@ pub async fn handle_source_iq_connection(
             ) {
               continue;
             }
-            if send_encrypted_iq_frame(&mut ws_sender, &enc_key, &spectrum_data).await.is_err() {
+            if send_encrypted_iq_frame(
+              &mut ws_sender,
+              &enc_key,
+              &spectrum_data,
+              iq_protocol,
+            ).await.is_err() {
               break;
             }
           }
@@ -1317,12 +1448,16 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
-    should_send_source_iq_frame, source_iq_frame_matches_source,
+    encode_encrypted_iq_frame, handle_message, live_tune_is_out_of_bounds,
+    resolve_live_center_frequency, should_send_source_iq_frame,
+    source_iq_frame_matches_source,
     source_iq_subscription_matches_active_source,
+    source_iq_v2_frame_matches_source, IqStreamProtocol,
   };
   use crate::server::shared_state::SharedState;
-  use crate::server::types::{DeviceProfile, SdrCommand, WebSocketMessage};
+  use crate::server::types::{
+    DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
+  };
   use serial_test::serial;
   use std::sync::mpsc;
   use std::sync::Arc;
@@ -1856,6 +1991,52 @@ mod tests {
     assert!(should_send_source_iq_frame("mock-tx", false, false, false));
     assert!(!should_send_source_iq_frame("mock-tx", true, false, false));
     assert!(should_send_source_iq_frame("mock-apt", true, false, true));
+  }
+
+  #[test]
+  fn v2_iq_envelope_carries_source_epoch_sequence_and_decryptable_payload() {
+    let key = [7u8; 32];
+    let spectrum = SpectrumData {
+      message_type: "spectrum".to_string(),
+      waveform: Vec::new(),
+      is_mock_apt: false,
+      source_id: "rtl-sdr-v4".to_string(),
+      stream_epoch: 7,
+      sequence: 11,
+      center_frequency_hz: Some(137_100_000),
+      waveform_span_hz: None,
+      timestamp: 1234,
+      data_type: Some("iq_raw".to_string()),
+      sample_rate: Some(2_400_000),
+      power_scale: None,
+      iq_data: vec![128, 129, 127, 126],
+    };
+
+    let encoded = encode_encrypted_iq_frame(
+      IqStreamProtocol::V2,
+      &key,
+      &spectrum,
+      "rtl-sdr-v4",
+      7,
+      11,
+    )
+    .expect("v2 frame should encode");
+    assert_eq!(&encoded[0..4], b"NAPT");
+    assert_eq!(encoded[4], 2);
+    let header_len = u16::from_le_bytes([encoded[6], encoded[7]]) as usize;
+    assert_eq!(u64::from_le_bytes(encoded[12..20].try_into().unwrap()), 7);
+    assert_eq!(u64::from_le_bytes(encoded[20..28].try_into().unwrap()), 11);
+    assert_eq!(&encoded[52..header_len], b"rtl-sdr-v4");
+    let decrypted =
+      crate::crypto::decrypt_payload_binary(&key, &encoded[header_len..])
+        .expect("v2 payload should decrypt");
+    assert_eq!(decrypted, spectrum.iq_data);
+  }
+
+  #[test]
+  fn v2_source_filter_requires_exact_frame_ownership() {
+    assert!(source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-1"));
+    assert!(!source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-2"));
   }
 
   #[test]

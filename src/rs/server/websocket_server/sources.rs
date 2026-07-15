@@ -301,6 +301,8 @@ fn build_source_payload(
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
     "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
+    "iq_stream_protocols": [1, 2],
+    "stream_epoch": shared.current_stream_epoch(),
     "serial_number": serial_number,
     "manufacturer": manufacturer,
     "product": product,
@@ -721,6 +723,25 @@ pub fn active_source_id(shared: &SharedState) -> String {
 #[cfg(test)]
 mod stable_source_order_tests {
   use super::*;
+
+  #[test]
+  fn source_inventory_advertises_versioned_iq_lifecycle_metadata() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let snapshot = build_source_info_snapshot(&shared);
+    let active_id = snapshot["active_source"].as_str().unwrap();
+    let active = snapshot["sources"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|source| source["id"].as_str() == Some(active_id))
+      .unwrap();
+
+    assert_eq!(active["iq_stream_protocols"], serde_json::json!([1, 2]));
+    assert!(active["stream_epoch"]
+      .as_u64()
+      .is_some_and(|epoch| epoch > 0));
+  }
 
   #[test]
   fn source_inventory_order_does_not_follow_the_active_source() {

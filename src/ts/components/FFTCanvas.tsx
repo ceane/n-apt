@@ -263,14 +263,18 @@ export const resolveLiveFrameRenderableFrequencyRange = ({
   isRtlSdr,
 }: FrameRenderRangeInput): FrequencyRange => {
   const mockTxMonitor = isMockTxIdentity({ deviceKind, backend, deviceName });
+  const canonicalSampleRateHz =
+    typeof propsHardwareSampleRateHz === "number" &&
+    Number.isFinite(propsHardwareSampleRateHz) &&
+    propsHardwareSampleRateHz > 0
+      ? propsHardwareSampleRateHz
+      : currentFrame.sample_rate;
   return resolveRenderableFrequencyRange({
     requestedRange,
     centerFrequencyHz: mockTxMonitor
       ? propsCenterFrequencyHz
       : currentFrame.center_frequency_hz,
-    hardwareSampleRateHz: mockTxMonitor
-      ? propsHardwareSampleRateHz
-      : currentFrame.sample_rate,
+    hardwareSampleRateHz: canonicalSampleRateHz,
     preferRequestedRange,
     deviceKind,
     backend,

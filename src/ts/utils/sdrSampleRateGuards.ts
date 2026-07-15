@@ -15,15 +15,61 @@ interface DeviceIdentity {
 const normalize = (value?: string | null) =>
   value?.toLowerCase().replace(/[_\s]+/g, "-") ?? "";
 
+export const resolveSourceSampleRateHz = ({
+  candidates,
+  maxSampleRateHz,
+}: {
+  candidates: Array<number | null | undefined>;
+  maxSampleRateHz?: number | null;
+}): number | null => {
+  const maximum =
+    typeof maxSampleRateHz === "number" &&
+    Number.isFinite(maxSampleRateHz) &&
+    maxSampleRateHz > 0
+      ? maxSampleRateHz
+      : null;
+
+  for (const candidate of candidates) {
+    if (
+      typeof candidate !== "number" ||
+      !Number.isFinite(candidate) ||
+      candidate <= 0
+    ) {
+      continue;
+    }
+    if (maximum !== null && candidate > maximum) continue;
+    return candidate;
+  }
+
+  return maximum;
+};
+
+export const clampSampleRateToSourceMaximum = (
+  sampleRateHz: number,
+  maxSampleRateHz?: number | null,
+): number => {
+  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) return 0;
+  if (
+    typeof maxSampleRateHz === "number" &&
+    Number.isFinite(maxSampleRateHz) &&
+    maxSampleRateHz > 0
+  ) {
+    return Math.min(sampleRateHz, maxSampleRateHz);
+  }
+  return sampleRateHz;
+};
+
 export const resolveDisplaySampleRateHz = ({
   frameSampleRateHz,
   configuredSampleRateHz,
   derivedSampleRateHz,
+  maxSampleRateHz,
   ...identity
 }: DeviceIdentity & {
   frameSampleRateHz?: number | null;
   configuredSampleRateHz?: number | null;
   derivedSampleRateHz?: number | null;
+  maxSampleRateHz?: number | null;
 }): number | null => {
   const frameRate =
     typeof frameSampleRateHz === "number" &&
@@ -43,10 +89,15 @@ export const resolveDisplaySampleRateHz = ({
     derivedSampleRateHz > 0
       ? derivedSampleRateHz
       : null;
-
   return isRtlSdrDevice(identity)
-    ? (frameRate ?? configured ?? derived)
-    : (derived ?? configured);
+    ? resolveSourceSampleRateHz({
+        candidates: [frameRate, configured, derived],
+        maxSampleRateHz,
+      })
+    : resolveSourceSampleRateHz({
+        candidates: [derived, configured],
+        maxSampleRateHz,
+      });
 };
 
 export const isRtlSdrDevice = ({

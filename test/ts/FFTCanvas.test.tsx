@@ -991,6 +991,27 @@ describe("FFTCanvas Component", () => {
     });
   });
 
+  it("uses the canonical source rate instead of stale Mock APT frame metadata", () => {
+    expect(
+      resolveLiveFrameRenderableFrequencyRange({
+        currentFrame: {
+          center_frequency_hz: 2_204_000,
+          sample_rate: 4_372_000,
+        } as any,
+        requestedRange: { min: 18_000, max: 4_390_000 },
+        propsCenterFrequencyHz: 1_618_000,
+        propsHardwareSampleRateHz: 3_200_000,
+        deviceKind: "mock_apt",
+        backend: "mock_apt",
+        deviceName: "Mock APT SDR",
+        isRtlSdr: true,
+      }),
+    ).toEqual({
+      min: 18_000,
+      max: 3_218_000,
+    });
+  });
+
   it("uses Mock Tx dBm calibration for Mock APT receive view while Tx is active", () => {
     expect(
       resolveEffectiveDbmOffsetDb({

@@ -16,7 +16,10 @@ use crate::sdr::processor::SdrProcessor;
 
 pub mod broadcasting;
 pub mod mock_tx;
+mod source_lifecycle;
 pub mod sources;
+
+use source_lifecycle::*;
 
 // Re-export key symbols for tests and other modules
 pub use broadcasting::{
@@ -137,131 +140,6 @@ fn should_fallback_to_mock_on_threshold_read_error(
   !supported_device_present && !is_async_sample_timeout_error(error)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SourceLifecyclePhase {
-  Connected,
-  Loading,
-  Streaming,
-  Standby,
-}
-
-impl std::fmt::Display for SourceLifecyclePhase {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      SourceLifecyclePhase::Connected => write!(f, "Connected"),
-      SourceLifecyclePhase::Loading => write!(f, "Loading"),
-      SourceLifecyclePhase::Streaming => write!(f, "Streaming"),
-      SourceLifecyclePhase::Standby => write!(f, "Standby"),
-    }
-  }
-}
-
-fn source_phase_on_select(
-  is_warm: bool,
-  is_mock: bool,
-) -> SourceLifecyclePhase {
-  if is_warm {
-    SourceLifecyclePhase::Streaming
-  } else if is_mock {
-    SourceLifecyclePhase::Standby
-  } else {
-    SourceLifecyclePhase::Loading
-  }
-}
-
-fn prepare_selected_source_for_rx(
-  shared: &SharedState,
-  source_id: &str,
-  phase: SourceLifecyclePhase,
-) {
-  shared.set_active_source_pause_state(source_id, false);
-  if phase == SourceLifecyclePhase::Loading {
-    shared.set_device_state("loading", Some("connect"));
-  }
-}
-
-fn take_next_warm_source<T>(
-  warm_sources: &mut HashMap<String, T>,
-) -> Option<(String, T)> {
-  let source_id = warm_sources.keys().min().cloned()?;
-  warm_sources
-    .remove(&source_id)
-    .map(|device| (source_id, device))
-}
-
-fn warmable_hardware_source_ids(
-  snapshot: &serde_json::Value,
-  active_source_id: &str,
-) -> Vec<String> {
-  let mut source_ids = snapshot["sources"]
-    .as_array()
-    .into_iter()
-    .flatten()
-    .filter_map(|source| {
-      let id = source["id"].as_str()?;
-      let kind = source["kind"].as_str()?;
-      (id != active_source_id
-        && matches!(kind, "rtl-sdr" | "rtl_sdr" | "hackrf_one" | "hackrf"))
-      .then(|| id.to_string())
-    })
-    .collect::<Vec<_>>();
-  source_ids.sort();
-  source_ids.dedup();
-  source_ids
-}
-
-fn prewarm_attached_hardware_sources(
-  processor: &SdrProcessor,
-  shared_state: &SharedState,
-  warm_devices: &mut HashMap<String, Box<dyn crate::sdr::SdrDevice>>,
-) {
-  let active_id = active_source_id(shared_state);
-  let snapshot = build_source_info_snapshot(shared_state);
-  for source_id in warmable_hardware_source_ids(&snapshot, &active_id) {
-    if warm_devices.contains_key(&source_id) {
-      continue;
-    }
-
-    match open_device_for_source_id(&source_id) {
-      Ok(mut device) => match initialize_warm_source(device.as_mut()) {
-        Ok(()) => {
-          info!("Pre-warmed attached SDR source {}", source_id);
-          warm_devices.insert(source_id, device);
-        }
-        Err(error) => {
-          warn!("Failed to pre-warm SDR source {}: {}", source_id, error);
-        }
-      },
-      Err(error) => {
-        warn!(
-          "Failed to open attached SDR source {} for warm pool: {}",
-          source_id, error
-        );
-      }
-    }
-  }
-
-  debug!(
-    "Warm pool contains {} attached source(s) while {} is active",
-    warm_devices.len(),
-    processor.device_type()
-  );
-}
-
-fn initialize_warm_source(
-  device: &mut dyn crate::sdr::SdrDevice,
-) -> Result<()> {
-  device.initialize()?;
-  if !device.is_rx_active() {
-    return Err(anyhow::anyhow!(
-      "{} initialized without an active RX reader",
-      device.device_type()
-    ));
-  }
-  device.flush_read_queue();
-  Ok(())
-}
-
 #[cfg(test)]
 #[derive(Default)]
 struct SourceLifecycleModel {
@@ -373,7 +251,13 @@ mod tests {
   }
 
   #[test]
-  fn startup_warm_pool_includes_every_non_active_hardware_source() {
+  fn mock_sources_remain_warm_across_bidirectional_switches() {
+    assert!(should_cache_swapped_source("mock-apt"));
+    assert!(should_cache_swapped_source("mock-tx"));
+  }
+
+  #[test]
+  fn startup_warm_pool_includes_every_non_active_source() {
     let snapshot = serde_json::json!({
       "sources": [
         {"id": "rtl-sdr-a", "kind": "rtl-sdr"},
@@ -383,8 +267,23 @@ mod tests {
     });
 
     assert_eq!(
-      warmable_hardware_source_ids(&snapshot, "rtl-sdr-a"),
-      vec!["hackrf_one-b".to_string()]
+      warmable_source_ids(&snapshot, "rtl-sdr-a"),
+      vec!["hackrf_one-b".to_string(), "mock-apt".to_string()]
+    );
+  }
+
+  #[test]
+  fn startup_warm_pool_prepares_the_inactive_mock_peer() {
+    let snapshot = serde_json::json!({
+      "sources": [
+        {"id": "mock-apt", "kind": "mock_apt"},
+        {"id": "mock-tx", "kind": "mock_tx"}
+      ]
+    });
+
+    assert_eq!(
+      warmable_source_ids(&snapshot, "mock-apt"),
+      vec!["mock-tx".to_string()]
     );
   }
 
@@ -630,11 +529,7 @@ impl WebSocketServer {
       // Keep every other attached receiver open with its bounded RX reader
       // alive. Stopping RTL here and restarting it on selection recreates the
       // libusb interface-claim race that prewarming is meant to eliminate.
-      prewarm_attached_hardware_sources(
-        &processor,
-        &shared_state,
-        &mut warm_devices,
-      );
+      prewarm_inactive_sources(&processor, &shared_state, &mut warm_devices);
       broadcast_device_status(&shared_state, &_broadcast_tx);
     }
 
@@ -729,6 +624,11 @@ impl WebSocketServer {
                 &source_id,
                 "loading",
               );
+            } else {
+              // Loading transitions advance the epoch in `set_device_state`.
+              // Warm and mock switches skip loading, so begin their handoff
+              // explicitly. This guarantees exactly one epoch per switch.
+              shared_state.begin_stream_epoch();
             }
 
             let next_device = match warm_devices.remove(&source_id) {
@@ -781,7 +681,7 @@ impl WebSocketServer {
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                   Ok(previous_device) => {
-                    if !current_source_id.starts_with("mock-") {
+                    if should_cache_swapped_source(&current_source_id) {
                       warm_devices
                         .insert(current_source_id.clone(), previous_device);
                     }
@@ -1760,10 +1660,15 @@ impl WebSocketServer {
             warn!("Raw I/Q data is empty in live stream - this may cause data stream freeze");
           }
 
+          let (stream_epoch, sequence) =
+            shared_state.next_stream_frame_identity();
           let spectrum_message = SpectrumData {
             message_type: "spectrum".to_string(),
             waveform: Vec::new(),
             is_mock_apt,
+            source_id: active_source_id(&shared_state),
+            stream_epoch,
+            sequence,
             center_frequency_hz: Some(center_frequency),
             waveform_span_hz: None,
             timestamp,

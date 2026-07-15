@@ -65,23 +65,10 @@ export const shouldShowSourceHandoffOverlay = ({
   activeSourceId: string | null;
   hasActiveSourceFrame: boolean;
 }): boolean => {
-  if (
-    !selectedSourceId ||
-    selectedSourceId === "mock-apt" ||
-    selectedSourceId === "mock-tx" ||
-    (selectedSourceId !== null && selectedSourceId.startsWith("mock"))
-  ) {
-    return false;
-  }
-  const cleanSelected = selectedSourceId
-    ? selectedSourceId.replace(/-\d+$/, "")
-    : null;
-  const cleanActive = activeSourceId
-    ? activeSourceId.replace(/-\d+$/, "")
-    : null;
+  if (!selectedSourceId) return false;
   return (
     sourceMode === "live" &&
-    ((!!cleanSelected && !!cleanActive && cleanSelected !== cleanActive) ||
+    ((activeSourceId !== null && selectedSourceId !== activeSourceId) ||
       !hasActiveSourceFrame)
   );
 };
@@ -155,6 +142,28 @@ export const shouldFlushWebGpuStreamCache = (
   return (
     previous.status !== next.status && RESET_STATUSES.has(next.status ?? "")
   );
+};
+
+/**
+ * Resolve the minimal presentation reset for a source lifecycle transition.
+ * Selection changes already replace the keyed canvas subtree, so they clear
+ * the old frame once without also advancing the reconnect epoch. The later
+ * active-source commit must not perform a second reset.
+ */
+export const resolveWebGpuStreamTransition = (
+  previous: WebGpuStreamIdentity | null,
+  next: WebGpuStreamIdentity,
+): { clearLiveFrame: boolean; advanceResetEpoch: boolean } => {
+  if (!previous) {
+    return { clearLiveFrame: false, advanceResetEpoch: false };
+  }
+  const selectionChanged =
+    (previous.selectedSourceId ?? null) !== (next.selectedSourceId ?? null);
+  const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
+  return {
+    clearLiveFrame: selectionChanged || reconnectBoundary,
+    advanceResetEpoch: reconnectBoundary,
+  };
 };
 
 export const flushWebGpuPresentation = ({

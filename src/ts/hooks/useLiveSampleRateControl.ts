@@ -15,6 +15,7 @@ type UseLiveSampleRateControlArgs = {
   supportsWholeChannelSampleRate: boolean;
   manualSampleRateOptions?: number[];
   activeChannelSampleRate: number | null;
+  maxSampleRateHz?: number | null;
   activeSignalAreaBounds: FrequencyRange | null;
   frequencyRange: FrequencyRange | null;
   sampleRateHz: number | null;
@@ -105,6 +106,28 @@ export const getWholeChannelSampleRate = (
   return activeChannelSampleRate;
 };
 
+export const canUseWholeChannelSampleRate = ({
+  supportsWholeChannelSampleRate,
+  activeChannelSampleRate,
+  maxSampleRateHz,
+}: {
+  supportsWholeChannelSampleRate: boolean;
+  activeChannelSampleRate: number | null;
+  maxSampleRateHz?: number | null;
+}): boolean => {
+  const wholeChannelRate = getWholeChannelSampleRate(activeChannelSampleRate);
+  if (!supportsWholeChannelSampleRate || wholeChannelRate === null) {
+    return false;
+  }
+
+  return (
+    typeof maxSampleRateHz !== "number" ||
+    !Number.isFinite(maxSampleRateHz) ||
+    maxSampleRateHz <= 0 ||
+    wholeChannelRate <= maxSampleRateHz + 10_000
+  );
+};
+
 const rangeSpanHz = (range: FrequencyRange): number =>
   Math.max(0, Math.round(range.max - range.min));
 
@@ -113,6 +136,7 @@ export const useLiveSampleRateControl = ({
   supportsWholeChannelSampleRate,
   manualSampleRateOptions = [],
   activeChannelSampleRate,
+  maxSampleRateHz,
   activeSignalAreaBounds,
   frequencyRange,
   sampleRateHz,
@@ -129,7 +153,12 @@ export const useLiveSampleRateControl = ({
   const lastAppliedFrequencyRangeKeyRef = useRef<string | null>(null);
 
   const canUseWholeChannel =
-    sourceMode === "live" && supportsWholeChannelSampleRate;
+    sourceMode === "live" &&
+    canUseWholeChannelSampleRate({
+      supportsWholeChannelSampleRate,
+      activeChannelSampleRate,
+      maxSampleRateHz,
+    });
   const wholeChannelSampleRate = canUseWholeChannel
     ? getWholeChannelSampleRate(activeChannelSampleRate)
     : null;

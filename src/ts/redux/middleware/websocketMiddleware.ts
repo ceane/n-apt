@@ -28,15 +28,12 @@ import {
 } from "@n-apt/utils/deviceCapabilities";
 import {
   type DeviceState,
-  type SourceErrorMessage,
   type SourceInfo,
-  type SourceInfoMessage,
-  type SourceSdrSettingsMessage,
-  type SourceStatusMessage,
   type IqRawFrame,
   type SpectrumFrame,
 } from "@n-apt/consts/schemas/websocket";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
+import { createIqFramePump, type IqFramePump } from "@n-apt/io/iqFramePump";
 import {
   processWebSocketMessageWithValidation,
   isValidChannelsMessageEnhanced,
@@ -52,6 +49,9 @@ import {
 export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
   current: [],
 };
+
+export { decodeIqFrameEnvelope } from "@n-apt/io/iqStreamProtocol";
+export { createIqFramePump } from "@n-apt/io/iqFramePump";
 
 // Tracks the requested/selected source during transition to filter out old frames
 let requestedSourceId: string | null = null;
@@ -329,6 +329,8 @@ let sourceIqWsInstance: SourceIqWebSocketInstance = {
   sourceId: null,
   reconnectTimeout: null,
 };
+let sourceIqFramePump: IqFramePump | null = null;
+let controlIqFramePump: IqFramePump | null = null;
 
 // Batching for high-frequency data
 let dataBatchFrame: number | null = null;
@@ -402,7 +404,10 @@ export const normalizeFrequencyRangeMessageData = (
 
 export const buildSourceIqWebSocketUrl = (
   controlUrl: string,
-  source: Pick<SourceInfo, "id" | "stream_key"> | null | undefined,
+  source:
+    | Pick<SourceInfo, "id" | "stream_key" | "iq_stream_protocols">
+    | null
+    | undefined,
 ): string | null => {
   const streamKey = source?.stream_key?.trim() || source?.id?.trim();
   if (!controlUrl || !streamKey) return null;
@@ -410,6 +415,9 @@ export const buildSourceIqWebSocketUrl = (
   const url = new URL(controlUrl, window.location.href);
   url.pathname = url.pathname.replace(/\/ws\/?$/, "/ws");
   url.pathname = `${url.pathname}/source/${encodeURIComponent(streamKey)}/iq`;
+  if (source?.iq_stream_protocols?.includes(2)) {
+    url.searchParams.set("iq_protocol", "2");
+  }
   return url.toString();
 };
 
@@ -451,6 +459,10 @@ export const resetWebSocketMiddlewareState = (): void => {
   pendingDataUpdate = null;
   pendingStatusUpdates = null;
   liveDataRef.current = null;
+  sourceIqFramePump?.reset();
+  sourceIqFramePump = null;
+  controlIqFramePump?.reset();
+  controlIqFramePump = null;
   resetPausedFrameRequestGate();
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
@@ -890,6 +902,8 @@ const cleanupSocket = () => {
     wsInstance.ws = null;
   }
   cleanupSourceIqSocket();
+  controlIqFramePump?.reset();
+  controlIqFramePump = null;
 
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
@@ -901,6 +915,8 @@ const cleanupSocket = () => {
 };
 
 const cleanupSourceIqSocket = () => {
+  sourceIqFramePump?.reset();
+  sourceIqFramePump = null;
   if (sourceIqWsInstance.ws) {
     sourceIqWsInstance.ws.onclose = null;
     sourceIqWsInstance.ws.onerror = null;
@@ -946,6 +962,29 @@ export const shouldAcceptSourceIqSocketMessage = ({
 export const shouldOpenSourceIqSocket = (status: unknown): boolean =>
   status === "connected" || status === "streaming" || status === "transmitting";
 
+/** Publishes only transport boundary changes; raw frame traffic never enters Redux. */
+const publishSourceTransport = (
+  dispatch: Dispatch,
+  getState: () => any,
+  sourceId: string,
+  phase: "warming" | "ready" | "failed",
+  error: string | null = null,
+  replaceFailure = false,
+) => {
+  const current = getState().websocket.sourceTransport;
+  if (
+    !replaceFailure &&
+    current?.phase === "failed" &&
+    current.sourceId !== sourceId
+  ) {
+    return;
+  }
+  const nextTransport = { sourceId, phase, error };
+  if (!equalValue(current, nextTransport)) {
+    dispatch(updateDeviceState({ sourceTransport: nextTransport }));
+  }
+};
+
 const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {
     cleanupSourceIqSocket();
@@ -958,8 +997,9 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
 
   const state = getState().websocket;
   const activeSourceId = state.activeSourceId;
+  const transportSourceId = requestedSourceId ?? activeSourceId;
   const activeSource = (state.sources ?? []).find(
-    (source: SourceInfo) => source.id === activeSourceId,
+    (source: SourceInfo) => source.id === transportSourceId,
   );
   if (!activeSource?.supports_raw_iq_stream) {
     cleanupSourceIqSocket();
@@ -999,6 +1039,7 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   }
 
   cleanupSourceIqSocket();
+  publishSourceTransport(dispatch, getState, activeSource.id, "warming");
   const ws = new WebSocket(nextUrl);
   ws.binaryType = "arraybuffer";
   sourceIqWsInstance.ws = ws;
@@ -1006,8 +1047,14 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   sourceIqWsInstance.sourceId = activeSource.id;
   sourceIqWsInstance.reconnectTimeout = null;
   const socketSourceId = activeSource.id;
+  sourceIqFramePump = createStoreIqFramePump(
+    dispatch,
+    getState,
+    wsInstance.aesKey,
+  );
 
   ws.onopen = () => {
+    publishSourceTransport(dispatch, getState, socketSourceId, "ready");
     if (socketSourceId === "mock-tx") {
       const state = getState();
       const isTransmitting =
@@ -1038,7 +1085,7 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
     }
   };
 
-  ws.onmessage = async (event) => {
+  ws.onmessage = (event) => {
     if (
       event.data instanceof ArrayBuffer &&
       wsInstance.aesKey &&
@@ -1049,13 +1096,7 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
         requestedSourceId,
       })
     ) {
-      await processBinaryMessage(
-        dispatch,
-        getState,
-        event.data,
-        wsInstance.aesKey,
-        socketSourceId,
-      );
+      sourceIqFramePump?.enqueue(event.data, socketSourceId);
     }
   };
   ws.onerror = (error) => {
@@ -1102,8 +1143,6 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.active_source !== previousActiveSourceId) {
-      }
-      if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
       }
       const activeSource =
@@ -1136,6 +1175,9 @@ const processMessage = (
         isPaused: isSourceModePaused(parsedData.active_source_mode),
         sources: parsedData.sources,
         sourceStatuses,
+        ...(parsedData.active_source !== previousActiveSourceId
+          ? { sourceFrameReadiness: null }
+          : {}),
         ...derived,
       };
       applyStatusUpdates(dispatch, getState, updates);
@@ -1154,8 +1196,6 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       if (parsedData.source_id !== previousActiveSourceId) {
-      }
-      if (parsedData.source_id !== previousActiveSourceId) {
         pendingDataUpdate = null;
       }
       if (parsedData.source_id === requestedSourceId) {
@@ -1165,6 +1205,16 @@ const processMessage = (
         activeSourceId: parsedData.source_id,
         activeSourceMode: parsedData.source_mode,
         isPaused: isSourceModePaused(parsedData.source_mode),
+        sources: (getState().websocket.sources ?? []).map(
+          (source: SourceInfo) =>
+            source.id === parsedData.source_id &&
+            typeof parsedData.stream_epoch === "number"
+              ? { ...source, stream_epoch: parsedData.stream_epoch }
+              : source,
+        ),
+        ...(parsedData.source_id !== previousActiveSourceId
+          ? { sourceFrameReadiness: null }
+          : {}),
       };
 
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
@@ -1244,8 +1294,6 @@ const processMessage = (
     }
 
     try {
-      if (parsedData.status === "loading") {
-      }
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const nextSources = currentSources.map((source) =>
         source.id === parsedData.source_id
@@ -1256,6 +1304,7 @@ const processMessage = (
                 parsedData.loading_attempt ?? source.loading_attempt,
               loading_attempt_max:
                 parsedData.loading_attempt_max ?? source.loading_attempt_max,
+              stream_epoch: parsedData.stream_epoch ?? source.stream_epoch,
             }
           : source,
       );
@@ -1356,7 +1405,24 @@ const processMessage = (
       return;
     }
 
-    if (parsedData.code === "source_switch_failed") {
+    if (
+      parsedData.code === "source_switch_failed" &&
+      parsedData.source_id === requestedSourceId
+    ) {
+      // The backend kept the previous source active. Drop the speculative
+      // target transport and immediately restore that active source instead
+      // of leaving the presentation state waiting on a socket that can never
+      // publish a valid frame.
+      publishSourceTransport(
+        dispatch,
+        getState,
+        parsedData.source_id,
+        "failed",
+        parsedData.message,
+        true,
+      );
+      requestedSourceId = null;
+      syncSourceIqSocket(dispatch, getState);
     }
     dispatch(setError(parsedData.message));
     return;
@@ -1478,84 +1544,58 @@ const processMessage = (
   }
 };
 
-// Binary message processing
-const processBinaryMessage = async (
+/** Build the bounded binary frame pipeline for one socket generation. */
+const createStoreIqFramePump = (
   dispatch: Dispatch,
   getState: () => any,
-  buffer: ArrayBuffer,
   aesKey: CryptoKey,
-  sourceId: string,
-) => {
-  const activeSourceId = getState().websocket.activeSourceId;
-  if (sourceId !== activeSourceId) {
-    return;
-  }
-
-  try {
-    const view = new DataView(buffer);
-
-    // Extract metadata
-    const timestamp = Number(view.getBigUint64(0, true));
-    const centerFrequencyHz = Number(view.getBigUint64(8, true));
-    const dataType = Number(view.getUint32(16, true));
-    const sampleRate = Number(view.getUint32(20, true));
-
-    // Extract encrypted payload
-    const encryptedPayload = new Uint8Array(buffer, 24);
-
-    // Decrypt the binary payload
-    const decryptedBytes = await decryptBinaryPayload(aesKey, encryptedPayload);
-    // Decryption is asynchronous. A source switch may have completed while
-    // this frame was in flight, so verify the immutable socket identity again
-    // before allowing an old device's IQ bytes into the live frame ref.
-    if (sourceId !== getState().websocket.activeSourceId) {
-      return;
-    }
-    if (dataType !== 1) {
-      console.warn("Ignoring unexpected non-IQ binary payload", {
-        dataType,
-        centerFrequencyHz,
-        sampleRate,
-        byteLength: decryptedBytes.byteLength,
-      });
-      return;
-    }
-
-    if (isFrameStale(centerFrequencyHz)) {
-      return;
-    }
-    checkRetuneWatchdog(centerFrequencyHz);
-
-    const spectrumData = {
-      type: "spectrum",
-      source_id: sourceId,
-      is_mock_apt: false,
-      center_frequency_hz: centerFrequencyHz,
-      waveform_span_hz: null,
-      timestamp: timestamp,
-      data_type: "iq_raw",
-      sample_rate: sampleRate,
-      iq_data: decryptedBytes,
-    };
-
-    // Batch the data update to prevent excessive re-renders
-    if (pendingDataUpdate === null) {
-      pendingDataUpdate = [spectrumData];
-    } else {
-      pendingDataUpdate.push(spectrumData);
-      trimPendingDataUpdate();
-    }
-
-    if (dataBatchFrame === null) {
-      dataBatchFrame = window.requestAnimationFrame(() =>
-        processBatchedData(dispatch, getState),
+): IqFramePump =>
+  createIqFramePump({
+    decrypt: (payload) => decryptBinaryPayload(aesKey, payload),
+    publish: (frame) => {
+      if (!isFrameStale(frame.center_frequency_hz ?? 0)) {
+        checkRetuneWatchdog(frame.center_frequency_hz ?? 0);
+        queueLiveData(frame, dispatch, getState);
+      }
+    },
+    getLifecycle: () => {
+      const state = getState().websocket;
+      const activeSource = (state.sources ?? []).find(
+        (source: SourceInfo) => source.id === state.activeSourceId,
       );
-    }
-  } catch (e) {
-    console.error("Binary decryption failed:", e);
-    dispatch(setCryptoCorrupted());
-  }
-};
+      return {
+        sourceId: state.activeSourceId ?? null,
+        streamEpoch: activeSource?.stream_epoch ?? null,
+      };
+    },
+    onLifecycleChange: (sourceId, streamEpoch) => {
+      const websocketState = getState().websocket;
+      if (websocketState.activeSourceId !== sourceId) return;
+      const sources = (websocketState.sources ?? []).map((source: SourceInfo) =>
+        source.id === sourceId && source.stream_epoch !== streamEpoch
+          ? { ...source, stream_epoch: streamEpoch }
+          : source,
+      );
+      applyStatusUpdates(dispatch, getState, { sources });
+    },
+    onFirstFrameAccepted: (frame) => {
+      const readiness = {
+        sourceId: frame.source_id ?? getState().websocket.activeSourceId ?? "",
+        streamEpoch:
+          typeof frame.stream_epoch === "number" ? frame.stream_epoch : null,
+        sequence: frame.sequence ?? 0,
+      };
+      const current = getState().websocket.sourceFrameReadiness;
+      if (
+        current?.sourceId === readiness.sourceId &&
+        current.streamEpoch === readiness.streamEpoch
+      ) {
+        return;
+      }
+      dispatch(updateDeviceState({ sourceFrameReadiness: readiness }));
+    },
+    onDecryptionFailure: () => dispatch(setCryptoCorrupted()),
+  });
 
 // Create WebSocket middleware
 const createWebSocketMiddleware =
@@ -1616,6 +1656,11 @@ const createWebSocketMiddleware =
             const ws = new WebSocket(url);
             ws.binaryType = "arraybuffer";
             wsInstance.ws = ws;
+            controlIqFramePump = createStoreIqFramePump(
+              dispatch,
+              getState,
+              aesKey,
+            );
 
             ws.onopen = () => {
               if (wsInstance.disposed) {
@@ -1646,13 +1691,7 @@ const createWebSocketMiddleware =
               if (event.data instanceof ArrayBuffer) {
                 if (wsInstance.aesKey) {
                   const activeSourceId = getState().websocket.activeSourceId;
-                  await processBinaryMessage(
-                    dispatch,
-                    getState,
-                    event.data,
-                    wsInstance.aesKey,
-                    activeSourceId ?? "",
-                  );
+                  controlIqFramePump?.enqueue(event.data, activeSourceId ?? "");
                 }
                 return;
               }
@@ -1854,18 +1893,29 @@ const createWebSocketMiddleware =
         if (type === "select_source") {
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
+          if (requestedSourceId) {
+            dispatch(updateDeviceState({ sourceFrameReadiness: null }));
+            publishSourceTransport(
+              dispatch,
+              getState,
+              requestedSourceId,
+              "warming",
+              null,
+              true,
+            );
+          }
+          // Start the target transport during backend device swap so the
+          // first committed frame does not wait on a second WebSocket
+          // handshake. Frames remain gated by the active source identity.
+          syncSourceIqSocket(dispatch, getState);
         }
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-          if (type === "select_source") {
-          }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
         } else if (type === "tx_mode" || type === "request_next_frame") {
           allowNextPausedFrame = false;
           resetPausedFrameRequestGate();
         } else {
-          if (type === "select_source") {
-          }
           // Queue the message for when connection is restored
           dispatch(queueMessage({ type, data: normalizedData }));
         }

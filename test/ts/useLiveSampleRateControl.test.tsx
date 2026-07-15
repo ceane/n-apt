@@ -1,10 +1,55 @@
 import { act, renderHook } from "@testing-library/react";
 import {
   buildLiveSampleRateRange,
+  canUseWholeChannelSampleRate,
   useLiveSampleRateControl,
 } from "@n-apt/hooks/useLiveSampleRateControl";
 
 describe("useLiveSampleRateControl", () => {
+  it("does not expose Whole Channel when the channel exceeds the source maximum", () => {
+    expect(
+      canUseWholeChannelSampleRate({
+        supportsWholeChannelSampleRate: true,
+        activeChannelSampleRate: 4_372_000,
+        maxSampleRateHz: 3_200_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a valid source rate stable across a paused-to-playing channel update", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+    const initialProps = {
+      sourceMode: "live" as const,
+      supportsWholeChannelSampleRate: true,
+      manualSampleRateOptions: [3_200_000],
+      activeChannelSampleRate: 4_372_000,
+      maxSampleRateHz: 3_200_000,
+      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+      frequencyRange: { min: 18_000, max: 3_218_000 },
+      sampleRateHz: 3_200_000,
+      setSampleRate,
+      applyFrequencyRange,
+    };
+
+    const { result, rerender } = renderHook(
+      (props: typeof initialProps) => useLiveSampleRateControl(props),
+      { initialProps },
+    );
+
+    rerender({
+      ...initialProps,
+      frequencyRange: { min: 18_000, max: 4_390_000 },
+    });
+
+    expect(result.current.wholeChannelSampleRate).toBeNull();
+    expect(setSampleRate).not.toHaveBeenCalledWith(4_372_000);
+    expect(applyFrequencyRange).not.toHaveBeenCalledWith({
+      min: 18_000,
+      max: 4_390_000,
+    });
+  });
+
   it("keeps manual HackRF sample-rate changes sticky across repeated updates", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();

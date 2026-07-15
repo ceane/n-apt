@@ -95,6 +95,17 @@ export interface WebSocketState {
   activeSourceMode: "live" | "file" | null;
   sources: SourceInfo[];
   sourceStatuses: Record<string, SourceStatus>;
+  /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
+  sourceTransport: {
+    sourceId: string | null;
+    phase: "idle" | "warming" | "ready" | "failed";
+    error: string | null;
+  };
+  sourceFrameReadiness: {
+    sourceId: string;
+    streamEpoch: number | null;
+    sequence: number;
+  } | null;
   channels: SpectrumFrame[];
 
   // Device info
@@ -145,6 +156,8 @@ const initialState: WebSocketState = {
   activeSourceMode: null,
   sources: [],
   sourceStatuses: {},
+  sourceTransport: { sourceId: null, phase: "idle", error: null },
+  sourceFrameReadiness: null,
   channels: [],
 
   backend: null,
@@ -176,6 +189,7 @@ const websocketSlice = createSlice({
     setConnecting: (state) => {
       state.connectionStatus = "connecting";
       state.error = null;
+      state.sourceFrameReadiness = null;
     },
 
     setConnected: (state) => {
@@ -195,6 +209,8 @@ const websocketSlice = createSlice({
       state.activeSourceMode = null;
       state.sources = [];
       state.sourceStatuses = {};
+      state.sourceTransport = { sourceId: null, phase: "idle", error: null };
+      state.sourceFrameReadiness = null;
       state.channels = [];
       state.backend = null;
       state.deviceInfo = null;

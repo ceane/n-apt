@@ -26,6 +26,43 @@ describe("getMockTxPreviewRequestKey", () => {
 });
 
 describe("resolveLiveDevicePlaceholderState", () => {
+  it.each(["loading", "loose", "stale"])(
+    "dismisses a %s placeholder when current-source I/Q is already renderable",
+    (deviceState) => {
+      expect(
+        resolveLiveDevicePlaceholderState({
+          deviceState,
+          sourceLabel: "RTL-SDR v4",
+          hasRenderableCurrentFrame: true,
+        } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
+          hasRenderableCurrentFrame: boolean;
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps an explicit disconnect blocking even when a frame is buffered", () => {
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "disconnected",
+        sourceLabel: "RTL-SDR v4",
+        hasRenderableCurrentFrame: true,
+      } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
+        hasRenderableCurrentFrame: boolean;
+      }),
+    ).toMatchObject({ kind: "disconnected" });
+  });
+
+  it("keeps an explicit device error blocking even when a frame is buffered", () => {
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "error",
+        sourceLabel: "RTL-SDR v4",
+        hasRenderableCurrentFrame: true,
+      }),
+    ).toMatchObject({ kind: "error" });
+  });
+
   it("promotes restart attempts into a loading placeholder message", () => {
     expect(
       resolveLiveDevicePlaceholderState({

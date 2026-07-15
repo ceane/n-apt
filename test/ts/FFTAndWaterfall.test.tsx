@@ -129,6 +129,10 @@ describe("FFTAndWaterfall", () => {
     const waterfallCalls = waterfallCanvasMock.mock.calls;
     const waterfallProps = waterfallCalls[waterfallCalls.length - 1]?.[0];
     expect(waterfallProps?.awaitingDeviceData).toBe(true);
+    expect(waterfallProps?.placeholderState).toMatchObject({
+      kind: "loading",
+      paneLabel: "Waterfall",
+    });
   });
 
   it("does not require a live frame before rendering file playback", () => {
@@ -157,6 +161,7 @@ describe("FFTAndWaterfall", () => {
   });
 
   it("clears waterfall loading as soon as FFT reports a rendered frame", () => {
+    const onRenderableFrameChange = jest.fn();
     render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -165,6 +170,7 @@ describe("FFTAndWaterfall", () => {
         activeSignalArea="A"
         isPaused={false}
         snapshotGridPreference={true}
+        onRenderableFrameChange={onRenderableFrameChange}
       />,
     );
 
@@ -184,6 +190,7 @@ describe("FFTAndWaterfall", () => {
     act(() => {
       fftProps.onRenderableFrameChange(true);
     });
+    expect(onRenderableFrameChange).toHaveBeenCalledWith(true);
 
     const nextWaterfallProps =
       waterfallCanvasMock.mock.calls[
@@ -333,6 +340,34 @@ describe("FFTAndWaterfall", () => {
     expect(fftProps?.placeholderState).toMatchObject({ paneLabel: "FFT" });
     expect(waterfallProps?.placeholderState).toMatchObject({
       paneLabel: "Waterfall",
+    });
+  });
+
+  it("keeps a visible placeholder on the waterfall when FFT shows a top bar", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        placeholderState={{
+          kind: "top-bar",
+          title: "Start Tx to transmit",
+          sourceLabel: "Mock Tx SDR",
+        }}
+      />,
+    );
+
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(waterfallProps?.placeholderState).toMatchObject({
+      kind: "top-bar",
+      title: "Start Tx to transmit",
     });
   });
 

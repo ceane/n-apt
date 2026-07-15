@@ -30,6 +30,41 @@ import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
 import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
 import { waitFor } from "@testing-library/react";
+import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
+
+const decodeIqFrameEnvelope = (
+  websocketMiddlewareExports as typeof websocketMiddlewareExports & {
+    decodeIqFrameEnvelope?: (
+      buffer: ArrayBuffer,
+      fallbackSourceId: string,
+    ) => {
+      metadata: Record<string, unknown>;
+      encryptedPayload: Uint8Array;
+    };
+  }
+).decodeIqFrameEnvelope;
+
+const buildV2IqEnvelope = () => {
+  const sourceId = new TextEncoder().encode("rtl-sdr-v4");
+  const headerLength = 52 + sourceId.length;
+  const bytes = new Uint8Array(headerLength + 3);
+  bytes.set(new TextEncoder().encode("NAPT"), 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint8(4, 2);
+  view.setUint8(5, 0);
+  view.setUint16(6, headerLength, true);
+  view.setUint16(8, sourceId.length, true);
+  view.setUint16(10, 0, true);
+  view.setBigUint64(12, 7n, true);
+  view.setBigUint64(20, 11n, true);
+  view.setBigUint64(28, 1234n, true);
+  view.setBigUint64(36, 137_100_000n, true);
+  view.setUint32(44, 1, true);
+  view.setUint32(48, 2_400_000, true);
+  bytes.set(sourceId, 52);
+  bytes.set([9, 8, 7], headerLength);
+  return bytes.buffer;
+};
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -101,6 +136,67 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Thunk payload shaping", () => {
+    it("decodes both legacy v1 and source-scoped v2 I/Q envelopes", () => {
+      const v1 = new Uint8Array(27);
+      const v1View = new DataView(v1.buffer);
+      v1View.setBigUint64(0, 1234n, true);
+      v1View.setBigUint64(8, 137_100_000n, true);
+      v1View.setUint32(16, 1, true);
+      v1View.setUint32(20, 2_400_000, true);
+      v1.set([9, 8, 7], 24);
+
+      expect(decodeIqFrameEnvelope?.(v1.buffer, "rtl-sdr-v4")).toMatchObject({
+        metadata: {
+          protocol_version: 1,
+          source_id: "rtl-sdr-v4",
+          timestamp: 1234,
+          center_frequency_hz: 137_100_000,
+          data_type: 1,
+          sample_rate: 2_400_000,
+        },
+        encryptedPayload: new Uint8Array([9, 8, 7]),
+      });
+      expect(
+        decodeIqFrameEnvelope?.(buildV2IqEnvelope(), "ignored-source"),
+      ).toMatchObject({
+        metadata: {
+          protocol_version: 2,
+          source_id: "rtl-sdr-v4",
+          stream_epoch: 7,
+          sequence: 11,
+          timestamp: 1234,
+          center_frequency_hz: 137_100_000,
+          data_type: 1,
+          sample_rate: 2_400_000,
+        },
+        encryptedPayload: new Uint8Array([9, 8, 7]),
+      });
+    });
+
+    it("rejects truncated or malformed v2 I/Q envelopes", () => {
+      expect(() =>
+        decodeIqFrameEnvelope?.(new ArrayBuffer(12), "rtl-sdr-v4"),
+      ).toThrow(/I\/Q frame/i);
+
+      const malformed = new Uint8Array(buildV2IqEnvelope());
+      new DataView(malformed.buffer).setUint16(6, 51, true);
+      expect(() =>
+        decodeIqFrameEnvelope?.(malformed.buffer, "rtl-sdr-v4"),
+      ).toThrow(/header/i);
+
+      const zeroSampleRate = new Uint8Array(buildV2IqEnvelope());
+      new DataView(zeroSampleRate.buffer).setUint32(48, 0, true);
+      expect(() =>
+        decodeIqFrameEnvelope?.(zeroSampleRate.buffer, "rtl-sdr-v4"),
+      ).toThrow(/sample rate/i);
+
+      const wrongDataType = new Uint8Array(buildV2IqEnvelope());
+      new DataView(wrongDataType.buffer).setUint32(44, 99, true);
+      expect(() =>
+        decodeIqFrameEnvelope?.(wrongDataType.buffer, "rtl-sdr-v4"),
+      ).toThrow(/data type/i);
+    });
+
     it("builds per-source IQ WebSocket URLs from stream keys", () => {
       expect(
         buildSourceIqWebSocketUrl(
@@ -112,6 +208,18 @@ describe("Redux WebSocket Migration", () => {
           } as any,
         ),
       ).toBe("ws://localhost:5173/ws/source/00000001/iq?token=session-token");
+    });
+
+    it("negotiates v2 only when the source advertises it", () => {
+      expect(
+        buildSourceIqWebSocketUrl("ws://localhost/ws?token=session-token", {
+          id: "rtl-sdr-v4",
+          stream_key: "00000001",
+          iq_stream_protocols: [1, 2],
+        }),
+      ).toBe(
+        "ws://localhost/ws/source/00000001/iq?token=session-token&iq_protocol=2",
+      );
     });
 
     it("accepts active Mock Tx monitor frames while the visualizer is paused", async () => {
@@ -971,6 +1079,124 @@ describe("Redux WebSocket Migration", () => {
       expect(sockets.map((socket) => socket.url)).toContain(
         "ws://localhost/ws/source/00000001/iq?token=session-token",
       );
+    });
+
+    it("preconnects a requested source and restores the active transport when the switch fails", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+      const source = (id: string, kind: string, status: string) => ({
+        id,
+        name: id,
+        kind,
+        capability: kind === "mock_tx" ? "tx" : "mock",
+        status,
+        loading_attempt: 0,
+        loading_attempt_max: 2,
+        supports_approx_dbm: true,
+        supports_raw_iq_stream: true,
+        stream_key: id,
+        stream_key_kind: "source_id",
+        sdr: {
+          max_sample_rate: 2_400_000,
+          sample_rate_options: [2_400_000],
+          fft_display: { markers: [] },
+          settings: {
+            sample_rate: 2_400_000,
+            center_frequency: 137_100_000,
+          },
+        },
+      });
+      const middlewareStore = configureStore({
+        reducer: { websocket: websocketSlice, spectrum: spectrumSlice },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      sockets[0].onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "mock-apt",
+          active_source_mode: "live",
+          sources: [
+            source("mock-apt", "mock_apt", "streaming"),
+            source("mock-tx", "mock_tx", "connected"),
+          ],
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: "mock-tx" },
+        },
+      });
+
+      expect(sockets.map((socket) => socket.url)).toContain(
+        "ws://localhost/ws/source/mock-tx/iq?token=session-token",
+      );
+      expect(middlewareStore.getState().websocket.activeSourceId).toBe(
+        "mock-apt",
+      );
+      expect(middlewareStore.getState().websocket.sourceTransport).toEqual({
+        sourceId: "mock-tx",
+        phase: "warming",
+        error: null,
+      });
+
+      sockets[sockets.length - 1].onopen?.();
+      expect(middlewareStore.getState().websocket.sourceTransport.phase).toBe(
+        "ready",
+      );
+
+      sockets[0].onmessage?.({
+        data: JSON.stringify({
+          type: "error",
+          source_id: "mock-tx",
+          code: "source_switch_failed",
+          message: "Mock Tx failed to start",
+        }),
+      });
+
+      expect(sockets[sockets.length - 1]?.url).toBe(
+        "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+      );
+      expect(middlewareStore.getState().websocket.sourceTransport).toEqual({
+        sourceId: "mock-tx",
+        phase: "failed",
+        error: "Mock Tx failed to start",
+      });
     });
 
     it("runs Mock APT to RTL hotplug through loading, socket replacement, and streaming", async () => {

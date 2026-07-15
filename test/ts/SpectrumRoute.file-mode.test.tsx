@@ -350,7 +350,7 @@ describe("SpectrumRoute file mode", () => {
       lastSentPauseRef: { current: null },
       wsConnection: {
         isConnected: true,
-        activeSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
         deviceState: "connected",
         deviceLoadingReason: null,
         isPaused: false,

@@ -1,5 +1,6 @@
 import {
   getInitialHandledWebGpuResetEpoch,
+  resolveWebGpuStreamTransition,
   getVisualizerLifecycleKey,
   getWebGpuStreamResetKey,
   shouldPreservePresentationDuringFrameGap,
@@ -82,6 +83,25 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
+  test("holds the same handoff overlay while switching between mock sources", () => {
+    expect(
+      shouldShowSourceHandoffOverlay({
+        sourceMode: "live",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        hasActiveSourceFrame: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowSourceHandoffOverlay({
+        sourceMode: "live",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        hasActiveSourceFrame: true,
+      }),
+    ).toBe(true);
+  });
+
   test("creates a new canvas lifecycle key for a hotplug reset", () => {
     expect(
       getWebGpuStreamResetKey({ sourceId: "rtl-sdr-v4", epoch: 2 }),
@@ -147,5 +167,41 @@ describe("WebGPU stream reset", () => {
         },
       ),
     ).toBe(false);
+  });
+
+  test("clears once on selection without remounting again at active-source commit", () => {
+    const selection = resolveWebGpuStreamTransition(
+      {
+        sourceId: "mock-apt",
+        selectedSourceId: "mock-apt",
+        status: "streaming",
+      },
+      {
+        sourceId: "mock-apt",
+        selectedSourceId: "mock-tx",
+        status: "streaming",
+      },
+    );
+    expect(selection).toEqual({
+      clearLiveFrame: true,
+      advanceResetEpoch: false,
+    });
+
+    const commit = resolveWebGpuStreamTransition(
+      {
+        sourceId: "mock-apt",
+        selectedSourceId: "mock-tx",
+        status: "streaming",
+      },
+      {
+        sourceId: "mock-tx",
+        selectedSourceId: "mock-tx",
+        status: "connected",
+      },
+    );
+    expect(commit).toEqual({
+      clearLiveFrame: false,
+      advanceResetEpoch: false,
+    });
   });
 });
