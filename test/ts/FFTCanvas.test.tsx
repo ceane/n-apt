@@ -16,6 +16,7 @@ import {
   getNodePreviewSelectionBarLabels,
   getNodePreviewVfoScaleTicks,
   getCanvasPixelRatio,
+  shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
@@ -94,6 +95,13 @@ describe("FFTCanvas Component", () => {
     isPaused: false,
     snapshotGridPreference: true,
   };
+
+  it("clears an unchanged blocking placeholder only once", () => {
+    expect(shouldClearBlockingPlaceholder(0, 2)).toBe(true);
+    expect(shouldClearBlockingPlaceholder(2, 2)).toBe(false);
+    expect(shouldClearBlockingPlaceholder(2, 3)).toBe(true);
+    expect(shouldClearBlockingPlaceholder(2, 0)).toBe(false);
+  });
 
   it("does not build a sparse full-channel cache for Mock APT", () => {
     expect(
@@ -624,6 +632,37 @@ describe("FFTCanvas Component", () => {
 
     expect(processIqToDbmSpectrumMock).not.toHaveBeenCalled();
     expect(drawSpectrumMock).not.toHaveBeenCalled();
+  });
+
+  it("retains the last source frame while the expected source changes", async () => {
+    const previousFrame = {
+      source_id: "mock-apt",
+      waveform: new Float32Array([1, 2, 3, 4]),
+    };
+    const dataRef = { current: previousFrame as any };
+    const renderCanvas = (expectedSourceId: string) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={dataRef}
+                expectedSourceId={expectedSourceId}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    const { rerender } = render(renderCanvas("mock-apt"));
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+
+    rerender(renderCanvas("mock-tx"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(dataRef.current).toBe(previousFrame);
   });
 
   it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {

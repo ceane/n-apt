@@ -435,7 +435,7 @@ describe("SpectrumRoute file mode", () => {
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
   });
 
-  it("clears the stale mock apt frame and requests a fresh mock tx frame on source switch", async () => {
+  it("retains the painted mock apt frame while requesting a fresh mock tx frame", async () => {
     const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
     requestNextLiveFrameMock.mockClear();
 
@@ -581,6 +581,50 @@ describe("SpectrumRoute file mode", () => {
     await waitFor(() => {
       expect(fftAndWaterfallMock).toHaveBeenCalled();
     });
+    expect(dataRef.current).toBe(liveFrame);
+
+    const handoffValue = {
+      ...mockValue,
+      selectedSourceId: "mock-tx",
+      selectedSource: {
+        id: "mock-tx",
+        name: "Mock Tx SDR",
+        kind: "mock_tx",
+        capability: "tx",
+        status: "connected",
+      } as any,
+      selectedSourceDerived: {
+        ...mockValue.selectedSourceDerived,
+        deviceName: "Mock Tx SDR",
+        backend: "mock_tx",
+      },
+      sources: [
+        ...mockValue.sources,
+        {
+          id: "mock-tx",
+          name: "Mock Tx SDR",
+          kind: "mock_tx",
+          capability: "tx",
+          status: "connected",
+        },
+      ],
+    };
+
+    rerender(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={handoffValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const handoffProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(handoffProps.dataRef).toBe(dataRef);
     expect(dataRef.current).toBe(liveFrame);
 
     const switchedValue = {

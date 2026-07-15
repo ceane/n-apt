@@ -124,6 +124,20 @@ describe("WebGPU stream reset", () => {
     );
   });
 
+  test("keeps the canvas lifecycle stable across source handoffs", () => {
+    expect(
+      getVisualizerLifecycleKey({
+        sourceId: "mock-apt",
+        epoch: 2,
+      }),
+    ).toBe(
+      getVisualizerLifecycleKey({
+        sourceId: "mock-tx",
+        epoch: 2,
+      }),
+    );
+  });
+
   test("advances the reset epoch only for same-source reconnect boundaries", () => {
     expect(
       shouldFlushWebGpuStreamCache(
@@ -169,7 +183,7 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
-  test("clears once on selection without remounting again at active-source commit", () => {
+  test("retains the painted frame through selection and active-source commit", () => {
     const selection = resolveWebGpuStreamTransition(
       {
         sourceId: "mock-apt",
@@ -183,7 +197,7 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(selection).toEqual({
-      clearLiveFrame: true,
+      clearLiveFrame: false,
       advanceResetEpoch: false,
     });
 

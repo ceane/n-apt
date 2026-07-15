@@ -101,15 +101,17 @@ export const getWebGpuStreamResetKey = ({
   return `${sourceId ?? "no-source"}:${epoch}`;
 };
 
-/** Pause/resume status is presentation state, not a canvas lifecycle boundary. */
+/**
+ * Pause/resume and source handoff are presentation state, not canvas mount
+ * boundaries. Same-source reconnects advance the epoch and still reset.
+ */
 export const getVisualizerLifecycleKey = ({
-  sourceId,
   epoch,
 }: {
   sourceId: string | null;
   epoch: number;
   status?: string | null;
-}): string => getWebGpuStreamResetKey({ sourceId, epoch });
+}): string => `live:${epoch}`;
 
 const RESET_STATUSES = new Set(["loading", "stale", "disconnected"]);
 
@@ -146,9 +148,8 @@ export const shouldFlushWebGpuStreamCache = (
 
 /**
  * Resolve the minimal presentation reset for a source lifecycle transition.
- * Selection changes already replace the keyed canvas subtree, so they clear
- * the old frame once without also advancing the reconnect epoch. The later
- * active-source commit must not perform a second reset.
+ * Source selection retains the currently painted canvas until the target's
+ * first frame replaces it. Same-source reconnects still clear immediately.
  */
 export const resolveWebGpuStreamTransition = (
   previous: WebGpuStreamIdentity | null,
@@ -157,11 +158,9 @@ export const resolveWebGpuStreamTransition = (
   if (!previous) {
     return { clearLiveFrame: false, advanceResetEpoch: false };
   }
-  const selectionChanged =
-    (previous.selectedSourceId ?? null) !== (next.selectedSourceId ?? null);
   const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
   return {
-    clearLiveFrame: selectionChanged || reconnectBoundary,
+    clearLiveFrame: reconnectBoundary,
     advanceResetEpoch: reconnectBoundary,
   };
 };

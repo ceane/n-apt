@@ -210,6 +210,12 @@ export const resolveTxModeDeviceName = (
   return null;
 };
 
+/** True only when a blocking placeholder has entered a new visual state. */
+export const shouldClearBlockingPlaceholder = (
+  previousKind: number,
+  nextKind: number,
+): boolean => nextKind !== 0 && previousKind !== nextKind;
+
 export const resolveEffectiveDbmOffsetDb = ({
   powerScale,
   deviceKind,
@@ -1631,6 +1637,7 @@ const FFTCanvas = memo(
     const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
     const lastIncomingFrameRef = useRef<LiveFrameData | null>(null);
     const lastRenderableFrameRef = useRef<LiveFrameData | null>(null);
+    const blockingPlaceholderClearKindRef = useRef(0);
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
 
@@ -2856,10 +2863,22 @@ const FFTCanvas = memo(
         });
         if (currentFrame && !isCurrentSourceFrame) {
           lastIncomingFrameRef.current = null;
-          clearSpectrumBackbuffer();
-          clearOverlayCanvas(spectrumOverlayCanvas);
-          clearOverlayCanvas(waterfallOverlayCanvas);
-          return;
+          const blockingState = explicitPlaceholderStateRef.current;
+          const hasAuthoritativeBlockingState = !!(
+            placeholderErrorReason ||
+            isLoadingPlaceholder ||
+            awaitingDeviceData ||
+            (blockingState &&
+              blockingState.kind !== "top-bar" &&
+              blockingState.kind !== "overlay-only")
+          );
+          // The mutable transport ref can still contain the previous source
+          // while a handoff is in flight. Reject that frame without erasing
+          // the last presentation; the target frame or delayed placeholder
+          // will replace it.
+          if (!hasAuthoritativeBlockingState) {
+            return;
+          }
         }
         const hasCurrentSourceFrame = !!currentFrame && isCurrentSourceFrame;
         const hasRenderableFrame = !!(
@@ -2908,7 +2927,31 @@ const FFTCanvas = memo(
         const isExplicitStandbyPlaceholder =
           hasExplicitPlaceholder &&
           currentExplicitPlaceholderState?.kind === "idle";
+        const explicitPlaceholderBlocksFrame = !!(
+          hasExplicitPlaceholder &&
+          !isExplicitStandbyPlaceholder &&
+          currentExplicitPlaceholderState?.kind !== "top-bar" &&
+          !hasCurrentSourceFrame
+        );
+        const blockingPlaceholderKind = isExplicitStandbyPlaceholder
+          ? 1
+          : showErrorPlaceholder
+            ? 2
+            : showLoadingPlaceholder
+              ? 3
+              : explicitPlaceholderBlocksFrame
+                ? 4
+                : 0;
         if (isExplicitStandbyPlaceholder) {
+          if (
+            !shouldClearBlockingPlaceholder(
+              blockingPlaceholderClearKindRef.current,
+              blockingPlaceholderKind,
+            )
+          ) {
+            return;
+          }
+          blockingPlaceholderClearKindRef.current = blockingPlaceholderKind;
           lastProcessedDataRef.current = null;
           lastProcessedFrameSignatureRef.current = null;
           frameBufferRef.current = [];
@@ -2927,14 +2970,20 @@ const FFTCanvas = memo(
         if (
           showLoadingPlaceholder ||
           showErrorPlaceholder ||
-          (hasExplicitPlaceholder &&
-            !isExplicitStandbyPlaceholder &&
-            currentExplicitPlaceholderState?.kind !== "top-bar" &&
-            !hasCurrentSourceFrame)
+          explicitPlaceholderBlocksFrame
         ) {
           if (preservePresentationDuringGap) {
             return;
           }
+          if (
+            !shouldClearBlockingPlaceholder(
+              blockingPlaceholderClearKindRef.current,
+              blockingPlaceholderKind,
+            )
+          ) {
+            return;
+          }
+          blockingPlaceholderClearKindRef.current = blockingPlaceholderKind;
           clearSpectrumBackbuffer();
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
@@ -2966,6 +3015,8 @@ const FFTCanvas = memo(
           }
           return;
         }
+
+        blockingPlaceholderClearKindRef.current = 0;
 
         clearOverlayCanvas(waterfallOverlayCanvas);
 
@@ -4362,8 +4413,23 @@ const FFTCanvas = memo(
         previousSessionKey,
         buildVisualizerSessionSnapshot(),
       );
-      clearLocalVisualizerSession();
       activeVisualizerSessionKeyRef.current = visualizerSessionKey;
+
+      // Switching sources is a presentation handoff, not a disconnect. Reset
+      // processing state so samples cannot blend across devices, while leaving
+      // the current GPU surfaces painted until a saved target presentation or
+      // its first live frame is ready to replace them.
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      frameBufferRef.current = [];
+      resetTemporalAveragingState();
 
       const restoredFromMachine = canRestoreVisualizerSession
         ? restoreVisualizerSessionSnapshot(
@@ -4376,7 +4442,7 @@ const FFTCanvas = memo(
     }, [
       buildVisualizerSessionSnapshot,
       canRestoreVisualizerSession,
-      clearLocalVisualizerSession,
+      resetTemporalAveragingState,
       restoreVisualizerSessionSnapshot,
       visualizerMachine,
       visualizerSessionKey,
@@ -4727,9 +4793,10 @@ const FFTCanvas = memo(
       expectedSourceId,
     );
 
-    // Effect: When the expected source ID changes, discard all cached frames,
-    // buffers, and waveforms immediately to prevent ghost frames from the
-    // previous device showing during transition.
+    // Reject cached processing state as soon as the expected source changes,
+    // but retain the already-painted presentation until the target source
+    // supplies its first frame. The delayed loading placeholder remains the
+    // fallback for a slow handoff instead of becoming a mandatory middle step.
     useEffect(() => {
       if (expectedSourceId !== lastExpectedSourceIdRef.current) {
         lastExpectedSourceIdRef.current = expectedSourceId;
@@ -4737,19 +4804,13 @@ const FFTCanvas = memo(
         lastProcessedFrameSignatureRef.current = null;
         lastRenderableFrameRef.current = null;
         frameBufferRef.current = [];
-        renderWaveformRef.current = null;
-        waveformFloatRef.current = null;
         fullChannelWaveformRef.current = null;
         fullChannelRangeRef.current = null;
-        clearSpectrumBackbuffer();
-        if (dataRef) {
-          dataRef.current = null;
-        }
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
         forceRender();
       }
-    }, [expectedSourceId, dataRef, forceRender, clearSpectrumBackbuffer]);
+    }, [expectedSourceId, forceRender]);
 
     // Effect: When FFT Window or Temporal Resolution changes, re-process the frame
     // to apply the new windowing function or averaging window.

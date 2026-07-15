@@ -166,17 +166,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         return props.placeholderErrorReason;
       }
       if (sourceMode === "live") {
-        const activeSourceCapability =
-          activeSource?.capability?.toLowerCase?.() ?? "";
-        const activeSourceKind = activeSource?.kind?.toLowerCase?.() ?? "";
-        if (
-          activeSourceCapability === "mock" ||
-          activeSourceKind === "mock_apt" ||
-          activeSourceKind === "mock_tx" ||
-          activeSourceKind === "mock-tx"
-        ) {
-          return null;
-        }
         if (!wsState.isConnected) {
           return "Server down";
         }
@@ -188,8 +177,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     }, [
       props.placeholderErrorReason,
       sourceMode,
-      activeSource?.capability,
-      activeSource?.kind,
       wsState.isConnected,
       wsState.cryptoCorrupted,
     ]);
@@ -223,6 +210,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
+      // Connection and device errors are authoritative. Do not let a stale
+      // standby/loading presentation mask the server-disconnected state.
+      if (placeholderErrorReason) return null;
       if (props.placeholderState) return props.placeholderState;
       if (!sharedAwaitingDeviceData) return null;
       return {
@@ -235,6 +225,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             : undefined,
       };
     }, [
+      placeholderErrorReason,
       props.placeholderSourceLabel,
       props.placeholderState,
       sharedAwaitingDeviceData,

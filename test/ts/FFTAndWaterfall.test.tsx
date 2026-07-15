@@ -524,10 +524,21 @@ describe("FFTAndWaterfall", () => {
     expect(fftProps?.txSlider).toBeUndefined();
   });
 
-  it("does not surface a server-down placeholder for the mock apt source", () => {
+  it("surfaces a server-down placeholder for the mock apt source", () => {
     mockedSpectrumState = {
       deviceKind: "mock_apt",
       showTxSlider: true,
+    };
+    mockedWebsocketState = {
+      isConnected: false,
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+        },
+      ],
     };
 
     render(
@@ -537,13 +548,25 @@ describe("FFTAndWaterfall", () => {
         centerFrequencyHz={2_186_000}
         activeSignalArea="A"
         isPaused={false}
+        isStandby={true}
         snapshotGridPreference={true}
+        placeholderState={{
+          kind: "top-bar",
+          title: "Start Tx to transmit",
+        }}
       />,
     );
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
-    expect(fftProps?.placeholderErrorReason).toBeNull();
+    expect(fftProps?.placeholderErrorReason).toBe("Server down");
+    expect(fftProps?.placeholderState).toBeNull();
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(waterfallProps?.placeholderErrorReason).toBe("Server down");
+    expect(waterfallProps?.placeholderState).toBeNull();
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

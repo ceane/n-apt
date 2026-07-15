@@ -262,8 +262,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     streamingSourceId || null,
   );
   const hasInitializedLiveSourceRef = useRef(false);
-  const emptyLiveDataRef = useRef<any>(null);
-  emptyLiveDataRef.current = null;
   const isSelectedMockTxSource =
     isConnected &&
     !!selectedSource &&
@@ -1513,13 +1511,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txSignal,
   ]);
 
-  const shouldSuppressLiveData = isSwitchingLiveSource;
-  const fftDataRef = shouldSuppressLiveData ? emptyLiveDataRef : dataRef;
+  // Keep the last painted frame available during handoff. FFTCanvas rejects
+  // frames that do not match expectedSourceId, while its existing presentation
+  // remains visible until the target frame arrives or loading exceeds grace.
+  const fftDataRef = dataRef;
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
-    if (
-      !isSelectedMockTxSource ||
-      isSelectedMockTxTransmitting
-    ) {
+    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
       return null;
     }
     return {
