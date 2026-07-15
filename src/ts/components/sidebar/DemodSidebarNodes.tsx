@@ -108,6 +108,90 @@ interface NodeType {
 
 const availableNodes: NodeType[] = [
   {
+    id: "fft",
+    type: "custom",
+    label: "FFT",
+    description: "Fast Fourier Transform",
+    icon: <Activity size={16} />,
+    position: { x: 400, y: 250 },
+    data: {
+      label: "FFT",
+      description: "Fast Fourier Transform",
+      fftOptions: true,
+    },
+  },
+  {
+    id: "waterfall",
+    type: "custom",
+    label: "Waterfall",
+    description: "Frequency spectrum waterfall",
+    icon: <Waves size={16} />,
+    position: { x: 100, y: 350 },
+    data: {
+      label: "Waterfall",
+      description: "Frequency spectrum waterfall",
+      waterfallOptions: true,
+    },
+  },
+  {
+    id: "symbols",
+    type: "custom",
+    label: "Symbols (I/Q)",
+    description:
+      "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
+    icon: <Signal size={16} />,
+    position: { x: 350, y: 850 },
+    data: {
+      label: "Symbols (I/Q)",
+      description:
+        "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
+      symbolOptions: true,
+    },
+  },
+  {
+    id: "bitstream",
+    type: "custom",
+    label: "Bitstream (0s/1s)",
+    description:
+      "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
+    icon: <Binary size={16} />,
+    position: { x: 150, y: 950 },
+    data: {
+      label: "Bitstream (0s/1s)",
+      description:
+        "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
+      bitstreamOptions: true,
+    },
+  },
+  {
+    id: "stimulus",
+    type: "custom",
+    label: "Stimulus (N-APT)",
+    description:
+      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+    icon: <Volume2 size={16} />,
+    position: { x: 150, y: 550 },
+    data: {
+      label: "Stimulus",
+      description:
+        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+      stimulusOptions: true,
+    },
+  },
+  {
+    id: "iq-capture",
+    type: "custom",
+    label: "I/Q Capture",
+    description: "Take an I/Q capture from the demod route",
+    icon: <FileSignal size={16} />,
+    position: { x: 250, y: 300 },
+    data: {
+      label: "I/Q Capture",
+      description: "Take an I/Q capture from the demod route",
+      iqCaptureNode: true,
+    },
+  },
+  {
     id: "source",
     type: "custom",
     label: "Source",
@@ -132,19 +216,6 @@ const availableNodes: NodeType[] = [
       label: "Signal Configuration",
       description: "Hardware sampling and FFT settings",
       signalOptions: true,
-    },
-  },
-  {
-    id: "iq-capture",
-    type: "custom",
-    label: "I/Q Capture",
-    description: "Take an I/Q capture from the demod route",
-    icon: <FileSignal size={16} />,
-    position: { x: 250, y: 300 },
-    data: {
-      label: "I/Q Capture",
-      description: "Take an I/Q capture from the demod route",
-      iqCaptureNode: true,
     },
   },
   {
@@ -202,32 +273,6 @@ const availableNodes: NodeType[] = [
     },
   },
   {
-    id: "fft",
-    type: "custom",
-    label: "FFT",
-    description: "Fast Fourier Transform",
-    icon: <Activity size={16} />,
-    position: { x: 400, y: 250 },
-    data: {
-      label: "FFT",
-      description: "Fast Fourier Transform",
-      fftOptions: true,
-    },
-  },
-  {
-    id: "waterfall",
-    type: "custom",
-    label: "Waterfall",
-    description: "Frequency spectrum waterfall",
-    icon: <Waves size={16} />,
-    position: { x: 100, y: 350 },
-    data: {
-      label: "Waterfall",
-      description: "Frequency spectrum waterfall",
-      waterfallOptions: true,
-    },
-  },
-  {
     id: "spectogram-128",
     type: "custom",
     label: "Spectogram 128",
@@ -273,21 +318,6 @@ const availableNodes: NodeType[] = [
       label: "Span",
       description: "Arbitrary frequency range",
       spanOptions: true,
-    },
-  },
-  {
-    id: "stimulus",
-    type: "custom",
-    label: "Stimulus (N-APT)",
-    description:
-      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-    icon: <Volume2 size={16} />,
-    position: { x: 150, y: 550 },
-    data: {
-      label: "Stimulus",
-      description:
-        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-      stimulusOptions: true,
     },
   },
   {
@@ -372,36 +402,6 @@ const availableNodes: NodeType[] = [
       label: "FM",
       description: "Frequency modulation demodulation",
       fmOptions: true,
-    },
-  },
-  {
-    id: "symbols",
-    type: "custom",
-    label: "Symbols (I/Q)",
-    description:
-      "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
-    icon: <Signal size={16} />,
-    position: { x: 350, y: 850 },
-    data: {
-      label: "Symbols (I/Q)",
-      description:
-        "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
-      symbolOptions: true,
-    },
-  },
-  {
-    id: "bitstream",
-    type: "custom",
-    label: "Bitstream (0s/1s)",
-    description:
-      "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
-    icon: <Binary size={16} />,
-    position: { x: 150, y: 950 },
-    data: {
-      label: "Bitstream (0s/1s)",
-      description:
-        "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
-      bitstreamOptions: true,
     },
   },
   {
