@@ -19,7 +19,12 @@ pub mod mock_tx;
 mod source_lifecycle;
 pub mod sources;
 
-use source_lifecycle::*;
+use source_lifecycle::{
+  prepare_selected_source_for_rx, prewarm_inactive_sources,
+  should_cache_swapped_source, source_phase_on_select, take_next_warm_source,
+};
+#[cfg(test)]
+use source_lifecycle::warmable_source_ids;
 
 // Re-export key symbols for tests and other modules
 pub use broadcasting::{
@@ -29,6 +34,7 @@ pub use broadcasting::{
   reconcile_stale_device_snapshot,
 };
 pub use mock_tx::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
+pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
   build_source_info_snapshot, open_device_for_source_id,

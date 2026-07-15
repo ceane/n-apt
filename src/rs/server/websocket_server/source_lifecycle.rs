@@ -16,7 +16,8 @@ use crate::sdr::SdrDevice;
 use crate::server::shared_state::SharedState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SourceLifecyclePhase {
+pub enum SourceLifecyclePhase {
+  Connected,
   Loading,
   Streaming,
   Standby,
@@ -25,6 +26,7 @@ pub(super) enum SourceLifecyclePhase {
 impl std::fmt::Display for SourceLifecyclePhase {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
+      SourceLifecyclePhase::Connected => write!(f, "Connected"),
       SourceLifecyclePhase::Loading => write!(f, "Loading"),
       SourceLifecyclePhase::Streaming => write!(f, "Streaming"),
       SourceLifecyclePhase::Standby => write!(f, "Standby"),
