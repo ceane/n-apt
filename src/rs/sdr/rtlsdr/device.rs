@@ -198,23 +198,6 @@ impl RtlSdrDevice {
       ));
     }
 
-    // Detach kernel driver if active (Linux only)
-    #[cfg(target_os = "linux")]
-    unsafe {
-      if ffi::rtlsdr_kernel_driver_active(dev) == 1 {
-        info!("Kernel driver is active for RTL-SDR device #{}, attempting to detach...", index);
-        let detach_ret = ffi::rtlsdr_detach_kernel_driver(dev);
-        if detach_ret == 0 {
-          info!(
-            "Kernel driver detached successfully for RTL-SDR device #{}",
-            index
-          );
-        } else {
-          warn!("Failed to detach kernel driver for RTL-SDR device #{} (error code: {})", index, detach_ret);
-        }
-      }
-    }
-
     info!(
       "Opened RTL-SDR device #{}: {}",
       index,
