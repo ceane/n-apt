@@ -13,7 +13,7 @@ struct SpikeMarker {
 // [1] = (dBmin, dBmax, displayWidth, srcLen)
 // [2-3] = colors (line RGBA, fill RGBA)
 
-const MAX_SPIKES: u32 = 128u;
+const MAX_SPIKES: u32 = 1024u;
 
 fn idx_to_x(idx: u32) -> f32 {
   // uniforms[1].w = source waveform length (NOT display width at [1].z)
@@ -62,10 +62,11 @@ fn vs_line(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
   
   let spike = spikes[instance_index];
   let x = idx_to_x(spike.index);
-  let marker_y = marker_y_for_peak(value_to_y(spike.value));
+  let peak_y = value_to_y(spike.value);
+  let marker_y = marker_y_for_peak(peak_y);
   let radius = marker_radius_ndc();
-  let line_bottom = marker_y + radius + 0.012;
-  let line_top = min(uniforms[0].w - 0.006, line_bottom + 0.09);
+  let line_bottom = peak_y;
+  let line_top = marker_y - radius - 0.006;
   
   let current_y = select(line_top, line_bottom, vertex_index == 1u);
   

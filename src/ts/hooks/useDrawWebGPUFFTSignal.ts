@@ -94,6 +94,7 @@ const readCssColor = (name: string, fallback: string) => {
 
 // Cached parseCssColorToRgba results — avoids repeated CSS string parsing
 const parsedColorCache = new Map<string, [number, number, number, number]>();
+const MAX_GPU_SPIKES = 1024;
 const cachedParseCssColor = (
   color: string,
 ): [number, number, number, number] => {
@@ -138,6 +139,7 @@ type FFTWebGPUState = {
   resampleBindGroupLayout: GPUBindGroupLayout;
   resampleInputBuffer: GPUBuffer | null; // Raw waveform data (variable length)
   resampleOutputBuffer: GPUBuffer | null; // Resampled to display width (fixed)
+  resamplePeakIndexBuffer: GPUBuffer | null; // Raw argmax index for each display bucket
   resampleParamsBuffer: GPUBuffer;
   resampleBindGroup: GPUBindGroup | null;
   resampleInputLength: number;
@@ -342,6 +344,11 @@ export function useDrawWebGPUFFTSignal() {
             visibility: GPUShaderStage.COMPUTE,
             buffer: { type: "uniform" },
           },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
         ],
       });
 
@@ -385,6 +392,11 @@ export function useDrawWebGPUFFTSignal() {
           },
           {
             binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 5,
             visibility: GPUShaderStage.COMPUTE,
             buffer: { type: "read-only-storage" },
           },
@@ -565,6 +577,7 @@ export function useDrawWebGPUFFTSignal() {
         resampleBindGroupLayout,
         resampleInputBuffer: null,
         resampleOutputBuffer: null,
+        resamplePeakIndexBuffer: null,
         resampleParamsBuffer,
         resampleBindGroup: null,
         resampleInputLength: 0,
@@ -686,9 +699,14 @@ export function useDrawWebGPUFFTSignal() {
           displayWidth > state.resampleOutputLength
         ) {
           retireBuffer(state.resampleOutputBuffer);
+          retireBuffer(state.resamplePeakIndexBuffer);
           state.resampleOutputBuffer = state.device.createBuffer({
             size: displayWidth * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          state.resamplePeakIndexBuffer = state.device.createBuffer({
+            size: displayWidth * Uint32Array.BYTES_PER_ELEMENT,
+            usage: GPUBufferUsage.STORAGE,
           });
           state.resampleOutputLength = displayWidth;
           buffersChanged = true;
@@ -704,6 +722,7 @@ export function useDrawWebGPUFFTSignal() {
               { binding: 0, resource: { buffer: state.resampleInputBuffer } },
               { binding: 1, resource: { buffer: state.resampleOutputBuffer } },
               { binding: 2, resource: { buffer: state.resampleParamsBuffer } },
+              { binding: 3, resource: { buffer: state.resamplePeakIndexBuffer! } },
             ],
           });
 
@@ -720,8 +739,8 @@ export function useDrawWebGPUFFTSignal() {
         // --- Spikes buffers rebuild ---
         if (!state.spikeBuffer) {
           state.spikeBuffer = state.device.createBuffer({
-            // 128 spikes * 16 bytes (index: u32, value: f32, score: f32, radius: f32)
-            size: 128 * 16,
+            // index: u32, value: f32, score: f32, radius: f32
+            size: MAX_GPU_SPIKES * 16,
             usage: GPUBufferUsage.STORAGE,
           });
           state.spikeCountBuffer = state.device.createBuffer({
@@ -741,7 +760,7 @@ export function useDrawWebGPUFFTSignal() {
           state.floorAvgBindGroup = state.device.createBindGroup({
             layout: state.floorAvgBindGroupLayout,
             entries: [
-              { binding: 0, resource: { buffer: state.resampleInputBuffer! } },
+              { binding: 0, resource: { buffer: state.resampleOutputBuffer! } },
               { binding: 1, resource: { buffer: state.floorAvgResultBuffer } },
               { binding: 2, resource: { buffer: state.spikeParamsBuffer } },
             ],
@@ -750,11 +769,12 @@ export function useDrawWebGPUFFTSignal() {
           state.spikeComputeBindGroup = state.device.createBindGroup({
             layout: state.spikeComputePipeline.getBindGroupLayout(0),
             entries: [
-              { binding: 0, resource: { buffer: state.resampleInputBuffer! } },
+              { binding: 0, resource: { buffer: state.resampleOutputBuffer! } },
               { binding: 1, resource: { buffer: state.spikeParamsBuffer } },
               { binding: 2, resource: { buffer: state.spikeBuffer! } },
               { binding: 3, resource: { buffer: state.spikeCountBuffer! } },
               { binding: 4, resource: { buffer: state.floorAvgResultBuffer } },
+              { binding: 5, resource: { buffer: state.resamplePeakIndexBuffer! } },
             ],
           });
 
@@ -769,18 +789,12 @@ export function useDrawWebGPUFFTSignal() {
         }
 
         // --- Spikes parameters (using persistent scratch buffers) ---
-        const spanHz = frequencyRange
-          ? Math.abs(frequencyRange.max - frequencyRange.min)
-          : 3_200_000;
-        const binsPerHz = srcLen / Math.max(spanHz, 1);
-        const bins45kHz = Math.ceil(binsPerHz * 45_000);
-        const windowSize = Math.max(
-          8,
-          Math.min(Math.floor(srcLen / 64), bins45kHz, 18),
-        );
+        // Suppress competing maxima within roughly three display pixels. The
+        // resampler preserves each bucket's exact raw-bin argmax for rendering.
+        const windowSize = 2;
 
         // Reuse persistent scratch buffers instead of allocating new ones each frame
-        state.scratchSpikeParamsU32[0] = srcLen;
+        state.scratchSpikeParamsU32[0] = displayWidth;
         state.scratchSpikeParamsU32[1] = windowSize;
         state.scratchSpikeParamsF32[2] = 3.0; // min_z_score
         state.scratchSpikeParamsF32[3] = 0.0; // padding
@@ -838,7 +852,7 @@ export function useDrawWebGPUFFTSignal() {
           // Floor Avg (reduce)
           computePass.setPipeline(state.floorAvgPipeline);
           computePass.setBindGroup(0, state.floorAvgBindGroup);
-          computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));
+          computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
 
           // Floor Avg (finalize)
           computePass.setPipeline(state.floorAvgFinalizePipeline);
@@ -848,7 +862,7 @@ export function useDrawWebGPUFFTSignal() {
           // Spike Compute
           computePass.setPipeline(state.spikeComputePipeline);
           computePass.setBindGroup(0, state.spikeComputeBindGroup);
-          computePass.dispatchWorkgroups(Math.ceil(srcLen / 64));
+          computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
         }
         computePass.end();
 
@@ -963,9 +977,9 @@ export function useDrawWebGPUFFTSignal() {
         if (showSpikeOverlay && state.spikeRenderBindGroup) {
           pass.setBindGroup(0, state.spikeRenderBindGroup);
           pass.setPipeline(state.spikeRenderLinePipeline);
-          pass.draw(2, 128); // Max 128 instances
+          pass.draw(2, MAX_GPU_SPIKES);
           pass.setPipeline(state.spikeRenderCirclePipeline);
-          pass.draw(6, 128);
+          pass.draw(6, MAX_GPU_SPIKES);
         }
 
         // Overlays on top (frequency markers)
@@ -985,7 +999,10 @@ export function useDrawWebGPUFFTSignal() {
             .mapAsync(GPUMapMode.READ)
             .then(() => {
               const mapped = readbackBuffer.getMappedRange();
-              const count = Math.min(new Uint32Array(mapped)[0] ?? 0, 128);
+              const count = Math.min(
+                new Uint32Array(mapped)[0] ?? 0,
+                MAX_GPU_SPIKES,
+              );
               readbackBuffer.unmap();
               state.spikeCountReadbackInFlight = false;
               if (count !== state.lastReportedSpikeCount) {
@@ -1013,6 +1030,7 @@ export function useDrawWebGPUFFTSignal() {
       state.uniformBuffer?.destroy();
       state.resampleInputBuffer?.destroy();
       state.resampleOutputBuffer?.destroy();
+      state.resamplePeakIndexBuffer?.destroy();
       state.resampleParamsBuffer?.destroy();
       state.spikeBuffer?.destroy();
       state.spikeCountBuffer?.destroy();
