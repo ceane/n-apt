@@ -20,6 +20,8 @@ jest.mock("@n-apt/components/sidebar/FrequencyRangeSlider", () => ({
     minFreq,
     maxFreq,
     sampleRateHz,
+    visibleMin,
+    visibleMax,
   }: any) => (
     <button
       type="button"
@@ -28,6 +30,8 @@ jest.mock("@n-apt/components/sidebar/FrequencyRangeSlider", () => ({
       data-min-freq={String(minFreq)}
       data-max-freq={String(maxFreq)}
       data-sample-rate-hz={String(sampleRateHz)}
+      data-visible-min={String(visibleMin)}
+      data-visible-max={String(visibleMax)}
     >
       {label}
     </button>
@@ -231,6 +235,86 @@ describe("Channels", () => {
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-force-full-width",
       "true",
+    );
+  });
+
+  it("keeps Channel C full-width when Channel B Whole Channel state is restored on load", () => {
+    const store = createTestStore();
+    const sendFrequencyRange = jest.fn();
+    const dispatch = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  // The live store has restored B's Whole Channel range before
+                  // the Redux active-area mirror has hydrated from storage.
+                  activeSignalArea: "B",
+                  frequencyRange: { min: 24_100_000, max: 30_370_000 },
+                  sampleRateHz: 6_270_000,
+                  lastKnownRanges: {
+                    C: { min: 4_750_000, max: 11_020_000 },
+                  },
+                },
+                dispatch,
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                  sdrSettings: { sample_rate: 18_250_000 },
+                },
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  {
+                    id: "b",
+                    label: "B",
+                    min_hz: 24_100_000,
+                    max_hz: 30_370_000,
+                  },
+                  {
+                    id: "c",
+                    label: "C",
+                    min_hz: 4_750_000,
+                    max_hz: 23_000_000,
+                  },
+                ],
+                sampleRateHzEffective: 6_270_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
+      "data-force-full-width",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
+      "data-sample-rate-hz",
+      "6270000",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-force-full-width",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-sample-rate-hz",
+      "6270000",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-visible-min",
+      "4750000",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-visible-max",
+      "23000000",
     );
   });
 

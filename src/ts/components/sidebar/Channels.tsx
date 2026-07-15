@@ -317,7 +317,9 @@ export const Channels: React.FC<ChannelsProps> = ({
     (s) => s.websocket.deviceProfile,
   );
   const websocketBackend = useAppSelector((s) => s.websocket.backend);
-  const activeSignalArea = useAppSelector((s) => s.spectrum.activeSignalArea);
+  const reduxActiveSignalArea = useAppSelector(
+    (s) => s.spectrum.activeSignalArea,
+  );
   const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
     state,
@@ -427,6 +429,41 @@ export const Channels: React.FC<ChannelsProps> = ({
     currentCenterFrequencyHz ?? Number.NaN,
     channelRanges,
   );
+
+  // Source/channel state can hydrate through the live store and Redux on
+  // separate ticks. When that happens, the restored frequency range is the
+  // strongest indication of which channel Whole Channel belongs to. Keeping
+  // this resolution here makes the mode and all channel sliders agree during
+  // the initial render instead of applying B's span to C.
+  const activeSignalArea = useMemo(() => {
+    const candidates = [state.activeSignalArea, reduxActiveSignalArea].filter(
+      (label, index, all): label is string =>
+        typeof label === "string" &&
+        label.length > 0 &&
+        all.indexOf(label) === index,
+    );
+    const center = currentCenterFrequencyHz;
+    if (typeof center === "number" && Number.isFinite(center)) {
+      const matchingCandidate = candidates.find((candidate) => {
+        const channel = channels.find(
+          (frame) =>
+            String(frame.label).toLowerCase() === candidate.toLowerCase(),
+        );
+        return (
+          !!channel &&
+          center >= channel.min_hz &&
+          center <= channel.max_hz
+        );
+      });
+      if (matchingCandidate) return matchingCandidate;
+    }
+    return candidates[0] ?? "A";
+  }, [
+    channels,
+    currentCenterFrequencyHz,
+    reduxActiveSignalArea,
+    state.activeSignalArea,
+  ]);
 
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
