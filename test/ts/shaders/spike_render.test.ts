@@ -19,7 +19,9 @@ describe("spike_render.wgsl", () => {
   });
 
   it("anchors the annotation stem to the exact FFT peak coordinate", () => {
-    expect(SPIKE_RENDER_WGSL).toContain("let peak_y = value_to_y(spike.value);");
+    expect(SPIKE_RENDER_WGSL).toContain(
+      "let peak_y = value_to_y(spike.value);",
+    );
     expect(SPIKE_RENDER_WGSL).toContain("let line_bottom = peak_y;");
     expect(SPIKE_RENDER_WGSL).toContain("peak_y + hover_gap");
   });

@@ -157,7 +157,9 @@ type FFTWebGPUState = {
   lastSpikeCountReadbackMs: number;
   lastReportedSpikeCount: number;
   spikeParamsBuffer: GPUBuffer;
+  spikeRecoveryParamsBuffer: GPUBuffer;
   spikeComputeBindGroup: GPUBindGroup | null;
+  spikeRecoveryBindGroup: GPUBindGroup | null;
   spikeRenderBindGroup: GPUBindGroup | null;
   spikeWaveformLength: number;
   floorAvgResultBuffer: GPUBuffer;
@@ -509,6 +511,13 @@ export function useDrawWebGPUFFTSignal() {
           GPUBufferUsage.UNIFORM |
           GPUBufferUsage.COPY_DST,
       });
+      const spikeRecoveryParamsBuffer = device.createBuffer({
+        size: 16,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.UNIFORM |
+          GPUBufferUsage.COPY_DST,
+      });
 
       const floorAvgResultBuffer = device.createBuffer({
         size: 12,
@@ -594,7 +603,9 @@ export function useDrawWebGPUFFTSignal() {
         lastSpikeCountReadbackMs: 0,
         lastReportedSpikeCount: 0,
         spikeParamsBuffer,
+        spikeRecoveryParamsBuffer,
         spikeComputeBindGroup: null,
+        spikeRecoveryBindGroup: null,
         spikeRenderBindGroup: null,
         spikeWaveformLength: 0,
         floorAvgResultBuffer,
@@ -722,7 +733,10 @@ export function useDrawWebGPUFFTSignal() {
               { binding: 0, resource: { buffer: state.resampleInputBuffer } },
               { binding: 1, resource: { buffer: state.resampleOutputBuffer } },
               { binding: 2, resource: { buffer: state.resampleParamsBuffer } },
-              { binding: 3, resource: { buffer: state.resamplePeakIndexBuffer! } },
+              {
+                binding: 3,
+                resource: { buffer: state.resamplePeakIndexBuffer! },
+              },
             ],
           });
 
@@ -756,7 +770,11 @@ export function useDrawWebGPUFFTSignal() {
           });
         }
 
-        if (buffersChanged || !state.spikeComputeBindGroup) {
+        if (
+          buffersChanged ||
+          !state.spikeComputeBindGroup ||
+          !state.spikeRecoveryBindGroup
+        ) {
           state.floorAvgBindGroup = state.device.createBindGroup({
             layout: state.floorAvgBindGroupLayout,
             entries: [
@@ -774,7 +792,28 @@ export function useDrawWebGPUFFTSignal() {
               { binding: 2, resource: { buffer: state.spikeBuffer! } },
               { binding: 3, resource: { buffer: state.spikeCountBuffer! } },
               { binding: 4, resource: { buffer: state.floorAvgResultBuffer } },
-              { binding: 5, resource: { buffer: state.resamplePeakIndexBuffer! } },
+              {
+                binding: 5,
+                resource: { buffer: state.resamplePeakIndexBuffer! },
+              },
+            ],
+          });
+
+          state.spikeRecoveryBindGroup = state.device.createBindGroup({
+            layout: state.spikeComputePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: state.resampleOutputBuffer! } },
+              {
+                binding: 1,
+                resource: { buffer: state.spikeRecoveryParamsBuffer },
+              },
+              { binding: 2, resource: { buffer: state.spikeBuffer! } },
+              { binding: 3, resource: { buffer: state.spikeCountBuffer! } },
+              { binding: 4, resource: { buffer: state.floorAvgResultBuffer } },
+              {
+                binding: 5,
+                resource: { buffer: state.resamplePeakIndexBuffer! },
+              },
             ],
           });
 
@@ -797,7 +836,7 @@ export function useDrawWebGPUFFTSignal() {
         state.scratchSpikeParamsU32[0] = displayWidth;
         state.scratchSpikeParamsU32[1] = windowSize;
         state.scratchSpikeParamsF32[2] = 3.0; // min_z_score
-        state.scratchSpikeParamsF32[3] = 0.0; // padding
+        state.scratchSpikeParamsU32[3] = 0; // primary pass
 
         // --- All Uploads FIRST ---
         state.device.queue.writeBuffer(
@@ -819,6 +858,12 @@ export function useDrawWebGPUFFTSignal() {
         if (state.spikeParamsBuffer) {
           state.device.queue.writeBuffer(
             state.spikeParamsBuffer,
+            0,
+            state.scratchSpikeParamsAB,
+          );
+          state.scratchSpikeParamsU32[3] = 1; // recovery pass, same FFT frame
+          state.device.queue.writeBuffer(
+            state.spikeRecoveryParamsBuffer,
             0,
             state.scratchSpikeParamsAB,
           );
@@ -847,6 +892,7 @@ export function useDrawWebGPUFFTSignal() {
           showSpikeOverlay &&
           state.floorAvgBindGroup &&
           state.spikeComputeBindGroup &&
+          state.spikeRecoveryBindGroup &&
           state.spikeCountBuffer
         ) {
           // Floor Avg (reduce)
@@ -859,9 +905,12 @@ export function useDrawWebGPUFFTSignal() {
           computePass.setBindGroup(0, state.floorAvgBindGroup);
           computePass.dispatchWorkgroups(1);
 
-          // Spike Compute
+          // Primary and recovery classification both consume the one resampled
+          // frame above. The recovery pass only contributes missed candidates.
           computePass.setPipeline(state.spikeComputePipeline);
           computePass.setBindGroup(0, state.spikeComputeBindGroup);
+          computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
+          computePass.setBindGroup(0, state.spikeRecoveryBindGroup);
           computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
         }
         computePass.end();
@@ -1036,6 +1085,7 @@ export function useDrawWebGPUFFTSignal() {
       state.spikeCountBuffer?.destroy();
       state.spikeCountReadbackBuffer?.destroy();
       state.spikeParamsBuffer?.destroy();
+      state.spikeRecoveryParamsBuffer?.destroy();
       state.floorAvgResultBuffer?.destroy();
     }
     rendererRef.current = null;

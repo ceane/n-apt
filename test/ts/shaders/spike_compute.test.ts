@@ -29,7 +29,9 @@ describe("spike_compute.wgsl", () => {
   });
 
   it("suppresses weaker raw-bin maxima inside one spike neighborhood", () => {
-    expect(SPIKE_COMPUTE_WGSL).toContain("var has_dominating_neighbor = false;");
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "var has_dominating_neighbor = false;",
+    );
     expect(SPIKE_COMPUTE_WGSL).toContain("sample > val");
     expect(SPIKE_COMPUTE_WGSL).toContain("sample == val && j > i");
     expect(SPIKE_COMPUTE_WGSL).toContain("if (has_dominating_neighbor)");
@@ -38,8 +40,9 @@ describe("spike_compute.wgsl", () => {
   it("detects on display-scale maxima but emits their exact raw FFT indices", () => {
     expect(SPIKE_COMPUTE_WGSL).toContain("source_peak_indices");
     expect(SPIKE_COMPUTE_WGSL).toContain(
-      "spikes[idx].index = source_peak_indices[i];",
+      "let source_index = source_peak_indices[i];",
     );
+    expect(SPIKE_COMPUTE_WGSL).toContain("spikes[idx].index = source_index;");
     expect(SPIKE_COMPUTE_WGSL).toContain("suppression_radius");
   });
 
@@ -60,11 +63,23 @@ describe("spike_compute.wgsl", () => {
     expect(SPIKE_COMPUTE_WGSL).toContain("valley_prominence >= 1.5");
   });
 
+  it("uses a conservative recovery pass without emitting primary-pass duplicates", () => {
+    expect(SPIKE_COMPUTE_WGSL).toContain("recovery_pass: u32");
+    expect(SPIKE_COMPUTE_WGSL).toContain("params.recovery_pass != 0u");
+    expect(SPIKE_COMPUTE_WGSL).toContain("atomicLoad(&spike_count)");
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "spikes[existing_index].index == source_index",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain("recovery_prominent");
+  });
+
   it("uses one-sided prominence for peaks in the final display bins", () => {
     expect(SPIKE_COMPUTE_WGSL).toContain(
       "const EDGE_BAND_BINS: u32 = 10u;",
     );
-    expect(SPIKE_COMPUTE_WGSL).toContain("i + EDGE_BAND_BINS >= l");
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "i + EDGE_BAND_BINS >= l",
+    );
     expect(SPIKE_COMPUTE_WGSL).toContain("right_edge_prominence");
     expect(SPIKE_COMPUTE_WGSL).toContain("val - left_valley");
     expect(SPIKE_COMPUTE_WGSL).toContain("var is_edge_band_max = true;");
@@ -81,6 +96,8 @@ describe("spike_compute.wgsl", () => {
     expect(SPIKE_COMPUTE_WGSL).toContain(
       "let edge_corner = val - (left + (left - left2));",
     );
-    expect(SPIKE_COMPUTE_WGSL).toContain("edge_rise >= 0.35");
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "edge_rise >= 0.35",
+    );
   });
 });

@@ -9,7 +9,7 @@ struct Params {
   length: u32,
   window_size: u32,
   min_z_score: f32,
-  padding: f32,
+  recovery_pass: u32,
 }
 
 struct FloorResult {
@@ -142,11 +142,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let right_edge_prominence = is_right_edge_band && is_edge_band_max &&
     edge_rise >= 0.35 &&
     (edge_corner >= 0.1 || immediate_prominence >= 0.05);
+  let is_recovery_pass = params.recovery_pass != 0u;
+  let recovery_prominent = is_recovery_pass && global_floor_score >= 3.0 && (
+    (valley_prominence >= 1.0 && immediate_prominence >= 0.1 && sharpness >= 0.1) ||
+    (avg_prominence >= 4.0 && immediate_prominence >= 0.1 && sharpness >= 0.15)
+  );
 
-  if (valley_prominent || avg_prominence >= min_avg_prominence || cluster_prominence || broad_prominence || global_floor_prominent || edge_prominence || right_edge_prominence) {
+  if (valley_prominent || avg_prominence >= min_avg_prominence || cluster_prominence || broad_prominence || global_floor_prominent || edge_prominence || right_edge_prominence || recovery_prominent) {
+    let source_index = source_peak_indices[i];
+
+    // The second dispatch runs after the primary dispatch in the same command
+    // pass. Preserve primary results and only append newly recovered peaks.
+    if (is_recovery_pass) {
+      let existing_count = min(atomicLoad(&spike_count), MAX_SPIKES);
+      for (var existing_index: u32 = 0u; existing_index < existing_count; existing_index = existing_index + 1u) {
+        if (spikes[existing_index].index == source_index) {
+          return;
+        }
+      }
+    }
+
     let idx = atomicAdd(&spike_count, 1u);
     if (idx < MAX_SPIKES) {
-      spikes[idx].index = source_peak_indices[i];
+      spikes[idx].index = source_index;
       spikes[idx].value = val;
       spikes[idx].score = max(max(max(avg_prominence, global_floor_score), valley_prominence), sharpness);
       spikes[idx].radius = 8.0;

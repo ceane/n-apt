@@ -23,6 +23,7 @@ jest.mock("@n-apt/shaders", () => ({
   RESAMPLE_WGSL: "shader",
   SPIKE_COMPUTE_WGSL: "shader",
   SPIKE_RENDER_WGSL: "shader",
+  FLOOR_AVG_WGSL: "shader",
 }));
 
 (global as any).GPUShaderStage = {
@@ -42,6 +43,13 @@ describe("useDrawWebGPUFFTSignal", () => {
     destroy: jest.fn(),
   });
 
+  const computePass = {
+    setPipeline: jest.fn(),
+    setBindGroup: jest.fn(),
+    dispatchWorkgroups: jest.fn(),
+    end: jest.fn(),
+  };
+
   const mockDevice = {
     createShaderModule: jest.fn(),
     createRenderPipeline: jest.fn(() => ({
@@ -55,12 +63,8 @@ describe("useDrawWebGPUFFTSignal", () => {
     createBindGroup: jest.fn(() => ({})),
     createBuffer: jest.fn(() => createMockBuffer()),
     createCommandEncoder: jest.fn(() => ({
-      beginComputePass: jest.fn(() => ({
-        setPipeline: jest.fn(),
-        setBindGroup: jest.fn(),
-        dispatchWorkgroups: jest.fn(),
-        end: jest.fn(),
-      })),
+      clearBuffer: jest.fn(),
+      beginComputePass: jest.fn(() => computePass),
       beginRenderPass: jest.fn(() => ({
         setPipeline: jest.fn(),
         setBindGroup: jest.fn(),
@@ -93,6 +97,36 @@ describe("useDrawWebGPUFFTSignal", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("runs both spike-detection passes against one resampled FFT frame", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+
+    expect(
+      await result.current.drawWebGPUFFTSignal({
+        canvas: mockCanvas,
+        device: mockDevice as any,
+        format: "rgba8unorm" as GPUTextureFormat,
+        waveform: new Float32Array(2048).fill(-50),
+        frequencyRange: { min: 0, max: 1 },
+        showSpikeOverlay: true,
+      }),
+    ).toBe(true);
+
+    const spikePipeline = mockDevice.createComputePipeline.mock.results[1]
+      ?.value;
+    expect(computePass.setPipeline).toHaveBeenCalledWith(spikePipeline);
+    expect(computePass.dispatchWorkgroups).toHaveBeenCalledTimes(5);
+    expect(computePass.dispatchWorkgroups.mock.calls.slice(-2)).toEqual([
+      [Math.ceil((mockCanvas.parentElement.offsetWidth - 40) / 64)],
+      [Math.ceil((mockCanvas.parentElement.offsetWidth - 40) / 64)],
+    ]);
+    const bindGroupCalls = computePass.setBindGroup.mock.calls;
+    expect(bindGroupCalls[bindGroupCalls.length - 2]?.[1]).not.toBe(
+      bindGroupCalls[bindGroupCalls.length - 1]?.[1],
+    );
+    expect(mockDevice.createCommandEncoder).toHaveBeenCalledTimes(1);
+    expect(mockDevice.queue.submit).toHaveBeenCalledTimes(1);
   });
 
   it("defers destroying resized buffers until submitted work completes", async () => {
