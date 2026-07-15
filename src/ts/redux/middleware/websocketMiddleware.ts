@@ -944,9 +944,7 @@ export const shouldAcceptSourceIqSocketMessage = ({
  * sockets.
  */
 export const shouldOpenSourceIqSocket = (status: unknown): boolean =>
-  status === "connected" ||
-  status === "streaming" ||
-  status === "transmitting";
+  status === "connected" || status === "streaming" || status === "transmitting";
 
 const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {

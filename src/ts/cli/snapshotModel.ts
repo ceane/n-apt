@@ -37,7 +37,12 @@ export function buildCliSnapshotModel(
     max: frame.centerFrequencyHz + halfSpan,
   };
   if (!options.waterfall) {
-    return { waveform, frequencyRange, waterfallBuffer: null, waterfallDims: null };
+    return {
+      waveform,
+      frequencyRange,
+      waterfallBuffer: null,
+      waterfallDims: null,
+    };
   }
   const rows = Math.max(1, options.waterfallRows ?? 96);
   const width = waveform.length;

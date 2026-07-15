@@ -66,7 +66,11 @@ async function renderNaptCliSnapshot(request: HarnessRequest): Promise<string> {
       centerFrequencyHz: request.centerFrequencyHz,
       sampleRateHz: request.sampleRateHz,
     })),
-    { fftSize: request.fftSize, waterfall: request.waterfall, waterfallRows: 128 },
+    {
+      fftSize: request.fftSize,
+      waterfall: request.waterfall,
+      waterfallRows: 128,
+    },
   );
   const data: SnapshotData = {
     waveform: model.waveform,
@@ -113,9 +117,14 @@ async function renderNaptCliSnapshot(request: HarnessRequest): Promise<string> {
     theme,
   );
   const waterfall = request.waterfall
-    ? renderWaterfallSnapshotCanvas(data, request.width, request.waterfallHeight, {
-        waterfallBg: theme.bg,
-      })
+    ? renderWaterfallSnapshotCanvas(
+        data,
+        request.width,
+        request.waterfallHeight,
+        {
+          waterfallBg: theme.bg,
+        },
+      )
     : null;
   const statsRow = request.stats
     ? renderStatsRowCanvas(stats, request.width, theme)

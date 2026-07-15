@@ -1,6 +1,9 @@
 import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 
-export type CaptureSource = Pick<SourceInfo, "id" | "kind" | "capability" | "status">;
+export type CaptureSource = Pick<
+  SourceInfo,
+  "id" | "kind" | "capability" | "status"
+>;
 
 export interface ChannelCapability {
   min: number;
@@ -42,7 +45,9 @@ export function resolveCliCaptureFftSize(args: readonly string[]): number {
     fftSize > 8_388_608 ||
     (fftSize & (fftSize - 1)) !== 0
   ) {
-    throw new Error("--fft-size must be a power of two from 256 through 8388608");
+    throw new Error(
+      "--fft-size must be a power of two from 256 through 8388608",
+    );
   }
   return fftSize;
 }
@@ -91,14 +96,19 @@ export function hasNaptReceiveDefaults(
     typeof configuredGain === "number"
       ? configuredGain
       : configuredGain?.tuner_gain;
-  return gainDb === defaults.gainDb && source.sdr?.settings?.ppm === defaults.ppm;
+  return (
+    gainDb === defaults.gainDb && source.sdr?.settings?.ppm === defaults.ppm
+  );
 }
 
 const isMock = (source: CaptureSource) =>
-  source.capability === "mock" || source.id === "mock-apt" || source.kind.includes("mock");
+  source.capability === "mock" ||
+  source.id === "mock-apt" ||
+  source.kind.includes("mock");
 
 const isConnectedPhysical = (source: CaptureSource) =>
-  (source.status === "connected" || source.status === "streaming") && !isMock(source);
+  (source.status === "connected" || source.status === "streaming") &&
+  !isMock(source);
 
 /**
  * Selects a stable backend source ID for a CLI operation.
@@ -133,11 +143,19 @@ export function resolveRequestedDevice({
   }
 
   if (physical.length > 1) {
-    throw new Error("Multiple physical devices are available; specify --device");
+    throw new Error(
+      "Multiple physical devices are available; specify --device",
+    );
   }
-  return physical[0] ?? mock ?? (() => {
-    throw new Error("No connected physical device or Mock APT source is available");
-  })();
+  return (
+    physical[0] ??
+    mock ??
+    (() => {
+      throw new Error(
+        "No connected physical device or Mock APT source is available",
+      );
+    })()
+  );
 }
 
 /**

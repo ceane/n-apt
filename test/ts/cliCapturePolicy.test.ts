@@ -41,7 +41,10 @@ describe("CLI capture policy", () => {
     expect(() =>
       resolveRequestedDevice({
         requested: "auto",
-        sources: [source(), source({ id: "hackrf-serial-456", kind: "hackrf_one" })],
+        sources: [
+          source(),
+          source({ id: "hackrf-serial-456", kind: "hackrf_one" }),
+        ],
       }),
     ).toThrow(/multiple/i);
   });
