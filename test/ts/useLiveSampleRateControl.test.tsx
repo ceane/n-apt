@@ -16,6 +16,16 @@ describe("useLiveSampleRateControl", () => {
     ).toBe(false);
   });
 
+  it("exposes Mock APT Whole Channel when the source ceiling is the channel span", () => {
+    expect(
+      canUseWholeChannelSampleRate({
+        supportsWholeChannelSampleRate: true,
+        activeChannelSampleRate: 4_372_000,
+        maxSampleRateHz: 4_372_000,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps a valid source rate stable across a paused-to-playing channel update", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();
@@ -307,6 +317,32 @@ describe("useLiveSampleRateControl", () => {
         activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
         frequencyRange: { min: 18_000, max: 18_318_000 },
         sampleRateHz: 18_300_000,
+        setSampleRate,
+        applyFrequencyRange,
+      }),
+    );
+
+    expect(setSampleRate).toHaveBeenCalledWith(4_372_000);
+    expect(applyFrequencyRange).toHaveBeenCalledWith({
+      min: 18_000,
+      max: 4_390_000,
+    });
+  });
+
+  it("repairs a stale source-ceiling rate to the selected channel span", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    renderHook(() =>
+      useLiveSampleRateControl({
+        sourceMode: "live",
+        supportsWholeChannelSampleRate: true,
+        manualSampleRateOptions: [3_200_000, 18_250_000],
+        activeChannelSampleRate: 4_372_000,
+        maxSampleRateHz: 18_250_000,
+        activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+        frequencyRange: { min: 18_000, max: 18_268_000 },
+        sampleRateHz: 18_250_000,
         setSampleRate,
         applyFrequencyRange,
       }),

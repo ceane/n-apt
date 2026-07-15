@@ -271,10 +271,19 @@ export const useLiveSampleRateControl = ({
       typeof currentRate === "number" &&
       manualSampleRateOptions.length > 0 &&
       !currentRateIsAllowedManual;
+    const currentRateIsStaleSourceCeiling =
+      typeof currentRate === "number" &&
+      typeof maxSampleRateHz === "number" &&
+      Number.isFinite(maxSampleRateHz) &&
+      maxSampleRateHz > 0 &&
+      currentRate === Math.round(maxSampleRateHz) &&
+      nextRate < currentRate;
 
     if (
       (currentRateIsPreviousWhole ||
         (currentRateIsKnownInvalidManual &&
+          sampleRateModeRef.current !== "manual") ||
+        (currentRateIsStaleSourceCeiling &&
           sampleRateModeRef.current !== "manual")) &&
       currentRate !== null &&
       nextRate !== currentRate &&
@@ -337,6 +346,7 @@ export const useLiveSampleRateControl = ({
     applyFrequencyRangeIfChanged,
     frequencyRange,
     manualSampleRateOptions,
+    maxSampleRateHz,
     sampleRateHz,
     setSampleRate,
     sourceMode,

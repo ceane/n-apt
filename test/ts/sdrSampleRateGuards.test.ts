@@ -40,16 +40,28 @@ describe("resolveDisplaySampleRateHz", () => {
     ).toBe(3_200_000);
   });
 
-  it("applies the advertised maximum to Mock APT source metadata", () => {
+  it("preserves Mock APT whole-channel metadata up to the configured ceiling", () => {
     expect(
       resolveDisplaySampleRateHz({
         deviceKind: "mock_apt",
         frameSampleRateHz: 4_372_000,
         configuredSampleRateHz: 4_372_000,
         derivedSampleRateHz: 4_372_000,
-        maxSampleRateHz: 3_200_000,
+        maxSampleRateHz: 4_372_000,
       }),
-    ).toBe(3_200_000);
+    ).toBe(4_372_000);
+  });
+
+  it("rejects stale Mock APT metadata above the configured whole-channel ceiling", () => {
+    expect(
+      resolveDisplaySampleRateHz({
+        deviceKind: "mock_apt",
+        frameSampleRateHz: 6_270_000,
+        configuredSampleRateHz: 6_270_000,
+        derivedSampleRateHz: 6_270_000,
+        maxSampleRateHz: 4_372_000,
+      }),
+    ).toBe(4_372_000);
   });
 });
 

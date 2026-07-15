@@ -23,13 +23,13 @@ export function resolveSampleRateSpec(
   const SAFE_MIN_RATE = 10_000; // 10 kHz
   const SAFE_MAX_RATE = 40_000_000; // 40 MHz
 
-  const safeFloor = Math.max(
-    SAFE_MIN_RATE,
-    Math.min(SAFE_MAX_RATE, floorSampleRate),
-  );
   const safeMax = Math.max(
     SAFE_MIN_RATE,
     Math.min(SAFE_MAX_RATE, maxSampleRate),
+  );
+  const safeFloor = Math.max(
+    SAFE_MIN_RATE,
+    Math.min(safeMax, Math.min(SAFE_MAX_RATE, floorSampleRate)),
   );
 
   if (spec === undefined) {
@@ -43,7 +43,7 @@ export function resolveSampleRateSpec(
       : safeFloor;
   const safeChannelSpan = Math.max(
     SAFE_MIN_RATE,
-    Math.min(SAFE_MAX_RATE, channelSpan),
+    Math.min(safeMax, Math.min(SAFE_MAX_RATE, channelSpan)),
   );
 
   // Strict validation of placeholder values
@@ -57,7 +57,7 @@ export function resolveSampleRateSpec(
     if (/^\d+$/.test(val)) {
       const parsed = Number(val);
       if (Number.isFinite(parsed)) {
-        return Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, parsed));
+        return Math.max(SAFE_MIN_RATE, Math.min(safeMax, parsed));
       }
     }
     return safeFloor;
@@ -69,8 +69,8 @@ export function resolveSampleRateSpec(
   ];
 
   const resolveOptionsRange = (minVal: number, maxVal: number): number[] => {
-    const minClamped = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, minVal));
-    const maxClamped = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, maxVal));
+    const minClamped = Math.max(SAFE_MIN_RATE, Math.min(safeMax, minVal));
+    const maxClamped = Math.max(SAFE_MIN_RATE, Math.min(safeMax, maxVal));
     const lower = Math.min(minClamped, maxClamped);
     const upper = Math.max(minClamped, maxClamped);
 
@@ -89,7 +89,7 @@ export function resolveSampleRateSpec(
   };
 
   if (typeof spec === "number") {
-    const val = Math.max(SAFE_MIN_RATE, Math.min(SAFE_MAX_RATE, spec));
+    const val = Math.max(SAFE_MIN_RATE, Math.min(safeMax, spec));
     return { rate: val, options: [val] };
   }
 

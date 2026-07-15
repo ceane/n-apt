@@ -726,23 +726,31 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           }
         : null;
     const floorRate = 3_200_000;
-    const maxRate = Math.max(3_200_000, activeChannelSampleRate ?? 0);
+    const maxRate = isMockAptSource
+      ? (maxSampleRateHz ?? activeChannelSampleRate ?? floorRate)
+      : Math.max(floorRate, activeChannelSampleRate ?? 0);
     return resolveSampleRateSpec(spec, activeFrameToPass, floorRate, maxRate);
   }, [
     isMockLiveSource,
+    isMockAptSource,
     activeDeviceConfig?.sample_rate,
     activeSignalAreaBounds,
     activeFrameForArea,
     activeChannelSampleRate,
+    maxSampleRateHz,
   ]);
 
   const liveManualSampleRateOptions = isMockLiveSource
-    ? (mockResolved?.options ?? [3_200_000])
+    ? (liveSampleRateOptions.length > 0
+        ? liveSampleRateOptions
+        : (mockResolved?.options ?? [3_200_000]))
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
     sourceMode === "live" &&
     !isRtlSdr &&
     (isHackrfOne || isMockLiveSource);
+  // Whole Channel is the selected channel's span. The source maximum is only
+  // a ceiling; using it here would make Channel A inherit Channel C's rate.
   const liveWholeChannelSampleRate = activeChannelSampleRate;
   // For frame rate computation, use the actual SDR sample rate — NOT the
   // channel bandwidth.  The channel bandwidth (max_hz - min_hz) can exceed
@@ -914,7 +922,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     },
   });
   const signalDisplaySampleRateOptions = isMockLiveSource
-    ? [3_200_000]
+    ? liveManualSampleRateOptions
     : sampleRateOptions;
 
   const {
@@ -2656,9 +2664,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               maxSampleRate
             }
             sampleRateOptions={signalDisplaySampleRateOptions}
-            sampleRateOptionsOverride={
-              isMockLiveSource ? [3_200_000] : undefined
-            }
             wholeChannelSampleRate={hackrfWholeChannelSampleRate}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
@@ -2764,9 +2769,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 liveSdrSettingsToUse?.sample_rate ??
                 maxSampleRate,
               sampleRateOptions: signalDisplaySampleRateOptions,
-              sampleRateOptionsOverride: isMockLiveSource
-                ? [3_200_000]
-                : undefined,
               wholeChannelSampleRate: hackrfWholeChannelSampleRate,
               fileCapturedRange,
               fftFrameRate,

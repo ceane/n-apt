@@ -402,7 +402,18 @@ pub fn compute_min_receive_sample_rate(
 ) -> u32 {
   const RTL_SDR_FLOOR_HZ: u32 = 3_200_000;
 
-  let widest_channel_bandwidth = napt
+  let widest_channel_bandwidth = widest_channel_bandwidth(napt);
+
+  let derived_floor = widest_channel_bandwidth / 2;
+  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
+  min_receive_sample_rate.min(sdr_sample_rate)
+}
+
+/// Resolve the `!channel` sample-rate ceiling from the configured N-APT
+/// channels. This is the authoritative maximum for Mock APT; device probe
+/// metadata is only a fallback when the channel configuration is unavailable.
+pub fn widest_channel_bandwidth(napt: &NaptConfig) -> u32 {
+  napt
     .channels
     .values()
     .filter_map(|channel| {
@@ -418,11 +429,7 @@ pub fn compute_min_receive_sample_rate(
       Some((max - min) as u32)
     })
     .max()
-    .unwrap_or(0);
-
-  let derived_floor = widest_channel_bandwidth / 2;
-  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
-  min_receive_sample_rate.min(sdr_sample_rate)
+    .unwrap_or(0)
 }
 
 pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
@@ -770,8 +777,14 @@ pub fn device_sample_rate_ceiling(
   sdr_settings: &SdrConfig,
 ) -> u32 {
   if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
-    return parse_device_info_sample_rate(device_info)
-      .unwrap_or(sdr_settings.sample_rate);
+    let configured_channel_ceiling =
+      widest_channel_bandwidth(&signals_config().signals.n_apt);
+    return if configured_channel_ceiling > 0 {
+      configured_channel_ceiling
+    } else {
+      parse_device_info_sample_rate(device_info)
+        .unwrap_or(sdr_settings.sample_rate)
+    };
   }
 
   if matches!(device_profile.kind.as_str(), "hackrf_one" | "mock_tx") {
@@ -806,7 +819,11 @@ pub fn resolve_device_sample_rate_options(
   );
   let floor =
     if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
-      ceiling
+      let config = signals_config();
+      compute_min_receive_sample_rate(
+        &config.signals.n_apt,
+        config.signals.sdr.sample_rate,
+      )
     } else {
       sdr_settings
         .min_receive_sample_rate
@@ -1011,8 +1028,7 @@ mod tests {
   }
 
   #[test]
-  fn resolves_mock_sample_rate_options_from_mock_device_after_hackrf_settings()
-  {
+  fn resolves_mock_sample_rate_options_from_configured_whole_channel() {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();
 
@@ -1033,8 +1049,16 @@ mod tests {
       &settings,
     );
 
-    assert_eq!(max_sample_rate, 3_200_000);
-    assert_eq!(options, vec![3_200_000]);
+    let expected_channel_rate = load_channels()
+      .iter()
+      .map(|channel| (channel.max_hz - channel.min_hz) as u32)
+      .max()
+      .expect("signals.yaml should define a Mock APT channel");
+
+    assert_eq!(max_sample_rate, expected_channel_rate);
+    assert_eq!(options.first().copied(), Some(3_200_000));
+    assert_eq!(options.last().copied(), Some(expected_channel_rate));
+    assert!(options.contains(&3_200_000));
   }
 
   #[test]

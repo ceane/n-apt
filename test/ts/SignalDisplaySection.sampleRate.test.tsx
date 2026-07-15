@@ -134,6 +134,30 @@ describe("SignalDisplaySection sample rate selector", () => {
     expect(select).toHaveValue("3200000");
   });
 
+  it("shows whole-channel for Mock APT even if stale profile metadata marks it as RTL-SDR", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          backend="mock_apt"
+          deviceProfile={{
+            kind: "mock_apt" as const,
+            is_rtl_sdr: true,
+            supports_approx_dbm: false,
+            supports_raw_iq_stream: false,
+          }}
+          sampleRate={4_372_000}
+          wholeChannelSampleRate={4_372_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("option", { name: "Whole Channel (4.372MHz)" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the reordered temporal resolution labels", () => {
     render(
       <TestWrapper>

@@ -385,12 +385,12 @@ describe("SpectrumSidebar sample rate behavior", () => {
     ).toBeTruthy();
   });
 
-  it("uses the active channel span for mock whole-channel mode instead of the mock device rate", async () => {
+  it("loads Mock APT in Whole Channel mode and transitions to a new sample rate", async () => {
     mockLiveState = {
       ...mockLiveState,
       activeSignalArea: "A",
       frequencyRange: { min: 18_000, max: 3_218_000 },
-      sampleRateHz: 3_200_000,
+      sampleRateHz: 4_372_000,
     };
     mockEffectiveFrames = [];
     mockSignalAreaBounds = null;
@@ -399,8 +399,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
       backend: "mock_apt",
       deviceName: "Mock APT SDR",
       deviceProfile: { kind: "mock_apt" },
-      sampleRateOptions: [3_200_000],
-      sampleRateHz: 3_200_000,
+      sampleRateOptions: [3_200_000, 18_250_000],
+      sampleRateHz: 4_372_000,
+      maxSampleRateHz: 18_250_000,
     };
 
     const channels = [
@@ -430,11 +431,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
             supports_approx_dbm: true,
             supports_raw_iq_stream: true,
             sdr: {
-              max_sample_rate: 3_200_000,
-              sample_rate_options: [3_200_000],
+              max_sample_rate: 18_250_000,
+              sample_rate_options: [3_200_000, 18_250_000],
               fft_display: { markers: [] },
               settings: {
-                sample_rate: 3_200_000,
+                sample_rate: 4_372_000,
                 min_receive_sample_rate: 3_200_000,
                 center_frequency: 1_600_000,
                 fft: {
@@ -471,6 +472,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
     ).toBeInTheDocument();
     expect(
       within(sampleRateRow as HTMLElement).queryByRole("option", {
+        name: "Whole Channel (18.25MHz)",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(sampleRateRow as HTMLElement).queryByRole("option", {
         name: "Whole Channel (3.2MHz)",
       }),
     ).not.toBeInTheDocument();
@@ -479,6 +485,35 @@ describe("SpectrumSidebar sample rate behavior", () => {
         name: "4.4MHz",
       }),
     ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledWith({
+        min: 18_000,
+        max: 4_390_000,
+      }),
+    );
+
+    const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+    await waitFor(() => expect(sampleRateSelect).toHaveValue("whole-channel"));
+
+    mockWsConnection.sendSettings.mockClear();
+    mockWsConnection.sendFrequencyRange.mockClear();
+    fireEvent.change(sampleRateSelect, { target: { value: "3200000" } });
+
+    await waitFor(() => expect(sampleRateSelect).toHaveValue("3200000"));
+    expect(mockLiveState.sampleRateHz).toBe(3_200_000);
+    const settingsCalls = mockWsConnection.sendSettings.mock.calls as Array<[
+      { sampleRate?: number },
+    ]>;
+    expect(
+      settingsCalls.some(([settings]) => settings?.sampleRate === 3_200_000),
+    ).toBe(true);
+    expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
+      min: 18_000,
+      max: 3_218_000,
+    });
+    expect(sampleRateSelect).not.toHaveValue("whole-channel");
   });
 
   it("prompts before enabling transmit and only sends the transmit command after confirmation", async () => {
@@ -1117,7 +1152,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       ...mockLiveState,
       activeSignalArea: "C",
       frequencyRange: { min: 4_750_000, max: 23_000_000 },
-      sampleRateHz: 3_200_000,
+      sampleRateHz: 18_250_000,
       size_to_frame_rate: {
         "2048": 1562,
         "4096": 781,
@@ -1136,8 +1171,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
       backend: "mock_apt",
       deviceName: "Mock APT SDR",
       deviceProfile: { kind: "mock_apt" },
-      sampleRateOptions: [3_200_000],
-      sampleRateHz: 3_200_000,
+      sampleRateOptions: [3_200_000, 18_250_000],
+      sampleRateHz: 18_250_000,
     };
 
     store.dispatch(
@@ -1156,11 +1191,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
             supports_approx_dbm: true,
             supports_raw_iq_stream: true,
             sdr: {
-              max_sample_rate: 3_200_000,
-              sample_rate_options: [3_200_000],
+              max_sample_rate: 18_250_000,
+              sample_rate_options: [3_200_000, 18_250_000],
               fft_display: { markers: [] },
               settings: {
-                sample_rate: 3_200_000,
+                sample_rate: 18_250_000,
                 min_receive_sample_rate: 3_200_000,
                 center_frequency: 1_600_000,
                 fft: {
