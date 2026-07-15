@@ -33,6 +33,13 @@ fn marker_radius_ndc() -> f32 {
   return 0.009;
 }
 
+fn marker_x_for_peak(peak_x: f32) -> f32 {
+  let radius = marker_radius_ndc();
+  let plot_left = uniforms[0].x;
+  let plot_right = uniforms[0].z;
+  return clamp(peak_x, plot_left + radius, plot_right - radius);
+}
+
 fn marker_y_for_peak(peak_y: f32) -> f32 {
   let plot_top = uniforms[0].w;
   let hover_gap = 0.045;
@@ -61,7 +68,7 @@ fn vs_line(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
   out.is_active = 1u;
   
   let spike = spikes[instance_index];
-  let x = idx_to_x(spike.index);
+  let x = marker_x_for_peak(idx_to_x(spike.index));
   let peak_y = value_to_y(spike.value);
   let marker_y = marker_y_for_peak(peak_y);
   let radius = marker_radius_ndc();
@@ -99,7 +106,7 @@ fn vs_circle(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) 
   out.is_active = 1u;
   
   let spike = spikes[instance_index];
-  let x = idx_to_x(spike.index);
+  let x = marker_x_for_peak(idx_to_x(spike.index));
   let y = marker_y_for_peak(value_to_y(spike.value));
   let radius = marker_radius_ndc();
   let rx = radius;

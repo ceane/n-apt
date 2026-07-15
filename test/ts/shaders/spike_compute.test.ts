@@ -59,4 +59,28 @@ describe("spike_compute.wgsl", () => {
     );
     expect(SPIKE_COMPUTE_WGSL).toContain("valley_prominence >= 1.5");
   });
+
+  it("uses one-sided prominence for peaks in the final display bins", () => {
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "const EDGE_BAND_BINS: u32 = 10u;",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain("i + EDGE_BAND_BINS >= l");
+    expect(SPIKE_COMPUTE_WGSL).toContain("right_edge_prominence");
+    expect(SPIKE_COMPUTE_WGSL).toContain("val - left_valley");
+    expect(SPIKE_COMPUTE_WGSL).toContain("var is_edge_band_max = true;");
+    expect(SPIKE_COMPUTE_WGSL).toContain("edge_band_start");
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "edge_sample > val || (edge_sample == val && edge_index > i)",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "let is_peak = immediate_peak || (is_right_edge_band && is_edge_band_max);",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "let edge_rise = val - left_valley;",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain(
+      "let edge_corner = val - (left + (left - left2));",
+    );
+    expect(SPIKE_COMPUTE_WGSL).toContain("edge_rise >= 0.35");
+  });
 });
