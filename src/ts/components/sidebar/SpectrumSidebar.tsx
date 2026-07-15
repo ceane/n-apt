@@ -92,6 +92,7 @@ import { TransmitPrompt } from "@n-apt/components/prompts/TransmitPrompt";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import {
   canUseWholeChannelSnapshot,
+  clampSampleRateToSourceMaximum,
   isRtlSdrDevice,
   resolveCaptureAcquisitionMode,
 } from "@n-apt/utils/sdrSampleRateGuards";
@@ -739,42 +740,52 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ? (mockResolved?.options ?? [3_200_000])
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
-    sourceMode === "live" && (isHackrfOne || isMockLiveSource);
-  const liveWholeChannelSampleRate =
-    activeChannelSampleRate ?? (isMockLiveSource ? 3_200_000 : null);
+    sourceMode === "live" &&
+    !isRtlSdr &&
+    (isHackrfOne || isMockLiveSource);
+  const liveWholeChannelSampleRate = activeChannelSampleRate;
   // For frame rate computation, use the actual SDR sample rate — NOT the
   // channel bandwidth.  The channel bandwidth (max_hz - min_hz) can exceed
   // the hardware sample rate and inflate floor(sampleRate / fftSize).
-  const maxSampleRate = isMockLiveSource
-    ? (liveSdrSettingsToUse?.sample_rate ??
-      sampleRateHzEffective ??
-      sampleRateHz ??
-      maxSampleRateHz ??
-      3_200_000)
-    : (sampleRateHzEffective ??
-      sampleRateHz ??
-      maxSampleRateHz ??
-      liveSdrSettingsToUse?.sample_rate ??
-      0);
+  const maxSampleRate = clampSampleRateToSourceMaximum(
+    isMockLiveSource
+      ? (sampleRateHzEffective ??
+        liveSdrSettingsToUse?.sample_rate ??
+        sampleRateHz ??
+        maxSampleRateHz ??
+        3_200_000)
+      : (sampleRateHzEffective ??
+        sampleRateHz ??
+        maxSampleRateHz ??
+        liveSdrSettingsToUse?.sample_rate ??
+        0),
+    maxSampleRateHz,
+  );
   const sampleRateHzLocal =
     (typeof liveState.sampleRateHz === "number" &&
     Number.isFinite(liveState.sampleRateHz) &&
     liveState.sampleRateHz > 0
-      ? liveState.sampleRateHz
+      ? clampSampleRateToSourceMaximum(liveState.sampleRateHz, maxSampleRateHz)
       : isMockLiveSource && mockResolved !== null
-        ? mockResolved.rate
+          ? clampSampleRateToSourceMaximum(mockResolved.rate, maxSampleRateHz)
         : typeof sampleRateHz === "number" &&
             Number.isFinite(sampleRateHz) &&
             sampleRateHz > 0
-          ? sampleRateHz
+          ? clampSampleRateToSourceMaximum(sampleRateHz, maxSampleRateHz)
           : typeof sampleRateHzEffective === "number" &&
               Number.isFinite(sampleRateHzEffective) &&
               sampleRateHzEffective > 0
-            ? sampleRateHzEffective
+            ? clampSampleRateToSourceMaximum(
+                sampleRateHzEffective,
+                maxSampleRateHz,
+              )
             : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
                 Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
                 liveSdrSettingsToUse.sample_rate > 0
-              ? liveSdrSettingsToUse.sample_rate
+              ? clampSampleRateToSourceMaximum(
+                  liveSdrSettingsToUse.sample_rate,
+                  maxSampleRateHz,
+                )
               : maxSampleRate) || null;
 
   const isServerConnected = useMemo(
@@ -914,9 +925,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     supportsWholeChannelSampleRate,
     manualSampleRateOptions: liveManualSampleRateOptions,
     activeChannelSampleRate: liveWholeChannelSampleRate,
+    maxSampleRateHz,
     activeSignalAreaBounds,
     frequencyRange,
-    sampleRateHz: liveState.sampleRateHz,
+    sampleRateHz: sampleRateHzLocal,
     fftSize,
     maxFrameRateLimit: maxFrameRate,
     setSampleRate,

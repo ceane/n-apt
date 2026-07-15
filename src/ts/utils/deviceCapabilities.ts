@@ -92,7 +92,9 @@ export const getMockDeviceProfile = (
   if (isMockAptSource(identity)) {
     return {
       kind: "mock_apt",
-      is_rtl_sdr: true,
+      // Mock APT exposes the full configured channel span for preview and
+      // whole-channel selection; it is not constrained by RTL-SDR hardware.
+      is_rtl_sdr: false,
       supports_approx_dbm: false,
       supports_raw_iq_stream: false,
     };
