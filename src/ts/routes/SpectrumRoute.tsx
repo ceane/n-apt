@@ -1518,8 +1518,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
     if (
       !isSelectedMockTxSource ||
-      isSelectedMockTxTransmitting ||
-      hasPlayedAtLeastOnce
+      isSelectedMockTxTransmitting
     ) {
       return null;
     }
@@ -1535,7 +1534,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [
     isSelectedMockTxSource,
     isSelectedMockTxTransmitting,
-    hasPlayedAtLeastOnce,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
   ]);

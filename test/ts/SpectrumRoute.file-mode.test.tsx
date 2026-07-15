@@ -1337,6 +1337,25 @@ describe("SpectrumRoute file mode", () => {
       });
     });
 
+    const renderedPreviewProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    act(() => {
+      renderedPreviewProps.onRenderableFrameChange(true);
+    });
+    await waitFor(() => {
+      const standbyProps =
+        fftAndWaterfallMock.mock.calls[
+          fftAndWaterfallMock.mock.calls.length - 1
+        ]?.[0];
+      expect(standbyProps.placeholderState).toMatchObject({
+        kind: "top-bar",
+        title: "Start Tx to transmit",
+      });
+      expect(standbyProps.isStandby).toBe(true);
+    });
+
     act(() => {
       store.dispatch(setTxSampleRateHz(3_400_000));
     });

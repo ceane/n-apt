@@ -128,13 +128,27 @@ const isMockSourceInfo = (source: SourceInfo | null | undefined): boolean => {
 export const resolveSelectedSourceIdForInventory = ({
   selectedSourceId,
   activeSourceId,
+  pendingSourceSwitchId = null,
+  selectionIntentSourceId = null,
   sources,
 }: {
   selectedSourceId: string;
   activeSourceId: string;
+  pendingSourceSwitchId?: string | null;
+  selectionIntentSourceId?: string | null;
   sources: SourceInfo[];
 }): string => {
+  if (
+    (pendingSourceSwitchId !== null &&
+      pendingSourceSwitchId === selectedSourceId) ||
+    (selectionIntentSourceId !== null &&
+      selectionIntentSourceId === selectedSourceId)
+  ) {
+    return selectedSourceId;
+  }
   if (sources.length === 0) return "";
+  const active = sources.find((source) => source.id === activeSourceId);
+  if (active) return active.id;
   const selected = sources.find((source) => source.id === selectedSourceId);
   const hardwareSources = sources.filter((source) => !isMockSourceInfo(source));
   const targetHardware =
@@ -161,6 +175,19 @@ export const resolveSelectedSourceIdForInventory = ({
     sources.find((source) => source.id === activeSourceId)?.id ?? sources[0].id
   );
 };
+
+export const shouldClearPendingSourceSwitch = ({
+  pendingSourceSwitchId,
+  selectedSourceId,
+  activeSourceId,
+}: {
+  pendingSourceSwitchId: string | null;
+  selectedSourceId: string;
+  activeSourceId: string;
+}): boolean =>
+  pendingSourceSwitchId !== null &&
+  pendingSourceSwitchId !== activeSourceId &&
+  pendingSourceSwitchId !== selectedSourceId;
 
 /**
  * The sidebar selection is an intent; the active source is the server's
@@ -293,17 +320,20 @@ export const shouldSendSelectSource = ({
   sourceMode,
   selectedSourceId,
   activeSourceId,
+  selectionIntentSourceId,
   availableSourceIds,
 }: {
   isConnected: boolean;
   sourceMode: SourceMode;
   selectedSourceId: string;
   activeSourceId: string;
+  selectionIntentSourceId: string | null;
   availableSourceIds: string[];
 }): boolean =>
   sourceMode === "live" &&
   isConnected &&
   selectedSourceId.length > 0 &&
+  selectionIntentSourceId === selectedSourceId &&
   selectedSourceId !== activeSourceId &&
   availableSourceIds.includes(selectedSourceId);
 
@@ -1363,10 +1393,27 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const sampleRateHz = activeSourceDerived.sampleRateHz;
     const sdrSettings = activeSourceDerived.sdrSettings;
     const activeSourceId = activeSource?.id ?? "";
-    const [selectedSourceId, setSelectedSourceId] = useState<string>(() => {
-      const stored = loadSelectedSourceId();
-      return stored || activeSourceId || websocketSources[0]?.id || "";
-    });
+    const [selectedSourceId, setSelectedSourceIdState] = useState<string>(
+      () => {
+        const stored = loadSelectedSourceId();
+        return stored || activeSourceId || websocketSources[0]?.id || "";
+      },
+    );
+    const selectionIntentSourceIdRef = useRef<string | null>(null);
+    const setSelectedSourceId = useCallback<
+      React.Dispatch<React.SetStateAction<string>>
+    >((nextSourceId) => {
+      if (typeof nextSourceId === "function") {
+        setSelectedSourceIdState((currentSourceId) => {
+          const resolvedSourceId = nextSourceId(currentSourceId);
+          selectionIntentSourceIdRef.current = resolvedSourceId;
+          return resolvedSourceId;
+        });
+        return;
+      }
+      selectionIntentSourceIdRef.current = nextSourceId;
+      setSelectedSourceIdState(nextSourceId);
+    }, []);
     const [localSourcePauseOverrides, setLocalSourcePauseOverrides] = useState<
       Record<string, boolean>
     >({});
@@ -1446,10 +1493,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const nextSourceId = resolveSelectedSourceIdForInventory({
         selectedSourceId,
         activeSourceId,
+        pendingSourceSwitchId: pendingSourceSwitchRef.current,
+        selectionIntentSourceId: selectionIntentSourceIdRef.current,
         sources: websocketSources,
       });
       if (nextSourceId !== selectedSourceId) {
-        setSelectedSourceId(nextSourceId);
+        setSelectedSourceIdState(nextSourceId);
       }
     }, [activeSourceId, selectedSourceId, websocketSources]);
 
@@ -1517,12 +1566,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           sourceMode: state.sourceMode,
           selectedSourceId,
           activeSourceId,
+          selectionIntentSourceId: selectionIntentSourceIdRef.current,
           availableSourceIds,
         })
       ) {
-        // Keep a completed request long enough for the confirmation effect to
-        // report it. Clear only requests that can no longer be completed.
-        if (selectedSourceId !== activeSourceId) {
+        if (
+          shouldClearPendingSourceSwitch({
+            pendingSourceSwitchId: pendingSourceSwitchRef.current,
+            selectedSourceId,
+            activeSourceId,
+          })
+        ) {
           pendingSourceSwitchRef.current = null;
         }
         return;
@@ -1542,6 +1596,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         if (pendingSourceSwitchRef.current === selectedSourceId) {
           pendingSourceSwitchRef.current = null;
         }
+        sourceSwitchTimeoutRef.current = null;
       }, 3_000);
     }, [
       activeSourceId,
@@ -1559,6 +1614,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
       pendingSourceSwitchRef.current = null;
+      if (selectionIntentSourceIdRef.current === activeSourceId) {
+        selectionIntentSourceIdRef.current = null;
+      }
       if (sourceSwitchTimeoutRef.current !== null) {
         window.clearTimeout(sourceSwitchTimeoutRef.current);
         sourceSwitchTimeoutRef.current = null;

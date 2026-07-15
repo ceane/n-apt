@@ -12,6 +12,7 @@ import {
   resolveEffectiveSourcePaused,
   resolveStreamingSourceForDisplay,
   resolveSelectedSourceIdForInventory,
+  shouldClearPendingSourceSwitch,
 } from "@n-apt/hooks/useSpectrumStore";
 
 describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
@@ -49,6 +50,54 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         ] as any,
       }),
     ).toBe("rtl-1");
+  });
+
+  it("preserves a pending Mock Tx selection while source inventory is transiently empty", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        pendingSourceSwitchId: "mock-tx",
+        sources: [],
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("preserves an explicit Mock Tx selection before the switch request is dispatched", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("follows the server source when another client switches it", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("does not clear a pending source switch just because its inventory entry is temporarily unavailable", () => {
+    expect(
+      shouldClearPendingSourceSwitch({
+        pendingSourceSwitchId: "mock-tx",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+      }),
+    ).toBe(false);
   });
   it("resumes when the selected source is RX and the pause came from a source switch", () => {
     expect(
@@ -295,8 +344,35 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         sourceMode: "live",
         selectedSourceId: "rtl-sdr-removed",
         activeSourceId: "hackrf_one-connected",
+        selectionIntentSourceId: "rtl-sdr-removed",
         availableSourceIds: ["hackrf_one-connected", "mock-apt"],
       }),
     ).toBe(false);
+  });
+
+  it("does not reassert a passive tab's stale source selection", () => {
+    expect(
+      shouldSendSelectSource({
+        isConnected: true,
+        sourceMode: "live",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        selectionIntentSourceId: null,
+        availableSourceIds: ["mock-apt", "mock-tx"],
+      }),
+    ).toBe(false);
+  });
+
+  it("sends a source switch for the tab's explicit selection", () => {
+    expect(
+      shouldSendSelectSource({
+        isConnected: true,
+        sourceMode: "live",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
+        availableSourceIds: ["mock-apt", "mock-tx"],
+      }),
+    ).toBe(true);
   });
 });

@@ -78,6 +78,16 @@ pub(super) fn should_cache_swapped_source(source_id: &str) -> bool {
   !source_id.trim().is_empty()
 }
 
+/// Allows automatic warm-source recovery only while the processor is on the
+/// ordinary Mock APT fallback. Mock Tx is a deliberate logical selection even
+/// though it uses a mock receiver internally, so recovery must not replace it.
+pub(super) fn should_restore_warm_source(
+  processor_is_mock: bool,
+  active_source_id: &str,
+) -> bool {
+  processor_is_mock && active_source_id != "mock-tx"
+}
+
 /// Returns every inactive source that can be initialized ahead of selection.
 ///
 /// Mock peers are included so an APT/Tx handoff does not pay generator setup

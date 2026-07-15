@@ -1,4 +1,5 @@
 import {
+  attachLiveSourceLifecyclePlaceholder,
   buildLiveSourceLifecycleTrace,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
@@ -69,6 +70,32 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe("awaiting-frame");
   });
 
+  test("presents Mock Tx standby during its mock-to-mock handoff", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-tx",
+      activeSourceId: "mock-apt",
+      transportSourceId: "mock-tx",
+      transportPhase: "warming",
+      hasValidFrame: false,
+      deviceStatus: "connected",
+      handoffPlaceholder,
+    });
+    const standbyPlaceholder = {
+      kind: "top-bar" as const,
+      title: "Start Tx to transmit",
+    };
+
+    expect(
+      attachLiveSourceLifecyclePlaceholder(lifecycle, {
+        handoffPlaceholder,
+        standbyPlaceholder,
+      }),
+    ).toMatchObject({
+      phase: "warming-transport",
+      placeholder: standbyPlaceholder,
+    });
+  });
+
   test("lets a valid current-source frame override lagging recovery status", () => {
     expect(
       resolveLiveSourceLifecycle({
@@ -81,6 +108,25 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffPlaceholder,
       }),
     ).toMatchObject({ phase: "ready", placeholder: null });
+  });
+
+  test("keeps an active Mock Tx standby overlay after its preview frame renders", () => {
+    const standbyPlaceholder = {
+      kind: "top-bar" as const,
+      title: "Start Tx to transmit",
+    };
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+        hasValidFrame: true,
+        deviceStatus: "connected",
+        isStandby: true,
+        standbyPlaceholder,
+      }),
+    ).toMatchObject({ phase: "standby", placeholder: standbyPlaceholder });
   });
 
   test("keeps recovery and terminal switch failure distinct", () => {

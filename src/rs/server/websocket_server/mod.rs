@@ -19,12 +19,13 @@ pub mod mock_tx;
 mod source_lifecycle;
 pub mod sources;
 
-use source_lifecycle::{
-  prepare_selected_source_for_rx, prewarm_inactive_sources,
-  should_cache_swapped_source, source_phase_on_select, take_next_warm_source,
-};
 #[cfg(test)]
 use source_lifecycle::warmable_source_ids;
+use source_lifecycle::{
+  prepare_selected_source_for_rx, prewarm_inactive_sources,
+  should_cache_swapped_source, should_restore_warm_source,
+  source_phase_on_select, take_next_warm_source,
+};
 
 // Re-export key symbols for tests and other modules
 pub use broadcasting::{
@@ -198,6 +199,13 @@ mod tests {
     assert!(!should_hold_mock_tx_standby_stream(
       "mock-apt", false, false
     ));
+  }
+
+  #[test]
+  fn mock_tx_selection_is_not_overridden_by_warm_source_recovery() {
+    assert!(!should_restore_warm_source(true, "mock-tx"));
+    assert!(should_restore_warm_source(true, "mock-apt"));
+    assert!(!should_restore_warm_source(false, "mock-apt"));
   }
 
   #[test]
@@ -1338,7 +1346,8 @@ impl WebSocketServer {
         >= super::shared_state::HEALTH_CHECK_INTERVAL
       {
         let mut processor = sdr_processor.lock().await;
-        if processor.is_mock() {
+        let active_source = active_source_id(&shared_state);
+        if should_restore_warm_source(processor.is_mock(), &active_source) {
           if let Some((source_id, warm_device)) =
             take_next_warm_source(&mut warm_devices)
           {

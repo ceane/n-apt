@@ -151,9 +151,6 @@ export const resolveLiveSourceLifecycle = ({
   if (deviceStatus === "error" || devicePlaceholder?.kind === "error") {
     return result("failed", devicePlaceholder);
   }
-  if (hasValidFrame && selectedSourceId === activeSourceId) {
-    return result("ready", null);
-  }
   if (!selectedSourceId) return result("idle", null);
 
   if (selectedSourceId !== activeSourceId) {
@@ -165,11 +162,16 @@ export const resolveLiveSourceLifecycle = ({
     );
   }
 
-  if (RECOVERY_STATUSES.has(deviceStatus ?? "") || devicePlaceholder) {
-    return result("recovering", devicePlaceholder);
-  }
+  // Standby is a presentation mode, not a lack of data. A requested Mock Tx
+  // preview remains renderable underneath its persistent standby top bar.
   if (isStandby || standbyPlaceholder) {
     return result("standby", standbyPlaceholder);
+  }
+
+  if (hasValidFrame) return result("ready", null);
+
+  if (RECOVERY_STATUSES.has(deviceStatus ?? "") || devicePlaceholder) {
+    return result("recovering", devicePlaceholder);
   }
   return result("awaiting-frame", handoffPlaceholder);
 };
@@ -210,7 +212,10 @@ export const attachLiveSourceLifecyclePlaceholder = (
       case "warming-transport":
       case "swapping-device":
       case "awaiting-frame":
-        return handoffPlaceholder;
+        // Mock Tx has a complete standby presentation before its one-shot
+        // preview arrives. Keep the lifecycle gate, but avoid flashing a
+        // generic loading card during the effectively instant mock handoff.
+        return standbyPlaceholder ?? handoffPlaceholder;
       case "standby":
         return standbyPlaceholder;
       default:
