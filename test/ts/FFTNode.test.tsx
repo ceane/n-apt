@@ -131,6 +131,18 @@ describe("FFTNode", () => {
     expect(screen.getByTestId("fft-canvas")).toBeInTheDocument();
   });
 
+  it("renders its FFT canvas at twice the normal backing resolution", () => {
+    render(
+      <TestWrapper>
+        <FFTNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(mockFFTCanvasProps).toHaveBeenCalledWith(
+      expect.objectContaining({ canvasResolutionScale: 2 }),
+    );
+  });
+
   it("renders with custom label", () => {
     const customProps = {
       id: "custom-fft",

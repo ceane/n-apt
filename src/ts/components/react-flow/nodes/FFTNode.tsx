@@ -333,6 +333,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           snapshotGridPreference={true}
           compact={true}
           nodePreview={true}
+          canvasResolutionScale={2}
           awaitingDeviceData={!frame}
           isIqRecordingActive={true}
           demodulationCenterFreqHz={

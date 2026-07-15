@@ -5,3 +5,4 @@ export { ControlBar } from "./ControlBar";
 export { FullscreenModal } from "./FullscreenModal";
 export { buildDemodFlowGraph } from "./demodFlowModel";
 export * from "./templates";
+export { FindBeatsFlow } from "@n-apt/components/react-flow/flows/FindBeatsFlow";

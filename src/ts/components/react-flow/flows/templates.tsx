@@ -1,6 +1,7 @@
 import React from "react";
-import { Zap, Activity, BarChart3, Waves, Music } from "lucide-react";
+import { Zap, Activity, Waves, Music } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
+import { FindBeatsFlow } from "@n-apt/components/react-flow/flows/FindBeatsFlow";
 
 export interface FlowTemplate {
   id: string;
@@ -477,75 +478,5 @@ export const flowTemplates: FlowTemplate[] = [
       },
     ],
   },
-  {
-    id: "find-beats",
-    label: "Find Beats",
-    description: "Detect beat frequencies and heterodyning",
-    icon: <BarChart3 size={16} />,
-    nodes: [
-      {
-        id: "source",
-        type: "custom",
-        position: { x: 250, y: 50 },
-        data: {
-          label: "Source",
-          description: "Signal source",
-          sourceNode: true,
-        },
-      },
-      {
-        id: "channel",
-        type: "custom",
-        position: { x: 250, y: 450 },
-        data: {
-          label: "Channel",
-          description: "Channel configuration",
-          channelNode: true,
-        },
-      },
-      {
-        id: "fft",
-        type: "custom",
-        position: { x: 250, y: 850 },
-        data: {
-          label: "FFT",
-          description: "Fast Fourier Transform",
-          fftOptions: true,
-        },
-      },
-      {
-        id: "beat",
-        type: "custom",
-        position: { x: 250, y: 1250 },
-        data: {
-          label: "Beat Detection",
-          description: "Detect beat frequencies and heterodyning",
-          beatOptions: true,
-        },
-      },
-    ],
-    edges: [
-      {
-        id: "e1",
-        source: "source",
-        target: "channel",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e2",
-        source: "channel",
-        target: "fft",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e3",
-        source: "fft",
-        target: "beat",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-    ],
-  },
+  FindBeatsFlow,
 ];
