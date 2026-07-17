@@ -1,4 +1,6 @@
 /** @jest-environment jsdom */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import React from "react";
 import {
   render,
@@ -26,6 +28,18 @@ import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
 import themeSlice from "../../src/ts/redux/slices/themeSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
+
+describe("SpectrumSidebar hot-path diagnostics", () => {
+  it("does not log metadata on every animation frame", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/ts/components/sidebar/SpectrumSidebar.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("Metadata Effect: isNapt?");
+    expect(source).not.toContain("Metadata Effect: NAPT file but NO aesKey!");
+  });
+});
 
 let mockLiveState: any;
 let mockEffectiveFrames: any[];
@@ -503,9 +517,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     await waitFor(() => expect(sampleRateSelect).toHaveValue("3200000"));
     expect(mockLiveState.sampleRateHz).toBe(3_200_000);
-    const settingsCalls = mockWsConnection.sendSettings.mock.calls as Array<[
-      { sampleRate?: number },
-    ]>;
+    const settingsCalls = mockWsConnection.sendSettings.mock.calls as Array<
+      [{ sampleRate?: number }]
+    >;
     expect(
       settingsCalls.some(([settings]) => settings?.sampleRate === 3_200_000),
     ).toBe(true);

@@ -435,7 +435,7 @@ describe("SpectrumRoute file mode", () => {
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
   });
 
-  it("retains the painted mock apt frame while requesting a fresh mock tx frame", async () => {
+  it("rejects the stale mock apt frame while retaining its painted GPU presentation", async () => {
     const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
     requestNextLiveFrameMock.mockClear();
 
@@ -626,6 +626,8 @@ describe("SpectrumRoute file mode", () => {
       ]?.[0];
     expect(handoffProps.dataRef).toBe(dataRef);
     expect(dataRef.current).toBe(liveFrame);
+    expect(handoffProps.expectedSourceId).toBe("mock-tx");
+    expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
     const switchedValue = {
       ...mockValue,

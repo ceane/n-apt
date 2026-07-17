@@ -8,6 +8,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { SidebarSectionTitle } from "@n-apt/components/ui/Collapsible";
+import { formatDuration, formatFileSize } from "@n-apt/utils/formatters";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 
 const Section = styled.div<{ $marginTop?: string }>`
   display: grid;
@@ -42,13 +44,13 @@ const FileInfoRow = styled.div`
 const FileItemHeader = styled.div`
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 6px;
   margin-bottom: 12px;
 `;
 
 const FileIcon = styled.div`
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   background-color: transparent;
   display: flex;
   align-items: center;
@@ -68,6 +70,19 @@ const FileTitle = styled.div`
   min-width: 0;
 `;
 
+const FileStats = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 15px;
+  white-space: nowrap;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 500;
+`;
+
 const FileInfoActions = styled.div`
   display: flex;
   gap: 14px;
@@ -82,6 +97,11 @@ const LoadedLabel = styled.div`
   font-size: 11px;
   color: ${(props) => props.theme.textSecondary};
   font-weight: 500;
+  white-space: nowrap;
+`;
+
+const FileStatValue = styled.span`
+  white-space: nowrap;
 `;
 
 const DownloadActionLink = styled.a`
@@ -148,6 +168,8 @@ interface SelectedFilesProps {
   onRemoveFile: (index: number) => void;
   onClear: () => void;
   sessionToken?: string | null;
+  durationSeconds?: number;
+  status?: string;
 }
 
 export const SelectedFiles: React.FC<SelectedFilesProps> = ({
@@ -156,10 +178,19 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
   onRemoveFile,
   onClear,
   sessionToken,
+  durationSeconds,
+  status = "loaded",
 }) => {
   if (selectedFiles.length === 0) {
     return null;
   }
+
+  const normalizedStatus = status.toLowerCase();
+  const statusLabel = normalizedStatus.includes("error") || normalizedStatus.includes("fail")
+    ? "Error"
+    : normalizedStatus.includes("loading") || normalizedStatus.includes("processing")
+      ? "Loading"
+      : "File Loaded";
 
   return (
     <Section>
@@ -171,15 +202,33 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
         <FileCard key={`${file.name}-${index}`}>
           <FileItemHeader>
             <FileIcon>
-              <FileSignal size={18} strokeWidth={2} />
+              <FileSignal size={16} strokeWidth={2} />
             </FileIcon>
-            <FileTitle>{renderFileName(file.name)}</FileTitle>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <FileTitle>{renderFileName(file.name)}</FileTitle>
+              {index === 0 && (
+                <FileStats>
+                  <FileStatValue>
+                    {typeof fileRegistry.get(file.id)?.size === "number" &&
+                      formatFileSize(fileRegistry.get(file.id)!.size!)}
+                  </FileStatValue>
+                  {typeof fileRegistry.get(file.id)?.size === "number" &&
+                    typeof durationSeconds === "number" && <span>/</span>}
+                  {typeof durationSeconds === "number" &&
+                    Number.isFinite(durationSeconds) && (
+                      <FileStatValue>
+                        {formatDuration(durationSeconds)} length capture
+                      </FileStatValue>
+                    )}
+                  <LoadedLabel>
+                    <CheckCircle2 size={12} /> {statusLabel}
+                  </LoadedLabel>
+                </FileStats>
+              )}
+            </div>
           </FileItemHeader>
           <FileInfoRow>
             <FileInfoActions>
-              <LoadedLabel>
-                <CheckCircle2 size={12} /> Loaded
-              </LoadedLabel>
               {file.downloadUrl && (
                 <DownloadActionLink
                   href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ""}`}

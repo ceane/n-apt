@@ -8,6 +8,33 @@ export type SampleRateSpec =
       max: string;
     };
 
+export interface SignalFrequencyRange {
+  min: number;
+  max: number;
+}
+
+/** Returns whether a requested range is fully contained by one configured N-APT channel. */
+export function isValidNaptRange(
+  range: SignalFrequencyRange,
+  channels: readonly SignalFrequencyRange[],
+): boolean {
+  if (
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max) ||
+    range.min > range.max
+  ) {
+    return false;
+  }
+
+  return channels.some(
+    (channel) =>
+      Number.isFinite(channel.min) &&
+      Number.isFinite(channel.max) &&
+      channel.min <= range.min &&
+      range.max <= channel.max,
+  );
+}
+
 /**
  * Resolves the dynamic sample rate value (or option range) for a device
  * using the signals.yaml spec and the active channel frame.
@@ -153,6 +180,9 @@ export const getLogicalMaxFrameRate = (
   fftSize: number,
   sdrSettings?: any,
 ): number => {
+  if (!sampleRate || sampleRate <= 0) {
+    return sdrSettings?.fft?.max_frame_rate ?? MAX_SCREEN_REFRESH_RATE;
+  }
   // Compute frame rate from the actual sample rate:
   // floor(sampleRate / fftSize) clamped to max_frame_rate.
   //

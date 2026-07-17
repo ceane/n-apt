@@ -116,12 +116,18 @@ fn quantize_mock_tx_iq(value: f64, sample_index: u64, noise_key: u64) -> u8 {
   (128.0 + signed).clamp(0.0, 255.0) as u8
 }
 
+use std::cell::RefCell;
+
+thread_local! {
+  static PLANNER: RefCell<FftPlanner<f32>> = RefCell::new(FftPlanner::new());
+}
+
 fn clamp_raw_iq_to_bandwidth(
   iq: &mut [Complex<f64>],
   rel_center_hz: f64,
   width_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
-) {
+ ) {
   let sample_count = iq.len();
   if sample_count == 0
     || !rel_center_hz.is_finite()
@@ -140,9 +146,10 @@ fn clamp_raw_iq_to_bandwidth(
     .map(|c| Complex::new(c.re as f32, c.im as f32))
     .collect();
 
-  let mut planner = FftPlanner::<f32>::new();
-  let fft = planner.plan_fft_forward(sample_count);
-  let ifft = planner.plan_fft_inverse(sample_count);
+  let (fft, ifft) = PLANNER.with(|p| {
+    let mut planner = p.borrow_mut();
+    (planner.plan_fft_forward(sample_count), planner.plan_fft_inverse(sample_count))
+  });
 
   fft.process(&mut iq_f32);
 
@@ -184,8 +191,7 @@ fn peak_amplitude_inside_bandwidth_raw(
     .map(|c| Complex::new(c.re as f32, c.im as f32))
     .collect();
 
-  let mut planner = FftPlanner::<f32>::new();
-  let fft = planner.plan_fft_forward(sample_count);
+  let fft = PLANNER.with(|p| p.borrow_mut().plan_fft_forward(sample_count));
   fft.process(&mut iq_f32);
 
   iq_f32

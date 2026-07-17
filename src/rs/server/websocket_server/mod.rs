@@ -24,7 +24,7 @@ use source_lifecycle::warmable_source_ids;
 use source_lifecycle::{
   prepare_selected_source_for_rx, prewarm_inactive_sources,
   should_cache_swapped_source, should_restore_warm_source,
-  source_phase_on_select, take_next_warm_source,
+  source_phase_on_select, take_warm_source_for_active,
 };
 
 // Re-export key symbols for tests and other modules
@@ -202,10 +202,11 @@ mod tests {
   }
 
   #[test]
-  fn mock_tx_selection_is_not_overridden_by_warm_source_recovery() {
+  fn logical_mock_sources_are_not_overridden_by_warm_source_recovery() {
     assert!(!should_restore_warm_source(true, "mock-tx"));
-    assert!(should_restore_warm_source(true, "mock-apt"));
+    assert!(!should_restore_warm_source(true, "mock-apt"));
     assert!(!should_restore_warm_source(false, "mock-apt"));
+    assert!(should_restore_warm_source(true, "rtl-sdr-v4"));
   }
 
   #[test]
@@ -254,14 +255,36 @@ mod tests {
     ]);
 
     assert_eq!(
-      take_next_warm_source(&mut warm),
+      source_lifecycle::take_next_warm_source(&mut warm),
       Some(("hackrf_one-a".to_string(), 1))
     );
     assert_eq!(
-      take_next_warm_source(&mut warm),
+      source_lifecycle::take_next_warm_source(&mut warm),
       Some(("rtl-sdr-b".to_string(), 2))
     );
-    assert!(take_next_warm_source(&mut warm).is_none());
+    assert!(source_lifecycle::take_next_warm_source(&mut warm).is_none());
+  }
+
+  #[test]
+  fn warm_source_recovery_never_takes_an_inactive_peer() {
+    let mut warm = HashMap::from([
+      ("mock-tx".to_string(), 1),
+      ("rtl-sdr-v4".to_string(), 2),
+    ]);
+
+    assert_eq!(
+      source_lifecycle::take_warm_source_for_active(
+        &mut warm,
+        "rtl-sdr-v4",
+      ),
+      Some(2)
+    );
+    assert!(warm.contains_key("mock-tx"));
+    assert!(source_lifecycle::take_warm_source_for_active(
+      &mut warm,
+      "mock-apt",
+    )
+    .is_none());
   }
 
   #[test]
@@ -695,6 +718,14 @@ impl WebSocketServer {
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                   Ok(previous_device) => {
+                    // Re-apply the last known center frequency if we have one, so we don't start at default and jump
+                    let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
+                    if last_freq > 0 {
+                      if let Err(e) = processor.set_center_frequency(last_freq) {
+                        warn!("Failed to apply last known frequency after swap: {}", e);
+                      }
+                    }
+
                     if should_cache_swapped_source(&current_source_id) {
                       warm_devices
                         .insert(current_source_id.clone(), previous_device);
@@ -810,7 +841,14 @@ impl WebSocketServer {
                   );
                   shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
-                } else {
+                 } else {
+                  // Re-apply the last known center frequency
+                  let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
+                  if last_freq > 0 {
+                    if let Err(e) = processor.set_center_frequency(last_freq) {
+                      warn!("Failed to apply last known frequency after restart swap: {}", e);
+                    }
+                  }
                   shared_state.update_device_status(
                     !processor.is_mock(),
                     processor.get_device_info(),
@@ -1160,14 +1198,11 @@ impl WebSocketServer {
             let was_transmitting =
               crate::safety::TX_TRANSMITTING.swap(enabled, Ordering::Relaxed);
 
-            // For mock tx devices, seed sdr_settings.center_frequency so the
-            // very first monitor frame uses the correct view center before any
-            // request_next_frame arrives.
+            // For mock tx devices, seed the monitor view center so the first
+            // preview frame is independent from the receive device's settings.
             if is_mock_tx_device && enabled && !was_transmitting {
               if let Some(center_frequency_hz) = center_frequency_hz {
-                let mut settings = shared_state.sdr_settings.lock().unwrap();
                 let center_hz = center_frequency_hz.min(u32::MAX as u64);
-                settings.center_frequency = center_hz as u32;
                 *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() =
                   center_hz as f64;
               }
@@ -1348,9 +1383,10 @@ impl WebSocketServer {
         let mut processor = sdr_processor.lock().await;
         let active_source = active_source_id(&shared_state);
         if should_restore_warm_source(processor.is_mock(), &active_source) {
-          if let Some((source_id, warm_device)) =
-            take_next_warm_source(&mut warm_devices)
+          if let Some(warm_device) =
+            take_warm_source_for_active(&mut warm_devices, &active_source)
           {
+            let source_id = active_source.clone();
             match processor.swap_device_keep_warm(warm_device) {
               Ok(previous_mock) => {
                 drop(previous_mock);
@@ -1546,7 +1582,6 @@ impl WebSocketServer {
                 }
               };
               let (waveform, raw_iq) = if streaming_mock_tx_monitor {
-                let settings = cloned_shared.sdr_settings.lock().unwrap().clone();
                 let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
                 let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
                 let tx_center_hz =
@@ -1556,6 +1591,8 @@ impl WebSocketServer {
                 let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
                 let tx_iq_power_model = mock_tx::resolve_mock_tx_iq_power_model();
                 let tx_view_center_hz = *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap();
+                let tx_monitor_sample_rate = crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
+                  .load(std::sync::atomic::Ordering::Relaxed);
                 // Use TX_MONITOR_VIEW_CENTER_HZ as the view center.
                 // apply_mock_tx_preview_settings writes the frontend's display
                 // center (mockMonitorCenterHz) here on every request_next_frame,
@@ -1567,12 +1604,12 @@ impl WebSocketServer {
                 } else {
                   center_frequency
                 };
-                let monitor_sample_rate = sample_rate.max(settings.sample_rate.max(1));
+                let monitor_sample_rate = sample_rate.max(tx_monitor_sample_rate.max(1));
                 sample_rate = monitor_sample_rate;
                 let effective_bandwidth_hz = if tx_bandwidth_hz > 0.0 {
                   tx_bandwidth_hz.min(monitor_sample_rate as f64).max(1.0)
                 } else {
-                  settings.sample_rate as f64
+                  monitor_sample_rate as f64
                 };
                 let bin_spacing_hz = monitor_sample_rate as f64
                   / tx_ifft_size.max(1) as f64;

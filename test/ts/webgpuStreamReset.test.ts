@@ -3,6 +3,7 @@ import {
   resolveWebGpuStreamTransition,
   getVisualizerLifecycleKey,
   getWebGpuStreamResetKey,
+  shouldCommitSourcePresentationReset,
   shouldPreservePresentationDuringFrameGap,
   shouldRestoreWebGpuStreamState,
   shouldAcceptWebGpuStreamFrame,
@@ -11,6 +12,12 @@ import {
 } from "@n-apt/utils/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
+  test("commits a pending source reset only with the replacement frame", () => {
+    expect(shouldCommitSourcePresentationReset(true, true)).toBe(true);
+    expect(shouldCommitSourcePresentationReset(true, false)).toBe(false);
+    expect(shouldCommitSourcePresentationReset(false, true)).toBe(false);
+  });
+
   test("preserves the last presentation during a connected frame-processing gap", () => {
     expect(
       shouldPreservePresentationDuringFrameGap({
@@ -81,6 +88,23 @@ describe("WebGPU stream reset", () => {
         hasActiveSourceFrame: true,
       }),
     ).toBe(false);
+  });
+
+  test("uses the active transport owner for untagged live frames", () => {
+    expect(
+      shouldAcceptWebGpuStreamFrame({
+        expectedSourceId: "mock-tx",
+        frameSourceId: null,
+        fallbackFrameSourceId: "mock-apt",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAcceptWebGpuStreamFrame({
+        expectedSourceId: "mock-tx",
+        frameSourceId: null,
+        fallbackFrameSourceId: "mock-tx",
+      }),
+    ).toBe(true);
   });
 
   test("holds the same handoff overlay while switching between mock sources", () => {
@@ -214,7 +238,7 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(commit).toEqual({
-      clearLiveFrame: false,
+      clearLiveFrame: true,
       advanceResetEpoch: false,
     });
   });

@@ -99,6 +99,51 @@ block temporarily, use a filename beginning with `tmp_`, run it with the two
 environment variables set, and remove it afterward. Do not save it under the
 repository as a permanent utility unless it is reviewed as production code.
 
+## Manual shader-test harness
+
+For repeatable, file-based shader experiments, use the reviewed manual harness
+instead of copying a one-off decrypt block. It reads the password only from
+`UNSAFE_LOCAL_USER_PASSWORD` in `.env.local` or the process environment, and it
+writes decrypted output outside the repository by default:
+
+```sh
+node scripts/test/manual_napt_capture_harness.mjs \
+  --input "$HOME/Desktop/samples-for-shaders/large_suspension_bridge_capture_cap_1784255167483_20260717_022608.napt" \
+  --out-dir "/private/tmp/napt-harness/large-suspension-bridge" \
+  --fft-size 65536 \
+  --frames 0,8,16,24,32
+```
+
+The output directory contains:
+
+- `raw.iq.u8`: the complete unsigned 8-bit interleaved stream
+  (`I0,Q0,I1,Q1,...`);
+- `frames/frame_XXXXXX.iq.u8`: selected complete FFT-sized frame slices; and
+- `manifest.json`: safe provenance and frame metadata, without the password or
+  wrapped DEK.
+
+Use `--frames all` to extract every complete frame, or provide a comma-separated
+list to keep a manual test run small. This harness is intentionally not part of
+CI: a human must explicitly choose the capture, output directory, and frames.
+
+To run the GPU classifier against those raw frames, use the separate manual
+classifier harness. It performs the full FFT in Node, sends the complete FFT
+frame to WebGPU, and then follows the production order: resample, floor
+reduction, primary/recovery spike detection, classifier finalization, and N-APT
+decision readback.
+
+```sh
+node scripts/test/manual_napt_classifier_harness.mjs \
+  --manifest-dir "/private/tmp/napt-harness/large-suspension-bridge" \
+  --frames 0,8,16,24,32
+```
+
+Repeat `--manifest-dir` for additional labeled captures. The JSON result marks
+each capture `valid: false` when WebGPU reports a validation error, no spikes,
+or an unpopulated floor/readback value; those results must not be interpreted as
+classifier `No` decisions. This scoring command is manual-only and expects the
+local app to already be running at `http://localhost:5173/`.
+
 ## Interpreting the output
 
 The extracted file is unsigned 8-bit interleaved IQ. Convert each byte to a

@@ -390,7 +390,6 @@ describe("FFTAndWaterfall", () => {
         snapshotGridPreference={true}
       />,
     );
-
     rerender(
       <FFTAndWaterfall
         dataRef={dataRef}
@@ -409,6 +408,59 @@ describe("FFTAndWaterfall", () => {
 
     jest.advanceTimersByTime(200);
     expect(dataRef.current).not.toBeNull();
+    jest.useRealTimers();
+  });
+
+  it("uses an extended loading grace for instant mock-source handoffs", () => {
+    jest.useFakeTimers();
+    const dataRef = { current: null };
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        loadingPlaceholderDelayMs={1_000}
+      />,
+    );
+    act(() => {
+      const initialProps =
+        fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+      initialProps?.onRenderableFrameChange?.(true);
+    });
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={dataRef}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        loadingPlaceholderDelayMs={1_000}
+        placeholderState={{
+          kind: "loading",
+          paneLabel: "FFT",
+          sourceLabel: "Mock APT SDR",
+        }}
+      />,
+    );
+
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    let fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderState).toBeUndefined();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderState).toMatchObject({ kind: "loading" });
     jest.useRealTimers();
   });
 

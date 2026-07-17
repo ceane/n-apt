@@ -9,10 +9,8 @@ import {
 } from "@n-apt/utils/frequency";
 import {
   formatDuration,
-  formatFileSize,
   formatTimestampWithTimezone,
 } from "@n-apt/utils/formatters";
-import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import {
   GeolocationData,
   AptChannelMetadata,
@@ -29,6 +27,7 @@ export type NaptMetadata = {
     {
       center_freq_hz?: number;
       sample_rate_hz?: number;
+      iq_length?: number;
       bins_per_frame?: number;
     } & AptChannelMetadata
   >;
@@ -59,66 +58,6 @@ const Section = styled.div<{ $marginTop?: string }>`
   grid-column: 1 / -1;
   gap: inherit;
   margin-top: ${(props) => props.$marginTop || "0"};
-`;
-
-const SettingRow = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: center;
-  padding: 10px 12px;
-  background-color: ${(props) => props.theme.surface};
-  border-radius: 6px;
-  border: 1px solid ${(props) => props.theme.border};
-  user-select: none;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-  position: relative;
-  z-index: 1;
-`;
-
-const SettingLabelContainer = styled.div`
-  display: grid;
-  grid-auto-flow: column;
-  align-items: center;
-  gap: 8px;
-  justify-content: start;
-`;
-
-const SettingLabel = styled.span`
-  font-size: 12px;
-  color: ${(props) => props.theme.textPrimary};
-  opacity: 0.8;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-`;
-
-const SettingValue = styled.span`
-  font-size: 12px;
-  color: ${(props) => props.theme.textPrimary};
-  font-weight: 500;
-  justify-self: end;
-`;
-
-const WrappedSettingValue = styled(SettingValue)`
-  white-space: normal;
-  word-break: break-all;
-  line-height: 1.4;
-  padding: 4px 0;
-  text-align: left;
-  justify-self: start;
-  max-width: 100%;
-  display: block;
-  margin-bottom: 12px;
-
-  .extension {
-    display: inline-block;
-    white-space: nowrap;
-  }
 `;
 
 const MetadataGrid = styled.div`
@@ -187,21 +126,6 @@ interface FileMetadataProps {
   compact?: boolean;
 }
 
-const renderFileName = (name: string) => {
-  const lastDotIndex = name.lastIndexOf(".");
-  if (lastDotIndex === -1) return name;
-
-  const base = name.substring(0, lastDotIndex);
-  const ext = name.substring(lastDotIndex);
-
-  return (
-    <>
-      {base}
-      <span className="extension">{ext}</span>
-    </>
-  );
-};
-
 const metadataFrequencyFormat: FormatFrequencyOptions = {
   precisionMHz: 3,
   precisionKHz: 3,
@@ -212,7 +136,7 @@ const formatMetadataFrequency = (freqHz: number) =>
   formatFrequency(freqHz, metadataFrequencyFormat);
 
 export const FileMetadata: React.FC<FileMetadataProps> = ({
-  selectedNaptFile,
+  selectedNaptFile: _selectedNaptFile,
   naptMetadata,
   naptMetadataError,
   sessionToken: _sessionToken,
@@ -252,64 +176,8 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
     activePlaybackMetadata?.frequency_range ??
     naptMetadata?.frequency_range ??
     null;
-  const selectedFileSize = selectedNaptFile
-    ? fileRegistry.get(selectedNaptFile.id)?.size
-    : undefined;
-
-  const captureStatus = useAppSelector(
-    (state) => state.websocket.captureStatus,
-  );
-  const fileRowDurationSeconds =
-    selectedNaptFile &&
-    captureStatus?.status === "done" &&
-    captureStatus.filename === selectedNaptFile.name &&
-    typeof captureStatus.duration === "number"
-      ? captureStatus.duration
-      : typeof naptMetadata?.duration_s === "number"
-        ? naptMetadata.duration_s
-        : undefined;
-
   const content = (
     <>
-      {selectedNaptFile && (
-        <SettingRow
-          style={{ height: "auto", padding: "12px", marginBottom: "16px" }}
-        >
-          <SettingLabelContainer
-            style={{ alignSelf: "start", paddingTop: "4px" }}
-          >
-            <SettingLabel>File</SettingLabel>
-          </SettingLabelContainer>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-              justifyContent: "flex-start",
-              alignItems: "flex-end",
-              textAlign: "right",
-              minWidth: 0,
-              flex: 1,
-            }}
-          >
-            <div style={{ marginBottom: "12px", width: "100%" }}>
-              <WrappedSettingValue title={selectedNaptFile.name}>
-                {renderFileName(selectedNaptFile.name)}
-              </WrappedSettingValue>
-            </div>
-
-            <SettingValue style={{ opacity: 0.75 }}>
-              {typeof selectedFileSize === "number" &&
-                formatFileSize(selectedFileSize)}
-              {"  /  "}
-              {typeof fileRowDurationSeconds === "number" &&
-                Number.isFinite(fileRowDurationSeconds) &&
-                formatDuration(fileRowDurationSeconds)}
-            </SettingValue>
-          </div>
-        </SettingRow>
-      )}
-
       {naptMetadataError ? (
         <div className="mt-2">
           {naptMetadataError.toLowerCase().includes("decryption") ? (

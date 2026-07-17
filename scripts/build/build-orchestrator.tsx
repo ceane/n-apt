@@ -1480,8 +1480,8 @@ exit 1
       };
       
       if (rebuildTimeout) {
-        updateCountdownStatus(currentCountdown);
-        return;
+        clearInterval(rebuildTimeout);
+        rebuildTimeout = null;
       }
       
       currentCountdown = 3;

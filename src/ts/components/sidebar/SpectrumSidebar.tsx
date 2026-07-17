@@ -741,14 +741,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   const liveManualSampleRateOptions = isMockLiveSource
-    ? (liveSampleRateOptions.length > 0
-        ? liveSampleRateOptions
-        : (mockResolved?.options ?? [3_200_000]))
+    ? liveSampleRateOptions.length > 0
+      ? liveSampleRateOptions
+      : (mockResolved?.options ?? [3_200_000])
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
-    sourceMode === "live" &&
-    !isRtlSdr &&
-    (isHackrfOne || isMockLiveSource);
+    sourceMode === "live" && !isRtlSdr && (isHackrfOne || isMockLiveSource);
   // Whole Channel is the selected channel's span. The source maximum is only
   // a ceiling; using it here would make Channel A inherit Channel C's rate.
   const liveWholeChannelSampleRate = activeChannelSampleRate;
@@ -758,15 +756,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const maxSampleRate = clampSampleRateToSourceMaximum(
     isMockLiveSource
       ? (sampleRateHzEffective ??
-        liveSdrSettingsToUse?.sample_rate ??
-        sampleRateHz ??
-        maxSampleRateHz ??
-        3_200_000)
+          liveSdrSettingsToUse?.sample_rate ??
+          sampleRateHz ??
+          maxSampleRateHz ??
+          3_200_000)
       : (sampleRateHzEffective ??
-        sampleRateHz ??
-        maxSampleRateHz ??
-        liveSdrSettingsToUse?.sample_rate ??
-        0),
+          sampleRateHz ??
+          maxSampleRateHz ??
+          liveSdrSettingsToUse?.sample_rate ??
+          0),
     maxSampleRateHz,
   );
   const sampleRateHzLocal =
@@ -775,7 +773,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveState.sampleRateHz > 0
       ? clampSampleRateToSourceMaximum(liveState.sampleRateHz, maxSampleRateHz)
       : isMockLiveSource && mockResolved !== null
-          ? clampSampleRateToSourceMaximum(mockResolved.rate, maxSampleRateHz)
+        ? clampSampleRateToSourceMaximum(mockResolved.rate, maxSampleRateHz)
         : typeof sampleRateHz === "number" &&
             Number.isFinite(sampleRateHz) &&
             sampleRateHz > 0
@@ -2155,14 +2153,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
     const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
 
-    console.log(
-      "Metadata Effect: isNapt?",
-      isNapt,
-      "aesKey present?",
-      !!aesKey,
-    );
     if (isNapt && !aesKey) {
-      console.warn("Metadata Effect: NAPT file but NO aesKey!");
       setNaptMetadata(null);
       setNaptMetadataError("Locked (no session key)");
       return;

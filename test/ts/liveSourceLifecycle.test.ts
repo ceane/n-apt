@@ -3,6 +3,7 @@ import {
   buildLiveSourceLifecycleTrace,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
+  shouldPresentMockTxStandby,
 } from "../../src/ts/routes/spectrum/liveSourceLifecycle";
 
 const handoffPlaceholder = {
@@ -13,6 +14,36 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("does not flash Mock Tx standby while transport departs for Mock APT", () => {
+    expect(
+      shouldPresentMockTxStandby({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        selectedSourceId: "mock-tx",
+        transportSourceId: "mock-apt",
+        transportPhase: "warming",
+      }),
+    ).toBe(false);
+    expect(
+      shouldPresentMockTxStandby({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        selectedSourceId: "mock-tx",
+        transportSourceId: "mock-apt",
+        transportPhase: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      shouldPresentMockTxStandby({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        selectedSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+      }),
+    ).toBe(true);
+  });
+
   test("accepts the frame-pump readiness boundary for the current source epoch", () => {
     expect(
       isCurrentSourceFrameReady({

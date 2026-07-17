@@ -330,6 +330,11 @@ export const formatFrequencyHz = (freqHz: number): string => {
   return formatIntegerWithSeparators(freqHz);
 };
 
+export const formatPowerDbm = (powerDbm: number): string => {
+  const value = Number.isFinite(powerDbm) ? Math.round(powerDbm) : 0;
+  return `${value} dBm`;
+};
+
 /**
  * Format a raw frequency value to at most 3 decimal places and drop trailing zeros.
  * @param val Numeric value to format

@@ -61,7 +61,7 @@ const mockState = {
     captureStatus: null,
   },
   demod: {
-    centerFreqHz: 100000000,
+    centerFreqHz: 200000000,
   },
   channels: {
     frames: [],
@@ -115,9 +115,30 @@ describe("IQCaptureNode", () => {
       expect.objectContaining({
         bandwidth: 3200000,
         bandwidthCenterFrequency: 100000000,
+        liveMode: false,
       }),
     );
     expect(mockDispatch).toHaveBeenCalledWith({ type: "MOCK_CAPTURE_COMMAND" });
+  });
+
+  it("uses the displayed spectrum range for Onscreen captures", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureNode id="node-1" data={{ label: "Capture" }} />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByLabelText("Onscreen"));
+    fireEvent.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(sendCaptureCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fragments: [{ minFreq: 98400000, maxFreq: 101600000 }],
+        bandwidth: 3200000,
+        bandwidthCenterFrequency: 100000000,
+        liveMode: false,
+      }),
+    );
   });
 
   it("respects manual bandwidth input changes", async () => {

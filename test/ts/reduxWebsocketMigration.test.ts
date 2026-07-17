@@ -16,6 +16,7 @@ import {
   buildSourceIqWebSocketUrl,
   shouldAcceptSourceIqSocketMessage,
   normalizeFrequencyRangeMessageData,
+  resolveIncomingChannelsFrequencyRange,
   isSourceModePaused,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -88,6 +89,18 @@ Object.assign(global.WebSocket, {
 
 describe("Redux WebSocket Migration", () => {
   let store: ReturnType<typeof configureStore>;
+
+  it("preserves the user frequency range when a source switch republishes channels", () => {
+    const enteredRange = { min: 24_700_000, max: 29_900_000 };
+    const backendDefaultRange = { min: 18_000, max: 4_390_000 };
+
+    expect(
+      resolveIncomingChannelsFrequencyRange(enteredRange, backendDefaultRange),
+    ).toEqual(enteredRange);
+    expect(
+      resolveIncomingChannelsFrequencyRange(null, backendDefaultRange),
+    ).toEqual(backendDefaultRange);
+  });
 
   it("treats a live server-selected source as resumed", () => {
     expect(isSourceModePaused("live")).toBe(false);

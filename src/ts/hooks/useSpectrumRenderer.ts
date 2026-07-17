@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import type { SpikeAnalysis } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
 import { useDraw3DWaterfallSignal } from "@n-apt/hooks/useDraw3DWaterfallSignal";
 import {
   type DemodFocusOverlay,
@@ -183,6 +184,7 @@ export interface SpectrumRendererOptions {
   showSpikeOverlay?: boolean;
   /** Receives a throttled readback of the GPU spike counter */
   onSpikeCount?: (count: number) => void;
+  onSpikeAnalysis?: (analysis: SpikeAnalysis) => void;
   /** FM/demod focus region rendered into the marker overlay texture */
   demodFocusOverlay?: DemodFocusOverlay | null;
   /** Live span selection rendered as a sliding range */
@@ -260,6 +262,7 @@ export function useSpectrumRenderer() {
         limitMarkers = [],
         showSpikeOverlay = false,
         onSpikeCount,
+        onSpikeAnalysis,
         demodFocusOverlay,
         selectionOverlay,
         txSlider,
@@ -432,6 +435,7 @@ export function useSpectrumRenderer() {
           showGrid: true, // Internal to drawWebGPU - handled by the overlays above
           showSpikeOverlay,
           onSpikeCount,
+          onSpikeAnalysis,
           lineColor,
           fillColor,
           nodePreview,

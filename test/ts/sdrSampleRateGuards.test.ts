@@ -116,6 +116,18 @@ describe("sdrSampleRateGuards", () => {
     ).toBe("whole_sample");
   });
 
+  it("keeps Onscreen captures in Whole Sample mode with a dynamic channel rate", () => {
+    expect(
+      resolveCaptureAcquisitionMode({
+        requestedMode: "stepwise",
+        isOnscreenActive: true,
+        onscreenSpanHz: 4_000_000,
+        hardwareSampleRateHz: 3_200_000,
+        isRtlSdr: true,
+      }),
+    ).toBe("whole_sample");
+  });
+
   it("start-anchors stale RTL-SDR full-channel render requests instead of using frame center", () => {
     expect(
       resolveRenderableFrequencyRange({

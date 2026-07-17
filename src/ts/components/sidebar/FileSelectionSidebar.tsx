@@ -88,6 +88,8 @@ export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
           }}
           onClear={onClear}
           sessionToken={sessionToken}
+          durationSeconds={naptMetadata?.duration_s}
+          status={rest.stitchStatus}
         />
       </Section>
 

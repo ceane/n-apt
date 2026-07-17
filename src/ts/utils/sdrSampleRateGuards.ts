@@ -127,8 +127,7 @@ export const resolveCanonicalDisplaySampleRateHz = ({
       !keepFrameFirstOrdering && activeRate !== null
         ? activeRate
         : input.derivedSampleRateHz,
-    configuredSampleRateHz:
-      activeRate ?? input.configuredSampleRateHz ?? null,
+    configuredSampleRateHz: activeRate ?? input.configuredSampleRateHz ?? null,
   });
 };
 
@@ -184,6 +183,22 @@ export const resolveCaptureAcquisitionMode = ({
       : 0;
   const onscreenSpan =
     Number.isFinite(onscreenSpanHz) && onscreenSpanHz > 0 ? onscreenSpanHz : 0;
+
+  // Onscreen uses the live Whole Channel sample-rate selection. It must not
+  // fall back to a sweep mode when that rate differs from a stale frame or
+  // from the current visual window width.
+  if (
+    isOnscreenActive &&
+    requestedMode === "whole_sample" &&
+    hardwareRate > 0 &&
+    onscreenSpan > hardwareRate + SAMPLE_RATE_TOLERANCE_HZ &&
+    isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })
+  ) {
+    return "stepwise";
+  }
+  if (isOnscreenActive) {
+    return "whole_sample";
+  }
 
   if (!hardwareRate || !onscreenSpan) {
     return requestedMode === "whole_sample" ? "stepwise" : requestedMode;

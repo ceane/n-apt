@@ -40,6 +40,12 @@ impl MockTxBuffer {
 
 static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
 
+use std::cell::RefCell;
+
+thread_local! {
+  static PLANNER: RefCell<FftPlanner<f32>> = RefCell::new(FftPlanner::new());
+}
+
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 use rand::rngs::StdRng;
@@ -94,6 +100,7 @@ pub struct MockAptDevice {
   samples_since_retune: u64,
   previous_center_freq: u32,
   samples_since_init: u64,
+  rx_active: bool,
   last_config_reload_check: Instant,
   last_config_modified: Option<SystemTime>,
   last_config_checksum: Option<String>,
@@ -457,6 +464,7 @@ impl MockAptDevice {
       samples_since_retune: u64::MAX,
       previous_center_freq: 1_600_000,
       samples_since_init: 0,
+      rx_active: false,
       last_config_reload_check: Instant::now(),
       last_config_modified: crate::server::utils::signals_config_modified_at(),
       last_config_checksum: crate::server::utils::signals_config_checksum(),
@@ -693,6 +701,7 @@ impl SdrDevice for MockAptDevice {
     self.total_samples = 0;
     self.samples_since_init = 0;
     self.samples_since_retune = u64::MAX;
+    self.rx_active = true;
 
     // For now, use simple synchronous initialization
     // TODO: Add optional async mode when it's properly implemented
@@ -814,8 +823,13 @@ impl SdrDevice for MockAptDevice {
 
     self.rx_queue = None;
     self.iq_overflow.clear();
+    self.rx_active = false;
     log::info!("Mock APT device cleanup completed");
     Ok(())
+  }
+
+  fn is_rx_active(&self) -> bool {
+    self.rx_active
   }
 
   fn is_healthy(&self) -> bool {
@@ -905,9 +919,10 @@ fn constrain_mock_apt_tx_overlay_to_bandwidth(
       )
     })
     .collect();
-
-  let mut planner = FftPlanner::<f32>::new();
-  let fft = planner.plan_fft_forward(len);
+  let (fft, ifft) = PLANNER.with(|p| {
+    let mut planner = p.borrow_mut();
+    (planner.plan_fft_forward(len), planner.plan_fft_inverse(len))
+  });
   fft.process(&mut overlay);
 
   for (index, bin) in overlay.iter_mut().enumerate() {
@@ -921,7 +936,6 @@ fn constrain_mock_apt_tx_overlay_to_bandwidth(
     }
   }
 
-  let ifft = planner.plan_fft_inverse(len);
   ifft.process(&mut overlay);
   let scale = 1.0 / len as f32;
   for index in 0..len {
@@ -995,8 +1009,7 @@ fn add_bandlimited_mock_tx_noise_overlay(
     *bin *= magnitude;
   }
 
-  let mut planner = FftPlanner::<f32>::new();
-  let ifft = planner.plan_fft_inverse(len);
+  let ifft = PLANNER.with(|p| p.borrow_mut().plan_fft_inverse(len));
   ifft.process(&mut spectrum);
   let scale = 1.0 / len as f32;
   for index in 0..len {

@@ -95,6 +95,7 @@ import {
   isRtlSdrDevice,
   resolveSourceSampleRateHz,
 } from "@n-apt/utils/sdrSampleRateGuards";
+import { resolveSourceFrequencyRangeSync } from "@n-apt/utils/sourceFrequencySync";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -1420,6 +1421,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const currentSourceStateRef = useRef(state);
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
+    const deferredFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
     const pendingSourceSwitchRef = useRef<string | null>(null);
     const sourceSwitchTimeoutRef = useRef<number | null>(null);
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
@@ -1537,6 +1539,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
         skipNextSourceViewPersistRef.current = selectedSourceViewKey;
         if (Object.keys(restoredState).length > 0) {
+          if (restoredState.frequencyRange) {
+            // The range sync effect runs later in this commit. Defer it once so
+            // it cannot send the previous source's range before this restored
+            // source view has reached React state.
+            deferredFrequencyRangeSyncSourceIdRef.current = selectedSourceId;
+          }
           dispatch({
             type: "SET_SDR_SETTINGS_BUNDLE",
             settings: restoredState,
@@ -2590,6 +2598,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       hydratedBackendSampleRateRef.current = false;
       hasInitializedBackendSettingsRef.current = false;
+      // Force re-sending the current frequency range to the newly activated
+      // device so it tunes to the user's last frequency, not the backend default.
+      lastSentFrequencyRangeRef.current = null;
     }, [activeSourceId, selectedSourceViewKey]);
 
     // Hydrate sample rate from backend once. After user interaction, the
@@ -2735,6 +2746,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
+    const previousFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
 
     useEffect(() => {
       if (!isConnected || deviceState !== "connected") {
@@ -2792,6 +2804,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       if (mergedState.frequencyRange) return;
       if (!isConnected) return;
+      if (
+        !activeSourceId ||
+        selectedSourceId !== activeSourceId ||
+        isMockTxSource({ id: activeSourceId, kind: activeSource?.kind })
+      ) {
+        return;
+      }
       const sourceChannels =
         effectiveFrames.length > 0
           ? effectiveFrames
@@ -2832,6 +2851,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       effectiveFrames,
       websocketChannels,
       isConnected,
+      activeSourceId,
+      activeSource?.kind,
+      selectedSourceId,
       deviceState,
       wsConnection.sendFrequencyRange,
       storeDispatch,
@@ -2887,24 +2909,44 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     useEffect(() => {
-      if (!isConnected || !mergedState.frequencyRange) return;
-      const range = clampLiveFrequencyRange(mergedState.frequencyRange);
-      if (
-        range.min !== mergedState.frequencyRange.min ||
-        range.max !== mergedState.frequencyRange.max
-      ) {
+      const currentRange = mergedState.frequencyRange;
+      const range = currentRange ? clampLiveFrequencyRange(currentRange) : null;
+      const isRestoringSourceView =
+        !!activeSourceId &&
+        deferredFrequencyRangeSyncSourceIdRef.current === activeSourceId;
+      const syncPlan = resolveSourceFrequencyRangeSync({
+        connected: isConnected,
+        selectedSourceId,
+        activeSourceId: activeSourceId || null,
+        previousActiveSourceId: previousFrequencyRangeSyncSourceIdRef.current,
+        activeSourceIsMockTx: isMockTxSource({
+          id: activeSourceId,
+          kind: activeSource?.kind,
+        }),
+        frequencyRange: range,
+        lastSentFrequencyRange: lastSentFrequencyRangeRef.current,
+        isRestoringSourceView,
+      });
+      previousFrequencyRangeSyncSourceIdRef.current =
+        syncPlan.nextActiveSourceId;
+      if (syncPlan.clearLastSentFrequencyRange) {
+        lastSentFrequencyRangeRef.current = null;
+      }
+      if (isRestoringSourceView) {
+        deferredFrequencyRangeSyncSourceIdRef.current = null;
+        return;
+      }
+      if (!currentRange || !range || !syncPlan.rangeToSend) return;
+      if (range.min !== currentRange.min || range.max !== currentRange.max) {
         storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
       }
-      if (
-        lastSentFrequencyRangeRef.current?.min === range.min &&
-        lastSentFrequencyRangeRef.current?.max === range.max
-      )
-        return;
-
-      wsConnection.sendFrequencyRange(range);
-      lastSentFrequencyRangeRef.current = range;
+      wsConnection.sendFrequencyRange(syncPlan.rangeToSend);
+      lastSentFrequencyRangeRef.current = syncPlan.rangeToSend;
     }, [
       isConnected,
+      activeSourceId,
+      activeSource?.kind,
+      selectedSourceId,
       mergedState.frequencyRange,
       clampLiveFrequencyRange,
       storeDispatch,

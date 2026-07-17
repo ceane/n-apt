@@ -30,6 +30,29 @@ export type SourceFrameReadiness = {
   sequence: number;
 };
 
+/** Suppress the transient standby state while transport leaves Mock Tx. */
+export const shouldPresentMockTxStandby = ({
+  isSelectedMockTxSource,
+  isSelectedMockTxTransmitting,
+  selectedSourceId,
+  transportSourceId,
+  transportPhase,
+}: {
+  isSelectedMockTxSource: boolean;
+  isSelectedMockTxTransmitting: boolean;
+  selectedSourceId: string | null | undefined;
+  transportSourceId: string | null | undefined;
+  transportPhase: SourceTransportPhase;
+}): boolean => {
+  if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) return false;
+  const isDepartingMockTx = !!(
+    transportSourceId &&
+    transportSourceId !== selectedSourceId &&
+    transportPhase !== "failed"
+  );
+  return !isDepartingMockTx;
+};
+
 /**
  * Confirms that the frame pump has accepted data for the selected lifecycle.
  * V2 requires the current epoch; v1 remains valid once source ownership is

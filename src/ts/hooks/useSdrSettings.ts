@@ -657,7 +657,6 @@ export const useSdrSettings = ({
 
   useEffect(() => {
     if (
-      deviceType !== "hackrf_one" ||
       maxFrameRate <= 1 ||
       state.fftFrameRate > 1
     ) {
@@ -665,7 +664,7 @@ export const useSdrSettings = ({
     }
 
     setFftFrameRate(maxFrameRate);
-  }, [deviceType, maxFrameRate, setFftFrameRate, state.fftFrameRate]);
+  }, [maxFrameRate, setFftFrameRate, state.fftFrameRate]);
 
   return {
     ...state,

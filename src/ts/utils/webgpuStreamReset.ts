@@ -20,11 +20,25 @@ export const shouldRestoreWebGpuStreamState = (epoch: number): boolean =>
 export const shouldAcceptWebGpuStreamFrame = ({
   expectedSourceId,
   frameSourceId,
+  fallbackFrameSourceId,
 }: {
   expectedSourceId: string | null | undefined;
   frameSourceId: string | null | undefined;
-}): boolean =>
-  !expectedSourceId || !frameSourceId || expectedSourceId === frameSourceId;
+  fallbackFrameSourceId?: string | null;
+}): boolean => {
+  const effectiveFrameSourceId = frameSourceId ?? fallbackFrameSourceId;
+  return (
+    !expectedSourceId ||
+    !effectiveFrameSourceId ||
+    expectedSourceId === effectiveFrameSourceId
+  );
+};
+
+/** Commit a deferred source reset in the same frame that replaces its pixels. */
+export const shouldCommitSourcePresentationReset = (
+  resetPending: boolean,
+  hasReplacementFrame: boolean,
+): boolean => resetPending && hasReplacementFrame;
 
 export const shouldPreservePresentationDuringFrameGap = ({
   hasPresentedFrame,
@@ -159,8 +173,9 @@ export const resolveWebGpuStreamTransition = (
     return { clearLiveFrame: false, advanceResetEpoch: false };
   }
   const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
+  const activeSourceCommitted = previous.sourceId !== next.sourceId;
   return {
-    clearLiveFrame: reconnectBoundary,
+    clearLiveFrame: activeSourceCommitted || reconnectBoundary,
     advanceResetEpoch: reconnectBoundary,
   };
 };

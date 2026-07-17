@@ -15,6 +15,7 @@ import {
 import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs } from "@n-apt/utils/formatters";
 import { formatChannelFreq, formatFrequency } from "@n-apt/utils/frequency";
+import { isValidNaptRange } from "@n-apt/utils/signals";
 import {
   AlertTriangle,
   Clock,
@@ -583,11 +584,11 @@ export const IQCaptureControlsSection: React.FC<
         : 0;
     const nextSpan = nextMax - nextMin;
 
-    if (nextOnscreenOnly && hwHz > 0 && Math.abs(nextSpan - hwHz) < 10_000) {
+    if (nextAreas.includes("Onscreen")) {
       if (acquisitionMode !== "whole_sample") {
         onAcquisitionModeChange("whole_sample");
       }
-    } else if (nextHasChannel && nextSpan > hwHz + 10_000) {
+    } else if (nextHasChannel && nextSpan > hwHz) {
       if (acquisitionMode === "whole_sample") {
         onAcquisitionModeChange("stepwise");
       }
@@ -614,15 +615,8 @@ export const IQCaptureControlsSection: React.FC<
     const isGainValid = gain >= 20;
     const isPpmValid = ppm >= 1;
 
-    // N-APT Channel Ranges (Hz)
-    const NAPT_CHANNELS = [
-      { min: 18_000, max: 4_390_000, label: "A" },
-      { min: 24_720_000, max: 29_880_000, label: "B" },
-      { min: 4_750_000, max: 23_000_000, label: "C" },
-    ];
-
     // Check frequency range validity
-    // The requested capture segments must be entirely contained within the union of N-APT channels
+    // availableCaptureAreas is populated from the channel definitions in signals.yaml.
     const segments = captureRange?.segments || [];
     const selectedSegments = segments.filter((seg) =>
       activeCaptureAreas.includes(seg.label),
@@ -632,10 +626,7 @@ export const IQCaptureControlsSection: React.FC<
     const invalidSegments: string[] = [];
 
     for (const seg of selectedSegments) {
-      const isContained = NAPT_CHANNELS.some(
-        (ch) => seg.min >= ch.min && seg.max <= ch.max,
-      );
-      if (!isContained) {
+      if (!isValidNaptRange(seg, availableCaptureAreas)) {
         isFreqValid = false;
         invalidSegments.push(seg.label);
       }
@@ -662,7 +653,7 @@ export const IQCaptureControlsSection: React.FC<
     }
 
     return { isValid, reasons, isGainValid, isPpmValid, isFreqValid };
-  }, [gain, ppm, captureRange, activeCaptureAreas]);
+  }, [gain, ppm, captureRange, activeCaptureAreas, availableCaptureAreas]);
 
   // Auto-switch to .wav if .napt is selected but invalid
   React.useEffect(() => {
@@ -753,16 +744,20 @@ export const IQCaptureControlsSection: React.FC<
   // Calculate capture range span to determine appropriate mode
   const captureRangeSpan = captureRange.max - captureRange.min;
   const hardwareSampleRateHz = maxSampleRate;
+  const hasOnscreenCaptureArea = activeCaptureAreas.includes("Onscreen");
 
   const captureCoversChannel =
-    hardwareSampleRateHz > 0 &&
-    captureRangeSpan > 0 &&
-    hardwareSampleRateHz >= captureRangeSpan - 10_000;
+    hasOnscreenCaptureArea ||
+    (hardwareSampleRateHz > 0 &&
+      captureRangeSpan > 0 &&
+      hardwareSampleRateHz >= captureRangeSpan);
   const isOnscreenExactMatch =
     onscreenOnly &&
     hardwareSampleRateHz > 0 &&
     Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;
-  const isWiderThanHardware = captureRangeSpan > hardwareSampleRateHz + 10_000;
+  const isWiderThanHardware =
+    !hasOnscreenCaptureArea &&
+    captureRangeSpan > hardwareSampleRateHz;
 
   // GUARDS: Determine appropriate capture mode based on capture type
   let effectiveAcquisitionMode = acquisitionMode;

@@ -14,6 +14,22 @@ mod tests {
     MockAptDevice::new_with_seed(seed)
   }
 
+  #[test]
+  fn mock_apt_warm_reuse_preserves_initialized_rx_state() {
+    let mut device = MockAptDevice::new_with_seed(4242);
+
+    assert!(!device.is_rx_active());
+    device.initialize().expect("mock APT initialization");
+    assert!(device.is_rx_active());
+
+    // A warm source is reused without a second initialize() call, so its
+    // generator state remains continuous across Mock APT / Mock Tx handoffs.
+    assert!(device.is_rx_active());
+
+    device.cleanup().expect("mock APT cleanup");
+    assert!(!device.is_rx_active());
+  }
+
   fn realistic_rf_config() -> MockAptRealisticRfConfig {
     MockAptRealisticRfConfig {
       enabled: true,

@@ -6,6 +6,7 @@ import SelectedFiles from "./SelectedFiles";
 
 import { fileRegistry } from "../../utils/fileRegistry";
 import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
+import { useAppSelector } from "@n-apt/redux";
 
 // Import NaptMetadata type from FileMetadata component
 import type { NaptMetadata } from "./FileMetadata";
@@ -115,6 +116,20 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
   showMetadata = true,
   fileModeActions,
 }) => {
+  const captureStatus = useAppSelector((state) => state.websocket.captureStatus);
+  const durationSeconds =
+    naptMetadata?.duration_s ??
+    (naptMetadata?.channels?.[0]?.iq_length &&
+    naptMetadata.channels[0].sample_rate_hz
+      ? naptMetadata.channels[0].iq_length /
+        2 /
+        naptMetadata.channels[0].sample_rate_hz
+      : undefined) ??
+    (selectedNaptFile &&
+    captureStatus?.filename === selectedNaptFile.name &&
+    typeof captureStatus.duration === "number"
+      ? captureStatus.duration
+      : undefined);
   const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
@@ -191,6 +206,8 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
               onRemoveFile={removeFile}
               onClear={onClear}
               sessionToken={sessionToken}
+              durationSeconds={durationSeconds}
+              status={stitchStatus}
             />
           </Section>
         </>

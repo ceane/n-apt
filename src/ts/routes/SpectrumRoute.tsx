@@ -73,6 +73,7 @@ import {
   isCurrentSourceFrameReady,
   isLiveSourceAwaitingFrame,
   isLiveSourceHandoffPending,
+  shouldPresentMockTxStandby,
   useLiveSourceLifecycle,
 } from "./spectrum/liveSourceLifecycle";
 import {
@@ -249,12 +250,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [activeSourceId, selectedSource, sources],
   );
   const streamingSourceId = streamingSource?.id ?? selectedSourceId;
+  // Selection is the presentation target. The active transport remains the
+  // fallback owner for untagged binary frames until the source commit lands.
   const expectedVisualizerSourceId =
-    // Once the control channel has selected a source, its active stream ID is
-    // authoritative. A persisted selectedSourceId can refer to the previous
-    // USB instance after unplug/replug and would otherwise make the canvas
-    // discard valid frames from the newly active RTL-SDR.
-    streamingSourceId || selectedSourceId || null;
+    selectedSourceId || streamingSourceId || null;
   const [acceptedFrameSampleRateHz, setAcceptedFrameSampleRateHz] = useState<
     number | null
   >(null);
@@ -272,9 +271,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const hasActiveSourceFrame =
     hasPlayedAtLeastOnce && playedSourceId === (streamingSourceId || null);
   const selectedSourceStatus =
-    state.sourceMode === "live" && streamingSourceId
-      ? (sourceStatuses?.[streamingSourceId] ?? streamingSource?.status ?? null)
-      : (streamingSource?.status ?? null);
+    state.sourceMode === "live" && selectedSourceId
+      ? (sourceStatuses?.[selectedSourceId] ?? selectedSource?.status ?? null)
+      : (selectedSource?.status ?? null);
   const [webGpuStreamResetEpoch, setWebGpuStreamResetEpoch] = useState(0);
   const previousWebGpuStreamIdentityRef = useRef<{
     sourceId: string | null;
@@ -285,7 +284,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     // Track both identities so source selection remains distinguishable from a
     // same-source reconnect. Selection already changes the lifecycle key.
     const nextIdentity = {
-      sourceId: streamingSourceId || null,
+      sourceId: activeSourceId || null,
       status: selectedSourceStatus,
       selectedSourceId: selectedSourceId || null,
     };
@@ -299,9 +298,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       // The mutable frame ref bypasses Redux for performance, so clear it at
       // the same source boundary as the GPU presentation cache.
       dataRef.current = null;
-      fftVisualizerMachine?.discardNextPersist?.(
-        getSourceViewStorageKeyForSource(streamingSource),
-      );
+      if (transition.advanceResetEpoch) {
+        fftVisualizerMachine?.discardNextPersist?.(
+          getSourceViewStorageKeyForSource(streamingSource),
+        );
+      }
     }
     if (transition.advanceResetEpoch) {
       setWebGpuStreamResetEpoch((epoch) => epoch + 1);
@@ -311,12 +312,20 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dataRef,
     fftVisualizerMachine,
     selectedSourceStatus,
+    activeSourceId,
     streamingSource,
     streamingSourceId,
     selectedSourceId,
   ]);
   const isSelectedMockTxTransmitting =
     isSelectedMockTxSource && selectedSourceStatus === "transmitting";
+  const shouldShowMockTxStandby = shouldPresentMockTxStandby({
+    isSelectedMockTxSource,
+    isSelectedMockTxTransmitting,
+    selectedSourceId,
+    transportSourceId: sourceTransport?.sourceId ?? null,
+    transportPhase: sourceTransport?.phase ?? "idle",
+  });
   const liveSourceLifecycle = useLiveSourceLifecycle({
     isLive: state.sourceMode === "live",
     selectedSourceId: selectedSourceId || null,
@@ -338,7 +347,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         : hasActiveSourceFrame),
     deviceStatus: selectedSourceStatus,
     isStandby:
-      isSelectedMockTxSource &&
+      shouldShowMockTxStandby &&
       selectedSourceId === activeSourceId &&
       !isSelectedMockTxTransmitting,
   });
@@ -1516,7 +1525,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // remains visible until the target frame arrives or loading exceeds grace.
   const fftDataRef = dataRef;
   const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
-    if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) {
+    if (!shouldShowMockTxStandby) {
       return null;
     }
     return {
@@ -1529,8 +1538,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       message: "Start Tx to view backend-generated monitor I/Q.",
     };
   }, [
-    isSelectedMockTxSource,
-    isSelectedMockTxTransmitting,
+    shouldShowMockTxStandby,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
   ]);
@@ -1754,6 +1762,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 }
                 dataRef={fftDataRef}
                 expectedSourceId={expectedVisualizerSourceId}
+                frameSourceIdFallback={activeSourceId || streamingSourceId}
                 frequencyRange={fftFrequencyRange}
                 centerFrequencyHz={fftCenterFrequencyHz}
                 onCenterFrequencyDoubleClick={() =>
@@ -1796,10 +1805,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   "device"
                 }
                 placeholderState={livePlaceholderState}
+                loadingPlaceholderDelayMs={isMockLiveSource ? 1_000 : 160}
                 onRenderableFrameChange={handleRenderableLiveFrameChange}
-                isStandby={
-                  isSelectedMockTxSource && !isSelectedMockTxTransmitting
-                }
+                isStandby={shouldShowMockTxStandby}
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={(pan) =>

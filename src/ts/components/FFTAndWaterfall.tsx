@@ -26,6 +26,7 @@ import {
 type FFTAndWaterfallProps = FFTCanvasProps & {
   waterfallHeaderActionContent?: ReactNode;
   onLoadingStateChange?: (isLoading: boolean) => void;
+  loadingPlaceholderDelayMs?: number;
 };
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
@@ -251,7 +252,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       loadingPlaceholderTimeoutRef.current = window.setTimeout(() => {
         setShouldShowLoadingPlaceholder(true);
         loadingPlaceholderTimeoutRef.current = null;
-      }, 160);
+      }, props.loadingPlaceholderDelayMs ?? 160);
 
       return () => {
         if (loadingPlaceholderTimeoutRef.current) {
@@ -259,7 +260,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           loadingPlaceholderTimeoutRef.current = null;
         }
       };
-    }, [isGlobalLoading]);
+    }, [isGlobalLoading, props.loadingPlaceholderDelayMs]);
 
     useEffect(() => {
       if (!hasRenderableFrame || !awaitingFreshFrameRef.current) {

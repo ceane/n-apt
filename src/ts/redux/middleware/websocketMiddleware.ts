@@ -14,7 +14,7 @@ import {
   setSpectrumFrames,
 } from "../slices/websocketSlice";
 import {
-  setSignalAreaAndRange,
+  setActiveSignalArea,
   setFrequencyRange,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
@@ -339,6 +339,8 @@ let statusBatchFrame: number | null = null;
 let pendingStatusUpdates: any = null;
 let allowNextPausedFrame = false;
 let pausedFrameRequestInFlight = false;
+let lastPauseCommandTime = 0;
+let lastExpectedPauseState: boolean | null = null;
 const MAX_RETAINED_LIVE_FRAMES = 8;
 const DISCONNECT_GRACE_MS = 150;
 const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
@@ -363,6 +365,17 @@ let lastFrequencyRangeRequest: {
 } | null = null;
 let lastFrequencyRangeSendKey: string | null = null;
 let lastFrequencyRangeSendAt = 0;
+
+/**
+ * Channel metadata describes the backend's default window, not the user's
+ * current viewport. Keep an entered range while a source switch republishes
+ * its channel list; the store's source-scoped restoration handles the target
+ * source's saved view when the handoff completes.
+ */
+export const resolveIncomingChannelsFrequencyRange = (
+  currentRange: { min: number; max: number } | null | undefined,
+  incomingRange: { min: number; max: number },
+): { min: number; max: number } => currentRange ?? incomingRange;
 
 const roundHzField = (value: unknown): number | undefined => {
   const numeric = Number(value);
@@ -767,6 +780,23 @@ const trackFrequencyRangeRequest = (type: string, data: any) => {
   };
 };
 
+const getPersistedActiveSignalArea = (sourceId: string): string | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const trimmed = sourceId?.trim();
+    const scope = trimmed ? trimmed : "default";
+    const key = `napt-spectrum-view-v1:${scope}`;
+    const stored = window.localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed?.activeSignalArea ?? null;
+    }
+  } catch (e) {
+    // Ignore
+  }
+  return null;
+};
+
 const shouldSuppressDuplicateFrequencyRangeSend = (
   type: string,
   data: any,
@@ -1169,10 +1199,20 @@ const processMessage = (
       if (parsedData.active_source === requestedSourceId) {
         requestedSourceId = null;
       }
+      const serverIsPaused = isSourceModePaused(parsedData.active_source_mode);
+      let targetIsPaused = serverIsPaused;
+      if (
+        lastExpectedPauseState !== null &&
+        Date.now() - lastPauseCommandTime < 1000
+      ) {
+        targetIsPaused = lastExpectedPauseState;
+      } else {
+        lastExpectedPauseState = null;
+      }
       const updates: any = {
         activeSourceId: parsedData.active_source,
         activeSourceMode: parsedData.active_source_mode,
-        isPaused: isSourceModePaused(parsedData.active_source_mode),
+        isPaused: targetIsPaused,
         sources: parsedData.sources,
         sourceStatuses,
         ...(parsedData.active_source !== previousActiveSourceId
@@ -1201,10 +1241,20 @@ const processMessage = (
       if (parsedData.source_id === requestedSourceId) {
         requestedSourceId = null;
       }
+      const serverIsPaused = isSourceModePaused(parsedData.source_mode);
+      let targetIsPaused = serverIsPaused;
+      if (
+        lastExpectedPauseState !== null &&
+        Date.now() - lastPauseCommandTime < 1000
+      ) {
+        targetIsPaused = lastExpectedPauseState;
+      } else {
+        lastExpectedPauseState = null;
+      }
       const updates: any = {
         activeSourceId: parsedData.source_id,
         activeSourceMode: parsedData.source_mode,
-        isPaused: isSourceModePaused(parsedData.source_mode),
+        isPaused: targetIsPaused,
         sources: (getState().websocket.sources ?? []).map(
           (source: SourceInfo) =>
             source.id === parsedData.source_id &&
@@ -1265,13 +1315,24 @@ const processMessage = (
         min: firstChannel.min_hz,
         max: firstChannel.max_hz,
       };
-      dispatch(
-        setSignalAreaAndRange({
-          area: parsedData.active_signal_area ?? firstChannel.label ?? "A",
-          range: nextRange,
-        }),
-      );
-      dispatch(setFrequencyRange(nextRange));
+      const currentRange = getState().spectrum?.frequencyRange;
+      const currentSignalArea = getState().spectrum?.activeSignalArea;
+      const targetSourceId = parsedData.source_id || getState().websocket.activeSourceId;
+      const persistedArea = targetSourceId ? getPersistedActiveSignalArea(targetSourceId) : null;
+      const inManualMode = currentSignalArea === "manual" || persistedArea === "manual";
+
+      if (!inManualMode) {
+        dispatch(
+          setActiveSignalArea(
+            parsedData.active_signal_area ?? firstChannel.label ?? "A",
+          ),
+        );
+        dispatch(
+          setFrequencyRange(
+            resolveIncomingChannelsFrequencyRange(currentRange, nextRange),
+          ),
+        );
+      }
       dispatch(
         updateDeviceState({
           channels,
@@ -1682,6 +1743,53 @@ const createWebSocketMiddleware =
                 );
                 dispatch(clearQueuedMessages());
               }
+
+              // Re-sync current settings and frequency range to the newly established connection
+              const currentRange = state.spectrum?.frequencyRange;
+              if (currentRange) {
+                ws.send(
+                  JSON.stringify({
+                    type: "frequency_range",
+                    min_hz: currentRange.min,
+                    max_hz: currentRange.max,
+                    center_frequency: (currentRange.min + currentRange.max) / 2,
+                  })
+                );
+              }
+
+              const spectrumSettings = state.spectrum;
+              if (spectrumSettings) {
+                const sdrSettingsPayload: Record<string, any> = {
+                  type: "settings",
+                };
+                if (typeof spectrumSettings.fftSize === "number" && spectrumSettings.fftSize > 0) {
+                  sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
+                }
+                if (typeof spectrumSettings.fftWindow === "string" && spectrumSettings.fftWindow.length > 0) {
+                  sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
+                }
+                if (typeof spectrumSettings.fftFrameRate === "number" && spectrumSettings.fftFrameRate > 0) {
+                  sdrSettingsPayload.frameRate = spectrumSettings.fftFrameRate;
+                }
+                if (typeof spectrumSettings.sampleRateHz === "number" && spectrumSettings.sampleRateHz > 0) {
+                  sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
+                }
+                if (typeof spectrumSettings.gain === "number" && spectrumSettings.gain >= 0) {
+                  sdrSettingsPayload.gain = spectrumSettings.gain;
+                }
+                if (typeof spectrumSettings.ppm === "number") {
+                  sdrSettingsPayload.ppm = spectrumSettings.ppm;
+                }
+                if (typeof spectrumSettings.tunerAGC === "boolean") {
+                  sdrSettingsPayload.tunerAGC = spectrumSettings.tunerAGC;
+                }
+                if (typeof spectrumSettings.rtlAGC === "boolean") {
+                  sdrSettingsPayload.rtlAGC = spectrumSettings.rtlAGC;
+                }
+                if (Object.keys(sdrSettingsPayload).length > 1) {
+                  ws.send(JSON.stringify(sdrSettingsPayload));
+                }
+              }
             };
 
             ws.onmessage = async (event) => {
@@ -1931,6 +2039,9 @@ const createWebSocketMiddleware =
         if (isPaused === null) {
           return next(action);
         }
+
+        lastPauseCommandTime = Date.now();
+        lastExpectedPauseState = isPaused;
 
         if (
           sourceId &&

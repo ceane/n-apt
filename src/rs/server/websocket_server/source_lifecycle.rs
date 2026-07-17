@@ -70,6 +70,17 @@ pub(super) fn take_next_warm_source<T>(
     .map(|device| (source_id, device))
 }
 
+/// Restores only the retained device that belongs to the selected source.
+///
+/// Recovery must not pick an arbitrary warm peer: mock sources share a
+/// receiver implementation, but each one owns independent tuning state.
+pub(super) fn take_warm_source_for_active<T>(
+  warm_sources: &mut HashMap<String, T>,
+  active_source_id: &str,
+) -> Option<T> {
+  warm_sources.remove(active_source_id)
+}
+
 /// Keeps every successfully swapped source reusable, including mock sources.
 ///
 /// Mock APT carries checksum-sensitive generator continuity, and recreating it
@@ -78,14 +89,14 @@ pub(super) fn should_cache_swapped_source(source_id: &str) -> bool {
   !source_id.trim().is_empty()
 }
 
-/// Allows automatic warm-source recovery only while the processor is on the
-/// ordinary Mock APT fallback. Mock Tx is a deliberate logical selection even
-/// though it uses a mock receiver internally, so recovery must not replace it.
+/// Allows automatic warm-source recovery only when a non-mock logical source
+/// has fallen back to a mock receiver. Both mock sources are deliberate
+/// selections, so recovery must not replace either with an inactive peer.
 pub(super) fn should_restore_warm_source(
   processor_is_mock: bool,
   active_source_id: &str,
 ) -> bool {
-  processor_is_mock && active_source_id != "mock-tx"
+  processor_is_mock && !matches!(active_source_id, "mock-apt" | "mock-tx")
 }
 
 /// Returns every inactive source that can be initialized ahead of selection.

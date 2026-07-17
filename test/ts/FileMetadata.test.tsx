@@ -69,4 +69,40 @@ describe("FileMetadata", () => {
     expect(screen.getByText("18kHz")).toBeInTheDocument();
     expect(screen.getByText("3.218MHz")).toBeInTheDocument();
   });
+
+  it("does not render a duplicate file metadata card", () => {
+    const theme = {
+      mode: "dark" as const,
+      requestedMode: "system" as const,
+      waterfallTheme: "magma",
+      colors: THEME_TOKENS.colors.dark,
+      typography: THEME_TOKENS.typography,
+      spacing: THEME_TOKENS.spacing,
+      layout: THEME_TOKENS.layout,
+      cssVariables: {},
+      primary: "#00d4ff",
+      primaryAlpha: "#00d4ff33",
+      primaryAnchor: "#00d4ff1a",
+      fft: "#00d4ff",
+      background: THEME_TOKENS.colors.dark.background,
+      surface: THEME_TOKENS.colors.dark.surface,
+      border: THEME_TOKENS.colors.dark.border,
+      textPrimary: THEME_TOKENS.colors.dark.textPrimary,
+      textSecondary: THEME_TOKENS.colors.dark.textSecondary,
+      metadataLabel: THEME_TOKENS.colors.dark.metadataLabel,
+      danger: THEME_TOKENS.colors.dark.danger,
+    };
+
+    render(
+      <ThemeProvider theme={theme}>
+        <FileMetadata
+          selectedNaptFile={{ id: "capture", name: "capture.napt" }}
+          naptMetadata={{ center_frequency_hz: 1_000_000 }}
+          naptMetadataError={null}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText("File", { exact: true })).not.toBeInTheDocument();
+  });
 });
