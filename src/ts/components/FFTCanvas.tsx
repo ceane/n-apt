@@ -32,6 +32,7 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
   setGpuSpikeCount,
+  setGpuSpikeAnalysis,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
@@ -62,6 +63,7 @@ import {
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
+import { FFT_AREA_MIN } from "@n-apt/consts";
 import { detectHeterodyningFromHistory } from "@n-apt/utils/detectHeterodyning";
 import type {
   FFTVisualizerMachine,
@@ -83,6 +85,7 @@ import {
   getInitialHandledWebGpuResetEpoch,
   resetWebGpuStreamTemporalHistory,
   shouldAcceptWebGpuStreamFrame,
+  shouldCommitSourcePresentationReset,
   shouldPreservePresentationDuringFrameGap,
   shouldRestoreWebGpuStreamState,
 } from "@n-apt/utils/webgpuStreamReset";
@@ -604,6 +607,23 @@ const CanvasLayer = memo(styled.canvas`
   pointer-events: none;
   will-change: width, height;
 `);
+
+const FloorLineOverlay = styled.div<{ $topPercent: number }>`
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: ${({ $topPercent }) => `${$topPercent}%`};
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(255, 120, 150, 0.9) 0,
+    rgba(255, 120, 150, 0.9) 24px,
+    transparent 24px,
+    transparent 38px
+  );
+  pointer-events: none;
+  z-index: 4;
+`;
 
 const HighlightOverlay = memo(styled.div`
   position: absolute;
@@ -1196,6 +1216,8 @@ export interface FFTCanvasProps {
   awaitingDeviceData?: boolean | string;
   /** Source whose first frame may end the loading handoff. */
   expectedSourceId?: string | null;
+  /** Active transport owner used when binary live frames are untagged. */
+  frameSourceIdFallback?: string | null;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
   /** Increments at a source/reconnect boundary to discard stale GPU output. */
@@ -1405,6 +1427,7 @@ const FFTCanvas = memo(
       onHeterodyningAnalyzed,
       awaitingDeviceData = false,
       expectedSourceId = null,
+      frameSourceIdFallback = null,
       visualizerMachine,
       visualizerSessionKey = "default",
       webGpuStreamResetEpoch = 0,
@@ -1436,6 +1459,12 @@ const FFTCanvas = memo(
       drawZoomboxOnContext,
     } = useOverlayRenderer();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
+    const gpuSpikeAnalysis = useAppSelector(
+      (reduxState) => reduxState.spectrum.gpuSpikeAnalysis,
+    );
+    const hoveredSpikeIndex = useAppSelector(
+      (reduxState) => reduxState.spectrum.hoveredSpikeIndex,
+    );
     const themeAppMode = useAppSelector(
       (reduxState) => reduxState.theme.appMode,
     );
@@ -1638,6 +1667,7 @@ const FFTCanvas = memo(
     const lastIncomingFrameRef = useRef<LiveFrameData | null>(null);
     const lastRenderableFrameRef = useRef<LiveFrameData | null>(null);
     const blockingPlaceholderClearKindRef = useRef(0);
+    const pendingSourcePresentationResetRef = useRef(false);
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
 
@@ -2511,6 +2541,28 @@ const FFTCanvas = memo(
     const activeScaleDbMinRef = useRef(activeScaleDbMin);
     const activeScaleDbMaxRef = useRef(activeScaleDbMax);
     const showSpikeOverlayRef = useRef(showSpikeOverlay);
+    const stableSpikeFloorDbmRef = useRef<number | null>(null);
+    const stableSpikeClassifierRef = useRef<{
+      confidence: number;
+      suspensionBridgeScore: number;
+      uDipScore: number;
+      floorRelativePowerScore: number;
+      sincPenaltyScore: number;
+      envelopeFitScore: number;
+      envelopeResidualScore: number;
+    } | null>(null);
+    const stableSpikeDecisionRef = useRef(false);
+    const floorLinePercent = useMemo(() => {
+      if (!showSpikeOverlay || !gpuSpikeAnalysis) return null;
+      const span = Math.max(
+        1,
+        activeScaleDbMaxRef.current - activeScaleDbMinRef.current,
+      );
+      const ratio =
+        (gpuSpikeAnalysis.floorDbm - activeScaleDbMinRef.current) / span;
+      if (!Number.isFinite(ratio)) return null;
+      return Math.max(0, Math.min(100, 100 - ratio * 100));
+    }, [gpuSpikeAnalysis, showSpikeOverlay]);
     const awaitingDeviceDataRef = useRef(awaitingDeviceData);
     const demodFocusOverlayRef = useRef(demodFocusOverlay);
     const selectionOverlayRef = useRef(selectionOverlay);
@@ -2806,6 +2858,36 @@ const FFTCanvas = memo(
       waterfallOverlayCanvasNode,
     ]);
 
+    const commitPendingSourcePresentationReset = useCallback(() => {
+      pendingSourcePresentationResetRef.current = false;
+      cleanupWebGPUFIFOWaterfall();
+      waterfallBufferRef.current = null;
+      waterfallCappedBufferRef.current = null;
+      waterfallTextureSnapshotRef.current = null;
+      waterfallTextureMetaRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      pendingWaterfallRestoreRef.current = null;
+      restoredWaterfallRef.current = false;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      frameBufferRef.current = [];
+      resetTemporalAveragingState();
+      clearSpectrumBackbuffer();
+    }, [
+      cleanupWebGPUFIFOWaterfall,
+      clearSpectrumBackbuffer,
+      resetTemporalAveragingState,
+      waterfallBufferRef,
+    ]);
+
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const restoreWaveformFromStorageRef = useRef<() => void>(() => {
@@ -2860,6 +2942,7 @@ const FFTCanvas = memo(
         const isCurrentSourceFrame = shouldAcceptWebGpuStreamFrame({
           expectedSourceId,
           frameSourceId: currentFrame?.source_id,
+          fallbackFrameSourceId: frameSourceIdFallback,
         });
         if (currentFrame && !isCurrentSourceFrame) {
           lastIncomingFrameRef.current = null;
@@ -2889,6 +2972,15 @@ const FFTCanvas = memo(
             ((currentFrame as any).data &&
               (currentFrame as any).data.length > 0))
         );
+
+        if (
+          shouldCommitSourcePresentationReset(
+            pendingSourcePresentationResetRef.current,
+            hasRenderableFrame,
+          )
+        ) {
+          commitPendingSourcePresentationReset();
+        }
 
         // Notify the parent as soon as the first frame is present in the
         // mutable WebSocket ref. The parent uses this signal to remove its
@@ -2998,6 +3090,7 @@ const FFTCanvas = memo(
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
+
             }
           }
 
@@ -3543,6 +3636,63 @@ const FFTCanvas = memo(
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
+              onSpikeAnalysis: (analysis) => {
+                if (!Number.isFinite(analysis.floorDbm)) return;
+                const previousFloor = stableSpikeFloorDbmRef.current;
+                const floorDbm =
+                  previousFloor === null
+                    ? analysis.floorDbm
+                    : previousFloor + (analysis.floorDbm - previousFloor) * 0.18;
+                stableSpikeFloorDbmRef.current = floorDbm;
+                const previousClassifier = stableSpikeClassifierRef.current;
+                const smooth = (value: number, previous: number | undefined) =>
+                  previous === undefined ? value : previous + (value - previous) * 0.12;
+                const temporalReady = analysis.multiFrameFrameCount >= 4;
+                const classifier = {
+                  confidence: smooth(analysis.confidence, previousClassifier?.confidence),
+                  suspensionBridgeScore: smooth(
+                    temporalReady
+                      ? analysis.multiFrameBridgeScore
+                      : analysis.suspensionBridgeScore,
+                    previousClassifier?.suspensionBridgeScore,
+                  ),
+                  uDipScore: smooth(
+                    temporalReady
+                      ? analysis.multiFrameUDipScore
+                      : analysis.uDipScore,
+                    previousClassifier?.uDipScore,
+                  ),
+                  floorRelativePowerScore: smooth(analysis.floorRelativePowerScore, previousClassifier?.floorRelativePowerScore),
+                  sincPenaltyScore: smooth(analysis.sincPenaltyScore, previousClassifier?.sincPenaltyScore),
+                  envelopeFitScore: smooth(analysis.envelopeFitScore, previousClassifier?.envelopeFitScore),
+                  envelopeResidualScore: smooth(analysis.envelopeResidualScore, previousClassifier?.envelopeResidualScore),
+                };
+                stableSpikeClassifierRef.current = classifier;
+                const wasNapt = stableSpikeDecisionRef.current;
+                // Keep the one-frame result as the baseline until the
+                // higher-order pass has four frames. After that point, use
+                // only the temporal decision for the final UI state. This
+                // prevents a single noisy FFT frame from flipping a stable
+                // signal while still allowing the baseline to diagnose the
+                // first frame immediately.
+                const rawDecision = temporalReady
+                  ? analysis.multiFrameIsNapt
+                  : analysis.baselineIsNapt;
+                const isNapt = rawDecision &&
+                  (wasNapt
+                    ? classifier.confidence >= 0.55
+                    : classifier.confidence >= 0.75);
+                stableSpikeDecisionRef.current = isNapt;
+                dispatch(setGpuSpikeAnalysis({
+                  ...analysis,
+                  ...classifier,
+                  floorDbm,
+                  // Keep the displayed decision consistent with the smoothed
+                  // confidence; never show Yes while the visible score is
+                  // below the classifier threshold.
+                  isNapt,
+                }));
+              },
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
               isStandby: isStandby,
@@ -3566,6 +3716,48 @@ const FFTCanvas = memo(
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
+
+              if (showSpikeOverlay && gpuSpikeAnalysis) {
+                const hoveredSpike =
+                  hoveredSpikeIndex === null
+                    ? null
+                    : gpuSpikeAnalysis.spikes.find(
+                        (spike) => spike.index === hoveredSpikeIndex,
+                      );
+                if (hoveredSpike) {
+                  const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+                  const plotRight = logicalW - (nodePreview ? 0 : 40);
+                  const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+                  const plotBottom =
+                    logicalH - (nodePreview ? 0 : 40 + bottomReservedPx);
+                  const x =
+                    plotLeft +
+                    ((hoveredSpike.frequencyHz - visualRange.min) /
+                      Math.max(1, visualRange.max - visualRange.min)) *
+                      (plotRight - plotLeft);
+                  const y =
+                    plotBottom -
+                    ((hoveredSpike.powerDbm - activeScaleDbMinRef.current) /
+                      Math.max(
+                        1,
+                        activeScaleDbMaxRef.current -
+                          activeScaleDbMinRef.current,
+                      )) *
+                      (plotBottom - plotTop);
+                  const bandWidth = Math.max(5, logicalW / 180);
+                  ctx.save();
+                  ctx.fillStyle = "rgba(220, 40, 255, 0.18)";
+                  ctx.fillRect(x - bandWidth / 2, plotTop, bandWidth, plotBottom - plotTop);
+                  ctx.fillStyle = "#d800ff";
+                  ctx.beginPath();
+                  ctx.moveTo(x, Math.max(plotTop, y - 22));
+                  ctx.lineTo(x - 7, Math.max(plotTop, y - 8));
+                  ctx.lineTo(x + 7, Math.max(plotTop, y - 8));
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.restore();
+                }
+              }
 
               const activeSelection = liveDragSelectionRef.current
                 ? {
@@ -4072,8 +4264,10 @@ const FFTCanvas = memo(
         drawLoadingPlaceholder,
         clearOverlayCanvas,
         clearSpectrumBackbuffer,
+        commitPendingSourcePresentationReset,
         awaitingDeviceData,
         expectedSourceId,
+        frameSourceIdFallback,
         placeholderErrorReason,
         isLoadingPlaceholder,
         hasRenderedSpectrumFrame,
@@ -4104,6 +4298,8 @@ const FFTCanvas = memo(
         visualizerSessionKey,
         effectiveCanvasStatusRow,
         isStandby,
+        gpuSpikeAnalysis,
+        hoveredSpikeIndex,
       ],
     );
 
@@ -4219,6 +4415,11 @@ const FFTCanvas = memo(
     // Effect: Toggle spike detection overlay. The spike hook owns persistence.
     useEffect(() => {
       overlayDirtyRef.current.spikes = true;
+      if (!showSpikeOverlay) {
+        stableSpikeFloorDbmRef.current = null;
+        stableSpikeClassifierRef.current = null;
+        stableSpikeDecisionRef.current = false;
+      }
       forceRender();
     }, [showSpikeOverlay, forceRender, overlayDirtyRef]);
 
@@ -4415,6 +4616,14 @@ const FFTCanvas = memo(
       );
       activeVisualizerSessionKeyRef.current = visualizerSessionKey;
 
+      if (isStandby) {
+        // Standby is already a complete presentation. Clear the previous
+        // source beneath its overlay immediately so no foreign spectrum or
+        // waterfall history can show through the translucent scrim.
+        pendingSourcePresentationResetRef.current = false;
+        clearLocalVisualizerSession();
+      }
+
       // Switching sources is a presentation handoff, not a disconnect. Reset
       // processing state so samples cannot blend across devices, while leaving
       // the current GPU surfaces painted until a saved target presentation or
@@ -4436,12 +4645,16 @@ const FFTCanvas = memo(
             visualizerMachine?.restore(visualizerSessionKey) ?? null,
           )
         : false;
+      pendingSourcePresentationResetRef.current =
+        !isStandby && !restoredFromMachine;
       if (restoredFromMachine) {
         forceRenderRef.current?.();
       }
     }, [
       buildVisualizerSessionSnapshot,
       canRestoreVisualizerSession,
+      clearLocalVisualizerSession,
+      isStandby,
       resetTemporalAveragingState,
       restoreVisualizerSessionSnapshot,
       visualizerMachine,
@@ -4971,6 +5184,9 @@ const FFTCanvas = memo(
                 ref={_setSpectrumOverlayCanvasNode}
                 id="fft-spectrum-canvas-overlay"
               />
+              {floorLinePercent !== null && (
+                <FloorLineOverlay $topPercent={floorLinePercent} />
+              )}
 
               {heterodyningHighlightedBins.length > 0 && (
                 <HighlightOverlay>
@@ -5114,6 +5330,9 @@ const FFTCanvas = memo(
                       ref={_setSpectrumOverlayCanvasNode}
                       id="fft-spectrum-canvas-overlay"
                     />
+                    {floorLinePercent !== null && (
+                      <FloorLineOverlay $topPercent={floorLinePercent} />
+                    )}
 
                     {heterodyningHighlightedBins.length > 0 && (
                       <HighlightOverlay>

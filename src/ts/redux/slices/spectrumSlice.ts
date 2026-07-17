@@ -43,6 +43,33 @@ export const getMinTxPowerDbm = (
 };
 
 export type DisplayTemporalResolution = "low" | "medium" | "high";
+
+export interface GpuSpikeAnalysis {
+  isNapt: boolean;
+  confidence: number;
+  baselineIsNapt: boolean;
+  baselineConfidence: number;
+  multiFrameIsNapt: boolean;
+  multiFrameConfidence: number;
+  multiFramePersistence: number;
+  multiFrameFrameCount: number;
+  multiFrameBridgeScore: number;
+  multiFrameUDipScore: number;
+  floorDbm: number;
+  spikes: Array<{ frequencyHz: number; powerDbm: number; index: number }>;
+  suspensionBridgeScore: number;
+  clumpCount: number;
+  bridgeWidthScore: number;
+  bridgeShoulderScore: number;
+  uDipScore: number;
+  floorRelativePowerScore: number;
+  temporalStability: number;
+  bandwidthPrior: number;
+  envelopeFitScore: number;
+  envelopeResidualScore: number;
+  envelopeSupportCount: number;
+  sincPenaltyScore: number;
+}
 export type PowerScale = "dB" | "dBm";
 export type SourceMode = "live" | "file";
 
@@ -105,6 +132,8 @@ export interface SpectrumState {
   isWaterfallCleared: boolean;
   showSpikeOverlay: boolean;
   gpuSpikeCount: number;
+  gpuSpikeAnalysis: GpuSpikeAnalysis | null;
+  hoveredSpikeIndex: number | null;
   showTxSlider: boolean;
 
   // Diagnostic state
@@ -211,6 +240,8 @@ const initialState: SpectrumState = {
   isWaterfallCleared: false,
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
+  gpuSpikeAnalysis: null,
+  hoveredSpikeIndex: null,
   showTxSlider: true,
   previewRange: null,
   previewAlignment: "centered",
@@ -552,11 +583,20 @@ const spectrumSlice = createSlice({
       state.showSpikeOverlay = action.payload;
       if (!action.payload) {
         state.gpuSpikeCount = 0;
+        state.gpuSpikeAnalysis = null;
       }
     },
 
     setGpuSpikeCount: (state, action: PayloadAction<number>) => {
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
+    },
+
+    setGpuSpikeAnalysis: (state, action: PayloadAction<GpuSpikeAnalysis | null>) => {
+      state.gpuSpikeAnalysis = action.payload;
+    },
+
+    setHoveredSpikeIndex: (state, action: PayloadAction<number | null>) => {
+      state.hoveredSpikeIndex = action.payload;
     },
 
     setShowTxSlider: (state, action: PayloadAction<boolean>) => {
@@ -689,6 +729,8 @@ export const {
   resetLiveControls,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setGpuSpikeAnalysis,
+  setHoveredSpikeIndex,
   setPreviewRange,
   setPreviewAlignment,
   setShowTxSlider,

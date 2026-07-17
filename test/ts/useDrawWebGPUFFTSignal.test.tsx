@@ -113,13 +113,23 @@ describe("useDrawWebGPUFFTSignal", () => {
       }),
     ).toBe(true);
 
-    const spikePipeline = mockDevice.createComputePipeline.mock.results[1]
-      ?.value;
+    const spikePipeline =
+      mockDevice.createComputePipeline.mock.results[1]?.value;
     expect(computePass.setPipeline).toHaveBeenCalledWith(spikePipeline);
-    expect(computePass.dispatchWorkgroups).toHaveBeenCalledTimes(5);
-    expect(computePass.dispatchWorkgroups.mock.calls.slice(-2)).toEqual([
-      [Math.ceil((mockCanvas.parentElement.offsetWidth - 40) / 64)],
-      [Math.ceil((mockCanvas.parentElement.offsetWidth - 40) / 64)],
+    const displayWorkgroups = Math.ceil(
+      (mockCanvas.parentElement.offsetWidth - 40) / 64,
+    );
+    expect(computePass.dispatchWorkgroups).toHaveBeenCalledTimes(9);
+    expect(computePass.dispatchWorkgroups.mock.calls).toEqual([
+      [displayWorkgroups], // resample
+      [displayWorkgroups], // floor average
+      [1], // floor finalize
+      [displayWorkgroups], // primary spike classification
+      [displayWorkgroups], // recovery spike classification
+      [displayWorkgroups], // N-APT metrics classification
+      [1], // N-APT metrics finalize
+      [1], // N-APT decision
+      [1], // temporal N-APT decision
     ]);
     const bindGroupCalls = computePass.setBindGroup.mock.calls;
     expect(bindGroupCalls[bindGroupCalls.length - 2]?.[1]).not.toBe(
