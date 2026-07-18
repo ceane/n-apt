@@ -59,12 +59,16 @@ describe("N-APT classifier synthetic fixtures", () => {
     expect(DETECT_WGSL).toContain("metrics.spike_count < 64u");
   });
 
-  it("measures bridge hats independently of atomic marker order", () => {
-    expect(CLASSIFY_WGSL).toContain("distance_order_score");
+  it("measures bridge hats using distance-bucketed monotonicity", () => {
+    expect(CLASSIFY_WGSL).toContain("left_bucket0_drop_sum");
+    expect(CLASSIFY_WGSL).toContain("left_bucket3_count");
+    expect(CLASSIFY_WGSL).toContain("right_bucket0_drop_sum");
     expect(CLASSIFY_WGSL).toContain("pair_order_score");
     expect(CLASSIFY_WGSL).toContain("ordered_bridge_score");
     expect(CLASSIFY_WGSL).toContain("MIN_VALIDATED_HAT_PAIR_SCORE");
-    expect(CLASSIFY_WGSL).not.toContain("The spike records are frequency ordered");
+    // The O(n²) pairwise loop has been replaced by bucketed monotonicity.
+    expect(CLASSIFY_WGSL).not.toContain("near_index < hat_scan_count");
+    expect(CLASSIFY_WGSL).not.toContain("far_index < hat_scan_count");
   });
 
   it("fits a U-dip from the displayed upper envelope", () => {
@@ -94,7 +98,7 @@ describe("N-APT classifier synthetic fixtures", () => {
   });
 
   it("penalizes a strong isolated hat without a supporting U-dip", () => {
-    expect(DETECT_WGSL).toContain("u_dip_score < 0.35 && suspension_bridge_score > 0.70");
+    expect(DETECT_WGSL).toContain("u_dip_score < 0.35 && effective_bridge_score > 0.70");
   });
 
   it("scaffolds a sinc-shaped hardware-artifact penalty", () => {

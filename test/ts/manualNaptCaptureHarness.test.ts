@@ -52,6 +52,7 @@ describe("manual NAPT capture harness", () => {
       expect(readFileSync(join(outputDir, "frames/frame_000001.iq.u8"))).toEqual(iq.subarray(8, 16));
       const manifest = JSON.parse(readFileSync(join(outputDir, "manifest.json"), "utf8"));
       expect(manifest.frames.map((frame: { index: number }) => frame.index)).toEqual([3, 1]);
+      expect(manifest.capture_metadata.sample_rate_hz).toBe(3_200_000);
       expect(JSON.stringify(manifest)).not.toMatch(/password|wrapped_dek|key/i);
     } finally {
       rmSync(directory, { recursive: true, force: true });

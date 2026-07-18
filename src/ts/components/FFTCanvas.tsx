@@ -517,58 +517,32 @@ const NodePreviewVfoRuler = styled.div`
   border-top: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
-const NodePreviewVfoTick = styled.div<{ $left: number; $active?: boolean }>`
+const NodePreviewVfoTick = styled.div<{ $active?: boolean }>`
   position: absolute;
   top: 0;
-  left: ${({ $left }) => `${$left}%`};
+  left: var(--tick-left);
   width: 1px;
   height: ${({ $active }) => ($active ? "8px" : "5px")};
-  background: ${({ theme, $left, $active }) =>
-    $active
-      ? theme.colors.primary
-      : $left === 0 || $left === 100
-        ? theme.colors.textPrimary
-        : theme.colors.textMuted};
-  opacity: ${({ $left }) => ($left === 0 || $left === 100 ? 1.0 : 0.6)};
+  background: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.textMuted};
+  opacity: var(--tick-opacity, 0.6);
 `;
 
 const NodePreviewVfoTickLabel = styled.span<{
-  $left: number;
   $active?: boolean;
   $visible?: boolean;
 }>`
   position: absolute;
   top: 10px;
   visibility: ${({ $visible }) => ($visible === false ? "hidden" : "visible")};
-  ${({ $left }) => {
-    if ($left === 0) {
-      return `
-        left: 4px;
-        transform: none;
-      `;
-    }
-    if ($left === 100) {
-      return `
-        right: 4px;
-        transform: none;
-      `;
-    }
-    return `
-      left: ${$left}%;
-      transform: translateX(-50%);
-    `;
-  }}
-  color: ${({ theme, $left, $active }) =>
-    $active
-      ? theme.colors.textPrimary
-      : $left === 0 || $left === 100
-        ? theme.colors.textPrimary
-        : theme.colors.textSecondary};
-  opacity: ${({ $left }) => ($left === 0 || $left === 100 ? 1.0 : 0.5)};
+  left: var(--tick-label-left);
+  transform: var(--tick-label-transform);
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.textPrimary : theme.colors.textSecondary};
   font-size: 9px;
-  font-weight: ${({ $active, $left }) =>
-    $active || $left === 0 || $left === 100 ? 800 : 600};
+  font-weight: var(--tick-label-weight, 600);
   white-space: nowrap;
+  opacity: var(--tick-label-opacity, 0.5);
 `;
 
 const NodePreviewVfoCenterLabel = styled.span`
@@ -608,11 +582,11 @@ const CanvasLayer = memo(styled.canvas`
   will-change: width, height;
 `);
 
-const FloorLineOverlay = styled.div<{ $topPercent: number }>`
+const FloorLineOverlay = styled.div`
   position: absolute;
   left: 0;
   right: 0;
-  top: ${({ $topPercent }) => `${$topPercent}%`};
+  top: var(--floor-line-top);
   height: 2px;
   background: repeating-linear-gradient(
     to right,
@@ -750,11 +724,10 @@ const TxSliderVisualBand = styled.div<{
 `;
 
 const TxSliderVisualText = styled.div<{
-  $left: number;
   $isTransmitting: boolean;
 }>`
   position: absolute;
-  left: ${({ $left }) => `${$left}%`};
+  left: var(--tx-label-left);
   top: calc(50% + 7px);
   transform: translate(-50%, 0);
   display: flex;
@@ -774,12 +747,11 @@ const TxSliderVisualText = styled.div<{
 `;
 
 const TxSliderVisualCenterFrequencyText = styled.div<{
-  $left: number;
   $isTransmitting: boolean;
   $isLocked: boolean;
 }>`
   position: absolute;
-  left: ${({ $left }) => `${$left}%`};
+  left: var(--tx-center-label-left);
   bottom: calc(50% + 7px);
   transform: translate(-50%, 0);
   display: flex;
@@ -5185,7 +5157,11 @@ const FFTCanvas = memo(
                 id="fft-spectrum-canvas-overlay"
               />
               {floorLinePercent !== null && (
-                <FloorLineOverlay $topPercent={floorLinePercent} />
+                <FloorLineOverlay
+                  style={
+                    { "--floor-line-top": `${floorLinePercent}%` } as React.CSSProperties
+                  }
+                />
               )}
 
               {heterodyningHighlightedBins.length > 0 && (
@@ -5233,16 +5209,47 @@ const FFTCanvas = memo(
                     return [
                       <NodePreviewVfoTickLabel
                         key={`label-${keySuffix}`}
-                        $left={tick.positionPercent}
                         $active={false}
                         $visible={tick.showLabel}
+                        style={{
+                          "--tick-label-left":
+                            tick.positionPercent === 0
+                              ? "4px"
+                              : tick.positionPercent === 100
+                                ? "calc(100% - 4px)"
+                                : `${tick.positionPercent}%`,
+                          "--tick-label-transform":
+                            tick.positionPercent === 0 ||
+                            tick.positionPercent === 100
+                              ? "none"
+                              : "translateX(-50%)",
+                          "--tick-label-opacity":
+                            tick.positionPercent === 0 ||
+                            tick.positionPercent === 100
+                              ? "1"
+                              : "0.5",
+                          "--tick-label-weight":
+                            tick.positionPercent === 0 ||
+                            tick.positionPercent === 100
+                              ? "800"
+                              : "600",
+                        } as React.CSSProperties}
                       >
                         {tickLabel}
                       </NodePreviewVfoTickLabel>,
                       <NodePreviewVfoTick
                         key={`tick-${keySuffix}`}
-                        $left={tick.positionPercent}
                         $active={false}
+                        style={
+                          {
+                            "--tick-left": `${tick.positionPercent}%`,
+                            "--tick-opacity":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "1"
+                                : "0.6",
+                          } as React.CSSProperties
+                        }
                       />,
                     ];
                   })}
@@ -5331,7 +5338,11 @@ const FFTCanvas = memo(
                       id="fft-spectrum-canvas-overlay"
                     />
                     {floorLinePercent !== null && (
-                      <FloorLineOverlay $topPercent={floorLinePercent} />
+                      <FloorLineOverlay
+                        style={
+                          { "--floor-line-top": `${floorLinePercent}%` } as React.CSSProperties
+                        }
+                      />
                     )}
 
                     {heterodyningHighlightedBins.length > 0 && (
@@ -5407,9 +5418,13 @@ const FFTCanvas = memo(
                           {!txSliderVisualMetrics.isOffScreen && (
                             <>
                               <TxSliderVisualCenterFrequencyText
-                                $left={txSliderVisualMetrics.centerLeft}
                                 $isTransmitting={isTransmittingGlobal}
                                 $isLocked={isTxSliderLocked}
+                                style={
+                                  {
+                                    "--tx-center-label-left": `${txSliderVisualMetrics.centerLeft}%`,
+                                  } as React.CSSProperties
+                                }
                               >
                                 {isTxSliderLocked ? (
                                   <TxSliderCenterLockIcon aria-hidden="true">
@@ -5419,8 +5434,12 @@ const FFTCanvas = memo(
                                 {txSliderVisualMetrics.centerHzFormatted}
                               </TxSliderVisualCenterFrequencyText>
                               <TxSliderVisualText
-                                $left={txSliderVisualMetrics.centerLeft}
                                 $isTransmitting={isTransmittingGlobal}
+                                style={
+                                  {
+                                    "--tx-label-left": `${txSliderVisualMetrics.centerLeft}%`,
+                                  } as React.CSSProperties
+                                }
                               >
                                 <span>
                                   {txSliderVisualMetrics.bandwidthFormatted}

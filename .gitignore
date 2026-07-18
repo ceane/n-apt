@@ -436,8 +436,14 @@ coverage/lcov-report/ts/workers/scannerWorkerManager.ts.html
 # Test fixtures
 test/integration/fixtures/encrypted_test.napt
 
+# Raw I/Q captures are local-only and must never be added to Git.
+*.napt
+*.wav
+*.iq
+*.iq.*
+test/fixtures/napt-classifier/captures/
+
 # Agent / temporary files
 fix_*
 patch.diff
 *.diff
-

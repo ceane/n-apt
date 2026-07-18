@@ -29,6 +29,7 @@ interface ReduxFrequencyRangeSliderProps {
   sampleRateHz?: number | null;
   startingAnchorPosition?: "start" | "center" | "end";
   isWholeChannelMode?: boolean;
+  forceFullWidth?: boolean;
   allowWideSampleRateOverscan?: boolean;
   wideSampleRateZoomThreshold?: number;
   limitMarkers?: Array<{ freq: number; label: string }>;
@@ -48,6 +49,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   sampleRateHz,
   startingAnchorPosition = "start",
   isWholeChannelMode = false,
+  forceFullWidth = false,
   allowWideSampleRateOverscan = false,
   wideSampleRateZoomThreshold = 1.5,
   limitMarkers,
@@ -343,7 +345,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         disabled={disabled}
         scanProgress={scanProgress}
         scanCurrentFreq={scanCurrentFreq}
-        forceFullWidth={wholeChannelDisplayMode}
+        forceFullWidth={forceFullWidth}
       />
     </Container>
   );

@@ -59,8 +59,28 @@ describe("N-APT classifier", () => {
     );
     expect(NAPT_CLASSIFY_WGSL).toContain("normalized_position");
     expect(NAPT_CLASSIFY_WGSL).toContain("global_u_dip");
+    expect(NAPT_CLASSIFY_WGSL).toContain("MIN_LOW_RISE_BRIDGE_WIDTH");
+    expect(NAPT_CLASSIFY_WGSL).toContain("low_rise_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("u_dip_source");
+    expect(NAPT_DETECT_WGSL).toContain("low_rise_bridge_score");
     expect(NAPT_CLASSIFY_WGSL).toContain("envelope_min");
     expect(NAPT_CLASSIFY_WGSL).toContain("robust_envelope_at");
+  });
+
+  it("exposes tolerant unimodal bridge diagnostics", () => {
+    expect(NAPT_CLASSIFY_WGSL).toContain("unimodal_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("partial_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("apex_prominence_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("shoulder_symmetry_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("unimodal_violation_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("UNIMODAL_ORDER_TOLERANCE_DB");
+    expect(NAPT_CLASSIFY_WGSL).toContain("PARTIAL_BRANCH_FULL_SCORE");
+  });
+
+  it("keeps the classifier readback contract large enough for shape diagnostics", () => {
+    expect(NAPT_CLASSIFY_WGSL).toContain("shoulder_symmetry_score: f32");
+    expect(NAPT_DETECT_WGSL).toContain("shoulder_symmetry_score: f32");
+    expect(NAPT_TEMPORAL_WGSL).toContain("unimodal_bridge_score: f32");
   });
 
   it("uses suspension_bridge as the dominant detection weight and rejects weak structure", () => {
@@ -71,6 +91,8 @@ describe("N-APT classifier", () => {
     expect(NAPT_DETECT_WGSL).toContain("MIN_SUSPENSION_BRIDGE_SCORE");
     expect(NAPT_DETECT_WGSL).toContain("bridge_dominant_confidence");
     expect(NAPT_DETECT_WGSL).toContain("STRONG_BRIDGE_THRESHOLD");
+    expect(NAPT_DETECT_WGSL).toContain("has_low_rise_bridge");
+    expect(NAPT_DETECT_WGSL).toContain("low_rise_shape_bonus");
     expect(NAPT_DETECT_WGSL).toContain("0.60");
   });
 

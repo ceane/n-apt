@@ -63,7 +63,8 @@ describe("ReduxFrequencyRangeSlider", () => {
               minFreq={4_750_000}
               maxFreq={23_000_000}
               sampleRateHz={5_200_000}
-              isWholeChannelMode={true}
+              isWholeChannelMode={false}
+              forceFullWidth={true}
               allowWideSampleRateOverscan={true}
             />
           </SpectrumProvider>
@@ -71,8 +72,8 @@ describe("ReduxFrequencyRangeSlider", () => {
       </Provider>,
     );
 
-    expect(screen.getByText(/4\.75MHz.*-.*23MHz/)).toBeInTheDocument();
-    expect(screen.queryByText(/4\.75MHz.*-.*9\.91MHz/)).not.toBeInTheDocument();
+    expect(screen.getByText(/4\.75MHz.*-.*9\.95MHz/)).toBeInTheDocument();
+    expect(screen.queryByText(/4\.75MHz.*-.*23MHz/)).not.toBeInTheDocument();
   });
 
   it("anchors a stale full-channel active range at the left edge instead of recentering it", async () => {

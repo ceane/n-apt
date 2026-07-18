@@ -49,6 +49,96 @@ const theme = buildAppTheme({
 });
 
 describe("Channels", () => {
+  it("keeps whole-channel display active while switching before the sample rate catches up", () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "B",
+                  frequencyRange: { min: 24_100_000, max: 28_472_000 },
+                  sampleRateHz: 4_372_000,
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                },
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 4_372_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    for (const label of ["A", "B", "C"]) {
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute(
+        "data-force-full-width",
+        "true",
+      );
+    }
+  });
+
+  it("uses the selected channel bounds when switching to a whole-channel demod range", () => {
+    const store = createTestStore();
+    const sendFrequencyRange = jest.fn();
+    const dispatch = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 18_000, max: 4_390_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch,
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+                ],
+                sampleRateHzEffective: 6_270_000,
+                wsConnection: { sendFrequencyRange },
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                },
+              } as any
+            }
+          >
+            <Channels />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /B 24\.1MHz/ }));
+
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 24_100_000,
+      max: 30_370_000,
+    });
+  });
+
   it("marks only the channel containing the current VFO center as active", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
@@ -225,7 +315,7 @@ describe("Channels", () => {
     });
   });
 
-  it("renders every channel slider full-width while the active sample-rate mode is whole-channel", () => {
+  it("renders every channel full-width in whole-channel display mode", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
     const dispatch = jest.fn();
@@ -288,7 +378,7 @@ describe("Channels", () => {
     );
   });
 
-  it("keeps Channel C full-width when Channel B Whole Channel state is restored on load", () => {
+  it("keeps Channel C full-width when Channel B whole-channel state is restored", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
     const dispatch = jest.fn();
@@ -364,7 +454,7 @@ describe("Channels", () => {
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-visible-max",
-      "23000000",
+      "11020000",
     );
   });
 

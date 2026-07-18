@@ -69,6 +69,10 @@ export interface GpuSpikeAnalysis {
   envelopeResidualScore: number;
   envelopeSupportCount: number;
   sincPenaltyScore: number;
+  unimodalBridgeScore: number;
+  partialBridgeScore: number;
+  apexProminenceScore: number;
+  shoulderSymmetryScore: number;
 }
 export type PowerScale = "dB" | "dBm";
 export type SourceMode = "live" | "file";

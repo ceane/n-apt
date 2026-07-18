@@ -11,8 +11,8 @@
 - Do not create unnecessary test or temporary files in the codebase.
 - Any temporary files, mockups, or experimental scripts MUST be named explicitly using prefixes like `temp_`, `tmp_`, `test_`, or `fix_` (e.g., `temp_debug_helper.js`, `fix_build_error.sh`) or end with `.diff` (e.g., `patch.diff`) so that they are automatically excluded by Git.
 - Avoid committing any random scratch files. Keep the git workspace clean.
+- Never add I/Q capture data to Git. This includes `.napt`, `.wav`, `.iq`, and related capture extensions such as `.iq.u8`; keep captures local or in external storage and use metadata/manifests without the raw samples for versioned tests.
 
 ## Automated Testing
 
 - When viewing the site via automated testing, you must visit from `localhost`. `127.0.0.1` is blocked.
-

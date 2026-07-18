@@ -138,13 +138,13 @@ const availableNodes: NodeType[] = [
     type: "custom",
     label: "Symbols (I/Q)",
     description:
-      "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
+      "Turns signal measurements like amplitude and phase into symbols that represent bits.",
     icon: <Signal size={16} />,
     position: { x: 350, y: 850 },
     data: {
       label: "Symbols (I/Q)",
       description:
-        "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
+        "Turns signal measurements like amplitude and phase into symbols that represent bits.",
       symbolOptions: true,
     },
   },
@@ -153,13 +153,13 @@ const availableNodes: NodeType[] = [
     type: "custom",
     label: "Bitstream (0s/1s)",
     description:
-      "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
+      "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
     icon: <Binary size={16} />,
     position: { x: 150, y: 950 },
     data: {
       label: "Bitstream (0s/1s)",
       description:
-        "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
+        "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
       bitstreamOptions: true,
     },
   },

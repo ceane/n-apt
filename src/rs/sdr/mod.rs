@@ -168,6 +168,10 @@ pub trait SdrDevice: Send {
     String::new()
   }
 
+  fn get_firmware_version(&self) -> Option<String> {
+    None
+  }
+
   /// Get the last error message if any
   fn get_error(&self) -> Option<String>;
 }

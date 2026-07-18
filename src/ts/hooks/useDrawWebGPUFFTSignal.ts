@@ -151,6 +151,10 @@ export interface SpikeAnalysis {
   envelopeResidualScore: number;
   envelopeSupportCount: number;
   sincPenaltyScore: number;
+  unimodalBridgeScore: number;
+  partialBridgeScore: number;
+  apexProminenceScore: number;
+  shoulderSymmetryScore: number;
 }
 
 // Inlined FFTWebGPU class as internal state
@@ -631,14 +635,14 @@ export function useDrawWebGPUFFTSignal() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const naptClassifyResultBuffer = device.createBuffer({
-        size: 112,
+        size: 128,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.COPY_SRC,
       });
       const naptClassifyReadbackBuffer = device.createBuffer({
-        size: 112,
+        size: 128,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       const spikeMetricsBuffer = device.createBuffer({
@@ -1423,6 +1427,10 @@ export function useDrawWebGPUFFTSignal() {
               const envelopeResidualScore = result.getFloat32(92, true);
               const envelopeSupportCount = result.getUint32(96, true);
               const sincPenaltyScore = result.getFloat32(100, true);
+              const unimodalBridgeScore = result.getFloat32(112, true);
+              const partialBridgeScore = result.getFloat32(116, true);
+              const apexProminenceScore = result.getFloat32(120, true);
+              const shoulderSymmetryScore = result.getFloat32(124, true);
               resultBuffer.unmap();
               return state.naptDecisionReadbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
               const decision = new DataView(
@@ -1468,6 +1476,10 @@ export function useDrawWebGPUFFTSignal() {
                       envelopeResidualScore,
                       envelopeSupportCount,
                       sincPenaltyScore,
+                      unimodalBridgeScore,
+                      partialBridgeScore,
+                      apexProminenceScore,
+                      shoulderSymmetryScore,
                       aboveFloorFraction,
                       periodicity,
                       isNapt: temporalIsNapt,
@@ -1477,7 +1489,7 @@ export function useDrawWebGPUFFTSignal() {
                   });
               });
             })
-            .then(({ floorDbm, confidence, baselineIsNapt, baselineConfidence, multiFrameIsNapt, multiFrameConfidence, multiFramePersistence, multiFrameFrameCount, multiFrameBridgeScore, multiFrameUDipScore, suspensionBridgeScore, clumpCount, bridgeWidthScore, bridgeShoulderScore, uDipScore, floorRelativePowerScore, temporalStability, bandwidthPrior, envelopeFitScore, envelopeResidualScore, envelopeSupportCount, sincPenaltyScore, aboveFloorFraction, periodicity, isNapt, count, data }) => {
+            .then(({ floorDbm, confidence, baselineIsNapt, baselineConfidence, multiFrameIsNapt, multiFrameConfidence, multiFramePersistence, multiFrameFrameCount, multiFrameBridgeScore, multiFrameUDipScore, suspensionBridgeScore, clumpCount, bridgeWidthScore, bridgeShoulderScore, uDipScore, floorRelativePowerScore, temporalStability, bandwidthPrior, envelopeFitScore, envelopeResidualScore, envelopeSupportCount, sincPenaltyScore, unimodalBridgeScore, partialBridgeScore, apexProminenceScore, shoulderSymmetryScore, aboveFloorFraction, periodicity, isNapt, count, data }) => {
               const values = new DataView(data);
               const spikes = Array.from({ length: count }, (_, index) => {
                 const offset = index * 16;
@@ -1517,6 +1529,10 @@ export function useDrawWebGPUFFTSignal() {
                 envelopeResidualScore,
                 envelopeSupportCount,
                 sincPenaltyScore,
+                unimodalBridgeScore,
+                partialBridgeScore,
+                apexProminenceScore,
+                shoulderSymmetryScore,
                 spikes,
               });
               void aboveFloorFraction;

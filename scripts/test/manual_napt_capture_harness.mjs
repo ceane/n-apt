@@ -167,7 +167,22 @@ function safeBaseName(input) {
 }
 
 function publicMetadata(metadata) {
-  const allowed = ["sample_rate_hz", "sample_rate", "center_frequency_hz", "center_frequency", "frame_rate", "duration_s", "duration", "fft_size", "format", "iq_format"];
+  const allowed = [
+    "sample_rate_hz",
+    "capture_sample_rate_hz",
+    "hardware_sample_rate_hz",
+    "sample_rate",
+    "center_frequency_hz",
+    "center_frequency",
+    "frame_rate",
+    "duration_s",
+    "duration",
+    "fft_size",
+    "format",
+    "iq_format",
+    "frequency_range",
+    "source_device",
+  ];
   return Object.fromEntries(allowed.filter((key) => metadata[key] !== undefined).map((key) => [key, metadata[key]]));
 }
 

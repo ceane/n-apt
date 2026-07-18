@@ -307,14 +307,15 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     }
   }, [isActive]);
 
-  const isWholeChannelWindow = forceFullWidth || windowWidth >= 1;
-  const renderedWindowWidth = isWholeChannelWindow ? 1 : windowWidth;
+  const isWholeChannelWindow = windowWidth >= 1;
+  const shouldRenderFullWidth = forceFullWidth || isWholeChannelWindow;
+  const renderedWindowWidth = shouldRenderFullWidth ? 1 : windowWidth;
   const widthPercent = Math.max(0, Math.min(100, renderedWindowWidth * 100));
   const minContentThumbWidth = Math.min(
     trackWidth,
     Math.max(0, Math.ceil(windowLabelWidth) + 16),
   );
-  const renderedThumbWidth = isWholeChannelWindow
+  const renderedThumbWidth = shouldRenderFullWidth
     ? trackWidth
     : Math.min(
         trackWidth,
@@ -668,12 +669,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
-              width: isWholeChannelWindow
+              width: shouldRenderFullWidth
                 ? "100%"
                 : widthPercent >= 100
                   ? "100%"
                   : `${widthPercent}%`,
-              minWidth: isWholeChannelWindow
+              minWidth: shouldRenderFullWidth
                 ? undefined
                 : `${minContentThumbWidth}px`,
               maxWidth: "100%",

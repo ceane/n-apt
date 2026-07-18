@@ -1344,6 +1344,8 @@ signals:
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     // We can't call save_capture_file_multi easily because it writes to disk,
@@ -1681,7 +1683,7 @@ pub fn save_capture_file_multi(
   }
 
   // SECURITY: Strict validation of file_type.
-  if result.file_type != ".napt" && result.file_type != ".wav" {
+  if result.file_type != ".napt" && result.file_type != ".wav" && result.file_type != ".iq" {
     return Err(format!("Unsupported file_type: '{}'", result.file_type));
   }
 
@@ -1691,7 +1693,9 @@ pub fn save_capture_file_multi(
     .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-  let filename = if result.encrypted && result.file_type == ".napt" {
+  let filename = if result.file_type == ".iq" {
+    format!("capture_{}_{}.iq", result.job_id, timestamp)
+  } else if result.encrypted && result.file_type == ".napt" {
     format!("capture_{}_{}.napt", result.job_id, timestamp)
   } else {
     // default to wav for non-encrypted capture
@@ -1720,6 +1724,13 @@ pub fn save_capture_file_multi(
     "rtl_agc": result.rtl_agc,
     "data_format": "iq_u8",
     "spectrum_shifted": true,
+    "format": if result.file_type == ".iq" { "iq" } else if result.file_type == ".wav" { "wav" } else { "napt" },
+    "format_version": 3,
+    "interleaving": "IQ",
+    "device_profile": {
+      "kind": result.source_device,
+      "firmware_version": serde_json::Value::Null,
+    },
   });
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
@@ -1749,7 +1760,44 @@ pub fn save_capture_file_multi(
     });
   }
 
-  if result.encrypted && result.file_type == ".napt" {
+  if result.file_type == ".iq" {
+    meta_obj["channels"] = serde_json::Value::Array(
+      result.channels.iter().map(|ch| serde_json::json!({
+        "center_freq_hz": ch.center_freq_hz,
+        "sample_rate_hz": ch.sample_rate_hz,
+        "bins_per_frame": ch.bins_per_frame,
+        "label": ch.label,
+      })).collect(),
+    );
+    let mut fields = meta_obj.as_object().cloned().unwrap_or_default();
+    for key in ["format", "format_version", "interleaving", "sample_encoding"] {
+      fields.remove(key);
+    }
+    let metadata = crate::server::iq_format::IqMetadata {
+      fields,
+      ..Default::default()
+    };
+    let iq_file = crate::server::iq_format::IqFile {
+      metadata,
+      private_metadata: if result.encrypted {
+        result.device_profile.clone()
+      } else {
+        None
+      },
+      frames: result.frame_updates.clone(),
+      chunks: result.channels.iter().enumerate().map(|(channel, ch)| crate::server::iq_format::IqChunk {
+        sample_offset: 0,
+        channel: channel as u32,
+        data: ch.iq_data.clone(),
+      }).collect(),
+    };
+    let encoded = crate::server::iq_format::encode(&iq_file, if result.encrypted { Some(encryption_key) } else { None })?;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&encoded);
+    let checksum = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    std::fs::write(&path, &encoded).map_err(|e| format!("Failed to write IQ: {e}"))?;
+    return Ok(CaptureArtifact { filename, path, file_size: encoded.len() as u64, checksum });
+  } else if result.encrypted && result.file_type == ".napt" {
     // Construct plaintext: JSON header with `channels` array + padding + Concatenated Data
     let header_size = 4096; // Larger header for multi-channel JSON
     let mut payload_plaintext = Vec::new();
@@ -2025,6 +2073,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -2103,6 +2153,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -2178,6 +2230,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result2 = CaptureResult {
@@ -2216,6 +2270,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact1 = save_capture_file_multi(&result1, &test_encryption_key())
@@ -2272,6 +2328,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result_napt = save_capture_file_multi(&result, &test_encryption_key())
@@ -2367,6 +2425,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result_wav =

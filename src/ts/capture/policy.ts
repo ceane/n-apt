@@ -204,7 +204,7 @@ export function resolveCaptureTarget(
  * `.napt` artifacts are always encrypted and cannot be requested unencrypted.
  */
 export function validateIqCaptureOptions(options: {
-  fileType?: ".napt" | ".wav";
+  fileType?: ".napt" | ".wav" | ".iq";
   encrypted?: boolean;
 }): void {
   if (options.fileType === ".napt" && options.encrypted === false) {

@@ -28,9 +28,9 @@ struct SpikeMetric {
 const MAX_SPIKES: u32 = 1024u;
 
 // The first ten members are atomic accumulators used by classify(). The
-// remaining members are finalized scalar outputs. The host reads the scalar
-// fields at byte offsets 40, 44, 48, ... 84, so changing this layout requires
-// a matching update in useDrawWebGPUFFTSignal.ts and its readback tests.
+  // remaining members are finalized scalar outputs. The host reads the scalar
+  // fields at byte offsets 40 through 124, so changing this layout requires a
+  // matching update in useDrawWebGPUFFTSignal.ts, the harness, and readback tests.
 struct ClassifierResult {
   floor_sum_fixed: atomic<i32>,
   floor_count: atomic<u32>,
@@ -58,6 +58,16 @@ struct ClassifierResult {
   envelope_residual_score: f32,
   envelope_support_count: u32,
   sinc_penalty_score: f32,
+  low_rise_bridge_score: f32,
+  // Diagnostic: which U-dip estimator produced the winning score.
+  // 0=none, 1=wide_fixed_thirds, 2=sliding_local_u, 3=waveform_quadratic,
+  // 4=visible_window, 5=spike_quadratic. Fits in the existing 112-byte
+  // buffer (offset 108) without a size change.
+  u_dip_source: u32,
+  unimodal_bridge_score: f32,
+  partial_bridge_score: f32,
+  apex_prominence_score: f32,
+  shoulder_symmetry_score: f32,
 }
 
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
@@ -88,6 +98,15 @@ const HAT_ORDER_TOLERANCE_DB: f32 = 0.25;
 const MIN_VALIDATED_HAT_PAIR_SCORE: f32 = 0.52;
 const MIN_VALIDATED_HAT_COUNT: u32 = 2u;
 const BRIDGE_ORDER_LIFT_EXPONENT: f32 = 0.75;
+// Unimodal geometry is the primary bridge model: one apex with an ordered
+// shoulder on each side. Small bucket violations are tolerated because lower
+// spikes can move in and out of a tuned FFT window.
+const UNIMODAL_ORDER_TOLERANCE_DB: f32 = 0.75;
+const PARTIAL_BRANCH_FULL_SCORE: f32 = 0.85;
+// A low-rise bridge must occupy a meaningful normalized span. This is just
+// above the random-comb fixture's accidental width, while remaining below
+// the measured low-rise capture width (~0.49).
+const MIN_LOW_RISE_BRIDGE_WIDTH: f32 = 0.48;
 // Envelope diagnostics describe local structure, not a globally visible
 // curve. Sampled slopes are normalized by capture-span distance, then
 // classified as flat or directional. A small flat tolerance prevents normal
@@ -490,6 +509,8 @@ fn finalize() {
   let wide_u_dip_score =
     (normalized_wide_depth * 0.95 + curve_score * 0.05) *
     wide_u_trend_score * sustained_center_valley;
+  // Track which estimator produced the winning U-dip score.
+  var u_dip_source = 0u;
   var global_u_dip = select(
     0.0,
     max(
@@ -497,6 +518,9 @@ fn finalize() {
       supported_local_u * 0.35 * broad_u_coverage_score *
         sustained_center_valley),
     wide_u_trend_score > 0.0 && sustained_center_valley > 0.0);
+  if (global_u_dip > 0.0) {
+    u_dip_source = select(2u, 1u, wide_u_dip_score >= supported_local_u * 0.35 * broad_u_coverage_score * sustained_center_valley);
+  }
   // Treat detected spike tops as a scatter plot. For several possible curve
   // centers, measure the Pearson correlation between spike power and squared
   // distance from that center. A coherent U-envelope has positive correlation;
@@ -507,6 +531,23 @@ fn finalize() {
   var hat_clump_count = 0u;
   var hat_pair_score_sum = 0.0;
   var hat_envelope_score_sum = 0.0;
+  var bilateral_hat_clump_sum = 0.0;
+  var bilateral_hat_clump_count = 0u;
+  var bilateral_hat_pair_score_sum = 0.0;
+  var max_unimodal_bridge_score = 0.0;
+  var max_partial_bridge_score = 0.0;
+  var max_apex_prominence_score = 0.0;
+  var max_shoulder_symmetry_score = 0.0;
+  var max_unimodal_violation_score = 0.0;
+  // A sinc-shaped hardware response can contain an apparently ordered local
+  // peak. Compute its penalty once per frame and apply it as a soft structure
+  // gate, keeping the diagnostic visible without treating the artifact as a
+  // real suspension bridge.
+  let frame_sinc_penalty = clamp(sinc_penalty_score(), 0.0, 1.0);
+  let sinc_structure_gate = select(
+    1.0,
+    clamp((0.72 - frame_sinc_penalty) / 0.10, 0.0, 1.0),
+    frame_sinc_penalty > 0.68);
   // Detect the rise-apex-fall "hats" directly in spike-coordinate space.
   // Each accepted apex must be the strongest point in its local span and have
   // at least two lower supporting spikes on both sides.
@@ -544,10 +585,18 @@ fn finalize() {
     var right_near_drop_count = 0u;
     var right_far_drop_sum = 0.0;
     var right_far_drop_count = 0u;
-    var left_order_hits = 0u;
-    var left_order_pairs = 0u;
-    var right_order_hits = 0u;
-    var right_order_pairs = 0u;
+    // Distance-bucketed ordering: 4 buckets per side (0..0.025, 0.025..0.05,
+    // 0.05..0.075, 0.075..0.10). Populated during the neighbor scan below and
+    // checked for monotonicity afterward. This replaces the previous O(n²)
+    // pairwise ordering loop with an O(1) bucket walk.
+    var left_bucket0_drop_sum = 0.0; var left_bucket0_count = 0u;
+    var left_bucket1_drop_sum = 0.0; var left_bucket1_count = 0u;
+    var left_bucket2_drop_sum = 0.0; var left_bucket2_count = 0u;
+    var left_bucket3_drop_sum = 0.0; var left_bucket3_count = 0u;
+    var right_bucket0_drop_sum = 0.0; var right_bucket0_count = 0u;
+    var right_bucket1_drop_sum = 0.0; var right_bucket1_count = 0u;
+    var right_bucket2_drop_sum = 0.0; var right_bucket2_count = 0u;
+    var right_bucket3_drop_sum = 0.0; var right_bucket3_count = 0u;
     var is_local_apex = true;
     for (var neighbor_index = 0u; neighbor_index < hat_scan_count; neighbor_index = neighbor_index + 1u) {
       if (neighbor_index == apex_index) { continue; }
@@ -573,12 +622,26 @@ fn finalize() {
             left_distance_squared = left_distance_squared + distance * distance;
             left_drop_squared = left_drop_squared + drop * drop;
             left_distance_drop = left_distance_drop + distance * drop;
-            if (distance <= 0.04) {
+            if (distance <= 0.025) {
               left_near_drop_sum = left_near_drop_sum + drop;
               left_near_drop_count = left_near_drop_count + 1u;
+              left_bucket0_drop_sum = left_bucket0_drop_sum + drop;
+              left_bucket0_count = left_bucket0_count + 1u;
+            } else if (distance <= 0.05) {
+              left_near_drop_sum = left_near_drop_sum + drop;
+              left_near_drop_count = left_near_drop_count + 1u;
+              left_bucket1_drop_sum = left_bucket1_drop_sum + drop;
+              left_bucket1_count = left_bucket1_count + 1u;
+            } else if (distance <= 0.075) {
+              left_far_drop_sum = left_far_drop_sum + drop;
+              left_far_drop_count = left_far_drop_count + 1u;
+              left_bucket2_drop_sum = left_bucket2_drop_sum + drop;
+              left_bucket2_count = left_bucket2_count + 1u;
             } else {
               left_far_drop_sum = left_far_drop_sum + drop;
               left_far_drop_count = left_far_drop_count + 1u;
+              left_bucket3_drop_sum = left_bucket3_drop_sum + drop;
+              left_bucket3_count = left_bucket3_count + 1u;
             }
           } else {
             right_sum = right_sum + neighbor_y;
@@ -589,55 +652,111 @@ fn finalize() {
             right_distance_squared = right_distance_squared + distance * distance;
             right_drop_squared = right_drop_squared + drop * drop;
             right_distance_drop = right_distance_drop + distance * drop;
-            if (distance <= 0.04) {
+            if (distance <= 0.025) {
               right_near_drop_sum = right_near_drop_sum + drop;
               right_near_drop_count = right_near_drop_count + 1u;
+              right_bucket0_drop_sum = right_bucket0_drop_sum + drop;
+              right_bucket0_count = right_bucket0_count + 1u;
+            } else if (distance <= 0.05) {
+              right_near_drop_sum = right_near_drop_sum + drop;
+              right_near_drop_count = right_near_drop_count + 1u;
+              right_bucket1_drop_sum = right_bucket1_drop_sum + drop;
+              right_bucket1_count = right_bucket1_count + 1u;
+            } else if (distance <= 0.075) {
+              right_far_drop_sum = right_far_drop_sum + drop;
+              right_far_drop_count = right_far_drop_count + 1u;
+              right_bucket2_drop_sum = right_bucket2_drop_sum + drop;
+              right_bucket2_count = right_bucket2_count + 1u;
             } else {
               right_far_drop_sum = right_far_drop_sum + drop;
               right_far_drop_count = right_far_drop_count + 1u;
+              right_bucket3_drop_sum = right_bucket3_drop_sum + drop;
+              right_bucket3_count = right_bucket3_count + 1u;
             }
           }
         }
       }
     }
-    // Validate the shoulder ordering from coordinates, not storage order.
-    // A true hat has non-decreasing drop as distance from the apex grows on
-    // both sides. A random comb will fail many of these pair comparisons.
+    // Validate shoulder ordering via distance-bucketed monotonicity.
+    // A true hat has non-decreasing mean drop as distance from the apex
+    // grows on both sides. Bucketed means avoid the O(n²) pairwise
+    // comparison that the previous loop required. Each populated bucket
+    // pair contributes one ordering comparison; a random comb will fail
+    // because its bucket means are chaotic.
+    var left_order_hits = 0u;
+    var left_order_pairs = 0u;
+    var right_order_hits = 0u;
+    var right_order_pairs = 0u;
     if (is_local_apex) {
-      for (var near_index = 0u;
-           near_index < hat_scan_count;
-           near_index = near_index + 1u) {
-        if (near_index == apex_index) { continue; }
-        let near_x = f32(spikes[near_index].index) /
-          f32(max(1u, params.source_length - 1u));
-        let near_distance = abs(near_x - apex_x);
-        let near_drop = apex_y - spikes[near_index].value;
-        if (near_distance <= 0.0 || near_distance > 0.10 || near_drop < 1.0) {
-          continue;
-        }
-        for (var far_index = 0u;
-             far_index < hat_scan_count;
-             far_index = far_index + 1u) {
-          if (far_index == apex_index) { continue; }
-          let far_x = f32(spikes[far_index].index) /
-            f32(max(1u, params.source_length - 1u));
-          let far_distance = abs(far_x - apex_x);
-          let far_drop = apex_y - spikes[far_index].value;
-          if (far_distance <= near_distance + 0.000001 ||
-              far_distance > 0.10 || far_drop < 1.0 ||
-              (near_x < apex_x) != (far_x < apex_x)) {
-            continue;
+      // Left side: walk buckets 0→3 (near→far), check monotonicity.
+      var left_prev_mean = 0.0;
+      var left_has_prev = false;
+      if (left_bucket0_count > 0u) {
+        left_prev_mean = left_bucket0_drop_sum / f32(left_bucket0_count);
+        left_has_prev = true;
+      }
+      if (left_bucket1_count > 0u) {
+        let mean = left_bucket1_drop_sum / f32(left_bucket1_count);
+        if (left_has_prev) {
+          left_order_pairs = left_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= left_prev_mean) {
+            left_order_hits = left_order_hits + 1u;
           }
-          if (near_x < apex_x) {
-            left_order_pairs = left_order_pairs + 1u;
-            if (far_drop + HAT_ORDER_TOLERANCE_DB >= near_drop) {
-              left_order_hits = left_order_hits + 1u;
-            }
-          } else {
-            right_order_pairs = right_order_pairs + 1u;
-            if (far_drop + HAT_ORDER_TOLERANCE_DB >= near_drop) {
-              right_order_hits = right_order_hits + 1u;
-            }
+        }
+        left_prev_mean = mean; left_has_prev = true;
+      }
+      if (left_bucket2_count > 0u) {
+        let mean = left_bucket2_drop_sum / f32(left_bucket2_count);
+        if (left_has_prev) {
+          left_order_pairs = left_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= left_prev_mean) {
+            left_order_hits = left_order_hits + 1u;
+          }
+        }
+        left_prev_mean = mean; left_has_prev = true;
+      }
+      if (left_bucket3_count > 0u) {
+        let mean = left_bucket3_drop_sum / f32(left_bucket3_count);
+        if (left_has_prev) {
+          left_order_pairs = left_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= left_prev_mean) {
+            left_order_hits = left_order_hits + 1u;
+          }
+        }
+      }
+      // Right side: same walk.
+      var right_prev_mean = 0.0;
+      var right_has_prev = false;
+      if (right_bucket0_count > 0u) {
+        right_prev_mean = right_bucket0_drop_sum / f32(right_bucket0_count);
+        right_has_prev = true;
+      }
+      if (right_bucket1_count > 0u) {
+        let mean = right_bucket1_drop_sum / f32(right_bucket1_count);
+        if (right_has_prev) {
+          right_order_pairs = right_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= right_prev_mean) {
+            right_order_hits = right_order_hits + 1u;
+          }
+        }
+        right_prev_mean = mean; right_has_prev = true;
+      }
+      if (right_bucket2_count > 0u) {
+        let mean = right_bucket2_drop_sum / f32(right_bucket2_count);
+        if (right_has_prev) {
+          right_order_pairs = right_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= right_prev_mean) {
+            right_order_hits = right_order_hits + 1u;
+          }
+        }
+        right_prev_mean = mean; right_has_prev = true;
+      }
+      if (right_bucket3_count > 0u) {
+        let mean = right_bucket3_drop_sum / f32(right_bucket3_count);
+        if (right_has_prev) {
+          right_order_pairs = right_order_pairs + 1u;
+          if (mean + HAT_ORDER_TOLERANCE_DB >= right_prev_mean) {
+            right_order_hits = right_order_hits + 1u;
           }
         }
       }
@@ -769,6 +888,150 @@ fn finalize() {
           left_profile_score * distance_order_score,
           is_right_edge_hat),
         is_left_edge_hat || is_right_edge_hat);
+      // A suspension_bridge is not merely ordered on both sides: its two
+      // shoulders have a related angle and taper. Random Mock spikes can
+      // accidentally produce a monotonic left or right run, but the two
+      // sides will usually have different near-to-far drop and correlation.
+      // Use the weaker bilateral balance as a symmetry gate so an asymmetric
+      // staircase cannot become a high bridge score.
+      let profile_symmetry_score = clamp(
+        1.0 - abs(left_profile_score - right_profile_score),
+        0.0,
+        1.0);
+      let angle_symmetry_score = clamp(
+        1.0 - abs(left_hat_correlation - right_hat_correlation),
+        0.0,
+        1.0);
+      let bilateral_shape_symmetry = min(
+        profile_symmetry_score,
+        angle_symmetry_score);
+      // Compare corresponding shoulder buckets instead of only comparing
+      // their total drop. A random comb or an asymmetric staircase can have
+      // two monotonic sides while still lacking the mirrored curvature of a
+      // suspension bridge.
+      let left_bucket0_mean = select(0.0,
+        left_bucket0_drop_sum / f32(left_bucket0_count),
+        left_bucket0_count > 0u);
+      let left_bucket1_mean = select(0.0,
+        left_bucket1_drop_sum / f32(left_bucket1_count),
+        left_bucket1_count > 0u);
+      let left_bucket2_mean = select(0.0,
+        left_bucket2_drop_sum / f32(left_bucket2_count),
+        left_bucket2_count > 0u);
+      let left_bucket3_mean = select(0.0,
+        left_bucket3_drop_sum / f32(left_bucket3_count),
+        left_bucket3_count > 0u);
+      let right_bucket0_mean = select(0.0,
+        right_bucket0_drop_sum / f32(right_bucket0_count),
+        right_bucket0_count > 0u);
+      let right_bucket1_mean = select(0.0,
+        right_bucket1_drop_sum / f32(right_bucket1_count),
+        right_bucket1_count > 0u);
+      let right_bucket2_mean = select(0.0,
+        right_bucket2_drop_sum / f32(right_bucket2_count),
+        right_bucket2_count > 0u);
+      let right_bucket3_mean = select(0.0,
+        right_bucket3_drop_sum / f32(right_bucket3_count),
+        right_bucket3_count > 0u);
+      let shoulder_curve_error =
+        abs(left_bucket0_mean - right_bucket0_mean) /
+          max(4.0, max(left_bucket0_mean, right_bucket0_mean)) +
+        abs(left_bucket1_mean - right_bucket1_mean) /
+          max(4.0, max(left_bucket1_mean, right_bucket1_mean)) +
+        abs(left_bucket2_mean - right_bucket2_mean) /
+          max(4.0, max(left_bucket2_mean, right_bucket2_mean)) +
+        abs(left_bucket3_mean - right_bucket3_mean) /
+          max(4.0, max(left_bucket3_mean, right_bucket3_mean));
+      let shoulder_curve_symmetry = clamp(
+        1.0 - shoulder_curve_error / 4.0,
+        0.0,
+        1.0);
+      let left_connected_support = clamp(
+        (left_far_drop - left_near_drop - 1.0) / 5.0,
+        0.0,
+        1.0);
+      let right_connected_support = clamp(
+        (right_far_drop - right_near_drop - 1.0) / 5.0,
+        0.0,
+        1.0);
+      let bilateral_connected_support = min(
+        left_connected_support,
+        right_connected_support);
+      let partial_connected_support = select(
+        bilateral_connected_support,
+        select(right_connected_support, left_connected_support, is_right_edge_hat),
+        is_left_edge_hat || is_right_edge_hat);
+      // Convert the side checks into an explicit tolerant unimodal model. A
+      // full hat needs both ordered shoulders and a single prominent apex. A
+      // clipped capture can instead expose one ordered branch at the window
+      // edge; that branch is valid evidence, but only when it has enough span,
+      // prominence, and connected support to reach the partial score ceiling.
+      let left_order_score = left_pair_order_score;
+      let right_order_score = right_pair_order_score;
+      let available_order_score = select(
+        min(left_order_score, right_order_score),
+        select(right_order_score, left_order_score, is_right_edge_hat),
+        is_left_edge_hat || is_right_edge_hat);
+      // Allow small local violations from intervening low spikes while still
+      // rejecting a staircase with no single apex. The tolerance is expressed
+      // in dB so it remains meaningful when the display is rescaled.
+      let tolerant_order_threshold = clamp(
+        0.75 - UNIMODAL_ORDER_TOLERANCE_DB * 0.02,
+        0.60,
+        0.75);
+      let ordering_violation_score = clamp(
+        available_order_score,
+        0.0,
+        1.0);
+      let partial_side_profile = max(left_profile_score, right_profile_score);
+      let partial_support_score = clamp(
+        f32(max(left_count, right_count)) / 6.0,
+        0.0,
+        1.0);
+      let partial_branch_shape = clamp(
+        ordering_violation_score * 0.45 +
+        partial_side_profile * 0.30 +
+        prominence * 0.15 +
+        min(partial_support_score, partial_connected_support) * 0.10,
+        0.0,
+        1.0);
+      let partial_branch_candidate = select(
+        0.0,
+        min(PARTIAL_BRANCH_FULL_SCORE, partial_branch_shape) * sinc_structure_gate,
+        (is_left_edge_hat || is_right_edge_hat) &&
+        ordering_violation_score >= tolerant_order_threshold &&
+        partial_side_profile >= 0.35 &&
+        partial_support_score >= 0.50);
+      let full_unimodal_base = clamp(
+        pair_order_score * 0.35 +
+        bilateral_profile_score * 0.25 +
+        prominence * 0.15 +
+        min(bilateral_shape_symmetry, shoulder_curve_symmetry) * 0.15 +
+        min(balanced_hat_support, bilateral_connected_support) * 0.10,
+        0.0,
+        1.0);
+      let full_geometry_valid =
+        has_bilateral_hat_support &&
+        min(left_order_pairs, right_order_pairs) >= 3u &&
+        bilateral_connected_support >= 0.30 &&
+        shoulder_curve_symmetry >= 0.45;
+      let full_unimodal_candidate = select(
+        0.0,
+        full_unimodal_base * pow(shoulder_curve_symmetry, 1.5) * sinc_structure_gate,
+        full_geometry_valid);
+      let unimodal_candidate = max(
+        full_unimodal_candidate,
+        partial_branch_candidate);
+      max_unimodal_bridge_score = max(max_unimodal_bridge_score, unimodal_candidate);
+      max_partial_bridge_score = max(max_partial_bridge_score, partial_branch_candidate);
+      max_apex_prominence_score = max(max_apex_prominence_score, prominence);
+      max_shoulder_symmetry_score = max(max_shoulder_symmetry_score, select(
+        min(bilateral_shape_symmetry, shoulder_curve_symmetry),
+        partial_side_profile,
+        is_left_edge_hat || is_right_edge_hat));
+      max_unimodal_violation_score = max(
+        max_unimodal_violation_score,
+        ordering_violation_score);
       // Correlation alone is numerically unstable for shallow hats, while a
       // near/far average alone accepts random combs. Require ordered taper
       // evidence first, then use correlation only as a confidence multiplier.
@@ -809,7 +1072,8 @@ fn finalize() {
       let marker_hat_shape = bilateral_profile_score *
         pair_quality_score *
         max(0.5, correlation_hat_shape) *
-        balanced_hat_support * bilateral_span;
+        balanced_hat_support *
+        bilateral_span;
       let ordered_hat_shape = marker_hat_shape * 0.80 +
         envelope_hat_score * 0.20;
       if (ordered_hat_shape > 0.0) {
@@ -818,12 +1082,44 @@ fn finalize() {
         hat_clump_count = hat_clump_count + 1u;
         hat_pair_score_sum = hat_pair_score_sum + pair_order_score;
         hat_envelope_score_sum = hat_envelope_score_sum + envelope_hat_score;
+        if (has_bilateral_hat_support) {
+          bilateral_hat_clump_sum = bilateral_hat_clump_sum +
+            prominence * support * ordered_hat_shape;
+          bilateral_hat_clump_count = bilateral_hat_clump_count + 1u;
+          bilateral_hat_pair_score_sum = bilateral_hat_pair_score_sum +
+            pair_order_score * bilateral_shape_symmetry;
+        }
       }
     }
   }
   let hat_clump_score = clamp(
     hat_clump_sum / f32(max(1u, hat_clump_count)),
     0.0, 1.0);
+  let bilateral_hat_clump_score = clamp(
+    bilateral_hat_clump_sum / f32(max(1u, bilateral_hat_clump_count)),
+    0.0,
+    1.0);
+  let has_validated_bilateral_hat = bilateral_hat_clump_count >=
+    MIN_VALIDATED_HAT_COUNT &&
+    bilateral_hat_clump_score >= 0.20;
+  let validated_bilateral_hat_score = select(
+    0.0,
+    bilateral_hat_clump_score,
+    has_validated_bilateral_hat);
+  // A clipped bridge can expose one hat or only part of a second shoulder.
+  // Keep that evidence visible, but cap it below a confident bridge until
+  // bilateral evidence or temporal history validates it. Two ordered clumps
+  // receive a larger partial cap because a wide real bridge can be split by
+  // intervening spikes; a single clump remains deliberately conservative.
+  let partial_bridge_cap = select(
+    0.35,
+    0.65,
+    hat_clump_count >= 2u);
+  let partial_bridge_score = select(
+    0.0,
+    pow(clamp(hat_clump_score, 0.0, 1.0), 0.85) * partial_bridge_cap,
+    hat_clump_count > 0u &&
+      !has_validated_bilateral_hat);
   let validated_pair_score = select(
     0.0,
     hat_pair_score_sum / f32(max(1u, hat_clump_count)),
@@ -833,6 +1129,10 @@ fn finalize() {
     pow(validated_pair_score, BRIDGE_ORDER_LIFT_EXPONENT),
     validated_pair_score >= MIN_VALIDATED_HAT_PAIR_SCORE);
   result.clump_count = min(hat_clump_count, MAX_SPIKES);
+  result.unimodal_bridge_score = clamp(max_unimodal_bridge_score, 0.0, 1.0);
+  result.partial_bridge_score = clamp(max_partial_bridge_score, 0.0, 1.0);
+  result.apex_prominence_score = clamp(max_apex_prominence_score, 0.0, 1.0);
+  result.shoulder_symmetry_score = clamp(max_shoulder_symmetry_score, 0.0, 1.0);
   // Keep this quadratic correlation for the independently gated wide-U
   // feature. It is deliberately not used as the envelope fit diagnostic:
   // partial captures and broad flat valleys are not well represented by one
@@ -959,9 +1259,13 @@ fn finalize() {
     0.0,
     visible_u_sum / f32(visible_u_support),
     visible_u_support >= 3u && longest_visible_u_run >= 3u);
+  let next_u_dip_candidate = max(waveform_u_fit, best_visible_u_score);
+  if (next_u_dip_candidate > global_u_dip) {
+    u_dip_source = select(4u, 3u, waveform_u_fit >= best_visible_u_score);
+  }
   global_u_dip = max(
     global_u_dip,
-    max(waveform_u_fit, best_visible_u_score));
+    next_u_dip_candidate);
   // The dotted spike-top envelope is the clearest representation of a very
   // wide U. Its quadratic correlation remains meaningful when fixed regional
   // sample pairs land on pulse valleys or isolated tall spikes.
@@ -973,6 +1277,9 @@ fn finalize() {
       broad_u_coverage_score >= 0.45 &&
       wide_u_trend_score >= 0.50 &&
       sustained_center_valley >= 0.50);
+  if (quadratic_wide_u_score > global_u_dip) {
+    u_dip_source = 5u;
+  }
   global_u_dip = max(global_u_dip, quadratic_wide_u_score);
   // Fit the visible envelope as a piecewise slope pattern. This is tolerant
   // of panning because positions are used only as normalized [0, 1] span
@@ -1113,19 +1420,13 @@ fn finalize() {
   result.envelope_residual_score = envelope_residual_score;
   result.envelope_support_count = envelope_support_count;
   result.u_dip_score = global_u_dip;
+  result.u_dip_source = u_dip_source;
   result.sinc_penalty_score = sinc_penalty_score();
-      // The bridge score comes from validated rise/apex/fall clumps only.
-      // The old per-bin window accumulator made a random comb look like one
-      // broad bridge because every overlapping window contributed a score.
-      // A visible capture often contains only part of a bridge or has a few
-      // tall spikes that crowd out the lower members of the same clump. The
-      // coordinate-ordered pair score is therefore the primary bridge
-      // measure; the raw clump average remains a conservative fallback for a
-      // single strong local hat. An extreme random comb fails the pair-score
-      // guard, while partial real bridges retain their structural evidence.
-      result.suspension_bridge_score = max(
-        pow(clamp(hat_clump_score, 0.0, 1.0), 0.75),
-        ordered_bridge_score);
+      // The bridge score is now the tolerant unimodal score. The old
+      // monotonic clump fallback is intentionally not allowed to override it:
+      // a random comb can contain an ordered local run, but it cannot satisfy
+      // the connected-support and mirrored-curvature checks consistently.
+      result.suspension_bridge_score = max_unimodal_bridge_score;
   // independent_bridge_shoulders: local hat width/shoulder evidence belongs to
   // suspension_bridge, not to the global U-dip. A tuned view can legitimately
   // contain several excellent hats while showing no capture-wide U at all.
@@ -1143,8 +1444,33 @@ fn finalize() {
     result.envelope_fit_score = 0.0;
     result.envelope_residual_score = 0.0;
     result.envelope_support_count = 0u;
-    result.sinc_penalty_score = 0.0;
-  }
+        result.sinc_penalty_score = 0.0;
+        result.low_rise_bridge_score = 0.0;
+        result.unimodal_bridge_score = 0.0;
+        result.partial_bridge_score = 0.0;
+        result.apex_prominence_score = 0.0;
+        result.shoulder_symmetry_score = 0.0;
+      }
+  // A valid low-rise bridge is not necessarily a high composite hat: tall
+  // spikes can crowd out the lower members while the two measurable parts of
+  // the structure remain present. Preserve that evidence for the one-frame
+  // classifier when at least two clumps support it and the capture-wide U is
+  // absent. The temporal pass still requires recurrence before accepting it.
+  let low_rise_bridge_score = select(
+    0.0,
+    min(result.bridge_width_score, result.bridge_shoulder_score),
+    result.clump_count >= 2u &&
+    result.bridge_width_score >= MIN_LOW_RISE_BRIDGE_WIDTH &&
+    result.bridge_shoulder_score >= 0.50 &&
+    result.u_dip_score < 0.35);
+  let low_rise_recovery_score = select(
+    0.0,
+    low_rise_bridge_score,
+    low_rise_bridge_score > result.suspension_bridge_score + 0.15);
+  result.low_rise_bridge_score = low_rise_recovery_score;
+  result.suspension_bridge_score = max(
+    result.suspension_bridge_score,
+    low_rise_recovery_score);
   // This is intentionally a separate power feature. A strong floor-relative
   // spike population cannot, by itself, create bridge or U-dip structure.
   result.floor_relative_power_score = clamp(

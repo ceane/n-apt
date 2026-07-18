@@ -257,6 +257,22 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
             <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.suspensionBridgeScore)}</MetricValue>
           </MetricRow>
           <MetricRow>
+            <span>Unimodal bridge</span>
+            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.unimodalBridgeScore)}</MetricValue>
+          </MetricRow>
+          <MetricRow>
+            <span>Partial bridge branch</span>
+            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.partialBridgeScore)}</MetricValue>
+          </MetricRow>
+          <MetricRow>
+            <span>Apex prominence</span>
+            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.apexProminenceScore)}</MetricValue>
+          </MetricRow>
+          <MetricRow>
+            <span>Shoulder symmetry</span>
+            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.shoulderSymmetryScore)}</MetricValue>
+          </MetricRow>
+          <MetricRow>
             <span>U-dip</span>
             <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.uDipScore)}</MetricValue>
           </MetricRow>

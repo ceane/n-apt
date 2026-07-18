@@ -296,7 +296,7 @@ export const CaptureRequestSchema = z.object({
   bandwidthCenterFrequency: z.number().int().nonnegative().optional(),
   durationMode: z.enum(["timed", "manual"]),
   durationS: z.number().optional(),
-  fileType: z.enum([".napt", ".wav"]),
+  fileType: z.enum([".napt", ".wav", ".iq"]),
   acquisitionMode: z.enum(["stepwise", "interleaved", "whole_sample"]),
   encrypted: z.boolean(),
   fftSize: z.number(),

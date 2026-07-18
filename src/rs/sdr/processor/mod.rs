@@ -223,6 +223,8 @@ pub struct CaptureResult {
   pub bandwidth: Option<u64>,
   /// Center frequency of manual bandwidth override
   pub bandwidth_center_frequency: Option<u64>,
+  pub frame_updates: Vec<crate::server::iq_format::FrameUpdate>,
+  pub device_profile: Option<serde_json::Value>,
 }
 
 /// SDR processor that works with any SDR device implementation
@@ -327,6 +329,8 @@ pub struct SdrProcessor {
   /// Current power scale mode for spectrum display (dB or dBm)
   pub power_scale: crate::server::types::PowerScale,
   pub capture_requested_channels: Option<Vec<ChannelSpec>>,
+  pub capture_frame_updates: Vec<crate::server::iq_format::FrameUpdate>,
+  pub capture_last_frame_signature: Option<(u32, u32, String)>,
 }
 
 impl SdrProcessor {
@@ -434,6 +438,8 @@ impl SdrProcessor {
       capture_bandwidth_center_frequency: None,
       power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
       capture_requested_channels: None,
+      capture_frame_updates: Vec::new(),
+      capture_last_frame_signature: None,
     };
 
     let mut processor = processor;
@@ -840,6 +846,25 @@ impl SdrProcessor {
     if self.capture_active {
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
+        let signature = (
+          self.device.get_center_frequency(),
+          display_samples.sample_rate,
+          self.capture_fft_window.clone(),
+        );
+        if self.capture_last_frame_signature.as_ref() != Some(&signature) {
+          let mut patch = serde_json::Map::new();
+          patch.insert("center_frequency_hz".into(), serde_json::json!(signature.0));
+          patch.insert("sample_rate_hz".into(), serde_json::json!(signature.1));
+          patch.insert("fft_size".into(), serde_json::json!(self.capture_fft_size));
+          patch.insert("fft_window".into(), serde_json::json!(signature.2));
+          patch.insert("gain".into(), serde_json::json!(self.capture_gain));
+          self.capture_frame_updates.push(crate::server::iq_format::FrameUpdate {
+            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
+            timestamp_us: self.capture_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
+            patch: serde_json::Value::Object(patch),
+          });
+          self.capture_last_frame_signature = Some(signature);
+        }
         self.capture_channels[ch_idx]
           .iq_data
           .extend_from_slice(&display_samples.data);
@@ -1590,6 +1615,8 @@ impl SdrProcessor {
       request.bandwidth_center_frequency;
     self.capture_active = true;
     self.capture_manual_stop = false;
+    self.capture_frame_updates.clear();
+    self.capture_last_frame_signature = None;
 
     // Tune to first hop
     if let Some(&(min, max)) = self.capture_fragments.first() {
@@ -1765,6 +1792,14 @@ impl SdrProcessor {
       bandwidth_center_frequency: self
         .capture_bandwidth_center_frequency
         .take(),
+      frame_updates: std::mem::take(&mut self.capture_frame_updates),
+      device_profile: Some(serde_json::json!({
+        "kind": self.device_type(),
+        "serial_number": self.device.get_serial_number(),
+        "manufacturer": self.device.get_manufacturer(),
+        "model": self.device.get_product(),
+        "firmware_version": self.device.get_firmware_version(),
+      })),
     })
   }
 

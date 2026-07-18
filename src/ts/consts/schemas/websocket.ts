@@ -180,7 +180,7 @@ export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
 
 export type LiveFrameData = IqRawFrame;
 
-export type CaptureFileType = ".napt" | ".wav";
+export type CaptureFileType = ".napt" | ".wav" | ".iq";
 
 export type CaptureDurationMode = "timed" | "manual";
 

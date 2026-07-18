@@ -182,6 +182,16 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
 
+  const handleSelectedDeviceChange = useCallback(
+    (id: string) => {
+      setSelectedSourceId(id);
+      if (sourceMode === "file") {
+        handleSourceModeChange("live");
+      }
+    },
+    [handleSourceModeChange, setSelectedSourceId, sourceMode],
+  );
+
   const fileActionLabel = useMemo(() => {
     if (sourceMode !== "file") return "File";
     const status = stitchStatus?.toLowerCase?.() ?? "";
@@ -387,7 +397,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         deviceName={activeSourceDerived.deviceName}
         devices={sourceDevices as any}
         selectedDeviceId={selectedSourceId}
-        onSelectedDeviceChange={(id) => setSelectedSourceId(id)}
+        onSelectedDeviceChange={handleSelectedDeviceChange}
         spaceBoundDeviceId={selectedSourceId || null}
         selectedFilesCount={selectedFiles.length}
         onFileAction={handleFileAction}

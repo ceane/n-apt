@@ -11,6 +11,8 @@ describe("manual NAPT classifier harness", () => {
 
     expect(output).toMatch(/--manifest-dir/);
     expect(output).toMatch(/--frames/);
+    expect(output).toMatch(/--regression-manifest/);
+    expect(output).toMatch(/--assert/);
     expect(output).toMatch(/WebGPU/);
     expect(output).toMatch(/never runs as part of CI/i);
   });
@@ -25,6 +27,6 @@ describe("manual NAPT classifier harness", () => {
       }
     })();
 
-    expect(result).toMatch(/--manifest-dir is required/);
+    expect(result).toMatch(/--manifest-dir or --regression-manifest is required/);
   });
 });

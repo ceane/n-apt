@@ -11,6 +11,11 @@
 // eight-frame ring could forget the structure before the readback at the end
 // of a manual capture. The host allocates the matching 32-frame ring.
 const HISTORY_LENGTH: u32 = 32u;
+// Coherence can disappear while tuning and reappear several FFT frames later.
+// A four-frame cadence was too tied to a stable VFO view and rejected the
+// same suspension_bridge when its clumps moved in and out of the capture.
+const MAX_BRIDGE_EVENT_GAP: u32 = 8u;
+const MIN_LOW_RISE_BRIDGE_WIDTH: f32 = 0.48;
 
 struct Decision {
   is_napt: u32,
@@ -46,6 +51,12 @@ struct Metrics {
   envelope_residual_score: f32,
   envelope_support_count: u32,
   sinc_penalty_score: f32,
+  low_rise_bridge_score: f32,
+  u_dip_source: u32,
+  unimodal_bridge_score: f32,
+  partial_bridge_score: f32,
+  apex_prominence_score: f32,
+  shoulder_symmetry_score: f32,
 }
 
 struct HistoryFrame {
@@ -54,7 +65,11 @@ struct HistoryFrame {
   baseline_confidence: f32,
   baseline_is_napt: u32,
   clump_count: u32,
-  above_floor_fraction: f32,
+  // This slot was previously an unused copy of above_floor_fraction. Keep
+  // the history stride at 32 bytes, but use it for the structural support
+  // that the one-frame bridge score can under-report when tall spikes crowd
+  // out the lower members of a low-rise clump.
+  bridge_shape_support: f32,
   envelope_fit_score: f32,
   sinc_penalty_score: f32,
 }
@@ -92,7 +107,11 @@ fn structural_bridge_present(frame: HistoryFrame) -> bool {
   // when tuning exposes one suspension_bridge at a time. Persistence across
   // frames remains the guard against an intermittent Mock-like coincidence.
   return frame.clump_count >= 1u &&
-    frame.suspension_bridge_score >= 0.40;
+    max(frame.suspension_bridge_score, frame.bridge_shape_support) >= 0.40;
+}
+
+fn structural_bridge_score(frame: HistoryFrame) -> f32 {
+  return max(frame.suspension_bridge_score, frame.bridge_shape_support);
 }
 
 @compute @workgroup_size(1)
@@ -101,13 +120,19 @@ fn main() {
   let write_index = min(params.write_index, HISTORY_LENGTH - 1u);
   let previous_count = min(params.valid_count, history_length);
 
+  // A low-rise bridge can have a modest composite score even when both of
+  // its independently measured parts are strong. Preserve that evidence for
+  // the higher-order pass, but only when the frame has at least two clumps;
+  // this prevents a single spur from becoming a bridge through width alone.
+  let low_rise_support = metrics.low_rise_bridge_score;
+  let bridge_shape_support = low_rise_support;
   history[write_index] = HistoryFrame(
     metrics.suspension_bridge_score,
     metrics.u_dip_score,
     baseline.confidence,
     baseline.is_napt,
     metrics.clump_count,
-    metrics.above_floor_fraction,
+    bridge_shape_support,
     metrics.envelope_fit_score,
     metrics.sinc_penalty_score,
   );
@@ -126,6 +151,9 @@ fn main() {
   var has_previous_active = false;
   var cadence_hits = 0u;
   var last_active_gap = 0u;
+  var low_rise_event_count = 0u;
+  var last_low_rise_index = 0u;
+  var low_rise_event_score = 0.0;
   for (var index = 0u; index < HISTORY_LENGTH; index = index + 1u) {
     if (index >= frame_count) { continue; }
     // The history buffer is a ring. Walk it oldest-to-newest so cadence and
@@ -133,7 +161,17 @@ fn main() {
     let history_slot = (
       write_index + history_length - frame_count + 1u + index) % history_length;
     let frame = history[history_slot];
-    bridge_sum = bridge_sum + frame.suspension_bridge_score;
+    let frame_bridge_score = structural_bridge_score(frame);
+    // A low-rise event is specifically a bridge whose width/shoulder support
+    // is stronger than its one-frame composite score. A Mock clump that is
+    // already scored as a strong bridge does not enter this recovery path.
+    let is_low_rise_event = frame.bridge_shape_support >= 0.48;
+    if (is_low_rise_event) {
+      low_rise_event_count = low_rise_event_count + 1u;
+      last_low_rise_index = index;
+      low_rise_event_score = max(low_rise_event_score, frame.bridge_shape_support);
+    }
+    bridge_sum = bridge_sum + frame_bridge_score;
     u_dip_sum = u_dip_sum + frame.u_dip_score;
     sinc_penalty_sum = sinc_penalty_sum + frame.sinc_penalty_score;
     u_dip_peak = max(u_dip_peak, frame.u_dip_score);
@@ -144,14 +182,14 @@ fn main() {
     confidence_sum = confidence_sum + frame.baseline_confidence;
     if (structural_bridge_present(frame)) {
       active_count = active_count + 1u;
-      active_bridge_sum = active_bridge_sum + frame.suspension_bridge_score;
+      active_bridge_sum = active_bridge_sum + frame_bridge_score;
       if (has_previous_active) {
         let gap = index - previous_active_index;
         last_active_gap = gap;
         // N-APT's structure pulses. Count a recurring bridge event as
-        // coherent when the next event arrives within four FFT frames;
-        // widely separated coincidences remain non-structural.
-        if (gap >= 1u && gap <= 4u) {
+        // coherent when the next event arrives within the wider tuning-aware
+        // cadence window; widely separated coincidences remain non-structural.
+        if (gap >= 1u && gap <= MAX_BRIDGE_EVENT_GAP) {
           cadence_hits = cadence_hits + 1u;
         }
       }
@@ -199,16 +237,22 @@ fn main() {
     f32(max(1u, frame_count));
   let u_dip_event_mean = u_dip_active_sum /
     f32(max(1u, u_dip_active_count));
+  // A broad U-like envelope alone is common in Mock/hardware responses. Keep
+  // U-dip as a secondary feature of the N-APT structure: it must co-occur with
+  // recurring bridge evidence somewhere in the temporal window. This lets a
+  // real signal retain its U score while preventing a bridge-less Mock from
+  // turning a smooth or aliased floor into a high U-dip diagnostic.
+  let bridge_event_support = persistence;
   // A wide U-dip can be visible only during part of the temporal window: the
   // bridge peaks and FFT/VFO movement can temporarily hide the valley. A
   // full-window mean therefore reports a false low score. Retain a repeated
   // local U peak, while discounting a one-frame coincidence so an isolated
   // broad artifact cannot dominate the classifier diagnostics.
   let u_dip_temporal_score = max(
-    u_dip_mean,
+    u_dip_mean * bridge_event_support,
     select(
-      u_dip_peak * 0.65,
-      max(u_dip_peak, u_dip_event_mean),
+      u_dip_peak * 0.65 * bridge_event_support,
+      max(u_dip_peak, u_dip_event_mean) * bridge_event_support,
       u_dip_active_count >= 2u));
   let mean_confidence = confidence_sum / f32(max(1u, frame_count));
   let ready = frame_count >= 4u;
@@ -232,12 +276,25 @@ fn main() {
   let persistent_shape_confidence = max(
     max(bridge_shape_confidence, event_shape_confidence),
     u_dip_shape_confidence);
+  let low_rise_event_age = frame_count - 1u - last_low_rise_index;
+  // Keep a newly observed partial bridge visible while the VFO settles. This
+  // is deliberately a short hold, and it only applies to one low-rise event;
+  // repeated events still use the normal cadence/persistence decision path.
+  let low_rise_hold = low_rise_event_count == 1u &&
+    low_rise_event_score >= 0.48 &&
+    low_rise_event_age <= MAX_BRIDGE_EVENT_GAP;
   let temporal_confidence = clamp(
-    max(mean_confidence, persistent_shape_confidence) *
+    max(
+      max(mean_confidence, persistent_shape_confidence),
+      select(0.0, 0.78, low_rise_hold)) *
       (0.35 + 0.65 * persistence) -
       0.60 * sinc_penalty_mean,
     0.0,
     1.0);
+  let held_temporal_confidence = select(
+    temporal_confidence,
+    0.78,
+    low_rise_hold);
   let baseline_is_napt = select(0u, 1u, baseline.is_napt != 0u);
   // Once the window is ready, use the persisted structural evidence rather
   // than requiring the newest frame to contain the entire feature. That is
@@ -246,11 +303,12 @@ fn main() {
   let temporal_is_napt = select(
     baseline_is_napt,
     select(0u, 1u,
-      persistence >= 0.60 &&
-      ((raw_persistence >= 0.60 && bridge_mean >= 0.40) ||
-        pulse_support >= 0.75) &&
-      sinc_penalty_mean < 0.45 &&
-      temporal_confidence >= 0.60),
+      (low_rise_hold ||
+        (persistence >= 0.60 &&
+          ((raw_persistence >= 0.60 && bridge_mean >= 0.40) ||
+            pulse_support >= 0.75) &&
+          sinc_penalty_mean < 0.45 &&
+          temporal_confidence >= 0.60))),
     ready);
 
   decision.baseline_is_napt = baseline_is_napt;
@@ -258,7 +316,7 @@ fn main() {
   decision.baseline_confidence = baseline.confidence;
   decision.temporal_confidence = select(
     baseline.confidence,
-    temporal_confidence,
+    held_temporal_confidence,
     ready);
   decision.persistence = persistence;
   // Expose normalized higher-order feature scores to the UI. A literal mean
@@ -267,9 +325,14 @@ fn main() {
   // the local variables for persistence and decision math; the readback
   // values represent accumulated structural evidence on the same 0..1 scale
   // as the one-frame metrics.
+  // Do not let a single accidental event overwrite the temporal diagnostic.
+  // The raw mean preserves the measured history, while the shape confidence
+  // is only trusted in proportion to event persistence. A real bridge that
+  // coheres across frames remains high; a one-frame Mock coincidence cannot
+  // flash a 100% bridge score before the history has validated it.
   decision.bridge_mean = max(
     bridge_mean,
-    max(bridge_shape_confidence, event_shape_confidence));
+    max(bridge_shape_confidence, event_shape_confidence) * persistence);
   decision.u_dip_mean = max(
     u_dip_temporal_score,
     u_dip_shape_confidence);

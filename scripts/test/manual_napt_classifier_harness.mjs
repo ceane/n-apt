@@ -12,6 +12,11 @@
 import { existsSync, readFileSync as readFileSyncNode } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
+import {
+  aggregateClassifierFrames,
+  evaluateRegressionCase,
+  parseRegressionManifest,
+} from "./napt_classifier_regression.mjs";
 
 const DEFAULT_URL = "http://localhost:5173/";
 const DEFAULT_DISPLAY_WIDTH = 1024;
@@ -24,11 +29,20 @@ function parseArgs(argv) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") return { help: true };
     if (!argument.startsWith("--")) throw new Error(`Unexpected argument: ${argument}`);
+    if (argument === "--assert") {
+      options.assert = true;
+      continue;
+    }
+    if (argument === "--headed") {
+      options.headed = true;
+      continue;
+    }
     const key = argument.slice(2).replaceAll("-", "_");
     const value = argv[index + 1];
     if (!value || value.startsWith("--")) throw new Error(`Missing value for --${key.replaceAll("_", "-")}`);
     index += 1;
     if (key === "manifest_dir") options.manifest_dirs.push(value);
+    else if (key === "regression_manifest") options.regression_manifest = value;
     else options[key] = value;
   }
   return options;
@@ -121,7 +135,14 @@ function loadCapture(manifestDir, frameSelection) {
   }
   const indices = parseFrameSelection(frameSelection, completeFrameCount);
   const iq = new Uint8Array(readFileSyncNode(rawPath));
-  const sampleRate = Number(manifest.capture_metadata?.sample_rate_hz ?? manifest.capture_metadata?.sample_rate ?? 0);
+  const sampleRate = Number(
+    manifest.capture_metadata?.sample_rate_hz ??
+    manifest.capture_metadata?.capture_sample_rate_hz ??
+    manifest.capture_metadata?.hardware_sample_rate_hz ??
+    manifest.sample_rate_hz ??
+    manifest.capture_sample_rate_hz ??
+    0,
+  );
   const centerFrequency = Number(manifest.capture_metadata?.center_frequency_hz ?? manifest.capture_metadata?.center_frequency ?? 0);
   const frequencyMin = centerFrequency - sampleRate / 2;
   const frequencyMax = centerFrequency + sampleRate / 2;
@@ -143,9 +164,13 @@ Usage:
   node scripts/test/manual_napt_classifier_harness.mjs \
     --manifest-dir /private/tmp/napt-harness/<capture> \
     --frames 0,8,16,24,32
+  node scripts/test/manual_napt_classifier_harness.mjs \
+    --regression-manifest test/fixtures/napt-classifier/regression.json --assert
 
 Options:
   --manifest-dir PATH  Directory containing manifest.json and raw.iq.u8; repeatable
+  --regression-manifest PATH  Explicit labeled capture regression manifest
+  --assert              Exit non-zero when a labeled regression case fails
   --frames LIST        Frame indices or 'all' (default: 0)
   --display-width N    GPU resample width (default: 1024)
   --url URL            Local app URL (default: ${DEFAULT_URL})
@@ -267,7 +292,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       ] });
       const primarySpikeGroup = spikeGroup(spikeParams);
       const recoverySpikeGroup = spikeGroup(recoveryParams);
-      const resultBuffer = storage(112);
+      const resultBuffer = storage(128);
       const metricsBuffer = storage(maxSpikes * 16);
       const countBuffer = spikeCountBuffer;
       const classifyParams = new ArrayBuffer(16);
@@ -296,7 +321,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         { binding: 3, resource: { buffer: temporalParamsBuffer } },
         { binding: 4, resource: { buffer: temporalDecisionBuffer } },
       ] });
-      const resultReadback = readback(112);
+      const resultReadback = readback(128);
       const decisionReadback = readback(8);
       const temporalReadback = temporalReadbackBuffer;
       const countReadback = readback(4);
@@ -327,7 +352,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       pass.setPipeline(detectPipeline); pass.setBindGroup(0, detectGroup); pass.dispatchWorkgroups(1);
       pass.setPipeline(temporalPipeline); pass.setBindGroup(0, temporalGroup); pass.dispatchWorkgroups(1);
       pass.end();
-      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 112);
+      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 128);
       encoder.copyBufferToBuffer(decisionBuffer, 0, decisionReadback, 0, 8);
       encoder.copyBufferToBuffer(temporalDecisionBuffer, 0, temporalReadback, 0, 32);
       encoder.copyBufferToBuffer(spikeCountBuffer, 0, countReadback, 0, 4);
@@ -361,6 +386,12 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         envelopeFit: resultView.getFloat32(88, true),
         envelopeResidual: resultView.getFloat32(92, true),
         sincPenalty: resultView.getFloat32(100, true),
+        lowRiseBridge: resultView.getFloat32(104, true),
+        uDipSource: resultView.getUint32(108, true),
+        unimodalBridge: resultView.getFloat32(112, true),
+        partialBridge: resultView.getFloat32(116, true),
+        apexProminence: resultView.getFloat32(120, true),
+        shoulderSymmetry: resultView.getFloat32(124, true),
         floorDbm: resultView.getFloat32(40, true),
         confidence: temporalView.getFloat32(12, true),
         isNapt: temporalView.getUint32(4, true) !== 0,
@@ -398,10 +429,24 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return help();
-  if (args.manifest_dirs.length === 0) throw new Error("--manifest-dir is required");
+  if (args.manifest_dirs.length === 0 && !args.regression_manifest) {
+    throw new Error("--manifest-dir or --regression-manifest is required");
+  }
   const displayWidth = Number.parseInt(args.display_width ?? DEFAULT_DISPLAY_WIDTH, 10);
   if (!Number.isInteger(displayWidth) || displayWidth <= 0) throw new Error("--display-width must be a positive integer");
-  const captures = args.manifest_dirs.map((directory) => loadCapture(path.resolve(directory), args.frames ?? "0"));
+  let regressionManifest = null;
+  if (args.regression_manifest) {
+    const regressionPath = path.resolve(args.regression_manifest);
+    regressionManifest = parseRegressionManifest(
+      JSON.parse(readFileSyncNode(regressionPath, "utf8")),
+      path.dirname(regressionPath),
+    );
+  }
+  const captureSpecs = regressionManifest
+    ? regressionManifest.cases.map((testCase) => ({ testCase, directory: testCase.capture_dir }))
+    : args.manifest_dirs.map((directory) => ({ directory: path.resolve(directory) }));
+  const captures = captureSpecs.map(({ directory }) =>
+    loadCapture(directory, args.frames ?? (regressionManifest ? "all" : "0")));
   const shaderRoot = path.resolve("src/ts/shaders");
   const shaderCode = {
     resample: readFileSyncNode(path.join(shaderRoot, "resample.wgsl"), "utf8"),
@@ -419,15 +464,26 @@ async function run() {
     const page = await browser.newPage();
     await page.goto(args.url ?? DEFAULT_URL, { waitUntil: "domcontentloaded" });
     const output = [];
-    for (const capture of captures) {
+    for (let index = 0; index < captures.length; index += 1) {
+      const capture = captures[index];
       const score = await scoreCapture(page, capture, shaderCode, displayWidth);
-      output.push({
-        label: capture.manifest.input_file,
-        expected_label: capture.manifest.input_file.replace(/_capture_cap.*$/i, ""),
-        ...score,
-      });
+      const testCase = captureSpecs[index].testCase;
+      if (testCase) {
+        const aggregate = score.valid
+          ? aggregateClassifierFrames(score.frames)
+          : { frame_count: 0, metrics: {}, temporal_yes_fraction: 0, baseline_yes_fraction: 0, frames: [] };
+        const assertions = score.valid
+          ? evaluateRegressionCase(testCase, aggregate)
+          : { ok: false, failures: ["GPU score readback was invalid"] };
+        output.push({ id: testCase.id, expected: testCase.expected, ...score, aggregate, assertions });
+      } else {
+        output.push({ label: capture.manifest.input_file, ...score });
+      }
     }
     console.log(JSON.stringify({ manual: true, display_width: displayWidth, captures: output }, null, 2));
+    if (args.assert && output.some((capture) => capture.assertions && !capture.assertions.ok)) {
+      process.exitCode = 1;
+    }
   } finally {
     await browser.close();
   }
