@@ -24,6 +24,9 @@ jest.mock("@n-apt/shaders", () => ({
   SPIKE_COMPUTE_WGSL: "shader",
   SPIKE_RENDER_WGSL: "shader",
   FLOOR_AVG_WGSL: "shader",
+  NAPT_CLASSIFY_WGSL: "shader",
+  NAPT_DETECT_WGSL: "shader",
+  NAPT_TEMPORAL_WGSL: "shader",
 }));
 
 (global as any).GPUShaderStage = {

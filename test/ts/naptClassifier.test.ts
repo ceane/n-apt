@@ -104,8 +104,8 @@ describe("N-APT classifier", () => {
     expect(FFT_HOOK_SOURCE).toContain(
       "state.naptClassifyReadbackBuffer,\n            0,\n            132,",
     );
-    expect(FFT_CANVAS_SOURCE).toContain(
-      "captureQualityScore: Math.max(0, Math.min(1, 1 - sincPenaltyScore))",
+    expect(FFT_CANVAS_SOURCE).toMatch(
+      /captureQualityScore:\s*Math\.max\(\s*0,\s*Math\.min\(\s*1,\s*1\s*-\s*sincPenaltyScore\s*\)\s*,?\s*\)/,
     );
   });
 
