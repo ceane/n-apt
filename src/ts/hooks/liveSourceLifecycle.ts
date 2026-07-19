@@ -30,6 +30,22 @@ export type SourceFrameReadiness = {
   sequence: number;
 };
 
+/** File playback uses the same paused-frame presentation path as live data. */
+export const isFilePlaybackPaused = ({
+  sourceMode,
+  isStitchPaused,
+}: {
+  sourceMode: "live" | "file";
+  isStitchPaused: boolean;
+}): boolean => sourceMode === "file" && isStitchPaused;
+
+/** File playback owns its processed frame and must not restore live snapshots. */
+export const shouldRestorePausedFrameSnapshot = ({
+  sourceMode,
+}: {
+  sourceMode: "live" | "file";
+}): boolean => sourceMode === "live";
+
 /** Suppress the transient standby state while transport leaves Mock Tx. */
 export const shouldPresentMockTxStandby = ({
   isSelectedMockTxSource,

@@ -73,6 +73,7 @@ export interface GpuSpikeAnalysis {
   partialBridgeScore: number;
   apexProminenceScore: number;
   shoulderSymmetryScore: number;
+  captureQualityScore: number;
 }
 export type PowerScale = "dB" | "dBm";
 export type SourceMode = "live" | "file";

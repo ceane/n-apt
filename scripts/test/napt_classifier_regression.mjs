@@ -9,6 +9,7 @@ const FEATURE_NAMES = [
   "partial_bridge",
   "apex_prominence",
   "shoulder_symmetry",
+  "capture_quality",
 ];
 
 function finiteNumber(value, label) {
@@ -101,6 +102,7 @@ export function aggregateClassifierFrames(frames) {
     partial_bridge: frames.map((frame) => Number(frame.partialBridge)),
     apex_prominence: frames.map((frame) => Number(frame.apexProminence)),
     shoulder_symmetry: frames.map((frame) => Number(frame.shoulderSymmetry)),
+    capture_quality: frames.map((frame) => Number(frame.captureQuality)),
     confidence: frames.map((frame) => Number(frame.confidence)),
   };
   return {
@@ -134,6 +136,22 @@ export function evaluateRegressionCase(testCase, aggregate) {
       if (threshold.p75_max !== undefined && metric.p75 > threshold.p75_max) {
         failures.push(`${feature} p75 ${metric.p75.toFixed(3)} > ${threshold.p75_max.toFixed(3)}`);
       }
+    }
+  }
+  const qualityThreshold = thresholds.capture_quality;
+  const qualityMetric = aggregate.metrics.capture_quality;
+  if (qualityThreshold && qualityMetric) {
+    if (qualityThreshold.peak_min !== undefined && qualityMetric.peak < qualityThreshold.peak_min) {
+      failures.push(`capture_quality peak ${qualityMetric.peak.toFixed(3)} < ${qualityThreshold.peak_min.toFixed(3)}`);
+    }
+    if (qualityThreshold.peak_max !== undefined && qualityMetric.peak > qualityThreshold.peak_max) {
+      failures.push(`capture_quality peak ${qualityMetric.peak.toFixed(3)} > ${qualityThreshold.peak_max.toFixed(3)}`);
+    }
+    if (qualityThreshold.p75_min !== undefined && qualityMetric.p75 < qualityThreshold.p75_min) {
+      failures.push(`capture_quality p75 ${qualityMetric.p75.toFixed(3)} < ${qualityThreshold.p75_min.toFixed(3)}`);
+    }
+    if (qualityThreshold.p75_max !== undefined && qualityMetric.p75 > qualityThreshold.p75_max) {
+      failures.push(`capture_quality p75 ${qualityMetric.p75.toFixed(3)} > ${qualityThreshold.p75_max.toFixed(3)}`);
     }
   }
   const napt = thresholds.napt;

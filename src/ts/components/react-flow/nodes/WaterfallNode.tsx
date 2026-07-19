@@ -13,6 +13,10 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { Slider } from "@n-apt/components/ui/Slider";
 import { resampleNearestInto } from "@n-apt/utils/resampleNearest";
+import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { isFilePlaybackPaused } from "@n-apt/hooks/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 
 interface WaterfallNodeProps {
   data: {
@@ -141,6 +145,21 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
   );
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
+  const sourceMode = useAppSelector(
+    (state) => state.waterfall?.sourceMode ?? "live",
+  );
+  const selectedFiles = useAppSelector(
+    (state) => state.waterfall?.selectedFiles ?? [],
+  );
+  const stitchStatus = useAppSelector(
+    (state) => state.waterfall?.stitchStatus ?? "",
+  );
+  const stitchTrigger = useAppSelector(
+    (state) => state.waterfall?.stitchTrigger ?? 0,
+  );
+  const isStitchPaused = useAppSelector(
+    (state) => state.waterfall?.isStitchPaused ?? false,
+  );
   const [waterfallDbMin, setWaterfallDbMin] = useState(fftMinDb);
   const [waterfallDbMax, setWaterfallDbMax] = useState(fftMaxDb);
   const { processIqToDbmSpectrum } = useWasmSimdMath({
@@ -150,29 +169,32 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
   });
 
   // Throttled data polling — waterfall scrolls visually so 8fps is smooth enough.
-  const initialFrame = Array.isArray(liveDataRef.current)
-    ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-    : liveDataRef.current;
+  const getCurrentFrame = useCallback(() => {
+    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    return Array.isArray(sourceRef.current)
+      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+      : sourceRef.current;
+  }, [sourceMode]);
+  const initialFrame = getCurrentFrame();
   const [liveFrame, setLiveFrame] = useState(initialFrame);
   const [, setFrameRevision] = useState(0);
   const lastRefRef = useRef<unknown>(initialFrame);
-  const lastIqRef = useRef(initialFrame?.iq_data);
-  const lastTimestampRef = useRef(initialFrame?.timestamp);
+  const lastIqRef = useRef((initialFrame as any)?.iq_data);
+  const lastTimestampRef = useRef((initialFrame as any)?.timestamp);
   const resampledWaterfallRef = useRef<Float32Array | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => {
-      const next = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const next = getCurrentFrame();
       if (
         next !== lastRefRef.current ||
-        next?.iq_data !== lastIqRef.current ||
-        next?.timestamp !== lastTimestampRef.current
+        (next as any)?.iq_data !== lastIqRef.current ||
+        (next as any)?.timestamp !== lastTimestampRef.current ||
+        (next as any)?.waveform !== (lastRefRef.current as any)?.waveform
       ) {
         lastRefRef.current = next;
-        lastIqRef.current = next?.iq_data;
-        lastTimestampRef.current = next?.timestamp;
+        lastIqRef.current = (next as any)?.iq_data;
+        lastTimestampRef.current = (next as any)?.timestamp;
         setLiveFrame(next);
         // The stream may reuse and mutate its frame object. A revision update
         // guarantees a render even when React sees the same object identity.
@@ -180,36 +202,58 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
       }
     }, 125); // 8fps — smooth waterfall scrolling
     return () => clearInterval(id);
-  }, []);
+  }, [getCurrentFrame]);
 
   useEffect(() => {
-    const next = Array.isArray(liveDataRef.current)
-      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-      : liveDataRef.current;
+    const next = getCurrentFrame();
     lastRefRef.current = next;
-    lastIqRef.current = next?.iq_data;
-    lastTimestampRef.current = next?.timestamp;
+    lastIqRef.current = (next as any)?.iq_data;
+    lastTimestampRef.current = (next as any)?.timestamp;
     setLiveFrame(next);
     setFrameRevision((revision) => revision + 1);
-  }, [activeSourceId]);
+  }, [activeSourceId, getCurrentFrame]);
 
   useEffect(() => {
-    const next = Array.isArray(liveDataRef.current)
-      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-      : liveDataRef.current;
+    const next = getCurrentFrame();
     if (!next) return;
     lastRefRef.current = next;
     lastIqRef.current = next.iq_data;
     lastTimestampRef.current = next.timestamp;
     setLiveFrame(next);
-  }, [dataFrameCounter]);
+  }, [dataFrameCounter, getCurrentFrame]);
 
   const waveform = useMemo(() => {
-    const iq = liveFrame?.iq_data;
+    const fileWaveform =
+      sourceMode === "file" ? (liveFrame as any)?.waveform : null;
+    if (fileWaveform && fileWaveform.length > 0) return fileWaveform;
+
+    const iq = (liveFrame as any)?.iq_data;
     if (!iq || iq.length === 0) return null;
     const spectrum = processIqToDbmSpectrum(iq, 0, FLOW_WATERFALL_FFT_SIZE);
     return spectrum;
-  }, [dataFrameCounter, liveFrame?.iq_data, processIqToDbmSpectrum]);
+  }, [
+    dataFrameCounter,
+    (liveFrame as any)?.iq_data,
+    (liveFrame as any)?.waveform,
+    processIqToDbmSpectrum,
+    sourceMode,
+  ]);
+
+  const filePlaceholderState = getFilePlaceholderState({
+    sourceMode,
+    selectedFilesCount: selectedFiles.length,
+    stitchStatus,
+    hasRenderableFrame: Boolean(waveform?.length),
+  });
+  const isPaused = isFilePlaybackPaused({
+    sourceMode,
+    isStitchPaused,
+  });
+  const waterfallSessionKey = getSourcePresentationSessionKey({
+    sourceMode,
+    selectedFiles,
+    stitchTrigger,
+  });
 
   const frequencyRange = useMemo(
     () => ({
@@ -281,6 +325,7 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
           </TopMiniVfo>
         )}
         <FIFOWaterfall
+          key={waterfallSessionKey}
           width={640}
           height={220}
           waveform={waveform}
@@ -288,11 +333,12 @@ export const WaterfallNode: React.FC<WaterfallNodeProps> = ({ data }) => {
           fftMin={waterfallDbMin}
           fftMax={waterfallDbMax}
           retuneSmear={1}
-          isPaused={false}
+          isPaused={isPaused}
           isVisible={true}
           performScalarResampling={performScalarResampling}
           awaitingDeviceData={false}
           placeholderSourceLabel={data.label}
+          placeholderState={filePlaceholderState}
         />
         <DbControls
           className="nodrag nopan"

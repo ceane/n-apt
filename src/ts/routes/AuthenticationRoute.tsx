@@ -5,8 +5,9 @@ import styled, {
   ThemeContext,
 } from "styled-components";
 import { Link, useLocation } from "react-router-dom";
+import { Canvas } from "@react-three/fiber";
 import { Button } from "@n-apt/components/ui/Button";
-import { Lock, Radio, SunMoon } from "lucide-react";
+import { FileStack, Lock, Radio, SunMoon } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import {
   buildAppTheme,
@@ -20,6 +21,7 @@ import {
   InitializingText,
 } from "@n-apt/components/Layout";
 import nAptLogo from "@n-apt/public/images/icon.svg";
+import { SDRs } from "@n-apt/components/3D/SDRs";
 
 export type AuthState =
   | "connecting"
@@ -558,6 +560,110 @@ const LogoContainer = styled.div`
   margin-bottom: 24px;
 `;
 
+const Essentials = styled.section`
+  width: min(100%, 760px);
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 14px;
+  background: ${(props) => props.theme.surface ?? "rgba(0, 0, 0, 0.12)"};
+  backdrop-filter: blur(12px);
+  box-sizing: border-box;
+`;
+
+const EssentialsLabel = styled.p`
+  margin: 0 0 12px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+`;
+
+const EssentialsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const EssentialCard = styled.a`
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 10px;
+  background: ${(props) => props.theme.background};
+  text-decoration: none;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+    transform: translateY(-2px);
+  }
+`;
+
+const CardIcon = styled.div`
+  display: flex;
+  height: 158px;
+  align-items: center;
+  justify-content: center;
+  color: ${(props) => props.theme.primary};
+  background: linear-gradient(135deg, ${(props) => props.theme.surface}, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+`;
+
+const ModelPlaceholder = styled.div`
+  display: flex;
+  width: 82%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed ${(props) => props.theme.primary};
+  border-radius: 5px;
+  color: ${(props) => props.theme.primary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: perspective(100px) rotateX(8deg) rotateY(-10deg);
+`;
+
+const HackRFPreview = styled.div`
+  width: 100%;
+  height: 100%;
+
+  canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+`;
+
+const CardCopy = styled.span`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 600;
+
+  small {
+    color: ${(props) => props.theme.textMuted};
+    font-size: 10px;
+    font-weight: 400;
+  }
+`;
+
 const Logo = styled.img`
   width: 128px;
   height: 128px;
@@ -965,6 +1071,70 @@ export const AuthenticationUI = ({
                 </LinkButton>
               </>
             )}
+
+            <Essentials aria-label="What you need to get started">
+              <EssentialsLabel>What you need to get started</EssentialsLabel>
+              <EssentialsGrid>
+                <EssentialCard to="/learn-signals" as={Link} aria-label="I/Q captures and files">
+                  <CardIcon>
+                    <FileStack size={30} strokeWidth={1.5} />
+                  </CardIcon>
+                  <CardCopy>
+                    I/Q captures <small>learn more →</small>
+                  </CardCopy>
+                </EssentialCard>
+                <EssentialCard
+                  href="https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="RTL-SDR"
+                >
+                  <CardIcon>
+                    <ModelPlaceholder aria-hidden="true">3D model</ModelPlaceholder>
+                  </CardIcon>
+                  <CardCopy>
+                    RTL-SDR <small>buy →</small>
+                  </CardCopy>
+                </EssentialCard>
+                <EssentialCard
+                  href="https://greatscottgadgets.com/hackrf/one/"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="HackRF One"
+                >
+                  <CardIcon>
+                    <HackRFPreview aria-label="HackRF One 3D model spinning">
+                      <Canvas
+                        camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
+                        dpr={[1, 1.5]}
+                        frameloop="demand"
+                      >
+                        <ambientLight intensity={1.2} />
+                        <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
+                        <directionalLight position={[0, 6, 2]} intensity={7} color="#ffffff" />
+                        <spotLight
+                          position={[0, 5, 2]}
+                          angle={0.7}
+                          penumbra={0.45}
+                          intensity={12}
+                          color="#ffffff"
+                        />
+                        <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
+                        <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
+                        <SDRs.tx.SpinningHackRFOne
+                          scale={0.72}
+                          position={[0, -0.55, 0]}
+                          speed={0.8}
+                        />
+                      </Canvas>
+                    </HackRFPreview>
+                  </CardIcon>
+                  <CardCopy>
+                    HackRF One <small>buy →</small>
+                  </CardCopy>
+                </EssentialCard>
+              </EssentialsGrid>
+            </Essentials>
           </>
         )}
       </Container>

@@ -26,3 +26,12 @@ export { RFMixer } from "./RFMixer";
 export { BasebandAmplifier } from "./BasebandAmplifier";
 export { AnalogDigitalConverter } from "./AnalogDigitalConverter";
 export { DigitalSignalProcessor } from "./DigitalSignalProcessor";
+export {
+  HackRFOne,
+  SpinningHackRFOne,
+  RTLSdr,
+  SDRplay,
+  Transmitters,
+  type TransmitterModel,
+} from "./SDRs";
+export { SDRs } from "./SDRs";

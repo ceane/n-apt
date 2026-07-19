@@ -363,7 +363,6 @@ const DemodRouteSectionInner: React.FC = () => {
   } = useDemod();
 
   const [, setIsLaidOut] = useState(false);
-  const [isSwitchingFlow, setIsSwitchingFlow] = useState(false);
 
   const [menu, setMenu] = React.useState<{
     id: string;
@@ -474,7 +473,6 @@ const DemodRouteSectionInner: React.FC = () => {
             return node;
           });
         });
-        setIsSwitchingFlow(false);
         setIsLaidOut(true);
         hasLaidOut.current = true;
         shouldFitAfterLayoutRef.current = false;
@@ -593,7 +591,6 @@ const DemodRouteSectionInner: React.FC = () => {
             if (layoutRunIdRef.current !== currentRunId) {
               return;
             }
-            setIsSwitchingFlow(false);
             setIsLaidOut(true);
             hasLaidOut.current = true;
             shouldFitAfterLayoutRef.current = false;
@@ -607,12 +604,10 @@ const DemodRouteSectionInner: React.FC = () => {
           });
         } else {
           setIsLaidOut(true);
-          setIsSwitchingFlow(false);
           hasLaidOut.current = true;
         }
       } catch (error) {
         console.error("Layout error:", error);
-        setIsSwitchingFlow(false);
       }
     },
     [fitView, setNodesLocal, setEdgesLocal],
@@ -642,7 +637,6 @@ const DemodRouteSectionInner: React.FC = () => {
   useEffect(() => {
     if (!hasLaidOut.current || flowVersion > 0) {
       shouldFitAfterLayoutRef.current = true;
-      setIsSwitchingFlow(true);
     }
 
     lastMeasuredSizesRef.current = new Map();
@@ -896,8 +890,9 @@ const DemodRouteSectionInner: React.FC = () => {
           nodes={nodes}
           edges={edges}
           style={{
-            opacity: isSwitchingFlow ? 0 : 1,
-            transition: isSwitchingFlow ? "none" : "opacity 0.15s ease-out",
+            // Keep the canvas visible while source-specific nodes are adapted
+            // and measured; hiding the whole graph causes a distracting flash.
+            opacity: 1,
           }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

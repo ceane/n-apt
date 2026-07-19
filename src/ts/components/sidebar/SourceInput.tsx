@@ -129,6 +129,12 @@ const HiddenFileInput = styled.input`
 
 const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
 
+export const isSourceDeviceSelected = (
+  sourceMode: SourceMode,
+  deviceId: string,
+  selectedDeviceId?: string,
+) => sourceMode === "live" && deviceId === selectedDeviceId;
+
 const isFileTypeAccepted = (file: File): boolean => {
   const fileName = file.name.toLowerCase();
   const fileType = file.type.toLowerCase();
@@ -340,6 +346,7 @@ interface SourceInputProps {
   onSelectedDeviceChange?: (id: string) => void;
   onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
+  deviceTxActionsEnabled?: boolean;
 }
 
 export const SourceInput: React.FC<SourceInputProps> = ({
@@ -359,6 +366,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   onSelectedDeviceChange,
   onToggleDeviceRxPause,
   onToggleDeviceTxMode,
+  deviceTxActionsEnabled = true,
 }) => {
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -585,7 +593,11 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         <DevicePills>
           {visibleDevices.map((device) => {
             const isOnscreenStreaming = device.id === activeDeviceId;
-            const isSelectedDevice = device.id === selectedDeviceId;
+            const isSelectedDevice = isSourceDeviceSelected(
+              sourceMode,
+              device.id,
+              selectedDeviceId,
+            );
             const isTxCapable =
               device.capability?.toLowerCase().includes("tx") ?? false;
             const isHalfDuplex = isHalfDuplexDevice(device);
@@ -660,7 +672,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       />
                       {device.status.loadingLabel ?? "Loading…"}
                     </DeviceLoadingState>
-                  ) : isHalfDuplex && onToggleDeviceRxPause ? (
+                  ) :
+                    isHalfDuplex &&
+                    onToggleDeviceRxPause ? (
                     <DeviceActionButton
                       type="button"
                       $active={isSelectedDevice}
@@ -677,7 +691,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       {isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
-                  ) : !isHalfDuplex && device.status?.onAction ? (
+                  ) :
+                    !isHalfDuplex &&
+                    device.status?.onAction &&
+                    (!isTxCapable || deviceTxActionsEnabled) ? (
                     isTxCapable ? (
                       <TxModeActionButton
                         type="button"

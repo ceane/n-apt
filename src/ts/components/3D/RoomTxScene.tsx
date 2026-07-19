@@ -10,6 +10,7 @@ import {
   calculateRoomPowerLimit,
   calculateRoomPowerLimitJS,
 } from "@n-apt/utils/safetyWasm";
+import { SDRs } from "@n-apt/components/3D/SDRs";
 
 export function AnimatedRadioWaves({
   speed = 1.5,
@@ -404,10 +405,6 @@ export function RoomTxScene() {
       active = false;
     };
   }, [frequencyHzSafe, safePower]);
-  const transmitterBoxHeight = 0.6;
-  const transmitterBoxY = -0.14;
-  const transmitterAntennaY = 1;
-
   const numRings = Math.max(1, Math.floor(reach / wavelength));
   const displayRings = Math.min(8, numRings);
 
@@ -517,26 +514,7 @@ export function RoomTxScene() {
 
           {/* Transmitter on Desk */}
           <group position={[0, 0.2, 0]}>
-            {/* Box */}
-            <mesh position={[0, transmitterBoxY, 0]} castShadow>
-              <boxGeometry args={[1.5, transmitterBoxHeight, 1]} />
-              <meshStandardMaterial color="#111111" roughness={0.5} />
-            </mesh>
-            {/* Antenna connector */}
-            <mesh position={[-0.8, 0, 0.5]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.05, 0.05, 0.2]} />
-              <meshStandardMaterial color="#c0c0c0" metalness={0.8} />
-            </mesh>
-            {/* Antenna joint */}
-            <mesh position={[-0.75, 0, 0.5]}>
-              <sphereGeometry args={[0.06]} />
-              <meshStandardMaterial color="#222222" />
-            </mesh>
-            {/* Antenna */}
-            <mesh position={[-0.75, transmitterAntennaY, 0.5]}>
-              <cylinderGeometry args={[0.03, 0.03, 2]} />
-              <meshStandardMaterial color="#222222" />
-            </mesh>
+            <SDRs.tx.HackRFOne />
             <DistanceMarker reach={reach} />
             {emissionRealism === "none" && (
               <AnimatedRadioWaves
@@ -546,7 +524,7 @@ export function RoomTxScene() {
               />
             )}
             {emissionRealism === "dipole_lobe" && (
-              <group position={[-0.75, transmitterAntennaY, 0.5]}>
+              <group position={[-0.75, 1, 0.5]}>
                 <group ref={lobeGroupRef}>
                   <RoomDipoleLobe reach={reach} />
                 </group>

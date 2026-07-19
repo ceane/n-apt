@@ -292,7 +292,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       ] });
       const primarySpikeGroup = spikeGroup(spikeParams);
       const recoverySpikeGroup = spikeGroup(recoveryParams);
-      const resultBuffer = storage(128);
+      const resultBuffer = storage(132);
       const metricsBuffer = storage(maxSpikes * 16);
       const countBuffer = spikeCountBuffer;
       const classifyParams = new ArrayBuffer(16);
@@ -321,7 +321,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         { binding: 3, resource: { buffer: temporalParamsBuffer } },
         { binding: 4, resource: { buffer: temporalDecisionBuffer } },
       ] });
-      const resultReadback = readback(128);
+      const resultReadback = readback(132);
       const decisionReadback = readback(8);
       const temporalReadback = temporalReadbackBuffer;
       const countReadback = readback(4);
@@ -352,7 +352,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       pass.setPipeline(detectPipeline); pass.setBindGroup(0, detectGroup); pass.dispatchWorkgroups(1);
       pass.setPipeline(temporalPipeline); pass.setBindGroup(0, temporalGroup); pass.dispatchWorkgroups(1);
       pass.end();
-      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 128);
+      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 132);
       encoder.copyBufferToBuffer(decisionBuffer, 0, decisionReadback, 0, 8);
       encoder.copyBufferToBuffer(temporalDecisionBuffer, 0, temporalReadback, 0, 32);
       encoder.copyBufferToBuffer(spikeCountBuffer, 0, countReadback, 0, 4);
@@ -392,6 +392,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         partialBridge: resultView.getFloat32(116, true),
         apexProminence: resultView.getFloat32(120, true),
         shoulderSymmetry: resultView.getFloat32(124, true),
+        captureQuality: resultView.getFloat32(128, true),
         floorDbm: resultView.getFloat32(40, true),
         confidence: temporalView.getFloat32(12, true),
         isNapt: temporalView.getUint32(4, true) !== 0,

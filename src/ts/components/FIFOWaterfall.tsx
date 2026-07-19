@@ -42,6 +42,7 @@ interface FIFOWaterfallProps {
   placeholderSourceLabel?: string;
   placeholderPaneLabel?: string;
   placeholderErrorReason?: string | null;
+  placeholderState?: CanvasPlaceholderState | null;
   forceCanvas2D?: boolean;
 }
 
@@ -205,6 +206,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     placeholderSourceLabel,
     placeholderPaneLabel = "Waterfall",
     placeholderErrorReason = null,
+    placeholderState: explicitPlaceholderState = null,
     forceCanvas2D = false,
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -276,6 +278,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     }, [forceCanvas2D]);
 
     const placeholderState = useMemo<CanvasPlaceholderState | null>(() => {
+      if (explicitPlaceholderState) return explicitPlaceholderState;
       const hasWaveform = !!(waveform && waveform.length > 0);
       if (!isDeviceConnected) {
         return {
@@ -305,6 +308,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     }, [
       awaitingDeviceData,
       placeholderErrorReason,
+      explicitPlaceholderState,
       isDeviceConnected,
       placeholderPaneLabel,
       placeholderSourceLabel,

@@ -135,7 +135,7 @@
 
   html {
     font-size: var(--font-size);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--napt-font-stack) !important;
   }
 
   h1 {

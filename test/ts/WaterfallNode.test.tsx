@@ -3,6 +3,8 @@ import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { WaterfallNode } from "@n-apt/components/react-flow/nodes/WaterfallNode";
+import { isFilePlaybackPaused } from "@n-apt/hooks/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 
 const mockReduxState = {
   websocket: { activeSourceId: "test-source", dataFrameCounter: 1 },
@@ -46,6 +48,25 @@ jest.mock("@n-apt/components/FIFOWaterfall", () => ({
 }));
 
 describe("WaterfallNode", () => {
+  it("uses the file pause state and a new canvas session after a source switch", () => {
+    expect(
+      isFilePlaybackPaused({ sourceMode: "file", isStitchPaused: true }),
+    ).toBe(true);
+    expect(
+      getSourcePresentationSessionKey({
+        sourceMode: "live",
+        selectedFiles: [],
+        stitchTrigger: 0,
+      }),
+    ).not.toBe(
+      getSourcePresentationSessionKey({
+        sourceMode: "file",
+        selectedFiles: [{ id: "capture-1", name: "capture.napt" }],
+        stitchTrigger: 1,
+      }),
+    );
+  });
+
   it("places the mini VFO above the waterfall canvas when requested", () => {
     render(
       <WaterfallNode

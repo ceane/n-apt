@@ -53,6 +53,8 @@ fn test_encryption_save_load_cycle() {
     dek: None, // Will be generated automatically
     bandwidth: None,
     bandwidth_center_frequency: None,
+    frame_updates: Vec::new(),
+    device_profile: None,
   };
 
   // 2. Save file
@@ -168,6 +170,8 @@ fn test_checksum_integrity_and_corruption() {
     dek: None,
     bandwidth: None,
     bandwidth_center_frequency: None,
+    frame_updates: Vec::new(),
+    device_profile: None,
   };
 
   let artifact =
@@ -309,6 +313,8 @@ fn generate_test_artifacts() {
     dek: None,
     bandwidth: None,
     bandwidth_center_frequency: None,
+    frame_updates: Vec::new(),
+    device_profile: None,
   };
 
   let artifact =

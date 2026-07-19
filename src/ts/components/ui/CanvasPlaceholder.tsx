@@ -12,6 +12,7 @@ export type CanvasPlaceholderState =
       kind: "loading";
       sourceLabel?: string;
       paneLabel: string;
+      title?: string;
       message?: string;
     }
   | {
@@ -23,6 +24,7 @@ export type CanvasPlaceholderState =
       kind: "error";
       sourceLabel?: string;
       reason: string;
+      title?: string;
       message?: string;
     };
 
@@ -200,7 +202,7 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
         <PlaceholderCard>
           <PlaceholderTitle>
             <LoadingTitle>
-              <span>Loading {state.paneLabel}</span>
+              <span>{state.title || `Loading ${state.paneLabel}`}</span>
               <Dot $delay="0ms">.</Dot>
               <Dot $delay="120ms">.</Dot>
               <Dot $delay="240ms">.</Dot>
@@ -236,11 +238,13 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
       <PlaceholderCard>
         <PlaceholderKicker $error>Error</PlaceholderKicker>
         <PlaceholderTitle $error>
-          {state.kind === "error" && state.reason === "Server down"
-            ? "Server Down"
-            : state.kind === "error"
-              ? `Error / ${state.reason}`
-              : "Error"}
+          {state.kind === "error" && state.title
+            ? state.title
+            : state.kind === "error" && state.reason === "Server down"
+              ? "Server Down"
+              : state.kind === "error"
+                ? `Error / ${state.reason}`
+                : "Error"}
         </PlaceholderTitle>
         <PlaceholderBody>
           {state.kind === "error" && state.reason === "Server down"

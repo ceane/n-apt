@@ -67,7 +67,7 @@ import {
   getLatestLiveFrame,
   resolveFrameReadiness,
   resolveLiveDevicePlaceholderState,
-} from "./spectrum/liveSourcePresentation";
+} from "@n-apt/utils/liveSourcePresentation";
 import {
   attachLiveSourceLifecyclePlaceholder,
   isCurrentSourceFrameReady,
@@ -75,7 +75,7 @@ import {
   isLiveSourceHandoffPending,
   shouldPresentMockTxStandby,
   useLiveSourceLifecycle,
-} from "./spectrum/liveSourceLifecycle";
+} from "@n-apt/hooks/liveSourceLifecycle";
 import {
   getMockTxPreviewRequestKey,
   resolveMockTxMonitorSampleRateHz,
@@ -99,7 +99,7 @@ import {
   TxPowerField,
 } from "./spectrum/SpectrumRouteControls";
 
-export { resolveLiveDevicePlaceholderState } from "./spectrum/liveSourcePresentation";
+export { resolveLiveDevicePlaceholderState } from "@n-apt/utils/liveSourcePresentation";
 export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
 
 const resolveTxSignalDisplayLabel = (signal: string) => {

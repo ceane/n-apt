@@ -25,6 +25,21 @@ export type LivePresentationState = {
   placeholder: CanvasPlaceholderState | null;
 };
 
+/** Isolates persisted paused-frame snapshots by source/file processing session. */
+export const getSourcePresentationSessionKey = ({
+  sourceMode,
+  selectedFiles,
+  stitchTrigger,
+}: {
+  sourceMode: "live" | "file";
+  selectedFiles: Array<{ id?: string; name: string }>;
+  stitchTrigger: number | null | undefined;
+}): string =>
+  `${sourceMode}:${stitchTrigger ?? "none"}:${selectedFiles
+    .map((file) => file.id || file.name)
+    .sort()
+    .join("|")}`;
+
 const normalizeSourceIdentity = (sourceId: string | null | undefined) =>
   sourceId?.trim() || null;
 

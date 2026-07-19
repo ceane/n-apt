@@ -22,10 +22,8 @@ import { ThemeToggle } from "@n-apt/md-signals/src/app/components/ThemeToggle";
 import "@n-apt/md-signals/src/styles/index.css";
 
 const StandaloneSignalsWrapper = styled.div`
-  /* Reset and enforce clean sans-serif font family overall */
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif !important;
+  /* Keep this route's colors local while sharing the app typography token. */
+  font-family: ${(props) => props.theme.typography.sans};
 
   display: flex;
   height: 100vh;
@@ -34,12 +32,10 @@ const StandaloneSignalsWrapper = styled.div`
   background-color: ${(props) => props.theme.background};
   color: ${(props) => props.theme.textPrimary};
 
-  /* Force font-family on every child element */
+  /* Ensure nested interactive content uses the same shared typography. */
   &,
   * {
-    font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-      Arial, sans-serif !important;
+    font-family: ${(props) => props.theme.typography.sans};
   }
 
   /* Sidebar styling matching Figma Make */

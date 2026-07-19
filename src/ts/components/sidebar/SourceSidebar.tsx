@@ -58,12 +58,16 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         backend={backend || null}
         deviceName={deviceName || null}
         onSourceModeChange={onSourceModeChange || (() => {})}
-        devices={devices}
+        devices={devices?.filter(
+          (device) => !device.capability?.toLowerCase().includes("tx") ||
+            device.capability?.toLowerCase().includes("rx"),
+        )}
         selectedDeviceId={selectedDeviceId}
         onSelectedDeviceChange={onSelectedDeviceChange}
         spaceBoundDeviceId={spaceBoundDeviceId}
         onToggleDeviceRxPause={onToggleDeviceRxPause}
         onToggleDeviceTxMode={onToggleDeviceTxMode}
+        deviceTxActionsEnabled={false}
         compactActiveOnly={compactActiveOnly}
         selectedFilesCount={selectedFilesCount}
         onFileAction={onFileAction}

@@ -23,6 +23,33 @@ const NodeSubtitle = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.lg};
 `;
 
+const MetadataPlaceholder = styled.div`
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 11px;
+  font-family: ${({ theme }) => theme.typography.mono};
+  padding: 12px;
+  text-align: center;
+`;
+
+export const getMetadataPlaceholderCopy = ({
+  sourceMode,
+  selectedFilesCount,
+  metadataLoaded,
+  metadataError,
+}: {
+  sourceMode: "live" | "file";
+  selectedFilesCount: number;
+  metadataLoaded: boolean;
+  metadataError: string | null;
+}): string | null => {
+  if (sourceMode !== "file" || selectedFilesCount === 0) {
+    return "No file selected";
+  }
+  if (metadataError) return "File processing error";
+  if (!metadataLoaded) return "Processing file";
+  return null;
+};
+
 interface MetadataNodeProps {
   data: {
     metadataNode: boolean;
@@ -50,6 +77,13 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
   const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
     null,
   );
+
+  const metadataPlaceholderCopy = getMetadataPlaceholderCopy({
+    sourceMode,
+    selectedFilesCount: selectedFiles.length,
+    metadataLoaded: Boolean(naptMetadata),
+    metadataError: naptMetadataError,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -203,13 +237,19 @@ export const MetadataNode: React.FC<MetadataNodeProps> = ({ data }) => {
         {data.label}
       </NodeTitle>
       <NodeSubtitle>Recorded data properties</NodeSubtitle>
-      <FileMetadata
-        selectedNaptFile={selectedPrimaryFile}
-        naptMetadata={naptMetadata}
-        naptMetadataError={naptMetadataError}
-        sessionToken={sessionToken}
-        showTitle={false}
-      />
+      {metadataPlaceholderCopy ? (
+        <MetadataPlaceholder role="status" aria-live="polite">
+          {metadataPlaceholderCopy}
+        </MetadataPlaceholder>
+      ) : (
+        <FileMetadata
+          selectedNaptFile={selectedPrimaryFile}
+          naptMetadata={naptMetadata}
+          naptMetadataError={naptMetadataError}
+          sessionToken={sessionToken}
+          showTitle={false}
+        />
+      )}
     </>
   );
 };

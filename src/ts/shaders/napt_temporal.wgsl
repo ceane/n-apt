@@ -102,16 +102,15 @@ struct TemporalDecision {
 
 fn structural_bridge_present(frame: HistoryFrame) -> bool {
   // A partial capture may contain only one visible clump and no useful U-dip
-  // yet. The bridge score already includes the bilateral hat/shoulder math;
-  // requiring a second clump here incorrectly rejects the same real signal
-  // when tuning exposes one suspension_bridge at a time. Persistence across
-  // frames remains the guard against an intermittent Mock-like coincidence.
+  // yet, but it still needs validated unimodal or partial-branch geometry.
+  // The legacy suspension aggregate alone is not enough because Mock combs
+  // can make it look like a bridge in every frame.
   return frame.clump_count >= 1u &&
-    max(frame.suspension_bridge_score, frame.bridge_shape_support) >= 0.40;
+    frame.bridge_shape_support >= 0.25;
 }
 
 fn structural_bridge_score(frame: HistoryFrame) -> f32 {
-  return max(frame.suspension_bridge_score, frame.bridge_shape_support);
+  return frame.bridge_shape_support;
 }
 
 @compute @workgroup_size(1)
@@ -120,19 +119,19 @@ fn main() {
   let write_index = min(params.write_index, HISTORY_LENGTH - 1u);
   let previous_count = min(params.valid_count, history_length);
 
-  // A low-rise bridge can have a modest composite score even when both of
-  // its independently measured parts are strong. Preserve that evidence for
-  // the higher-order pass, but only when the frame has at least two clumps;
-  // this prevents a single spur from becoming a bridge through width alone.
-  let low_rise_support = metrics.low_rise_bridge_score;
-  let bridge_shape_support = low_rise_support;
+  // Preserve the validated unimodal/partial geometry for the higher-order
+  // pass. This prevents a high legacy bridge aggregate from promoting a Mock
+  // comb while still allowing a partial visible branch to persist.
+  let validated_bridge_shape_support = max(
+    metrics.unimodal_bridge_score,
+    metrics.partial_bridge_score);
   history[write_index] = HistoryFrame(
     metrics.suspension_bridge_score,
     metrics.u_dip_score,
     baseline.confidence,
     baseline.is_napt,
     metrics.clump_count,
-    bridge_shape_support,
+    validated_bridge_shape_support,
     metrics.envelope_fit_score,
     metrics.sinc_penalty_score,
   );
@@ -295,6 +294,22 @@ fn main() {
     temporal_confidence,
     0.78,
     low_rise_hold);
+  // Do not let a U-dip, floor, or baseline confidence drift into Likely by
+  // itself. The temporal pass needs repeated validated bridge geometry before
+  // it can raise the decision above the negative band.
+  let temporal_shape_supported = low_rise_hold ||
+    (active_count >= 2u &&
+      persistence >= 0.60 &&
+      bridge_mean >= 0.30 &&
+      (raw_persistence >= 0.60 || cadence_hits >= 1u));
+  let shape_guarded_confidence = select(
+    min(temporal_confidence, 0.49),
+    temporal_confidence,
+    temporal_shape_supported);
+  let temporal_decision_confidence = select(
+    shape_guarded_confidence,
+    0.78,
+    low_rise_hold);
   let baseline_is_napt = select(0u, 1u, baseline.is_napt != 0u);
   // Once the window is ready, use the persisted structural evidence rather
   // than requiring the newest frame to contain the entire feature. That is
@@ -303,12 +318,12 @@ fn main() {
   let temporal_is_napt = select(
     baseline_is_napt,
     select(0u, 1u,
-      (low_rise_hold ||
-        (persistence >= 0.60 &&
-          ((raw_persistence >= 0.60 && bridge_mean >= 0.40) ||
-            pulse_support >= 0.75) &&
-          sinc_penalty_mean < 0.45 &&
-          temporal_confidence >= 0.60))),
+          (low_rise_hold ||
+            (temporal_shape_supported &&
+              ((raw_persistence >= 0.60 && bridge_mean >= 0.40) ||
+                pulse_support >= 0.75) &&
+              sinc_penalty_mean < 0.45 &&
+              temporal_decision_confidence >= 0.60))),
     ready);
 
   decision.baseline_is_napt = baseline_is_napt;
@@ -316,7 +331,7 @@ fn main() {
   decision.baseline_confidence = baseline.confidence;
   decision.temporal_confidence = select(
     baseline.confidence,
-    held_temporal_confidence,
+        temporal_decision_confidence,
     ready);
   decision.persistence = persistence;
   // Expose normalized higher-order feature scores to the UI. A literal mean

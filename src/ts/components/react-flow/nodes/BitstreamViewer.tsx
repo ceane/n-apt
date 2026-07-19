@@ -4,6 +4,7 @@ import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
 import { FullscreenModal } from "@n-apt/components/react-flow/flows/FullscreenModal";
@@ -283,9 +284,11 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
 
   useEffect(() => {
     const id = setInterval(() => {
-      const current = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const sourceRef =
+        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+      const current = Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
 
       if (nextRef !== lastIqRefRef.current) {
@@ -294,15 +297,16 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
       }
     }, 250); // 4fps — fast enough for readable table updates
     return () => clearInterval(id);
-  }, []);
+  }, [sourceMode]);
 
   useEffect(() => {
-    const current = Array.isArray(liveDataRef.current)
-      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-      : liveDataRef.current;
+    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const current = Array.isArray(sourceRef.current)
+      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+      : sourceRef.current;
     lastIqRefRef.current = current?.iq_data;
     setFrameIqData(current?.iq_data as Uint8Array | undefined);
-  }, [activeSourceId]);
+  }, [activeSourceId, sourceMode]);
 
   useEffect(() => {
     if (!gridRef.current) return;

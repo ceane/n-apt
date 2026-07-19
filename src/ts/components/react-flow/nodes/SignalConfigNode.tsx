@@ -1,594 +1,145 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import styled from "styled-components";
+import { Columns3Cog } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
-  Blend,
-  Columns3Cog,
-  GalleryHorizontal,
-  Gauge,
-  Image as ImageIcon,
-  Zap,
-  ArrowBigUp,
-  Pipette,
-  FileBox,
-} from "lucide-react";
-import {
-  useAppSelector,
-  useAppDispatch,
-  setTemporalResolution,
+  setFftWindow,
   setPowerScale,
-  sendSettings,
-  sendPowerScaleCommand,
+  setTemporalResolution,
 } from "@n-apt/redux";
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
-import { useDemodQualityGuard } from "@n-apt/hooks/useDemodQualityGuard";
-import {
-  beforeDemodEnforceQuality,
-  getDemodQualityLockedFftSizes,
-} from "@n-apt/utils/demodQuality";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
-import { fileRegistry } from "@n-apt/utils/fileRegistry";
-import { formatFrequencyHz } from "@n-apt/utils/frequency";
-import FileMetadata from "@n-apt/components/sidebar/FileMetadata";
-import { useAuthentication } from "@n-apt/hooks/useAuthentication";
-import type { NaptMetadata } from "@n-apt/components/sidebar/FileMetadata";
+import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 
-const NodeTitle = styled.div`
-  font-size: ${({ theme }) => theme.typography.bodySize};
-  font-weight: bold;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  margin-bottom: ${({ theme }) => theme.spacing.md};
+const NodeContent = styled.div`
+  width: 100%;
+  min-width: 360px;
+
+  & > div {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  & > div > div {
+    margin-top: 0;
+  }
+
+  & > div > div:not(:first-child) {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+
+  & > div:nth-of-type(4) > div:first-child {
+    margin-top: 16px;
+  }
+`;
+
+const NodeHeader = styled.div`
   display: flex;
   align-items: center;
   gap: ${({ theme }) => theme.spacing.sm};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: ${({ theme }) => theme.typography.bodySize};
+  font-weight: 700;
 `;
 
 const NodeSubtitle = styled.div`
-  font-size: 10px;
+  margin-bottom: ${({ theme }) => theme.spacing.md};
   color: ${({ theme }) => theme.colors.textSecondary};
-  margin-bottom: ${({ theme }) => theme.spacing.lg};
-`;
-
-const SettingsGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: ${({ theme }) => theme.spacing.md} ${({ theme }) => theme.spacing.lg};
-`;
-
-const SettingRow = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: ${({ theme }) => theme.spacing.xs};
-`;
-
-const SettingLabel = styled.div`
-  font-size: 11px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  svg {
-    width: 12px;
-    height: 12px;
-    opacity: 0.6;
-  }
-`;
-
-const SettingInput = styled.input`
-  background: transparent;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 4px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 11px;
-  padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
-  width: 70px;
-  text-align: right;
-
-  &:focus {
-    outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
-
-  &::-webkit-outer-spin-button,
-  &::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  &[type="number"] {
-    -moz-appearance: textfield;
-  }
-`;
-
-const SettingSelect = styled.select`
-  background: transparent;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 4px;
-  color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 11px;
-  padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
-  min-width: 100px;
-  cursor: pointer;
-
-  &:focus {
-    outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
-
-  option {
-    background: ${({ theme }) => theme.colors.surface};
-    color: ${({ theme }) => theme.colors.textPrimary};
-  }
-`;
-
-const InputGroup = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${({ theme }) => theme.spacing.xs};
-`;
-
-const UnitLabel = styled.span`
-  font-size: 11px;
-  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: 10px;
 `;
 
 interface SignalConfigNodeProps {
-  data: {
-    signalOptions: boolean;
-    label: string;
-  };
+  data: { signalOptions: boolean; label: string };
 }
 
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const spectrum = useAppSelector((state) => state.spectrum);
-  const qualityGuard = useDemodQualityGuard();
-  const {
-    wsConnection,
-    sampleRateHzEffective,
-    state: liveState,
-  } = useSpectrumStore();
-  const { sessionToken, aesKey } = useAuthentication();
+  const { wsConnection, sampleRateHzEffective } = useSpectrumStore();
+  const { sdrSettings, backend, deviceProfile, sampleRateOptions } =
+    wsConnection;
 
-  const {
-    sdrSettings: liveSdrSettingsConfig,
-    backend: liveBackend,
-    deviceProfile: liveDeviceProfileToUse,
-    sampleRateOptions: liveSampleRateOptions,
-  } = wsConnection;
-
-  const {
-    fftSizeOptions,
-    sampleRateOptions,
-    setFftSize,
-    setFftWindow: handleFftWindow,
-    setSampleRate,
-    setGain,
-    setPpm,
-    scheduleCoupledAdjustment,
-  } = useSdrSettings({
+  const settings = useSdrSettings({
     maxSampleRate: sampleRateHzEffective || 3_200_000,
-    currentSampleRateHz: sampleRateHzEffective || 3_200_000,
-    minReceiveSampleRate:
-      liveSdrSettingsConfig?.min_receive_sample_rate ?? undefined,
-    sampleRateOptions: liveSampleRateOptions,
-    sdrSettings: liveSdrSettingsConfig,
-    onSettingsChange: (settings) => dispatch(sendSettings(settings)),
+    currentSampleRateHz: sampleRateHzEffective || spectrum.sampleRateHz,
+    minReceiveSampleRate: sdrSettings?.min_receive_sample_rate,
+    sampleRateOptions,
+    sdrSettings,
+    deviceType: deviceProfile?.kind,
   });
 
-  const showsApproxDbmToggle =
-    liveDeviceProfileToUse?.supports_approx_dbm ||
-    liveBackend === "rtl_sdr" ||
-    liveBackend === "rtl-sdr" ||
-    liveBackend === "rtlsdr" ||
-    liveBackend === "rtl-tcp" ||
-    liveBackend === "rtltcp";
-
-  const sourceMode = liveState?.sourceMode ?? "live";
-  const selectedFiles = liveState?.selectedFiles ?? [];
-
-  const manualFftOptions = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          (fftSizeOptions.length ? fftSizeOptions : [spectrum.fftSize]).filter(
-            (size) => Number.isFinite(size) && size > 0,
-          ),
-        ),
-      ).sort((a: any, b: any) => a - b),
-    [spectrum.fftSize, fftSizeOptions],
-  );
-
-  const lockedFftSizeOptions = React.useMemo(
-    () =>
-      qualityGuard.isLocked
-        ? getDemodQualityLockedFftSizes(
-            manualFftOptions,
-            qualityGuard.minimumFftSize,
-            spectrum.fftSize,
-          )
-        : [],
-    [
-      manualFftOptions,
-      qualityGuard.isLocked,
-      qualityGuard.minimumFftSize,
-      spectrum.fftSize,
-    ],
-  );
-
-  const effectiveQuality = React.useMemo(
-    () =>
-      beforeDemodEnforceQuality(
-        {
-          fftSize: spectrum.fftSize,
-          temporalResolution: spectrum.displayTemporalResolution,
-        },
-        qualityGuard.isLocked,
-        qualityGuard.minimumFftSize,
-      ),
-    [
-      qualityGuard.isLocked,
-      qualityGuard.minimumFftSize,
-      spectrum.displayTemporalResolution,
-      spectrum.fftSize,
-    ],
-  );
-
-  useEffect(() => {
-    if (!qualityGuard.isLocked) return;
-
-    if (spectrum.fftSize !== effectiveQuality.fftSize) {
-      setFftSize(effectiveQuality.fftSize);
-      scheduleCoupledAdjustment(
-        "fftSize",
-        effectiveQuality.fftSize,
-        spectrum.fftFrameRate,
-      );
-    }
-
-    if (
-      spectrum.displayTemporalResolution !== effectiveQuality.temporalResolution
-    ) {
-      dispatch(setTemporalResolution(effectiveQuality.temporalResolution));
-    }
-  }, [
-    dispatch,
-    effectiveQuality.fftSize,
-    effectiveQuality.temporalResolution,
-    qualityGuard.isLocked,
-    scheduleCoupledAdjustment,
-    setFftSize,
-    spectrum.displayTemporalResolution,
-    spectrum.fftFrameRate,
-    spectrum.fftSize,
-  ]);
-
-  const clampGain = (val: number) => {
-    if (Number.isNaN(val)) return 0;
-    return Math.max(0, Math.min(46.9, val));
-  };
-
-  const handlePpmChange = (raw: string) => {
-    const val = raw === "" ? 0 : parseInt(raw, 10) || 0;
-    setPpm(val);
-  };
-
-  const handleGainChange = (raw: number) => {
-    const val = clampGain(Number.isFinite(raw) ? raw : 0);
-    setGain(val);
-  };
-
-  const selectedPrimaryFile =
-    selectedFiles && selectedFiles.length > 0 ? selectedFiles[0] : null;
-
-  const [naptMetadata, setNaptMetadata] = useState<NaptMetadata | null>(null);
-  const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
-    null,
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedPrimaryFile || sourceMode !== "file") {
-      setNaptMetadata(null);
-      return;
-    }
-
-    const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
-    const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
-
-    if (isNapt && !aesKey) {
-      setNaptMetadata(null);
-      setNaptMetadataError("Locked (no session key)");
-      return;
-    }
-
-    const run = async () => {
-      try {
-        const fileObj = fileRegistry.get(selectedPrimaryFile.id);
-        if (!fileObj) throw new Error("File not found in registry");
-
-        const buf = await fileObj.arrayBuffer();
-
-        if (isNapt && aesKey) {
-          const maxHeaderRead = Math.min(8192, buf.byteLength);
-          const headerBytes = new Uint8Array(buf, 0, maxHeaderRead);
-          const newlineIdx = headerBytes.indexOf(10);
-
-          let jsonStr: string;
-          if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(
-              headerBytes.slice(0, newlineIdx),
-            );
-          } else {
-            const headerText = new TextDecoder().decode(headerBytes);
-            let braceDepth = 0,
-              inStr = false,
-              esc = false,
-              jsonEnd = -1;
-            for (let ci = 0; ci < headerText.length; ci++) {
-              const c = headerText[ci];
-              if (esc) {
-                esc = false;
-                continue;
-              }
-              if (c === "\\") {
-                esc = true;
-                continue;
-              }
-              if (c === '"') {
-                inStr = !inStr;
-                continue;
-              }
-              if (inStr) continue;
-              if (c === "{") braceDepth++;
-              if (c === "}") {
-                braceDepth--;
-                if (braceDepth === 0) {
-                  jsonEnd = ci + 1;
-                  break;
-                }
-              }
-            }
-            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
-            jsonStr = headerText.slice(0, jsonEnd);
-          }
-
-          const metaObj = JSON.parse(jsonStr);
-
-          if (!cancelled) {
-            const metadata = metaObj.metadata || metaObj;
-            setNaptMetadata(metadata);
-            setNaptMetadataError(null);
-          }
-        } else if (isWav) {
-          const view = new DataView(buf);
-          const text = (off: number, len: number) =>
-            String.fromCharCode(...Array.from(new Uint8Array(buf, off, len)));
-
-          if (text(0, 4) === "RIFF" && text(8, 4) === "WAVE") {
-            let offset = 12;
-            let meta: any = null;
-            while (offset + 8 <= buf.byteLength) {
-              const chunkId = text(offset, 4);
-              const chunkSize = view.getUint32(offset + 4, true);
-              if (chunkId === "nAPT") {
-                const metaBytes = new Uint8Array(buf, offset + 8, chunkSize);
-                const nullIdx = metaBytes.indexOf(0);
-                const jsonStr = new TextDecoder().decode(
-                  nullIdx !== -1 ? metaBytes.slice(0, nullIdx) : metaBytes,
-                );
-                try {
-                  meta = JSON.parse(jsonStr);
-                  break;
-                } catch {
-                  // ignore
-                }
-              }
-              offset += 8 + chunkSize + (chunkSize % 2); // pad byte
-            }
-            if (!cancelled && meta) {
-              setNaptMetadata(meta.metadata || meta);
-              setNaptMetadataError(null);
-            }
-          }
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setNaptMetadata(null);
-          setNaptMetadataError(err.message || "Failed to load");
-        }
-      }
-    };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPrimaryFile, aesKey, sourceMode]);
-
   return (
-    <>
-      <NodeTitle>
-        {sourceMode === "file" ? (
-          <FileBox size={16} />
-        ) : (
-          <Columns3Cog size={16} />
-        )}
-        {sourceMode === "file" ? "Metadata" : data.label}
-      </NodeTitle>
-      <NodeSubtitle>
-        {sourceMode === "file"
-          ? "Recorded Data Properties"
-          : "Hardware sampling and FFT settings"}
-      </NodeSubtitle>
+    <NodeContent>
+      <NodeHeader>
+        <Columns3Cog size={16} />
+        {data.label}
+      </NodeHeader>
+      <NodeSubtitle>Hardware sampling and FFT settings</NodeSubtitle>
 
-      {sourceMode === "file" ? (
-        <>
-          <FileMetadata
-            selectedNaptFile={selectedPrimaryFile}
-            naptMetadata={naptMetadata}
-            naptMetadataError={naptMetadataError}
-            sessionToken={sessionToken}
-            showTitle={false}
-          />
-        </>
-      ) : (
-        <SettingsGrid>
-          <SettingRow>
-            <SettingLabel>
-              <GalleryHorizontal size={12} />
-              Sample Rate
-            </SettingLabel>
-            <SettingSelect
-              value={spectrum.sampleRateHz}
-              onChange={(e) => setSampleRate(Number(e.target.value))}
-            >
-              {sampleRateOptions.map((rate) => (
-                <option key={rate} value={rate}>
-                  {formatFrequencyHz(rate)}
-                </option>
-              ))}
-            </SettingSelect>
-          </SettingRow>
+      <SignalDisplaySection
+        variant="default"
+        sourceMode="live"
+        maxSampleRate={sampleRateHzEffective || 3_200_000}
+        minReceiveSampleRate={sdrSettings?.min_receive_sample_rate}
+        sampleRate={spectrum.sampleRateHz}
+        sampleRateOptions={settings.sampleRateOptions}
+        fileCapturedRange={null}
+        fftFrameRate={settings.fftFrameRate}
+        maxFrameRate={settings.maxFrameRate}
+        fftSize={spectrum.fftSize}
+        fftSizeOptions={settings.fftSizeOptions}
+        fftWindow={spectrum.fftWindow || "Rectangular"}
+        temporalResolution={spectrum.displayTemporalResolution}
+        backend={backend}
+        deviceProfile={deviceProfile}
+        powerScale={spectrum.powerScale}
+        onFftFrameRateChange={settings.setFftFrameRate}
+        onFftSizeChange={settings.setFftSize}
+        onSampleRateChange={settings.setSampleRate}
+        onFftWindowChange={(value) => {
+          dispatch(setFftWindow(value));
+          settings.setFftWindow(value);
+        }}
+        onTemporalResolutionChange={(value) => {
+          dispatch(setTemporalResolution(value));
+        }}
+        onPowerScaleChange={(value) => {
+          dispatch(setPowerScale(value));
+        }}
+        scheduleCoupledAdjustment={settings.scheduleCoupledAdjustment}
+      />
 
-          <SettingRow>
-            <SettingLabel>
-              <ImageIcon size={12} />
-              FFT Size
-            </SettingLabel>
-            <SettingSelect
-              value={effectiveQuality.fftSize}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                const nextFftSize = qualityGuard.isLocked
-                  ? Math.max(val, qualityGuard.minimumFftSize)
-                  : val;
-                setFftSize(nextFftSize);
-                scheduleCoupledAdjustment(
-                  "fftSize",
-                  nextFftSize,
-                  spectrum.fftFrameRate,
-                );
-              }}
-            >
-              {qualityGuard.isLocked ? (
-                <>
-                  {lockedFftSizeOptions.map((size: number) => (
-                    <option key={`locked-${size}`} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <>
-                  {manualFftOptions.map((size: number) => (
-                    <option key={`manual-${size}`} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </>
-              )}
-            </SettingSelect>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabel>
-              <Blend size={12} />
-              FFT Window
-            </SettingLabel>
-            <SettingSelect
-              value={spectrum.fftWindow || "Rectangular"}
-              onChange={(e) => {
-                handleFftWindow(e.target.value);
-              }}
-            >
-              <option value="Rectangular">Rectangular</option>
-              <option value="Nuttall">Nuttall</option>
-              <option value="Hamming">Hamming</option>
-              <option value="Hanning">Hanning</option>
-              <option value="Blackman">Blackman</option>
-            </SettingSelect>
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabel>
-              <Gauge size={12} />
-              Temporal Resolution
-            </SettingLabel>
-            <SettingSelect
-              value={effectiveQuality.temporalResolution}
-              disabled={qualityGuard.isLocked}
-              onChange={(e) => {
-                dispatch(
-                  setTemporalResolution(
-                    (qualityGuard.isLocked
-                      ? qualityGuard.requiredTemporalResolution
-                      : e.target.value) as "low" | "medium" | "high",
-                  ),
-                );
-              }}
-            >
-              {!qualityGuard.isLocked && <option value="low">Low</option>}
-              {!qualityGuard.isLocked && <option value="medium">Medium</option>}
-              <option value="high">High</option>
-            </SettingSelect>
-          </SettingRow>
-
-          {showsApproxDbmToggle && (
-            <SettingRow>
-              <SettingLabel>
-                <Zap size={12} />
-                Power Scale
-              </SettingLabel>
-              <SettingSelect
-                value={spectrum.powerScale}
-                onChange={(e) => {
-                  const ps = e.target.value as "dB" | "dBm";
-                  dispatch(setPowerScale(ps));
-                  dispatch(sendPowerScaleCommand(ps));
-                }}
-              >
-                <option value="dB">dB (relative)</option>
-                <option value="dBm">dBm (approximate)</option>
-              </SettingSelect>
-            </SettingRow>
-          )}
-
-          <SettingRow>
-            <SettingLabel>
-              <Pipette size={12} />
-              PPM
-            </SettingLabel>
-            <SettingInput
-              type="number"
-              value={spectrum.ppm}
-              onChange={(e) => handlePpmChange(e.target.value)}
-              step="1"
-            />
-          </SettingRow>
-
-          <SettingRow>
-            <SettingLabel>
-              <ArrowBigUp size={12} />
-              Gain
-            </SettingLabel>
-            <InputGroup>
-              <SettingInput
-                type="number"
-                step="1"
-                value={spectrum.gain}
-                onChange={(e) =>
-                  handleGainChange(Math.round(Number(e.target.value)))
-                }
-                min="0"
-                max="46.9"
-              />
-              <UnitLabel>dB</UnitLabel>
-            </InputGroup>
-          </SettingRow>
-        </SettingsGrid>
-      )}
-    </>
+      <SourceSettingsSection
+        sourceMode="live"
+        deviceType={deviceProfile?.kind}
+        ppm={settings.ppm}
+        gain={settings.gain}
+        hackrfLnaGain={settings.hackrfLnaGain}
+        hackrfVgaGain={settings.hackrfVgaGain}
+        hackrfAmpEnabled={settings.hackrfAmpEnabled}
+        hackrfBasebandBandwidth={settings.hackrfBasebandBandwidth}
+        hackrfCurrentSampleRate={sampleRateHzEffective || spectrum.sampleRateHz}
+        tunerAGC={settings.tunerAGC}
+        rtlAGC={settings.rtlAGC}
+        stitchSourceSettings={{ gain: settings.gain, ppm: settings.ppm }}
+        isConnected={Boolean(wsConnection.isConnected)}
+        onPpmChange={settings.setPpm}
+        onGainChange={settings.setGain}
+        onHackrfLnaGainChange={settings.setHackrfLnaGain}
+        onHackrfVgaGainChange={settings.setHackrfVgaGain}
+        onHackrfAmpEnabledChange={settings.setHackrfAmpEnabled}
+        onHackrfBasebandBandwidthChange={settings.setHackrfBasebandBandwidth}
+        onTunerAGCChange={settings.setTunerAGC}
+        onRtlAGCChange={settings.setRtlAGC}
+        onStitchSourceSettingsChange={() => undefined}
+        onAgcModeChange={(tunerAGC, rtlAGC) => {
+          settings.setTunerAGC(tunerAGC);
+          settings.setRtlAGC(rtlAGC);
+        }}
+      />
+    </NodeContent>
   );
 };

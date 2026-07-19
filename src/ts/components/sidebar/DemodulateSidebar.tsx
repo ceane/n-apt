@@ -20,6 +20,14 @@ import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+
+export const getDemodFileSelectionActions = (
+  files: { id: string; name: string }[],
+) => [
+  { type: "SET_SOURCE_MODE" as const, mode: "file" as const },
+  { type: "SET_SELECTED_FILES" as const, files },
+  { type: "TRIGGER_STITCH" as const },
+];
 import type { NaptMetadata } from "@n-apt/consts/types";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 
@@ -113,6 +121,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     return lower.endsWith(".napt") || lower.endsWith(".wav") ? file : null;
   }, [selectedFiles, sourceMode]);
   const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
   const isStitchPaused = useAppSelector(
     (state) => state.waterfall.isStitchPaused,
   );
@@ -244,9 +255,11 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         name: file.name,
       }));
 
+      dispatch(setSourceMode("file"));
       dispatch(setSelectedFiles(registeredFiles));
-      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
       dispatch(triggerStitch());
+      storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
+      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
       storeDispatch({ type: "TRIGGER_STITCH" });
     },
     [dispatch, storeDispatch],
@@ -399,6 +412,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         selectedDeviceId={selectedSourceId}
         onSelectedDeviceChange={handleSelectedDeviceChange}
         spaceBoundDeviceId={selectedSourceId || null}
+        onToggleDeviceRxPause={(id) => toggleVisualizerPause(id)}
         selectedFilesCount={selectedFiles.length}
         onFileAction={handleFileAction}
         onFilesSelected={handleSourceFilesSelected}
@@ -420,7 +434,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
             storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
           }}
           selectedPrimaryFile={selectedPrimaryFile}
-          naptMetadata={null}
+          naptMetadata={loadedFileMetadata ?? null}
           naptMetadataError={null}
           showMetadata={false}
         />

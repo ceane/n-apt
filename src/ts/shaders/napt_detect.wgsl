@@ -34,6 +34,7 @@ struct Metrics {
   partial_bridge_score: f32,
   apex_prominence_score: f32,
   shoulder_symmetry_score: f32,
+  capture_quality_score: f32,
 }
 
 // Host readback layout: uint32 is_napt at byte 0 and confidence f32 at byte 4.
@@ -49,10 +50,17 @@ struct Decision {
 // FFT valleys that lower its normalized occupancy. Keep the guard permissive
 // enough for tuning movement while the weighted score does the discrimination.
 const MIN_SUSPENSION_BRIDGE_SCORE: f32 = 0.20;
+// The legacy suspension_bridge aggregate can be high for a random comb or a
+// broad hardware response. Require the newer geometric bridge evidence before
+// allowing that aggregate to produce a positive classifier result.
+const MIN_COHERENT_BRIDGE_SHAPE_SCORE: f32 = 0.25;
+const NO_COHERENT_SHAPE_CONFIDENCE_CAP: f32 = 0.49;
 const MIN_NAPT_SCORE: f32 = 0.60;
 const STRONG_SHAPE_THRESHOLD: f32 = 0.70;
 const STRONG_SHAPE_BONUS: f32 = 0.05;
 const STRONG_BRIDGE_THRESHOLD: f32 = 0.80;
+const CAPTURE_QUALITY_LIKELY_CAP: f32 = 0.74;
+const SEVERE_ARTIFACT_QUALITY: f32 = 0.30;
 // A sinc-shaped response is a hardware/rendering artifact, not weak N-APT
 // evidence. Give it enough weight to move an otherwise convincing-looking
 // one-frame artifact below the Likely band without treating every broad peak
@@ -69,10 +77,16 @@ fn main() {
   let unimodal_bridge_score = metrics.unimodal_bridge_score;
   let floor_relative_power_score = metrics.floor_relative_power_score;
   let u_dip_score = metrics.u_dip_score;
+  let coherent_bridge_shape_score = max(
+    metrics.unimodal_bridge_score,
+    metrics.partial_bridge_score);
+  let missing_coherent_bridge_shape =
+    coherent_bridge_shape_score < MIN_COHERENT_BRIDGE_SHAPE_SCORE;
   let temporal_stability_score = metrics.temporal_stability;
   let bandwidth_prior = metrics.bandwidth_prior;
   let envelope_fit_score = metrics.envelope_fit_score;
   let sinc_penalty_score = metrics.sinc_penalty_score;
+  let capture_quality_score = clamp(metrics.capture_quality_score, 0.0, 1.0);
   // A low-rise suspension_bridge can be real even when the capture-wide U is
   // outside the VFO. Width and bilateral shoulder support are retained as a
   // separate structural route; they cannot promote a one-clump spur or a
@@ -118,6 +132,9 @@ fn main() {
       envelope_fit_score < 0.20 &&
       effective_bridge_score < 0.55 &&
       u_dip_score < 0.55 && !has_low_rise_bridge) +
+    // A high legacy bridge aggregate is not enough: Mock combs can have tall
+    // spikes and an apparent U while lacking a single coherent apex geometry.
+    select(0.0, 0.20, missing_coherent_bridge_shape) +
     SINC_PENALTY_WEIGHT * effective_sinc_penalty;
   // A small bonus rewards agreement between the two primary shape measures.
   // It is deliberately bounded so it cannot turn noise into a positive.
@@ -152,13 +169,30 @@ fn main() {
     effective_bridge_score >= STRONG_BRIDGE_THRESHOLD &&
     metrics.clump_count >= 2u &&
     metrics.bridge_shoulder_score >= 0.50);
-  let score = max(
+  let raw_score = max(
     weighted_score,
     max(0.0, bridge_dominant_confidence -
       SINC_PENALTY_WEIGHT * effective_sinc_penalty));
+  // Artifact-heavy frames can retain useful shape evidence, but must not be
+  // promoted to Yes on quality alone. A sufficiently severe artifact with no
+  // coherent structure is rejected outright; a structured but degraded frame
+  // is preserved as Likely for manual review (including partial Channel C).
+  let severe_artifact_rejection = capture_quality_score < SEVERE_ARTIFACT_QUALITY &&
+    effective_bridge_score < 0.45 &&
+    u_dip_score < 0.45;
+  let artifact_quality_cap = select(
+    raw_score,
+    min(raw_score, CAPTURE_QUALITY_LIKELY_CAP),
+    capture_quality_score < 0.45);
+  let shape_quality_cap = select(
+    artifact_quality_cap,
+    min(artifact_quality_cap, NO_COHERENT_SHAPE_CONFIDENCE_CAP),
+    missing_coherent_bridge_shape);
+  let score = select(shape_quality_cap, 0.49, severe_artifact_rejection);
   decision.confidence = score;
   decision.is_napt = select(0u, 1u,
     score >= MIN_NAPT_SCORE &&
     effective_bridge_score >= MIN_SUSPENSION_BRIDGE_SCORE &&
-    metrics.clump_count >= 2u);
+    metrics.clump_count >= 2u &&
+    !missing_coherent_bridge_shape);
 }

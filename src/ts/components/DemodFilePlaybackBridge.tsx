@@ -5,10 +5,10 @@ import {
   setStitchStatus,
   setActivePlaybackMetadata,
 } from "@n-apt/redux";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
-import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 
 interface DemodFilePlaybackBridgeProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -30,8 +30,7 @@ export const DemodFilePlaybackBridge: React.FC<
   onStitchStatus,
 }) => {
   const dispatch = useAppDispatch();
-  const playbackDataRef =
-    liveDataRef as unknown as React.MutableRefObject<LiveFrameData | null>;
+  const playbackDataRef = filePlaybackDataRef;
 
   const {
     hasStitchedData,
@@ -57,6 +56,28 @@ export const DemodFilePlaybackBridge: React.FC<
     },
   });
 
+  const playbackSeedKey = `${selectedFiles
+    .map((file) => file.id || file.name)
+    .sort()
+    .join("|")}:${stitchTrigger ?? "none"}:${activeChannel}`;
+  const seededPlaybackKeyRef = useRef<string | null>(null);
+  if (!hasStitchedData) {
+    playbackDataRef.current = null;
+    seededPlaybackKeyRef.current = null;
+  } else if (seededPlaybackKeyRef.current !== playbackSeedKey) {
+    const channelData =
+      allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+    playbackDataRef.current = buildPlaybackSeedFrame({
+      // Keep the first frame in raw-IQ form. FFT, symbols, and bitstream
+      // consumers all derive their own view from the same source frame.
+      displayMode: "iq",
+      precomputedFrames: precomputedFrames.current,
+      channelData,
+      fftSize,
+    });
+    seededPlaybackKeyRef.current = playbackSeedKey;
+  }
+
   usePlaybackAnimation({
     hasStitchedData,
     isPaused,
@@ -68,7 +89,7 @@ export const DemodFilePlaybackBridge: React.FC<
     displayMode: "iq",
     onFrameEmitted: () => {
       // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
-      // Tables now poll liveDataRef at a lower frequency (4fps).
+      // Tables poll the source-specific playback ref at a lower frequency.
     },
   });
 
@@ -112,7 +133,13 @@ export const DemodFilePlaybackBridge: React.FC<
     () => new Set(selectedFiles.map((file) => file.name)),
     [selectedFiles],
   );
-  const previousFileNamesRef = useRef<string>("");
+  const initialFileNamesKey = useMemo(
+    () => Array.from(fileNamesSet).sort().join("|"),
+    // The initial selection is not a change; preserve a cached/seeded frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const previousFileNamesRef = useRef<string>(initialFileNamesKey);
 
   useEffect(() => {
     const nameKey = Array.from(fileNamesSet).sort().join("|");

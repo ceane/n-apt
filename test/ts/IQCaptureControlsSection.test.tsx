@@ -59,6 +59,21 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.getByText("Capture")).toBeInTheDocument();
   });
 
+  it("offers capture formats in .napt, .iq, .wav order", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    const [fileTypeSelect] = screen.getAllByRole("combobox");
+    const options = Array.from(fileTypeSelect.querySelectorAll("option")).map(
+      (option) => option.value,
+    );
+    expect(options).toEqual([".napt", ".iq", ".wav"]);
+  });
+
   it("should handle area selection", () => {
     render(
       <TestWrapper>

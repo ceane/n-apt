@@ -441,6 +441,7 @@ test/integration/fixtures/encrypted_test.napt
 *.wav
 *.iq
 *.iq.*
+*.c64
 test/fixtures/napt-classifier/captures/
 
 # Agent / temporary files

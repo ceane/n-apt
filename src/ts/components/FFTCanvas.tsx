@@ -1192,6 +1192,8 @@ export interface FFTCanvasProps {
   frameSourceIdFallback?: string | null;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
+  /** Whether this canvas may read or write persisted paused-frame snapshots. */
+  pauseSnapshotEnabled?: boolean;
   /** Increments at a source/reconnect boundary to discard stale GPU output. */
   webGpuStreamResetEpoch?: number;
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
@@ -1402,6 +1404,7 @@ const FFTCanvas = memo(
       frameSourceIdFallback = null,
       visualizerMachine,
       visualizerSessionKey = "default",
+      pauseSnapshotEnabled = true,
       webGpuStreamResetEpoch = 0,
       waterfallCanvasBindings,
       compact = false,
@@ -2520,6 +2523,7 @@ const FFTCanvas = memo(
       uDipScore: number;
       floorRelativePowerScore: number;
       sincPenaltyScore: number;
+      captureQualityScore: number;
       envelopeFitScore: number;
       envelopeResidualScore: number;
     } | null>(null);
@@ -2863,6 +2867,8 @@ const FFTCanvas = memo(
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const restoreWaveformFromStorageRef = useRef<() => void>(() => {
+      if (!pauseSnapshotEnabled) return;
+
       // When paused and no current IQ data, try to reprocess from last valid frame
       // using the CPU path (authoritative spectrum source).
       const lastData = lastProcessedDataRef.current;
@@ -2910,7 +2916,10 @@ const FFTCanvas = memo(
         const currentData = dataRef.current;
         const incomingFrame = getLatestLiveFrame(currentData);
         const currentFrame =
-          incomingFrame ?? (isPaused ? lastRenderableFrameRef.current : null);
+          incomingFrame ??
+          (isPaused && pauseSnapshotEnabled
+            ? lastRenderableFrameRef.current
+            : null);
         const isCurrentSourceFrame = shouldAcceptWebGpuStreamFrame({
           expectedSourceId,
           frameSourceId: currentFrame?.source_id,
@@ -3062,7 +3071,6 @@ const FFTCanvas = memo(
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
               ctx.clearRect(0, 0, logicalW, logicalH);
-
             }
           }
 
@@ -3614,14 +3622,24 @@ const FFTCanvas = memo(
                 const floorDbm =
                   previousFloor === null
                     ? analysis.floorDbm
-                    : previousFloor + (analysis.floorDbm - previousFloor) * 0.18;
+                    : previousFloor +
+                      (analysis.floorDbm - previousFloor) * 0.18;
                 stableSpikeFloorDbmRef.current = floorDbm;
                 const previousClassifier = stableSpikeClassifierRef.current;
                 const smooth = (value: number, previous: number | undefined) =>
-                  previous === undefined ? value : previous + (value - previous) * 0.12;
+                  previous === undefined
+                    ? value
+                    : previous + (value - previous) * 0.12;
                 const temporalReady = analysis.multiFrameFrameCount >= 4;
+                const sincPenaltyScore = smooth(
+                  analysis.sincPenaltyScore,
+                  previousClassifier?.sincPenaltyScore,
+                );
                 const classifier = {
-                  confidence: smooth(analysis.confidence, previousClassifier?.confidence),
+                  confidence: smooth(
+                    analysis.confidence,
+                    previousClassifier?.confidence,
+                  ),
                   suspensionBridgeScore: smooth(
                     temporalReady
                       ? analysis.multiFrameBridgeScore
@@ -3634,10 +3652,26 @@ const FFTCanvas = memo(
                       : analysis.uDipScore,
                     previousClassifier?.uDipScore,
                   ),
-                  floorRelativePowerScore: smooth(analysis.floorRelativePowerScore, previousClassifier?.floorRelativePowerScore),
-                  sincPenaltyScore: smooth(analysis.sincPenaltyScore, previousClassifier?.sincPenaltyScore),
-                  envelopeFitScore: smooth(analysis.envelopeFitScore, previousClassifier?.envelopeFitScore),
-                  envelopeResidualScore: smooth(analysis.envelopeResidualScore, previousClassifier?.envelopeResidualScore),
+                  floorRelativePowerScore: smooth(
+                    analysis.floorRelativePowerScore,
+                    previousClassifier?.floorRelativePowerScore,
+                  ),
+                  sincPenaltyScore,
+                  // Quality is the inverse of the same displayed penalty.
+                  // Deriving it here prevents transient readback frames from
+                  // showing contradictory sinc and quality diagnostics.
+                  captureQualityScore: Math.max(
+                    0,
+                    Math.min(1, 1 - sincPenaltyScore),
+                  ),
+                  envelopeFitScore: smooth(
+                    analysis.envelopeFitScore,
+                    previousClassifier?.envelopeFitScore,
+                  ),
+                  envelopeResidualScore: smooth(
+                    analysis.envelopeResidualScore,
+                    previousClassifier?.envelopeResidualScore,
+                  ),
                 };
                 stableSpikeClassifierRef.current = classifier;
                 const wasNapt = stableSpikeDecisionRef.current;
@@ -3650,20 +3684,23 @@ const FFTCanvas = memo(
                 const rawDecision = temporalReady
                   ? analysis.multiFrameIsNapt
                   : analysis.baselineIsNapt;
-                const isNapt = rawDecision &&
+                const isNapt =
+                  rawDecision &&
                   (wasNapt
                     ? classifier.confidence >= 0.55
                     : classifier.confidence >= 0.75);
                 stableSpikeDecisionRef.current = isNapt;
-                dispatch(setGpuSpikeAnalysis({
-                  ...analysis,
-                  ...classifier,
-                  floorDbm,
-                  // Keep the displayed decision consistent with the smoothed
-                  // confidence; never show Yes while the visible score is
-                  // below the classifier threshold.
-                  isNapt,
-                }));
+                dispatch(
+                  setGpuSpikeAnalysis({
+                    ...analysis,
+                    ...classifier,
+                    floorDbm,
+                    // Keep the displayed decision consistent with the smoothed
+                    // confidence; never show Yes while the visible score is
+                    // below the classifier threshold.
+                    isNapt,
+                  }),
+                );
               },
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
@@ -3719,7 +3756,12 @@ const FFTCanvas = memo(
                   const bandWidth = Math.max(5, logicalW / 180);
                   ctx.save();
                   ctx.fillStyle = "rgba(220, 40, 255, 0.18)";
-                  ctx.fillRect(x - bandWidth / 2, plotTop, bandWidth, plotBottom - plotTop);
+                  ctx.fillRect(
+                    x - bandWidth / 2,
+                    plotTop,
+                    bandWidth,
+                    plotBottom - plotTop,
+                  );
                   ctx.fillStyle = "#d800ff";
                   ctx.beginPath();
                   ctx.moveTo(x, Math.max(plotTop, y - 22));
@@ -4223,6 +4265,7 @@ const FFTCanvas = memo(
         drawWebGPUFIFOWaterfall,
         computeWaterfallRetuneRow,
         isPaused,
+        pauseSnapshotEnabled,
         displayTemporalResolution,
         spectrumWebgpuEnabled,
         webgpuEnabled,
@@ -4435,6 +4478,7 @@ const FFTCanvas = memo(
       dataRef,
       forceRender,
       snapshotScope: visualizerSessionKey,
+      enabled: pauseSnapshotEnabled,
     });
 
     restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
@@ -5159,7 +5203,9 @@ const FFTCanvas = memo(
               {floorLinePercent !== null && (
                 <FloorLineOverlay
                   style={
-                    { "--floor-line-top": `${floorLinePercent}%` } as React.CSSProperties
+                    {
+                      "--floor-line-top": `${floorLinePercent}%`,
+                    } as React.CSSProperties
                   }
                 />
               )}
@@ -5211,29 +5257,35 @@ const FFTCanvas = memo(
                         key={`label-${keySuffix}`}
                         $active={false}
                         $visible={tick.showLabel}
-                        style={{
-                          "--tick-label-left":
-                            tick.positionPercent === 0
-                              ? "4px"
-                              : tick.positionPercent === 100
-                                ? "calc(100% - 4px)"
-                                : `${tick.positionPercent}%`,
-                          "--tick-label-transform":
-                            tick.positionPercent === 0 ||
-                            tick.positionPercent === 100
-                              ? "none"
-                              : "translateX(-50%)",
-                          "--tick-label-opacity":
-                            tick.positionPercent === 0 ||
-                            tick.positionPercent === 100
-                              ? "1"
-                              : "0.5",
-                          "--tick-label-weight":
-                            tick.positionPercent === 0 ||
-                            tick.positionPercent === 100
-                              ? "800"
-                              : "600",
-                        } as React.CSSProperties}
+                        style={
+                          {
+                            "--tick-label-left":
+                              tick.positionPercent === 0
+                                ? "4px"
+                                : tick.positionPercent === 100
+                                  ? "auto"
+                                  : `${tick.positionPercent}%`,
+                            right:
+                              tick.positionPercent === 100 ? "4px" : "auto",
+                            "--tick-label-transform":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "none"
+                                : "translateX(-50%)",
+                            textAlign:
+                              tick.positionPercent === 100 ? "right" : "left",
+                            "--tick-label-opacity":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "1"
+                                : "0.5",
+                            "--tick-label-weight":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "800"
+                                : "600",
+                          } as React.CSSProperties
+                        }
                       >
                         {tickLabel}
                       </NodePreviewVfoTickLabel>,
@@ -5242,7 +5294,10 @@ const FFTCanvas = memo(
                         $active={false}
                         style={
                           {
-                            "--tick-left": `${tick.positionPercent}%`,
+                            "--tick-left":
+                              tick.positionPercent === 100
+                                ? "calc(100% - 1px)"
+                                : `${tick.positionPercent}%`,
                             "--tick-opacity":
                               tick.positionPercent === 0 ||
                               tick.positionPercent === 100
@@ -5340,7 +5395,9 @@ const FFTCanvas = memo(
                     {floorLinePercent !== null && (
                       <FloorLineOverlay
                         style={
-                          { "--floor-line-top": `${floorLinePercent}%` } as React.CSSProperties
+                          {
+                            "--floor-line-top": `${floorLinePercent}%`,
+                          } as React.CSSProperties
                         }
                       />
                     )}

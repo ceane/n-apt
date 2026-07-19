@@ -13,6 +13,14 @@ const NAPT_TEMPORAL_WGSL = readFileSync(
   join(process.cwd(), "src/ts/shaders/napt_temporal.wgsl"),
   "utf8",
 );
+const FFT_HOOK_SOURCE = readFileSync(
+  join(process.cwd(), "src/ts/hooks/useDrawWebGPUFFTSignal.ts"),
+  "utf8",
+);
+const FFT_CANVAS_SOURCE = readFileSync(
+  join(process.cwd(), "src/ts/components/FFTCanvas.tsx"),
+  "utf8",
+);
 
 describe("N-APT classifier", () => {
   it("defines a compute stage for floor-relative N-APT metrics", () => {
@@ -61,6 +69,13 @@ describe("N-APT classifier", () => {
     expect(NAPT_CLASSIFY_WGSL).toContain("global_u_dip");
     expect(NAPT_CLASSIFY_WGSL).toContain("MIN_LOW_RISE_BRIDGE_WIDTH");
     expect(NAPT_CLASSIFY_WGSL).toContain("low_rise_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("irregular_sinc_structure_penalty");
+    expect(NAPT_CLASSIFY_WGSL).toContain(
+      "IRREGULAR_SINC_MIN_BRIDGE_SCORE",
+    );
+    expect(NAPT_CLASSIFY_WGSL).toContain(
+      "IRREGULAR_SINC_MIN_U_DIP_SCORE",
+    );
     expect(NAPT_CLASSIFY_WGSL).toContain("u_dip_source");
     expect(NAPT_DETECT_WGSL).toContain("low_rise_bridge_score");
     expect(NAPT_CLASSIFY_WGSL).toContain("envelope_min");
@@ -79,8 +94,19 @@ describe("N-APT classifier", () => {
 
   it("keeps the classifier readback contract large enough for shape diagnostics", () => {
     expect(NAPT_CLASSIFY_WGSL).toContain("shoulder_symmetry_score: f32");
+    expect(NAPT_CLASSIFY_WGSL).toContain("capture_quality_score: f32");
     expect(NAPT_DETECT_WGSL).toContain("shoulder_symmetry_score: f32");
+    expect(NAPT_DETECT_WGSL).toContain("capture_quality_score: f32");
     expect(NAPT_TEMPORAL_WGSL).toContain("unimodal_bridge_score: f32");
+  });
+
+  it("copies the complete classifier result before reading extended diagnostics", () => {
+    expect(FFT_HOOK_SOURCE).toContain(
+      "state.naptClassifyReadbackBuffer,\n            0,\n            132,",
+    );
+    expect(FFT_CANVAS_SOURCE).toContain(
+      "captureQualityScore: Math.max(0, Math.min(1, 1 - sincPenaltyScore))",
+    );
   });
 
   it("uses suspension_bridge as the dominant detection weight and rejects weak structure", () => {
@@ -93,7 +119,20 @@ describe("N-APT classifier", () => {
     expect(NAPT_DETECT_WGSL).toContain("STRONG_BRIDGE_THRESHOLD");
     expect(NAPT_DETECT_WGSL).toContain("has_low_rise_bridge");
     expect(NAPT_DETECT_WGSL).toContain("low_rise_shape_bonus");
+    expect(NAPT_DETECT_WGSL).toContain("CAPTURE_QUALITY_LIKELY_CAP");
+    expect(NAPT_DETECT_WGSL).toContain("severe_artifact_rejection");
     expect(NAPT_DETECT_WGSL).toContain("0.60");
+  });
+
+  it("does not promote a bridge when unimodal and partial geometry are absent", () => {
+    expect(NAPT_DETECT_WGSL).toContain("coherent_bridge_shape_score");
+    expect(NAPT_DETECT_WGSL).toContain("MIN_COHERENT_BRIDGE_SHAPE_SCORE");
+    expect(NAPT_DETECT_WGSL).toContain("NO_COHERENT_SHAPE_CONFIDENCE_CAP");
+    expect(NAPT_DETECT_WGSL).toContain("!missing_coherent_bridge_shape");
+    expect(NAPT_TEMPORAL_WGSL).toContain("validated_bridge_shape_support");
+    expect(NAPT_TEMPORAL_WGSL).toContain("frame.bridge_shape_support >=");
+    expect(NAPT_TEMPORAL_WGSL).toContain("temporal_shape_supported");
+    expect(NAPT_TEMPORAL_WGSL).toContain("min(temporal_confidence, 0.49)");
   });
 
   it("keeps tuning movement normalized and exposes temporal stability", () => {

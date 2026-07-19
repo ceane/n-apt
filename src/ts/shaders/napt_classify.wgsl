@@ -28,8 +28,8 @@ struct SpikeMetric {
 const MAX_SPIKES: u32 = 1024u;
 
 // The first ten members are atomic accumulators used by classify(). The
-  // remaining members are finalized scalar outputs. The host reads the scalar
-  // fields at byte offsets 40 through 124, so changing this layout requires a
+// remaining members are finalized scalar outputs. The host reads the scalar
+// fields at byte offsets 40 through 128, so changing this layout requires a
   // matching update in useDrawWebGPUFFTSignal.ts, the harness, and readback tests.
 struct ClassifierResult {
   floor_sum_fixed: atomic<i32>,
@@ -68,6 +68,9 @@ struct ClassifierResult {
   partial_bridge_score: f32,
   apex_prominence_score: f32,
   shoulder_symmetry_score: f32,
+  // [128] Quality is the inverse of the independently measured hardware-artifact
+  // penalty. It is diagnostic and decision-gating data, not N-APT evidence.
+  capture_quality_score: f32,
 }
 
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
@@ -115,6 +118,63 @@ const ENVELOPE_FLAT_SLOPE_DB: f32 = 8.0;
 const ENVELOPE_MIN_SUPPORT: u32 = 8u;
 const ENVELOPE_SAMPLE_COUNT: u32 = 12u;
 const SINC_SAMPLE_COUNT: u32 = 12u;
+const EDGE_SINC_PENALTY_GAIN: f32 = 2.0;
+// The structural contradiction penalty is only meaningful when both broad
+// shape features are genuinely strong. Without these guards, a tall-spike
+// capture can contribute a little U-like curvature in one frame and be
+// mistaken for an irregular sinc response.
+const IRREGULAR_SINC_MIN_BRIDGE_SCORE: f32 = 0.80;
+const IRREGULAR_SINC_MIN_U_DIP_SCORE: f32 = 0.60;
+
+// A separate edge-rolloff detector covers the irregular HackRF response seen
+// in distorted captures. It is intentionally based on normalized capture
+// coordinates: this is an artifact shape, not an absolute-frequency rule.
+fn edge_sinc_penalty() -> f32 {
+  if (params.length < 64u) { return 0.0; }
+
+  var left_sum = 0.0;
+  var right_sum = 0.0;
+  var center_sum = 0.0;
+  for (var sample = 0u; sample < 8u; sample = sample + 1u) {
+    let t = f32(sample) / 7.0;
+    let left_index = u32((0.02 + t * 0.16) * f32(params.length - 1u));
+    let right_index = u32((0.82 + t * 0.16) * f32(params.length - 1u));
+    let center_index = u32((0.42 + t * 0.16) * f32(params.length - 1u));
+    left_sum = left_sum + waveform[left_index];
+    right_sum = right_sum + waveform[right_index];
+    center_sum = center_sum + waveform[center_index];
+  }
+  let left_mean = left_sum / 8.0;
+  let right_mean = right_sum / 8.0;
+  let center_mean = center_sum / 8.0;
+  let edge_lift = min(left_mean - center_mean, right_mean - center_mean);
+  // The distorted capture's edge lobes are only a few dB above its center on
+  // an individual frame, so this threshold must remain sensitive to a weak
+  // irregular response. The rolloff and bilateral tests below keep ordinary
+  // high-spike and low-rise frames from becoming artifacts on edge lift alone.
+  let edge_dominance = clamp((edge_lift - 3.5) / 7.0, 0.0, 1.0);
+  let edge_symmetry = clamp(
+    1.0 - abs(left_mean - right_mean) / 12.0,
+    0.0,
+    1.0);
+
+  var left_rolloff = 0u;
+  var right_rolloff = 0u;
+  for (var step = 0u; step < 7u; step = step + 1u) {
+    let t0 = f32(step) / 7.0;
+    let t1 = f32(step + 1u) / 7.0;
+    let left0 = waveform[u32((0.06 + t0 * 0.34) * f32(params.length - 1u))];
+    let left1 = waveform[u32((0.06 + t1 * 0.34) * f32(params.length - 1u))];
+    let right0 = waveform[u32((0.60 + t0 * 0.34) * f32(params.length - 1u))];
+    let right1 = waveform[u32((0.60 + t1 * 0.34) * f32(params.length - 1u))];
+    if (left0 >= left1 - 1.5) { left_rolloff = left_rolloff + 1u; }
+    if (right1 >= right0 - 1.5) { right_rolloff = right_rolloff + 1u; }
+  }
+  let rolloff_score = min(
+    f32(left_rolloff) / 7.0,
+    f32(right_rolloff) / 7.0);
+  return edge_dominance * edge_symmetry * rolloff_score;
+}
 
 fn sinc_penalty_score() -> f32 {
   if (params.length < 32u) { return 0.0; }
@@ -136,12 +196,20 @@ fn sinc_penalty_score() -> f32 {
   let available_radius = min(
     peak_index,
     params.length - 1u - peak_index);
-  if (available_radius < params.length / 6u) { return 0.0; }
+  if (available_radius < params.length / 6u) {
+    return edge_sinc_penalty();
+  }
 
   var symmetry_error = 0.0;
   var side_sum = 0.0;
   var side_support = 0u;
   var decay_violations = 0u;
+  var secondary_peak = -120.0;
+  for (var candidate = 0u; candidate < params.length; candidate = candidate + 1u) {
+    if (abs(i32(candidate) - i32(peak_index)) > i32(max(1u, available_radius / 8u))) {
+      secondary_peak = max(secondary_peak, waveform[candidate]);
+    }
+  }
   var previous_pair = peak_value;
   for (var sample = 1u; sample <= SINC_SAMPLE_COUNT; sample = sample + 1u) {
     // Half-step sampling avoids landing on every zero of an idealized sinc.
@@ -182,8 +250,23 @@ fn sinc_penalty_score() -> f32 {
     f32(available_radius) / f32(max(1u, params.length / 4u)),
     0.0,
     1.0);
-  return center_dominance * symmetry_score * decay_score *
-    side_support_score * centered_score;
+  // N-APT can contain many tall, unrelated spikes. A sinc response instead
+  // has one clearly dominant lobe; reduce the penalty when a second peak is
+  // nearly as strong as the selected peak.
+  let peak_isolation_score = clamp(
+    (peak_value - secondary_peak - 3.0) / 12.0,
+    0.0,
+    1.0);
+  let isolated_lobe_score = peak_isolation_score * peak_isolation_score;
+  let centered_lobe_penalty = center_dominance * symmetry_score * decay_score *
+    side_support_score * centered_score * isolated_lobe_score;
+  // A weak edge response is distributed across several bins and is easy to
+  // understate on any one frame. Apply a bounded gain to the edge branch; the
+  // bilateral rolloff gate still keeps this from becoming an edge-spike rule.
+  return clamp(
+    max(centered_lobe_penalty, EDGE_SINC_PENALTY_GAIN * edge_sinc_penalty()),
+    0.0,
+    1.0);
 }
 
 fn waveform_envelope_at(normalized_position: f32) -> f32 {
@@ -1421,7 +1504,6 @@ fn finalize() {
   result.envelope_support_count = envelope_support_count;
   result.u_dip_score = global_u_dip;
   result.u_dip_source = u_dip_source;
-  result.sinc_penalty_score = sinc_penalty_score();
       // The bridge score is now the tolerant unimodal score. The old
       // monotonic clump fallback is intentionally not allowed to override it:
       // a random comb can contain an ordered local run, but it cannot satisfy
@@ -1471,6 +1553,31 @@ fn finalize() {
   result.suspension_bridge_score = max(
     result.suspension_bridge_score,
     low_rise_recovery_score);
+  // A broad U and a strong bridge can look convincing even when the observed
+  // envelope is internally incoherent. That contradiction is characteristic
+  // of the irregular sinc/hardware response: the local shape scores are high,
+  // but the sampled envelope cannot explain the visible rise and fall. Keep
+  // this as a soft quality penalty rather than a hard N-APT rejection so a
+  // partial Channel C capture can remain useful as a low-confidence result.
+  let irregular_sinc_structure_penalty = select(
+    0.0,
+    clamp(
+      result.u_dip_score *
+      result.suspension_bridge_score *
+      clamp(1.0 - result.envelope_fit_score, 0.0, 1.0) *
+      clamp(1.0 - result.envelope_residual_score, 0.0, 1.0) *
+      1.50,
+      0.0,
+      1.0),
+    result.suspension_bridge_score >= IRREGULAR_SINC_MIN_BRIDGE_SCORE &&
+    result.u_dip_score >= IRREGULAR_SINC_MIN_U_DIP_SCORE);
+  result.sinc_penalty_score = max(
+    sinc_penalty_score(),
+    irregular_sinc_structure_penalty);
+  result.capture_quality_score = clamp(
+    1.0 - result.sinc_penalty_score,
+    0.0,
+    1.0);
   // This is intentionally a separate power feature. A strong floor-relative
   // spike population cannot, by itself, create bridge or U-dip structure.
   result.floor_relative_power_score = clamp(

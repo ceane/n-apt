@@ -4,8 +4,8 @@ type ColorMap = Record<string, string>;
 
 const typography = {
   mono: "'JetBrains Mono', monospace",
-  sans: "'Inter', system-ui, -apple-system, sans-serif",
-  body: "'Inter', system-ui, -apple-system, sans-serif",
+  sans: "var(--napt-font-stack) !important",
+  body: "var(--napt-font-stack) !important",
   bodySize: "var(--font-size-body)",
   headingSize: "var(--font-size-heading)",
   codeSize: "var(--font-size-code)",

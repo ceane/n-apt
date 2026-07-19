@@ -117,6 +117,28 @@ const MetricRow = styled.div`
   color: ${({ theme }) => theme.colors.textSecondary};
 `;
 
+const StripedRows = styled.div`
+  display: grid;
+  gap: 2px;
+`;
+
+const StripedMetricRow = styled(MetricRow)`
+  padding: 5px 6px;
+  border-radius: 4px;
+
+  &:nth-child(even) {
+    background: rgba(0, 0, 0, 0.15);
+  }
+`;
+
+const NaptMetricRow = styled(StripedMetricRow)`
+  font-size: 14.3px;
+`;
+
+const NaptRowLabel = styled(ResultLabel)`
+  font-size: inherit;
+`;
+
 const MetricValue = styled.span<{ $positive?: boolean }>`
   color: ${({ theme, $positive }) =>
     $positive ? theme.colors.primary : theme.colors.textPrimary};
@@ -125,14 +147,14 @@ const MetricValue = styled.span<{ $positive?: boolean }>`
 
 const SpikeList = styled.div`
   display: grid;
-  gap: 4px;
+  gap: 2px;
   max-height: 150px;
   overflow-y: auto;
 `;
 
 const SpikeRow = styled.div<{ $hovered: boolean }>`
   position: relative;
-  padding: 5px 7px;
+  padding: 5px 6px;
   border-radius: 6px;
   background: ${({ theme, $hovered }) =>
     $hovered ? `${theme.colors.primary}22` : "transparent"};
@@ -140,6 +162,11 @@ const SpikeRow = styled.div<{ $hovered: boolean }>`
     ${({ theme, $hovered }) =>
       $hovered ? theme.colors.primary : "transparent"};
   cursor: default;
+
+  &:nth-child(even) {
+    background: ${({ theme, $hovered }) =>
+      $hovered ? `${theme.colors.primary}22` : "rgba(0, 0, 0, 0.15)"};
+  }
 `;
 
 const HoverBand = styled.div`
@@ -252,91 +279,99 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
 
         <ResultCard>
           <ResultLabel>Classifier diagnostics</ResultLabel>
-          <MetricRow>
-            <span>Suspension bridge</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.suspensionBridgeScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Unimodal bridge</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.unimodalBridgeScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Partial bridge branch</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.partialBridgeScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Apex prominence</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.apexProminenceScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Shoulder symmetry</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.shoulderSymmetryScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>U-dip</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.uDipScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Floor-relative power</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.floorRelativePowerScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Sinc artifact penalty</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.sincPenaltyScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Temporal stability</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.temporalStability)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>One-frame baseline</span>
-            <MetricValue>
-              {gpuSpikeAnalysis
-                ? gpuSpikeAnalysis.baselineIsNapt
-                  ? "Yes"
-                  : "No"
+          <StripedRows>
+            <StripedMetricRow>
+              <span>Suspension bridge</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.suspensionBridgeScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Unimodal bridge</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.unimodalBridgeScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Partial bridge branch</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.partialBridgeScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Apex prominence</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.apexProminenceScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Shoulder symmetry</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.shoulderSymmetryScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>U-dip</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.uDipScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Floor-relative power</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.floorRelativePowerScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Sinc artifact penalty</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.sincPenaltyScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Capture quality</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.captureQualityScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Temporal stability</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.temporalStability)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>One-frame baseline</span>
+              <MetricValue>
+                {gpuSpikeAnalysis
+                  ? gpuSpikeAnalysis.baselineIsNapt
+                    ? "Yes"
+                    : "No"
                 : "—"}
-            </MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Multi-frame persistence</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.multiFramePersistence)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Envelope fit</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeFitScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Envelope residual</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeResidualScore)}</MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <span>Confidence</span>
-            <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.confidence)}</MetricValue>
-          </MetricRow>
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Multi-frame persistence</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.multiFramePersistence)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Envelope fit</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeFitScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Envelope residual</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeResidualScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <span>Confidence</span>
+              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.confidence)}</MetricValue>
+            </StripedMetricRow>
+          </StripedRows>
         </ResultCard>
 
         <ResultCard>
-          <MetricRow>
-            <ResultLabel>Is N-APT?</ResultLabel>
-            <MetricValue $positive={gpuSpikeAnalysis?.isNapt || naptLabel === "Likely"}>
-              {naptLabel}
-            </MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <ResultLabel>Floor at</ResultLabel>
-            <MetricValue>
-              {gpuSpikeAnalysis
-                ? formatPowerDbm(gpuSpikeAnalysis.floorDbm)
-                : "—"}
-            </MetricValue>
-          </MetricRow>
-          <MetricRow>
-            <ResultLabel>Power scale</ResultLabel>
-            <label>
-              <input type="checkbox" checked readOnly disabled /> dBm
-            </label>
-          </MetricRow>
+          <StripedRows>
+                <NaptMetricRow>
+                  <NaptRowLabel>Is N-APT?</NaptRowLabel>
+                  <MetricValue $positive={gpuSpikeAnalysis?.isNapt || naptLabel === "Likely"}>
+                    {naptLabel}
+                  </MetricValue>
+                </NaptMetricRow>
+            <StripedMetricRow>
+              <ResultLabel>Floor at</ResultLabel>
+              <MetricValue>
+                {gpuSpikeAnalysis
+                  ? formatPowerDbm(gpuSpikeAnalysis.floorDbm)
+                  : "—"}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow>
+              <ResultLabel>Power scale</ResultLabel>
+              <label>
+                <input type="checkbox" checked readOnly disabled /> dBm
+              </label>
+            </StripedMetricRow>
+          </StripedRows>
         </ResultCard>
 
         <ResultCard>

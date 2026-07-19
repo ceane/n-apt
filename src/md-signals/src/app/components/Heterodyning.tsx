@@ -189,7 +189,7 @@ function FreespaceViz({ freqA, freqB }: { freqA: number; freqB: number }) {
 
       // Tx A label
       ctx.fillStyle = dark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.7)";
-      ctx.font = "bold 11px Inter, sans-serif";
+      ctx.font = "bold 11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("Tx A", txAx, cy - 8);
       ctx.fillText(`f = ${freqA}`, txAx, cy + 16);

@@ -17,6 +17,13 @@ import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import {
+  isFilePlaybackPaused,
+  shouldRestorePausedFrameSnapshot,
+} from "@n-apt/hooks/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 
 interface FFTNodeProps {
   id: string;
@@ -67,6 +74,23 @@ export const getFftNodeResolvedRange = ({
     : isValidRange(frameRange)
       ? frameRange
       : undefined;
+};
+
+export const getFftNodeSourceRange = ({
+  sourceMode,
+  liveRange,
+  activePlaybackRange,
+  loadedFileRange,
+}: {
+  sourceMode: "live" | "file";
+  liveRange?: FrequencyRange | null;
+  activePlaybackRange?: FrequencyRange | null;
+  loadedFileRange?: FrequencyRange | null;
+}): FrequencyRange | null => {
+  if (sourceMode === "file") {
+    return activePlaybackRange ?? loadedFileRange ?? liveRange ?? null;
+  }
+  return liveRange ?? null;
 };
 
 const NodeWrapper = styled.div`
@@ -122,12 +146,26 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const selectedFiles = useAppSelector(
+    (state) => state.waterfall.selectedFiles,
+  );
+  const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
+  const stitchTrigger = useAppSelector(
+    (state) => state.waterfall.stitchTrigger,
+  );
+  const isStitchPaused = useAppSelector(
+    (state) => state.waterfall.isStitchPaused,
+  );
+  const [, setFrameVersion] = useState(0);
   const selectedDeviceName = useAppSelector(
     (state) => state.websocket.deviceName,
   );
-  const initialFrame = Array.isArray(liveDataRef.current)
-    ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-    : liveDataRef.current;
+  const initialSourceRef =
+    sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+  const initialFrame = Array.isArray(initialSourceRef.current)
+    ? (initialSourceRef.current[initialSourceRef.current.length - 1] ?? null)
+    : initialSourceRef.current;
   const dataRef = useRef<LiveFrameData | null>(initialFrame);
 
   const nodes = useNodes();
@@ -146,6 +184,12 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const frequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
   );
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
   const centerFrequencyHz = useAppSelector(
     (state) => state.websocket.sdrSettings?.center_frequency || 0,
   );
@@ -162,11 +206,12 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   );
 
   useEffect(() => {
-    const liveFrame = Array.isArray(liveDataRef.current)
-      ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-      : liveDataRef.current;
+    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const liveFrame = Array.isArray(sourceRef.current)
+      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+      : sourceRef.current;
     dataRef.current = liveFrame;
-  }, [activeSourceId]);
+  }, [activeSourceId, sourceMode]);
   const demodCenterFreqHz = useAppSelector(
     (state) => state.demod?.centerFreqHz ?? null,
   );
@@ -185,6 +230,22 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const { previewRange, previewAlignment } = useAppSelector(
     (state) => state.spectrum,
   );
+  const sourceFrequencyRange = getFftNodeSourceRange({
+    sourceMode,
+    liveRange: frequencyRange,
+    activePlaybackRange: activePlaybackMetadata?.frequency_range
+      ? {
+          min: activePlaybackMetadata.frequency_range[0],
+          max: activePlaybackMetadata.frequency_range[1],
+        }
+      : null,
+    loadedFileRange: loadedFileMetadata?.frequency_range
+      ? {
+          min: loadedFileMetadata.frequency_range[0],
+          max: loadedFileMetadata.frequency_range[1],
+        }
+      : null,
+  });
 
   // Use a ref to track the latest range without stale closures
   const rangeRef = useRef<{ min: number; max: number } | null>(null);
@@ -195,10 +256,13 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   // Sync live frame data and derive frequency range from frame metadata
   useEffect(() => {
     const id = setInterval(() => {
-      const liveFrame = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const sourceRef =
+        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+      const liveFrame = Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
       dataRef.current = liveFrame;
+      setFrameVersion((version) => version + 1);
 
       // Prefer the requested range while a retune is in flight. Frame
       // metadata can still describe the previous hardware window for several
@@ -212,7 +276,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
       }
 
       let newRange = getFftNodeResolvedRange({
-        requestedRange: frequencyRange,
+        requestedRange: sourceFrequencyRange,
         frameRange,
       });
       if (!newRange) {
@@ -240,9 +304,26 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
       }
     }, 50); // 20fps is plenty for range sync
     return () => clearInterval(id);
-  }, [frequencyRange, centerFrequencyHz, demodCenterFreqHz]); // Keep live frame range aligned with the current source metadata
+  }, [centerFrequencyHz, demodCenterFreqHz, sourceFrequencyRange, sourceMode]); // Keep frame range aligned with the current source metadata
 
-  const frame = dataRef.current;
+  const renderDataRef = sourceMode === "file" ? filePlaybackDataRef : dataRef;
+  const isPaused = isFilePlaybackPaused({ sourceMode, isStitchPaused });
+  const canvasSessionKey = getSourcePresentationSessionKey({
+    sourceMode,
+    selectedFiles,
+    stitchTrigger,
+  });
+  const frame = renderDataRef.current;
+  const filePlaceholderState = getFilePlaceholderState({
+    sourceMode,
+    selectedFilesCount: selectedFiles.length,
+    stitchStatus,
+    hasRenderableFrame: Boolean(
+      (frame as any)?.waveform?.length ||
+      (frame as any)?.iq_data?.length ||
+      (frame as any)?.data?.length,
+    ),
+  });
 
   const effectiveDisplayRange = resolvedRange;
   const selectionRange = previewRange || undefined;
@@ -317,12 +398,17 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
       <NodeTitle>{data.label}</NodeTitle>
       <CanvasContainer className="nodrag nopan" tabIndex={-1}>
         <FFTCanvas
+          key={canvasSessionKey}
           ref={fftRef}
-          dataRef={dataRef}
+          dataRef={renderDataRef}
+          visualizerSessionKey={canvasSessionKey}
+          pauseSnapshotEnabled={shouldRestorePausedFrameSnapshot({
+            sourceMode,
+          })}
           frequencyRange={effectiveDisplayRange || { min: 0, max: 0 }}
           centerFrequencyHz={currentCenterHz}
           activeSignalArea={activeSignalArea}
-          isPaused={false}
+          isPaused={isPaused}
           isDeviceConnected={true}
           fftSize={fftSize}
           fftWindow={fftWindow}
@@ -360,6 +446,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           onFrequencyRangeChange={handleSelectionEdgePan}
           onSelectionChange={handleSelectionChange}
           placeholderSourceLabel={data.label}
+          placeholderState={filePlaceholderState}
           deviceName={selectedDeviceName ?? data.label}
         />
       </CanvasContainer>

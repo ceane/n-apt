@@ -53,14 +53,15 @@ describe("manual N-APT capture regression evaluator", () => {
 
   it("aggregates frame scores without hiding peak and persistence behavior", () => {
     const frames = [
-      { suspensionBridge: 0.92, uDip: 0.88, confidence: 0.86, isNapt: true },
-      { suspensionBridge: 0.80, uDip: 0.76, confidence: 0.72, isNapt: false },
-      { suspensionBridge: 0.96, uDip: 0.91, confidence: 0.90, isNapt: true },
+      { suspensionBridge: 0.92, uDip: 0.88, captureQuality: 0.70, confidence: 0.86, isNapt: true },
+      { suspensionBridge: 0.80, uDip: 0.76, captureQuality: 0.55, confidence: 0.72, isNapt: false },
+      { suspensionBridge: 0.96, uDip: 0.91, captureQuality: 0.82, confidence: 0.90, isNapt: true },
     ];
     const result = invoke(`console.log(JSON.stringify(aggregateClassifierFrames(${JSON.stringify(frames)})))`);
     expect(result.frame_count).toBe(3);
     expect(result.metrics.suspension_bridge.peak).toBeCloseTo(0.96);
     expect(result.metrics.u_dip.peak).toBeCloseTo(0.91);
+    expect(result.metrics.capture_quality.p75).toBeCloseTo(0.76);
     expect(result.temporal_yes_fraction).toBeCloseTo(2 / 3);
   });
 
@@ -110,5 +111,27 @@ describe("manual N-APT capture regression evaluator", () => {
     const result = invoke(`console.log(JSON.stringify(evaluateRegressionCase(${JSON.stringify(testCase)}, ${JSON.stringify(aggregate)})))`);
     expect(result.ok).toBe(false);
     expect(result.failures.join(" ")).toMatch(/suspension_bridge/);
+  });
+
+  it("asserts an explicit capture-quality ceiling without treating quality as N-APT evidence", () => {
+    const testCase = {
+      id: "hackrf-distorted",
+      expected: { napt: "likely", suspension_bridge: "unasserted", u_dip: "unasserted" },
+      thresholds: {
+        capture_quality: { peak_max: 0.45 },
+        napt: { confidence_max: 0.74 },
+      },
+    };
+    const aggregate = {
+      frame_count: 2,
+      metrics: {
+        capture_quality: { peak: 0.62, p75: 0.58, mean: 0.55 },
+        confidence: { peak: 0.70 },
+      },
+      temporal_yes_fraction: 0,
+    };
+    const result = invoke(`console.log(JSON.stringify(evaluateRegressionCase(${JSON.stringify(testCase)}, ${JSON.stringify(aggregate)})))`);
+    expect(result.ok).toBe(false);
+    expect(result.failures.join(" ")).toMatch(/capture_quality peak/);
   });
 });

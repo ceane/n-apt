@@ -54,7 +54,13 @@ import {
   FFTNode,
   getFftNodeDisplayCenterHz,
   getFftNodeResolvedRange,
+  getFftNodeSourceRange,
 } from "@n-apt/components/react-flow/nodes/FFTNode";
+import {
+  isFilePlaybackPaused,
+  shouldRestorePausedFrameSnapshot,
+} from "@n-apt/hooks/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {
@@ -89,6 +95,69 @@ describe("FFTNode", () => {
         frameRange: { min: 100, max: 110 },
       }),
     ).toEqual({ min: 110, max: 120 });
+  });
+
+  it("prefers file playback metadata over the stale live spectrum range", () => {
+    expect(
+      getFftNodeSourceRange({
+        sourceMode: "file",
+        liveRange: { min: 4_750_000, max: 23_000_000 },
+        activePlaybackRange: { min: 620_265, max: 3_820_265 },
+      }),
+    ).toEqual({ min: 620_265, max: 3_820_265 });
+  });
+
+  it("keeps a remounted file canvas in paused-frame mode", () => {
+    expect(
+      isFilePlaybackPaused({ sourceMode: "file", isStitchPaused: true }),
+    ).toBe(true);
+    expect(
+      isFilePlaybackPaused({ sourceMode: "file", isStitchPaused: false }),
+    ).toBe(false);
+    expect(
+      isFilePlaybackPaused({ sourceMode: "live", isStitchPaused: true }),
+    ).toBe(false);
+  });
+
+  it("changes the canvas session when leaving Mock APT for a new file", () => {
+    const liveSession = getSourcePresentationSessionKey({
+      sourceMode: "live",
+      selectedFiles: [],
+      stitchTrigger: 0,
+    });
+    const fileSession = getSourcePresentationSessionKey({
+      sourceMode: "file",
+      selectedFiles: [{ id: "capture-1", name: "capture.napt" }],
+      stitchTrigger: 1,
+    });
+
+    expect(fileSession).not.toBe(liveSession);
+  });
+
+  it("does not restore a live paused snapshot into file playback", () => {
+    expect(shouldRestorePausedFrameSnapshot({ sourceMode: "live" })).toBe(true);
+    expect(shouldRestorePausedFrameSnapshot({ sourceMode: "file" })).toBe(
+      false,
+    );
+  });
+
+  it("scopes paused-frame snapshots to the active canvas session", () => {
+    render(
+      <TestWrapper>
+        <FFTNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(mockFFTCanvasProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        visualizerSessionKey: getSourcePresentationSessionKey({
+          sourceMode: "live",
+          selectedFiles: [],
+          stitchTrigger: 0,
+        }),
+        pauseSnapshotEnabled: true,
+      }),
+    );
   });
 
   it("renders with label", () => {

@@ -109,6 +109,20 @@ const cachedParseCssColor = (
   return result;
 };
 
+// Fast-refresh can preserve the React hook state while replacing the imported
+// WGSL string. GPU pipelines are immutable, so the existing pipeline would
+// otherwise continue executing the previous shader until a full page reload.
+const shaderFingerprint = (source: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${source.length}:${hash >>> 0}`;
+};
+
+const NAPT_CLASSIFIER_SHADER_FINGERPRINT = shaderFingerprint(NAPT_CLASSIFY_WGSL);
+
 // Shaders imported from @n-apt/shaders/
 
 export type SpectrumRenderParams = {
@@ -155,6 +169,7 @@ export interface SpikeAnalysis {
   partialBridgeScore: number;
   apexProminenceScore: number;
   shoulderSymmetryScore: number;
+  captureQualityScore: number;
 }
 
 // Inlined FFTWebGPU class as internal state
@@ -230,6 +245,7 @@ type FFTWebGPUState = {
   naptTemporalReadbackInFlight: boolean;
   naptTemporalFrequencyMin: number;
   naptTemporalFrequencyMax: number;
+  naptClassifierShaderFingerprint: string;
   // Persistent scratch buffers — allocated once, reused every frame
   scratchSpikeParamsAB: ArrayBuffer;
   scratchSpikeParamsU32: Uint32Array;
@@ -284,6 +300,31 @@ export function useDrawWebGPUFFTSignal() {
     for (const buffer of buffers) {
       buffer.destroy();
     }
+  }, []);
+
+  const destroyRendererResources = useCallback((state: FFTWebGPUState) => {
+    state.uniformBuffer?.destroy();
+    state.resampleInputBuffer?.destroy();
+    state.resampleOutputBuffer?.destroy();
+    state.resamplePeakIndexBuffer?.destroy();
+    state.resampleParamsBuffer?.destroy();
+    state.spikeBuffer?.destroy();
+    state.spikeCountBuffer?.destroy();
+    state.spikeCountReadbackBuffer?.destroy();
+    state.spikeParamsBuffer?.destroy();
+    state.spikeRecoveryParamsBuffer?.destroy();
+    state.floorAvgResultBuffer?.destroy();
+    state.naptClassifyParamsBuffer?.destroy();
+    state.naptClassifyResultBuffer?.destroy();
+    state.naptClassifyReadbackBuffer?.destroy();
+    state.spikeMetricsBuffer?.destroy();
+    state.spikeMetricsReadbackBuffer?.destroy();
+    state.naptDecisionBuffer?.destroy();
+    state.naptDecisionReadbackBuffer?.destroy();
+    state.naptTemporalHistoryBuffer?.destroy();
+    state.naptTemporalParamsBuffer?.destroy();
+    state.naptTemporalDecisionBuffer?.destroy();
+    state.naptTemporalReadbackBuffer?.destroy();
   }, []);
 
   const retireBuffer = useCallback((buffer: GPUBuffer | null | undefined) => {
@@ -635,14 +676,14 @@ export function useDrawWebGPUFFTSignal() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const naptClassifyResultBuffer = device.createBuffer({
-        size: 128,
+        size: 132,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.COPY_SRC,
       });
       const naptClassifyReadbackBuffer = device.createBuffer({
-        size: 128,
+        size: 132,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       const spikeMetricsBuffer = device.createBuffer({
@@ -806,6 +847,7 @@ export function useDrawWebGPUFFTSignal() {
         naptTemporalReadbackInFlight: false,
         naptTemporalFrequencyMin: Number.NaN,
         naptTemporalFrequencyMax: Number.NaN,
+        naptClassifierShaderFingerprint: NAPT_CLASSIFIER_SHADER_FINGERPRINT,
         scratchSpikeParamsAB,
         scratchSpikeParamsU32,
         scratchSpikeParamsF32,
@@ -845,6 +887,19 @@ export function useDrawWebGPUFFTSignal() {
       // Background color from CSS variable - not configurable per-call to ensure
       // snapshot consistency (snapshots capture waveform data, not background)
       const backgroundColor = readCssColor("--color-fft-background", "#0a0a0a");
+
+      // Rebuild immutable GPU pipelines when Vite replaces the WGSL module
+      // during development. This prevents a preserved React hook state from
+      // continuing to report metrics from an older shader revision.
+      if (
+        rendererRef.current &&
+        rendererRef.current.naptClassifierShaderFingerprint !==
+          NAPT_CLASSIFIER_SHADER_FINGERPRINT
+      ) {
+        const staleState = rendererRef.current;
+        rendererRef.current = null;
+        destroyRendererResources(staleState);
+      }
 
       if (!rendererRef.current) {
         if (!canvas || !device || !format) return false;
@@ -1231,7 +1286,7 @@ export function useDrawWebGPUFFTSignal() {
             0,
             state.naptClassifyReadbackBuffer,
             0,
-            112,
+            132,
           );
           encoder.copyBufferToBuffer(
             state.naptDecisionBuffer,
@@ -1431,6 +1486,7 @@ export function useDrawWebGPUFFTSignal() {
               const partialBridgeScore = result.getFloat32(116, true);
               const apexProminenceScore = result.getFloat32(120, true);
               const shoulderSymmetryScore = result.getFloat32(124, true);
+              const captureQualityScore = result.getFloat32(128, true);
               resultBuffer.unmap();
               return state.naptDecisionReadbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
               const decision = new DataView(
@@ -1480,6 +1536,7 @@ export function useDrawWebGPUFFTSignal() {
                       partialBridgeScore,
                       apexProminenceScore,
                       shoulderSymmetryScore,
+                      captureQualityScore,
                       aboveFloorFraction,
                       periodicity,
                       isNapt: temporalIsNapt,
@@ -1489,7 +1546,7 @@ export function useDrawWebGPUFFTSignal() {
                   });
               });
             })
-            .then(({ floorDbm, confidence, baselineIsNapt, baselineConfidence, multiFrameIsNapt, multiFrameConfidence, multiFramePersistence, multiFrameFrameCount, multiFrameBridgeScore, multiFrameUDipScore, suspensionBridgeScore, clumpCount, bridgeWidthScore, bridgeShoulderScore, uDipScore, floorRelativePowerScore, temporalStability, bandwidthPrior, envelopeFitScore, envelopeResidualScore, envelopeSupportCount, sincPenaltyScore, unimodalBridgeScore, partialBridgeScore, apexProminenceScore, shoulderSymmetryScore, aboveFloorFraction, periodicity, isNapt, count, data }) => {
+            .then(({ floorDbm, confidence, baselineIsNapt, baselineConfidence, multiFrameIsNapt, multiFrameConfidence, multiFramePersistence, multiFrameFrameCount, multiFrameBridgeScore, multiFrameUDipScore, suspensionBridgeScore, clumpCount, bridgeWidthScore, bridgeShoulderScore, uDipScore, floorRelativePowerScore, temporalStability, bandwidthPrior, envelopeFitScore, envelopeResidualScore, envelopeSupportCount, sincPenaltyScore, unimodalBridgeScore, partialBridgeScore, apexProminenceScore, shoulderSymmetryScore, captureQualityScore, aboveFloorFraction, periodicity, isNapt, count, data }) => {
               const values = new DataView(data);
               const spikes = Array.from({ length: count }, (_, index) => {
                 const offset = index * 16;
@@ -1533,6 +1590,7 @@ export function useDrawWebGPUFFTSignal() {
                 partialBridgeScore,
                 apexProminenceScore,
                 shoulderSymmetryScore,
+                captureQualityScore,
                 spikes,
               });
               void aboveFloorFraction;
@@ -1549,39 +1607,18 @@ export function useDrawWebGPUFFTSignal() {
         return false;
       }
     },
-    [createFFTWebGPUState],
+    [createFFTWebGPUState, destroyRendererResources],
   );
 
   const cleanup = useCallback(() => {
     flushRetiredBuffers();
     const state = rendererRef.current;
     if (state) {
-      state.uniformBuffer?.destroy();
-      state.resampleInputBuffer?.destroy();
-      state.resampleOutputBuffer?.destroy();
-      state.resamplePeakIndexBuffer?.destroy();
-      state.resampleParamsBuffer?.destroy();
-      state.spikeBuffer?.destroy();
-      state.spikeCountBuffer?.destroy();
-      state.spikeCountReadbackBuffer?.destroy();
-      state.spikeParamsBuffer?.destroy();
-      state.spikeRecoveryParamsBuffer?.destroy();
-      state.floorAvgResultBuffer?.destroy();
-      state.naptClassifyParamsBuffer?.destroy();
-      state.naptClassifyResultBuffer?.destroy();
-      state.naptClassifyReadbackBuffer?.destroy();
-      state.spikeMetricsBuffer?.destroy();
-      state.spikeMetricsReadbackBuffer?.destroy();
-      state.naptDecisionBuffer?.destroy();
-      state.naptDecisionReadbackBuffer?.destroy();
-      state.naptTemporalHistoryBuffer?.destroy();
-      state.naptTemporalParamsBuffer?.destroy();
-      state.naptTemporalDecisionBuffer?.destroy();
-      state.naptTemporalReadbackBuffer?.destroy();
+      destroyRendererResources(state);
     }
     rendererRef.current = null;
     lastDataRef.current = null;
-  }, [flushRetiredBuffers]);
+  }, [destroyRendererResources, flushRetiredBuffers]);
 
   return {
     drawWebGPUFFTSignal,

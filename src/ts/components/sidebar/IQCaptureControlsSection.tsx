@@ -895,6 +895,7 @@ export const IQCaptureControlsSection: React.FC<
             <option value=".napt" disabled={!naptValidation.isValid}>
               .napt {!naptValidation.isValid ? "(Invalid)" : ""}
             </option>
+            <option value=".iq">.iq</option>
             <option value=".wav">.wav</option>
           </SettingSelect>
 

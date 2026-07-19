@@ -1,337 +1,117 @@
 # N-APT Development Guide
 
-This file provides guidance for AI coding agents working on N-APT (RF spectrum analyzer). Most of the app's features should have jsdoc or rustdoc comments, anything relevant to the build process, testing or any failures should be documented here in this AGENTS.md or .md files within the .agents/ directory.
+Guidance for AI coding agents working on the N-APT RF spectrum analyzer. Keep
+feature notes and implementation summaries in `.agents/`.
 
-## Token Efficiency
+## Working Rules
 
-- I usually have it running so:
-  - DO NOT RERUN OR START THE DEV SERVER FOR CHANGES (I usually have it running and there's hotreload both Vite and Rust)!
-  - DO NOT RUN `npm run build`, only build the markdown `npm run build:markdown` after article changes
-  - DO NOT USE BROWSER AUTOMATION TO TEST!
-- If testing the frontend app, the site is at http://localhost:5173 (always use `localhost`, `127.0.0.1` is blocked) AND the password is in the .env.local
-  - Prefer to inspect code and reason its mechanics versus code and test in the browser
-- If inspecting the Rust app, the rust log is at /tmp/rust_log.txt
-- If inspecting the Tx logs, the logs are in /tmp/n-apt/tx_log.txt
-- Never re-read files you just wrote or edited. You know the contents.
-- Never re-run commands to "verify" unless the outcome was uncertain.
-- Don't echo back large blocks of code or file contents unless asked.
-- Batch related edits into single operations. Don't make 5 edits when 1 handles it.
-- Use the Act MCP tool to search
-- Skip confirmations like "I'll continue..." Just do it.
-- If a task needs 1 tool call, don't use 3. Plan before acting.
-- Do not summarize what you just did unless the result is ambiguous or you need additional input.
-- DO NOT ADD A NEW UNREQUESTED DESIGN CHANGE OR FEATURE!
-- Be sure to add regression tests for bugs you find instead of running tests blindly
+- The user normally has the dev server running. Do not start or restart it for
+  ordinary changes; Vite and Rust hot reload are enabled.
+- Do not run `npm run build`; run `npm run build:markdown` only for markdown
+  article changes.
+- Do not use browser automation for testing. If frontend testing is necessary,
+  use `http://localhost:5173`; `127.0.0.1` is blocked.
+- Prefer inspecting code and focused tests over repeating broad verification.
+- Use the Act MCP tool for repository searches.
+- Do not add unrequested design changes or features.
+- Add regression tests for bugs and run `npm run typecheck` after TypeScript
+  changes. Run `cargo check` after Rust changes.
+- Keep changes scoped, avoid scratch files, and keep the workspace clean.
 
-## Documentation Guidelines
+## Mock APT SDR Rules
 
-### Feature Documentation Location
+- Preserve the established Mock APT waveform checksum unless intentionally
+  updating the baseline.
+- Do not introduce frame gaps, continuity changes, or generator restarts/reseeds
+  without an explicit checksum and continuity test review.
+- For hot-path Mock APT changes, run the relevant Rust checks and compare the
+  seeded checksum before and after.
 
-When creating markdown files for completed features, work done, or implementation summaries, **always place them in the `.agents/` directory**.
+## I/Q Captures and Privacy
 
-**Examples:**
+- Never add I/Q capture data to Git. This includes `.napt`, `.wav`, `.iq`, and
+  related extensions such as `.iq.u8` and `.c64`. Keep captures local or in
+  external storage; version only metadata, manifests, and synthetic fixtures.
+- Treat every I/Q capture as potentially sensitive: it may reveal information
+  about the recording environment, and some signals may contain exceptionally
+  sensitive or otherwise unparalleled information.
+- Treat N-APT captures as the greatest privacy risk in this project. Minimize
+  copying and exposure, and never share, upload, or commit them without the
+  user's explicit authorization.
 
-- `/.agents/MARKDOWN_FOR_AGENTS_AND_MCP.md` - Implementation summaries
-- `/.agents/FEATURE_COMPLETION_SUMMARY.md` - Feature completion documentation
-- `/.agents/WORK_SESSION_NOTES.md` - Work session notes and progress
+## Temporary and Test Files
 
-This keeps all agent-focused documentation organized and separate from user-facing content while maintaining a clear record of work completed.
+- Do not create unnecessary temporary or test files.
+- Name temporary files, mockups, and experimental scripts with `temp_`, `tmp_`,
+  `test_`, or `fix_`, or use a `.diff` suffix so they remain easy to identify
+  and exclude.
+- Raw capture files are ignored by `.gitignore`; do not force-add them.
+
+## Documentation
+
+- Put feature documentation, work summaries, and session notes in `.agents/`.
+- Keep the regression manifest as the source of truth for labels and thresholds;
+  never infer labels from capture filenames at runtime.
 
 ## Project Overview
 
-N-APT is an RF spectrum analyzer that processes signal data from RTL-SDR hardware or I/Q Captures (.napt, .wav). It consists of:
+- Frontend: React 19, TypeScript, Vite, styled-components.
+- Backend: Rust/Axum WebSocket server with Tokio.
+- WASM: Rust FFT processing.
+- Rendering: custom FFT and waterfall renderers, including WebGPU paths.
 
-- **Frontend**: React 19 + TypeScript + Vite + styled-components
-- **Backend**: Rust (Axum WebSocket server with tokio)
-- **WASM**: Rust compiled to WebAssembly for FFT processing
-- **Canvas**: Custom FFT and waterfall renderers
-
-## Build Commands
-
-### Frontend
+## Common Commands
 
 ```bash
-npm run dev          # Full dev with Ink build orchestrator
-npm run dev:markdown # Markdown preview server
-npm run build        # Production build
-npm run build:markdown # Build markdown app in /docs folder (for Github Pages)
-```
+# Development
+npm run dev
+npm run dev:markdown
 
-### Testing
-
-```bash
-npm test                         # Run all tests
-npm run test:watch               # Watch mode
-npm run test:coverage            # Coverage report
-npm test -- --testPathPattern=FileWorker  # Single test file
-npm run test -- --onlyFailures   # Run only failing tests (reruns previous failures instead of all tests)
-npm test -- -t "test name"       # Tests matching name pattern
-npm run test:rust                # Rust tests (cargo test)
-npm run test:all                 # Both npm test && cargo test
-
-# Run specific Jest test files
-npm test -- test/ts/FFTCanvas.test.tsx
-npm test -- test/ts/useWebSocket.test.tsx
-```
-
-### Backend (Rust)
-
-```bash
-npm run server:dev   # Dev with auto-reload
-npm run server:build # Build only
+# Frontend checks
+npm run typecheck
+npm run lint
+npm test
+npm run test:wasm
 
 # Rust checks
-cargo check           # Always run cargo check after Rust changes or when asked to check Rust warnings/errors, NEVER SKIP AFTER RUST CHANGES, ENSURE IT COMPILES CORRECTLY
-cargo check --bin n-apt-backend  # Check the backend crate
-
-# Rust tests
-cargo test           # Run tests
-cargo test fft       # Run tests matching "fft"
-cargo test --release # Release mode tests
-
-cargo clean          # Clean build artifacts
-
-cargo fix --lib -p n-apt-backend  # Applies all safe autofixes the rust compiler already knows how to do, can fix dependency or code issues.
-
-cargo fmt            # Format
-cargo clippy         # Lint
+cargo check
+cargo test
+cargo fmt --check
 ```
 
-### Linting & Formatting
-
-```bash
-npm run lint         # oxlint
-npm run lint:fix     # Fix issues
-npm run lint:shader  # .wsgl shader linting
-npm run format       # oxfmt
-npm run format:check # Check formatting
-npm run typecheck    # TypeScript, NEVER SKIP TYPE CHECKING, MUST RUN TO PASS CI/CD
-
-# Rust formatting (optimized)
-npm run format.            # Parallel formatting for all files
-npm run format:rust:fast   # Incremental formatting for changed files only
-npm run format:rust:check  # Check formatting without changes
-rustfmt                    # Standard rustfmt
-```
-
-## Rustfmt Performance Optimization
-
-The project includes optimized Rustfmt configurations to address slow formatting performance:
-
-### Optimized Configuration (`rustfmt.toml`)
-
-- Disabled expensive features: comment formatting, doc attribute normalization
-- Enabled performance optimizations: `merge_derives = true`, disabled string formatting
-- Reduced formatting overhead with minimal configuration
-
-### Fast Formatting Scripts
-
-**Parallel Formatting** (`scripts/rust/rustfmt-parallel.sh`):
-
-- Uses `xargs -P` to format multiple files simultaneously
-- Leverages all CPU cores for faster processing
-- Best for full codebase formatting
-
-**Incremental Formatting** (`scripts/rust/rustfmt-fast.sh`):
-
-- Only formats files changed since last run
-- Uses timestamp-based caching to skip unchanged files
-- Ideal for frequent development formatting
-
-### Usage Recommendations
-- **During development**: `npm run format:rust:fast` for quick incremental formatting
-- **Before commits**: `npm run format:rust` for full parallel formatting  
-- **CI/CD**: `npm run format:rust:check` to verify formatting
-
-These optimizations significantly speed up Rustfmt, especially for the 90+ Rust files in the codebase.
+Use focused test paths or test-name filters when possible. Do not run a full
+build merely to validate a local edit.
 
 ## Code Style
 
-### TypeScript
+### TypeScript and React
 
-**Formatting** (oxfmt):
-
-- Print width: 80, Tab width: 2, Use spaces
-- Single quotes, Semicolons: yes, Trailing commas: none
-
-**Naming Conventions**:
-
-- Variables/functions: camelCase
-- Types/interfaces: PascalCase
-- Constants: UPPER_SNAKE_CASE
-- File names: camelCase.ts/tsx
-
-**Imports** (CRITICAL - enforced by WindSurf):
-Use `@n-apt/*` namespace for ALL internal imports. NEVER use relative paths.
-
-```typescript
-// ✅ Correct
-import { useState } from "react";
-import { decryptPayload } from "@n-apt/crypto/webcrypto";
-import { FFTCanvas } from "@n-apt/components";
-import { useWebSocket } from "@n-apt/hooks";
-
-// ❌ Incorrect - will fail lint
-import { decryptPayload } from "../crypto/webcrypto";
-import { FFTCanvas } from "./components/FFTCanvas";
-```
-
-**Types**:
-
-- Use explicit types for function parameters and return types
-- Use `type` for unions/tuples, `interface` for objects
-- Avoid `any`, use `unknown` when type is truly unknown
-
-**Error Handling**: Empty catch only for expected parsing errors.
-
-```typescript
-// Good - ignore malformed JSON
-try { const data = JSON.parse(raw); } catch { /* ignore */ }
-
-// Bad - should have meaningful handling
-try { ... } catch { console.error("error") }
-```
-
-**React Patterns**:
-
-- Use hooks with proper dependency arrays
-- Use `useCallback` for functions passed as props
-- Avoid prop drilling, use context when appropriate
-- Use `styled-components` for styling and never use React.CSSProperties or the style prop
+- Use strict TypeScript; prefer `unknown` over `any`.
+- Use `camelCase` for variables/functions, `PascalCase` for types/components,
+  and `UPPER_SNAKE_CASE` for constants.
+- Keep hook dependency arrays correct and use `useCallback` when passing stable
+  callbacks to children.
+- Use styled-components; do not use `React.CSSProperties` or the `style` prop.
+- Use scoped imports such as `@n-apt/...` and keep Jest module mappings aligned
+  with Vite aliases.
 
 ### Rust
 
-**Formatting** (rustfmt):
+- Use Rust 2021 conventions, `snake_case` variables/functions, and
+  `SCREAMING_SNAKE_CASE` constants.
+- Prefer `anyhow` and `?` for error propagation; avoid `unwrap()` in production.
+- Format Rust before committing and run `cargo check` after Rust edits.
 
-- 2-space indentation, 80 char max width
-- Edition 2021, crate-level imports
-- Imports grouped: StdExternalCrate
+## Runtime and Environment
 
-**Naming**:
+- Node uses ES modules and TypeScript strict mode.
+- The main app runs on port 5173. The markdown preview runs on port 5174.
+- The login password is `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`; do not
+  print or commit secrets.
+- Rust logs are in `/tmp/rust_log.txt`; Tx logs are in `/tmp/n-apt/tx_log.txt`.
 
-- Variables/functions: snake_case
-- Types: PascalCase
-- Constants: SCREAMING_SNAKE
+## Repository Conventions
 
-**Error Handling**:
-
-- Use `anyhow` for application errors
-- Use `?` operator for propagation
-- Avoid unwrap() in production
-
-```rust
-// Good
-fn process_data(input: &str) -> Result<Data, anyhow::Error> {
-  let parsed = serde_json::from_str::<Payload>(input)?;
-  Ok(parsed.into())
-}
-```
-
-## WindSurf Rules
-
-- `.windsurf/rules/namespacing.md`: Enforces `@n-apt/*` import paths
-- `.windsurf/workflows/review.md`: Code review workflow (auto-execution disabled)
-
-## Project Structure
-
-```
-n-apt/
-├── src/
-│   ├── components/       # React components
-│   ├── hooks/            # React hooks (useWebSocket, useFFT, etc.)
-│   ├── consts/           # Constants, config, mock data
-│   ├── fft/              # FFT canvas renderer
-│   ├── waterfall/        # Waterfall renderer
-│   ├── crypto/           # WebCrypto encryption
-│   └── services/         # Auth, API services
-├── test/
-|   ├── ts/               # Typescript and Jest tests
-|   ├── rust/             # Rust tests
-|   ├── wasm/             # Wasm tests
-├── src/                  # Rust backend
-│   ├── server/           # Axum WebSocket server
-│   ├── fft/              # FFT processing
-│   ├── wasm_simd/        # WASM SIMD implementations
-│   ├── rtlsdr/           # RTL-SDR device interface
-│   └── credentials/      # Auth/password handling
-├── signals.yaml     # Hot-reloadable signal config
-└── package.json
-```
-
-## Key Conventions
-
-1. **Hot Reload**: Edit `signals.yaml` while server runs - changes apply automatically
-2. **WASM Changes**: Use `npm run dev` (rebuilds WASM)
-3. **Fast Iteration**: Use `npm run dev` (single orchestrated flow)
-4. **Before Commit**: Run `npm run test:all`
-5. **Encryption**: WebSocket uses AES-256-GCM, auth via WebAuthn passkeys or password
-6. **Frequencies in Hz**: ALWAYS use Hertz (Hz) instead of Megahertz (MHz) for all frequency variables throughout the codebase (both frontend and backend). When specifying raw numeric values, use numeric separators for readability (e.g., `3_218_000` instead of `3218000`).
-
-## Environment
-
-- Node.js: ES modules (type: "module")
-- TypeScript: Strict mode, noImplicitAny
-- React: 19.x with hooks
-- Rust: 2021 edition, tokio async
-- WebSocket: Authenticated with token in URL query param
-
-## Server Configuration
-
-The project has multiple server configurations:
-
-### Main Application Server
-- **Start**: `npm run dev` (runs decrypt-modules-if-needed and build_orchestrator)
-- **Development**: `npm run server:dev`
-- **Build-only**: `npm run server:build`
-- Full-stack with backend integration
-
-### Markdown Preview Server (Separate)
-- **Start**: `npm run dev:markdown`
-- **Config**: `vite.markdown.config.ts`
-- **Port**: 5174
-- **Purpose**: Markdown preview functionality
-- **Note**: This is a separate server from the main application
-
-### Other Key Commands
-- **Lint (TS/JS)**: `npm run lint`
-- **Lint & Fix Rust**: `npm run lint:fix:rust`
-- **Test TypeScript**: `npm run test`
-- **Test Rust**: `npm run test:rust`
-- **Test WASM**: `npm run test:wasm`
-- Login password comes from `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`
-
-
-## Linting
-
-After making changes on in Typescript/JavaScript, run:
-
-```bash
-npm run format  # or npx oxfmt
-npm run lint    # or npx oxlint
-```
-
-### React Doctor
-
-Run after making React changes to catch issues early. Use when reviewing code, finishing a feature, or fixing bugs in a React project.
-
-Scans your React codebase for security, performance, correctness, and architecture issues. Outputs a 0-100 score with actionable diagnostics.
-
-**Usage**
-
-```bash
-npx -y react-doctor@latest . --verbose --diff
-```
-
-### Workflow
-
-Run after making changes to catch issues early. Fix errors first, then re-run to verify the score improved.
-
-## Learned User Preferences
-
-- When adding Vite aliases for static assets (for example `@n-apt/public/images`), keep Jest `moduleNameMapper` aligned so tests stub those imports instead of loading raw files.
-
-## Learned Workspace Facts
-
-- Jest applies `moduleNameMapper` in first-match order; an `@n-apt/public/*` alias that resolves to real `.svg` files can run before the generic image rule and make Jest parse XML as JavaScript (`Unexpected token '<'`). Point that alias at the shared image `fileMock` like other static assets.
-- Unit tests that import `@n-apt/routes/AuthenticationRoute` may need `jest.mock("@n-apt/hooks/useAuthentication", ...)` because the real hook uses `import.meta`, which Jest does not handle.
-- `AuthRoute.tsx` was removed; `AuthenticationRoute.tsx` is the canonical auth route module.
+- Use `@n-apt/*` for scoped imports.
+- When adding Vite aliases for static assets, update Jest `moduleNameMapper` so
+  tests resolve them through the shared file mock instead of parsing raw assets.

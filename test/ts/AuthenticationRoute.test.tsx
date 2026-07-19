@@ -46,6 +46,25 @@ describe("AuthenticationRoute", () => {
     ).toBeInTheDocument();
   });
 
+  it("should show the files and SDR hardware row beneath the auth controls", () => {
+    renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
+
+    expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
+      "href",
+      "/learn-signals",
+    );
+    expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
+      "href",
+      "https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/",
+    );
+    expect(screen.getByRole("link", { name: /HackRF One/i })).toHaveAttribute(
+      "href",
+      "https://greatscottgadgets.com/hackrf/one/",
+    );
+    expect(screen.getByLabelText("HackRF One 3D model spinning")).toBeInTheDocument();
+  });
+
   it("should show loading state during authentication", () => {
     renderAuthenticationUI(
       <AuthenticationUI {...defaultProps} authState="authenticating" />,

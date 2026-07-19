@@ -6,6 +6,63 @@ export interface DemodFlowGraph {
   edges: Edge[];
 }
 
+export type DemodNodePolicy =
+  | { action: "keep" }
+  | { action: "replace"; replacement: "metadata" };
+
+export const getDemodNodePolicy = (
+  data: Record<string, unknown> | undefined,
+  sourceMode: SourceMode,
+): DemodNodePolicy => {
+  if (
+    sourceMode === "file" &&
+    (data?.channelNode || data?.spanOptions || data?.fmOptions)
+  ) {
+    return { action: "replace", replacement: "metadata" };
+  }
+  return { action: "keep" };
+};
+
+export const adaptDemodFlowForSourceMode = (
+  graph: DemodFlowGraph,
+  sourceMode: SourceMode,
+): DemodFlowGraph => {
+  const replaceableNode = graph.nodes.find(
+    (node) =>
+      sourceMode === "file"
+        ? getDemodNodePolicy(node.data, sourceMode).action === "replace"
+        : node.data?.metadataNode === true,
+  );
+  if (!replaceableNode) return graph;
+
+  const replaceableId = replaceableNode.id;
+  const replacement =
+    sourceMode === "file"
+      ? {
+          id: "metadata",
+          type: replaceableNode.type ?? "custom",
+          position: replaceableNode.position,
+          data: { label: "Metadata", metadataNode: true },
+        }
+      : {
+          id: "channel",
+          type: replaceableNode.type ?? "custom",
+          position: replaceableNode.position,
+          data: { label: "Channel", channelNode: true },
+        };
+
+  return {
+    nodes: graph.nodes.map((node) =>
+      node.id === replaceableId ? replacement : node,
+    ),
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      source: edge.source === replaceableId ? "metadata" : edge.source,
+      target: edge.target === replaceableId ? "metadata" : edge.target,
+    })),
+  };
+};
+
 export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
   const isFileSource = sourceMode === "file";
 

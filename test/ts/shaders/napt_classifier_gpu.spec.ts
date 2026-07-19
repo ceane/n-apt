@@ -23,7 +23,7 @@ type Fixture = {
   isolated?: boolean;
   edge?: "left" | "right";
   shuffle?: boolean;
-  shape?: "wide-u" | "noisy-wide-u" | "flat" | "inverted-dome" | "one-sided-ramp" | "sinc";
+  shape?: "wide-u" | "noisy-wide-u" | "flat" | "inverted-dome" | "one-sided-ramp" | "sinc" | "edge-sinc";
   envelopeShape?: "partial-descending" | "partial-ascending" | "irregular" | "jagged-descending" | "flat-valley";
 };
 
@@ -93,6 +93,10 @@ const FIXTURES: Fixture[] = [
   {
     name: "sinc hardware artifact",
     shape: "sinc",
+  },
+  {
+    name: "irregular edge sinc artifact",
+    shape: "edge-sinc",
   },
   {
     name: "partial descending envelope",
@@ -176,15 +180,19 @@ test.describe("N-APT suspension_bridge shader math", () => {
                 ? 20 + 30 * (1 - (2 * x - 1) ** 2)
                 : fixture.shape === "one-sided-ramp"
                   ? 20 + 30 * x
-                  : fixture.shape === "sinc"
+              : fixture.shape === "sinc"
                     ? 18 + 42 * sincMagnitude
+                  : fixture.shape === "edge-sinc"
+                    ? 16 + 48 * Math.abs(2 * x - 1) ** 1.25
                   : 20;
             const pointIndex = Math.round(x * (SOURCE_LENGTH - 1));
             const lift = fixture.shape === "wide-u"
               ? (index % 6 === 0 ? 14 : 6)
               : fixture.shape === "noisy-wide-u"
                 ? [0, 18, 3, 12, 1, 15, 4, 10, 2, 16, 5, 11][index % 12]
-              : (index % 5 === 0 ? 12 : 4);
+              : fixture.shape === "edge-sinc"
+                ? 0
+                : (index % 5 === 0 ? 12 : 4);
             const value = FLOOR + envelope + lift;
             waveform[pointIndex] = value;
             return { index: pointIndex, value };
@@ -197,6 +205,12 @@ test.describe("N-APT suspension_bridge shader math", () => {
                 ? 1
                 : Math.abs(Math.sin(argument) / argument);
               waveform[index] = FLOOR + 18 + 42 * magnitude;
+            }
+          }
+          if (fixture.shape === "edge-sinc") {
+            for (let index = 0; index < SOURCE_LENGTH; index++) {
+              const x = index / (SOURCE_LENGTH - 1);
+              waveform[index] = FLOOR + 16 + 48 * Math.abs(2 * x - 1) ** 1.25;
             }
           }
           points = shapePoints;
@@ -256,11 +270,11 @@ test.describe("N-APT suspension_bridge shader math", () => {
         });
         device.queue.writeBuffer(paramsBuffer, 0, new Uint8Array(paramsData));
         const spikesBuffer = storage(spikeData.byteLength, new Uint8Array(spikeData));
-        const resultBuffer = storage(128, new Uint8Array(128));
+        const resultBuffer = storage(132, new Uint8Array(132));
         const spikeCountBuffer = storage(4, new Uint32Array([points.length]));
         const metricsBuffer = storage(MAX_SPIKES * 16);
         const readbackBuffer = device.createBuffer({
-          size: 128,
+          size: 132,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         const classifyBindGroup = device.createBindGroup({
@@ -293,7 +307,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
         finalizePass.setBindGroup(0, finalizeBindGroup);
         finalizePass.dispatchWorkgroups(1);
         finalizePass.end();
-        encoder.copyBufferToBuffer(resultBuffer, 0, readbackBuffer, 0, 128);
+        encoder.copyBufferToBuffer(resultBuffer, 0, readbackBuffer, 0, 132);
         device.queue.submit([encoder.finish()]);
         await device.queue.onSubmittedWorkDone();
         await readbackBuffer.mapAsync(GPUMapMode.READ);
@@ -314,6 +328,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
           partialBranch: outputView.getFloat32(116, true),
           apexProminence: outputView.getFloat32(120, true),
           shoulderSymmetry: outputView.getFloat32(124, true),
+          captureQuality: outputView.getFloat32(128, true),
         };
       };
       const outputs: Record<string, Awaited<ReturnType<typeof run>>> = {};
@@ -346,7 +361,12 @@ test.describe("N-APT suspension_bridge shader math", () => {
     expect(result.outputs["inverted dome"].uDip).toBeLessThan(0.15);
     expect(result.outputs["one-sided ramp"].uDip).toBeLessThan(0.30);
     expect(result.outputs["sinc hardware artifact"].sincPenalty).toBeGreaterThan(0.60);
+    expect(result.outputs["sinc hardware artifact"].captureQuality).toBeLessThan(0.40);
+    expect(result.outputs["irregular edge sinc artifact"].sincPenalty).toBeGreaterThan(0.55);
+    expect(result.outputs["irregular edge sinc artifact"].captureQuality).toBeLessThan(0.45);
+    expect(result.outputs["wide shallow U-dip with clump spikes"].captureQuality).toBeGreaterThan(0.65);
     expect(result.outputs["wide shallow U-dip with clump spikes"].sincPenalty).toBeLessThan(0.35);
+    expect(result.outputs["noisy wide U envelope"].sincPenalty).toBeLessThan(0.45);
     expect(result.outputs["partial descending envelope"].fit).toBeGreaterThan(0.60);
     expect(result.outputs["partial descending envelope"].residual).toBeGreaterThan(0.50);
     expect(result.outputs["partial ascending envelope"].fit).toBeGreaterThan(0.60);

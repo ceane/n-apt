@@ -26,10 +26,11 @@ import {
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
-import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { formatDuration } from "@n-apt/utils/formatters";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { shouldRestorePausedFrameSnapshot } from "@n-apt/hooks/liveSourceLifecycle";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -272,12 +273,36 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
      * React state.  FFTCanvas reads this ref on every rAF, identical to the
      * live-view data path in useWebSocket → dataRef.current.
      */
-    const fftCanvasDataRef = useRef<LiveFrameData | null>(null);
+    const fftCanvasDataRef = filePlaybackDataRef;
+    const seededPlaybackKeyRef = useRef<string | null>(null);
+
+    // Seed the ref during the render that mounts FFTAndWaterfall. Writing the
+    // first frame only from an effect creates a race: the child can start its
+    // canvas loop while dataRef is still null and remain behind the loading
+    // placeholder until another playback tick arrives.
+    const playbackSeedKey = `${selectedFiles
+      .map((file) => file.id || file.name)
+      .sort()
+      .join("|")}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`;
+    if (!hasStitchedData) {
+      fftCanvasDataRef.current = null;
+      seededPlaybackKeyRef.current = null;
+    } else if (seededPlaybackKeyRef.current !== playbackSeedKey) {
+      const channelData =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      fftCanvasDataRef.current = buildPlaybackSeedFrame({
+        displayMode,
+        precomputedFrames: precomputedFrames.current,
+        channelData,
+        fftSize,
+      });
+      seededPlaybackKeyRef.current = playbackSeedKey;
+    }
 
     // ── Memoized callbacks for hook stability ──
     const handleFrameEmitted = useCallback(() => {
       // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
-      // Tables now poll liveDataRef at a lower frequency (4fps).
+      // Tables poll the source-specific playback ref at a lower frequency.
     }, []);
 
     const handleChannelMetadataChange = useCallback(
@@ -299,6 +324,12 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       displayMode,
       onFrameEmitted: handleFrameEmitted,
     });
+
+    useEffect(() => {
+      return () => {
+        filePlaybackDataRef.current = null;
+      };
+    }, []);
 
     // ── Channel management hook ──
     const { switchChannel } = useChannelManagement({
@@ -538,6 +569,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       prevFileNamesRef2.current = nameKey;
 
       fftCanvasDataRef.current = null;
+      filePlaybackDataRef.current = null;
       setChannelCount(0);
       setActiveChannel(0);
       dispatch(clearActivePlaybackMetadata());
@@ -648,6 +680,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               powerScale={powerScale}
               visualizerMachine={visualizerMachine}
               visualizerSessionKey={visualizerSessionKey}
+              pauseSnapshotEnabled={shouldRestorePausedFrameSnapshot({
+                sourceMode: "file",
+              })}
               canvasStatusRow={playbackCanvasStatusRow}
               onLoadingStateChange={setSnapshotButtonsLoading}
               awaitingDeviceData={false}

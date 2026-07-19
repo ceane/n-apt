@@ -4,7 +4,7 @@ import {
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
   shouldPresentMockTxStandby,
-} from "../../src/ts/routes/spectrum/liveSourceLifecycle";
+} from "../../src/ts/hooks/liveSourceLifecycle";
 
 const handoffPlaceholder = {
   kind: "loading" as const,

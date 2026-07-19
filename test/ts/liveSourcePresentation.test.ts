@@ -1,4 +1,4 @@
-import * as presentation from "../../src/ts/routes/spectrum/liveSourcePresentation";
+import * as presentation from "../../src/ts/utils/liveSourcePresentation";
 
 const resolveFrameReadiness = (
   presentation as typeof presentation & {
