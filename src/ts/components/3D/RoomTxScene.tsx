@@ -10,7 +10,7 @@ import {
   calculateRoomPowerLimit,
   calculateRoomPowerLimitJS,
 } from "@n-apt/utils/safetyWasm";
-import { SDRs } from "@n-apt/components/3D/SDRs";
+import { HackRFOne } from "@n-apt/components/3D/SDRs";
 
 export function AnimatedRadioWaves({
   speed = 1.5,
@@ -514,7 +514,7 @@ export function RoomTxScene() {
 
           {/* Transmitter on Desk */}
           <group position={[0, 0.2, 0]}>
-            <SDRs.tx.HackRFOne />
+            <HackRFOne />
             <DistanceMarker reach={reach} />
             {emissionRealism === "none" && (
               <AnimatedRadioWaves

@@ -7,7 +7,7 @@ import styled, {
 import { Link, useLocation } from "react-router-dom";
 import { Canvas } from "@react-three/fiber";
 import { Button } from "@n-apt/components/ui/Button";
-import { FileStack, Lock, Radio, SunMoon } from "lucide-react";
+import { FileSignal, Lock, Radio, SunMoon } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import {
   buildAppTheme,
@@ -637,7 +637,7 @@ const ModelPlaceholder = styled.div`
   transform: perspective(100px) rotateX(8deg) rotateY(-10deg);
 `;
 
-const HackRFPreview = styled.div`
+const SDRPreview = styled.div`
   width: 100%;
   height: 100%;
 
@@ -1077,7 +1077,7 @@ export const AuthenticationUI = ({
               <EssentialsGrid>
                 <EssentialCard to="/learn-signals" as={Link} aria-label="I/Q captures and files">
                   <CardIcon>
-                    <FileStack size={30} strokeWidth={1.5} />
+                    <FileSignal size={30} strokeWidth={1.5} />
                   </CardIcon>
                   <CardCopy>
                     I/Q captures <small>learn more →</small>
@@ -1090,7 +1090,31 @@ export const AuthenticationUI = ({
                   aria-label="RTL-SDR"
                 >
                   <CardIcon>
-                    <ModelPlaceholder aria-hidden="true">3D model</ModelPlaceholder>
+                    <SDRPreview aria-label="RTL-SDR 3D model spinning">
+                      <Canvas
+                        camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
+                        dpr={[1, 1.5]}
+                        frameloop="demand"
+                      >
+                        <ambientLight intensity={1.2} />
+                        <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
+                        <directionalLight position={[0, 6, 2]} intensity={7} color="#ffffff" />
+                        <spotLight
+                          position={[0, 5, 2]}
+                          angle={0.7}
+                          penumbra={0.45}
+                          intensity={12}
+                          color="#ffffff"
+                        />
+                        <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
+                        <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
+                        <SDRs.rx.SpinningRTLSdr
+                          scale={1.2}
+                          position={[0, -0.2, 0]}
+                          speed={0.8}
+                        />
+                      </Canvas>
+                    </SDRPreview>
                   </CardIcon>
                   <CardCopy>
                     RTL-SDR <small>buy →</small>
@@ -1103,7 +1127,7 @@ export const AuthenticationUI = ({
                   aria-label="HackRF One"
                 >
                   <CardIcon>
-                    <HackRFPreview aria-label="HackRF One 3D model spinning">
+                    <SDRPreview aria-label="HackRF One 3D model spinning">
                       <Canvas
                         camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
                         dpr={[1, 1.5]}
@@ -1127,7 +1151,7 @@ export const AuthenticationUI = ({
                           speed={0.8}
                         />
                       </Canvas>
-                    </HackRFPreview>
+                    </SDRPreview>
                   </CardIcon>
                   <CardCopy>
                     HackRF One <small>buy →</small>
