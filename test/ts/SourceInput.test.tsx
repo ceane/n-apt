@@ -13,6 +13,87 @@ describe("source selection state", () => {
 });
 
 describe("SourceInput", () => {
+  it("supports capped multi-source selection without switching the active source", () => {
+    const onSelectedDevicesChange = jest.fn();
+    const rendered = render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectionMode="multi"
+          maxSelectedDevices={2}
+          selectedDeviceIds={["mock-rx"]}
+          onSelectedDevicesChange={onSelectedDevicesChange}
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              capability: "tx",
+              status: { label: "connected" },
+            },
+            {
+              id: "extra-rx",
+              name: "Mock Extra Rx SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Mock Tx SDR"));
+    expect(onSelectedDevicesChange).toHaveBeenCalledWith([
+      "mock-rx",
+      "mock-tx",
+    ]);
+
+    rendered.rerender(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectionMode="multi"
+          maxSelectedDevices={2}
+          selectedDeviceIds={["mock-rx", "mock-tx"]}
+          onSelectedDevicesChange={onSelectedDevicesChange}
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              capability: "tx",
+              status: { label: "connected" },
+            },
+            {
+              id: "extra-rx",
+              name: "Mock Extra Rx SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Mock Extra Rx SDR"));
+    expect(onSelectedDevicesChange).toHaveBeenLastCalledWith([
+      "mock-tx",
+      "extra-rx",
+    ]);
+  });
+
   it("keeps Rx available while hiding Tx in the demod source sidebar", () => {
     const onToggleDeviceRxPause = jest.fn();
     render(
@@ -37,11 +118,18 @@ describe("SourceInput", () => {
 
     const deviceRow = screen.getByText("HackRF One").closest('[role="button"]');
     expect(deviceRow).not.toBeNull();
-    expect(within(deviceRow as HTMLElement).getByRole("button", { name: /pause rx/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /start tx|stop tx/i })).not.toBeInTheDocument();
+    expect(
+      within(deviceRow as HTMLElement).getByRole("button", {
+        name: /pause rx/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /start tx|stop tx/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("shows receive playback controls and hides Tx-only sources in demod", () => {
+  it("shows receive playback controls and Tx-only sources in demod", () => {
+    const onStartTx = jest.fn();
     render(
       <TestWrapper>
         <SourceSidebar
@@ -50,13 +138,21 @@ describe("SourceInput", () => {
               id: "mock-rx",
               name: "Mock APT SDR",
               capability: "rx",
-              status: { label: "streaming", actionLabel: "Pause", onAction: jest.fn() },
+              status: {
+                label: "streaming",
+                actionLabel: "Pause",
+                onAction: jest.fn(),
+              },
             },
             {
               id: "mock-tx",
               name: "Mock Tx SDR",
               capability: "tx",
-              status: { label: "connected", actionLabel: "Start Tx", onAction: jest.fn() },
+              status: {
+                label: "connected",
+                actionLabel: "Start Tx",
+                onAction: onStartTx,
+              },
             },
           ]}
           selectedDeviceId="mock-rx"
@@ -67,8 +163,15 @@ describe("SourceInput", () => {
 
     const rxRow = screen.getByText("Mock APT SDR").closest('[role="button"]');
     expect(rxRow).not.toBeNull();
-    expect(within(rxRow as HTMLElement).getByRole("button", { name: /pause/i })).toBeInTheDocument();
-    expect(screen.queryByText("Mock Tx SDR")).not.toBeInTheDocument();
+    expect(
+      within(rxRow as HTMLElement).getByRole("button", { name: /pause/i }),
+    ).toBeInTheDocument();
+    const txRow = screen.getByText("Mock Tx SDR").closest('[role="button"]');
+    expect(txRow).not.toBeNull();
+    fireEvent.click(
+      within(txRow as HTMLElement).getByRole("button", { name: "Start Tx" }),
+    );
+    expect(onStartTx).toHaveBeenCalledTimes(1);
   });
 
   it("renders transmitting (Tx) for tx-capable devices that are active", () => {

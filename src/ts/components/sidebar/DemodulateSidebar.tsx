@@ -12,6 +12,10 @@ import {
 } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
+import {
+  setSourceBindings,
+  setSourceSelectionMode,
+} from "@n-apt/redux/slices/sourceRoutingSlice";
 import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
@@ -95,7 +99,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   detectedRegions = 0,
 }) => {
   const dispatch = useAppDispatch();
-  const { setFlow } = useDemod();
+  const { setFlow, nodes } = useDemod();
   const {
     toggleVisualizerPause,
     manualVisualizerPaused,
@@ -104,7 +108,36 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     sources,
     state: liveState,
     dispatch: storeDispatch,
+    wsConnection,
   } = useSpectrumStore();
+  const tx = useAppSelector((state) => state.spectrum);
+
+  const handleToggleTransmit = useCallback(
+    (id: string) => {
+      const source = sources.find((entry) => entry.id === id);
+      if (!source) return;
+      const transmitting = source.status === "transmitting";
+      wsConnection.sendTransmitMode?.(!transmitting, source.name ?? id, {
+        serialNumber: source.serial_number?.trim() || id,
+        centerFrequencyHz: tx.txCenterFrequencyHz,
+        bandwidthHz: tx.txSampleRateHz,
+        ifftSize: tx.txIfftSize,
+        powerDbm: tx.txPowerDbm,
+        vgaGainDb: tx.txVgaGain,
+        ampEnabled: tx.hackrfAmpEnabled,
+        txSafetyEnabled: tx.txSafetyEnabled,
+        txSafetyLimit: tx.txSafetyLimit,
+        txSignal: tx.txSignal,
+        txHopEnabled: tx.txHopEnabled,
+        txHopType: tx.txHopType,
+        txHopStartFrequencyHz: tx.txHopStartFrequencyHz,
+        txHopEndFrequencyHz: tx.txHopEndFrequencyHz,
+        txHopChannels: tx.txHopChannels,
+        txHopRateHz: tx.txHopRateHz,
+      });
+    },
+    [sources, tx, wsConnection.sendTransmitMode],
+  );
 
   const handleFlowSelect = useCallback(
     (flow: FlowTemplate) => {
@@ -114,6 +147,83 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
 
   const { sourceMode, selectedFiles } = liveState;
+  const isTxSuiteFlow = nodes.some(
+    (node) => node.data?.sourceBindingGroup === "tx-suite",
+  );
+  const routedSourceIds = useAppSelector((state) =>
+    [
+      state.sourceRouting.bindings["tx-suite:rx"],
+      state.sourceRouting.bindings["tx-suite:tx"],
+    ].filter((id): id is string => Boolean(id)),
+  );
+
+  useEffect(() => {
+    dispatch(
+      setSourceSelectionMode({
+        group: "tx-suite",
+        mode: isTxSuiteFlow ? "multi" : "single",
+      }),
+    );
+  }, [dispatch, isTxSuiteFlow]);
+
+  useEffect(() => {
+    if (!isTxSuiteFlow || routedSourceIds.length > 0) return;
+    const available = sources.map((source) => ({
+      id: source.id,
+      capability: source.capability?.toLowerCase?.() ?? "",
+    }));
+    const rx =
+      available.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
+      available[0];
+    const tx =
+      available.find(
+        (source) =>
+          source.id !== rx?.id &&
+          (source.capability === "tx" || source.capability === "tx_rx"),
+      ) ?? available[1];
+    const fileIds = selectedFiles.map((file) => `file:${file.name}`);
+    const fallbackIds = available.length > 0 ? available : fileIds.map((id) => ({ id, capability: "rx" }));
+    const fallbackRx = rx ?? fallbackIds[0];
+    const fallbackTx = tx ?? fallbackIds[1] ?? fallbackIds[0];
+    if (!fallbackRx) return;
+    dispatch(
+      setSourceBindings({
+        group: "tx-suite",
+        bindings: {
+          rx: fallbackRx.id,
+          tx: fallbackTx?.id ?? null,
+        },
+      }),
+    );
+  }, [dispatch, isTxSuiteFlow, routedSourceIds.length, selectedFiles, sources]);
+
+  const handleMultiSourceChange = useCallback(
+    (ids: string[]) => {
+      const selected = ids
+        .map((id) => sources.find((source) => source.id === id))
+        .filter(Boolean)
+        .map((source) => ({
+          id: source!.id,
+          capability: source!.capability?.toLowerCase?.() ?? "",
+        }));
+      const rx =
+        selected.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
+        selected[0];
+      const tx =
+        selected.find(
+          (source) =>
+            source.id !== rx?.id &&
+            (source.capability === "tx" || source.capability === "tx_rx"),
+        ) ?? selected.find((source) => source.id !== rx?.id);
+      dispatch(
+        setSourceBindings({
+          group: "tx-suite",
+          bindings: { rx: rx?.id ?? null, tx: tx?.id ?? null },
+        }),
+      );
+    },
+    [dispatch, sources],
+  );
   const selectedPrimaryFile = useMemo(() => {
     if (sourceMode !== "file" || selectedFiles.length !== 1) return null;
     const file = selectedFiles[0];
@@ -135,6 +245,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       sources.map((source) => {
         const isStreaming = source.status === "streaming";
         const isMockSource = source.capability === "mock";
+        const isTxSource =
+          source.capability?.toLowerCase().includes("tx") ||
+          source.id === "mock-tx" ||
+          source.name === "Mock Tx SDR";
         const isPaused = source.paused ?? false;
         const isLiveConnected =
           source.status === "connected" || isStreaming || isMockSource;
@@ -174,13 +288,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
                 : undefined,
             actionLabel,
             actionTitle,
-            onAction: isLiveConnected
-              ? () => toggleVisualizerPause(source.id)
+            onAction: isTxSource
+              ? () => handleToggleTransmit(source.id)
+              : isLiveConnected
+                ? () => toggleVisualizerPause(source.id)
               : undefined,
           },
         };
       }),
-    [sources, toggleVisualizerPause],
+    [handleToggleTransmit, sources, toggleVisualizerPause],
   );
 
   const wasLivePausedBeforeFileModeRef = useRef<boolean>(false);
@@ -411,8 +527,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         devices={sourceDevices as any}
         selectedDeviceId={selectedSourceId}
         onSelectedDeviceChange={handleSelectedDeviceChange}
+        selectionMode={isTxSuiteFlow ? "multi" : "single"}
+        maxSelectedDevices={2}
+        selectedDeviceIds={isTxSuiteFlow ? routedSourceIds : undefined}
+        onSelectedDevicesChange={
+          isTxSuiteFlow ? handleMultiSourceChange : undefined
+        }
         spaceBoundDeviceId={selectedSourceId || null}
         onToggleDeviceRxPause={(id) => toggleVisualizerPause(id)}
+        onToggleDeviceTxMode={handleToggleTransmit}
         selectedFilesCount={selectedFiles.length}
         onFileAction={handleFileAction}
         onFilesSelected={handleSourceFilesSelected}

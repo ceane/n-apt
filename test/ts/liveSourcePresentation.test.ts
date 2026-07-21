@@ -1,5 +1,7 @@
 import * as presentation from "../../src/ts/utils/liveSourcePresentation";
 
+const isTxStandbyPreviewSource = presentation.isTxStandbyPreviewSource;
+
 const resolveFrameReadiness = (
   presentation as typeof presentation & {
     resolveFrameReadiness?: (input: Record<string, unknown>) => boolean;
@@ -117,6 +119,45 @@ describe("resolveFrameReadiness", () => {
         expectedStreamEpoch: 7,
         frameCounter: 12,
         handoffStartedFrameCounter: 10,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("Tx standby preview ownership", () => {
+  it("pauses a default-flow Tx-only source for a one-shot preview", () => {
+    expect(
+      isTxStandbyPreviewSource({
+        sourceRole: undefined,
+        capability: "tx",
+        status: "connected",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not pause a default-flow receive source", () => {
+    expect(
+      isTxStandbyPreviewSource({
+        sourceRole: undefined,
+        capability: "rx",
+        status: "connected",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a role-bound Tx preview paused until transmission starts", () => {
+    expect(
+      isTxStandbyPreviewSource({
+        sourceRole: "tx",
+        capability: "tx_rx",
+        status: "connected",
+      }),
+    ).toBe(true);
+    expect(
+      isTxStandbyPreviewSource({
+        sourceRole: "tx",
+        capability: "tx_rx",
+        status: "transmitting",
       }),
     ).toBe(false);
   });

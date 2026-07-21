@@ -24,6 +24,7 @@ if (typeof window !== "undefined" && !window.OffscreenCanvas) {
 }
 const mockUseNodes = jest.fn((): any[] => []);
 const mockUseNodeConnections = jest.fn((): any[] => []);
+const mockNodeLookup = new Map<string, any>();
 const mockFFTCanvasProps = jest.fn();
 const mockSendFrequencyRange = jest.fn((range: unknown) => ({
   type: "mock/sendFrequencyRange",
@@ -33,6 +34,8 @@ const mockSendFrequencyRange = jest.fn((range: unknown) => ({
 jest.mock("@xyflow/react", () => ({
   useNodes: () => mockUseNodes(),
   useNodeConnections: () => mockUseNodeConnections(),
+  useStore: (selector: (state: { nodeLookup: Map<string, unknown> }) => unknown) =>
+    selector({ nodeLookup: mockNodeLookup }),
 }));
 jest.mock("@n-apt/components/FFTCanvas", () => {
   const React = require("react");
@@ -53,6 +56,7 @@ import "@testing-library/jest-dom";
 import {
   FFTNode,
   getFftNodeDisplayCenterHz,
+  getFftNodeRoleRange,
   getFftNodeResolvedRange,
   getFftNodeSourceRange,
 } from "@n-apt/components/react-flow/nodes/FFTNode";
@@ -74,6 +78,7 @@ describe("FFTNode", () => {
 
   beforeEach(() => {
     mockUseNodes.mockReturnValue([]);
+    mockNodeLookup.clear();
     mockUseNodeConnections.mockReturnValue([]);
     mockFFTCanvasProps.mockClear();
   });
@@ -95,6 +100,34 @@ describe("FFTNode", () => {
         frameRange: { min: 100, max: 110 },
       }),
     ).toEqual({ min: 110, max: 120 });
+  });
+
+  it("uses the Tx frame center and span instead of the Rx display range", () => {
+    expect(
+      getFftNodeRoleRange({
+        sourceRole: "tx",
+        fallbackRange: { min: 18_000, max: 4_390_000 },
+        frame: {
+          center_frequency_hz: 137_100_000,
+          sample_rate: 2_400_000,
+        },
+      }),
+    ).toEqual({ min: 135_900_000, max: 138_300_000 });
+  });
+
+  it("keeps a stale Tx frame on the configured viewer window until refresh", () => {
+    expect(
+      getFftNodeRoleRange({
+        sourceRole: "tx",
+        fallbackRange: { min: 127_975_000, max: 146_225_000 },
+        expectedCenterFrequencyHz: 137_100_000,
+        expectedSampleRateHz: 18_250_000,
+        frame: {
+          center_frequency_hz: 137_100_000,
+          sample_rate: 2_400_000,
+        },
+      }),
+    ).toEqual({ min: 127_975_000, max: 146_225_000 });
   });
 
   it("prefers file playback metadata over the stale live spectrum range", () => {
@@ -160,6 +193,33 @@ describe("FFTNode", () => {
     );
   });
 
+  it("scopes a live canvas session to its selected source", () => {
+    const firstSourceSession = getSourcePresentationSessionKey({
+      sourceMode: "live",
+      selectedFiles: [],
+      stitchTrigger: 0,
+      presentationRevision: "mock-apt",
+    });
+    const secondSourceSession = getSourcePresentationSessionKey({
+      sourceMode: "live",
+      selectedFiles: [],
+      stitchTrigger: 0,
+      presentationRevision: "mock-tx",
+    });
+
+    expect(firstSourceSession).not.toBe(secondSourceSession);
+  });
+
+  it("does not subscribe to the entire React Flow node collection", () => {
+    render(
+      <TestWrapper>
+        <FFTNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(mockUseNodes).not.toHaveBeenCalled();
+  });
+
   it("renders with label", () => {
     render(
       <TestWrapper>
@@ -200,7 +260,27 @@ describe("FFTNode", () => {
     expect(screen.getByTestId("fft-canvas")).toBeInTheDocument();
   });
 
-  it("renders its FFT canvas at twice the normal backing resolution", () => {
+  it("clears the node loading gate when the canvas presents its first frame", () => {
+    render(
+      <TestWrapper>
+        <FFTNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const firstProps = mockFFTCanvasProps.mock.calls.at(-1)?.[0] as {
+      awaitingDeviceData?: boolean;
+      onRenderableFrameChange?: (ready: boolean) => void;
+    };
+    expect(firstProps.awaitingDeviceData).toBe(true);
+
+    act(() => firstProps.onRenderableFrameChange?.(true));
+
+    expect(mockFFTCanvasProps.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ awaitingDeviceData: false }),
+    );
+  });
+
+  it("renders its FFT canvas at the normal device backing resolution", () => {
     render(
       <TestWrapper>
         <FFTNode {...defaultProps} />
@@ -208,7 +288,7 @@ describe("FFTNode", () => {
     );
 
     expect(mockFFTCanvasProps).toHaveBeenCalledWith(
-      expect.objectContaining({ canvasResolutionScale: 2 }),
+      expect.objectContaining({ canvasResolutionScale: 1 }),
     );
   });
 
@@ -247,9 +327,10 @@ describe("FFTNode", () => {
   });
 
   it("uses draggable-band edge panning when connected to a Span node", () => {
-    mockUseNodes.mockReturnValue([
-      { id: "span-node", data: { spanOptions: true } },
-    ]);
+    mockNodeLookup.set("span-node", {
+      id: "span-node",
+      data: { spanOptions: true },
+    });
     mockUseNodeConnections.mockReturnValue([{ source: "span-node" }]);
 
     render(
@@ -269,9 +350,10 @@ describe("FFTNode", () => {
   });
 
   it("publishes the new hardware range when edge panning", () => {
-    mockUseNodes.mockReturnValue([
-      { id: "span-node", data: { spanOptions: true } },
-    ]);
+    mockNodeLookup.set("span-node", {
+      id: "span-node",
+      data: { spanOptions: true },
+    });
     mockUseNodeConnections.mockReturnValue([{ source: "span-node" }]);
 
     render(

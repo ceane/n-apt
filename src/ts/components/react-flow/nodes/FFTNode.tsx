@@ -12,11 +12,11 @@ import {
   setPreviewRange,
 } from "@n-apt/redux/slices/spectrumSlice";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
-import { useNodeConnections, useNodes } from "@xyflow/react";
+import { useNodeConnections, useStore } from "@xyflow/react";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { liveDataRef, liveDataBySourceRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
 import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import {
@@ -24,6 +24,9 @@ import {
   shouldRestorePausedFrameSnapshot,
 } from "@n-apt/hooks/liveSourceLifecycle";
 import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
+import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { sourceSpectrumRuntime } from "@n-apt/visualization/sourceVisualizationRuntime";
+import { isTxStandbyPreviewSource } from "@n-apt/utils/liveSourcePresentation";
 
 interface FFTNodeProps {
   id: string;
@@ -31,6 +34,8 @@ interface FFTNodeProps {
     fftOptions: boolean;
     label: string;
     showDemodOverlay?: boolean;
+    sourceRole?: "rx" | "tx";
+    sourceBindingGroup?: string;
   };
 }
 
@@ -93,6 +98,42 @@ export const getFftNodeSourceRange = ({
   return liveRange ?? null;
 };
 
+/** Resolve a role-owned display window from the frame being rendered. */
+export const getFftNodeRoleRange = ({
+  sourceRole,
+  fallbackRange,
+  expectedCenterFrequencyHz,
+  expectedSampleRateHz,
+  frame,
+}: {
+  sourceRole?: "rx" | "tx";
+  fallbackRange?: FrequencyRange | null;
+  expectedCenterFrequencyHz?: number | null;
+  expectedSampleRateHz?: number | null;
+  frame?: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate"> | null;
+}): FrequencyRange | null => {
+  if (
+    sourceRole === "tx" &&
+    typeof frame?.center_frequency_hz === "number" &&
+    Number.isFinite(frame.center_frequency_hz) &&
+    typeof frame.sample_rate === "number" &&
+    Number.isFinite(frame.sample_rate) &&
+    frame.sample_rate > 0
+  ) {
+    const frameMatchesRequestedWindow =
+      (typeof expectedCenterFrequencyHz !== "number" ||
+        Math.abs(frame.center_frequency_hz - expectedCenterFrequencyHz) < 1) &&
+      (typeof expectedSampleRateHz !== "number" ||
+        Math.abs(frame.sample_rate - expectedSampleRateHz) < 1);
+    if (!frameMatchesRequestedWindow) return fallbackRange ?? null;
+    return {
+      min: frame.center_frequency_hz - frame.sample_rate / 2,
+      max: frame.center_frequency_hz + frame.sample_rate / 2,
+    };
+  }
+  return fallbackRange ?? null;
+};
+
 const NodeWrapper = styled.div`
   display: flex;
   flex-direction: column;
@@ -140,12 +181,40 @@ const CanvasContainer = styled.div`
   cursor: grab;
 `;
 
-export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
+const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
   const fftRef = useRef<FFTCanvasHandle | null>(null);
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const roleSourceId = useAppSelector((state) => {
+    const assignedSourceId = data.sourceRole && data.sourceBindingGroup
+      ? state.sourceRouting.bindings[
+          sourceBindingKey(data.sourceBindingGroup, data.sourceRole)
+        ]
+      : null;
+    if (assignedSourceId) return assignedSourceId;
+    if (!data.sourceRole) return state.websocket.activeSourceId;
+    const candidates = state.websocket.sources ?? [];
+    if (data.sourceRole === "tx") {
+      return candidates.find((source) => source.capability === "tx" || source.capability === "tx_rx")?.id ?? state.websocket.activeSourceId;
+    }
+    return candidates.find((source) => source.capability === "rx" || source.capability === "tx_rx")?.id ?? state.websocket.activeSourceId;
+  });
+  const isTxStandbyPreview = useAppSelector((state) => {
+    if (!roleSourceId) return false;
+    const source = (state.websocket.sources ?? []).find(
+      (candidate) => candidate.id === roleSourceId,
+    );
+    return Boolean(
+      source &&
+        isTxStandbyPreviewSource({
+          sourceRole: data.sourceRole,
+          capability: source.capability,
+          status: source.status,
+        }),
+    );
+  });
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const selectedFiles = useAppSelector(
     (state) => state.waterfall.selectedFiles,
@@ -158,28 +227,44 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
     (state) => state.waterfall.isStitchPaused,
   );
   const [, setFrameVersion] = useState(0);
-  const selectedDeviceName = useAppSelector(
-    (state) => state.websocket.deviceName,
-  );
+  const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
+  const selectedDeviceName = useAppSelector((state) => {
+    const roleSource = (state.websocket.sources ?? []).find(
+      (source) => source.id === roleSourceId,
+    );
+    return roleSource?.name ?? state.websocket.deviceName;
+  });
+  const roleSourceKind = useAppSelector((state) => {
+    const roleSource = (state.websocket.sources ?? []).find(
+      (source) => source.id === roleSourceId,
+    );
+    return roleSource?.kind ?? state.websocket.backend;
+  });
   const initialSourceRef =
-    sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    sourceMode === "file"
+      ? filePlaybackDataRef
+      : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
   const initialFrame = Array.isArray(initialSourceRef.current)
     ? (initialSourceRef.current[initialSourceRef.current.length - 1] ?? null)
     : initialSourceRef.current;
   const dataRef = useRef<LiveFrameData | null>(initialFrame);
 
-  const nodes = useNodes();
   const connections = useNodeConnections({
     id: id,
     handleType: "target",
   });
 
-  const isSpanConnected = useMemo(() => {
-    return connections.some((conn) => {
-      const sourceNode = nodes.find((n) => n.id === conn.source);
-      return sourceNode?.data?.spanOptions === true;
-    });
-  }, [connections, nodes]);
+  const isSpanConnected = useStore(
+    useCallback(
+      (flowState) =>
+        connections.some(
+          (connection) =>
+            flowState.nodeLookup.get(connection.source)?.data?.spanOptions ===
+            true,
+        ),
+      [connections],
+    ),
+  );
 
   const frequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
@@ -190,28 +275,57 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   const loadedFileMetadata = useAppSelector(
     (state) => state.waterfall.loadedFileMetadata,
   );
-  const centerFrequencyHz = useAppSelector(
-    (state) => state.websocket.sdrSettings?.center_frequency || 0,
+  const centerFrequencyHz = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txCenterFrequencyHz
+      : state.websocket.sdrSettings?.center_frequency || 0,
   );
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea || "A",
   );
-  const fftSize = useAppSelector((state) => state.spectrum.fftSize);
-  const fftWindow = useAppSelector((state) => state.spectrum.fftWindow);
+  const fftSize = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txViewerFftSize
+      : state.spectrum.fftSize,
+  );
+  const fftWindow = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txViewerFftWindow
+      : state.spectrum.fftWindow,
+  );
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
-  const powerScale = useAppSelector((state) => state.spectrum.powerScale);
+  const powerScale = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txViewerPowerScale
+      : state.spectrum.powerScale,
+  );
+  const txViewerSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txViewerSampleRateHz,
+  );
+  const renderFftFrameRate = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txViewerFftFrameRate
+      : state.spectrum.fftFrameRate,
+  );
+  const renderTemporalResolution = useAppSelector((state) =>
+    data.sourceRole === "tx"
+      ? state.spectrum.txViewerTemporalResolution
+      : state.spectrum.displayTemporalResolution,
+  );
   const showSpikeOverlay = useAppSelector(
     (state) => state.spectrum.showSpikeOverlay,
   );
 
   useEffect(() => {
-    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const sourceRef = sourceMode === "file"
+      ? filePlaybackDataRef
+      : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
     const liveFrame = Array.isArray(sourceRef.current)
       ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
       : sourceRef.current;
     dataRef.current = liveFrame;
-  }, [activeSourceId, sourceMode]);
+  }, [activeSourceId, roleSourceId, sourceMode]);
   const demodCenterFreqHz = useAppSelector(
     (state) => state.demod?.centerFreqHz ?? null,
   );
@@ -246,6 +360,19 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
         }
       : null,
   });
+  const configuredTxRange =
+    data.sourceRole === "tx" &&
+    Number.isFinite(centerFrequencyHz) &&
+    centerFrequencyHz > 0 &&
+    Number.isFinite(txViewerSampleRateHz) &&
+    txViewerSampleRateHz > 0
+      ? {
+          min: centerFrequencyHz - txViewerSampleRateHz / 2,
+          max: centerFrequencyHz + txViewerSampleRateHz / 2,
+        }
+      : null;
+  const roleFallbackRange =
+    data.sourceRole === "tx" ? configuredTxRange : sourceFrequencyRange;
 
   // Use a ref to track the latest range without stale closures
   const rangeRef = useRef<{ min: number; max: number } | null>(null);
@@ -257,12 +384,19 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
   useEffect(() => {
     const id = setInterval(() => {
       const sourceRef =
-        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+        sourceMode === "file"
+          ? filePlaybackDataRef
+          : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
       const liveFrame = Array.isArray(sourceRef.current)
         ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
         : sourceRef.current;
       dataRef.current = liveFrame;
-      setFrameVersion((version) => version + 1);
+      // Live FFT rendering reads the source ref from its own rAF loop. A
+      // React update here only adds node-tree work; file playback still needs
+      // it to refresh its placeholder/status UI.
+      if (sourceMode === "file") {
+        setFrameVersion((version) => version + 1);
+      }
 
       // Prefer the requested range while a retune is in flight. Frame
       // metadata can still describe the previous hardware window for several
@@ -275,9 +409,20 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
         };
       }
 
+      const roleRange = getFftNodeRoleRange({
+        sourceRole: data.sourceRole,
+        fallbackRange: roleFallbackRange,
+        expectedCenterFrequencyHz:
+          data.sourceRole === "tx" ? centerFrequencyHz : null,
+        expectedSampleRateHz:
+          data.sourceRole === "tx" ? txViewerSampleRateHz : null,
+        frame: liveFrame,
+      });
       let newRange = getFftNodeResolvedRange({
-        requestedRange: sourceFrequencyRange,
-        frameRange,
+        // Tx frames own the display range. The Rx global range must never
+        // override it, otherwise the Tx canvas inherits the Rx axis.
+        requestedRange: roleRange,
+        frameRange: data.sourceRole === "tx" ? null : frameRange,
       });
       if (!newRange) {
         const fallbackCenter =
@@ -304,15 +449,37 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
       }
     }, 50); // 20fps is plenty for range sync
     return () => clearInterval(id);
-  }, [centerFrequencyHz, demodCenterFreqHz, sourceFrequencyRange, sourceMode]); // Keep frame range aligned with the current source metadata
+  }, [
+    centerFrequencyHz,
+    data.sourceRole,
+    demodCenterFreqHz,
+    roleSourceId,
+    roleFallbackRange,
+    sourceFrequencyRange,
+    sourceMode,
+    txViewerSampleRateHz,
+  ]); // Keep frame range aligned with the current source metadata
 
-  const renderDataRef = sourceMode === "file" ? filePlaybackDataRef : dataRef;
-  const isPaused = isFilePlaybackPaused({ sourceMode, isStitchPaused });
+  const renderDataRef = sourceMode === "file"
+    ? filePlaybackDataRef
+    : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? dataRef);
+  const isPaused =
+    isTxStandbyPreview || isFilePlaybackPaused({ sourceMode, isStitchPaused });
   const canvasSessionKey = getSourcePresentationSessionKey({
     sourceMode,
     selectedFiles,
     stitchTrigger,
+    presentationRevision:
+      data.sourceRole === "tx"
+        ? `${roleSourceId ?? "none"}:${Math.round(centerFrequencyHz)}:${Math.round(txViewerSampleRateHz)}:${fftSize}`
+        : roleSourceId,
   });
+  useEffect(() => {
+    setHasRenderableFrame(false);
+  }, [canvasSessionKey, roleSourceId]);
+  const handleRenderableFrameChange = useCallback((ready: boolean) => {
+    if (ready) setHasRenderableFrame(true);
+  }, []);
   const frame = renderDataRef.current;
   const filePlaceholderState = getFilePlaceholderState({
     sourceMode,
@@ -393,6 +560,31 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
     selectionDemodOverlay?.centerHz ?? demodCenterFreqHz ?? currentCenterHz;
   const demodOverlayRangeHz =
     selectionDemodOverlay?.rangeHz ?? demodBandwidthKhz * 1000;
+  const publishSpectrumFrame = useCallback(
+    (spectrum: Float32Array, sourceFrame: LiveFrameData) => {
+      const sourceId = roleSourceId ?? sourceFrame.source_id;
+      if (!sourceId) return;
+      sourceSpectrumRuntime.publish({
+        source_id: sourceId,
+        stream_epoch: sourceFrame.stream_epoch,
+        sequence: sourceFrame.sequence,
+        spectrum,
+        centerFrequencyHz:
+          sourceFrame.center_frequency_hz ?? currentCenterHz,
+        sampleRateHz:
+          sourceFrame.sample_rate ??
+          (data.sourceRole === "tx" ? txViewerSampleRateHz : hardwareSpanHz),
+        fftSize: spectrum.length,
+      });
+    },
+    [
+      currentCenterHz,
+      data.sourceRole,
+      hardwareSpanHz,
+      roleSourceId,
+      txViewerSampleRateHz,
+    ],
+  );
   return (
     <NodeWrapper>
       <NodeTitle>{data.label}</NodeTitle>
@@ -410,17 +602,29 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
           activeSignalArea={activeSignalArea}
           isPaused={isPaused}
           isDeviceConnected={true}
+          // Presentation remains bounded by the shared latest-frame runtime;
+          // no queue is allowed to accumulate when a source outruns 60 Hz.
+          fftFrameRate={Math.min(renderFftFrameRate, 60)}
           fftSize={fftSize}
           fftWindow={fftWindow}
+          displayTemporalResolution={renderTemporalResolution}
           fftMin={fftMinDb}
           fftMax={fftMaxDb}
           powerScale={powerScale}
+          expectedSourceId={roleSourceId}
+          frameSourceIdFallback={roleSourceId}
+          hardwareSampleRateHz={
+            data.sourceRole === "tx" ? txViewerSampleRateHz : undefined
+          }
+          deviceBackend={data.sourceRole === "tx" ? roleSourceKind : undefined}
           showSpikeOverlay={showSpikeOverlay}
           snapshotGridPreference={true}
           compact={true}
           nodePreview={true}
-          canvasResolutionScale={2}
-          awaitingDeviceData={!frame}
+          canvasResolutionScale={1}
+          onSpectrumFrame={publishSpectrumFrame}
+          onRenderableFrameChange={handleRenderableFrameChange}
+          awaitingDeviceData={!hasRenderableFrame}
           isIqRecordingActive={true}
           demodulationCenterFreqHz={
             isSpanConnected
@@ -453,5 +657,7 @@ export const FFTNode: React.FC<FFTNodeProps> = ({ id, data }) => {
     </NodeWrapper>
   );
 };
+
+export const FFTNode = React.memo(FFTNodeComponent);
 
 export default FFTNode;

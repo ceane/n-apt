@@ -4,6 +4,7 @@ import {
   resolveEffectiveLiveSampleRateHz,
   normalizePersistedSourceViewState,
   shouldRequestPausedPreview,
+  buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
 } from "@n-apt/hooks/useSpectrumStore";
 
@@ -39,6 +40,40 @@ describe("shouldRequestPausedPreview", () => {
         status: "connected",
       } as any),
     ).toBe(true);
+  });
+
+  it("requests a one-shot frame for a paused Rx source with raw I/Q", () => {
+    expect(
+      shouldRequestPausedPreview({
+        id: "mock-apt",
+        kind: "mock_apt",
+        capability: "rx",
+        supports_raw_iq_stream: true,
+        status: "connected",
+      } as any),
+    ).toBe(true);
+  });
+});
+
+describe("buildPausedPreviewSignature", () => {
+  it("changes when the paused source sample rate changes", () => {
+    const base = {
+      frequencyRange: { min: 18_000, max: 4_390_000 },
+      sampleRateHz: 4_372_000,
+      vizZoom: 1,
+      vizPanOffset: 0,
+      txCenterFrequencyHz: 137_100_000,
+      txSampleRateHz: 2_400_000,
+      txPowerDbm: -18,
+      txSignal: "wifi",
+      txIfftSize: 65_536,
+    };
+
+    expect(
+      buildPausedPreviewSignature(base),
+    ).not.toBe(
+      buildPausedPreviewSignature({ ...base, sampleRateHz: 12_800_000 }),
+    );
   });
 });
 

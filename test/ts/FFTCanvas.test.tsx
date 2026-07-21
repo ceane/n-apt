@@ -18,6 +18,7 @@ import {
   getCanvasPixelRatio,
   shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
+  shouldPublishProcessedSpectrumFrame,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -103,6 +104,23 @@ describe("FFTCanvas Component", () => {
     expect(shouldClearBlockingPlaceholder(2, 0)).toBe(false);
   });
 
+  it("publishes a newly ingested paused frame to source-bound consumers", () => {
+    expect(
+      shouldPublishProcessedSpectrumFrame({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        processedCurrentFrame: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPublishProcessedSpectrumFrame({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        processedCurrentFrame: false,
+      }),
+    ).toBe(false);
+  });
+
   it("does not build a sparse full-channel cache for Mock APT", () => {
     expect(
       shouldAccumulateFullChannelWaveform({
@@ -116,6 +134,12 @@ describe("FFTCanvas Component", () => {
         deviceKind: "hackrf_one",
       }),
     ).toBe(true);
+    expect(
+      shouldAccumulateFullChannelWaveform({
+        isRtlSdr: false,
+        deviceKind: "mock_tx",
+      }),
+    ).toBe(false);
   });
 
   it("does not draw VFO zoom markers in an FFT node preview", () => {
@@ -123,8 +147,8 @@ describe("FFTCanvas Component", () => {
     expect(shouldDrawZoomMarkersForCanvas(false)).toBe(true);
   });
 
-  it("multiplies device pixel density for a sharper backing canvas", () => {
-    expect(getCanvasPixelRatio(2, 2)).toBe(4);
+  it("caps backing resolution at device pixel density", () => {
+    expect(getCanvasPixelRatio(2, 2)).toBe(2);
   });
 
   it("uses only the selection overlay for FFT node range selection", () => {

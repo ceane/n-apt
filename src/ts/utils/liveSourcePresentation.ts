@@ -25,17 +25,39 @@ export type LivePresentationState = {
   placeholder: CanvasPlaceholderState | null;
 };
 
+/** Whether this source should show one standby Tx preview instead of playing
+ * continuously. A default-flow Tx-only source is previewed too; a role-bound
+ * Tx branch may use a full-duplex source, while an Rx branch never does. */
+export const isTxStandbyPreviewSource = ({
+  sourceRole,
+  capability,
+  status,
+}: {
+  sourceRole?: "rx" | "tx";
+  capability?: string | null;
+  status?: string | null;
+}): boolean => {
+  if (status === "transmitting") return false;
+  if (sourceRole === "rx") return false;
+  if (sourceRole === "tx") {
+    return capability === "tx" || capability === "tx_rx";
+  }
+  return capability === "tx";
+};
+
 /** Isolates persisted paused-frame snapshots by source/file processing session. */
 export const getSourcePresentationSessionKey = ({
   sourceMode,
   selectedFiles,
   stitchTrigger,
+  presentationRevision,
 }: {
   sourceMode: "live" | "file";
   selectedFiles: Array<{ id?: string; name: string }>;
   stitchTrigger: number | null | undefined;
+  presentationRevision?: string | number | null;
 }): string =>
-  `${sourceMode}:${stitchTrigger ?? "none"}:${selectedFiles
+  `${sourceMode}:${stitchTrigger ?? "none"}:${presentationRevision ?? "none"}:${selectedFiles
     .map((file) => file.id || file.name)
     .sort()
     .join("|")}`;

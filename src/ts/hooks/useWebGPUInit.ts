@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { useAsyncShaderCache } from "@n-apt/hooks/useAsyncShaderCache";
 import { useSharedBufferManager } from "@n-apt/hooks/useSharedBufferManager";
 import { resampleShader } from "@n-apt/shaders";
+import { acquireSharedWebGpuDevice } from "@n-apt/visualization/webgpuDevicePool";
 
 // Inlined OverlayTextureRenderer shader
 const overlayShader = `
@@ -168,41 +169,12 @@ export class OverlayTextureRenderer {
   }
 }
 
-// Inlined from gpu/webgpu.ts
-let devicePromise: Promise<GPUDevice | null> | null = null;
-
 function isWebGPUSupported(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
 async function getWebGPUDevice(): Promise<GPUDevice | null> {
-  if (!isWebGPUSupported()) {
-    return null;
-  }
-  if (!devicePromise) {
-    devicePromise = (async () => {
-      try {
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-          return null;
-        }
-
-        // Request higher texture dimension limits to support larger canvases
-        const maxTextureDimension2D =
-          adapter.limits?.maxTextureDimension2D ?? 16384;
-        const device = await adapter.requestDevice({
-          requiredLimits: {
-            maxTextureDimension2D: Math.min(maxTextureDimension2D, 16384),
-          },
-        });
-        return device;
-      } catch (error) {
-        console.error("Failed to request WebGPU device:", error);
-        return null;
-      }
-    })();
-  }
-  return devicePromise;
+  return isWebGPUSupported() ? acquireSharedWebGpuDevice() : null;
 }
 
 function getPreferredCanvasFormat(): GPUTextureFormat {

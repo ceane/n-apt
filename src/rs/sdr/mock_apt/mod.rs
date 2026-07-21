@@ -1039,7 +1039,9 @@ impl MockAptDevice {
     let modulation_phase_step = 0.31 / sample_rate;
 
     // Calculate settle factor (0.0 to 1.0) for realistic warm-up
-    let settle_factor = if self.samples_since_init < self.settle_time_samples {
+    let settle_factor = if self.realistic_rf.enabled
+      && self.samples_since_init < self.settle_time_samples
+    {
       (self.samples_since_init as f64 / self.settle_time_samples as f64)
         .powf(2.0)
     } else {

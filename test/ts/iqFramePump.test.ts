@@ -81,7 +81,7 @@ describe("ordered I/Q frame pump", () => {
     expect(pump?.stats()).toMatchObject({ rejected: 1 });
   });
 
-  it("retains at most eight frames and drops the oldest queued work", async () => {
+  it("keeps only the latest frame while decryption is in flight", async () => {
     const published: number[] = [];
     const releaseFirst: { current: (() => void) | null } = { current: null };
     let decryptCount = 0;
@@ -107,8 +107,8 @@ describe("ordered I/Q frame pump", () => {
     releaseFirst.current?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(published).toEqual([1, 5, 6, 7, 8, 9, 10, 11]);
-    expect(pump?.stats()).toMatchObject({ accepted: 8, dropped: 3 });
+    expect(published).toEqual([1, 11]);
+    expect(pump?.stats()).toMatchObject({ accepted: 2, dropped: 9 });
   });
 
   it("adopts a newer same-source epoch when control metadata lags", async () => {

@@ -16,6 +16,7 @@ const HISTORY_LENGTH: u32 = 32u;
 // same suspension_bridge when its clumps moved in and out of the capture.
 const MAX_BRIDGE_EVENT_GAP: u32 = 8u;
 const MIN_LOW_RISE_BRIDGE_WIDTH: f32 = 0.48;
+const MIN_VALIDATED_BRIDGE_SUPPORT: f32 = 0.50;
 
 struct Decision {
   is_napt: u32,
@@ -106,7 +107,7 @@ fn structural_bridge_present(frame: HistoryFrame) -> bool {
   // The legacy suspension aggregate alone is not enough because Mock combs
   // can make it look like a bridge in every frame.
   return frame.clump_count >= 1u &&
-    frame.bridge_shape_support >= 0.25;
+    frame.bridge_shape_support >= MIN_VALIDATED_BRIDGE_SUPPORT;
 }
 
 fn structural_bridge_score(frame: HistoryFrame) -> f32 {
@@ -122,9 +123,15 @@ fn main() {
   // Preserve the validated unimodal/partial geometry for the higher-order
   // pass. This prevents a high legacy bridge aggregate from promoting a Mock
   // comb while still allowing a partial visible branch to persist.
-  let validated_bridge_shape_support = max(
+  let full_bridge_support = min(
     metrics.unimodal_bridge_score,
-    metrics.partial_bridge_score);
+    min(metrics.bridge_width_score, metrics.bridge_shoulder_score));
+  let partial_bridge_support = min(
+    metrics.partial_bridge_score,
+    metrics.bridge_shoulder_score);
+  let validated_bridge_shape_support = max(
+    full_bridge_support,
+    partial_bridge_support);
   history[write_index] = HistoryFrame(
     metrics.suspension_bridge_score,
     metrics.u_dip_score,

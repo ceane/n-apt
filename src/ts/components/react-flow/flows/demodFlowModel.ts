@@ -10,6 +10,21 @@ export type DemodNodePolicy =
   | { action: "keep" }
   | { action: "replace"; replacement: "metadata" };
 
+/** The initial graph uses spacious model coordinates; ELK is for later edits. */
+export const shouldRunDemodAutoLayout = (flowVersion: number): boolean =>
+  flowVersion > 0;
+
+/** Waterfalls own temporal history in their mounted canvas runtime. Keep every
+ * waterfall mounted when zooming moves it outside the viewport. Tx Suite FFTs
+ * are also source-bound runtime producers for their adjacent waterfalls. */
+export const shouldVirtualizeDemodFlowNodes = (nodes: Node[]): boolean =>
+  !nodes.some(
+    (node) =>
+      node.data?.waterfallOptions === true ||
+      (node.data?.sourceBindingGroup === "tx-suite" &&
+        node.data?.fftOptions === true),
+  );
+
 export const getDemodNodePolicy = (
   data: Record<string, unknown> | undefined,
   sourceMode: SourceMode,
@@ -27,11 +42,10 @@ export const adaptDemodFlowForSourceMode = (
   graph: DemodFlowGraph,
   sourceMode: SourceMode,
 ): DemodFlowGraph => {
-  const replaceableNode = graph.nodes.find(
-    (node) =>
-      sourceMode === "file"
-        ? getDemodNodePolicy(node.data, sourceMode).action === "replace"
-        : node.data?.metadataNode === true,
+  const replaceableNode = graph.nodes.find((node) =>
+    sourceMode === "file"
+      ? getDemodNodePolicy(node.data, sourceMode).action === "replace"
+      : node.data?.metadataNode === true,
   );
   if (!replaceableNode) return graph;
 
@@ -70,7 +84,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "source",
       type: "custom",
-      position: { x: 250, y: 50 },
+      position: { x: 450, y: 50 },
       data: {
         label: "Source",
         sourceNode: true,
@@ -83,7 +97,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
           {
             id: "channel",
             type: "custom",
-            position: { x: 250, y: 260 },
+            position: { x: 40, y: 420 },
             data: {
               label: "Channel",
               channelNode: true,
@@ -96,7 +110,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
           {
             id: "metadata",
             type: "custom",
-            position: { x: 250, y: 480 },
+            position: { x: 450, y: 420 },
             data: {
               label: "Metadata",
               metadataNode: true,
@@ -107,17 +121,33 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
           {
             id: "signalOptions",
             type: "custom",
-            position: { x: 250, y: 480 },
+            position: { x: 850, y: 420 },
             data: {
               label: "Signal Configuration",
               signalOptions: true,
             },
           } satisfies Node,
         ]),
+    ...(isFileSource
+      ? []
+      : [
+          {
+            id: "fft",
+            type: "custom",
+            position: { x: 40, y: 1150 },
+            data: { label: "FFT", fftOptions: true },
+          } satisfies Node,
+          {
+            id: "waterfall",
+            type: "custom",
+            position: { x: 850, y: 1150 },
+            data: { label: "Waterfall", waterfallOptions: true },
+          } satisfies Node,
+        ]),
     {
       id: "iq-capture",
       type: "custom",
-      position: { x: 250, y: 680 },
+      position: { x: 450, y: 2200 },
       data: {
         label: "I/Q Capture",
         iqCaptureNode: true,
@@ -126,7 +156,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "symbols",
       type: "custom",
-      position: { x: 50, y: 860 },
+      position: { x: 40, y: 3600 },
       data: {
         label: "Symbol (I/Q) Analysis",
         symbolOptions: true,
@@ -135,7 +165,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "bitstream",
       type: "custom",
-      position: { x: 250, y: 860 },
+      position: { x: 450, y: 3600 },
       data: {
         label: "Bitstream Analysis",
         bitstreamOptions: true,
@@ -147,7 +177,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
           {
             id: "stimulus",
             type: "custom",
-            position: { x: 450, y: 860 },
+            position: { x: 850, y: 3600 },
             data: {
               label: "Stimulus",
               stimulusOptions: true,
@@ -157,7 +187,7 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "output",
       type: "custom",
-      position: { x: 450, y: 1260 },
+      position: { x: 450, y: 5200 },
       data: { outputNode: true, state: "idle" },
     },
   ];
@@ -189,6 +219,42 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
             id: "e-channel-signalOptions",
             source: "channel",
             target: "signalOptions",
+            animated: true,
+            style: {
+              stroke: "#00d4ffaa",
+              strokeWidth: 2,
+              strokeDasharray: "5 5",
+            },
+          },
+          {
+            id: "e-channel-fft",
+            source: "channel",
+            target: "fft",
+            animated: true,
+            style: { stroke: "#00d4ff", strokeWidth: 2 },
+          },
+          {
+            id: "e-channel-waterfall",
+            source: "channel",
+            target: "waterfall",
+            animated: true,
+            style: { stroke: "#00d4ff", strokeWidth: 2 },
+          },
+          {
+            id: "e-signalOptions-fft",
+            source: "signalOptions",
+            target: "fft",
+            animated: true,
+            style: {
+              stroke: "#00d4ffaa",
+              strokeWidth: 2,
+              strokeDasharray: "5 5",
+            },
+          },
+          {
+            id: "e-signalOptions-waterfall",
+            source: "signalOptions",
+            target: "waterfall",
             animated: true,
             style: {
               stroke: "#00d4ffaa",

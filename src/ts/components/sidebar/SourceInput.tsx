@@ -23,6 +23,14 @@ const DevicePills = styled.div`
   gap: 8px;
 `;
 
+const SelectionModeHint = styled.div`
+  color: ${({ theme }) => theme.textSecondary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+`;
+
 const DevicePill = styled.div<{
   $selected?: boolean;
   $opacity?: number;
@@ -344,6 +352,10 @@ interface SourceInputProps {
   }>;
   selectedDeviceId?: string;
   onSelectedDeviceChange?: (id: string) => void;
+  selectionMode?: "single" | "multi";
+  maxSelectedDevices?: number;
+  selectedDeviceIds?: string[];
+  onSelectedDevicesChange?: (ids: string[]) => void;
   onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
   deviceTxActionsEnabled?: boolean;
@@ -364,6 +376,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   devices,
   selectedDeviceId,
   onSelectedDeviceChange,
+  selectionMode = "single",
+  maxSelectedDevices = 2,
+  selectedDeviceIds = [],
+  onSelectedDevicesChange,
   onToggleDeviceRxPause,
   onToggleDeviceTxMode,
   deviceTxActionsEnabled = true,
@@ -533,6 +549,18 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 
   const selectedDevice =
     sourceDevices.find((device) => device.id === selectedDeviceId) ?? null;
+  const handleDeviceSelection = (deviceId: string) => {
+    if (selectionMode !== "multi") {
+      onSelectedDeviceChange?.(deviceId);
+      return;
+    }
+    const nextIds = selectedDeviceIds.includes(deviceId)
+      ? selectedDeviceIds.filter((id) => id !== deviceId)
+      : selectedDeviceIds.length < maxSelectedDevices
+        ? [...selectedDeviceIds, deviceId]
+        : [...selectedDeviceIds.slice(1), deviceId];
+    onSelectedDevicesChange?.(nextIds);
+  };
   const spaceBoundDevice =
     sourceDevices.find((device) => device.id === spaceBoundDeviceId) ?? null;
   const connectedDevice =
@@ -590,13 +618,22 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         }}
       />
       <DevicePicker>
+        {selectionMode === "multi" && (
+          <SelectionModeHint>
+            Multi-source · select up to {maxSelectedDevices}
+          </SelectionModeHint>
+        )}
         <DevicePills>
           {visibleDevices.map((device) => {
             const isOnscreenStreaming = device.id === activeDeviceId;
             const isSelectedDevice = isSourceDeviceSelected(
               sourceMode,
               device.id,
-              selectedDeviceId,
+              selectionMode === "multi"
+                ? selectedDeviceIds.includes(device.id)
+                  ? device.id
+                  : undefined
+                : selectedDeviceId,
             );
             const isTxCapable =
               device.capability?.toLowerCase().includes("tx") ?? false;
@@ -619,11 +656,11 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 tabIndex={0}
                 $selected={isSelectedDevice}
                 $opacity={fileModeOpacity}
-                onClick={() => onSelectedDeviceChange?.(device.id)}
+                onClick={() => handleDeviceSelection(device.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    onSelectedDeviceChange?.(device.id);
+                    handleDeviceSelection(device.id);
                   }
                 }}
                 title={`Switch to ${device.name}`}

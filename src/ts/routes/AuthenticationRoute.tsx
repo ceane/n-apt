@@ -337,7 +337,7 @@ const Input = styled.input`
   }
 `;
 
-const AuthButton = styled(Button)<{
+const AuthButton = styled(Button) <{
   $variant?: "primary" | "secondary" | "danger";
 }>`
   width: 24cqw;
@@ -507,7 +507,7 @@ const AuthThemeButton = styled.button<{ $active?: boolean }>`
   &:hover {
     color: ${(props) => props.theme.textPrimary};
     background: ${(props) =>
-      props.$active ? props.theme.primary : props.theme.surfaceHover};
+    props.$active ? props.theme.primary : props.theme.surfaceHover};
   }
 `;
 
@@ -848,7 +848,7 @@ export const AuthenticationUI = ({
   );
 
   // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => {}, []);
+  useEffect(() => { }, []);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1072,8 +1072,8 @@ export const AuthenticationUI = ({
               </>
             )}
 
-            <Essentials aria-label="What you need to get started">
-              <EssentialsLabel>What you need to get started</EssentialsLabel>
+            <Essentials aria-label="What you need to get started (and view signals in the air)">
+              <EssentialsLabel>What you need to get started (and view signals in the air)</EssentialsLabel>
               <EssentialsGrid>
                 <EssentialCard to="/learn-signals" as={Link} aria-label="I/Q captures and files">
                   <CardIcon>

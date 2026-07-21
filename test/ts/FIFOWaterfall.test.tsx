@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
@@ -32,6 +32,104 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfall", () => {
+  it("draws one standby preview frame before freezing a paused feed", async () => {
+    const listenerRef: {
+      current: ((waveform: Float32Array) => void) | null;
+    } = { current: null };
+    const resampler = jest.fn(
+      (
+        data: ArrayLike<number>,
+        targetLength: number,
+        output?: Float32Array,
+      ) => {
+        const target = output ?? new Float32Array(targetLength);
+        target.fill(Number(data[0] ?? 0));
+        return target;
+      },
+    );
+
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={null}
+          waveformFeed={{
+            getCurrent: () => null,
+            subscribe: (next) => {
+              listenerRef.current = next;
+              return () => {
+                listenerRef.current = null;
+              };
+            },
+          }}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused
+          isVisible
+          forceCanvas2D
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+
+    act(() => listenerRef.current?.(new Float32Array([-82, -61])));
+    await waitFor(() => expect(resampler).toHaveBeenCalledTimes(1));
+
+    act(() => listenerRef.current?.(new Float32Array([-70, -55])));
+    expect(resampler).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws external live frames without requiring a React prop update", async () => {
+    const listenerRef: {
+      current: ((waveform: Float32Array) => void) | null;
+    } = { current: null };
+    const resampler = jest.fn(
+      (
+        data: ArrayLike<number>,
+        targetLength: number,
+        output?: Float32Array,
+      ) => {
+        const target = output ?? new Float32Array(targetLength);
+        target.fill(Number(data[0] ?? 0));
+        return target;
+      },
+    );
+
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={null}
+          waveformFeed={{
+            getCurrent: () => null,
+            subscribe: (next) => {
+              listenerRef.current = next;
+              return () => {
+                listenerRef.current = null;
+              };
+            },
+          }}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+
+    const liveFrame = new Float32Array([-82, -61]);
+    act(() => listenerRef.current?.(liveFrame));
+
+    await waitFor(() => expect(resampler).toHaveBeenCalled());
+    expect(resampler.mock.calls[resampler.mock.calls.length - 1]?.[0]).toBe(
+      liveFrame,
+    );
+  });
+
   it("provides reusable typed output storage to optimized resamplers", async () => {
     const resampler = jest.fn(
       (

@@ -47,13 +47,15 @@ const sameLifecycle = (
  * Work is revalidated after every await so a frame from a replaced socket can
  * never publish into an older source lifecycle. A newer same-source v2 epoch
  * is adopted from the data plane when control metadata lags. Queue pressure
- * drops the oldest pending work and preserves the freshest visualization data.
+ * replaces pending work and preserves only the freshest visualization frame.
+ * The frame currently being decrypted is not counted as pending, so one newer
+ * frame can always replace the queue while asynchronous work is in flight.
  */
 export const createIqFramePump = ({
   decrypt,
   publish,
   getLifecycle,
-  maxPending = 8,
+  maxPending = 1,
   onDecryptionFailure,
   onLifecycleChange,
   onFirstFrameAccepted,
@@ -191,12 +193,7 @@ export const createIqFramePump = ({
         counters.rejected += 1;
         return;
       }
-      const retainedLimit = Math.max(1, maxPending);
-      const queuedLimit = retainedLimit - (draining ? 1 : 0);
-      if (queuedLimit === 0) {
-        counters.dropped += 1;
-        return;
-      }
+      const queuedLimit = Math.max(1, maxPending);
       while (pending.length >= queuedLimit) {
         pending.shift();
         counters.dropped += 1;

@@ -142,6 +142,19 @@ export const selectDeviceState = createSelector(
   }),
 );
 
+const EMPTY_SOURCE_LIST: SourceInfo[] = [];
+const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> = [];
+
+export const selectWebSocketSources = createSelector(
+  [selectWebSocketState],
+  (websocket) => websocket.sources ?? EMPTY_SOURCE_LIST,
+);
+
+export const selectSelectedFiles = createSelector(
+  [selectWaterfallState],
+  (waterfall) => waterfall.selectedFiles ?? EMPTY_FILE_LIST,
+);
+
 export const selectDeviceSettings = createSelector(
   [selectWebSocketState],
   (websocket) => ({

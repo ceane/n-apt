@@ -2,6 +2,14 @@
 export { store, useAppDispatch, useAppSelector } from "./store";
 export type { RootState, AppDispatch } from "./store";
 
+export {
+  setSourceBinding,
+  setSourceBindings,
+  clearSourceBindings,
+  setSourceSelectionMode,
+  sourceBindingKey,
+} from "./slices/sourceRoutingSlice";
+
 // Export slice actions
 export {
   setAuthenticating,
@@ -89,6 +97,12 @@ import {
   setTxSignal,
   setTxSampleRateHz,
   setTxIfftSize,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
+  setTxViewerPowerScale,
   setTxCenterFrequencyHz,
   setDeviceKind,
   setTxPowerDbm,
@@ -146,6 +160,12 @@ export {
   setTxSignal,
   setTxSampleRateHz,
   setTxIfftSize,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
+  setTxViewerPowerScale,
   setTxCenterFrequencyHz,
   setDeviceKind,
   setTxPowerDbm,
@@ -203,6 +223,12 @@ export const spectrumActions = {
   setTxSignal,
   setTxSampleRateHz,
   setTxIfftSize,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
+  setTxViewerPowerScale,
   setTxCenterFrequencyHz,
   setDeviceKind,
   setTxPowerDbm,

@@ -177,6 +177,59 @@ fn source_capability_for_kind(kind: &str) -> &'static str {
   }
 }
 
+fn source_capability_for_kind_and_duplex(
+  kind: &str,
+  duplex_mode: Option<&str>,
+) -> &'static str {
+  if kind == "mock_tx" {
+    return "tx";
+  }
+  match duplex_mode.map(|mode| mode.to_ascii_lowercase()) {
+    Some(mode) if mode == "full-duplex" || mode == "full_duplex" => "tx_rx",
+    Some(mode) if mode == "half-duplex" || mode == "half_duplex" => {
+      if is_tx_capable_source_kind(kind) { "tx_rx" } else { "rx" }
+    }
+    _ => source_capability_for_kind(kind),
+  }
+}
+
+#[cfg(test)]
+mod tx_suite_tests {
+  use super::super::tx_suite::{resolve_tx_suite_pair, DeviceCapability};
+
+  #[test]
+  fn prefers_dedicated_rx_and_half_duplex_tx_pair() {
+    let pair = resolve_tx_suite_pair(&[
+      DeviceCapability::new("rx", true, false, false),
+      DeviceCapability::new("tx", true, true, false),
+    ])
+    .expect("pair should resolve");
+
+    assert_eq!(pair.rx_source_id, "rx");
+    assert_eq!(pair.tx_source_id, "tx");
+    assert_eq!(pair.tx_mode, "standby");
+  }
+
+  #[test]
+  fn uses_one_full_duplex_device_for_both_roles() {
+    let pair = resolve_tx_suite_pair(&[
+      DeviceCapability::new("duplex", true, true, true),
+    ])
+    .expect("duplex pair should resolve");
+
+    assert_eq!(pair.rx_source_id, "duplex");
+    assert_eq!(pair.tx_source_id, "duplex");
+  }
+
+  #[test]
+  fn rejects_tx_only_pair_without_an_rx_source() {
+    assert!(resolve_tx_suite_pair(&[
+      DeviceCapability::new("tx", false, true, false),
+    ])
+    .is_none());
+  }
+}
+
 fn is_tx_capable_source_kind(kind: &str) -> bool {
   matches!(kind, "hackrf_one" | "mock_tx")
 }
@@ -292,7 +345,7 @@ fn build_source_payload(
     "id": source_id,
     "name": name,
     "kind": kind,
-    "capability": source_capability_for_kind(kind),
+    "capability": source_capability_for_kind_and_duplex(kind, duplex_mode),
     "duplex_mode": duplex_mode,
     "status": source_status_for_entry(is_active_source, paused, device_state, kind),
     "paused": paused,

@@ -176,9 +176,9 @@ const isMockAptIdentity = ({
 
 /**
  * Full-channel accumulation is only needed for hardware that delivers a
- * channel through multiple tuned hops. Mock APT synthesizes the selected
- * range directly; caching a partially covered range fills the rest with the
- * floor and presents it as a signal gap.
+ * channel through multiple tuned hops. Mock sources synthesize the requested
+ * range directly; accumulating their changing preview windows causes old Tx
+ * sample-rate windows to stack into the new one.
  */
 export const shouldAccumulateFullChannelWaveform = ({
   isRtlSdr,
@@ -191,7 +191,9 @@ export const shouldAccumulateFullChannelWaveform = ({
   backend?: string | null;
   deviceName?: string | null;
 }): boolean =>
-  !isRtlSdr && !isMockAptIdentity({ deviceKind, backend, deviceName });
+  !isRtlSdr &&
+  !isMockAptIdentity({ deviceKind, backend, deviceName }) &&
+  !isMockTxIdentity({ deviceKind, backend, deviceName });
 
 export const resolveTxModeDeviceName = (
   sources: Array<{ status: string | null; name?: string | null }>,
@@ -218,6 +220,19 @@ export const shouldClearBlockingPlaceholder = (
   previousKind: number,
   nextKind: number,
 ): boolean => nextKind !== 0 && previousKind !== nextKind;
+
+/** A paused one-shot frame is still newly processed data for downstream
+ * source-bound views, even though it did not arrive through the play loop. */
+export const shouldPublishProcessedSpectrumFrame = ({
+  hasNewData,
+  shouldReprocessCurrentFrame,
+  processedCurrentFrame,
+}: {
+  hasNewData: boolean;
+  shouldReprocessCurrentFrame: boolean;
+  processedCurrentFrame: boolean;
+}): boolean =>
+  processedCurrentFrame || hasNewData || shouldReprocessCurrentFrame;
 
 export const resolveEffectiveDbmOffsetDb = ({
   powerScale,
@@ -1126,6 +1141,11 @@ export interface FFTCanvasProps {
   nodePreview?: boolean;
   /** Multiplier applied to the backing-canvas pixel density. */
   canvasResolutionScale?: number;
+  /** Publishes the processed source spectrum to sibling visualization targets. */
+  onSpectrumFrame?: (
+    spectrum: Float32Array,
+    sourceFrame: LiveFrameData,
+  ) => void;
   /** Optional overlay rendered inside the FFT canvas wrapper */
   overlayContent?: ReactNode;
   /** Optional TX slider drawn into the bottom FFT status band. */
@@ -1249,7 +1269,11 @@ export const getCanvasPixelRatio = (
     Number.isFinite(resolutionScale) && resolutionScale > 0
       ? resolutionScale
       : 1;
-  return safeDevicePixelRatio * safeResolutionScale;
+  // A scale above one used to multiply an already DPR-scaled canvas. In a
+  // React Flow node that produced 4x linear resolution on Retina displays,
+  // or 16x the base pixel work. Keep the argument for API compatibility but
+  // cap live backing stores at the physical device density.
+  return Math.min(safeDevicePixelRatio, safeDevicePixelRatio * safeResolutionScale);
 };
 
 export const resolveDemodFocusOverlay = ({
@@ -1410,6 +1434,7 @@ const FFTCanvas = memo(
       compact = false,
       nodePreview = false,
       canvasResolutionScale = 1,
+      onSpectrumFrame,
       demodulationCenterFreqHz = null,
       demodulationRangeHz = null,
       selectionRange,
@@ -3118,6 +3143,7 @@ const FFTCanvas = memo(
             !!(currentFrame as any).waveform ||
             !!(currentFrame as any).data)
         );
+        let processedCurrentFrame = false;
 
         if (
           (hasNewData || shouldReprocessCurrentFrame) &&
@@ -3155,6 +3181,7 @@ const FFTCanvas = memo(
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
+            processedCurrentFrame = true;
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentFrame;
             lastProcessedFrameSignatureRef.current =
@@ -3327,6 +3354,7 @@ const FFTCanvas = memo(
           }
 
           waveformFloatRef.current = processedWaveform;
+          processedCurrentFrame = true;
           lastProcessedDataRef.current = currentFrame;
           lastProcessedFrameSignatureRef.current =
             getLiveFrameSignature(currentFrame);
@@ -3454,6 +3482,19 @@ const FFTCanvas = memo(
 
         // Update waveform reference after potential restoration
         const currentWaveform = renderWaveformRef.current;
+
+        if (
+          currentFrame &&
+          currentWaveform &&
+          currentWaveform.length > 0 &&
+          shouldPublishProcessedSpectrumFrame({
+            hasNewData: Boolean(hasNewData),
+            shouldReprocessCurrentFrame,
+            processedCurrentFrame,
+          })
+        ) {
+          onSpectrumFrame?.(currentWaveform, currentFrame);
+        }
 
         if (
           currentWaveform &&
@@ -4307,6 +4348,7 @@ const FFTCanvas = memo(
         compact,
         nodePreview,
         canvasResolutionScale,
+        onSpectrumFrame,
         selectionMode,
         bandwidthAlignment,
         visualizerMachine,

@@ -4,7 +4,10 @@ import websocketSlice, {
   setCaptureStatus,
   setSpectrumFrames,
 } from "@n-apt/redux/slices/websocketSlice";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import {
+  liveDataRef,
+  liveDataBySourceRef,
+} from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   shouldAcceptPausedFrameRequest,
   resetPausedFrameRequestGate,
@@ -144,6 +147,7 @@ describe("Redux WebSocket Migration", () => {
 
     // Clear the live data ref
     liveDataRef.current = null;
+    liveDataBySourceRef.current = {};
     resetPausedFrameRequestGate();
     resetWebSocketMiddlewareState();
   });
@@ -291,9 +295,7 @@ describe("Redux WebSocket Migration", () => {
         jest.advanceTimersByTime(16);
 
         expect(liveDataRef.current).toEqual([frame]);
-        expect(
-          middlewareStore.getState().websocket.dataFrameCounter,
-        ).toBeGreaterThan(0);
+        expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
       } finally {
         jest.useRealTimers();
       }
@@ -451,10 +453,81 @@ describe("Redux WebSocket Migration", () => {
         jest.advanceTimersByTime(16);
 
         expect(liveDataRef.current).toEqual(firstFrame);
-        expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(1);
+        expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it("sends an active Mock Tx preview request through its source-IQ socket", () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
+        const socket = {
+          readyState: sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
+          close: jest.fn(),
+          send: jest.fn(),
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn(),
+          dispatchEvent: jest.fn(),
+          onopen: null,
+          onclose: null,
+          onerror: null,
+          onmessage: null,
+        };
+        sockets.push(socket);
+        return socket;
+      });
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0]?.onopen?.();
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "mock-tx",
+          sources: [
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "connected",
+              supports_raw_iq_stream: true,
+              stream_key: "mock-tx",
+            },
+          ],
+          sourceStatuses: { "mock-tx": "connected" },
+        } as any),
+      );
+
+      expect(sockets.length).toBeGreaterThanOrEqual(2);
+      const controlSocket = sockets[0];
+      const sourceSocket = sockets[1];
+      sourceSocket.readyState = WebSocket.OPEN;
+      controlSocket.readyState = WebSocket.OPEN;
+      sourceSocket.onopen?.();
+
+      expect(sourceSocket.send).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"request_next_frame"'),
+      );
+      expect(controlSocket.send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"request_next_frame"'),
+      );
     });
 
     it("clears stale live spectrum caches immediately when disconnecting", () => {
@@ -2114,7 +2187,67 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Live data ref isolation", () => {
-    it("trims retained live IQ frames to a small latest-frame queue", () => {
+    it("publishes a paused secondary-source preview revision without playing Rx", () => {
+      jest.useFakeTimers();
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: true,
+          activeSourceId: "mock-apt",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+            },
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "connected",
+            },
+          ],
+        } as any),
+      );
+
+      const previewFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-tx",
+        iq_data: new Uint8Array([128, 128, 129, 127]),
+        sample_rate: 2_400_000,
+        center_frequency_hz: 137_100_000,
+      } as IqRawFrame;
+      __testQueueLiveDataForMiddleware(
+        previewFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+
+      jest.advanceTimersByTime(16);
+
+      expect(liveDataBySourceRef.current["mock-tx"]?.current).toBe(
+        previewFrame,
+      );
+      expect(liveDataRef.current).toBeNull();
+      expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it("retains only the latest live IQ presentation frame", () => {
       const frames = Array.from({ length: 20 }, (_, index) => ({
         type: "spectrum",
         data_type: "iq_raw",
@@ -2126,9 +2259,8 @@ describe("Redux WebSocket Migration", () => {
 
       const trimmed = trimLiveFrameQueue(frames);
 
-      expect(trimmed).toHaveLength(8);
-      expect(trimmed[0].timestamp).toBe(12);
-      expect(trimmed[7].timestamp).toBe(19);
+      expect(trimmed).toHaveLength(1);
+      expect(trimmed[0].timestamp).toBe(19);
     });
 
     it("does not silently reject live frames by center-frequency mismatch", () => {

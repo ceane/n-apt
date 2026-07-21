@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { DemodSidebarNodes } from "../../src/ts/components/sidebar/DemodSidebarNodes";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
@@ -23,6 +23,13 @@ describe("DemodSidebarNodes", () => {
     );
 
     expect(
+      screen.queryByText(
+        "Turns signal measurements like amplitude and phase into symbols that represent bits.",
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    expect(
       screen.getByText(
         "Turns signal measurements like amplitude and phase into symbols that represent bits.",
       ),
@@ -31,6 +38,21 @@ describe("DemodSidebarNodes", () => {
       screen.getByText(
         "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("offers a Tx node for controlled demod experiments", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <DemodSidebarNodes />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    expect(screen.getByText("Tx")).toBeInTheDocument();
+    expect(
+      screen.getByText("Configure a transmit signal for controlled demod tests"),
     ).toBeInTheDocument();
   });
 });

@@ -277,6 +277,72 @@ mod tests {
   }
 
   #[test]
+  #[ignore = "manual mock-signal stress probe"]
+  fn test_mock_apt_signal_stress_probe() {
+    let _guard = MOCK_APT_PERF_LOCK.lock().expect("mock APT perf lock");
+    let cases = [
+      (2_244_000, 4_372_000),
+      (27_235_000, 6_270_000),
+      (13_875_000, 18_250_000),
+    ];
+
+    for &seed in &[0x5eed, 0xcafe, 0x1234] {
+      for (center_hz, sample_rate_hz) in cases {
+        let mut device = MockAptDevice::new_with_seed(seed);
+        device
+          .set_sample_rate(sample_rate_hz)
+          .expect("set mock sample rate");
+        device
+          .set_center_frequency(center_hz)
+          .expect("set mock center frequency");
+
+        let mut occupied_history = Vec::new();
+        for frame_index in 0..32 {
+          if frame_index > 0 && frame_index % 8 == 0 {
+            let retune_offset = if (frame_index / 8) % 2 == 0 {
+              sample_rate_hz / 8
+            } else {
+              sample_rate_hz / 16
+            };
+            device
+              .set_center_frequency(center_hz + retune_offset)
+              .expect("retune mock center frequency");
+          }
+          let samples = device.read_samples(4096).expect("read mock frame");
+          let spectrum =
+            fft_spectrum_dbm(&samples.data, samples.sample_rate as f64);
+          let floor =
+            percentile_dbm(spectrum.iter().map(|(_, dbm)| *dbm).collect(), 0.5);
+          let occupied_segments = (0..8)
+            .filter(|segment| {
+              let start = segment * spectrum.len() / 8;
+              let end = (segment + 1) * spectrum.len() / 8;
+              spectrum[start..end]
+                .iter()
+                .any(|(_, dbm)| *dbm > floor + 12.0)
+            })
+            .count();
+          occupied_history.push(occupied_segments);
+          if frame_index == 0 || frame_index == 31 {
+            println!(
+              "seed={seed} center={center_hz} sample_rate={sample_rate_hz} frame={frame_index} floor={floor:.1}dBm occupied_segments={occupied_segments}"
+            );
+          }
+        }
+
+        assert!(
+          occupied_history[0] >= 4,
+          "mock signal first frame is squished: seed={seed} center={center_hz} sample_rate={sample_rate_hz} history={occupied_history:?}"
+        );
+        assert!(
+          occupied_history[8..].iter().all(|&segments| segments >= 4),
+          "mock signal stayed squished after warm-up: center={center_hz} sample_rate={sample_rate_hz} history={occupied_history:?}"
+        );
+      }
+    }
+  }
+
+  #[test]
   fn test_reset_buffer() {
     let mut device = MockAptDevice::new();
     let result = device.reset_buffer();
@@ -319,7 +385,7 @@ mod tests {
     let checksum: u64 = samples.data.iter().map(|&b| b as u64).sum();
     println!("MOCK APT IDENTITY:");
     println!("  Waveform checksum: {}", checksum);
-    assert_eq!(checksum, 66846631, "mock APT waveform checksum changed");
+    assert_eq!(checksum, 66846606, "mock APT waveform checksum changed");
 
     // Ensure determinism
     let mut device2 = new_perf_device(12345);

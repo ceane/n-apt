@@ -49,6 +49,29 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.txHopType).toBe("range");
   });
 
+  it("restores independent Tx viewer defaults when persisted viewer state is partial", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        txViewerSampleRateHz: null,
+        txViewerFftSize: undefined,
+        txViewerFftFrameRate: 0,
+        txViewerFftWindow: null,
+        txViewerTemporalResolution: "invalid",
+        txViewerPowerScale: "invalid",
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.txViewerSampleRateHz).toBe(2_400_000);
+    expect(parsed.txViewerFftSize).toBe(65_536);
+    expect(parsed.txViewerFftFrameRate).toBe(60);
+    expect(parsed.txViewerFftWindow).toBe("Rectangular");
+    expect(parsed.txViewerTemporalResolution).toBe("high");
+    expect(parsed.txViewerPowerScale).toBe("dB");
+  });
+
   it("upgrades legacy apt txSignal values to wifi", () => {
     localStorage.setItem(
       "napt-sdr-settings-v2",

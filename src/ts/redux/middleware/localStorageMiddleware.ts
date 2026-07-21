@@ -67,6 +67,49 @@ export const normalizePersistedTxSignalKey = (value: unknown): string => {
   }
 };
 
+/**
+ * Viewer settings are independent from the generated Tx/IFFT settings. Keep
+ * older or partially-written persisted state from replacing the slice
+ * defaults with undefined values during hydration.
+ */
+export const normalizePersistedTxViewerSettings = (parsed: any) => {
+  if (
+    !Number.isFinite(parsed.txViewerSampleRateHz) ||
+    parsed.txViewerSampleRateHz <= 0
+  ) {
+    parsed.txViewerSampleRateHz = 2_400_000;
+  }
+
+  if (!Number.isFinite(parsed.txViewerFftSize) || parsed.txViewerFftSize <= 0) {
+    parsed.txViewerFftSize = 65_536;
+  }
+
+  if (
+    !Number.isFinite(parsed.txViewerFftFrameRate) ||
+    parsed.txViewerFftFrameRate <= 0
+  ) {
+    parsed.txViewerFftFrameRate = 60;
+  }
+
+  if (typeof parsed.txViewerFftWindow !== "string") {
+    parsed.txViewerFftWindow = "Rectangular";
+  }
+
+  if (
+    parsed.txViewerTemporalResolution !== "low" &&
+    parsed.txViewerTemporalResolution !== "medium" &&
+    parsed.txViewerTemporalResolution !== "high"
+  ) {
+    parsed.txViewerTemporalResolution = "high";
+  }
+
+  if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {
+    parsed.txViewerPowerScale = "dB";
+  }
+
+  return parsed;
+};
+
 // Create localStorage middleware
 const createLocalStorageMiddleware =
   (): Middleware<{}, any> => (store) => (next) => (action: any) => {
@@ -104,6 +147,17 @@ const createLocalStorageMiddleware =
         activeSignalArea: spectrumState.activeSignalArea,
         lastKnownRanges: spectrumState.lastKnownRanges,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
+        txSampleRateHz: spectrumState.txSampleRateHz,
+        txIfftSize: spectrumState.txIfftSize,
+        txViewerSampleRateHz: spectrumState.txViewerSampleRateHz,
+        txViewerFftSize: spectrumState.txViewerFftSize,
+        txViewerFftFrameRate: spectrumState.txViewerFftFrameRate,
+        txViewerFftWindow: spectrumState.txViewerFftWindow,
+        txViewerTemporalResolution: spectrumState.txViewerTemporalResolution,
+        txViewerPowerScale: spectrumState.txViewerPowerScale,
+        txCenterFrequencyHz: spectrumState.txCenterFrequencyHz,
+        txPowerDbm: spectrumState.txPowerDbm,
+        txVgaGain: spectrumState.txVgaGain,
       };
       safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
     }
@@ -234,6 +288,8 @@ export const loadPersistedSdrSettings = () => {
     if (!Number.isFinite(parsed.txVgaGain)) {
       parsed.txVgaGain = 16;
     }
+
+    normalizePersistedTxViewerSettings(parsed);
 
     parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 

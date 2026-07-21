@@ -90,6 +90,16 @@ describe("TxSettingsSection", () => {
     expect(screen.getByText("Hop rate")).toBeInTheDocument();
   });
 
+  it("labels the IFFT signal width as Tx bandwidth", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} hopEnabled={false} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Tx bandwidth")).toBeInTheDocument();
+  });
+
   it("disables hop rate when the Tx bandwidth fills the Rx sample rate", () => {
     render(
       <TestWrapper>

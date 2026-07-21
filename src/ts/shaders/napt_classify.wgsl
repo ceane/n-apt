@@ -1504,11 +1504,6 @@ fn finalize() {
   result.envelope_support_count = envelope_support_count;
   result.u_dip_score = global_u_dip;
   result.u_dip_source = u_dip_source;
-      // The bridge score is now the tolerant unimodal score. The old
-      // monotonic clump fallback is intentionally not allowed to override it:
-      // a random comb can contain an ordered local run, but it cannot satisfy
-      // the connected-support and mirrored-curvature checks consistently.
-      result.suspension_bridge_score = max_unimodal_bridge_score;
   // independent_bridge_shoulders: local hat width/shoulder evidence belongs to
   // suspension_bridge, not to the global U-dip. A tuned view can legitimately
   // contain several excellent hats while showing no capture-wide U at all.
@@ -1516,6 +1511,19 @@ fn finalize() {
       result.bridge_shoulder_score = max(
         clamp(validated_pair_score, 0.0, 1.0),
         clamp(hat_envelope_score_sum / f32(max(1u, hat_clump_count)), 0.0, 1.0));
+  // The legacy bridge accumulator is intentionally not exposed as the final
+  // suspension_bridge diagnostic. A random comb can make that accumulator
+  // large through isolated apex coincidences. Make the displayed and consumed
+  // bridge score agree with the connected unimodal/partial geometry instead.
+  let full_validated_bridge_score = min(
+    result.unimodal_bridge_score,
+    min(result.bridge_width_score, result.bridge_shoulder_score));
+  let partial_validated_bridge_score = min(
+    result.partial_bridge_score,
+    result.bridge_shoulder_score);
+  result.suspension_bridge_score = max(
+    full_validated_bridge_score,
+    partial_validated_bridge_score);
   // A sparse frame dominated by a DC/aliased spur cannot establish either
   // feature, even if a local search window happens to resemble a U.
   if (result.spike_count < 64u) {

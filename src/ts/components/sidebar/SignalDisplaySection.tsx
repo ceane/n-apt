@@ -159,6 +159,7 @@ interface SignalDisplaySectionProps {
   maxSampleRate: number;
   minReceiveSampleRate?: number;
   sampleRate: number;
+  sampleRateLabel?: string;
   sampleRateOptions: number[];
   sampleRateOptionsOverride?: number[];
   wholeChannelSampleRate?: number | null;
@@ -194,6 +195,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   maxSampleRate: _maxSampleRate,
   minReceiveSampleRate: _minReceiveSampleRate,
   sampleRate,
+  sampleRateLabel = "Sample Rate",
   sampleRateOptions,
   sampleRateOptionsOverride,
   wholeChannelSampleRate = null,
@@ -280,9 +282,13 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         <>
           {variant !== "diagnostic" && (
             <Row
-              label={<IconLabel icon={Frame} text="Sample Rate" />}
-              tooltipTitle="Sample Rate"
-              tooltip="Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
+              label={<IconLabel icon={Frame} text={sampleRateLabel} />}
+              tooltipTitle={sampleRateLabel}
+              tooltip={
+                sampleRateLabel === "Sample Rate"
+                  ? "Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
+                  : "FFT viewer sample rate. This controls the displayed frequency span and is independent of the generated Tx signal bandwidth."
+              }
             >
               <SampleRateSelect
                 value={sampleRateSelectValue}

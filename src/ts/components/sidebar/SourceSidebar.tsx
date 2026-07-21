@@ -21,9 +21,14 @@ interface SourceSidebarProps {
   devices?: React.ComponentProps<typeof SourceInput>["devices"];
   selectedDeviceId?: string;
   onSelectedDeviceChange?: (id: string) => void;
+  selectionMode?: "single" | "multi";
+  maxSelectedDevices?: number;
+  selectedDeviceIds?: string[];
+  onSelectedDevicesChange?: (ids: string[]) => void;
   spaceBoundDeviceId?: string | null;
   onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
+  deviceTxActionsEnabled?: boolean;
   compactActiveOnly?: boolean;
   selectedFilesCount?: number;
   onFileAction?: () => void;
@@ -40,9 +45,14 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
   devices,
   selectedDeviceId,
   onSelectedDeviceChange,
+  selectionMode = "single",
+  maxSelectedDevices = 2,
+  selectedDeviceIds,
+  onSelectedDevicesChange,
   spaceBoundDeviceId,
   onToggleDeviceRxPause,
   onToggleDeviceTxMode,
+  deviceTxActionsEnabled = true,
   compactActiveOnly,
   selectedFilesCount,
   onFileAction,
@@ -58,16 +68,17 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         backend={backend || null}
         deviceName={deviceName || null}
         onSourceModeChange={onSourceModeChange || (() => {})}
-        devices={devices?.filter(
-          (device) => !device.capability?.toLowerCase().includes("tx") ||
-            device.capability?.toLowerCase().includes("rx"),
-        )}
+        devices={devices}
         selectedDeviceId={selectedDeviceId}
         onSelectedDeviceChange={onSelectedDeviceChange}
+        selectionMode={selectionMode}
+        maxSelectedDevices={maxSelectedDevices}
+        selectedDeviceIds={selectedDeviceIds}
+        onSelectedDevicesChange={onSelectedDevicesChange}
         spaceBoundDeviceId={spaceBoundDeviceId}
         onToggleDeviceRxPause={onToggleDeviceRxPause}
         onToggleDeviceTxMode={onToggleDeviceTxMode}
-        deviceTxActionsEnabled={false}
+        deviceTxActionsEnabled={deviceTxActionsEnabled}
         compactActiveOnly={compactActiveOnly}
         selectedFilesCount={selectedFilesCount}
         onFileAction={onFileAction}

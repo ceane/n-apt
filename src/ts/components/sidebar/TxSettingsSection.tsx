@@ -910,9 +910,9 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       </HopSectionContainer>
 
       <Row
-        label={<IconLabel icon={SlidersHorizontal} text="Bandwidth" />}
-        tooltip="The occupied transmit bandwidth (in Hz) that constrains the generated signal width. Disabled when frequency hopping is active."
-        tooltipTitle="Bandwidth"
+        label={<IconLabel icon={SlidersHorizontal} text="Tx bandwidth" />}
+        tooltip="The occupied transmit bandwidth used by the IFFT signal generator. It is independent of the FFT viewer sample rate. Disabled when frequency hopping is active."
+        tooltipTitle="Tx Bandwidth"
       >
         <FrequencyInput
           valueHz={widthBandwidthHz}

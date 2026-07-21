@@ -55,6 +55,12 @@ const MIN_SUSPENSION_BRIDGE_SCORE: f32 = 0.20;
 // allowing that aggregate to produce a positive classifier result.
 const MIN_COHERENT_BRIDGE_SHAPE_SCORE: f32 = 0.25;
 const NO_COHERENT_SHAPE_CONFIDENCE_CAP: f32 = 0.49;
+// Apex prominence and shoulder symmetry can both be high when an isolated
+// random spike happens to have lower neighbours. Require the bridge score to
+// agree with connected width/support evidence before it can affect the
+// decision. This is intentionally above the old coarse geometry guard so a
+// Mock comb cannot become Likely from coincidence alone.
+const MIN_VALIDATED_BRIDGE_SUPPORT: f32 = 0.50;
 const MIN_NAPT_SCORE: f32 = 0.60;
 const STRONG_SHAPE_THRESHOLD: f32 = 0.70;
 const STRONG_SHAPE_BONUS: f32 = 0.05;
@@ -73,10 +79,23 @@ fn main() {
   // suspension_bridge is intentionally the dominant central structure. The
   // other terms confirm envelope shape, power, temporal policy, and capture
   // bandwidth; none can override a missing bridge by itself.
-  let suspension_bridge_score = metrics.suspension_bridge_score;
-  let unimodal_bridge_score = metrics.unimodal_bridge_score;
   let floor_relative_power_score = metrics.floor_relative_power_score;
   let u_dip_score = metrics.u_dip_score;
+  // The legacy suspension_bridge aggregate is diagnostic only. A valid
+  // bridge must have both ordered unimodal geometry and connected support.
+  // Full hats require bilateral shoulder support; a clipped branch can use
+  // its one-sided support without pretending the missing side exists.
+  let full_bridge_support = min(
+    metrics.unimodal_bridge_score,
+    min(metrics.bridge_width_score, metrics.bridge_shoulder_score));
+  let partial_bridge_support = min(
+    metrics.partial_bridge_score,
+    metrics.bridge_shoulder_score);
+  let validated_bridge_shape_score = max(
+    full_bridge_support,
+    partial_bridge_support);
+  let missing_validated_bridge_shape =
+    validated_bridge_shape_score < MIN_VALIDATED_BRIDGE_SUPPORT;
   let coherent_bridge_shape_score = max(
     metrics.unimodal_bridge_score,
     metrics.partial_bridge_score);
@@ -96,7 +115,7 @@ fn main() {
     metrics.above_floor_fraction < 0.45 &&
     metrics.spike_count >= 64u;
   let effective_bridge_score = max(
-    max(suspension_bridge_score, unimodal_bridge_score),
+    validated_bridge_shape_score,
     select(0.0, low_rise_bridge_score, has_low_rise_bridge));
   // A genuine bilateral low-rise structure gets only a partial sinc penalty;
   // otherwise an incidental broad comb can be rejected before its structure
@@ -135,6 +154,10 @@ fn main() {
     // A high legacy bridge aggregate is not enough: Mock combs can have tall
     // spikes and an apparent U while lacking a single coherent apex geometry.
     select(0.0, 0.20, missing_coherent_bridge_shape) +
+    // Even a moderate unimodal score is insufficient if it is not backed by
+    // connected width/support. This blocks the Mock case where apex and
+    // symmetry are high but the actual bridge geometry is absent.
+    select(0.0, 0.22, missing_validated_bridge_shape) +
     SINC_PENALTY_WEIGHT * effective_sinc_penalty;
   // A small bonus rewards agreement between the two primary shape measures.
   // It is deliberately bounded so it cannot turn noise into a positive.
@@ -187,12 +210,13 @@ fn main() {
   let shape_quality_cap = select(
     artifact_quality_cap,
     min(artifact_quality_cap, NO_COHERENT_SHAPE_CONFIDENCE_CAP),
-    missing_coherent_bridge_shape);
+    missing_coherent_bridge_shape || missing_validated_bridge_shape);
   let score = select(shape_quality_cap, 0.49, severe_artifact_rejection);
   decision.confidence = score;
   decision.is_napt = select(0u, 1u,
     score >= MIN_NAPT_SCORE &&
     effective_bridge_score >= MIN_SUSPENSION_BRIDGE_SCORE &&
     metrics.clump_count >= 2u &&
-    !missing_coherent_bridge_shape);
+    !missing_coherent_bridge_shape &&
+    !missing_validated_bridge_shape);
 }

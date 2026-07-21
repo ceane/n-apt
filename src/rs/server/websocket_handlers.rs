@@ -14,16 +14,18 @@ use crate::crypto;
 
 use super::shared_state::SharedState;
 use super::tx_log::{write_global, TxLogEntry};
+use super::types::{PowerScale, SpectrumData};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
   active_source_id, broadcast_device_status, broadcast_signal_display_settings,
-  build_channels_snapshot, build_source_info_snapshot,
+  build_channels_snapshot, build_source_info_snapshot, mock_tx,
   resolve_stream_key_source_id,
 };
 use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+pub(crate) const MOCK_TX_MONITOR_IQ_FFT_SIZE: usize = 16_384;
 
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
   let canonical = canonical_mock_tx_signal_key(signal_name.unwrap_or("wifi"));
@@ -85,6 +87,80 @@ fn apply_mock_tx_preview_settings(message: &WebSocketMessage) {
   if message.tx_signal.is_some() {
     let tx_signal = normalize_tx_signal(message.tx_signal.as_deref());
     *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal;
+  }
+}
+
+/// Build one source-owned Mock Tx monitor frame for an inactive Tx device.
+///
+/// The normal SDR loop can only read the currently active hardware source.
+/// Tx Suite still needs a standby preview while a separate Rx source remains
+/// active, so the source-I/Q socket answers an explicit preview request with
+/// a frame that never enters the active Rx broadcast path.
+pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> SpectrumData {
+  let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
+  // A monitor preview does not need the full acquisition FFT length. The
+  // browser can still zero-pad to the configured viewer FFT size, while this
+  // keeps standby/Tx monitoring work bounded.
+  let fft_size = sdr_settings
+    .fft
+    .default_size
+    .max(256)
+    .min(MOCK_TX_MONITOR_IQ_FFT_SIZE);
+  let sample_rate = {
+    let requested =
+      crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
+    if requested > 0 {
+      requested
+    } else {
+      sdr_settings.sample_rate.max(1)
+    }
+  };
+  let view_center_hz = {
+    let requested = *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap();
+    if requested > 0.0 {
+      requested
+    } else {
+      *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap()
+    }
+  };
+  let tx_center_hz = *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
+  let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+  let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+  let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
+  let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
+  let power_model = mock_tx::resolve_mock_tx_iq_power_model();
+  let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
+    fft_size,
+    view_center_hz,
+    sample_rate,
+    if tx_center_hz > 0.0 {
+      tx_center_hz
+    } else {
+      view_center_hz
+    },
+    tx_bandwidth_hz,
+    &tx_signal,
+    tx_ifft_size,
+    tx_power_dbm,
+    &power_model,
+    &mut *shared.mock_tx_phase_accumulator.lock().unwrap(),
+  );
+  let (stream_epoch, sequence) = shared.next_stream_frame_identity();
+
+  SpectrumData {
+    message_type: "spectrum".to_string(),
+    waveform: Vec::new(),
+    is_mock_apt: false,
+    source_id: MOCK_TX_SOURCE_ID.to_string(),
+    stream_epoch,
+    sequence,
+    center_frequency_hz: Some(view_center_hz.round().max(1.0) as u32),
+    waveform_span_hz: None,
+    timestamp: chrono::Utc::now().timestamp_millis(),
+    data_type: Some("iq_raw".to_string()),
+    sample_rate: Some(sample_rate),
+    power_scale: Some(PowerScale::DBm),
+    iq_data: raw_iq,
   }
 }
 
@@ -485,7 +561,7 @@ pub(crate) async fn handle_source_iq_connection(
   spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   enc_key: [u8; 32],
   source_id: String,
-  stream_key: String,
+  _stream_key: String,
   iq_protocol: IqStreamProtocol,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
@@ -499,9 +575,6 @@ pub(crate) async fn handle_source_iq_connection(
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
-            if !source_iq_subscription_matches_active_source(&shared, &source_id, &stream_key) {
-              continue;
-            }
             if iq_protocol == IqStreamProtocol::V2
               && !source_iq_v2_frame_matches_source(
                 &source_id,
@@ -549,6 +622,27 @@ pub(crate) async fn handle_source_iq_connection(
       client_msg = ws_receiver.next() => {
         match client_msg {
           Some(Ok(Message::Close(_))) | None => break,
+          Some(Ok(Message::Text(text))) => {
+            if source_id == MOCK_TX_SOURCE_ID {
+              if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
+                if message.message_type == "request_next_frame" {
+                  apply_mock_tx_preview_settings(&message);
+                  let preview = build_mock_tx_standby_preview_frame(&shared);
+                  if send_encrypted_iq_frame(
+                    &mut ws_sender,
+                    &enc_key,
+                    &preview,
+                    iq_protocol,
+                  )
+                  .await
+                  .is_err()
+                  {
+                    break;
+                  }
+                }
+              }
+            }
+          }
           Some(Ok(_)) => continue,
           Some(Err(e)) => {
             warn!("Source I/Q WebSocket error: {}", e);
@@ -1451,9 +1545,9 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    encode_encrypted_iq_frame, handle_message, live_tune_is_out_of_bounds,
-    resolve_live_center_frequency, should_send_source_iq_frame,
-    source_iq_frame_matches_source,
+    build_mock_tx_standby_preview_frame, encode_encrypted_iq_frame,
+    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
+    should_send_source_iq_frame, source_iq_frame_matches_source,
     source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, IqStreamProtocol,
   };
@@ -1889,6 +1983,25 @@ mod tests {
     let receiver_settings = shared.sdr_settings.lock().unwrap();
     assert_eq!(receiver_settings.center_frequency, 138_000_000);
     assert_eq!(receiver_settings.sample_rate, 4_372_000);
+  }
+
+  #[test]
+  #[serial]
+  fn mock_tx_standby_preview_is_source_owned_and_contains_iq() {
+    let shared = test_shared_state();
+    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
+      .store(2_400_000, Ordering::Relaxed);
+    *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = 137_100_000.0;
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 137_100_000.0;
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+    *crate::safety::TX_SIGNAL.lock().unwrap() = "wifi".to_string();
+
+    let frame = build_mock_tx_standby_preview_frame(&shared);
+
+    assert_eq!(frame.source_id, "mock-tx");
+    assert_eq!(frame.data_type.as_deref(), Some("iq_raw"));
+    assert_eq!(frame.sample_rate, Some(2_400_000));
+    assert!(!frame.iq_data.is_empty());
   }
 
   #[test]

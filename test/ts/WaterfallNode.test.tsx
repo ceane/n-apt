@@ -38,11 +38,16 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
 });
 
 jest.mock("@n-apt/components/FIFOWaterfall", () => ({
-  FIFOWaterfall: (props: { fftMin: number; fftMax: number }) => (
+  FIFOWaterfall: (props: {
+    fftMin: number;
+    fftMax: number;
+    waveformFeed?: unknown;
+  }) => (
     <div
       data-testid="waterfall-canvas"
       data-fft-min={props.fftMin}
       data-fft-max={props.fftMax}
+      data-has-waveform-feed={Boolean(props.waveformFeed)}
     />
   ),
 }));
@@ -92,6 +97,19 @@ describe("WaterfallNode", () => {
     ).toBeTruthy();
   });
 
+  it("subscribes the default live waterfall to the shared source spectrum", () => {
+    render(
+      <WaterfallNode
+        data={{ label: "Waterfall", waterfallOptions: true }}
+      />,
+    );
+
+    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
+      "data-has-waveform-feed",
+      "true",
+    );
+  });
+
   it("processes a new row when a reused live frame receives new IQ data", () => {
     jest.useFakeTimers();
     const { liveDataRef } = jest.requireMock(
@@ -130,6 +148,7 @@ describe("WaterfallNode", () => {
   });
 
   it("processes a new row when the stream mutates a reused IQ buffer", () => {
+    jest.useFakeTimers();
     const { liveDataRef } = jest.requireMock(
       "@n-apt/redux/middleware/websocketMiddleware",
     ) as {
@@ -146,7 +165,7 @@ describe("WaterfallNode", () => {
     ) as { __mockProcessIqToDbmSpectrum: jest.Mock };
     processSpectrum.mockClear();
 
-    const view = render(
+    render(
       <WaterfallNode
         data={{ label: "Beat Waterfall", waterfallOptions: true }}
       />,
@@ -154,14 +173,10 @@ describe("WaterfallNode", () => {
     expect(processSpectrum).toHaveBeenCalledTimes(1);
 
     liveDataRef.current.iq_data[0] = 150;
-    mockReduxState.websocket.dataFrameCounter += 1;
-    view.rerender(
-      <WaterfallNode
-        data={{ label: "Beat Waterfall", waterfallOptions: true }}
-      />,
-    );
+    act(() => jest.advanceTimersByTime(125));
 
     expect(processSpectrum).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
   });
 
   it("provides horizontal node-local min and max dB controls", () => {

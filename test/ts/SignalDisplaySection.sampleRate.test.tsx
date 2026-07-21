@@ -158,6 +158,21 @@ describe("SignalDisplaySection sample rate selector", () => {
     ).toBeInTheDocument();
   });
 
+  it("allows Tx viewers to label sample rate as the FFT view rate", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRateLabel="FFT view sample rate"
+          sampleRate={3_200_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByText("FFT view sample rate").length).toBeGreaterThan(0);
+  });
+
   it("shows the reordered temporal resolution labels", () => {
     render(
       <TestWrapper>

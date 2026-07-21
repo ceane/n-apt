@@ -18,6 +18,7 @@ pub mod broadcasting;
 pub mod mock_tx;
 mod source_lifecycle;
 pub mod sources;
+pub mod tx_suite;
 
 #[cfg(test)]
 use source_lifecycle::warmable_source_ids;
@@ -43,6 +44,150 @@ pub use sources::{
 };
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+// Active Tx Suite monitoring is presentation-latest and bounded downstream,
+// so it can match a 60 Hz Rx view without accumulating stale monitor frames.
+// Standby remains request-only through should_hold_mock_tx_standby_stream.
+const TX_MONITOR_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+
+struct PreparedMonitorFrameCache<K, T> {
+  key: Option<K>,
+  frame: Option<T>,
+}
+
+impl<K, T> Default for PreparedMonitorFrameCache<K, T> {
+  fn default() -> Self {
+    Self {
+      key: None,
+      frame: None,
+    }
+  }
+}
+
+impl<K: PartialEq, T: Clone> PreparedMonitorFrameCache<K, T> {
+  fn needs_prepare(&self, key: &K) -> bool {
+    self.key.as_ref() != Some(key) || self.frame.is_none()
+  }
+
+  fn store(&mut self, key: K, frame: T) {
+    self.key = Some(key);
+    self.frame = Some(frame);
+  }
+
+  fn prepared(&self) -> Option<T> {
+    self.frame.clone()
+  }
+
+  #[cfg(test)]
+  fn get_or_prepare(
+    &mut self,
+    key: K,
+    prepare: impl FnOnce() -> T,
+  ) -> T {
+    if self.key.as_ref() != Some(&key) || self.frame.is_none() {
+      self.frame = Some(prepare());
+      self.key = Some(key);
+    }
+    self.frame.as_ref().expect("prepared frame").clone()
+  }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MockTxMonitorSettingsKey {
+  fft_size: usize,
+  sample_rate: u32,
+  view_center_bits: u64,
+  tx_center_bits: u64,
+  bandwidth_bits: u64,
+  ifft_size: usize,
+  power_bits: u64,
+  signal: String,
+}
+
+impl MockTxMonitorSettingsKey {
+  fn capture(shared_state: &SharedState) -> Self {
+    let sdr_settings = shared_state.sdr_settings.lock().unwrap();
+    let requested_sample_rate =
+      crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
+    let sample_rate = if requested_sample_rate > 0 {
+      requested_sample_rate
+    } else {
+      sdr_settings.sample_rate.max(1)
+    };
+    Self {
+      fft_size: sdr_settings
+        .fft
+        .default_size
+        .max(256)
+        .min(crate::server::websocket_handlers::MOCK_TX_MONITOR_IQ_FFT_SIZE),
+      sample_rate,
+      view_center_bits: crate::safety::TX_MONITOR_VIEW_CENTER_HZ
+        .lock()
+        .unwrap()
+        .to_bits(),
+      tx_center_bits: crate::safety::TX_CENTER_FREQUENCY_HZ
+        .lock()
+        .unwrap()
+        .to_bits(),
+      bandwidth_bits: crate::safety::TX_BANDWIDTH_HZ
+        .lock()
+        .unwrap()
+        .to_bits(),
+      ifft_size: *crate::safety::TX_IFFT_SIZE.lock().unwrap(),
+      power_bits: crate::safety::TX_POWER_DBM.lock().unwrap().to_bits(),
+      signal: crate::safety::TX_SIGNAL.lock().unwrap().clone(),
+    }
+  }
+}
+
+fn spawn_mock_tx_monitor_stream(
+  shared_state: Arc<SharedState>,
+  spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
+) -> tokio::task::JoinHandle<()> {
+  tokio::spawn(async move {
+    let mut ticker = tokio::time::interval(TX_MONITOR_FRAME_INTERVAL);
+    let mut prepared_frames =
+      PreparedMonitorFrameCache::<MockTxMonitorSettingsKey, SpectrumData>::default();
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+      ticker.tick().await;
+      if shared_state.shutdown.load(Ordering::Relaxed) {
+        break;
+      }
+      if !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
+        || active_source_id(&shared_state) == MOCK_TX_SOURCE_ID
+      {
+        continue;
+      }
+
+      let settings_key = MockTxMonitorSettingsKey::capture(&shared_state);
+      if prepared_frames.needs_prepare(&settings_key) {
+        let frame_state = shared_state.clone();
+        let prepared = match tokio::task::spawn_blocking(move || {
+          crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+            &frame_state,
+          )
+        })
+        .await
+        {
+          Ok(frame) => frame,
+          Err(error) => {
+            warn!("Mock Tx monitor worker failed: {error}");
+            continue;
+          }
+        };
+        prepared_frames.store(settings_key, prepared);
+      }
+      let Some(mut frame) = prepared_frames.prepared() else {
+        continue;
+      };
+      let (stream_epoch, sequence) = shared_state.next_stream_frame_identity();
+      frame.stream_epoch = stream_epoch;
+      frame.sequence = sequence;
+      frame.timestamp = chrono::Utc::now().timestamp_millis();
+      let _ = spectrum_tx.send(Arc::new(frame));
+    }
+  })
+}
 
 fn broadcast_source_switch_error(
   broadcast_tx: &broadcast::Sender<String>,
@@ -199,6 +344,32 @@ mod tests {
     assert!(!should_hold_mock_tx_standby_stream(
       "mock-apt", false, false
     ));
+  }
+
+  #[test]
+  fn active_mock_tx_monitor_targets_sixty_frames_per_second() {
+    assert!(TX_MONITOR_FRAME_INTERVAL <= Duration::from_millis(17));
+  }
+
+  #[test]
+  fn active_mock_tx_monitor_prepares_dsp_once_per_settings_state() {
+    let mut cache = PreparedMonitorFrameCache::default();
+    let mut preparations = 0;
+
+    for _ in 0..60 {
+      let frame = cache.get_or_prepare(7_u64, || {
+        preparations += 1;
+        vec![1_u8, 2, 3]
+      });
+      assert_eq!(frame, vec![1_u8, 2, 3]);
+    }
+    assert_eq!(preparations, 1);
+
+    let _ = cache.get_or_prepare(8_u64, || {
+      preparations += 1;
+      vec![4_u8, 5, 6]
+    });
+    assert_eq!(preparations, 2);
   }
 
   #[test]
@@ -526,6 +697,8 @@ impl WebSocketServer {
     let mut hotplug_state = crate::sdr::hotplug::HotplugState::new();
     let mut target_fps: u32 = 30; // sensible default until first frame
     let mut allow_next_paused_frame = false;
+    let tx_monitor_task =
+      spawn_mock_tx_monitor_stream(shared_state.clone(), spectrum_tx.clone());
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
       HashMap::new();
 
@@ -1606,34 +1779,10 @@ impl WebSocketServer {
                 };
                 let monitor_sample_rate = sample_rate.max(tx_monitor_sample_rate.max(1));
                 sample_rate = monitor_sample_rate;
-                let effective_bandwidth_hz = if tx_bandwidth_hz > 0.0 {
-                  tx_bandwidth_hz.min(monitor_sample_rate as f64).max(1.0)
-                } else {
-                  monitor_sample_rate as f64
-                };
-                let bin_spacing_hz = monitor_sample_rate as f64
-                  / tx_ifft_size.max(1) as f64;
-                debug!(
-                  "mock_tx_monitor_frame: source={}, requested_single_frame={}, center_hz={:.0}, tx_center_hz={:.0}, previous_bandwidth_hz={:.0}, requested_bandwidth_hz={:.0}, effective_bandwidth_hz={effective_bandwidth_hz:.0}, monitor_sample_rate_hz={}, tx_ifft_size={}, bin_spacing_hz={bin_spacing_hz:.2}, tx_power_dbm={tx_power_dbm:.1}, tx_signal={}",
-                  active_source_id,
-                  requested_single_frame,
-                  center_frequency,
-                  tx_center_hz,
-                  *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap(),
-                  tx_bandwidth_hz,
-                  monitor_sample_rate,
-                  tx_ifft_size,
-                  tx_signal,
-                );
-                log::info!(
-                  "mock_tx_monitor_frame: center_frequency={}, tx_center_hz={}, sample_rate={}, tx_bandwidth_hz={}",
-                  center_frequency,
-                  tx_center_hz,
-                  sample_rate,
-                  tx_bandwidth_hz
-                );
                 let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
-                  current_fft_size,
+                  current_fft_size.min(
+                    crate::server::websocket_handlers::MOCK_TX_MONITOR_IQ_FFT_SIZE,
+                  ),
                   center_frequency as f64,
                   monitor_sample_rate,
                   if tx_center_hz > 0.0 {
@@ -1714,11 +1863,12 @@ impl WebSocketServer {
 
           let (stream_epoch, sequence) =
             shared_state.next_stream_frame_identity();
+          let frame_source_id = active_source_id(&shared_state);
           let spectrum_message = SpectrumData {
             message_type: "spectrum".to_string(),
             waveform: Vec::new(),
             is_mock_apt,
-            source_id: active_source_id(&shared_state),
+            source_id: frame_source_id.clone(),
             stream_epoch,
             sequence,
             center_frequency_hz: Some(center_frequency),
@@ -1734,6 +1884,7 @@ impl WebSocketServer {
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
           }
+
         }
         Ok(Err(e)) => {
           // ── Read error: use the same debounced recovery logic ──
@@ -2224,6 +2375,8 @@ impl WebSocketServer {
       }
     }
 
+    tx_monitor_task.abort();
+    let _ = tx_monitor_task.await;
     Ok(())
   }
 

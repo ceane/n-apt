@@ -58,7 +58,10 @@ import {
   websocketActions,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
-import { normalizePersistedTxSignalKey } from "@n-apt/redux/middleware/localStorageMiddleware";
+import {
+  normalizePersistedTxSignalKey,
+  normalizePersistedTxViewerSettings,
+} from "@n-apt/redux/middleware/localStorageMiddleware";
 import {
   connectWebSocket,
   disconnectWebSocket,
@@ -96,6 +99,11 @@ import {
   resolveSourceSampleRateHz,
 } from "@n-apt/utils/sdrSampleRateGuards";
 import { resolveSourceFrequencyRangeSync } from "@n-apt/utils/sourceFrequencySync";
+import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import {
+  resolveTxSuiteControlSourceId,
+  shouldPinTxSuiteToRxSource,
+} from "@n-apt/utils/txSuiteSourceControl";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -229,15 +237,58 @@ const isTxCapableSourceInfo = (
   );
 };
 
-/** A paused-frame request is only a Mock Tx standby preview mechanism. */
+/**
+ * Paused-frame requests are source-owned previews. Tx Suite keeps Rx active so
+ * this command is handled by the Rx control stream; Mock Tx previews remain
+ * handled by its source-bound I/Q socket in the middleware.
+ */
 export const shouldRequestPausedPreview = (
   source: SourceInfo | null | undefined,
 ): boolean => {
   if (!source) return false;
-  return (
-    isMockTxSource({ id: source.id, kind: source.kind }) &&
-    source.status !== "transmitting"
-  );
+  if (source.status === "transmitting") return false;
+  if (isMockTxSource({ id: source.id, kind: source.kind })) return true;
+  const isMockRxSource =
+    source.id === "mock-apt" ||
+    source.kind?.toLowerCase?.().startsWith("mock_apt") === true;
+  return isMockRxSource && source.supports_raw_iq_stream === true;
+};
+
+export const buildPausedPreviewSignature = ({
+  frequencyRange,
+  sampleRateHz,
+  vizZoom,
+  vizPanOffset,
+  txCenterFrequencyHz,
+  txSampleRateHz,
+  txPowerDbm,
+  txSignal,
+  txIfftSize,
+}: {
+  frequencyRange: FrequencyRange | null | undefined;
+  sampleRateHz: number | null | undefined;
+  vizZoom: number;
+  vizPanOffset: number;
+  txCenterFrequencyHz: number;
+  txSampleRateHz: number;
+  txPowerDbm: number;
+  txSignal: string;
+  txIfftSize: number;
+}): string => {
+  const rangeSignature = frequencyRange
+    ? `${frequencyRange.min}:${frequencyRange.max}`
+    : "none";
+  return [
+    rangeSignature,
+    sampleRateHz,
+    vizZoom,
+    vizPanOffset,
+    txCenterFrequencyHz,
+    txSampleRateHz,
+    txPowerDbm,
+    txSignal,
+    txIfftSize,
+  ].join("|");
 };
 
 export const isHalfDuplexSourceInfo = (
@@ -808,6 +859,8 @@ const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
     if (!Number.isFinite(parsed.txVgaGain)) {
       parsed.txVgaGain = 16;
     }
+
+    normalizePersistedTxViewerSettings(parsed);
 
     parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 
@@ -1386,6 +1439,24 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const websocketSources = useAppSelector((s) => s.websocket.sources);
     const websocketChannels = useAppSelector((s) => s.websocket.channels);
     const sourceStatuses = useAppSelector((s) => s.websocket.sourceStatuses);
+    const txSuiteSourceId = useAppSelector(
+      (s) =>
+        s.sourceRouting?.bindings[sourceBindingKey("tx-suite", "tx")] ?? null,
+    );
+    const txSuiteRxSourceId = useAppSelector(
+      (s) =>
+        s.sourceRouting?.bindings[sourceBindingKey("tx-suite", "rx")] ?? null,
+    );
+    const isTxSuiteFlow = useAppSelector(
+      (s) => s.sourceRouting?.selectionModes?.["tx-suite"] === "multi",
+    );
+    const txSuiteSource = useAppSelector((s) =>
+      txSuiteSourceId
+        ? (s.websocket.sources ?? []).find(
+            (source) => source.id === txSuiteSourceId,
+          ) ?? null
+        : null,
+    );
     const deviceState = activeSourceDerived.deviceState;
     const backend = activeSourceDerived.backend;
     const deviceName = activeSourceDerived.deviceName;
@@ -1415,6 +1486,41 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectionIntentSourceIdRef.current = nextSourceId;
       setSelectedSourceIdState(nextSourceId);
     }, []);
+
+    useEffect(() => {
+      const hasBoundRxTransport =
+        typeof txSuiteRxSourceId === "string" &&
+        websocketSources.some((source) => source.id === txSuiteRxSourceId);
+      if (
+        state.sourceMode !== "live" ||
+        !hasBoundRxTransport ||
+        !shouldPinTxSuiteToRxSource({
+          isTxSuite: isTxSuiteFlow,
+          rxSourceId: txSuiteRxSourceId,
+          selectedSourceId,
+        })
+      ) {
+        return;
+      }
+
+      const controlSourceId = resolveTxSuiteControlSourceId({
+        isTxSuite: isTxSuiteFlow,
+        rxSourceId: txSuiteRxSourceId,
+        selectedSourceId,
+        activeSourceId,
+      });
+      if (controlSourceId && controlSourceId !== selectedSourceId) {
+        setSelectedSourceId(controlSourceId);
+      }
+    }, [
+      activeSourceId,
+      isTxSuiteFlow,
+      selectedSourceId,
+      setSelectedSourceId,
+      state.sourceMode,
+      txSuiteRxSourceId,
+      websocketSources,
+    ]);
     const [localSourcePauseOverrides, setLocalSourcePauseOverrides] = useState<
       Record<string, boolean>
     >({});
@@ -2335,22 +2441,19 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
       if (!wasPausedForPreviewRef.current && isPausedForPreview) {
         wasPausedForPreviewRef.current = true;
-        return;
       }
 
-      const rangeSignature = state.frequencyRange
-        ? `${state.frequencyRange.min}:${state.frequencyRange.max}`
-        : "none";
-      const nextSignature = [
-        rangeSignature,
-        state.vizZoom,
-        state.vizPanOffset,
-        reduxSpectrumState.txCenterFrequencyHz,
-        reduxSpectrumState.txSampleRateHz,
-        reduxSpectrumState.txPowerDbm,
-        reduxSpectrumState.txSignal,
-        reduxSpectrumState.txIfftSize,
-      ].join("|");
+      const nextSignature = buildPausedPreviewSignature({
+        frequencyRange: state.frequencyRange,
+        sampleRateHz: reduxSpectrumState.sampleRateHz,
+        vizZoom: state.vizZoom,
+        vizPanOffset: state.vizPanOffset,
+        txCenterFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
+        txSampleRateHz: reduxSpectrumState.txSampleRateHz,
+        txPowerDbm: reduxSpectrumState.txPowerDbm,
+        txSignal: reduxSpectrumState.txSignal,
+        txIfftSize: reduxSpectrumState.txIfftSize,
+      });
 
       if (nextSignature === lastPausedPreviewSignatureRef.current) {
         return;
@@ -2395,6 +2498,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSourceId,
       selectedSource,
       state.frequencyRange,
+      reduxSpectrumState.sampleRateHz,
       state.sourceMode,
       state.vizPanOffset,
       state.vizZoom,
@@ -2443,9 +2547,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Synchronize transmit settings changes to backend if currently transmitting
     useEffect(() => {
-      if (!isConnected || !activeSourceId) return;
+      const controlSourceId = txSuiteSourceId ?? activeSourceId;
+      const controlSource = txSuiteSource ?? activeSource;
+      if (!isConnected || !controlSourceId) return;
 
-      const currentStatus = sourceStatuses?.[activeSourceId];
+      const currentStatus = sourceStatuses?.[controlSourceId] ?? controlSource?.status;
       if (currentStatus !== "transmitting") {
         lastSentTxSettingsRef.current = null;
         if (txSettingsThrottleTimeoutRef.current !== null) {
@@ -2481,8 +2587,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
         lastSentTxSettingsRef.current = settingsStr;
         txSettingsLastSentTimeRef.current = Date.now();
-        sendTransmitModeCommand(true, activeSourceId, {
-          serialNumber: activeSource?.serial_number ?? activeSourceId,
+        sendTransmitModeCommand(true, controlSourceId, {
+          serialNumber: controlSource?.serial_number ?? controlSourceId,
           ...freshSettings,
         });
       };
@@ -2513,7 +2619,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     }, [
       isConnected,
+      activeSource,
       activeSourceId,
+      txSuiteSource,
+      txSuiteSourceId,
       sourceStatuses,
       reduxSpectrumState.txCenterFrequencyHz,
       reduxSpectrumState.txSampleRateHz,

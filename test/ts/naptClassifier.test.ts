@@ -135,6 +135,21 @@ describe("N-APT classifier", () => {
     expect(NAPT_TEMPORAL_WGSL).toContain("min(temporal_confidence, 0.49)");
   });
 
+  it("requires connected bridge support instead of apex coincidence alone", () => {
+    expect(NAPT_CLASSIFY_WGSL).toContain("full_validated_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain("partial_validated_bridge_score");
+    expect(NAPT_CLASSIFY_WGSL).toContain(
+      "result.suspension_bridge_score = max(\n    full_validated_bridge_score,",
+    );
+    expect(NAPT_DETECT_WGSL).toContain("full_bridge_support");
+    expect(NAPT_DETECT_WGSL).toContain("partial_bridge_support");
+    expect(NAPT_DETECT_WGSL).toContain("validated_bridge_shape_score");
+    expect(NAPT_DETECT_WGSL).toContain("MIN_VALIDATED_BRIDGE_SUPPORT");
+    expect(NAPT_DETECT_WGSL).toContain("!missing_validated_bridge_shape");
+    expect(NAPT_TEMPORAL_WGSL).toContain("validated_bridge_shape_support");
+    expect(NAPT_TEMPORAL_WGSL).toContain("metrics.bridge_width_score");
+  });
+
   it("keeps tuning movement normalized and exposes temporal stability", () => {
     expect(NAPT_CLASSIFY_WGSL).toContain("temporal_stability");
     expect(NAPT_CLASSIFY_WGSL).toContain("normalized_position");

@@ -23,6 +23,7 @@ import {
   Signal,
   FileBox,
   FileSignal,
+  SatelliteDish,
 } from "lucide-react";
 
 const NodePaletteContainer = styled.div`
@@ -107,6 +108,19 @@ interface NodeType {
 }
 
 const availableNodes: NodeType[] = [
+  {
+    id: "tx",
+    type: "custom",
+    label: "Tx",
+    description: "Configure a transmit signal for controlled demod tests",
+    icon: <SatelliteDish size={16} />,
+    position: { x: 100, y: 50 },
+    data: {
+      label: "Tx",
+      description: "Configure a transmit signal for controlled demod tests",
+      txOptions: true,
+    },
+  },
   {
     id: "fft",
     type: "custom",
@@ -447,7 +461,7 @@ export const DemodSidebarNodes: React.FC = () => {
     <NodeSection>
       <Collapsible
         title="Node Library (Advanced)"
-        defaultOpen={true}
+        defaultOpen={false}
         icon={<ToyBrick size={14} />}
       >
         <NodePaletteContainer>

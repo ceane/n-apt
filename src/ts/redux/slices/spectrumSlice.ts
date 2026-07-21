@@ -109,6 +109,12 @@ export interface SpectrumState {
   txSignal: string;
   txSampleRateHz: number;
   txIfftSize: number;
+  txViewerSampleRateHz: number;
+  txViewerFftSize: number;
+  txViewerFftFrameRate: number;
+  txViewerFftWindow: string;
+  txViewerTemporalResolution: DisplayTemporalResolution;
+  txViewerPowerScale: PowerScale;
   txCenterFrequencyHz: number;
   txPowerDbm: number;
   txVgaGain: number;
@@ -171,6 +177,12 @@ const LIVE_CONTROL_DEFAULTS = {
   txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
+  txViewerSampleRateHz: 2_400_000,
+  txViewerFftSize: 65_536,
+  txViewerFftFrameRate: 60,
+  txViewerFftWindow: "Rectangular",
+  txViewerTemporalResolution: "high" as const,
+  txViewerPowerScale: "dB" as const,
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
   txVgaGain: 16,
@@ -219,6 +231,12 @@ const initialState: SpectrumState = {
   txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
+  txViewerSampleRateHz: 2_400_000,
+  txViewerFftSize: 65_536,
+  txViewerFftFrameRate: 60,
+  txViewerFftWindow: "Rectangular",
+  txViewerTemporalResolution: "high",
+  txViewerPowerScale: "dB",
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
   txVgaGain: 16,
@@ -420,6 +438,36 @@ const spectrumSlice = createSlice({
     setTxIfftSize: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.txIfftSize = action.payload;
+    },
+
+    setTxViewerSampleRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerSampleRateHz = action.payload;
+    },
+
+    setTxViewerFftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerFftSize = action.payload;
+    },
+
+    setTxViewerFftFrameRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerFftFrameRate = action.payload;
+    },
+
+    setTxViewerFftWindow: (state, action: PayloadAction<string>) => {
+      state.txViewerFftWindow = action.payload;
+    },
+
+    setTxViewerTemporalResolution: (
+      state,
+      action: PayloadAction<DisplayTemporalResolution>,
+    ) => {
+      state.txViewerTemporalResolution = action.payload;
+    },
+
+    setTxViewerPowerScale: (state, action: PayloadAction<PowerScale>) => {
+      state.txViewerPowerScale = action.payload;
     },
 
     setTxCenterFrequencyHz: (state, action: PayloadAction<number>) => {
@@ -652,6 +700,9 @@ const spectrumSlice = createSlice({
         ...state,
         displayTemporalResolution:
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        txViewerTemporalResolution:
+          LIVE_CONTROL_DEFAULTS.txViewerTemporalResolution,
+        txViewerPowerScale: LIVE_CONTROL_DEFAULTS.txViewerPowerScale,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizZoomFloor: LIVE_CONTROL_DEFAULTS.vizZoomFloor,
         vizZoomFloorPan: 0,
@@ -660,6 +711,7 @@ const spectrumSlice = createSlice({
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+        txViewerFftWindow: LIVE_CONTROL_DEFAULTS.txViewerFftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
         hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
         hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
@@ -673,6 +725,9 @@ const spectrumSlice = createSlice({
         wfSmoothEnabled: false,
         fftSize: action.payload.fftSize ?? state.fftSize,
         fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
+        txViewerSampleRateHz: LIVE_CONTROL_DEFAULTS.txViewerSampleRateHz,
+        txViewerFftSize: LIVE_CONTROL_DEFAULTS.txViewerFftSize,
+        txViewerFftFrameRate: LIVE_CONTROL_DEFAULTS.txViewerFftFrameRate,
       };
     },
   },
@@ -702,6 +757,12 @@ export const {
   setTxSignal,
   setTxSampleRateHz,
   setTxIfftSize,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
+  setTxViewerPowerScale,
   setTxCenterFrequencyHz,
   setDeviceKind,
   setTxPowerDbm,
