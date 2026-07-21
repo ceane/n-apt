@@ -668,7 +668,7 @@ const Logo = styled.img`
   width: 128px;
   height: 128px;
   filter: none;
-  mix-blend-mode: normal;
+  mix-blend-mode: darken;
 
   @media (prefers-color-scheme: dark) {
     filter: invert(1);
