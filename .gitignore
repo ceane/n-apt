@@ -26,6 +26,8 @@ dist/
 build/
 scripts/dist/
 scratch/
+.ts-node-build/
+benches/
 
 # Generated diagnostics and test artifacts
 rust_outdated.txt
