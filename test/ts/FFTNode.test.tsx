@@ -267,7 +267,9 @@ describe("FFTNode", () => {
       </TestWrapper>,
     );
 
-    const firstProps = mockFFTCanvasProps.mock.calls.at(-1)?.[0] as {
+    const firstProps = mockFFTCanvasProps.mock.calls[
+      mockFFTCanvasProps.mock.calls.length - 1
+    ]?.[0] as {
       awaitingDeviceData?: boolean;
       onRenderableFrameChange?: (ready: boolean) => void;
     };
@@ -275,7 +277,9 @@ describe("FFTNode", () => {
 
     act(() => firstProps.onRenderableFrameChange?.(true));
 
-    expect(mockFFTCanvasProps.mock.calls.at(-1)?.[0]).toEqual(
+    expect(
+      mockFFTCanvasProps.mock.calls[mockFFTCanvasProps.mock.calls.length - 1]?.[0],
+    ).toEqual(
       expect.objectContaining({ awaitingDeviceData: false }),
     );
   });
