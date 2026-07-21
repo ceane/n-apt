@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "n-apt-coreml-service",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v10_15)
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
