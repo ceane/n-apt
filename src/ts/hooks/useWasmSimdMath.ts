@@ -134,6 +134,15 @@ const normalizeWindowType = (windowType?: string) => {
   }
 };
 
+type SpectrumScratch = {
+  paddedReal: Float32Array;
+  paddedImag: Float32Array;
+  bitReverse: Uint32Array;
+};
+
+const windowCache = new Map<string, Float32Array>();
+const spectrumScratchCache = new Map<number, SpectrumScratch>();
+
 const getWindowValue = (index: number, size: number, windowType?: string) => {
   if (size <= 1) return 1;
 
@@ -164,6 +173,48 @@ const getWindowValue = (index: number, size: number, windowType?: string) => {
   }
 };
 
+const getWindowCoefficients = (
+  fftSize: number,
+  windowType?: string,
+): Float32Array => {
+  const normalized = normalizeWindowType(windowType);
+  const cacheKey = `${fftSize}:${normalized}`;
+  const cached = windowCache.get(cacheKey);
+  if (cached) return cached;
+
+  const window = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    window[i] = getWindowValue(i, fftSize, normalized);
+  }
+  windowCache.set(cacheKey, window);
+  return window;
+};
+
+const getSpectrumScratch = (fftLen: number): SpectrumScratch => {
+  const cached = spectrumScratchCache.get(fftLen);
+  if (cached) return cached;
+
+  const scratch: SpectrumScratch = {
+    paddedReal: new Float32Array(fftLen),
+    paddedImag: new Float32Array(fftLen),
+    bitReverse: new Uint32Array(fftLen),
+  };
+
+  const bits = Math.log2(fftLen);
+  for (let i = 0; i < fftLen; i++) {
+    let x = i;
+    let y = 0;
+    for (let b = 0; b < bits; b++) {
+      y = (y << 1) | (x & 1);
+      x >>= 1;
+    }
+    scratch.bitReverse[i] = y >>> 0;
+  }
+
+  spectrumScratchCache.set(fftLen, scratch);
+  return scratch;
+};
+
 export function computeIqToDbSpectrumScalar(
   input: Uint8Array,
   options: {
@@ -171,47 +222,42 @@ export function computeIqToDbSpectrumScalar(
     offsetDb: number;
     windowType?: string;
   },
+  output?: Float32Array,
 ): Float32Array {
   const { fftSize, offsetDb, windowType } = options;
   const numSamples = Math.max(
     1,
     Math.min(fftSize, Math.floor(input.length / 2)),
   );
-  const real = new Float32Array(numSamples);
-  const imag = new Float32Array(numSamples);
+  const windowCoefficients = getWindowCoefficients(numSamples, windowType);
+  const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
+  const scratch = getSpectrumScratch(fftLen);
+  const { paddedReal, paddedImag, bitReverse } = scratch;
   let windowSum = 0;
 
+  paddedReal.fill(0);
+  paddedImag.fill(0);
   for (let i = 0; i < numSamples; i++) {
-    const windowVal = getWindowValue(i, numSamples, windowType);
-    real[i] = ((input[i * 2] - 128) / 128) * windowVal;
-    imag[i] = ((input[i * 2 + 1] - 128) / 128) * windowVal;
+    const windowVal = windowCoefficients[i];
+    const inputIndex = i * 2;
+    paddedReal[i] = ((input[inputIndex] - 128) / 128) * windowVal;
+    paddedImag[i] = ((input[inputIndex + 1] - 128) / 128) * windowVal;
     windowSum += windowVal;
   }
 
-  const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
-  const paddedReal = new Float32Array(fftLen);
-  const paddedImag = new Float32Array(fftLen);
-  paddedReal.set(real);
-  paddedImag.set(imag);
-
-  const bits = Math.log2(fftLen);
-  const bitReverse = (x: number, b: number) => {
-    let y = 0;
-    for (let i = 0; i < b; i++) {
-      y = (y << 1) | (x & 1);
-      x >>= 1;
-    }
-    return y;
-  };
-
   for (let i = 0; i < fftLen; i++) {
-    const j = bitReverse(i, bits);
+    const j = bitReverse[i];
     if (j > i) {
-      [paddedReal[i], paddedReal[j]] = [paddedReal[j], paddedReal[i]];
-      [paddedImag[i], paddedImag[j]] = [paddedImag[j], paddedImag[i]];
+      const realValue = paddedReal[i];
+      paddedReal[i] = paddedReal[j];
+      paddedReal[j] = realValue;
+      const imagValue = paddedImag[i];
+      paddedImag[i] = paddedImag[j];
+      paddedImag[j] = imagValue;
     }
   }
 
+  const bits = Math.log2(fftLen);
   for (let s = 1; s <= bits; s++) {
     const m = 1 << s;
     const halfM = m >> 1;
@@ -241,20 +287,27 @@ export function computeIqToDbSpectrumScalar(
   }
 
   const normSq = Math.max(windowSum * windowSum, 1e-12);
-  const output = new Float32Array(fftLen);
-  for (let i = 0; i < fftLen; i++) {
-    const magSq =
-      (paddedReal[i] * paddedReal[i] + paddedImag[i] * paddedImag[i]) / normSq;
-    output[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
-  }
-
+  const result =
+    output && output.length === fftLen ? output : new Float32Array(fftLen);
   const half = fftLen / 2;
-  const shifted = new Float32Array(fftLen);
-  for (let i = 0; i < fftLen; i++) {
-    shifted[(i + half) % fftLen] = output[i];
+  for (let i = 0; i < half; i++) {
+    const sourceIndex = i + half;
+    const magSq =
+      (paddedReal[sourceIndex] * paddedReal[sourceIndex] +
+        paddedImag[sourceIndex] * paddedImag[sourceIndex]) /
+      normSq;
+    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
+  }
+  for (let i = half; i < fftLen; i++) {
+    const sourceIndex = i - half;
+    const magSq =
+      (paddedReal[sourceIndex] * paddedReal[sourceIndex] +
+        paddedImag[sourceIndex] * paddedImag[sourceIndex]) /
+      normSq;
+    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
   }
 
-  return shifted;
+  return result;
 }
 
 const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
@@ -441,27 +494,29 @@ export function useWasmSimdMath(
       const requestedFftSize = overrideFftSize ?? fftSize;
       const normalizedWindowType = normalizeWindowType(windowType);
 
-      // The current WASM SIMD processor is compiled around a fixed FFT width.
-      // It also only represents the rect-window fast path correctly here.
-      // When the UI asks for a different size or window, fall back to the
-      // scalar path so the rendered spectrum actually matches the request.
+      // Prefer the WASM FFT path when available; it now accepts the requested
+      // FFT size and window type directly.
       if (
         renderingProcessorRef.current &&
         isSimdAvailable &&
         requestedFftSize === fftSize &&
-        normalizedWindowType === "rectangular"
+        normalizedWindowType === "hanning"
       ) {
         try {
           const processor = renderingProcessorRef.current as {
             process_iq_to_dbm_spectrum?: (
               input: Uint8Array,
               offsetDb: number,
+              fftSize: number,
+              windowType: string,
             ) => Float32Array | Float32Array;
           };
           if (typeof processor.process_iq_to_dbm_spectrum === "function") {
             const result = processor.process_iq_to_dbm_spectrum(
               input,
               offsetDb,
+              requestedFftSize,
+              normalizedWindowType,
             );
             const typedResult =
               result instanceof Float32Array
@@ -477,12 +532,16 @@ export function useWasmSimdMath(
         }
       }
 
-      const computed = computeIqToDbSpectrumScalar(input, {
-        fftSize: requestedFftSize,
-        offsetDb,
-        windowType,
-      });
-      return writeSpectrumOutput(computed, output);
+      const computed = computeIqToDbSpectrumScalar(
+        input,
+        {
+          fftSize: requestedFftSize,
+          offsetDb,
+          windowType,
+        },
+        output,
+      );
+      return computed;
     },
     [fftSize, isSimdAvailable],
   );

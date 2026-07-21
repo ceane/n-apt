@@ -65,6 +65,10 @@ const Input = styled.input`
   }
 `;
 
+const HiddenInput = styled.input`
+  display: none;
+`;
+
 const ButtonRow = styled.div`
   display: flex;
   gap: 12px;
@@ -97,7 +101,7 @@ const Button = styled.button<{ $primary?: boolean }>`
 
 interface PromptOptions {
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void;
@@ -123,7 +127,16 @@ export const usePrompt = () => {
 export const PromptProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [promptState, setPromptState] = useState({
+  const [promptState, setPromptState] = useState<{
+    open: boolean;
+    title: string;
+    message: ReactNode;
+    confirmText: string;
+    cancelText: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    variant: "primary" | "danger";
+  }>({
     open: false,
     title: "",
     message: "",
@@ -131,7 +144,7 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({
     cancelText: "Cancel",
     onConfirm: () => {},
     onCancel: () => {},
-    variant: "primary" as "primary" | "danger",
+    variant: "primary",
   });
 
   const [passwordState, setPasswordState] = useState({
@@ -207,13 +220,12 @@ export const PromptProvider: React.FC<{ children: ReactNode }> = ({
               vault.
             </Message>
           </div>
-          <input
+          <HiddenInput
             type="text"
             name="username"
             autoComplete="username"
             value="n-apt-user"
             readOnly
-            style={{ display: "none" }}
           />
           <Input
             ref={passwordInputRef}

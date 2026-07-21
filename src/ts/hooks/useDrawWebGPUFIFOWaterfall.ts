@@ -1,3 +1,4 @@
+import { WATERFALL_FIFO_WGSL } from "@n-apt/shaders";
 import { useCallback, useRef } from "react";
 import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 
@@ -28,15 +29,12 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
   }
   const m = trimmed.match(/rgba?\(([^)]+)\)/i);
   if (m) {
-    const p = m[1]
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const p = m[1].split(",");
     return [
-      Number(p[0] ?? 0) / 255,
-      Number(p[1] ?? 0) / 255,
-      Number(p[2] ?? 0) / 255,
-      Math.max(0, Math.min(1, p.length > 3 ? Number(p[3]) : 1)),
+      Number(p[0]?.trim() ?? 0) / 255,
+      Number(p[1]?.trim() ?? 0) / 255,
+      Number(p[2]?.trim() ?? 0) / 255,
+      Math.max(0, Math.min(1, p.length > 3 ? Number(p[3].trim()) : 1)),
     ];
   }
   return [0, 0, 0, 1];
@@ -59,118 +57,36 @@ function readCssColor(name: string, fallback: string): string {
 //   wfSmooth = uniforms[2].z > 0.5 && !isSteps → lerp between adjacent bins
 //   default  = nearest-neighbour
 // ---------------------------------------------------------------------------
-const waterfallShader = /* wgsl */ `
-@group(0) @binding(0) var dataTex: texture_2d<f32>;
-@group(0) @binding(1) var colorTex: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> uniforms: array<vec4<f32>, 4>;
+const waterfallShader = WATERFALL_FIFO_WGSL;
+const DEFAULT_PLOT_MARGIN = { x: 40, y: 8 } as const;
+const DEFAULT_COLORMAP: number[][] = [
+  [0, 0, 0],
+  [255, 255, 255],
+];
+const COLORMAP_BYTES_CACHE = new WeakMap<number[][], Uint8Array>();
 
-struct VertexOut { @builtin(position) position: vec4<f32> }
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOut {
-  var pos = array<vec2<f32>, 3>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>( 3.0, -1.0),
-    vec2<f32>(-1.0,  3.0),
-  );
-  return VertexOut(vec4<f32>(pos[vi], 0.0, 1.0));
-}
-
-// Helper: look up a raw dB value from the circular buffer
-fn sampleDb(col: i32, displayRow: i32, renderRow: i32, texH: i32) -> f32 {
-  var texRow = renderRow - displayRow;
-  if (texRow < 0) { texRow = texRow + texH; }
-  return textureLoad(dataTex, vec2<i32>(col, texRow), 0).r;
-}
-
-// Helper: normalise dB → [0,1] then map through colour LUT
-fn dbToColor(rawDb: f32, dbMin: f32, dbMax: f32, colorCount: f32) -> vec4<f32> {
-  let range = max(dbMax - dbMin, 0.001);
-  let onscreen = clamp((rawDb - dbMin) / range, 0.0, 1.0);
-  let onscreenColorMax = 0.58;
-  let overrangeHeadroom = min(24.0, max(6.0, range * 0.25));
-  let overrange = clamp((rawDb - dbMax) / overrangeHeadroom, 0.0, 1.0);
-  let normalized = select(
-    onscreen * onscreenColorMax,
-    onscreenColorMax + (1.0 - onscreenColorMax) * overrange,
-    rawDb > dbMax,
-  );
-  var ci = i32(round(normalized * (colorCount - 1.0)));
-  ci = clamp(ci, 0, i32(colorCount) - 1);
-  return textureLoad(colorTex, vec2<i32>(ci, 0), 0);
-}
-
-@fragment
-fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-  let px = position.xy;
-
-  // uniforms[0] = (plotW, plotH, marginX, marginY) — physical pixels
-  let plotW  = uniforms[0].x;
-  let plotH  = uniforms[0].y;
-  let margX  = uniforms[0].z;
-  let margY  = uniforms[0].w;
-
-  let xIn = px.x - margX;
-  let yIn = px.y - margY;
-  let inBounds = xIn >= 0.0 && yIn >= 0.0 && xIn < plotW && yIn < plotH;
-
-  // uniforms[1] = (renderRow, texW, texH, colorCount)
-  let renderRow  = i32(uniforms[1].x);
-  let texW       = i32(uniforms[1].y);
-  let texH       = i32(uniforms[1].z);
-  let colorCount = max(1.0, uniforms[1].w);
-  let fTexW      = f32(texW);
-
-  // uniforms[2] = (dbMin, dbMax, wfSmooth, 0)
-  let dbMin    = uniforms[2].x;
-  let dbMax    = uniforms[2].y;
-  let wfSmooth = uniforms[2].z > 0.5;
-
-  // uniforms[3] = background RGBA
-  let bg = uniforms[3];
-
-  if (!inBounds) {
-    return bg;
+const getColormapBytes = (colormap: number[][]): Uint8Array => {
+  const cached = COLORMAP_BYTES_CACHE.get(colormap);
+  if (cached) return cached;
+  const width = colormap.length;
+  const rgba = new Uint8Array(width * 4);
+  for (let i = 0; i < width; i++) {
+    const color = colormap[i];
+    const offset = i * 4;
+    rgba[offset] = color[0];
+    rgba[offset + 1] = color[1];
+    rgba[offset + 2] = color[2];
+    rgba[offset + 3] = 255;
   }
-
-  // y: 1:1 mapping (texH == plotH by construction)
-  let displayRow = clamp(i32(floor(yIn)), 0, texH - 1);
-
-  // Map display x → bin index
-  // Use center-aligned sampling (px + 0.5) to avoid sub-pixel flickering
-  let xCenter = xIn + 0.5;
-  let exactBin = xCenter * fTexW / max(plotW, 1.0);
-
-  var finalColor: vec4<f32>;
-
-  if (wfSmooth) {
-    // SMOOTH MODE: linear interpolation between adjacent bins
-    let lenMinusOne = max(fTexW - 1.0, 1.0);
-    // Scale xCenter to [0, lenMinusOne] range for interpolation
-    let exactIdx = xIn * lenMinusOne / max(plotW - 1.0, 1.0);
-    let idxFloor = i32(floor(exactIdx));
-    let idxCeil  = min(idxFloor + 1, texW - 1);
-    let frac     = exactIdx - f32(idxFloor);
-
-    let dbFloor = sampleDb(max(idxFloor, 0), displayRow, renderRow, texH);
-    let dbCeil  = sampleDb(idxCeil, displayRow, renderRow, texH);
-    let rawDb   = mix(dbFloor, dbCeil, clamp(frac, 0.0, 1.0));
-    finalColor = dbToColor(rawDb, dbMin, dbMax, colorCount);
-  } else {
-    // DEFAULT: nearest-neighbour
-    let col = clamp(i32(floor(exactBin)), 0, texW - 1);
-    let rawDb = sampleDb(col, displayRow, renderRow, texH);
-    finalColor = dbToColor(rawDb, dbMin, dbMax, colorCount);
-  }
-
-  return finalColor;
-}
-`;
+  COLORMAP_BYTES_CACHE.set(colormap, rgba);
+  return rgba;
+};
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 type WaterfallState = {
+  canvas: HTMLCanvasElement;
   device: GPUDevice;
   format: GPUTextureFormat;
   ctx: GPUCanvasContext;
@@ -187,11 +103,22 @@ type WaterfallState = {
   rowBuf: ArrayBuffer;
   rowBytes: Uint8Array;
   rowFloats: Float32Array;
+  clearBuf: ArrayBuffer;
+  clearBytes: Uint8Array;
   writeRow: number;
   currentColorMapName?: string;
-  lastFrameCanvas?: HTMLCanvasElement;
-  cacheCanvas?: HTMLCanvasElement;
-  cacheCtx?: CanvasRenderingContext2D | null;
+  defaultBackgroundColor: string;
+  backgroundColor: string;
+  backgroundR: number;
+  backgroundG: number;
+  backgroundB: number;
+  backgroundA: number;
+};
+
+const destroyWaterfallState = (state: WaterfallState | null) => {
+  state?.dataTex?.destroy();
+  state?.colorTex?.destroy();
+  state?.uniformBuf?.destroy();
 };
 
 export interface WebGPUFIFOWaterfallOptions {
@@ -214,6 +141,7 @@ export interface WebGPUFIFOWaterfallOptions {
   colormap?: number[][];
   colormapName?: string;
   backgroundColor?: string;
+  plotMargin?: { x: number; y: number };
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
@@ -226,17 +154,12 @@ export interface WebGPUFIFOWaterfallOptions {
 // ---------------------------------------------------------------------------
 export function useDrawWebGPUFIFOWaterfall() {
   const stateRef = useRef<WaterfallState | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
 
   const createColorTex = useCallback(
     (device: GPUDevice, colormap: number[][]): GPUTexture => {
       const w = colormap.length;
-      const rgba = new Uint8Array(w * 4);
-      for (let i = 0; i < w; i++) {
-        rgba[i * 4] = colormap[i][0];
-        rgba[i * 4 + 1] = colormap[i][1];
-        rgba[i * 4 + 2] = colormap[i][2];
-        rgba[i * 4 + 3] = 255;
-      }
+      const rgba = getColormapBytes(colormap);
       const tex = device.createTexture({
         size: { width: w, height: 1 },
         format: "rgba8unorm",
@@ -259,6 +182,7 @@ export function useDrawWebGPUFIFOWaterfall() {
       device: GPUDevice,
       format: GPUTextureFormat,
       colormap: number[][],
+      colormapName?: string,
     ): WaterfallState => {
       const ctx = canvas.getContext("webgpu")!;
       ctx.configure({ device, format, alphaMode: "premultiplied" });
@@ -280,6 +204,7 @@ export function useDrawWebGPUFIFOWaterfall() {
       const colorTex = createColorTex(device, colormap);
 
       return {
+        canvas,
         device,
         format,
         ctx,
@@ -296,7 +221,19 @@ export function useDrawWebGPUFIFOWaterfall() {
         rowBuf: new ArrayBuffer(0),
         rowBytes: new Uint8Array(0),
         rowFloats: new Float32Array(0),
+        clearBuf: new ArrayBuffer(0),
+        clearBytes: new Uint8Array(0),
         writeRow: 0,
+        currentColorMapName: colormapName,
+        defaultBackgroundColor: readCssColor(
+          "--color-fft-background",
+          "#0a0a0a",
+        ),
+        backgroundColor: "",
+        backgroundR: 0,
+        backgroundG: 0,
+        backgroundB: 0,
+        backgroundA: 1,
       };
     },
     [createColorTex],
@@ -321,7 +258,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         restoreTexture,
         colormap,
         colormapName,
-        backgroundColor = readCssColor("--color-fft-background", "#0a0a0a"),
+        backgroundColor: requestedBackgroundColor,
+        plotMargin = DEFAULT_PLOT_MARGIN,
         fftSize,
         sampleRate,
         centerFrequencyHz,
@@ -329,34 +267,70 @@ export function useDrawWebGPUFIFOWaterfall() {
         isFirstFrame = false,
       } = options;
 
+      const existingState = stateRef.current;
+      if (
+        existingState &&
+        (existingState.canvas !== canvas ||
+          existingState.device !== device ||
+          existingState.format !== format)
+      ) {
+        destroyWaterfallState(existingState);
+        stateRef.current = null;
+      }
+
+      const effectiveColormap =
+        colormap && colormap.length > 0 ? colormap : DEFAULT_COLORMAP;
       if (!stateRef.current) {
         try {
-          stateRef.current = initState(canvas, device, format, colormap || []);
+          stateRef.current = initState(
+            canvas,
+            device,
+            format,
+            effectiveColormap,
+            colormapName,
+          );
         } catch (e) {
+          lastErrorRef.current =
+            e instanceof Error
+              ? e.message
+              : "Unknown WebGPU initialization error";
           console.error("WebGPU waterfall init failed:", e);
           return false;
         }
       }
       const s = stateRef.current;
+      const backgroundColor =
+        requestedBackgroundColor ?? s.defaultBackgroundColor;
 
       try {
         // Canvas dimensions are already DPR-scaled by FFTCanvas resize handler
         const dpr = window.devicePixelRatio || 1;
-        const marginX = Math.round(40 * dpr);
-        const marginY = Math.round(8 * dpr);
+        const marginX = Math.round(plotMargin.x * dpr);
+        const marginY = Math.round(plotMargin.y * dpr);
         const plotH = Math.max(1, canvas.height - marginY * 2);
 
         // ALWAYS use 4096 bins internal width to avoid resets during zoom
         const needW = 4096;
         const needH = plotH;
 
-        // -- Resize texture IF PLOT HEIGHT changes --
+        // -- Resize texture IF PLOT HEIGHT changes OR force reset on source change --
         // (internal width is constant 4096)
-        if (needW !== s.texW || needH !== s.texH) {
+        const forceReset =
+          restoreTexture &&
+          restoreTexture.width > 0 &&
+          restoreTexture.height > 0 &&
+          (needW !== restoreTexture.width || needH !== restoreTexture.height);
+
+        if (needW !== s.texW || needH !== s.texH || forceReset) {
           const prevTex = s.dataTex;
           const prevW = s.texW;
           const prevH = s.texH;
-          const widthChanged = prevW !== needW;
+          const widthChanged = prevW !== needW || forceReset;
+
+          // When forceReset is true, break the circular buffer continuity
+          if (forceReset) {
+            s.writeRow = 0;
+          }
 
           s.texW = needW;
           s.texH = needH;
@@ -376,18 +350,21 @@ export function useDrawWebGPUFIFOWaterfall() {
 
           // Clear with very-low dB
           const clearBytes = s.paddedRowBytes * s.texH;
-          const clearBuf = new ArrayBuffer(clearBytes);
-          new Float32Array(clearBuf).fill(-200);
+          if (s.clearBuf.byteLength !== clearBytes) {
+            s.clearBuf = new ArrayBuffer(clearBytes);
+            s.clearBytes = new Uint8Array(s.clearBuf);
+            new Float32Array(s.clearBuf).fill(-200);
+          }
           device.queue.writeTexture(
             { texture: s.dataTex },
-            new Uint8Array(clearBuf),
+            s.clearBytes,
             { bytesPerRow: s.paddedRowBytes, rowsPerImage: s.texH },
             { width: s.texW, height: s.texH },
           );
 
-          if (prevTex && !widthChanged) {
+          if (prevTex && !widthChanged && !forceReset) {
             // Repack the circular buffer by display age so the visible history
-            // stays in the same order after a height change.
+            // stays in the same order after a height change (only for real size changes)
             const enc = device.createCommandEncoder();
             const prevRenderRow =
               prevH > 0 ? (s.writeRow - 1 + prevH) % prevH : 0;
@@ -410,6 +387,7 @@ export function useDrawWebGPUFIFOWaterfall() {
             device.queue.submit([enc.finish()]);
             s.writeRow = Math.min(s.writeRow, s.texH - 1);
           } else {
+            // Full reset triggered: start from a clean buffer
             s.writeRow = 0;
           }
           prevTex?.destroy();
@@ -523,7 +501,8 @@ export function useDrawWebGPUFIFOWaterfall() {
 
           if (useGpuFftRow) {
             for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
-              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              let row = s.writeRow - smearIdx;
+              if (row < 0) row += s.texH;
               enc.copyBufferToTexture(
                 {
                   buffer: fftDataBuffer,
@@ -538,14 +517,17 @@ export function useDrawWebGPUFIFOWaterfall() {
                 { width: s.texW, height: 1 },
               );
             }
-            s.writeRow = (s.writeRow + 1) % s.texH;
+            const nextWriteRow = s.writeRow + 1;
+            s.writeRow = nextWriteRow === s.texH ? 0 : nextWriteRow;
           } else {
             const f32 = s.rowFloats;
+            const fftDataLength = fftData.length;
             for (let i = 0; i < s.texW; i++) {
-              f32[i] = fftData[i] ?? -200;
+              f32[i] = i < fftDataLength ? fftData[i] : -200;
             }
             for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
-              const row = (s.writeRow - smearIdx + s.texH) % s.texH;
+              let row = s.writeRow - smearIdx;
+              if (row < 0) row += s.texH;
               device.queue.writeTexture(
                 { texture: s.dataTex, origin: { x: 0, y: row } },
                 s.rowBytes,
@@ -553,7 +535,8 @@ export function useDrawWebGPUFIFOWaterfall() {
                 { width: s.texW, height: 1 },
               );
             }
-            s.writeRow = (s.writeRow + 1) % s.texH;
+            const nextWriteRow = s.writeRow + 1;
+            s.writeRow = nextWriteRow === s.texH ? 0 : nextWriteRow;
           }
         }
 
@@ -569,13 +552,7 @@ export function useDrawWebGPUFIFOWaterfall() {
           s.currentColorMapName = colormapName;
           s.colorCount = colormap.length;
           const w = colormap.length;
-          const rgba = new Uint8Array(w * 4);
-          for (let i = 0; i < w; i++) {
-            rgba[i * 4] = colormap[i][0];
-            rgba[i * 4 + 1] = colormap[i][1];
-            rgba[i * 4 + 2] = colormap[i][2];
-            rgba[i * 4 + 3] = 255;
-          }
+          const rgba = getColormapBytes(colormap);
           s.colorTex.destroy();
           s.colorTex = device.createTexture({
             size: { width: w, height: 1 },
@@ -601,7 +578,18 @@ export function useDrawWebGPUFIFOWaterfall() {
           }
         }
 
-        const [bgR, bgG, bgB, bgA] = parseCssColorToRgba(backgroundColor);
+        if (s.backgroundColor !== backgroundColor) {
+          const rgba = parseCssColorToRgba(backgroundColor);
+          s.backgroundColor = backgroundColor;
+          s.backgroundR = rgba[0];
+          s.backgroundG = rgba[1];
+          s.backgroundB = rgba[2];
+          s.backgroundA = rgba[3];
+        }
+        const bgR = s.backgroundR;
+        const bgG = s.backgroundG;
+        const bgB = s.backgroundB;
+        const bgA = s.backgroundA;
         const plotW = Math.max(1, canvas.width - marginX * 2);
 
         // uniforms[0] = (plotW, plotH, marginX, marginY)
@@ -653,28 +641,13 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.end();
         device.queue.submit([enc.finish()]);
 
-        if (canvas instanceof HTMLCanvasElement) {
-          if (!s.cacheCanvas) {
-            s.cacheCanvas = document.createElement("canvas");
-            s.cacheCtx = s.cacheCanvas.getContext("2d");
-          }
-          if (
-            s.cacheCanvas.width !== canvas.width ||
-            s.cacheCanvas.height !== canvas.height
-          ) {
-            s.cacheCanvas.width = canvas.width;
-            s.cacheCanvas.height = canvas.height;
-          }
-          if (s.cacheCtx) {
-            s.cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
-            s.cacheCtx.drawImage(canvas, 0, 0);
-          }
-          s.lastFrameCanvas = s.cacheCanvas;
-          (canvas as any)._lastFrameCanvas = s.cacheCanvas;
-        }
-
+        lastErrorRef.current = null;
         return true;
       } catch (error) {
+        lastErrorRef.current =
+          error instanceof Error
+            ? error.message
+            : "Unknown WebGPU rendering error";
         console.error("WebGPU waterfall rendering failed:", error);
         return false;
       }
@@ -683,11 +656,9 @@ export function useDrawWebGPUFIFOWaterfall() {
   );
 
   const cleanup = useCallback(() => {
-    const state = stateRef.current;
-    state?.dataTex?.destroy();
-    state?.colorTex?.destroy();
-    state?.uniformBuf?.destroy();
+    destroyWaterfallState(stateRef.current);
     stateRef.current = null;
   }, []);
-  return { drawWebGPUFIFOWaterfall, cleanup };
+  const getLastError = useCallback(() => lastErrorRef.current, []);
+  return { drawWebGPUFIFOWaterfall, cleanup, getLastError };
 }

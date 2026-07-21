@@ -32,6 +32,8 @@ export interface PauseLogicOptions {
   sampleRate?: number;
   centerFrequencyHz?: number;
   snapshotScope?: string;
+  /** Disable persisted paused frames for source modes with their own frame store. */
+  enabled?: boolean;
 }
 
 export function usePauseLogic({
@@ -46,10 +48,12 @@ export function usePauseLogic({
   sampleRate,
   centerFrequencyHz,
   snapshotScope = "default",
+  enabled = true,
 }: PauseLogicOptions) {
   const storageKeys = getPauseSnapshotStorageKeys(snapshotScope);
 
   const saveFrameData = useCallback(() => {
+    if (!enabled) return;
     try {
       const data = dataRef.current;
       if (data?.iq_data) {
@@ -127,9 +131,11 @@ export function usePauseLogic({
     storageKeys.waterfallDims,
     waterfallBufferRef,
     waterfallDimsRef,
+    enabled,
   ]);
 
   const restoreWaveformFromStorage = useCallback(() => {
+    if (!enabled) return;
     try {
       const iqBase64 = sessionStorage.getItem(storageKeys.iq);
       if (iqBase64) {
@@ -172,6 +178,7 @@ export function usePauseLogic({
     waveformFloatRef,
     waterfallBufferRef,
     waterfallDimsRef,
+    enabled,
   ]);
 
   const ensurePausedFrame = useCallback(() => {
@@ -180,25 +187,26 @@ export function usePauseLogic({
   }, [dataRef]);
 
   useEffect(() => {
-    if (!isPaused) return;
+    if (!enabled || !isPaused) return;
     restoreWaveformFromStorage();
     // Force a render after restoring from storage so the canvas isn't blank
     const timeoutId = setTimeout(() => forceRender(), 50);
     return () => clearTimeout(timeoutId);
-  }, [isPaused, forceRender, restoreWaveformFromStorage]);
+  }, [enabled, isPaused, forceRender, restoreWaveformFromStorage]);
 
   useEffect(() => {
+    if (!enabled) return;
     return () => {
       saveFrameData();
     };
-  }, [saveFrameData]);
+  }, [enabled, saveFrameData]);
 
   useEffect(() => {
-    if (!isPaused) return;
+    if (!enabled || !isPaused) return;
     if (!ensurePausedFrame()) return;
     saveFrameData();
     forceRender();
-  }, [isPaused, ensurePausedFrame, saveFrameData, forceRender]);
+  }, [enabled, isPaused, ensurePausedFrame, saveFrameData, forceRender]);
 
   return {
     saveFrameData,

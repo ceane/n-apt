@@ -56,9 +56,6 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
       const canvas = canvasRef.current;
       if (!canvas || !waveform || waveform.length === 0) return;
 
-      // Convert Float32Array to regular array for hooks
-      const waveformArray = Array.from(waveform);
-
       // Check if 3D mode is enabled
       if (drawSignal3D && webgpuEnabled && webgpuDevice && webgpuFormat) {
         // Use 3D WebGPU rendering
@@ -66,7 +63,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           canvas,
           device: webgpuDevice,
           format: webgpuFormat,
-          waveform: new Float32Array(waveformArray),
+          waveform,
           frequencyRange,
           fftMin,
           fftMax,
@@ -84,7 +81,7 @@ export const FFTSpectrum = memo<FFTSpectrumProps>(
           canvas,
           device: webgpuDevice,
           format: webgpuFormat,
-          waveform: new Float32Array(waveformArray),
+          waveform,
           frequencyRange,
           showGrid,
           centerFrequencyHz,

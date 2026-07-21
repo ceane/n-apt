@@ -1,5 +1,6 @@
 import { createSelector } from "@reduxjs/toolkit";
 import { RootState } from "../store";
+import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 
 // Basic memoized selectors for individual state slices
 export const selectAuthState = (state: RootState) => state.auth;
@@ -134,23 +135,128 @@ export const selectConnectionState = createSelector(
 export const selectDeviceState = createSelector(
   [selectWebSocketState],
   (websocket) => ({
-    deviceState: websocket.deviceState,
-    deviceName: websocket.deviceName,
-    deviceProfile: websocket.deviceProfile,
-    deviceInfo: websocket.deviceInfo,
-    backend: websocket.backend,
+    activeSourceId: websocket.activeSourceId,
+    activeSourceMode: websocket.activeSourceMode,
+    sources: websocket.sources,
+    sourceStatuses: websocket.sourceStatuses,
   }),
+);
+
+const EMPTY_SOURCE_LIST: SourceInfo[] = [];
+const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> = [];
+
+export const selectWebSocketSources = createSelector(
+  [selectWebSocketState],
+  (websocket) => websocket.sources ?? EMPTY_SOURCE_LIST,
+);
+
+export const selectSelectedFiles = createSelector(
+  [selectWaterfallState],
+  (waterfall) => waterfall.selectedFiles ?? EMPTY_FILE_LIST,
 );
 
 export const selectDeviceSettings = createSelector(
   [selectWebSocketState],
   (websocket) => ({
-    maxSampleRateHz: websocket.maxSampleRateHz,
-    sampleRateHz: websocket.sampleRateHz,
-    sdrSettings: websocket.sdrSettings,
     isPaused: websocket.isPaused,
     serverPaused: websocket.serverPaused,
   }),
+);
+
+export const selectActiveSource = createSelector(
+  [selectWebSocketState],
+  (websocket): SourceInfo | null => {
+    if (!Array.isArray(websocket.sources) || websocket.sources.length === 0) {
+      return null;
+    }
+    return (
+      websocket.sources.find(
+        (source) => source.id === websocket.activeSourceId,
+      ) ??
+      websocket.sources[0] ??
+      null
+    );
+  },
+);
+
+const getDeviceKindFromSource = (source: SourceInfo): string => {
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  if (
+    kind === "hackrf_one" ||
+    kind === "mock_tx" ||
+    kind === "tx_rx" ||
+    kind === "tx" ||
+    kind === "mock_apt"
+  ) {
+    return kind;
+  }
+  if (
+    kind.includes("mock_apt") ||
+    kind.includes("mock-apt") ||
+    source.id === "mock-apt"
+  ) {
+    return "mock_apt";
+  }
+  if (capability === "mock" || kind.includes("mock")) return "mock_tx";
+  if (capability.includes("tx")) return "tx";
+  return source.kind;
+};
+
+export const deriveSourceDerivedState = (source: SourceInfo | null) => {
+  if (!source) {
+    return {
+      deviceState: null,
+      deviceName: null,
+      deviceProfile: null,
+      deviceInfo: null,
+      backend: null,
+      maxSampleRateHz: null,
+      sampleRateOptions: [] as number[],
+      sampleRateHz: null,
+      sdrSettings: null,
+    };
+  }
+
+  return {
+    deviceState: source.status,
+    deviceName: source.name,
+    deviceProfile: {
+      kind: getDeviceKindFromSource(source),
+      is_rtl_sdr: source.capability === "rx",
+      supports_approx_dbm: source.supports_approx_dbm,
+      supports_raw_iq_stream: source.supports_raw_iq_stream,
+    },
+    deviceInfo: source.name,
+    backend: source.kind,
+    maxSampleRateHz: source.sdr.max_sample_rate,
+    sampleRateOptions: source.sdr.sample_rate_options,
+    sampleRateHz: source.sdr.settings.sample_rate ?? null,
+    sdrSettings: source.sdr.settings,
+  };
+};
+
+export const selectSourceDerivedState = createSelector(
+  [
+    selectWebSocketState,
+    (_state: RootState, sourceId: string | null) => sourceId,
+  ],
+  (websocket, sourceId) => {
+    if (!Array.isArray(websocket.sources) || websocket.sources.length === 0) {
+      return deriveSourceDerivedState(null);
+    }
+
+    const source =
+      websocket.sources.find((candidate) => candidate.id === sourceId) ??
+      websocket.sources[0] ??
+      null;
+    return deriveSourceDerivedState(source);
+  },
+);
+
+export const selectActiveSourceDerivedState = createSelector(
+  [selectActiveSource],
+  (source) => deriveSourceDerivedState(source),
 );
 
 export const selectSpectrumData = createSelector(
@@ -236,7 +342,7 @@ export const selectHighFrequencyData = (_state: any) => null;
 
 // Selector for WebSocket connection readiness
 export const selectIsWebSocketReady = createSelector(
-  [selectConnectionState, selectDeviceState],
+  [selectConnectionState, selectActiveSourceDerivedState],
   (connection, device) => {
     return (
       connection.isConnected &&
@@ -248,7 +354,7 @@ export const selectIsWebSocketReady = createSelector(
 
 // Selector for device capabilities
 export const selectDeviceCapabilities = createSelector(
-  [selectDeviceState],
+  [selectActiveSourceDerivedState],
   (device) => ({
     supportsApproxDbm: device.deviceProfile?.supports_approx_dbm || false,
     supportsRawIqStream: device.deviceProfile?.supports_raw_iq_stream || false,

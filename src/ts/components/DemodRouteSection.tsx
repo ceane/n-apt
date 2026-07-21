@@ -48,11 +48,17 @@ import {
   IQCaptureNode,
   SymbolsTable,
   BitstreamViewer,
+  TxNode,
+  TxSignalConfigNode,
 } from "@n-apt/components/react-flow/nodes";
 import {
   NodeContainer,
   FlowContainer,
 } from "@n-apt/components/react-flow/flows";
+import {
+  shouldRunDemodAutoLayout,
+  shouldVirtualizeDemodFlowNodes,
+} from "@n-apt/components/react-flow/flows/demodFlowModel";
 // Removed local buildDemodFlowGraph call
 
 const VisibleFrequencyRangeContext = React.createContext<{
@@ -176,6 +182,7 @@ const CustomNode = React.memo(({ data, id }: { data: any; id: string }) => {
   else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
   else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
   else if (data.channelNode) content = <ChannelNode data={data} />;
+  else if (data.txSignalOptions) content = <TxSignalConfigNode data={data} />;
   else if (data.signalOptions) content = <SignalConfigNode data={data} />;
   else if (data.metadataNode) content = <MetadataNode data={data} />;
   else if (data.channelOptions) content = <ChannelOptionsNode data={data} />;
@@ -189,6 +196,7 @@ const CustomNode = React.memo(({ data, id }: { data: any; id: string }) => {
   else if (data.fmOptions) content = <FmNode data={data} />;
   else if (data.fileOptions) content = <FileOptionsNode data={data} />;
   else if (data.iqCaptureNode) content = <IQCaptureNode data={data} />;
+  else if (data.txOptions) content = <TxNode data={data} />;
   else if (data.outputNode) content = <OutputNode data={data} />;
   else {
     content = (
@@ -363,7 +371,6 @@ const DemodRouteSectionInner: React.FC = () => {
   } = useDemod();
 
   const [, setIsLaidOut] = useState(false);
-  const [isSwitchingFlow, setIsSwitchingFlow] = useState(false);
 
   const [menu, setMenu] = React.useState<{
     id: string;
@@ -474,7 +481,6 @@ const DemodRouteSectionInner: React.FC = () => {
             return node;
           });
         });
-        setIsSwitchingFlow(false);
         setIsLaidOut(true);
         hasLaidOut.current = true;
         shouldFitAfterLayoutRef.current = false;
@@ -546,6 +552,20 @@ const DemodRouteSectionInner: React.FC = () => {
               : 0;
 
           let hasPositionChanges = false;
+          const isTxSuite = nodesRef.current.some(
+            (candidate) => candidate.data?.txSuite === true,
+          );
+          const txSuiteLayout: Record<string, { x: number; y: number }> = {
+            source: { x: 425, y: 40 },
+            "tx-settings": { x: 40, y: 360 },
+            "tx-signal-config": { x: 40, y: 850 },
+            "tx-fft": { x: 40, y: 1350 },
+            "tx-waterfall": { x: 40, y: 1900 },
+            "rx-channel": { x: 650, y: 360 },
+            "rx-signal-config": { x: 1250, y: 360 },
+            "rx-fft": { x: 650, y: 1350 },
+            "rx-waterfall": { x: 650, y: 1900 },
+          };
           const nextNodes = nds.map((node: Node) => {
             const layoutNode = layoutedGraph.children?.find(
               (n: { id: string }) => n.id === node.id,
@@ -559,6 +579,12 @@ const DemodRouteSectionInner: React.FC = () => {
               return node;
 
             let targetX = layoutNode.x;
+            let targetY = layoutNode.y;
+
+            if (isTxSuite && txSuiteLayout[node.id]) {
+              targetX = txSuiteLayout[node.id].x;
+              targetY = txSuiteLayout[node.id].y;
+            }
 
             // Force vertical visual centering for the top chain relative to the FFT node
             const topChain =
@@ -572,7 +598,7 @@ const DemodRouteSectionInner: React.FC = () => {
 
             const nextNode = {
               ...node,
-              position: { x: targetX, y: layoutNode.y },
+              position: { x: targetX, y: targetY },
             };
 
             if (
@@ -593,7 +619,6 @@ const DemodRouteSectionInner: React.FC = () => {
             if (layoutRunIdRef.current !== currentRunId) {
               return;
             }
-            setIsSwitchingFlow(false);
             setIsLaidOut(true);
             hasLaidOut.current = true;
             shouldFitAfterLayoutRef.current = false;
@@ -607,12 +632,10 @@ const DemodRouteSectionInner: React.FC = () => {
           });
         } else {
           setIsLaidOut(true);
-          setIsSwitchingFlow(false);
           hasLaidOut.current = true;
         }
       } catch (error) {
         console.error("Layout error:", error);
-        setIsSwitchingFlow(false);
       }
     },
     [fitView, setNodesLocal, setEdgesLocal],
@@ -640,18 +663,34 @@ const DemodRouteSectionInner: React.FC = () => {
   );
 
   useEffect(() => {
+    if (!shouldRunDemodAutoLayout(flowVersion)) {
+      hasLaidOut.current = true;
+      shouldFitAfterLayoutRef.current = false;
+      const frame = window.requestAnimationFrame(() => {
+        void fitView({
+          padding: 0.15,
+          duration: 0,
+          minZoom: 0.3,
+          maxZoom: 1.2,
+        });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
     if (!hasLaidOut.current || flowVersion > 0) {
       shouldFitAfterLayoutRef.current = true;
-      setIsSwitchingFlow(true);
     }
-
     lastMeasuredSizesRef.current = new Map();
-    // Defer initial layout just enough for React to render the new nodes to the DOM
     const timer = setTimeout(() => {
       scheduleMeasureAndLayout(true);
     }, 16); // ~1 frame
     return () => clearTimeout(timer);
-  }, [edges.length, nodes.length, flowVersion, scheduleMeasureAndLayout]);
+  }, [
+    edges.length,
+    nodes.length,
+    flowVersion,
+    fitView,
+    scheduleMeasureAndLayout,
+  ]);
 
   // Re-layout on window resize with debouncing
   useEffect(() => {
@@ -896,8 +935,9 @@ const DemodRouteSectionInner: React.FC = () => {
           nodes={nodes}
           edges={edges}
           style={{
-            opacity: isSwitchingFlow ? 0 : 1,
-            transition: isSwitchingFlow ? "none" : "opacity 0.15s ease-out",
+            // Keep the canvas visible while source-specific nodes are adapted
+            // and measured; hiding the whole graph causes a distracting flash.
+            opacity: 1,
           }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -910,6 +950,7 @@ const DemodRouteSectionInner: React.FC = () => {
           panOnDrag={true}
           selectionOnDrag={false}
           elementsSelectable={true}
+          onlyRenderVisibleElements={shouldVirtualizeDemodFlowNodes(nodes)}
           fitView={false}
         >
           <Background

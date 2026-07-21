@@ -1,4 +1,12 @@
-import { FC, Suspense, type ReactNode } from "react";
+import {
+  FC,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import styled from "styled-components";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -105,6 +113,8 @@ interface FIFOWaterfallCanvasProps {
   placeholderSourceLabel?: string;
   placeholderPaneLabel?: string;
   placeholderErrorReason?: string | null;
+  placeholderState?: CanvasPlaceholderState | null;
+  isStandby?: boolean;
 }
 
 const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
@@ -117,8 +127,23 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   placeholderSourceLabel,
   placeholderPaneLabel = "Waterfall",
   placeholderErrorReason = null,
+  placeholderState: explicitPlaceholderState = null,
+  isStandby: explicitIsStandby,
 }) => {
-  const placeholderState = (() => {
+  const isStandby =
+    typeof explicitIsStandby === "boolean"
+      ? explicitIsStandby
+      : !!(
+          explicitPlaceholderState &&
+          explicitPlaceholderState.kind === "idle" &&
+          explicitPlaceholderState.title === "Start Tx to transmit"
+        );
+
+  const placeholderState = useMemo(() => {
+    if (explicitPlaceholderState) {
+      return explicitPlaceholderState;
+    }
+
     if (placeholderErrorReason) {
       return {
         kind: "error" as const,
@@ -140,14 +165,71 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     }
 
     return null;
-  })();
+  }, [
+    explicitPlaceholderState,
+    placeholderErrorReason,
+    placeholderSourceLabel,
+    placeholderPaneLabel,
+    awaitingDeviceData,
+  ]);
+  const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const clearCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (width > 0 && height > 0) {
+      canvas.width = width;
+      canvas.height = height;
+      return;
+    }
+    const ctx = canvas.getContext("2d");
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+  }, []);
+  const clearWaterfallCanvases = useCallback(() => {
+    clearCanvas(waterfallGpuCanvasRef.current);
+    clearCanvas(waterfallOverlayCanvasRef.current);
+  }, [clearCanvas]);
+  const handleWaterfallGpuCanvasNode = useCallback(
+    (node: HTMLCanvasElement | null) => {
+      waterfallGpuCanvasRef.current = node;
+      setWaterfallGpuCanvasNode(node);
+      if (placeholderState) {
+        clearCanvas(node);
+      }
+    },
+    [clearCanvas, placeholderState, setWaterfallGpuCanvasNode],
+  );
+  const handleWaterfallOverlayCanvasNode = useCallback(
+    (node: HTMLCanvasElement | null) => {
+      waterfallOverlayCanvasRef.current = node;
+      setWaterfallOverlayCanvasNode(node);
+      if (placeholderState) {
+        clearCanvas(node);
+      }
+    },
+    [clearCanvas, placeholderState, setWaterfallOverlayCanvasNode],
+  );
+
+  useEffect(() => {
+    if (
+      !placeholderState ||
+      placeholderState.kind === "overlay-only" ||
+      placeholderState.kind === "top-bar"
+    ) {
+      return;
+    }
+    clearWaterfallCanvases();
+  }, [clearWaterfallCanvases, placeholderState]);
 
   return (
     <Suspense fallback={<div>Loading waterfall…</div>}>
       <WaterfallSection>
         <SectionTitleRow>
           <SectionTitle>
-            Waterfall Display {isPaused && "(Paused)"}
+            {isStandby
+              ? "Waterfall Display (Standby)"
+              : `Waterfall Display ${isPaused ? "(Paused)" : ""}`}
           </SectionTitle>
           {headerActionContent && (
             <SectionTitleActions data-disabled={!!placeholderState}>
@@ -158,11 +240,11 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
         <CanvasWrapper>
           {placeholderState && <CanvasPlaceholder state={placeholderState} />}
           <CanvasLayer
-            ref={setWaterfallGpuCanvasNode}
+            ref={handleWaterfallGpuCanvasNode}
             id="fft-waterfall-canvas-webgpu"
           />
           <CanvasLayer
-            ref={setWaterfallOverlayCanvasNode}
+            ref={handleWaterfallOverlayCanvasNode}
             id="fft-waterfall-canvas-overlay"
           />
           {heterodyningHighlightedBins.length > 0 && (

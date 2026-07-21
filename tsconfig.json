@@ -25,7 +25,9 @@
 
     /* Path mapping */
     "paths": {
+      "@ladle/react": ["./src/types/ladle-react"],
       "@n-apt/webmcp/*": ["./src/ts/agents/webmcp/*"],
+      "@n-apt/tracked-interactive/*": ["./src/tracked-interactive/*"],
       "@n-apt/*": ["./src/ts/*"],
       "@n-apt": ["./src/ts"],
       "@n-apt/public/*": ["./public/*"],
@@ -37,11 +39,12 @@
       "@n-apt/hooks/*": ["./src/ts/hooks/*"],
       "@n-apt/glb_models/*": ["./src/ts/glb_models/*"],
       "@n-apt/encrypted-modules/*": ["./src/encrypted-modules/*"],
+      "@n-apt/md-signals/*": ["./src/md-signals/*"],
       "@n-apt/validation": ["./src/ts/validation"],
       "@n-apt/validation/*": ["./src/ts/validation/*"]
     }
   },
-  "include": ["src/ts", "src/md-preview", "src/encrypted-modules", "src/ts/types", "src/types", "test/ts", "test/integration"],
+  "include": ["src/ts", "src/tracked-interactive", "src/md-preview", "src/md-signals", "src/encrypted-modules", "src/ts/types", "src/types", "test/ts", "test/integration"],
   "exclude": ["src/md-preview/components/canvas/ascii-motion-animation.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

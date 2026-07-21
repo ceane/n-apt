@@ -1,19 +1,63 @@
-//! Mock APT SDR Device Implementation
+//! Mock APT SDR Device Implementation.
 //!
-//! Provides a simulated SDR device that generates realistic signals for testing and demonstration.
-//! Uses bin-based frequency modeling for consistent FFT placement and dynamic signal behavior.
-//! Reads configuration from signals.yaml for signal parameters and variation settings.
+//! This device does not stream a single precomputed I/Q recording. Instead, it
+//! synthesizes the requested FFT frame on demand each time `read_samples_sync`
+//! is called.
+//!
+//! The signal layout is initialized from `signals.yaml` into an in-memory set of
+//! mock carriers, then each frame is generated from that state using the current
+//! center frequency, sample rate, gain, and realism settings. This keeps the
+//! output responsive to tuning changes while still allowing seeded, repeatable
+//! generation when desired.
+//!
+//! A separate small cache is used only for selected Mock Tx overlays
+//! (`wifi`/`5g`/related modes) so those blocks can be reused when the transmit
+//! parameters are unchanged. That cache is not the main Mock APT I/Q source.
 
-use crate::fft::types::RawSamples;
+use crate::s::fft::types::RawSamples;
+use crate::s::ifft::mock_tx_gen::{
+  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
+};
+use std::sync::Mutex;
+
+/// Cached Mock Tx synthesis state.
+///
+/// This cache exists only for transmit overlay generation. The main Mock APT
+/// receive path still recomputes the requested frame on every read.
+struct MockTxBuffer {
+  params: Option<MockTxParams>,
+  samples: Vec<Complex<f32>>,
+}
+
+impl MockTxBuffer {
+  const fn new() -> Self {
+    Self {
+      params: None,
+      samples: Vec::new(),
+    }
+  }
+}
+
+static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+
+use std::cell::RefCell;
+
+thread_local! {
+  static PLANNER: RefCell<FftPlanner<f32>> = RefCell::new(FftPlanner::new());
+}
+
 use anyhow::Result;
 use crossbeam_channel::Receiver;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
+use rustfft::{num_complex::Complex, FftPlanner};
 use std::f32::consts::PI;
 use std::f64::consts::PI as PI64;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
+
+use crate::server::types::{MockAptRealisticRfConfig, TxIqPowerModel};
 
 use super::SdrDevice;
 
@@ -24,14 +68,18 @@ use metal_backend::MockAptMetalBackend;
 #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
 use std::sync::OnceLock;
 
-/// Mock APT signal configuration
+/// One configured mock carrier in the simulated spectrum.
 #[derive(Debug, Clone)]
 struct MockAptSignalConfig {
   center_frequency_hz: f64,
   strength_db: f64,
 }
 
-/// Mock APT SDR device implementation
+/// Mock APT SDR device implementation.
+///
+/// The device stores a persistent signal model, but the output samples are
+/// generated per request. That means tuning, gain, ppm, and RF realism options
+/// are applied at read time rather than being baked into a static capture.
 pub struct MockAptDevice {
   center_freq: u32,
   sample_rate: u32,
@@ -45,9 +93,14 @@ pub struct MockAptDevice {
   total_samples: u64,
   signals: Vec<MockAptSignal>,
   noise_floor_db: f32,
+  realistic_rf: MockAptRealisticRfConfig,
   rng: StdRng,
   settle_time_samples: u64,
+  retune_settle_time_samples: u64,
+  samples_since_retune: u64,
+  previous_center_freq: u32,
   samples_since_init: u64,
+  rx_active: bool,
   last_config_reload_check: Instant,
   last_config_modified: Option<SystemTime>,
   last_config_checksum: Option<String>,
@@ -92,6 +145,186 @@ fn modulation_gain(pulse_sin: f64) -> f64 {
   // because powf(base, exp) internally computes exp(exp * ln(base)) plus
   // additional branch/NaN handling for arbitrary bases.
   ((5.0 + 5.0 * pulse_sin) * (std::f64::consts::LN_10 / 20.0)).exp()
+}
+
+impl Default for MockAptRealisticRfConfig {
+  fn default() -> Self {
+    Self {
+      enabled: false,
+      aliasing: true,
+      passband: true,
+      retune_settling: true,
+    }
+  }
+}
+
+/// Fold an RF offset into the complex-baseband Nyquist interval.
+pub fn alias_to_baseband(rel_freq_hz: f64, sample_rate_hz: f64) -> f64 {
+  if !rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  (rel_freq_hz + sample_rate_hz / 2.0).rem_euclid(sample_rate_hz)
+    - sample_rate_hz / 2.0
+}
+
+/// Smooth mock receiver passband response for a displayed baseband offset.
+pub fn passband_gain(rel_freq_hz: f64, sample_rate_hz: f64) -> f64 {
+  if !rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  let nyquist = sample_rate_hz / 2.0;
+  let x = (rel_freq_hz.abs() / nyquist).min(1.5);
+  if x <= 0.70 {
+    1.0 - 0.08 * (x / 0.70).powi(2)
+  } else if x <= 1.0 {
+    let t = (x - 0.70) / 0.30;
+    let smooth = t * t * (3.0 - 2.0 * t);
+    0.92 + (0.30 - 0.92) * smooth
+  } else {
+    0.0
+  }
+}
+
+/// Combined visibility for realistic mock RF: passband plus folded leakage.
+pub fn realistic_visibility_gain(
+  abs_rel_freq_hz: f64,
+  displayed_rel_freq_hz: f64,
+  sample_rate_hz: f64,
+) -> f64 {
+  if !abs_rel_freq_hz.is_finite()
+    || !displayed_rel_freq_hz.is_finite()
+    || !sample_rate_hz.is_finite()
+    || sample_rate_hz <= 0.0
+  {
+    return 0.0;
+  }
+
+  let nyquist = sample_rate_hz / 2.0;
+  let fold_order = if abs_rel_freq_hz <= nyquist {
+    0
+  } else {
+    ((abs_rel_freq_hz - nyquist) / sample_rate_hz).floor() as i32 + 1
+  };
+
+  if fold_order > 8 {
+    return 0.0;
+  }
+
+  let leakage = 0.52f64.powi(fold_order);
+  passband_gain(displayed_rel_freq_hz, sample_rate_hz) * leakage
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MockTxRuntimePreset {
+  center_frequency_hz: f64,
+  tone_hz: f64,
+  bandwidth_hz: f64,
+}
+
+fn clamp_window_to_range(
+  center_hz: f64,
+  sample_rate_hz: f64,
+  min_hz: f64,
+  max_hz: f64,
+) -> (f64, f64) {
+  let channel_span = (max_hz - min_hz).max(1.0);
+  let sample_rate_hz = sample_rate_hz
+    .max(1.0)
+    .min(channel_span)
+    .min(u32::MAX as f64);
+  let half = sample_rate_hz / 2.0;
+  let center_hz = center_hz.clamp(min_hz + half, max_hz - half);
+  (center_hz, sample_rate_hz)
+}
+
+fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
+  let settings = crate::server::utils::load_mock_tx_settings();
+  let mock_apt_settings = crate::server::utils::load_mock_apt_settings();
+  let signal_key = canonical_mock_tx_signal_key(signal_name);
+  let preset = settings
+    .signals
+    .get(&signal_key)
+    .or_else(|| settings.signals.get("wifi"));
+
+  let channel = preset
+    .and_then(|preset| preset.channel.as_deref())
+    .unwrap_or("a")
+    .to_ascii_lowercase();
+  let channel_range = mock_apt_settings
+    .channels
+    .get(&channel)
+    .and_then(|channel| {
+      if channel.freq_range_hz.len() >= 2 {
+        Some((channel.freq_range_hz[0], channel.freq_range_hz[1]))
+      } else {
+        None
+      }
+    })
+    .unwrap_or((18_000.0, 4_390_000.0));
+
+  let (min_hz, max_hz) = channel_range;
+  let fallback_center = (min_hz + max_hz) / 2.0;
+  let fallback_sample_rate = (max_hz - min_hz).min(2_400_000.0).max(1.0);
+  let center_hz = preset
+    .and_then(|preset| preset.center_frequency_hz)
+    .unwrap_or(fallback_center);
+  let sample_rate_hz = preset
+    .and_then(|preset| preset.sample_rate_hz)
+    .unwrap_or(fallback_sample_rate);
+  let (center_frequency_hz, sample_rate_hz) =
+    clamp_window_to_range(center_hz, sample_rate_hz, min_hz, max_hz);
+
+  MockTxRuntimePreset {
+    center_frequency_hz,
+    tone_hz: preset.and_then(|preset| preset.tone_hz).unwrap_or(2_400.0),
+    bandwidth_hz: preset
+      .and_then(|preset| preset.bandwidth_hz)
+      .unwrap_or(sample_rate_hz / 5.0)
+      .max(1.0)
+      .min(sample_rate_hz),
+  }
+}
+
+const MOCK_APT_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
+const MOCK_APT_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
+const MOCK_APT_I_DITHER_KEY: u64 = 0x4d41_5054_5458_4949;
+const MOCK_APT_Q_DITHER_KEY: u64 = 0x4d41_5054_5458_5151;
+
+fn mock_apt_motion_unit(sample_index: u64, noise_key: u64) -> f64 {
+  let mut x = sample_index
+    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    .wrapping_add(noise_key);
+  x ^= x >> 30;
+  x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+  x ^= x >> 27;
+  x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+  x ^= x >> 31;
+  ((x >> 11) as f64 / ((1u64 << 53) as f64)) * 2.0 - 1.0
+}
+
+fn wifi_5g_motion_gain(
+  signal_name: &str,
+  frame_seed: u64,
+  sample_index: u64,
+) -> f64 {
+  if signal_name != "wifi" && signal_name != "5g" {
+    return 1.0;
+  }
+
+  // OFDM-like transmit blocks need a little frame-to-frame texture so the
+  // signal does not look frozen when the same cached block is reused.
+  let frame_noise = mock_apt_motion_unit(frame_seed, MOCK_APT_FRAME_NOISE_KEY);
+  let sample_noise =
+    mock_apt_motion_unit(sample_index ^ frame_seed, MOCK_APT_SAMPLE_NOISE_KEY);
+  (1.0 + 0.06 * frame_noise + 0.03 * sample_noise).clamp(0.85, 1.15)
 }
 
 /// Lightweight snapshot for tracking mock APT generation cost.
@@ -140,6 +373,23 @@ impl MockAptDevice {
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  fn resolve_metal_backend(
+    enabled: bool,
+  ) -> (Option<MockAptMetalBackend>, Option<String>) {
+    if !enabled {
+      return (None, None);
+    }
+
+    match Self::metal_backend_probe_result() {
+      Ok(()) => match MockAptMetalBackend::new() {
+        Ok(backend) => (Some(backend), None),
+        Err(error) => (None, Some(error.to_string())),
+      },
+      Err(error) => (None, Some(error.clone())),
+    }
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   fn device_type_label(&self) -> &'static str {
     if self.metal_backend.is_some() {
       "Mock APT SDR (Metal)"
@@ -153,52 +403,43 @@ impl MockAptDevice {
     "Mock APT SDR"
   }
 
-  /// Create a new mock APT SDR device
+  /// Create a new mock APT SDR device.
+  ///
+  /// The signal configuration is loaded once at construction, but the I/Q
+  /// frames themselves are synthesized on demand.
   pub fn new() -> Self {
     Self::new_with_rng(StdRng::from_rng(&mut ::rand::rng()))
   }
 
-  /// Create a new mock APT SDR device with a fixed seed for deterministic output
+  /// Create a new mock APT SDR device with a fixed seed for deterministic output.
+  ///
+  /// This makes the signal layout and subsequent frame generation repeatable.
   pub fn new_with_seed(seed: u64) -> Self {
     Self::new_with_rng(StdRng::seed_from_u64(seed))
   }
 
   fn new_with_rng(rng: StdRng) -> Self {
-    Self::new_with_rng_and_backend(rng, false)
+    Self::new_with_rng_and_config(rng)
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   pub fn new_with_gpu_backend() -> Self {
-    Self::new_with_rng_and_backend(StdRng::from_rng(&mut ::rand::rng()), true)
+    Self::new_with_rng_and_config(StdRng::from_rng(&mut ::rand::rng()))
   }
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   pub fn new_with_seed_and_gpu_backend(seed: u64) -> Self {
-    Self::new_with_rng_and_backend(StdRng::seed_from_u64(seed), true)
+    Self::new_with_rng_and_config(StdRng::seed_from_u64(seed))
   }
 
-  fn new_with_rng_and_backend(
-    mut rng: StdRng,
-    _enable_gpu_backend: bool,
-  ) -> Self {
+  fn new_with_rng_and_config(mut rng: StdRng) -> Self {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     let signals = Self::create_signals_with_rng(&mock_settings, &mut rng);
     let noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    let realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
     #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-    let (metal_backend, metal_backend_error) = if _enable_gpu_backend {
-      match Self::metal_backend_probe_result() {
-        Ok(()) => match MockAptMetalBackend::new() {
-          Ok(backend) => (Some(backend), None),
-          Err(error) => (None, Some(error.to_string())),
-        },
-        Err(error) => (None, Some(error.clone())),
-      }
-    } else {
-      (None, None)
-    };
-
-    #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
-    let _ = _enable_gpu_backend;
+    let (metal_backend, metal_backend_error) =
+      Self::resolve_metal_backend(mock_settings.gpu_gen_via_metal);
 
     #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
     let _metal_backend_error = None::<String>;
@@ -216,9 +457,14 @@ impl MockAptDevice {
       total_samples: 0,
       signals,
       noise_floor_db,
+      realistic_rf,
       rng,
       settle_time_samples: 160_000, // 50ms at 3.2MSPS
+      retune_settle_time_samples: 64_000, // 20ms at 3.2MSPS
+      samples_since_retune: u64::MAX,
+      previous_center_freq: 1_600_000,
       samples_since_init: 0,
+      rx_active: false,
       last_config_reload_check: Instant::now(),
       last_config_modified: crate::server::utils::signals_config_modified_at(),
       last_config_checksum: crate::server::utils::signals_config_checksum(),
@@ -238,7 +484,11 @@ impl MockAptDevice {
     }
   }
 
-  /// Create initial signals based on configuration
+  /// Create initial signals based on configuration.
+  ///
+  /// This builds the persistent carrier set used by the runtime generator. It
+  /// does not allocate a full waveform buffer; the actual I/Q samples are still
+  /// produced lazily per frame.
   fn create_signals_with_rng(
     mock_settings: &crate::server::types::MockAptSignalsConfig,
     rng_source: &mut impl rand::Rng,
@@ -313,8 +563,10 @@ impl MockAptDevice {
       }
 
       // Normalization factor to keep peak sum < 0.8 (room for noise)
-      let norm_factor = if total_amp > 0.8 {
-        0.8 / total_amp
+      // Account for the +10dB max modulation gain (factor of ~3.162)
+      let max_expected_peak = total_amp * 3.16227766;
+      let norm_factor = if max_expected_peak > 0.8 {
+        0.8 / max_expected_peak
       } else {
         1.0
       };
@@ -404,6 +656,19 @@ impl MockAptDevice {
     let mock_settings = crate::server::utils::load_mock_apt_settings();
     self.signals = Self::create_signals_with_rng(&mock_settings, &mut self.rng);
     self.noise_floor_db = Self::noise_floor_from_settings(&mock_settings);
+    self.realistic_rf = mock_settings.realistic_rf.unwrap_or_default();
+    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+    {
+      if !mock_settings.gpu_gen_via_metal {
+        self.metal_backend = None;
+        self.metal_backend_error = None;
+      } else if self.metal_backend.is_none() {
+        let (metal_backend, metal_backend_error) =
+          Self::resolve_metal_backend(true);
+        self.metal_backend = metal_backend;
+        self.metal_backend_error = metal_backend_error;
+      }
+    }
     self.last_config_modified =
       crate::server::utils::signals_config_modified_at().or(current_modified);
     self.last_config_checksum = current_checksum;
@@ -435,6 +700,8 @@ impl SdrDevice for MockAptDevice {
     log::info!("Initializing mock APT SDR device");
     self.total_samples = 0;
     self.samples_since_init = 0;
+    self.samples_since_retune = u64::MAX;
+    self.rx_active = true;
 
     // For now, use simple synchronous initialization
     // TODO: Add optional async mode when it's properly implemented
@@ -473,6 +740,10 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
+    if freq != self.center_freq {
+      self.previous_center_freq = self.center_freq;
+      self.samples_since_retune = 0;
+    }
     self.center_freq = freq;
     log::debug!("Mock device center frequency set to {} Hz", freq);
     Ok(())
@@ -536,6 +807,7 @@ impl SdrDevice for MockAptDevice {
     log::debug!("Mock APT device buffer reset");
     self.total_samples = 0;
     self.samples_since_init = 0;
+    self.samples_since_retune = u64::MAX;
     Ok(())
   }
 
@@ -551,8 +823,13 @@ impl SdrDevice for MockAptDevice {
 
     self.rx_queue = None;
     self.iq_overflow.clear();
+    self.rx_active = false;
     log::info!("Mock APT device cleanup completed");
     Ok(())
+  }
+
+  fn is_rx_active(&self) -> bool {
+    self.rx_active
   }
 
   fn is_healthy(&self) -> bool {
@@ -583,9 +860,173 @@ impl SdrDevice for MockAptDevice {
   }
 }
 
+fn hash_noise(t: u64, seed: u64) -> f64 {
+  let mut x = t.wrapping_mul(0x85ebca6b) ^ seed;
+  x = x.wrapping_mul(0xc2b2ae35);
+  x ^= x >> 16;
+  let r = (x & 0xfffffff) as f64 / 268435456.0; // 0.0 to 1.0
+  r * 2.0 - 1.0
+}
+
+fn quantize_mock_apt_sample(
+  value: f64,
+  sample_index: u64,
+  noise_key: u64,
+  stochastic: bool,
+) -> u8 {
+  let scaled = value.clamp(-1.0, 1.0) * 127.0;
+  if !stochastic {
+    return (scaled + 128.0) as u8;
+  }
+
+  let lower = scaled.floor();
+  let fraction = scaled - lower;
+  let dither = (hash_noise(sample_index, noise_key) + 1.0) * 0.5;
+  let signed = lower + if dither < fraction { 1.0 } else { 0.0 };
+  (128.0 + signed).clamp(0.0, 255.0) as u8
+}
+
+fn constrain_mock_apt_tx_overlay_to_bandwidth(
+  i_accumulator: &mut [f64],
+  q_accumulator: &mut [f64],
+  before_i: &[f64],
+  before_q: &[f64],
+  rel_center_hz: f64,
+  tx_bandwidth_hz: f64,
+  view_sample_rate_hz: f64,
+) {
+  let len = i_accumulator
+    .len()
+    .min(q_accumulator.len())
+    .min(before_i.len())
+    .min(before_q.len());
+  if len == 0
+    || !rel_center_hz.is_finite()
+    || !tx_bandwidth_hz.is_finite()
+    || !view_sample_rate_hz.is_finite()
+  {
+    return;
+  }
+
+  let half_tx_hz = (tx_bandwidth_hz.max(1.0) / 2.0).max(0.5);
+  let bin_width_hz = view_sample_rate_hz.max(1.0) / len as f64;
+  let guard_hz = bin_width_hz * 1.5;
+  let mut overlay: Vec<Complex<f32>> = (0..len)
+    .map(|index| {
+      Complex::new(
+        (i_accumulator[index] - before_i[index]) as f32,
+        (q_accumulator[index] - before_q[index]) as f32,
+      )
+    })
+    .collect();
+  let (fft, ifft) = PLANNER.with(|p| {
+    let mut planner = p.borrow_mut();
+    (planner.plan_fft_forward(len), planner.plan_fft_inverse(len))
+  });
+  fft.process(&mut overlay);
+
+  for (index, bin) in overlay.iter_mut().enumerate() {
+    let bin_hz = if index <= len / 2 {
+      index as f64 * bin_width_hz
+    } else {
+      -((len - index) as f64 * bin_width_hz)
+    };
+    if (bin_hz - rel_center_hz).abs() > half_tx_hz + guard_hz {
+      *bin = Complex::new(0.0, 0.0);
+    }
+  }
+
+  ifft.process(&mut overlay);
+  let scale = 1.0 / len as f32;
+  for index in 0..len {
+    let filtered = overlay[index] * scale;
+    i_accumulator[index] = before_i[index] + filtered.re as f64;
+    q_accumulator[index] = before_q[index] + filtered.im as f64;
+  }
+}
+
+fn add_bandlimited_mock_tx_noise_overlay(
+  i_accumulator: &mut [f64],
+  q_accumulator: &mut [f64],
+  rel_center_hz: f64,
+  tx_bandwidth_hz: f64,
+  view_sample_rate_hz: f64,
+  amp: f64,
+  frame_start_sample: u64,
+) {
+  let len = i_accumulator.len().min(q_accumulator.len());
+  if len == 0
+    || !rel_center_hz.is_finite()
+    || !tx_bandwidth_hz.is_finite()
+    || !view_sample_rate_hz.is_finite()
+    || tx_bandwidth_hz <= 0.0
+    || view_sample_rate_hz <= 0.0
+  {
+    return;
+  }
+
+  let bin_width_hz = view_sample_rate_hz / len as f64;
+  let half_tx_hz = tx_bandwidth_hz / 2.0;
+  let edge_taper_hz = (tx_bandwidth_hz * 0.04).max(bin_width_hz * 2.0);
+  let mut spectrum = vec![Complex::new(0.0f32, 0.0f32); len];
+  let mut occupied_bins = 0usize;
+
+  for (index, bin) in spectrum.iter_mut().enumerate() {
+    let bin_hz = if index <= len / 2 {
+      index as f64 * bin_width_hz
+    } else {
+      -((len - index) as f64 * bin_width_hz)
+    };
+    let offset_from_tx_center = (bin_hz - rel_center_hz).abs();
+    if offset_from_tx_center > half_tx_hz {
+      continue;
+    }
+
+    let taper = if offset_from_tx_center >= half_tx_hz - edge_taper_hz {
+      let x =
+        ((half_tx_hz - offset_from_tx_center) / edge_taper_hz).clamp(0.0, 1.0);
+      x * x * (3.0 - 2.0 * x)
+    } else {
+      1.0
+    };
+    let phase_unit = (hash_noise(
+      frame_start_sample.wrapping_add(index as u64),
+      0x4241_4e44_4e4f_4953,
+    ) + 1.0)
+      * 0.5;
+    let phase = 2.0 * std::f64::consts::PI * phase_unit;
+    let (sin, cos) = phase.sin_cos();
+    *bin = Complex::new((cos * taper) as f32, (sin * taper) as f32);
+    occupied_bins += 1;
+  }
+
+  if occupied_bins == 0 {
+    return;
+  }
+
+  let magnitude = (amp * len as f64 / (occupied_bins as f64).sqrt()) as f32;
+  for bin in spectrum.iter_mut() {
+    *bin *= magnitude;
+  }
+
+  let ifft = PLANNER.with(|p| p.borrow_mut().plan_fft_inverse(len));
+  ifft.process(&mut spectrum);
+  let scale = 1.0 / len as f32;
+  for index in 0..len {
+    let sample = spectrum[index] * scale;
+    i_accumulator[index] += sample.re as f64;
+    q_accumulator[index] += sample.im as f64;
+  }
+}
+
 #[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
+  /// Synthesize one I/Q frame synchronously.
+  ///
+  /// This is the hot path: it computes the requested `fft_size` samples from
+  /// the current device state, applies noise and quantization, then returns the
+  /// resulting bytes. No global capture buffer is replayed here.
   pub fn read_samples_sync(&mut self, fft_size: usize) -> Result<RawSamples> {
     if fft_size == 0 {
       return Err(anyhow::anyhow!("FFT size cannot be 0"));
@@ -593,16 +1034,26 @@ impl MockAptDevice {
 
     let sample_rate = self.sample_rate as f64;
     let center_freq = self.center_freq as f64;
-    let pulse_phase_step = 2.0 * PI64 * 3.0 / sample_rate;
     let frame_pulse_phase_base =
       2.0 * PI64 * 3.0 * self.total_samples as f64 / sample_rate;
     let modulation_phase_step = 0.31 / sample_rate;
-    let (pulse_rot_im, pulse_rot_re) = pulse_phase_step.sin_cos();
 
     // Calculate settle factor (0.0 to 1.0) for realistic warm-up
-    let settle_factor = if self.samples_since_init < self.settle_time_samples {
+    let settle_factor = if self.realistic_rf.enabled
+      && self.samples_since_init < self.settle_time_samples
+    {
       (self.samples_since_init as f64 / self.settle_time_samples as f64)
         .powf(2.0)
+    } else {
+      1.0
+    };
+    let realistic_retune_factor = if self.realistic_rf.enabled
+      && self.realistic_rf.retune_settling
+      && self.samples_since_retune < self.retune_settle_time_samples
+    {
+      (self.samples_since_retune as f64
+        / self.retune_settle_time_samples.max(1) as f64)
+        .powf(1.6)
     } else {
       1.0
     };
@@ -646,17 +1097,59 @@ impl MockAptDevice {
           signal.config.center_frequency_hz + (signal.drift_offset as f64);
         let effective_center_freq =
           center_freq * (1.0 - (self.ppm as f64) / 1_000_000.0);
-        let rel_freq = abs_freq_hz - effective_center_freq;
+        let raw_rel_freq = abs_freq_hz - effective_center_freq;
+        let mut rel_freq = raw_rel_freq;
+        let mut visibility_gain = 1.0;
 
-        // Skip signals way out of range
-        if rel_freq.abs() > (sample_rate / 2.0) + 100_000.0 {
-          continue;
+        if self.realistic_rf.enabled {
+          let displayed_rel_freq = if self.realistic_rf.aliasing {
+            alias_to_baseband(raw_rel_freq, sample_rate)
+          } else {
+            raw_rel_freq
+          };
+
+          if !self.realistic_rf.aliasing
+            && displayed_rel_freq.abs() > (sample_rate / 2.0) + 100_000.0
+          {
+            continue;
+          }
+
+          let visibility = if self.realistic_rf.passband {
+            realistic_visibility_gain(
+              raw_rel_freq.abs(),
+              displayed_rel_freq,
+              sample_rate,
+            )
+          } else if self.realistic_rf.aliasing {
+            0.52f64.powi(
+              ((raw_rel_freq.abs() - sample_rate / 2.0).max(0.0) / sample_rate)
+                .floor() as i32,
+            )
+          } else {
+            1.0
+          };
+
+          if visibility < 1.0e-5 {
+            continue;
+          }
+
+          rel_freq = displayed_rel_freq;
+          visibility_gain = visibility;
+        } else {
+          // Skip signals way out of range. This is the canonical path used by
+          // checksum-sensitive tests; keep it byte-identical when realism is off.
+          if raw_rel_freq.abs() > (sample_rate / 2.0) + 100_000.0 {
+            continue;
+          }
         }
 
         let rf_signal_db = signal.config.strength_db;
         let adc_signal_db = rf_signal_db + analog_gain;
-        let amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp()
+        let mut amp = (adc_signal_db / 20.0 * std::f64::consts::LN_10).exp()
           * settle_factor;
+        if self.realistic_rf.enabled {
+          amp *= visibility_gain * realistic_retune_factor;
+        }
 
         let frame_start_phase = signal.phase;
         let (mut p_im, mut p_re) = (frame_start_phase as f64).sin_cos();
@@ -740,11 +1233,10 @@ impl MockAptDevice {
               let pulse_phase_base = chunk_pulse_phase_base
                 + state.modulation_phase as f64
                 + state.frame_start_phase as f64 * 0.15;
-              let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
+              let (pulse_im, _pulse_re) = pulse_phase_base.sin_cos();
+              let cur_amp = amp * modulation_gain(pulse_im);
 
               for j in 0..current_chunk_size {
-                let cur_amp = amp * modulation_gain(pulse_im);
-
                 i_chunk[j] += cur_amp * p_re;
                 q_chunk[j] += cur_amp * p_im;
 
@@ -752,13 +1244,6 @@ impl MockAptDevice {
                 let next_im = p_im * r_re + p_re * r_im;
                 p_re = next_re;
                 p_im = next_im;
-
-                let next_pulse_re =
-                  pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
-                let next_pulse_im =
-                  pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
-                pulse_re = next_pulse_re;
-                pulse_im = next_pulse_im;
               }
             }
           });
@@ -785,11 +1270,10 @@ impl MockAptDevice {
             let pulse_phase_base = chunk_pulse_phase_base
               + state.modulation_phase as f64
               + state.frame_start_phase as f64 * 0.15;
-            let (mut pulse_im, mut pulse_re) = pulse_phase_base.sin_cos();
+            let (pulse_im, _pulse_re) = pulse_phase_base.sin_cos();
+            let cur_amp = amp * modulation_gain(pulse_im);
 
             for j in 0..current_chunk_size {
-              let cur_amp = amp * modulation_gain(pulse_im);
-
               i_chunk[j] += cur_amp * p_re;
               q_chunk[j] += cur_amp * p_im;
 
@@ -797,16 +1281,241 @@ impl MockAptDevice {
               let next_im = p_im * r_re + p_re * r_im;
               p_re = next_re;
               p_im = next_im;
-
-              let next_pulse_re =
-                pulse_re * pulse_rot_re - pulse_im * pulse_rot_im;
-              let next_pulse_im =
-                pulse_im * pulse_rot_re + pulse_re * pulse_rot_im;
-              pulse_re = next_pulse_re;
-              pulse_im = next_pulse_im;
             }
           }
         }
+      }
+    }
+
+    // Simulate transmit leakage (loopback) into the receiver's spectrum
+    if crate::safety::TX_TRANSMITTING.load(std::sync::atomic::Ordering::Relaxed)
+    {
+      use rand::SeedableRng;
+      let before_tx_i = self.i_accumulator[..fft_size].to_vec();
+      let before_tx_q = self.q_accumulator[..fft_size].to_vec();
+      let active_tx_overlay_center_hz: f64;
+      let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
+      let tx_signal = canonical_mock_tx_signal_key(&tx_signal);
+      let tx_preset = resolve_mock_tx_preset(&tx_signal);
+      let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
+      // Mock APT is a verification receiver for Mock Tx, so render the Tx
+      // overlay at the same monitor calibration instead of hiding it behind
+      // an arbitrary coupling loss.
+      let amp = 10.0f64
+        .powf((tx_power_dbm - TxIqPowerModel::default().calibration_db) / 20.0);
+
+      let hop_enabled = crate::safety::TX_HOP_ENABLED
+        .load(std::sync::atomic::Ordering::Relaxed);
+      if hop_enabled {
+        let hop_rate = *crate::safety::TX_HOP_RATE_HZ.lock().unwrap();
+        let elapsed_time_sec = self.total_samples as f64 / sample_rate;
+        let hop_idx = (elapsed_time_sec * hop_rate) as usize;
+
+        let current_freq = if crate::safety::TX_HOP_TYPE_IS_RANGE
+          .load(std::sync::atomic::Ordering::Relaxed)
+        {
+          let start_hz = *crate::safety::TX_HOP_START_HZ.lock().unwrap();
+          let end_hz = *crate::safety::TX_HOP_END_HZ.lock().unwrap();
+          if start_hz >= end_hz {
+            start_hz
+          } else {
+            let mut hop_rng = rand::rngs::StdRng::seed_from_u64(hop_idx as u64);
+            hop_rng.random_range(start_hz..=end_hz)
+          }
+        } else {
+          let mask = crate::safety::TX_HOP_CHANNELS_MASK
+            .load(std::sync::atomic::Ordering::Relaxed);
+          let mut target_freqs = Vec::new();
+          if mask & 1 != 0 {
+            target_freqs.push(2_204_000.0);
+          }
+          if mask & 2 != 0 {
+            target_freqs.push(27_235_000.0);
+          }
+          if mask & 4 != 0 {
+            target_freqs.push(13_875_000.0);
+          }
+
+          if target_freqs.is_empty() {
+            2_204_000.0
+          } else {
+            let ch_idx = hop_idx % target_freqs.len();
+            target_freqs[ch_idx]
+          }
+        };
+
+        // Add band-limited noise spike at current_freq
+        active_tx_overlay_center_hz = current_freq;
+        let rel_freq = current_freq - center_freq;
+        // Check if the signal is within the displayable passband
+        if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
+          let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
+          for j in 0..fft_size {
+            let t = self.total_samples + j as u64;
+            let phase = phase_step * t as f64;
+            let noise_val = self.rng.random_range(-1.0..1.0);
+            let (p_im, p_re) = phase.sin_cos();
+            self.i_accumulator[j] += noise_val * p_re * amp;
+            self.q_accumulator[j] += noise_val * p_im * amp;
+          }
+        }
+      } else {
+        let active_tx_center_hz =
+          *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
+        let rel_freq = if active_tx_center_hz > 0.0 {
+          active_tx_center_hz - center_freq
+        } else {
+          tx_preset.center_frequency_hz - center_freq
+        };
+        active_tx_overlay_center_hz = center_freq + rel_freq;
+        // Only synthesize non-hop leakage if it is within the receiver passband
+        if rel_freq.abs() <= (sample_rate / 2.0) + 100_000.0 {
+          let phase_step = 2.0 * std::f64::consts::PI * rel_freq / sample_rate;
+          let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+          if tx_signal == "d"
+            || tx_signal == "d_sharp"
+            || tx_signal == "wifi"
+            || tx_signal == "5g"
+          {
+            let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+            let render_ifft_size = tx_ifft_size.min(fft_size).max(256);
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
+            } else {
+              tx_preset.bandwidth_hz
+            };
+            let is_ofdm = tx_signal == "wifi" || tx_signal == "5g";
+            let current_params = MockTxParams {
+              signal_key: tx_signal.clone(),
+              sample_rate_hz: sample_rate,
+              bandwidth_hz: bw,
+              tx_ifft_size: render_ifft_size,
+              phase_seed: if is_ofdm { self.frame_log_counter } else { 0 },
+            };
+            let mut cache = MOCK_TX_CACHE.lock().unwrap();
+            if cache.params.as_ref() != Some(&current_params)
+              || cache.samples.is_empty()
+              || cache.samples.len() != render_ifft_size
+            {
+              cache.samples = generate_mock_tx_samples_ifft(&current_params);
+              cache.params = Some(current_params);
+            }
+            let block = cache.samples.clone();
+            drop(cache);
+            let block_cursor =
+              (self.frame_log_counter as usize) % render_ifft_size;
+            let frame_seed = self.frame_log_counter;
+
+            let mut max_peak = 0.0_f64;
+            for s in &block {
+              let peak = ((s.re * s.re + s.im * s.im) as f64).sqrt();
+              if peak > max_peak {
+                max_peak = peak;
+              }
+            }
+            let peak_env = amp * max_peak;
+            let scale = if peak_env > 0.95 {
+              0.95 / peak_env
+            } else {
+              1.0
+            };
+
+            for j in 0..fft_size {
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (sin_p, cos_p) = phase.sin_cos();
+
+              let block_sample = block
+                [((t as usize + block_cursor) % render_ifft_size) as usize];
+              let motion_gain = wifi_5g_motion_gain(&tx_signal, frame_seed, t);
+              let i_sig = (block_sample.re as f64 * cos_p
+                - block_sample.im as f64 * sin_p)
+                * amp
+                * scale
+                * motion_gain;
+              let q_sig = (block_sample.re as f64 * sin_p
+                + block_sample.im as f64 * cos_p)
+                * amp
+                * scale
+                * motion_gain;
+
+              self.i_accumulator[j] += i_sig;
+              self.q_accumulator[j] += q_sig;
+            }
+          } else if tx_signal == "tone" {
+            for j in 0..fft_size {
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
+              self.i_accumulator[j] += p_re * amp;
+              self.q_accumulator[j] += p_im * amp;
+            }
+          } else if tx_signal == "noise" {
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
+            } else {
+              tx_preset.bandwidth_hz
+            };
+            add_bandlimited_mock_tx_noise_overlay(
+              &mut self.i_accumulator[..fft_size],
+              &mut self.q_accumulator[..fft_size],
+              rel_freq,
+              bw,
+              sample_rate,
+              amp,
+              self.total_samples,
+            );
+          } else if tx_signal == "custom" {
+            let bw = if tx_bandwidth_hz > 0.0 {
+              tx_bandwidth_hz
+            } else {
+              2_400_000.0
+            };
+            let symbol_rate = tx_preset.tone_hz * (bw / 2_400_000.0).min(1.0);
+            let bit_period =
+              (sample_rate / symbol_rate.max(1.0)).round().max(1.0) as u64;
+
+            for j in 0..fft_size {
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
+
+              let bit_index = t / bit_period;
+              let bit = (bit_index ^ (bit_index >> 1)) & 1;
+              let symbol = if bit == 0 { -1.0 } else { 1.0 };
+              let shaped = 0.75 + 0.25 * symbol;
+              self.i_accumulator[j] += p_re * shaped * amp;
+              self.q_accumulator[j] += p_im * symbol * amp * 0.5;
+            }
+          } else {
+            for j in 0..fft_size {
+              let t = self.total_samples + j as u64;
+              let phase = phase_step * t as f64;
+              let (p_im, p_re) = phase.sin_cos();
+
+              let tone_phase = (2.0 * std::f64::consts::PI * tx_preset.tone_hz
+                / sample_rate)
+                * t as f64;
+              let mod_val = 1.0 + 0.8 * tone_phase.sin();
+              self.i_accumulator[j] += p_re * mod_val * amp;
+              self.q_accumulator[j] += p_im * mod_val * amp;
+            }
+          }
+        }
+      }
+      let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+      let needs_bandwidth_constraint =
+        tx_signal == "wifi" || tx_signal == "5g" || tx_signal == "noise";
+      if needs_bandwidth_constraint {
+        constrain_mock_apt_tx_overlay_to_bandwidth(
+          &mut self.i_accumulator[..fft_size],
+          &mut self.q_accumulator[..fft_size],
+          &before_tx_i,
+          &before_tx_q,
+          active_tx_overlay_center_hz - center_freq,
+          tx_bandwidth_hz,
+          sample_rate,
+        );
       }
     }
 
@@ -846,6 +1555,8 @@ impl MockAptDevice {
           self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
           self.samples_since_init =
             self.samples_since_init.wrapping_add(fft_size as u64);
+          self.samples_since_retune =
+            self.samples_since_retune.wrapping_add(fft_size as u64);
           self.frame_log_counter = self.frame_log_counter.wrapping_add(1);
           return Ok(RawSamples {
             data,
@@ -867,14 +1578,25 @@ impl MockAptDevice {
     // Write directly into the pre-reserved byte_buffer via pointer to avoid
     // 2×fft_size bounds-checked push() calls (already reserved on line 522).
     let buf_ptr = self.byte_buffer.as_mut_ptr();
+    let stochastic_tx_quantization =
+      crate::safety::TX_TRANSMITTING.load(std::sync::atomic::Ordering::Relaxed);
     for j in 0..fft_size {
+      let sample_index = self.total_samples + j as u64;
       let i_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
       let q_noise = (self.rng.random::<f64>() - 0.5) * 2.0 * noise_amp_f64;
 
-      let i_u8 = (((self.i_accumulator[j] + i_noise).clamp(-1.0, 1.0) * 127.0)
-        + 128.0) as u8;
-      let q_u8 = (((self.q_accumulator[j] + q_noise).clamp(-1.0, 1.0) * 127.0)
-        + 128.0) as u8;
+      let i_u8 = quantize_mock_apt_sample(
+        self.i_accumulator[j] + i_noise,
+        sample_index,
+        MOCK_APT_I_DITHER_KEY,
+        stochastic_tx_quantization,
+      );
+      let q_u8 = quantize_mock_apt_sample(
+        self.q_accumulator[j] + q_noise,
+        sample_index,
+        MOCK_APT_Q_DITHER_KEY,
+        stochastic_tx_quantization,
+      );
 
       // SAFETY: byte_buffer has capacity ≥ fft_size*2 (reserved on line 522)
       unsafe {
@@ -890,6 +1612,8 @@ impl MockAptDevice {
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
+    self.samples_since_retune =
+      self.samples_since_retune.wrapping_add(fft_size as u64);
 
     let next_buffer = self
       .recycled_byte_buffer
@@ -951,6 +1675,8 @@ impl MockAptDevice {
     self.total_samples = self.total_samples.wrapping_add(fft_size as u64);
     self.samples_since_init =
       self.samples_since_init.wrapping_add(fft_size as u64);
+    self.samples_since_retune =
+      self.samples_since_retune.wrapping_add(fft_size as u64);
 
     let next_buffer = self
       .recycled_byte_buffer
@@ -973,6 +1699,16 @@ impl MockAptDevice {
   /// Get settle time in samples
   pub fn get_settle_time(&self) -> u64 {
     self.settle_time_samples
+  }
+
+  /// Enable or disable realistic RF modeling.
+  pub fn set_realistic_rf_config(&mut self, config: MockAptRealisticRfConfig) {
+    self.realistic_rf = config;
+  }
+
+  /// Set the realistic-mode retune settling duration in samples.
+  pub fn set_retune_settle_time(&mut self, samples: u64) {
+    self.retune_settle_time_samples = samples;
   }
 
   /// Return a stable estimate of the work required to generate one frame.
@@ -1033,6 +1769,7 @@ mod tests {
     path: &std::path::Path,
     spike_hz: u32,
     noise_floor_db: i32,
+    gpu_gen_via_metal: bool,
   ) {
     let yaml = format!(
       r#"
@@ -1067,6 +1804,7 @@ signals:
               freq_hz: !frequency 28.8MHz
               label: "high"
   mock_apt:
+    gpu_gen_via_metal: {gpu_gen_via_metal}
     channels:
       a:
         label: "A"
@@ -1104,13 +1842,13 @@ signals:
     std::env::set_current_dir(&temp_dir).expect("set current dir");
 
     let yaml_path = temp_dir.join("signals.yaml");
-    write_test_signals_yaml(&yaml_path, 500_000, -95);
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
     let mut device = MockAptDevice::new();
     assert_eq!(device.signals.len(), 9);
     assert_eq!(device.noise_floor_db, -95.0);
 
     sleep(Duration::from_millis(300));
-    write_test_signals_yaml(&yaml_path, 1_000_000, -70);
+    write_test_signals_yaml(&yaml_path, 1_000_000, -70, false);
     sleep(Duration::from_millis(300));
 
     device.reload_config_if_needed();
@@ -1119,6 +1857,54 @@ signals:
     assert_eq!(device.noise_floor_db, -70.0);
 
     std::env::set_current_dir(&original_dir).expect("restore dir");
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
+
+  #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+  #[test]
+  fn gpu_gen_via_metal_controls_mock_apt_backend() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    let original_dir = std::env::current_dir().expect("current dir");
+    let temp_dir = std::env::temp_dir().join(format!(
+      "napt-mock-metal-config-{}",
+      SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("time")
+        .as_nanos()
+    ));
+    fs::create_dir_all(&temp_dir).expect("create temp dir");
+    std::env::set_current_dir(&temp_dir).expect("set current dir");
+    crate::server::utils::clear_signals_config_cache();
+
+    let yaml_path = temp_dir.join("signals.yaml");
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
+    let mut device = MockAptDevice::new();
+    assert!(!device.gpu_backend_enabled());
+    assert_eq!(device.device_type(), "Mock APT SDR");
+
+    sleep(Duration::from_millis(300));
+    write_test_signals_yaml(&yaml_path, 500_000, -95, true);
+    crate::server::utils::clear_signals_config_cache();
+    let metal_device = MockAptDevice::new();
+
+    if MockAptDevice::metal_backend_available() {
+      assert!(metal_device.gpu_backend_enabled());
+      assert_eq!(metal_device.device_type(), "Mock APT SDR (Metal)");
+      assert_eq!(metal_device.generation_backend_label(), "Metal");
+    } else {
+      assert!(!metal_device.gpu_backend_enabled());
+      assert!(metal_device.gpu_backend_error().is_some());
+    }
+
+    sleep(Duration::from_millis(300));
+    write_test_signals_yaml(&yaml_path, 500_000, -95, false);
+    crate::server::utils::clear_signals_config_cache();
+    device.reload_config_if_needed();
+    assert!(!device.gpu_backend_enabled());
+    assert_eq!(device.device_type(), "Mock APT SDR");
+
+    std::env::set_current_dir(&original_dir).expect("restore dir");
+    crate::server::utils::clear_signals_config_cache();
     let _ = fs::remove_dir_all(&temp_dir);
   }
 }

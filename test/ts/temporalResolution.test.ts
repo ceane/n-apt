@@ -1,9 +1,11 @@
 import {
   averageTemporalWaveforms,
   blendTemporalWaveform,
+  getTemporalResolutionLabel,
   getTemporalResolutionAlpha,
   getTemporalResolutionWindow,
 } from "../../src/ts/utils/temporalResolution";
+import { resetWebGpuStreamTemporalHistory } from "@n-apt/utils/webgpuStreamReset";
 
 describe("temporalResolution", () => {
   it("uses a direct copy for high temporal resolution", () => {
@@ -53,6 +55,12 @@ describe("temporalResolution", () => {
     expect(getTemporalResolutionWindow("high")).toBe(1);
   });
 
+  it("exposes user-facing labels for the reordered temporal resolution options", () => {
+    expect(getTemporalResolutionLabel("high")).toBe("Lossless");
+    expect(getTemporalResolutionLabel("medium")).toBe("Reduced");
+    expect(getTemporalResolutionLabel("low")).toBe("Slow");
+  });
+
   it("averages multiple frames", () => {
     const avg = averageTemporalWaveforms(
       [new Float32Array([0, 10]), new Float32Array([10, 20])],
@@ -60,5 +68,15 @@ describe("temporalResolution", () => {
     );
 
     expect(Array.from(avg)).toEqual([5, 15]);
+  });
+
+  it("drops every retained frame at a source boundary", () => {
+    const framePool = [new Float32Array([1, 2]), new Float32Array([3, 4])];
+    const activeFrames = [framePool[1]];
+
+    resetWebGpuStreamTemporalHistory(framePool, activeFrames);
+
+    expect(framePool).toHaveLength(0);
+    expect(activeFrames).toHaveLength(0);
   });
 });

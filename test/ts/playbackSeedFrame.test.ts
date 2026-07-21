@@ -13,6 +13,27 @@ describe("buildPlaybackSeedFrame", () => {
     ).toBe(frame);
   });
 
+  it("uses the first raw IQ chunk when the channel has it", () => {
+    const frame = { waveform: new Float32Array([-90, -40, -70]) };
+
+    expect(
+      buildPlaybackSeedFrame({
+        displayMode: "fft",
+        precomputedFrames: [frame],
+        channelData: {
+          iq_data: new Uint8Array([1, 2, 3, 4]),
+          bins_per_frame: 2,
+        },
+      }),
+    ).toEqual({
+      type: "spectrum",
+      center_frequency_hz: undefined,
+      sample_rate: undefined,
+      iq_data: new Uint8Array([1, 2, 3, 4]),
+      data_type: "iq_raw",
+    });
+  });
+
   it("builds the first IQ chunk in iq mode", () => {
     const iqData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -30,6 +51,28 @@ describe("buildPlaybackSeedFrame", () => {
       center_frequency_hz: undefined,
       sample_rate: undefined,
       iq_data: new Uint8Array([1, 2, 3, 4]),
+      data_type: "iq_raw",
+    });
+  });
+
+  it("uses the active visualizer FFT size before file bins_per_frame", () => {
+    const iqData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    expect(
+      buildPlaybackSeedFrame({
+        displayMode: "iq",
+        precomputedFrames: [],
+        channelData: {
+          iq_data: iqData,
+          bins_per_frame: 2,
+        },
+        fftSize: 3,
+      }),
+    ).toEqual({
+      type: "spectrum",
+      center_frequency_hz: undefined,
+      sample_rate: undefined,
+      iq_data: new Uint8Array([1, 2, 3, 4, 5, 6]),
       data_type: "iq_raw",
     });
   });

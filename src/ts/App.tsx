@@ -6,11 +6,14 @@ import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthenticationRoute as AuthRoute } from "@n-apt/routes/AuthenticationRoute";
 import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
-import { PromptProvider, ReduxNotifications } from "@n-apt/components/ui";
+import { PromptProvider } from "@n-apt/components/ui/PromptProvider";
+import { ReduxNotifications } from "@n-apt/components/ui/ReduxNotifications";
+import { useRustRebuildStatus } from "@n-apt/hooks/useRustRebuildStatus";
 import "katex/dist/katex.min.css";
 
 // Main App component with BrowserRouter wrapper
 export const App: React.FC = () => {
+  useRustRebuildStatus();
   return (
     <>
       <Helmet>

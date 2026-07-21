@@ -30,6 +30,8 @@ export interface DrawParams {
   peakAmplitude: number; // Unit: dB (max 0)
   simulatedNoise: number;
   beats: BeatParams[]; // Up to 2 beats
+  baseSignalType?: "none" | "gaussian" | "bpsk";
+  baseSignalAmplitude?: number; // dB
 }
 
 export interface WaterfallState {
@@ -71,11 +73,13 @@ const INITIAL_DRAW_PARAMS: DrawParams = {
   centerSpikeBoost: 4.9,
   spikesAmplitude: -10, // dB
   decayRate: 0.2,
-  envelopeWidth: 0.1,
+  envelopeWidth: 10.0,
   centerOffset: 1_500_000,
-  peakAmplitude: 1.0, // -40 dB
+  peakAmplitude: -40, // -40 dB
   simulatedNoise: 0.05,
   beats: [],
+  baseSignalType: "none",
+  baseSignalAmplitude: -55,
 };
 
 const initialState: WaterfallState = {
@@ -89,7 +93,7 @@ const initialState: WaterfallState = {
 
   stitchStatus: "",
   stitchTrigger: 0,
-  stitchSourceSettings: { gain: 10, ppm: 0 },
+  stitchSourceSettings: { gain: 46.9, ppm: 1 },
   isStitchPaused: false,
   activePlaybackMetadata: null,
   playbackChannels: [],

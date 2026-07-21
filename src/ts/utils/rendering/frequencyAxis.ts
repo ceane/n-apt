@@ -81,7 +81,7 @@ export function composeCanvasWithFrequencyAxis({
   const rightPad = Math.round((plotInsets?.right ?? 40) * devicePixelRatio);
   const plotLeft = leftPad;
   const plotRight = axisWidth - rightPad;
-  const targetTicks = detail === "dense" ? 7 : 10;
+  const targetTicks = detail === "dense" ? 9 : 10;
   const labelFontPx = detail === "dense" ? 16 : 13;
   const centerFontPx = detail === "dense" ? 18 : 15;
   const tickLen = detail === "dense" ? 9 : 7;
@@ -130,8 +130,8 @@ export function composeCanvasWithFrequencyAxis({
     tickLength: tickLen,
     centerTickLength: tickLen + 2,
     minorTickLength: minorTickLen,
-    edgeReservePx: detail === "dense" ? 22 : 14,
-    centerReservePx: detail === "dense" ? 16 : 10,
+    edgeReservePx: detail === "dense" ? 6 : 14,
+    centerReservePx: detail === "dense" ? 10 : 10,
   });
 
   ctx.restore();

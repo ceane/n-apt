@@ -46,8 +46,10 @@ const ControlledFrequencyInput: React.FC<any> = (props) => {
 describe("FrequencyInput", () => {
   it("renders with initial value and correct optimal unit", () => {
     render(<ControlledFrequencyInput valueHz={1500000} />);
-    expect(screen.getByDisplayValue("1.500")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("MHz");
+    expect(screen.getByDisplayValue("1.5")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Frequency unit" }),
+    ).toHaveTextContent("MHz");
   });
 
   it("calls onChangeHz when typing", () => {
@@ -80,13 +82,13 @@ describe("FrequencyInput", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(onChange).toHaveBeenCalledWith(2000000);
     await waitFor(() => {
-      expect(screen.getByDisplayValue("2.000")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2")).toBeInTheDocument();
     });
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(onChange).toHaveBeenCalledWith(1000000);
     await waitFor(() => {
-      expect(screen.getByDisplayValue("1.000")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     });
   });
 
@@ -104,7 +106,7 @@ describe("FrequencyInput", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(onChange).toHaveBeenCalledWith(1600000);
     await waitFor(() => {
-      expect(screen.getByDisplayValue("1.600")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("1.6")).toBeInTheDocument();
     });
   });
 
@@ -126,8 +128,10 @@ describe("FrequencyInput", () => {
     fireEvent.blur(input);
     // 1000 Hz -> 1.000 kHz in getOptimalUnit
     await waitFor(() => {
-      expect(screen.getByDisplayValue("1.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("kHz");
+      expect(screen.getByDisplayValue("1")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("kHz");
     });
   });
 
@@ -145,8 +149,10 @@ describe("FrequencyInput", () => {
     fireEvent.change(input, { target: { value: "38.000" } });
     expect(onChange).toHaveBeenLastCalledWith(30_000_000_000);
     await waitFor(() => {
-      expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("GHz");
+      expect(screen.getByDisplayValue("30")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("GHz");
     });
   });
 
@@ -162,7 +168,7 @@ describe("FrequencyInput", () => {
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(onChange).toHaveBeenCalledWith(30_000_000_000);
-    expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("30")).toBeInTheDocument();
   });
 
   it("uses custom stepHz for arrow keys when provided", () => {
@@ -187,7 +193,7 @@ describe("FrequencyInput", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("32.250")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("32.25")).toBeInTheDocument();
     });
   });
 
@@ -204,8 +210,10 @@ describe("FrequencyInput", () => {
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith(30_000_000_000);
-      expect(screen.getByDisplayValue("30.000")).toBeInTheDocument();
-      expect(screen.getByRole("combobox")).toHaveValue("GHz");
+      expect(screen.getByDisplayValue("30")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Frequency unit" }),
+      ).toHaveTextContent("GHz");
     });
   });
 
@@ -225,7 +233,7 @@ describe("FrequencyInput", () => {
 
     expect(onChange.mock.calls).toEqual([[1_600_000], [1_600_000]]);
     await waitFor(() => {
-      expect(screen.getByDisplayValue("1.600")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("1.6")).toBeInTheDocument();
     });
   });
 
@@ -237,18 +245,20 @@ describe("FrequencyInput", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("32.250")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("32.25")).toBeInTheDocument();
     });
   });
 
   it("recalculates display value when unit is changed", () => {
     render(<ControlledFrequencyInput valueHz={1500} />);
-    expect(screen.getByDisplayValue("1.500")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1.5")).toBeInTheDocument();
 
-    const select = screen.getByRole("combobox");
-    fireEvent.change(select, { target: { value: "Hz" } });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Frequency unit" }),
+    );
+    fireEvent.pointerDown(screen.getByRole("option", { name: "Hz" }));
 
-    expect(screen.getByDisplayValue("1500.000")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1,500")).toBeInTheDocument();
   });
 
   it("does not pad decimals from parent updates while the field is focused", () => {
@@ -263,6 +273,37 @@ describe("FrequencyInput", () => {
     expect(input.value).toBe("2.5");
 
     fireEvent.blur(input);
-    expect(input.value).toBe("2.500");
+    expect(input.value).toBe("2.5");
+  });
+
+  it("preserves the unit on arrow key adjustments (preventing down-scaling trap)", async () => {
+    const onChange = jest.fn();
+    render(
+      <ControlledFrequencyInput valueHz={1_400_000} onChangeHz={onChange} />,
+    );
+    const input = screen.getByRole("textbox");
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+
+    expect(unitButton).toHaveTextContent("MHz");
+    expect(screen.getByDisplayValue("1.4")).toBeInTheDocument();
+
+    // Decrement by 1 MHz (since displayUnit is MHz, step is 1 MHz)
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenCalledWith(400_000);
+
+    // Unit should still be MHz, value should be 0.4
+    await waitFor(() => {
+      expect(unitButton).toHaveTextContent("MHz");
+      expect(screen.getByDisplayValue("0.4")).toBeInTheDocument();
+    });
+
+    // Increment back by 1 MHz
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(onChange).toHaveBeenLastCalledWith(1_400_000);
+
+    await waitFor(() => {
+      expect(unitButton).toHaveTextContent("MHz");
+      expect(screen.getByDisplayValue("1.4")).toBeInTheDocument();
+    });
   });
 });

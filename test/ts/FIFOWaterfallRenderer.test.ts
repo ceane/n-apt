@@ -60,6 +60,8 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCanvas.width = 1000;
+    mockCanvas.height = 600;
   });
 
   it("should initialize and render a waterfall frame", async () => {
@@ -82,6 +84,24 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     expect(mockDevice.createTexture).toHaveBeenCalled();
     expect(mockDevice.queue.writeTexture).toHaveBeenCalled();
     expect(mockDevice.createCommandEncoder).toHaveBeenCalled();
+  });
+
+  it("uploads the initial named colormap only once", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
+
+    await result.current.drawWebGPUFIFOWaterfall({
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      fftData: new Float32Array(4096).fill(-50),
+      colormap: [
+        [0, 0, 0],
+        [255, 255, 255],
+      ],
+      colormapName: "test-gradient",
+    });
+
+    expect(mockDevice.createTexture).toHaveBeenCalledTimes(2);
   });
 
   it("uses the CPU FFT row when present so waterfall never waits on an async GPU row", async () => {
@@ -136,14 +156,42 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     await result.current.drawWebGPUFIFOWaterfall(options);
 
     // Change height
-    const resizedCanvas = { ...mockCanvas, height: 800 };
+    (mockCanvas as any).height = 800;
     await result.current.drawWebGPUFIFOWaterfall({
       ...options,
-      canvas: resizedCanvas,
+      canvas: mockCanvas,
     });
 
     // Should create a new texture for the new height
     expect(mockDevice.createTexture).toHaveBeenCalledTimes(3); // 1 for color, 1 for data, 1 for resized data
+  });
+
+  it("reinitializes renderer state when the canvas identity changes", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
+    const fftData = new Float32Array(4096).fill(-50);
+    const nextCanvas = {
+      ...mockCanvas,
+      getContext: jest.fn(() => ({
+        configure: jest.fn(),
+        getCurrentTexture: jest.fn(() => ({ createView: jest.fn() })),
+      })),
+    } as any;
+
+    await result.current.drawWebGPUFIFOWaterfall({
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      fftData,
+    });
+    await result.current.drawWebGPUFIFOWaterfall({
+      canvas: nextCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      fftData,
+    });
+
+    expect(mockCanvas.getContext).toHaveBeenCalledTimes(1);
+    expect(nextCanvas.getContext).toHaveBeenCalledTimes(1);
   });
 
   it("should preserve paused waterfall history across taller resizes", async () => {

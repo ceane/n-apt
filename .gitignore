@@ -65,10 +65,16 @@ redis/backups
 .redis_data/
 .redis_data
 
+# Local rebuild metadata
+.rebuild_status.json
+
 # Rust-specific files
 *.pdb
 *.profraw
 **/*.rs.bk
+/test_*
+/tmp_*
+/temp_*
 
 # Rust toolchain files
 rust-toolchain
@@ -429,3 +435,16 @@ coverage/lcov-report/ts/workers/index.html
 coverage/lcov-report/ts/workers/scannerWorkerManager.ts.html
 # Test fixtures
 test/integration/fixtures/encrypted_test.napt
+
+# Raw I/Q captures are local-only and must never be added to Git.
+*.napt
+*.wav
+*.iq
+*.iq.*
+*.c64
+test/fixtures/napt-classifier/captures/
+
+# Agent / temporary files
+fix_*
+patch.diff
+*.diff

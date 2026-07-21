@@ -1,0 +1,12 @@
+:root {
+  --napt-font-stack: "Silence Sans", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@font-face {
+  font-family: "Silence Sans";
+  src: url("/fonts/SilenceSans-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}

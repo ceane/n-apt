@@ -32,6 +32,7 @@ export type VfoAxisPrecision = {
   edgeKHz?: number;
   centerMinMHz?: number;
   centerMinKHz?: number;
+  centerMinGHz?: number;
 };
 
 export type VfoAxisContext = {
@@ -119,29 +120,37 @@ export function createCanvasVfoAxisContext(
 export function formatVfoAxisEdgeLabel(
   freq: number,
   useHighRes: boolean,
-  stepHz: number,
+  _stepHz: number,
 ): string {
-  if (useHighRes) return formatFrequencyHighRes(freq);
-  if (Math.abs(freq) >= 1_000_000) return formatFrequencyHighRes(freq);
+  if (useHighRes && Math.abs(freq) >= 1_000_000) {
+    return formatFrequencyHighRes(freq);
+  }
   return formatFrequency(freq, {
     trimTrailingZeros: true,
     precisionMHz: 4,
-    precisionKHz: 0,
+    precisionKHz: 2,
+    precisionGHz: 3,
   });
 }
 
 export function formatVfoAxisCenterLabel(
   freq: number,
-  useHighRes: boolean,
+  _useHighRes: boolean,
   stepHz: number,
   precision?: VfoAxisPrecision,
 ): string {
-  if (useHighRes) return formatFrequencyHighRes(freq);
   const { precisionMHz, precisionKHz } = tickPrecisionForStep(stepHz);
   return formatFrequency(freq, {
     trimTrailingZeros: true,
-    precisionMHz: Math.max(precision?.centerMinMHz ?? 6, precisionMHz),
-    precisionKHz: Math.max(precision?.centerMinKHz ?? 3, precisionKHz),
+    precisionMHz: Math.min(
+      Math.max(precision?.centerMinMHz ?? 4, precisionMHz),
+      4,
+    ),
+    precisionKHz: Math.min(
+      Math.max(precision?.centerMinKHz ?? 0, precisionKHz),
+      2,
+    ),
+    precisionGHz: Math.min(Math.max(precision?.centerMinGHz ?? 3, 3), 3),
   });
 }
 
@@ -266,7 +275,7 @@ export function drawVfoAxis({
   ctx.save();
   ctx.setStroke(theme.tick, lineWidth);
   ctx.setFill(theme.label);
-  ctx.setFont(`${fontPx}px JetBrains Mono, monospace`);
+  ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
   ctx.setTextBaseline(textBaseline);
 
   if (showAxisLine) {
@@ -289,15 +298,16 @@ export function drawVfoAxis({
 
   if (centerLabel && showCenterLabel) {
     ctx.setFill(theme.center);
-    ctx.setFont(`bold ${centerFontPx}px JetBrains Mono, monospace`);
+    ctx.setFont(`bold ${centerFontPx}px 'JetBrains Mono', monospace`);
     ctx.setTextAlign("center");
     ctx.fillText(centerLabel, centerX, labelY);
     occupy(centerX, centerLabel, "center", centerReservePx);
     ctx.setFill(theme.label);
-    ctx.setFont(`${fontPx}px JetBrains Mono, monospace`);
+    ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
   }
 
   if (showCenterLine) {
+    // Draw the main center line
     ctx.setStroke(theme.centerLine ?? theme.center, lineWidth);
     ctx.beginPath();
     ctx.moveTo(centerX, centerLineTop);
@@ -348,14 +358,11 @@ export function drawVfoAxis({
       }
     }
 
-    const label = useHighRes
-      ? formatFrequencyHighRes(freq)
-      : fmtFreqTick(freq, stepHz);
+    const label = fmtFreqTick(freq, stepHz);
     if (showTickLabels && label.length > 0 && !isColliding(x, label)) {
       ctx.setFill(theme.label);
       ctx.setTextAlign("center");
       ctx.fillText(label, x, labelY);
-      occupy(x, label);
     }
   }
 

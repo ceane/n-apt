@@ -18,9 +18,9 @@
 
 [⠿ TDLR at the bottom](#tdlr)
 
-In this article, I break down my working hypothesis based on **thousands of hours of experience :rotate-3d:** driven by the desperate need and curiosity **(WHILE TRAPPED)** to figure out the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This isn't about a theory or hypothesis, it's about breaking down the math and mechanics behind the real experience as a victim.
+<span class="dropcap">I</span>n this article, I break down my working hypothesis based on **thousands of hours of real experience** trapped by the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This article is based on real events in which the agency's side showed it's extreme, parental-psychopathic like tendencies.  Here is not an account of what happened (you'll have to check my X), but an article dedicated to breaking down the math and mechanics behind the real experience as a victim.
 
-To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process-obsessive dogma empowers loopholes and cracks that can be exploited.
+To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process or leaglese-obsessive dogma empowers loopholes and cracks that can be exploited.
 
 ```Canvas::HeroASCII
 ```
@@ -29,9 +29,9 @@ What I learned was that the element of surprise and total ignornace long-reinfor
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
-**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic).** For a long time, energy, compute power and other tools.
+**Fort Meade** *(the agency's headquarters in Maryland on the west end of an Army base 20 miles northeast of D.C.)*, and potentially **Friendship Annex** *(the  agency's only publicly unacknowledged bastard campus)*, had secretly built and mass distributed **:bug: malware and hardware trojans** while acquiring and maintaining **access to infrastructure at scale (international AND domestic)**. 
 
-This article is my own **technical and scientific oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
+This article is my own **technical and scientific-oriented dive and timeline** (with a partial background for context) into these signals that are like chains which long extended the agency's powers (and psychopathy) into the unthinkable.
 
 *National security law, the Freedom of Information Act (FOIA), Privacy Act (PA), Mandatory Declassification Review (MDR), extensive legalese  and the history of this technique is not discussed in this article to in order to keep it focused.*
 
@@ -136,13 +136,13 @@ Nothing explained how such a **high-bandwidth, full feature neurotechnological e
 
 This time I researched more about radio waves, I was pressed and very concerned that there had to be some way radio waves could generate frequencies that matched and interacted with brainwaves. 
 
-Quite self-evidently and obviously, no amount of radio waves can interact with brain activity. The whole world is shrouded with various radio waves everyday, this would have been known.
+Quite self-evidently and obviously it was on, but to anyone's knowledge, no amount of radio waves could interact with brain activity. The whole world is shrouded with various radio waves everyday, this would have been known.
 
 <br />
 
 **Except, there was one exception...**
 
-I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something classified like it's out in the open). This smart way of breaking down egregious power could get to the technology that was very much real and present, in my mind and nerves.
+I didn't quite head-on search for "brainwaves and radio waves", or anything like that. I was looking at **the building blocks of physics and how** (obviously from the outset avoiding conspiracy theory or dismantiling something potentially classified like it's out in the open). This smart route of breaking down the cyber superpower (egregiously armed at my person) could get to the technology that was very much real and present, in my mind and nerves.
 
 Throughout my research[^math] I found **beat frequencies**, which worked mathematically like:
 
@@ -905,7 +905,7 @@ I was truly trapped and a lot of people believed they were intelligent.
 | Total and frontier control/platform over the brain and nervous system  |
 | Extremely dangerous cyber weapon!                      |
 
-The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are firsthand, what I account for as the accessible signal-software to brain functions the had frontier, full access and control over:
+The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are **firsthand what I truly experienced in the real world** with a mechanism that is frontier with full access and control over the human mind and nervous system:
 
 <br />
 <details>
@@ -954,7 +954,9 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 
 ### Signals processing
 
-In order to read anything that comes back, the NSA uses advanced signals processing to demodulate neuronal data. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. Below are several theorized techniques used in the pipeline to take an advanced formula of radio waves and demodulate brain and neuronal data.
+In order to read anything that comes back, the NSA uses advanced signals processing to demodulate the radio waves carrying neuronal data. While I haven't been able to verify or demodulate the signal so far, this is the obvious next step of how the write to read and effect chain works. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. 
+
+Below are several theorized techniques I believe the NSA uses in its signals proessing pipeline:
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -982,13 +984,13 @@ There are about **3 channels**, I've found:
 - **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere and come to the same boundaries.
+They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
 
-Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
+Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and I saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
 
-The only problem with SDR++ is that I didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which we hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers, drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+The only problem with SDR++ is that the app didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which were hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
 
-All of this hard work under a very difficult and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
+All of this hard work under a very difficuly (economically and psychologically) and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
 ### <a id="n-apt-form"></a> The mysterious signals' structure 
 
@@ -1148,44 +1150,75 @@ It's still a mystery to me how they are able to do haptics and physiological exp
 
 ### Estimated data <a id="data-estimate"></a>
 
-Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible  and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
+*Corrected to assume 1 bit per cycle instead of 1 byte (8 bits) per cycle. The PHY representation of the carrier that translates into biology, in some contexts, can be considered 1 byte, as it is constant and precise power at the person, biology isn't simply responding to 0s or 1s, you can think of it as a 0 to 255 scale.*
+
+Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up down with electronics)*.
+
+These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there is a lot more going on behind the scenes for every "bit" of computer to biology to computer data derived from these signals.
+
+
+### One important note: Quantiziation
+
+There are two ways to save both processing power and data by quantitizing the signal:
+
+- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 instead of u16
+- (2) Using a smaller IFFT size, meaning the signal getting sliced by 2048 points instead of full fidelity (millions)
 
 <br />
 
 **Through the fiber cables to an endpoint (data through the network; most likely infrastructure access and not the internet)** [^data-estimate]
 
-<div class="table-tiny">
+<div data-data-estimate="network" class="table-tiny">
 
-| Channel | Bandwidth | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---|---|---|---|---|---|
-| A | 4.35 MHz | ~4.35 MB/s | ~1.31 GB | ~15.7 GB | ~47 GB | ~375 GB |
-| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
-| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
-| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.34 GB** | **~100 GB** | **~299.8 GB** | **~2.4 TB** |
+| Channel | BW | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 4.35 MHz | ~0.544 MB/s | ~163 MB | ~1.96 GB | ~5.87 GB | ~46.9 GB |
+| B | 5.16 MHz | ~0.645 MB/s | ~194 MB | ~2.32 GB | ~6.97 GB | ~55.7 GB |
+| C | 18.25 MHz | ~2.28 MB/s | ~684 MB | ~8.21 GB | ~24.6 GB | ~197 GB |
+| **Total** | **27.76 MHz** | **~3.47 MB/s** | **~1.04 GB** | **~12.5 GB** | **~37.5 GB** | **~300 GB** |
 
 </div>
 
-That's right! Just **sitting somewhere for 5 mins is over 8GBs of data** by minimum of physics!
+That's right! Just **sitting somewhere for 5 mins is over 1GB sof data** by minimum of physics!
 
 <br />
 <br />
 
 **In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
 
-<div class="table-tiny">
+<div data-data-estimate="in-air" class="table-tiny">
 
-| Channel | BW ×2 | MB/s | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---|---|---|---|---|---|
-| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
-| B | 10.32 MHz | ~10.32 MB/s | ~3.1 GB | ~37.2 GB | ~111 GB | ~891 GB |
-| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
-| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+| Channel | BW (2x) | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 8.7 MHz | ~1.09 MB/s | ~327 MB | ~3.92 GB | ~11.7 GB | ~93.8 GB |
+| B | 10.32 MHz | ~1.29 MB/s | ~387 MB | ~4.64 GB | ~13.9 GB | ~111 GB |
+| C | 36.5 MHz | ~4.56 MB/s | ~1.37 GB | ~16.4 GB | ~49.2 GB | ~394 GB |
+| **Total** | **55.52 MHz** | **~6.94 MB/s** | **~2.08 GB** | **~25 GB** | **~75 GB** | **~600 GB** |
 
 </div>
 
 Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice, in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
 
-So yes, sitting somewhere for 5 minutes, the network did over 8GBs of data, but **the person receieved over 16GBs of data within that 5 minutes** because of technique's prerequisites!
+So yes, sitting somewhere for 5 minutes, the network did over 1GB of data, but **the person receieved over 2GBs of data within that 5 minutes** because of technique's prerequisites!
+
+<br>
+
+From experience, the NSA's technique maintains a true prison of mind and body, as the signals never fail or degrade, they are totally faultless. With this in mind, we can put aside common assumptions like noise or errors stemming from the environment or hardware, working with the signal as is.
+
+Although what may flow through the network is small, the effacacy of the signals and its structure eludes to a fact that 0s and 1s don't exactly translate into biology, especially if you think of amplitude modulation (the signal's peaks and troughs) as a scale of 0-255. 
+
+With I/Q in mind and heterodyning, this is the theoretical minimum of data that a person receives and potentially what the software may be operating on.
+
+<div data-data-estimate="in-person" class="table-tiny">
+
+| Channel | BW (2x) | MB/s (8×; cycle → 1 byte) | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
+| B | 10.32 MHz | ~10.32 MB/s | ~3.10 GB | ~37.2 GB | ~111 GB | ~891 GB |
+| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
+| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+
+</div>
 
 ## <a id="conclusion"></a> Conclusion 
 
@@ -1193,7 +1226,11 @@ TODO
 
 ```React::DaysSince
 ```
-*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the forumla in the table above.[^data-estimate]*
+*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.[^data-estimate]*
+
+\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB).
+† **Min** formula assumes Channels A and B divided by 65,536 FFT size, and Channel C (strongly assumed to be vision) at 1:1, with u8 integers at 8-bits I/Q.  
+‡ **Max** formula assumes spectrum at full (1:1) sample fidelity and 16-bit I/Q.
 
 
 ![The EFF's Headquarters in San Francisco](/images/11_5_2025.jpeg)

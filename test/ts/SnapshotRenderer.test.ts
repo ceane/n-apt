@@ -1,3 +1,11 @@
+// Compatibility layer for running Jest tests under Vitest
+if (
+  typeof jest === "undefined" &&
+  typeof (globalThis as any).vi !== "undefined"
+) {
+  (globalThis as any).jest = (globalThis as any).vi;
+}
+
 import { CoordinateMapper } from "../../src/ts/utils/rendering/CoordinateMapper";
 import { SnapshotRenderer } from "../../src/ts/utils/rendering/SnapshotRenderer";
 
@@ -365,8 +373,12 @@ describe("SnapshotRenderer", () => {
       lineTo: jest.fn(),
       stroke: jest.fn(() => {
         strokes.push([
-          ...((mockContext.moveTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
-          ...((mockContext.lineTo as jest.Mock).mock.calls.map((call) => call as [number, number])),
+          ...(mockContext.moveTo as jest.Mock).mock.calls.map(
+            (call) => call as [number, number],
+          ),
+          ...(mockContext.lineTo as jest.Mock).mock.calls.map(
+            (call) => call as [number, number],
+          ),
         ]);
       }),
       fill: jest.fn(),

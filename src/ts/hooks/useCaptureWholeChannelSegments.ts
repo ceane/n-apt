@@ -3,6 +3,7 @@ import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/components";
 import { useAppDispatch, setSnapshotProgress } from "@n-apt/redux";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 
 export type WholeChannelSnapshotSegment = {
   data: SnapshotData;
@@ -65,6 +66,10 @@ interface UseCaptureWholeChannelSegmentsOptions {
   frequencyRange: FrequencyRange | null;
   sourceMode: "live" | "file";
   sampleRateHzEffective: number | null;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isRtlSdr?: boolean | null;
   activeSignalArea?: string;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   fftFrameRate: number;
@@ -83,6 +88,10 @@ export const useCaptureWholeChannelSegments = ({
   frequencyRange,
   sourceMode,
   sampleRateHzEffective,
+  deviceKind,
+  backend,
+  deviceName,
+  isRtlSdr,
   activeSignalArea,
   signalAreaBounds,
   fftFrameRate,
@@ -102,7 +111,8 @@ export const useCaptureWholeChannelSegments = ({
       !fullRange ||
       sourceMode !== "live" ||
       !hardwareSpanHz ||
-      !(hardwareSpanHz > 0)
+      !(hardwareSpanHz > 0) ||
+      isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })
     ) {
       return [];
     }
@@ -220,6 +230,10 @@ export const useCaptureWholeChannelSegments = ({
     return segments;
   }, [
     dispatch,
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr,
     reduxDispatch,
     sampleRateHzEffective,
     sendFrequencyRange,

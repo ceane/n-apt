@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
 import { FullscreenModal } from "@n-apt/components/react-flow/flows/FullscreenModal";
@@ -258,7 +260,10 @@ interface BitstreamViewerProps {
 export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   frequencyRange,
 }) => {
-  const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -279,9 +284,11 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
 
   useEffect(() => {
     const id = setInterval(() => {
-      const current = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const sourceRef =
+        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+      const current = Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
 
       if (nextRef !== lastIqRefRef.current) {
@@ -290,7 +297,16 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
       }
     }, 250); // 4fps — fast enough for readable table updates
     return () => clearInterval(id);
-  }, []);
+  }, [sourceMode]);
+
+  useEffect(() => {
+    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const current = Array.isArray(sourceRef.current)
+      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+      : sourceRef.current;
+    lastIqRefRef.current = current?.iq_data;
+    setFrameIqData(current?.iq_data as Uint8Array | undefined);
+  }, [activeSourceId, sourceMode]);
 
   useEffect(() => {
     if (!gridRef.current) return;
@@ -368,7 +384,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   const handleNextPage = () => setPage((p) => Math.min(p + 1, totalPages - 1));
   const handlePrevPage = () => setPage((p) => Math.max(0, p - 1));
 
-  const deviceName = reduxDeviceName || "SDR Device";
+  const deviceName = activeSourceDerived.deviceName || "SDR Device";
 
   // Build rows: each row = iqPairsPerRow points → 2 bytes per point
   const rows: React.ReactNode[] = [];

@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import styled from 'styled-components';
-import { motion } from 'framer-motion';
+import { motion, animate, useInView } from 'framer-motion';
 
 const START_DATE = new Date('2018-09-30T00:00:00Z');
 const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
@@ -28,8 +28,13 @@ const Container = styled.div`
 
 const TopRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 2rem;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
 `;
 
 const DataContainer = styled.div`
@@ -74,6 +79,7 @@ const Value = styled.div`
   align-items: baseline;
   gap: 0.5rem;
   line-height: 1;
+  white-space: nowrap;
 
   span.unit {
     font-family: "KaTeX_Main", serif;
@@ -85,22 +91,152 @@ const Value = styled.div`
 
 const SubValue = styled.small`
   font-family: "KaTeX_Main", serif;
-  font-size: 1rem;
+  font-size: 0.8rem;
   color: var(--ds-text-dim);
-  margin-top: -0.2rem;
+  margin-top: 0.15rem;
+  display: block;
   font-style: italic;
   letter-spacing: 0.02em;
   line-height: 1.3;
+`;
+
+const SubLabel = styled.div`
+  font-family: "KaTeX_Main", serif;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ds-text-secondary);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+`;
+
+const FootnoteLabel = styled.div`
+  font-family: "KaTeX_Main", serif;
+  font-size: 0.7rem;
+  color: var(--ds-text-dim);
+  line-height: 1.4;
+  margin-top: -1rem;
+`;
+
+const MinMaxGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 0.25rem;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  ${Value} {
+    font-size: 1.15rem;
+
+    span.unit {
+      font-size: 0.85rem;
+    }
+  }
+`;
+
+const DataMinMaxGrid = styled(MinMaxGrid)`
+  ${Value} {
+    font-size: 1.7rem;
+
+    span.unit {
+      font-size: 1.1rem;
+    }
+  }
 `;
 
 const CostContainer = styled(DataContainer)`
   margin-top: 0;
 `;
 
+const DigitContainer = styled.span`
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  vertical-align: bottom;
+  will-change: transform;
+`;
+
+const PlaceholderDigit = styled.span`
+  visibility: hidden;
+  display: inline-block;
+  padding: 0.15em 0;
+`;
+
+const DigitList = styled(motion.span)`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+`;
+
+const SingleDigit = styled.span`
+  display: inline-block;
+  padding: 0.15em 0;
+  flex-shrink: 0;
+  text-align: center;
+`;
+
+const CounterWrapper = styled.span`
+  display: inline-flex;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+`;
+
+const RollingCounter: React.FC<{ value: string | number; animateActive: boolean }> = ({ value, animateActive }) => {
+  const str = String(value);
+
+  return (
+    <CounterWrapper>
+      {str.split('').map((char, idx) => {
+        if (char >= '0' && char <= '9') {
+          const digit = parseInt(char, 10);
+          return (
+            <DigitContainer key={idx}>
+              <PlaceholderDigit>{digit}</PlaceholderDigit>
+              <DigitList
+                initial={{ y: '0%' }}
+                animate={{ y: animateActive ? `-${digit * 10}%` : '0%' }}
+                transition={{
+                  duration: 2,
+                  delay: 0.1, // brief delay to start rolling after fade-in starts
+                  ease: [0.1, 1.0, 0.1, 1.0], // cubic-bezier(0.1, 1, 0.1, 1)
+                }}
+              >
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
+                  <SingleDigit key={d}>{d}</SingleDigit>
+                ))}
+              </DigitList>
+            </DigitContainer>
+          );
+        }
+        return <span key={idx}>{char}</span>;
+      })}
+    </CounterWrapper>
+  );
+};
+
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
   }).format(num);
+};
+
+const formatCurrency = (val: number) => {
+  if (val >= 1000000) {
+    return `$${(val / 1000000).toFixed(2)}M`;
+  }
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(val);
 };
 
 // Helper to convert units to base MB or GB
@@ -126,12 +262,16 @@ const parseValueWithUnit = (text: string, type: 'rate' | 'total'): number | null
 };
 
 export const DaysSince: React.FC = () => {
-  const [now, setNow] = useState(new Date());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { once: true, amount: 0.1 });
+
+  const [now, setNow] = useState(() => new Date());
   const [rateMbs, setRateMbs] = useState(DEFAULT_RATE_MBS);
   const [rateDayGb, setRateDayGb] = useState(DEFAULT_RATE_DAY_GB);
 
   // Derive rates from the markdown table by parsing text directly
   useEffect(() => {
+    if (!isInView) return;
     const findRates = () => {
       const container = document.querySelector('[data-data-estimate="network"]');
       if (!container) return;
@@ -166,14 +306,24 @@ export const DaysSince: React.FC = () => {
     findRates();
     const timeout = setTimeout(findRates, 1000);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [isInView]);
 
   useEffect(() => {
+    if (!isInView) return;
     const timer = setInterval(() => {
       setNow(new Date());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isInView]);
+
+  const spectrumHz = rateMbs * 8 * 1_000_000;
+  const bwC = spectrumHz * (18.25 / 27.76);
+  // Min rate assumes Channels A and B are processed via 65,536 FFTs streamed at 30 Hz (30 frames/s)
+  // using 8-bit magnitude (1 byte per bin), while Channel C is kept whole at 1:1 using 8-bit samples (1 byte/sample).
+  const fftFrameRate = 30; // 30 frames per second
+  const minRateBytesSec = (65536 * fftFrameRate * 1) + (65536 * fftFrameRate * 1) + bwC;
+  const minRateMbs = minRateBytesSec / 1_000_000;
+  const maxRateMbs = (spectrumHz * 4) / 1_000_000; // 16-bit (2 bytes I + 2 bytes Q), full 1:1
 
   const stats = useMemo(() => {
     const totalMs = now.getTime() - START_DATE.getTime();
@@ -192,21 +342,34 @@ export const DaysSince: React.FC = () => {
     };
   }, [now]);
 
-  const data = useMemo(() => {
-    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * rateMbs;
+  const formatGbVal = (gb: number) => {
+    if (gb >= 1_000_000_000) {
+      return { val: (gb / 1_000_000_000).toFixed(3), unit: 'EB' };
+    }
+    if (gb >= 1_000_000) {
+      return { val: (gb / 1_000_000).toFixed(3), unit: 'PB' };
+    }
+    if (gb >= 1000) {
+      return { val: (gb / 1000).toFixed(2), unit: 'TB' };
+    }
+    if (gb < 1) {
+      const mb = gb * 1000;
+      return { val: mb.toFixed(mb < 10 ? 1 : 0), unit: 'MB' };
+    }
+    return { val: gb.toFixed(1), unit: 'GB' };
+  };
 
-    if (totalMB >= Math.pow(1000, 4)) {
-      return { val: (totalMB / Math.pow(1000, 4)).toFixed(3), unit: 'EB' };
-    }
-    if (totalMB >= Math.pow(1000, 3)) {
-      return { val: (totalMB / Math.pow(1000, 3)).toFixed(3), unit: 'PB' };
-    }
-    if (totalMB >= Math.pow(1000, 2)) {
-      return { val: (totalMB / Math.pow(1000, 2)).toFixed(2), unit: 'TB' };
-    }
-    return { val: (totalMB / 1000).toFixed(2), unit: 'GB' };
-  }, [now, rateMbs]);
+  const dataMin = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalGB = (totalSeconds * minRateMbs) / 1000;
+    return formatGbVal(totalGB);
+  }, [now, minRateMbs]);
+
+  const dataMax = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalGB = (totalSeconds * maxRateMbs) / 1000;
+    return formatGbVal(totalGB);
+  }, [now, maxRateMbs]);
 
   const comparisonTypes = useMemo(() => {
     const options = [
@@ -236,87 +399,92 @@ export const DaysSince: React.FC = () => {
     return count.toFixed(0);
   };
 
-  const totalComparisonText = useMemo(() => {
+  const totalComparisonTextMin = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalMB = totalSeconds * rateMbs;
+    const totalMB = totalSeconds * minRateMbs;
     const count = totalMB / comparisonTypes.total.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.total.label}`;
-  }, [now, rateMbs, comparisonTypes.total]);
+  }, [now, minRateMbs, comparisonTypes.total]);
 
-  const dailyComparisonText = useMemo(() => {
-    const dailyMB = rateMbs * 86400;
+  const totalComparisonTextMax = useMemo(() => {
+    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
+    const totalMB = totalSeconds * maxRateMbs;
+    const count = totalMB / comparisonTypes.total.sizeMB;
+    return `or ${formatComparisonCount(count)} ${comparisonTypes.total.label}`;
+  }, [now, maxRateMbs, comparisonTypes.total]);
+
+  const dailyComparisonTextMin = useMemo(() => {
+    const dailyMB = minRateMbs * 86400;
     const count = dailyMB / comparisonTypes.daily.sizeMB;
     return `or ${formatComparisonCount(count)} ${comparisonTypes.daily.label}`;
-  }, [rateMbs, comparisonTypes.daily]);
+  }, [minRateMbs, comparisonTypes.daily]);
 
-  const approxGB = useMemo(() => {
-    const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * rateMbs) / 1000;
-    if (totalGB < 1000) return null;
+  const dailyComparisonTextMax = useMemo(() => {
+    const dailyMB = maxRateMbs * 86400;
+    const count = dailyMB / comparisonTypes.daily.sizeMB;
+    return `or ${formatComparisonCount(count)} ${comparisonTypes.daily.label}`;
+  }, [maxRateMbs, comparisonTypes.daily]);
 
-    if (totalGB >= 1000000) {
-      return `or approximately ${(totalGB / 1000000).toFixed(1)} million GB`;
-    }
-    return `or approximately ${new Intl.NumberFormat().format(Math.round(totalGB))} GB`;
-  }, [now, rateMbs]);
+  const dailyDataMin = useMemo(() => {
+    const dailyGB = (minRateMbs * 86400) / 1000;
+    return formatGbVal(dailyGB);
+  }, [minRateMbs]);
+
+  const dailyDataMax = useMemo(() => {
+    const dailyGB = (maxRateMbs * 86400) / 1000;
+    return formatGbVal(dailyGB);
+  }, [maxRateMbs]);
 
   const costs = useMemo(() => {
     const totalSeconds = (now.getTime() - START_DATE.getTime()) / 1000;
-    const totalGB = (totalSeconds * rateMbs) / 1000;
-    const dailyGB = (rateMbs * 86400) / 1000;
-
-    const formatCurrency = (val: number) => {
-      if (val >= 1000000) {
-        return `$${(val / 1000000).toFixed(2)}M`;
-      }
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 0,
-      }).format(val);
-    };
+    const totalGBMin = (totalSeconds * minRateMbs) / 1000;
+    const totalGBMax = (totalSeconds * maxRateMbs) / 1000;
+    const dailyGBMin = (minRateMbs * 86400) / 1000;
+    const dailyGBMax = (maxRateMbs * 86400) / 1000;
 
     return {
-      total: `${formatCurrency(totalGB * 0.07)} – ${formatCurrency(totalGB * 0.12)}`,
-      daily: `${formatCurrency(dailyGB * 0.07)} – ${formatCurrency(dailyGB * 0.12)}`,
+      totalMin: `${formatCurrency(totalGBMin * 0.07)} – ${formatCurrency(totalGBMin * 0.12)}`,
+      totalMax: `${formatCurrency(totalGBMax * 0.07)} – ${formatCurrency(totalGBMax * 0.12)}`,
+      dailyMin: `${formatCurrency(dailyGBMin * 0.07)} – ${formatCurrency(dailyGBMin * 0.12)}`,
+      dailyMax: `${formatCurrency(dailyGBMax * 0.07)} – ${formatCurrency(dailyGBMax * 0.12)}`,
     };
-  }, [now, rateMbs]);
+  }, [now, minRateMbs, maxRateMbs]);
 
   return (
-    <Container>
+    <Container ref={containerRef}>
       <TopRow>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5 }}
         >
           <Label>Hours Total</Label>
           <Value>
-            {formatNumber(stats.totalHours)}
+            <RollingCounter value={formatNumber(stats.totalHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <Label>Since Escalation</Label>
           <Value>
-            {formatNumber(stats.escalationHours)}
+            <RollingCounter value={formatNumber(stats.escalationHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <Label>Days Total</Label>
           <Value>
-            {formatNumber(stats.totalDays)}
+            <RollingCounter value={formatNumber(stats.totalDays)} animateActive={isInView} />
             <span className="unit">days</span>
           </Value>
         </StatBox>
@@ -325,60 +493,104 @@ export const DaysSince: React.FC = () => {
       <DataContainer>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.3 }}
         >
           <Label>Data Intercepted Total</Label>
-          <Value>
-            {data.val}
-            <span className="unit">{data.unit}</span>
-          </Value>
-          {approxGB && <SubValue>{approxGB}</SubValue>}
-          <SubValue>{totalComparisonText}</SubValue>
+          <DataMinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dataMin.val} animateActive={isInView} />
+                <span className="unit">{dataMin.unit}</span>
+              </Value>
+              <SubValue>{totalComparisonTextMin}</SubValue>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dataMax.val} animateActive={isInView} />
+                <span className="unit">{dataMax.unit}</span>
+              </Value>
+              <SubValue>{totalComparisonTextMax}</SubValue>
+            </div>
+          </DataMinMaxGrid>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.4 }}
         >
           <Label>Data Intercepted in 24HRS</Label>
-          <Value>
-            {Math.round(rateDayGb)}
-            <span className="unit">GB</span>
-          </Value>
-          <SubValue>{dailyComparisonText}</SubValue>
+          <DataMinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dailyDataMin.val} animateActive={isInView} />
+                <span className="unit">{dailyDataMin.unit}</span>
+              </Value>
+              <SubValue>{dailyComparisonTextMin}</SubValue>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={dailyDataMax.val} animateActive={isInView} />
+                <span className="unit">{dailyDataMax.unit}</span>
+              </Value>
+              <SubValue>{dailyComparisonTextMax}</SubValue>
+            </div>
+          </DataMinMaxGrid>
         </StatBox>
       </DataContainer>
 
       <CostContainer>
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.5 }}
         >
-          <Label>Data total Cost (to present)</Label>
-          <Value>
-            {costs.total}
-          </Value>
+          <Label>Data total Cost (to present)*</Label>
+          <MinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.totalMin} animateActive={isInView} />
+              </Value>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.totalMax} animateActive={isInView} />
+              </Value>
+            </div>
+          </MinMaxGrid>
         </StatBox>
 
         <StatBox
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.5, delay: 0.6 }}
         >
-          <Label>Data cost per Day</Label>
-          <Value>
-            {costs.daily}
-            <span className="unit">/day</span>
-          </Value>
+          <Label>Data cost per Day*</Label>
+          <MinMaxGrid>
+            <div>
+              <SubLabel>Min<sup>†</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.dailyMin} animateActive={isInView} />
+                <span className="unit">/day</span>
+              </Value>
+            </div>
+            <div>
+              <SubLabel>Max<sup>‡</sup></SubLabel>
+              <Value>
+                <RollingCounter value={costs.dailyMax} animateActive={isInView} />
+                <span className="unit">/day</span>
+              </Value>
+            </div>
+          </MinMaxGrid>
         </StatBox>
       </CostContainer>
-
-      <SectionLabel style={{ marginTop: '-1rem', marginBottom: '0' }}>
-        Estimated Network Ingress/Egress Cost based on market rates
-      </SectionLabel>
     </Container>
   );
 };

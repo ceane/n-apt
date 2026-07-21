@@ -7,12 +7,15 @@ import {
   Frame,
   GalleryHorizontal,
   Gauge,
-  Image as ImageIcon,
+  Grip,
   Zap,
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
-import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
+import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
+import { computeMaxFrameRate } from "@n-apt/utils/signals";
+import { showsApproxDbmToggle } from "@n-apt/utils/deviceCapabilities";
 
 const Section = styled.div`
   display: grid;
@@ -121,7 +124,7 @@ const UnitLabel = styled.span`
 `;
 
 const WideSettingSelect = styled(SettingSelect)`
-  min-width: 100px;
+  min-width: 120px;
   width: 100%;
   text-align-last: right;
 `;
@@ -156,8 +159,11 @@ interface SignalDisplaySectionProps {
   maxSampleRate: number;
   minReceiveSampleRate?: number;
   sampleRate: number;
+  sampleRateLabel?: string;
   sampleRateOptions: number[];
+  sampleRateOptionsOverride?: number[];
   wholeChannelSampleRate?: number | null;
+  wholeChannelLabel?: string | null;
   fileCapturedRange: { min: number; max: number } | null;
   fftFrameRate: number;
   maxFrameRate: number;
@@ -189,8 +195,11 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   maxSampleRate: _maxSampleRate,
   minReceiveSampleRate: _minReceiveSampleRate,
   sampleRate,
+  sampleRateLabel = "Sample Rate",
   sampleRateOptions,
+  sampleRateOptionsOverride,
   wholeChannelSampleRate = null,
+  wholeChannelLabel = null,
   fftFrameRate,
   maxFrameRate,
   fftSize,
@@ -210,13 +219,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   onDisplayModeChange: _onDisplayModeChange,
   scheduleCoupledAdjustment,
 }) => {
-  const showsApproxDbmToggle = deviceProfile
-    ? deviceProfile.supports_approx_dbm
-    : backend === "rtl_sdr" ||
-      backend === "rtl-sdr" ||
-      backend === "rtlsdr" ||
-      backend === "rtl-tcp" ||
-      backend === "rtltcp";
+  const showsApproxDbmToggleVal = showsApproxDbmToggle({
+    deviceProfile,
+    backend,
+  });
   const isRtlSdrDevice =
     deviceProfile?.kind === "rtl_sdr" ||
     backend === "rtl_sdr" ||
@@ -236,31 +242,35 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   );
 
   const sampleRateOptionList = React.useMemo(() => {
-    const rates = new Set(sampleRateOptions);
-    if (
-      typeof wholeChannelSampleRate === "number" &&
-      Number.isFinite(wholeChannelSampleRate) &&
-      wholeChannelSampleRate > 0
-    ) {
-      rates.add(Math.round(wholeChannelSampleRate));
-    }
+    const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
     return Array.from(rates).sort((a, b) => a - b);
-  }, [sampleRateOptions, wholeChannelSampleRate]);
-  const wholeChannelLabel = React.useMemo(() => {
+  }, [sampleRateOptions, sampleRateOptionsOverride]);
+  const logicalMaxFrameRate =
+    Number.isFinite(sampleRate) && sampleRate > 0 && fftSize > 0
+      ? computeMaxFrameRate(sampleRate, fftSize, maxFrameRate)
+      : maxFrameRate;
+  const wholeChannelValue = React.useMemo(() => {
     if (
       typeof wholeChannelSampleRate !== "number" ||
       !Number.isFinite(wholeChannelSampleRate) ||
       wholeChannelSampleRate <= 0
     ) {
-      return "Whole Channel";
+      return null;
     }
-    return `Whole Channel (${formatChannelFreq(wholeChannelSampleRate)})`;
+    return Math.round(wholeChannelSampleRate);
   }, [wholeChannelSampleRate]);
   const showWholeChannelOption =
     !isRtlSdrDevice &&
-    typeof wholeChannelSampleRate === "number" &&
-    Number.isFinite(wholeChannelSampleRate) &&
-    wholeChannelSampleRate > 0;
+    typeof wholeChannelValue === "number" &&
+    Number.isFinite(wholeChannelValue) &&
+    wholeChannelValue > 0;
+  const sampleRateSelectValue =
+    showWholeChannelOption && Math.round(sampleRate) === wholeChannelValue
+      ? "whole-channel"
+      : String(sampleRate);
+  const SampleRateSelect = showWholeChannelOption
+    ? WideSettingSelect
+    : SettingSelect;
 
   return (
     <Section>
@@ -272,86 +282,47 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         <>
           {variant !== "diagnostic" && (
             <Row
-              label={<IconLabel icon={Frame} text="Sample Rate" />}
-              tooltipTitle="Sample Rate"
-              tooltip="Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
+              label={<IconLabel icon={Frame} text={sampleRateLabel} />}
+              tooltipTitle={sampleRateLabel}
+              tooltip={
+                sampleRateLabel === "Sample Rate"
+                  ? "Hardware receive sample rate. Higher rates capture more bandwidth and must stay above the device-specific receive floor."
+                  : "FFT viewer sample rate. This controls the displayed frequency span and is independent of the generated Tx signal bandwidth."
+              }
             >
-              <SettingSelect
-                value={sampleRate}
+              <SampleRateSelect
+                value={sampleRateSelectValue}
+                style={
+                  showWholeChannelOption ? { minWidth: "170px" } : undefined
+                }
                 onChange={(e) => {
+                  if (
+                    e.target.value === "whole-channel" &&
+                    wholeChannelValue !== null
+                  ) {
+                    onSampleRateChange(wholeChannelValue);
+                    return;
+                  }
                   onSampleRateChange(Number(e.target.value));
                 }}
               >
                 {showWholeChannelOption && (
-                  <option
-                    key="whole-channel"
-                    value={Math.round(wholeChannelSampleRate)}
-                  >
-                    {wholeChannelLabel}
+                  <option key="whole-channel" value="whole-channel">
+                    {wholeChannelLabel
+                      ? `Whole Channel (${wholeChannelLabel})`
+                      : `Whole Channel${wholeChannelValue !== null ? ` (${formatFrequency(wholeChannelValue, { precisionMHz: 3, trimTrailingZeros: true })})` : ""}`}
                   </option>
                 )}
-                {sampleRateOptionList.map((rate) =>
-                  showWholeChannelOption &&
-                  Math.round(wholeChannelSampleRate) === rate ? null : (
-                    <option key={rate} value={rate}>
-                      {formatFrequency(rate)}
-                    </option>
-                  ),
-                )}
-              </SettingSelect>
-            </Row>
-          )}
-          {variant !== "diagnostic" && (
-            <Row
-              label={
-                <IconLabel
-                  icon={GalleryHorizontal}
-                  text="Frame rate (logical)"
-                />
-              }
-              tooltipTitle="Frame Rate"
-              tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${maxFrameRate} fps based on current FFT size and bandwidth capacity.`}
-            >
-              <InputGroup>
-                <SettingInput
-                  type="number"
-                  value={fftFrameRate}
-                  onChange={(e) => {
-                    const val = Math.max(
-                      1,
-                      Math.min(
-                        maxFrameRate,
-                        Math.floor(Number(e.target.value) || 1),
-                      ),
-                    );
-                    onFftFrameRateChange(val);
-                    scheduleCoupledAdjustment("frameRate", fftSize, val);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const step = 1; // Always use 1-frame rate steps for precision
-                    const delta = e.key === "ArrowUp" ? step : -step;
-                    const next = Math.max(
-                      1,
-                      Math.min(
-                        maxFrameRate,
-                        Math.floor((fftFrameRate || 0) + delta),
-                      ),
-                    );
-                    onFftFrameRateChange(next);
-                    scheduleCoupledAdjustment("frameRate", fftSize, next);
-                  }}
-                  min="1"
-                  max={maxFrameRate}
-                />
-                <UnitLabel>fps</UnitLabel>
-              </InputGroup>
+                {sampleRateOptionList.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {formatFrequency(rate)}
+                  </option>
+                ))}
+              </SampleRateSelect>
             </Row>
           )}
           <Row
-            label={<IconLabel icon={ImageIcon} text="FFT Size" />}
+            label={<IconLabel icon={Grip} text="FFT Size" />}
             tooltipTitle="FFT Size"
             tooltip="Frequency resolution. Larger sizes provide better detection of specific signal patterns in transmissions but reduce processing speed."
           >
@@ -373,50 +344,101 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
             </SettingSelect>
           </Row>
           {variant !== "diagnostic" && (
-            <>
-              <Row
-                label={<IconLabel icon={Blend} text="FFT Window" />}
-                tooltipTitle="FFT Window"
-                tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
-              >
-                <WideSettingSelect
-                  value={fftWindow}
+            <Row
+              label={
+                <IconLabel
+                  icon={GalleryHorizontal}
+                  text="Frame rate (logical)"
+                />
+              }
+              tooltipTitle="Frame Rate"
+              tooltip={`Signal processing speed. Higher rates provide more real-time analysis of transmissions. Current maximum theoretical rate: ${logicalMaxFrameRate} fps based on current FFT size and bandwidth capacity.`}
+            >
+              <InputGroup>
+                <SettingInput
+                  type="number"
+                  value={fftFrameRate}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    onFftWindowChange(val);
-                  }}
-                >
-                  <option value="Rectangular">Rectangular</option>
-                  <option value="Nuttall">Nuttall</option>
-                  <option value="Hamming">Hamming</option>
-                  <option value="Hanning">Hanning</option>
-                  <option value="Blackman">Blackman</option>
-                </WideSettingSelect>
-              </Row>
-              <Row
-                label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
-                tooltipTitle="Display Temporal Resolution"
-                tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
-              >
-                <WideSettingSelect
-                  value={temporalResolution}
-                  onChange={(e) => {
-                    onTemporalResolutionChange(
-                      e.target.value as "low" | "medium" | "high",
+                    const val = Math.max(
+                      1,
+                      Math.min(
+                        logicalMaxFrameRate,
+                        Math.floor(Number(e.target.value) || 1),
+                      ),
                     );
+                    onFftFrameRateChange(val);
+                    scheduleCoupledAdjustment("frameRate", fftSize, val);
                   }}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </WideSettingSelect>
-              </Row>
-            </>
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const step = 1; // Always use 1-frame rate steps for precision
+                    const delta = e.key === "ArrowUp" ? step : -step;
+                    const next = Math.max(
+                      1,
+                      Math.min(
+                        logicalMaxFrameRate,
+                        Math.floor((fftFrameRate || 0) + delta),
+                      ),
+                    );
+                    onFftFrameRateChange(next);
+                    scheduleCoupledAdjustment("frameRate", fftSize, next);
+                  }}
+                  min="1"
+                  max={logicalMaxFrameRate}
+                />
+                <UnitLabel>fps</UnitLabel>
+              </InputGroup>
+            </Row>
+          )}
+          {variant !== "diagnostic" && (
+            <Row
+              label={<IconLabel icon={Blend} text="FFT Window" />}
+              tooltipTitle="FFT Window"
+              tooltip="Signal filtering. Different windows optimize for detecting specific types of patterns and interactions in transmissions."
+            >
+              <WideSettingSelect
+                value={fftWindow}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  onFftWindowChange(val);
+                }}
+              >
+                <option value="Rectangular">Rectangular</option>
+                <option value="Nuttall">Nuttall</option>
+                <option value="Hamming">Hamming</option>
+                <option value="Hanning">Hanning</option>
+                <option value="Blackman">Blackman</option>
+              </WideSettingSelect>
+            </Row>
           )}
         </>
       )}
+      {variant !== "diagnostic" && (
+        <Row
+          label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
+          tooltipTitle="Display Temporal Resolution"
+          tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+        >
+          <WideSettingSelect
+            value={temporalResolution}
+            onChange={(e) => {
+              onTemporalResolutionChange(
+                e.target.value as "low" | "medium" | "high",
+              );
+            }}
+          >
+            <option value="low">{getTemporalResolutionLabel("low")}</option>
+            <option value="medium">
+              {getTemporalResolutionLabel("medium")}
+            </option>
+            <option value="high">{getTemporalResolutionLabel("high")}</option>
+          </WideSettingSelect>
+        </Row>
+      )}
       {/* Device-specific power scale toggle - enabled when approximate dBm is supported */}
-      {(showsApproxDbmToggle || sourceMode === "file") &&
+      {(showsApproxDbmToggleVal || sourceMode === "file") &&
         variant !== "diagnostic" && (
           <Row
             label={<IconLabel icon={Zap} text="Power Scale" />}

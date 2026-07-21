@@ -16,12 +16,14 @@ export function fmtFreq(hz: number, zoom: number = 1): string {
  * Format a frequency for tick labels.
  * Precision adapts to the step size so adjacent ticks are distinguishable.
  */
-export function fmtFreqTick(hz: number, stepHz: number): string {
-  const { precisionMHz } = tickPrecisionForStep(stepHz);
+export function fmtFreqTick(hz: number, _stepHz: number): string {
+  const { precisionMHz, precisionKHz, precisionGHz } =
+    tickPrecisionForStep(_stepHz);
   return formatFrequency(hz, {
     trimTrailingZeros: true,
-    precisionMHz,
-    precisionKHz: 0,
+    precisionMHz: Math.max(precisionMHz, 4),
+    precisionKHz: Math.max(precisionKHz, 2),
+    precisionGHz,
   });
 }
 
@@ -32,11 +34,21 @@ export function fmtFreqTick(hz: number, stepHz: number): string {
 export function tickPrecisionForStep(stepHz: number): {
   precisionMHz: number;
   precisionKHz: number;
+  precisionGHz: number;
 } {
-  if (stepHz >= 100_000) return { precisionMHz: 1, precisionKHz: 0 };
-  if (stepHz >= 10_000) return { precisionMHz: 2, precisionKHz: 1 };
-  if (stepHz >= 1_000) return { precisionMHz: 3, precisionKHz: 2 };
-  return { precisionMHz: 4, precisionKHz: 3 };
+  if (stepHz >= 1_000_000) {
+    return { precisionMHz: 1, precisionKHz: 0, precisionGHz: 3 };
+  }
+  if (stepHz >= 100_000) {
+    return { precisionMHz: 1, precisionKHz: 0, precisionGHz: 4 };
+  }
+  if (stepHz >= 10_000) {
+    return { precisionMHz: 2, precisionKHz: 1, precisionGHz: 5 };
+  }
+  if (stepHz >= 1_000) {
+    return { precisionMHz: 3, precisionKHz: 2, precisionGHz: 6 };
+  }
+  return { precisionMHz: 4, precisionKHz: 3, precisionGHz: 6 };
 }
 
 export function fmtTimestamp(includeTimezone: boolean = true): string {

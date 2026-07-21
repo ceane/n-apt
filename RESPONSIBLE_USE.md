@@ -1,6 +1,6 @@
 # Responsible Use Policy
 
-This Responsible Use Policy is **incorporated by reference into the Hippocratic License 3.0 (Version 3.0, October 2021)**. All licensees must comply with these terms as a **binding extension of the Ethical Standards** (Section 3).  
+This Responsible Use Policy is **incorporated by reference into the Hippocratic License 3.0 (Version 3.0, October 2021)** and is also referenced by the project Terms of Use. All licensees must comply with these terms as a **binding extension of the Ethical Standards** (Section 3).  
 
 Violations of this policy constitute a breach of the License and trigger the **Duty of Care** and **termination provisions** of the License.
 

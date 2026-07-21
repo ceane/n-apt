@@ -3,6 +3,35 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use validator::Validate;
 
+fn deserialize_optional_integer_hz<'de, D>(
+  deserializer: D,
+) -> Result<Option<u64>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+  match value {
+    None | Some(serde_json::Value::Null) => Ok(None),
+    Some(serde_json::Value::Number(number)) => {
+      if let Some(unsigned) = number.as_u64() {
+        return Ok(Some(unsigned));
+      }
+      let float = number
+        .as_f64()
+        .ok_or_else(|| serde::de::Error::custom("expected finite Hz number"))?;
+      if !float.is_finite() || float < 0.0 {
+        return Err(serde::de::Error::custom(
+          "expected non-negative finite Hz number",
+        ));
+      }
+      Ok(Some(float.round() as u64))
+    }
+    Some(other) => Err(serde::de::Error::custom(format!(
+      "expected numeric Hz value, got {other}"
+    ))),
+  }
+}
+
 /// WebMCP tool request from agents
 #[derive(Debug, Deserialize, Validate)]
 pub struct WebMCPToolRequest {
@@ -86,6 +115,9 @@ pub enum SdrCommand {
   SetDirectSampling(u8),
   RequestNextFrame,
   RestartDevice,
+  SetActiveSource {
+    source_id: String,
+  },
   StartTraining {
     label: String,
     signal_area: String,
@@ -114,6 +146,23 @@ pub enum SdrCommand {
   ApplySettings(SdrProcessorSettings),
   SetPowerScale {
     scale: PowerScale,
+  },
+  SetTransmitMode {
+    enabled: bool,
+    device: String,
+    serial_number: String,
+    tx_signal: Option<String>,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: Option<u64>,
+    bandwidth_hz: Option<f64>,
+    tx_ifft_size: Option<usize>,
+    power_dbm: Option<f64>,
+    lna_gain_db: Option<f64>,
+    vga_gain_db: Option<f64>,
+    amp_enabled: Option<bool>,
+    tuner_agc: Option<bool>,
+    rtl_agc: Option<bool>,
+    ppm: Option<u32>,
   },
   ScanForAudio {
     job_id: String,
@@ -214,11 +263,19 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "bandwidthHz",
+    alias = "txBandwidthHz",
+    default,
+    deserialize_with = "deserialize_optional_integer_hz"
+  )]
   pub bandwidth: Option<u64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
-    alias = "bandwidthCenterFrequency"
+    alias = "bandwidthCenterFrequency",
+    default,
+    deserialize_with = "deserialize_optional_integer_hz"
   )]
   pub bandwidth_center_frequency: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "acquisitionMode")]
@@ -240,29 +297,52 @@ pub struct WebSocketMessage {
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "centerFrequency",
-    alias = "center_frequency_hz"
+    alias = "center_frequency_hz",
+    alias = "centerFrequencyHz"
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "viewCenterHz")]
+  pub view_center_hz: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub paused: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0.0, max = 100.0))]
   pub gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfLnaGain")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfLnaGain",
+    alias = "lnaGainDb"
+  )]
   #[validate(range(min = 0.0, max = 49.6))]
   pub hackrf_lna_gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfVgaGain")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfVgaGain",
+    alias = "vgaGainDb"
+  )]
   #[validate(range(min = 0.0, max = 62.0))]
   pub hackrf_vga_gain: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "hackrfAmpEnabled")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "hackrfAmpEnabled",
+    alias = "ampEnabled"
+  )]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(range(min = 0, max = 1000))]
   pub ppm: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "tunerAGC")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "tunerAGC",
+    alias = "tunerAgc"
+  )]
   pub tuner_agc: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "rtlAGC")]
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "rtlAGC",
+    alias = "rtlAgc"
+  )]
   pub rtl_agc: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "offsetTuning")]
   pub offset_tuning: Option<bool>,
@@ -271,16 +351,20 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "tunerBandwidth")]
   pub tuner_bandwidth: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
-  #[validate(range(min = 256, max = 262144))]
+  #[validate(range(min = 256, max = 8388608))]
   pub fft_size: Option<usize>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftWindow")]
   pub fft_window: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "sampleRate")]
-  #[validate(range(min = 1, max = 100000000))]
-  pub sample_rate: Option<u32>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "sampleRate",
+    alias = "sampleRateHz"
+  )]
+  #[validate(range(min = 1.0, max = 100000000.0))]
+  pub sample_rate: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
   pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -316,8 +400,46 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "activeMode")]
+  pub active_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "duplexMode")]
+  pub duplex_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
+  pub tx_device: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
+  pub source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub channels: Option<Vec<ChannelSpec>>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSafetyEnabled")]
+  pub tx_safety_enabled: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSignal")]
+  pub tx_signal: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txIfftSize")]
+  #[validate(range(min = 256, max = 8388608))]
+  pub tx_ifft_size: Option<usize>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSafetyLimit")]
+  pub tx_safety_limit: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopType")]
+  pub tx_hop_type: Option<String>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "txHopStartFrequencyHz"
+  )]
+  pub tx_hop_start_frequency_hz: Option<f64>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "txHopEndFrequencyHz"
+  )]
+  pub tx_hop_end_frequency_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopChannels")]
+  pub tx_hop_channels: Option<Vec<String>>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopRateHz")]
+  pub tx_hop_rate_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txHopEnabled")]
+  pub tx_hop_enabled: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "powerDbm")]
+  pub power_dbm: Option<f64>,
   /// Hardware frequency range info (get_hardware_info)
   #[serde(
     skip_serializing_if = "Option::is_none",
@@ -503,6 +625,15 @@ pub struct SpectrumData {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub waveform: Vec<f32>,
   pub is_mock_apt: bool,
+  /// Canonical owner captured when the frame is produced.
+  #[serde(default, skip_serializing_if = "String::is_empty")]
+  pub source_id: String,
+  /// Source presentation generation captured with the samples.
+  #[serde(default, skip_serializing_if = "is_zero_u64")]
+  pub stream_epoch: u64,
+  /// Monotonic frame number within `stream_epoch`.
+  #[serde(default, skip_serializing_if = "is_zero_u64")]
+  pub sequence: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub center_frequency_hz: Option<u32>,
   /// Actual span of the waveform in Hz (for live multi-hop captures)
@@ -523,6 +654,10 @@ pub struct SpectrumData {
   pub iq_data: Vec<u8>,
 }
 
+fn is_zero_u64(value: &u64) -> bool {
+  *value == 0
+}
+
 /// Structured signal pattern for consistent waterfall visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceProfile {
@@ -530,26 +665,6 @@ pub struct DeviceProfile {
   pub is_rtl_sdr: bool,
   pub supports_approx_dbm: bool,
   pub supports_raw_iq_stream: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusMessage {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  pub device_connected: bool,
-  pub device_info: String,
-  pub device_name: String,
-  pub device_loading: bool,
-  pub device_loading_reason: Option<String>,
-  pub device_state: String,
-  pub paused: bool,
-  pub max_sample_rate: u32,
-  pub sample_rate_options: Vec<u32>,
-  pub channels: Vec<SpectrumFrameMessage>,
-  pub sdr_settings: SdrConfig,
-  pub device: String,
-  pub device_backend_error: Option<String>,
-  pub device_profile: DeviceProfile,
 }
 
 /// Structured signal pattern for consistent waterfall visualization
@@ -588,6 +703,8 @@ pub struct SignalsData {
   pub available_spectrum: Option<AvailableSpectrumConfig>,
   #[serde(alias = "mock")]
   pub mock_apt: MockAptSignalsConfig,
+  #[serde(default)]
+  pub mock_tx: MockTxSignalsConfig,
   pub n_apt: NaptConfig,
   pub sdr: SdrConfig,
 }
@@ -605,6 +722,10 @@ pub struct MockAptSignalsConfig {
   #[serde(default)]
   pub global_settings: Option<MockAptGlobalSettings>,
   #[serde(default)]
+  pub gpu_gen_via_metal: bool,
+  #[serde(default)]
+  pub realistic_rf: Option<MockAptRealisticRfConfig>,
+  #[serde(default)]
   pub bandwidths: Option<MockAptBandwidths>,
   #[serde(default)]
   pub strength_ranges: Option<MockAptStrengthRanges>,
@@ -617,8 +738,73 @@ pub struct MockAptSignalsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockTxSignalsConfig {
+  #[serde(default = "default_true")]
+  pub enabled: bool,
+  #[serde(default, alias = "noise_floor")]
+  pub noise_floor_db: Option<f64>,
+  #[serde(default)]
+  pub signals: IndexMap<String, MockTxSignalConfig>,
+}
+
+impl Default for MockTxSignalsConfig {
+  fn default() -> Self {
+    Self {
+      enabled: true,
+      noise_floor_db: None,
+      signals: IndexMap::new(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockTxSignalConfig {
+  #[serde(default)]
+  pub label: Option<String>,
+  #[serde(default)]
+  pub channel: Option<String>,
+  #[serde(default)]
+  pub center_frequency_hz: Option<f64>,
+  #[serde(default)]
+  pub sample_rate_hz: Option<f64>,
+  #[serde(default)]
+  pub offset_hz: Option<f64>,
+  #[serde(default)]
+  pub tone_hz: Option<f64>,
+  #[serde(default)]
+  pub bandwidth_hz: Option<f64>,
+  #[serde(default)]
+  pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MockAptRealisticRfConfig {
+  #[serde(default)]
+  pub enabled: bool,
+  #[serde(default = "default_true")]
+  pub aliasing: bool,
+  #[serde(default = "default_true")]
+  pub passband: bool,
+  #[serde(default = "default_true")]
+  pub retune_settling: bool,
+}
+
+fn default_true() -> bool {
+  true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NaptConfig {
   pub channels: IndexMap<String, SpectrumFrameConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FftSizesOptionYaml {
+  pub base: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fft_min: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fft_max: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -634,6 +820,8 @@ pub struct SdrConfig {
   pub display: SdrDisplayConfig,
   #[serde(default)]
   pub devices: IndexMap<String, SdrDeviceConfig>,
+  #[serde(default)]
+  pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -658,13 +846,108 @@ pub struct DeviceGainLimits {
   pub vga_step: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VgaPowerPoint {
+  pub vga: u32,
+  pub dbm: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TxPowerMapping {
+  pub amp_off: Vec<VgaPowerPoint>,
+  pub amp_on: Vec<VgaPowerPoint>,
+}
+
+fn default_tx_iq_encoding() -> String {
+  "offset_binary_u8".to_string()
+}
+
+fn default_tx_iq_signed_range() -> [i16; 2] {
+  [-128, 127]
+}
+
+fn default_tx_iq_normalized_sample() -> String {
+  "(byte - 128) / 127".to_string()
+}
+
+fn default_tx_iq_complex_rms_formula() -> String {
+  "sqrt(mean(i_norm^2 + q_norm^2))".to_string()
+}
+
+fn default_tx_iq_dbm_formula() -> String {
+  "20 * log10(complex_rms) + calibration_db".to_string()
+}
+
+fn default_tx_iq_inverse_rms_formula() -> String {
+  "10 ** ((dbm - calibration_db) / 20)".to_string()
+}
+
+fn default_tx_iq_calibration_db() -> f64 {
+  15.0
+}
+
+fn default_tx_iq_saturation_rms() -> f64 {
+  0.92
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TxIqPowerModel {
+  #[serde(default = "default_tx_iq_encoding")]
+  pub iq_encoding: String,
+  #[serde(default = "default_tx_iq_signed_range")]
+  pub signed_range: [i16; 2],
+  #[serde(default = "default_tx_iq_normalized_sample")]
+  pub normalized_sample: String,
+  #[serde(default = "default_tx_iq_complex_rms_formula")]
+  pub complex_rms_formula: String,
+  #[serde(default = "default_tx_iq_dbm_formula")]
+  pub dbm_formula: String,
+  #[serde(default = "default_tx_iq_inverse_rms_formula")]
+  pub inverse_rms_formula: String,
+  #[serde(default = "default_tx_iq_calibration_db")]
+  pub calibration_db: f64,
+  #[serde(default = "default_tx_iq_saturation_rms")]
+  pub saturation_rms: f64,
+}
+
+impl Default for TxIqPowerModel {
+  fn default() -> Self {
+    Self {
+      iq_encoding: default_tx_iq_encoding(),
+      signed_range: default_tx_iq_signed_range(),
+      normalized_sample: default_tx_iq_normalized_sample(),
+      complex_rms_formula: default_tx_iq_complex_rms_formula(),
+      dbm_formula: default_tx_iq_dbm_formula(),
+      inverse_rms_formula: default_tx_iq_inverse_rms_formula(),
+      calibration_db: default_tx_iq_calibration_db(),
+      saturation_rms: default_tx_iq_saturation_rms(),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdrDeviceConfig {
+  #[serde(default)]
+  pub duplex_mode: Option<String>,
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
   pub fft_display: Option<SdrFftDisplayConfig>,
   #[serde(default)]
   pub gain_limits: Option<DeviceGainLimits>,
+  #[serde(default)]
+  pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
+  #[serde(
+    rename = "_tx_power_mapping",
+    default,
+    skip_serializing_if = "Option::is_none"
+  )]
+  pub tx_power_mapping: Option<TxPowerMapping>,
+  #[serde(
+    rename = "_tx_iq_power_model",
+    default,
+    skip_serializing_if = "Option::is_none"
+  )]
+  pub tx_iq_power_model: Option<TxIqPowerModel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -673,6 +956,11 @@ pub enum SdrSampleRateSpec {
   Fixed(u32),
   Symbolic(String),
   FloorMaxRange(Vec<String>),
+  Clamp {
+    value: String,
+    min: String,
+    max: String,
+  },
 }
 
 impl SdrSampleRateSpec {
@@ -694,8 +982,33 @@ impl SdrSampleRateSpec {
       Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
         vec![floor_sample_rate]
       }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_CHANNEL__" => {
+        vec![floor_sample_rate]
+      }
       Self::Symbolic(_) => vec![floor_sample_rate],
-      Self::FloorMaxRange(_) => {
+      Self::FloorMaxRange(tags) => {
+        let ceiling =
+          if tags.contains(&"__NAPT_SAMPLE_RATE_CHANNEL__".to_string()) {
+            max_sample_rate
+          } else {
+            max_sample_rate
+          };
+        let mut out = CURATED_RATES
+          .iter()
+          .copied()
+          .filter(|rate| *rate >= floor_sample_rate && *rate <= ceiling)
+          .collect::<Vec<_>>();
+        if out.first().copied() != Some(floor_sample_rate) {
+          out.insert(0, floor_sample_rate);
+        }
+        if out.last().copied() != Some(ceiling) {
+          out.push(ceiling);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+      }
+      Self::Clamp { .. } => {
         let mut out = CURATED_RATES
           .iter()
           .copied()
@@ -723,8 +1036,12 @@ impl SdrSampleRateSpec {
       Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_FLOOR__" => {
         floor_sample_rate
       }
+      Self::Symbolic(tag) if tag == "__NAPT_SAMPLE_RATE_CHANNEL__" => {
+        floor_sample_rate
+      }
       Self::Symbolic(_) => floor_sample_rate,
       Self::FloorMaxRange(_) => max_sample_rate.max(floor_sample_rate),
+      Self::Clamp { .. } => max_sample_rate.max(floor_sample_rate),
     }
   }
 }
@@ -900,6 +1217,18 @@ pub struct SpectrumFrameMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelsMessage {
+  #[serde(rename = "type")]
+  pub message_type: String,
+  pub source_id: String,
+  pub channels: Vec<SpectrumFrameMessage>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub active_signal_area: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureArtifact {
   pub filename: String,
   pub path: std::path::PathBuf,
@@ -928,6 +1257,8 @@ pub struct AuthSessionRequest {
 #[derive(Deserialize)]
 pub struct WsQueryParams {
   pub token: String,
+  #[serde(default)]
+  pub iq_protocol: Option<u8>,
 }
 
 #[derive(Deserialize)]

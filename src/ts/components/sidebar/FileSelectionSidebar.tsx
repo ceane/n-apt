@@ -1,14 +1,17 @@
 import React from "react";
 import styled from "styled-components";
-import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
+import SelectedFiles from "@n-apt/components/sidebar/SelectedFiles";
+import FileMetadata from "@n-apt/components/sidebar/FileMetadata";
+import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import type { GeolocationData } from "@n-apt/consts/schemas/websocket";
 
-const Section = styled.div<{ $marginBottom?: string }>`
+const Section = styled.div<{ $marginTop?: string; $marginBottom?: string }>`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
   margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
+  margin-top: ${({ $marginTop }) => $marginTop || "0"};
   box-sizing: border-box;
 `;
 
@@ -55,21 +58,58 @@ interface FileSelectionSidebarProps {
   naptMetadataError: string | null;
   sessionToken?: string | null;
   showMetadata?: boolean;
-  fileModeActions?: React.ReactNode;
+  signalDisplayProps?: Omit<
+    React.ComponentProps<typeof SignalDisplaySection>,
+    "sourceMode"
+  >;
 }
 
 export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
-  selectedPrimaryFile,
   showMetadata = true,
+  signalDisplayProps,
+  selectedFiles,
+  onSelectedFilesChange,
+  onClear,
+  sessionToken,
+  selectedPrimaryFile,
+  naptMetadata,
+  naptMetadataError,
   ...rest
 }) => {
   return (
     <Section>
-      <FileProcessingSection
-        selectedNaptFile={selectedPrimaryFile}
-        showMetadata={showMetadata}
-        {...rest}
-      />
+      <Section>
+        <SelectedFiles
+          title={selectedFiles.length > 0 ? "Selected File" : "Selected Files"}
+          selectedFiles={selectedFiles}
+          onRemoveFile={(index) => {
+            const nextFiles = selectedFiles.filter((_, i) => i !== index);
+            onSelectedFilesChange(nextFiles);
+          }}
+          onClear={onClear}
+          sessionToken={sessionToken}
+          durationSeconds={naptMetadata?.duration_s}
+          status={rest.stitchStatus}
+        />
+      </Section>
+
+      {showMetadata ? (
+        <Section $marginTop="12px">
+          <FileMetadata
+            selectedNaptFile={selectedPrimaryFile}
+            naptMetadata={naptMetadata}
+            naptMetadataError={naptMetadataError}
+            sessionToken={sessionToken}
+            showTitle={true}
+          />
+        </Section>
+      ) : null}
+
+      {signalDisplayProps ? (
+        <Section $marginTop="12px">
+          <SignalDisplaySection sourceMode="file" {...signalDisplayProps} />
+        </Section>
+      ) : null}
     </Section>
   );
 };

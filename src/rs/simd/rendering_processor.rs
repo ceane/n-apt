@@ -2,8 +2,11 @@
 //!
 //! ARM-optimized processor for rendering operations using unified SIMD backend.
 
+use crate::s::fft::processor::WindowType;
 #[allow(unused_imports)]
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
+use crate::simd::common::WindowFunctions;
+use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(target_arch = "wasm32")]
 #[allow(unused_imports)]
 use std::arch::wasm32::*;
@@ -67,6 +70,61 @@ impl RenderingProcessor {
       output,
       color_intensity,
     );
+  }
+
+  /// Processes raw I/Q samples into a dB spectrum using RustFFT.
+  ///
+  /// This is the WASM-native fast path used by the frontend when the caller
+  /// needs a full FFT and window support, regardless of SIMD availability.
+  #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+  pub fn process_iq_to_dbm_spectrum(
+    &self,
+    input: &[u8],
+    offset_db: f32,
+    fft_size: usize,
+    window_type: &str,
+  ) -> Vec<f32> {
+    let fft_size = fft_size.max(1);
+    let sample_count = input.len() / 2;
+    let num_samples = sample_count.min(fft_size);
+    let normalized_window = match window_type.to_lowercase().as_str() {
+      "none" | "rectangular" => WindowType::Rectangular,
+      "hann" | "hanning" => WindowType::Hanning,
+      "hamming" => WindowType::Hamming,
+      "blackman" => WindowType::Blackman,
+      "nuttall" => WindowType::Nuttall,
+      _ => WindowType::Hanning,
+    };
+
+    let window_coeffs =
+      WindowFunctions::get_coeffs(normalized_window, num_samples);
+    let window_sum =
+      WindowFunctions::get_window_sum(normalized_window, num_samples);
+    let inv_norm = 1.0 / (window_sum * window_sum).max(1e-12);
+
+    let mut buffer = vec![Complex::new(0.0f32, 0.0f32); fft_size];
+    for i in 0..num_samples {
+      let window = window_coeffs[i];
+      let re = ((input[i * 2] as f32) - 128.0) / 128.0;
+      let im = ((input[i * 2 + 1] as f32) - 128.0) / 128.0;
+      buffer[i] = Complex::new(re * window, im * window);
+    }
+
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(fft_size);
+    fft.process(&mut buffer);
+
+    let half = fft_size / 2;
+    buffer.rotate_left(half);
+
+    let epsilon = 1e-15f32;
+    buffer
+      .iter()
+      .map(|c| {
+        let mag_sq = c.norm_sqr() * inv_norm;
+        (10.0 * (mag_sq + epsilon).log10() + offset_db).clamp(-150.0, 0.0)
+      })
+      .collect()
   }
 
   /// NEW: Enhanced resampling with algorithm selection

@@ -19,15 +19,19 @@ signals:
   # SDR hardware and processing settings
   sdr:
     # Sample rate for SDR processing
-    sample_rate: !frequency 3.2MHz  # RTL-SDR compatible sample rate
-    
+    sample_rate: !frequency 3.2MHz
+    fft_sizes:
+      - base: base_fft_sizes
+        fft_min: !pow2 11
+        fft_max: !pow2 18
+
     # Center frequency for SDR
     center_frequency: !frequency 1.6MHz  # center of the sample rate
     
     # SDR gain settings
     gain:
       # Tuner gain in dB
-      tuner_gain: !dB 49.6dB
+      tuner_gain: !dB 46.9dB
       # RTL-SDR gain mode
       rtl_agc: false
       # Tuner AGC
@@ -35,9 +39,9 @@ signals:
       # HackRF LNA gain in dB
       hackrf_lna_gain: !dB 0.0dB
       # HackRF VGA gain in dB
-      hackrf_vga_gain: !dB 0.0dB
+      hackrf_vga_gain: !dB 30.0dB
       # HackRF RF amplifier enable
-      hackrf_amp_enable: true
+      hackrf_amp_enable: false
       # HackRF baseband filter bandwidth
       tuner_bandwidth: 3200000
     
@@ -57,10 +61,11 @@ signals:
     # and !max from the device's supported ceiling.
     devices:
       rtl_sdr:
-        sample_rate: !max
+        duplex_mode: Simplex
+        sample_rate: !frequency 3.2MHz
         gain_limits:
           min: 0.0
-          max: 49.6
+          max: 46.9
           step: 0.1
         fft_display:
           markers:
@@ -74,13 +79,25 @@ signals:
               freq_hz: !frequency 1.766GHz
               label: "RTL-SDR v4 upper limit rate"
       mock_apt:
-        sample_rate: !floor...!max
+        duplex_mode: Simplex
+        sample_rate: !floor...!channel
         gain_limits:
           min: 0.0
           max: 49.6
           step: 0.1
       hackrf_one:
-        sample_rate: !floor...!max
+        duplex_mode: Half-duplex
+        sample_rate: !clamp
+          value: !channel sample_rate
+          min: !floor sample_rate
+          max: !max sample_rate
+
+        fft_sizes:
+          - base: base_fft_sizes
+            # Keep HackRF's advertised live FFT range within the browser's
+            # safe processing limit. Larger FFTs produce payloads that can
+            # monopolize the frontend render loop and blank the canvases.
+            fft_max: !pow2 18
         gain_limits:
           lna_min: 0.0
           lna_max: 40.0
@@ -96,10 +113,61 @@ signals:
             - kind: max_hardware_frequency
               freq_hz: !frequency 6GHz
               label: "HackRF One, max upper limit"
+        _tx_power_mapping:
+          amp_off:
+            - vga: 0
+              dbm: -7.5
+            - vga: 5
+              dbm: -2.5
+            - vga: 10
+              dbm: 1.5
+            - vga: 15
+              dbm: 4.0
+            - vga: 20
+              dbm: 6.0
+            - vga: 25
+              dbm: 8.0
+            - vga: 30
+              dbm: 10.0
+            - vga: 35
+              dbm: 11.5
+            - vga: 40
+              dbm: 13.0
+            - vga: 47
+              dbm: 14.5
+          amp_on:
+            - vga: 0
+              dbm: 1.0
+            - vga: 10
+              dbm: 6.0
+            - vga: 20
+              dbm: 9.0
+            - vga: 30
+              dbm: 12.0
+            - vga: 35
+              dbm: 13.5
+            - vga: 40
+              dbm: 14.5
+            - vga: 47
+              dbm: 15.0
+        _tx_iq_power_model:
+          iq_encoding: offset_binary_u8
+          signed_range: [-128, 127]
+          normalized_sample: "(byte - 128) / 127"
+          complex_rms_formula: "sqrt(mean(i_norm^2 + q_norm^2))"
+          dbm_formula: "20 * log10(complex_rms) + calibration_db"
+          inverse_rms_formula: "10 ** ((dbm - calibration_db) / 20)"
+          calibration_db: 15.0
 
   # Mock APT signal configuration for testing
   # Per-channel config controls where signals are generated
   mock_apt:
+    gpu_gen_via_metal: false
+    realistic_rf:
+      enabled: false
+      aliasing: true
+      passband: true
+      retune_settling: true
     # Per-channel mock APT configuration
     # These channels define where mock signals are generated
     # The keys (a, b, c) should match the n_apt.channels keys
@@ -114,7 +182,7 @@ signals:
         signal_strength_range: !dB_range -80dB..-20dB
       b:
         label: "B"
-        freq_range_hz: !frequency_range 24.72MHz..29.88MHz
+        freq_range_hz: !frequency_range 24.1MHz..30.37MHz
         description: "Channel B mock signals"
         apt_spike_density: !frequency 33kHz
         noise_floor_db: !dB -100dB
@@ -126,6 +194,44 @@ signals:
         apt_spike_density: !frequency_range 33kHz..60kHz
         noise_floor_db: !dB -100dB
         signal_strength_range: !dB_range -100dB..-60dB
+
+  # Mock Tx source configuration.
+  # When enabled, the source list includes "Mock Tx SDR" as a separate transmit
+  # device. Starting Tx overlays transmit leakage on the active Mock APT SDR
+  # spectrum without switching away from the receive source.
+  mock_tx:
+    enabled: true
+    duplex_mode: Simplex
+    noise_floor_db: !dB -100dB
+    signals:
+      d:
+        label: "D"
+        channel: "a"
+        center_frequency_hz: !frequency 137.1MHz
+        sample_rate_hz: !frequency 2.4MHz
+        bandwidth_hz: !frequency 1.5MHz
+        description: "A continuous sawtooth/triangle-like wave spectrum."
+      d_sharp:
+        label: "D#"
+        channel: "a"
+        center_frequency_hz: !frequency 137.1MHz
+        sample_rate_hz: !frequency 1.5MHz
+        bandwidth_hz: !frequency 1.5MHz
+        description: "A narrow sawtooth-like wave variant."
+      wifi:
+        label: "Mock WiFi"
+        channel: "c"
+        center_frequency_hz: !frequency 13.875MHz
+        sample_rate_hz: !frequency 3MHz
+        bandwidth_hz: !frequency 3MHz
+        description: "An OFDM-like emulated WiFi block with flat-top passband and steep roll-off edges."
+      5g:
+        label: "Mock 5G"
+        channel: "b"
+        center_frequency_hz: !frequency 137.1MHz
+        sample_rate_hz: !frequency 3MHz
+        bandwidth_hz: !frequency 3MHz
+        description: "An OFDM-like emulated 5G NR block with flat-top passband and steep roll-off edges."
 
   triangulation:
     static:
@@ -175,12 +281,13 @@ signals:
         a:
           label: "A"
           freq_range_hz: !frequency_range 18kHz..4.39MHz
-          description: "The potentially primary N-APT channel, encompassing features like audio, voice, physiological effects and more."
+          description: "The potentially primary N-APT channel, notably on the lowe end of the spectrum, encompassing features like audio, voice, physiological effects and more."
         b:
           label: "B"
-          freq_range_hz: !frequency_range 24.72MHz..29.88MHz
-          description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.)."
+          freq_range_hz: !frequency_range 24.1MHz..30.37MHz
+          # freq_range_hz: !frequency_range 24.72MHz..29.88MHz
+          description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.) OR this channel being responsible for manipulating intellectual cognitive infrastructure and processing like reasoning, memory and general consciousness."
         c:
           label: "C"
           freq_range_hz: !frequency_range 4.75MHz..23MHz
-          description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more. APT-spikes are less visible but spikes are visible."
+          description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more related to visual/temporal lobe content."

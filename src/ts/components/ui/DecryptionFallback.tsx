@@ -100,6 +100,31 @@ const AsideText = styled.span`
     props.theme.textMuted || props.theme.colors?.textMuted || "#6b7280"};
 `;
 
+const InstructionRow = styled.div<{ $marginTop?: number }>`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  ${(props) =>
+    props.$marginTop !== undefined && `margin-top: ${props.$marginTop}px;`}
+`;
+
+const InstructionContent = styled.div`
+  padding-left: 18px;
+  color: inherit;
+`;
+
+const ButtonRow = styled.div`
+  display: flex;
+  gap: 8px;
+`;
+
+const ActionButton = styled(Button)`
+  font-size: 12px;
+  padding: 4px 8px;
+  height: auto;
+  flex: 1;
+`;
+
 export type DecryptionErrorType = "vault" | "demod" | "latex";
 
 interface DecryptionFallbackProps {
@@ -162,60 +187,36 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
       </Message>
 
       <Instructions>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <InstructionRow>
           <Terminal size={12} />
           <span>
             Check your <CodeBlock>.env.local</CodeBlock> configuration:
           </span>
-        </div>
-        <div style={{ paddingLeft: 18, color: "inherit" }}>
+        </InstructionRow>
+        <InstructionContent>
           Ensure <CodeBlock>{envVar}</CodeBlock> is set correctly.
-        </div>
+        </InstructionContent>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginTop: 4,
-          }}
-        >
+        <InstructionRow $marginTop={4}>
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
-        </div>
-        <div style={{ paddingLeft: 18, color: "inherit" }}>
-          {troubleshooting}
-        </div>
+        </InstructionRow>
+        <InstructionContent>{troubleshooting}</InstructionContent>
       </Instructions>
 
-      <div style={{ display: "flex", gap: "8px" }}>
-        <Button
+      <ButtonRow>
+        <ActionButton
           $variant="primary"
           onClick={() => window.location.reload()}
-          style={{
-            fontSize: "12px",
-            padding: "4px 8px",
-            height: "auto",
-            flex: 1,
-          }}
         >
           <RefreshCcw size={10} />
           Reload
-        </Button>
-        <Button
-          $variant="secondary"
-          onClick={logout}
-          style={{
-            fontSize: "12px",
-            padding: "4px 8px",
-            height: "auto",
-            flex: 1,
-          }}
-        >
+        </ActionButton>
+        <ActionButton $variant="secondary" onClick={logout}>
           <Shield size={10} />
           Re-auth
-        </Button>
-      </div>
+        </ActionButton>
+      </ButtonRow>
     </FallbackContainer>
   );
 };

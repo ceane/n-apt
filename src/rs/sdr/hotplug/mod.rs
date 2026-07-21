@@ -1,4 +1,4 @@
-#[cfg(has_hackrf)]
+#[cfg(all(test, has_hackrf))]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
 use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
 use crate::server::shared_state::{
@@ -8,10 +8,8 @@ use crate::server::shared_state::{
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
-#[cfg(has_hackrf)]
+#[cfg(all(test, has_hackrf))]
 use std::os::raw::c_int;
-#[cfg(has_hackrf)]
-use std::slice;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -20,7 +18,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use crate::server::websocket_server::{
-  broadcast_device_status, build_device_profile,
+  active_source_id, broadcast_device_status, build_device_profile,
 };
 
 const HACKRF_DISCONNECT_ADVISORY: &str =
@@ -32,6 +30,7 @@ pub struct HotplugState {
   pub last_hardware_swap: Option<Instant>,
   pub last_failure_at: Option<Instant>,
   pub last_seen_device_count: u32,
+  pub missing_since: Option<Instant>,
   pub retry_cooldown: Duration,
   pub exhausted_recovery_cooldown: Duration,
 }
@@ -48,6 +47,7 @@ impl HotplugState {
       } else {
         0
       },
+      missing_since: None,
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
     }
@@ -143,11 +143,35 @@ impl HotplugMonitor {
   }
 }
 
-fn supported_usb_device_present() -> bool {
-  matches!(scan_usb_for_supported_device(), Ok(Some(_)))
+fn filter_supported_usb_device_snapshots(
+  snapshots: Vec<UsbDeviceSnapshot>,
+) -> Vec<UsbDeviceSnapshot> {
+  snapshots
+    .into_iter()
+    .filter(|snapshot| {
+      matches!(
+        snapshot.device_type.as_str(),
+        "rtl-sdr" | "hackrf_one" | "hackrf_dfu"
+      )
+    })
+    .collect()
 }
 
-#[cfg(has_hackrf)]
+pub fn scan_supported_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
+  Ok(filter_supported_usb_device_snapshots(
+    scan_usb_device_snapshots()?,
+  ))
+}
+
+pub fn supported_usb_device_count() -> Result<u32> {
+  Ok(scan_supported_usb_device_snapshots()?.len() as u32)
+}
+
+fn supported_usb_device_present() -> bool {
+  matches!(supported_usb_device_count(), Ok(count) if count > 0)
+}
+
+#[cfg(all(test, has_hackrf))]
 fn is_supported_hackrf_board_id(board_id: c_int) -> bool {
   matches!(
     board_id,
@@ -155,38 +179,6 @@ fn is_supported_hackrf_board_id(board_id: c_int) -> bool {
       | hackrf_ffi::USB_BOARD_ID_HACKRF_ONE
       | hackrf_ffi::USB_BOARD_ID_RAD1O
   )
-}
-
-#[cfg(has_hackrf)]
-fn hackrf_device_present() -> bool {
-  unsafe {
-    if hackrf_ffi::hackrf_init() != 0 {
-      return false;
-    }
-
-    let list = hackrf_ffi::hackrf_device_list();
-    if list.is_null() {
-      let _ = hackrf_ffi::hackrf_exit();
-      return false;
-    }
-
-    let found = {
-      let device_list = &*list;
-      if device_list.devicecount <= 0 || device_list.usb_board_ids.is_null() {
-        false
-      } else {
-        let ids = slice::from_raw_parts(
-          device_list.usb_board_ids,
-          device_list.devicecount as usize,
-        );
-        ids.iter().any(|id| is_supported_hackrf_board_id(*id))
-      }
-    };
-
-    hackrf_ffi::hackrf_device_list_free(list);
-    let _ = hackrf_ffi::hackrf_exit();
-    found
-  }
 }
 
 fn run_libusb_hotplug_loop(tx: Sender<HotplugEvent>) -> Result<()> {
@@ -282,18 +274,8 @@ pub fn scan_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
 }
 
 pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
-  for snapshot in scan_usb_device_snapshots()? {
-    match snapshot.device_type.as_str() {
-      "rtl-sdr" | "hackrf_one" | "hackrf_dfu" => {
-        return Ok(Some(snapshot.device_type))
-      }
-      _ => {}
-    }
-  }
-
-  #[cfg(has_hackrf)]
-  if hackrf_device_present() {
-    return Ok(Some("hackrf_one".to_string()));
+  for snapshot in scan_supported_usb_device_snapshots()? {
+    return Ok(Some(snapshot.device_type));
   }
 
   Ok(None)
@@ -303,7 +285,15 @@ pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
   !device_type.to_ascii_lowercase().contains("mock")
 }
 
+pub(crate) fn should_hold_recovery_for_usb_present_device(
+  device_type: &str,
+  supported_device_present: bool,
+) -> bool {
+  supported_device_present && should_enter_hardware_recovery(device_type)
+}
+
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn should_probe_for_hotplug(device_type: &str) -> bool {
   device_type.to_ascii_lowercase().contains("mock")
 }
@@ -335,7 +325,7 @@ pub async fn drain_hotplug_events(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
-  let current_count = if supported_usb_device_present() { 1 } else { 0 };
+  let current_count = supported_usb_device_count().unwrap_or(0);
   let should_reconcile = should_reconcile_hotplug_state(
     current_count,
     state.last_seen_device_count,
@@ -356,7 +346,9 @@ pub async fn drain_hotplug_events(
     if current_count == 0 && !processor.is_mock() {
       let _ =
         disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
+      state.missing_since = None;
     } else if current_count > 0 && processor.is_mock() {
+      state.missing_since = None;
       if let Err(e) =
         attach_real_device(processor, shared_state, broadcast_tx).await
       {
@@ -367,6 +359,8 @@ pub async fn drain_hotplug_events(
       } else {
         state.last_hardware_swap = Some(Instant::now());
       }
+    } else if current_count > 0 {
+      state.missing_since = None;
     }
   }
 
@@ -482,6 +476,16 @@ async fn attach_real_device(
     processor.get_device_info(),
     build_device_profile(processor.device_type()),
   );
+  shared_state.update_device_usb_strings(
+    processor.get_serial_number(),
+    processor.get_manufacturer(),
+    processor.get_product(),
+  );
+  // A reconnect is an automatic resume. Clear any stale pause bit left by
+  // the pre-disconnect source so the first fresh Rx frame is not gated behind
+  // a second user Pause/Resume click.
+  let active_id = active_source_id(shared_state);
+  shared_state.set_active_source_pause_state(&active_id, false);
   broadcast_device_status(shared_state, broadcast_tx);
   Ok(())
 }
@@ -506,6 +510,12 @@ async fn disconnect_to_mock(
     processor.get_device_info(),
     build_device_profile(processor.device_type()),
   );
+  shared_state.update_device_usb_strings(
+    String::new(),
+    String::new(),
+    String::new(),
+  );
+  shared_state.set_active_source_pause_state("mock-apt", false);
   broadcast_device_status(shared_state, broadcast_tx);
   state.last_failure_at = Some(Instant::now());
   Ok(())
@@ -539,6 +549,14 @@ pub async fn handle_real_hardware_health(
     return;
   }
 
+  let current_state = shared_state.device_state.lock().unwrap().clone();
+  if current_state == "loading"
+    || current_state == "loose"
+    || current_state == "disconnected"
+  {
+    return;
+  }
+
   let is_warming_up = state
     .last_hardware_swap
     .map(|t| t.elapsed() < Duration::from_secs(5))
@@ -546,16 +564,8 @@ pub async fn handle_real_hardware_health(
   let warming_up_after_success =
     is_warming_up && has_post_swap_success(state, shared_state);
   if processor.is_healthy() || warming_up_after_success {
-    let prev = shared_state.health_failure_streak.load(Ordering::Relaxed);
-    if prev > 0 {
-      info!("Device health restored after {} failure(s)", prev);
-      shared_state
-        .health_failure_streak
-        .store(0, Ordering::Relaxed);
-      shared_state.recovery_attempts.store(0, Ordering::Relaxed);
-      shared_state.set_device_state("connected", None);
-      broadcast_device_status(shared_state, broadcast_tx);
-    }
+    // The read loop itself resets the streak via record_successful_read()
+    // once a healthy frame is actually processed.
     return;
   }
 
@@ -566,7 +576,14 @@ pub async fn handle_real_hardware_health(
     streak, DISCONNECT_FAILURE_THRESHOLD, recovery_count, MAX_RECOVERY_ATTEMPTS
   );
 
-  if streak < DISCONNECT_FAILURE_THRESHOLD {
+  // Once an RTL async reader has exited, its libusb handle may look present
+  // even after a physical unplug/replug. Re-initializing that handle just
+  // recreates the loading-placeholder loop; force the full open path instead.
+  let rtl_reader_inactive =
+    processor.device_type().to_ascii_lowercase().contains("rtl")
+      && !processor.is_rx_active();
+
+  if streak < DISCONNECT_FAILURE_THRESHOLD && !rtl_reader_inactive {
     let supported_device_present = supported_usb_device_present();
     if !supported_device_present {
       warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
@@ -596,6 +613,7 @@ pub async fn handle_real_hardware_health(
             HACKRF_DISCONNECT_ADVISORY.to_string(),
           ));
         }
+        shared_state.set_active_source_pause_state("mock-apt", false);
         broadcast_device_status(shared_state, broadcast_tx);
       }
       return;
@@ -623,10 +641,10 @@ pub async fn handle_real_hardware_health(
       }
     } else {
       warn!(
-        "Recovery budget exhausted ({} attempts). Holding disconnected for {:?} before trying again.",
+        "Recovery budget exhausted ({} attempts). Holding device recovery for {:?} before trying again.",
         MAX_RECOVERY_ATTEMPTS, state.exhausted_recovery_cooldown
       );
-      shared_state.set_device_state("disconnected", None);
+      shared_state.set_device_state("loading", Some("restart"));
       broadcast_device_status(shared_state, broadcast_tx);
       state.last_failure_at = Some(Instant::now());
       tokio::time::sleep(state.exhausted_recovery_cooldown).await;
@@ -661,30 +679,44 @@ pub async fn handle_real_hardware_health(
             HACKRF_DISCONNECT_ADVISORY.to_string(),
           ));
         }
+        shared_state.set_active_source_pause_state("mock-apt", false);
         broadcast_device_status(shared_state, broadcast_tx);
         state.last_failure_at = Some(Instant::now());
         info!("Fell back to mock mode after confirmed unplug");
       }
-    } else {
+    } else if should_hold_recovery_for_usb_present_device(
+      processor.device_type(),
+      supported_device_present,
+    ) {
       warn!(
         "Supported device still on USB but unhealthy. Attempting full restart..."
       );
       let _ = stop_capture(processor);
       shared_state.set_device_state("loading", Some("restart"));
       broadcast_device_status(shared_state, broadcast_tx);
+      let cleanup_ready = match processor.cleanup() {
+        Ok(()) => true,
+        Err(e) => {
+          // An RTL async reader may still be unwinding after cancellation.
+          // Never open a replacement while it owns the libusb interface.
+          warn!(
+            "SDR handle is still stopping; deferring full restart: {}",
+            e
+          );
+          shared_state.set_device_backend_error(Some(e.to_string()));
+          broadcast_device_status(shared_state, broadcast_tx);
+          state.last_hardware_swap = Some(Instant::now());
+          false
+        }
+      };
+      if !cleanup_ready {
+        return;
+      }
       match SdrDeviceFactory::create_device() {
         Ok(new_device) if !new_device.device_type().contains("Mock") => {
           if let Err(e) = processor.swap_device(new_device) {
             error!("Full restart swap failed: {}", e);
-            let mock_device = SdrDeviceFactory::create_mock_device();
-            if let Err(me) = processor.swap_device(mock_device) {
-              error!("Emergency mock fallback also failed: {}", me);
-            }
-            shared_state.update_device_status(
-              false,
-              processor.get_device_info(),
-              build_device_profile(processor.device_type()),
-            );
+            shared_state.set_device_state("loading", Some("restart"));
             broadcast_device_status(shared_state, broadcast_tx);
           } else {
             shared_state.update_device_status(
@@ -692,21 +724,18 @@ pub async fn handle_real_hardware_health(
               processor.get_device_info(),
               build_device_profile(processor.device_type()),
             );
+            let active_id = active_source_id(shared_state);
+            shared_state.set_active_source_pause_state(&active_id, false);
             broadcast_device_status(shared_state, broadcast_tx);
             state.last_hardware_swap = Some(Instant::now());
             info!("Full device restart succeeded");
           }
         }
         _ => {
-          let mock_device = SdrDeviceFactory::create_mock_device();
-          if let Err(me) = processor.swap_device(mock_device) {
-            error!("Mock fallback after restart failure: {}", me);
-          }
-          shared_state.update_device_status(
-            false,
-            processor.get_device_info(),
-            build_device_profile(processor.device_type()),
+          warn!(
+            "Full restart did not return a real device while USB is still present; keeping device in recovery"
           );
+          shared_state.set_device_state("loading", Some("restart"));
           broadcast_device_status(shared_state, broadcast_tx);
           state.last_hardware_swap = Some(Instant::now());
         }
@@ -735,6 +764,7 @@ mod tests {
       last_hardware_swap: None,
       last_failure_at: None,
       last_seen_device_count: 0,
+      missing_since: None,
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
     };
@@ -759,6 +789,39 @@ mod tests {
     assert!(should_reconcile_hotplug_state(1, 1, true));
     assert!(!should_reconcile_hotplug_state(1, 1, false));
     assert!(should_reconcile_hotplug_state(1, 0, false));
+  }
+
+  #[test]
+  fn supported_usb_snapshot_filter_keeps_all_supported_devices() {
+    let snapshots = vec![
+      UsbDeviceSnapshot {
+        device_type: "rtl-sdr".to_string(),
+        vendor_id: 0x0bda,
+        product_id: 0x2838,
+        bus_number: 1,
+        address: 2,
+      },
+      UsbDeviceSnapshot {
+        device_type: "hackrf_one".to_string(),
+        vendor_id: 0x1d50,
+        product_id: 0x6089,
+        bus_number: 1,
+        address: 3,
+      },
+      UsbDeviceSnapshot {
+        device_type: "unknown".to_string(),
+        vendor_id: 0x9999,
+        product_id: 0x0001,
+        bus_number: 1,
+        address: 4,
+      },
+    ];
+
+    let supported = filter_supported_usb_device_snapshots(snapshots);
+
+    assert_eq!(supported.len(), 2);
+    assert!(supported.iter().any(|d| d.device_type == "rtl-sdr"));
+    assert!(supported.iter().any(|d| d.device_type == "hackrf_one"));
   }
 
   #[cfg(has_hackrf)]
@@ -796,6 +859,30 @@ mod tests {
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("USB LED"));
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("firmware"));
     assert!(HACKRF_DISCONNECT_ADVISORY.contains("15-20 seconds"));
+  }
+
+  #[test]
+  fn real_device_present_on_usb_should_stay_in_recovery() {
+    assert!(should_hold_recovery_for_usb_present_device(
+      "hackrf_one",
+      true
+    ));
+    assert!(should_hold_recovery_for_usb_present_device("rtl-sdr", true));
+    assert!(!should_hold_recovery_for_usb_present_device(
+      "hackrf_one",
+      false
+    ));
+    assert!(!should_hold_recovery_for_usb_present_device(
+      "mock_apt", true
+    ));
+  }
+
+  #[test]
+  fn loose_state_is_authoritative_during_reconciliation() {
+    assert_eq!(
+      crate::server::utils::reconcile_device_state(false, "loose"),
+      "loose"
+    );
   }
 
   #[test]

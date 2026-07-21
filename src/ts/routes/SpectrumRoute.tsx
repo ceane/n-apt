@@ -1,22 +1,21 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-import styled from "styled-components";
 import { FFTAndWaterfall, NoteCards } from "@n-apt/components";
 import type { FFTCanvasHandle } from "@n-apt/components";
-import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
-import { Button } from "@n-apt/components/ui/Button";
-import {
-  useSnapshot,
-  type SnapshotVideoFormat,
-} from "@n-apt/hooks/useSnapshot";
+import { EditableCenterFrequency } from "@n-apt/components/ui/EditableCenterFrequency";
+import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
+import type { CanvasPlaceholderState } from "@n-apt/components/ui/CanvasPlaceholder";
+import { useSnapshot } from "@n-apt/hooks/useSnapshot";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 
 import {
   InitializingContainer,
@@ -25,230 +24,104 @@ import {
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
+import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
+import {
+  isMockLiveSource as checkIsMockLiveSource,
+  getMockDeviceProfile,
+  isMockTxSource,
+  isMockAptDevice,
+} from "@n-apt/utils/deviceCapabilities";
+import {
+  getVisualizerLifecycleKey,
+  resolveWebGpuStreamTransition,
+} from "@n-apt/utils/webgpuStreamReset";
 import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
-import { useSnapshotListener } from "@n-apt/hooks/useSnapshotListener";
+import {
+  useSnapshotListener,
+  buildSnapshotSettingsLabel,
+} from "@n-apt/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
 import { useCaptureWholeChannelSegments } from "@n-apt/hooks/useCaptureWholeChannelSegments";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
+
 import {
   useAppSelector,
   useAppDispatch,
   createNoteCardFromSpectrum,
   selectNoteCardsCollapsed,
   setNoteCardsCollapsed,
+  setTxCenterFrequencyHz,
+  setTxSampleRateHz,
+  setTxPowerDbm,
+  setDeviceKind,
 } from "@n-apt/redux";
+import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   clampFrequencyRangeToBounds,
+  buildCenteredFrequencyRange,
   normalizeFrequencyRangeToHz,
-  formatFrequency,
 } from "@n-apt/utils/frequency";
 import { estimateHackrfTotalGainDb } from "@n-apt/utils/hackrfCalibration";
+import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/utils/sdrSampleRateGuards";
+import {
+  getLatestLiveFrame,
+  resolveFrameReadiness,
+  resolveLiveDevicePlaceholderState,
+} from "@n-apt/utils/liveSourcePresentation";
+import {
+  attachLiveSourceLifecyclePlaceholder,
+  isCurrentSourceFrameReady,
+  isLiveSourceAwaitingFrame,
+  isLiveSourceHandoffPending,
+  shouldPresentMockTxStandby,
+  useLiveSourceLifecycle,
+} from "@n-apt/hooks/liveSourceLifecycle";
+import {
+  getMockTxPreviewRequestKey,
+  resolveMockTxMonitorSampleRateHz,
+} from "./spectrum/mockTxPreview";
+import {
+  FAST_SPECTRUM_FALLBACK_HEIGHT,
+  FAST_WATERFALL_FALLBACK_HEIGHT,
+  FFTBackButton,
+  FastSnapshotControl,
+  FastSnapshotDivider,
+  HeaderActionSpacer,
+  NotesSnapshotButton,
+  NotesSnapshotLabel,
+  NotesSnapshotPill,
+  SpectrumContainer,
+  SpectrumContent,
+  TxOptionsCard,
+  TxOptionsGrid,
+  TxOptionsShell,
+  TxOptionsTitle,
+  TxPowerField,
+} from "./spectrum/SpectrumRouteControls";
+
+export { resolveLiveDevicePlaceholderState } from "@n-apt/utils/liveSourcePresentation";
+export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
+
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
+};
 
 interface SpectrumRouteProps {
   activeTab: "visualizer" | "analysis" | "draw";
   fftCanvasRef?: React.RefObject<FFTCanvasHandle | null>;
   onLoadingStateChange?: (isLoading: boolean) => void;
 }
-
-const SpectrumContainer = styled.div`
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-  user-select: none;
-`;
-
-const SpectrumContent = styled.div`
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-`;
-
-const FFTBackButton = styled(Button)`
-  min-width: 0;
-  height: 24px;
-  padding-inline: 12px;
-  border-radius: 999px;
-  box-shadow: none;
-  font-size: 10px;
-  line-height: 1;
-  margin-left: auto;
-`;
-
-const FastSnapshotPill = styled.div<{ $disabled?: boolean }>`
-  display: inline-flex;
-  align-items: stretch;
-  height: 24px;
-  min-height: 24px;
-  border-radius: 999px;
-  overflow: hidden;
-  border: 1px solid ${(props) => props.theme.border};
-  background-color: ${(props) => props.theme.surface};
-  color: ${(props) => props.theme.textSecondary};
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  box-shadow: none;
-  opacity: ${(props) => (props.$disabled ? 0.55 : 1)};
-`;
-
-const FastSnapshotLabel = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 0 10px;
-  color: ${(props) => props.theme.textMuted};
-  white-space: nowrap;
-  user-select: none;
-`;
-
-const FastSnapshotDivider = styled.span`
-  width: 1px;
-  align-self: stretch;
-  background-color: ${(props) => props.theme.border};
-`;
-
-const FastSnapshotModeButton = styled.button`
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: ${(props) => props.theme.textPrimary};
-  font: inherit;
-  letter-spacing: inherit;
-  padding: 0 9px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    opacity 0.15s ease;
-
-  &:disabled {
-    cursor: not-allowed;
-    color: ${(props) => props.theme.textMuted};
-  }
-
-  &:not(:disabled):hover {
-    background-color: ${(props) => props.theme.primary}20;
-    color: ${(props) => props.theme.primary};
-  }
-`;
-
-const FastSnapshotStopButton = styled(FastSnapshotModeButton)`
-  padding: 0 12px;
-  color: ${(props) => props.theme.primary};
-  font-weight: 700;
-`;
-
-const NotesSnapshotPill = styled(FastSnapshotPill)`
-  min-height: 24px;
-`;
-
-const NotesSnapshotLabel = styled(FastSnapshotLabel)`
-  padding-inline: 9px;
-`;
-
-const NotesSnapshotButton = styled(FastSnapshotModeButton)`
-  padding-inline: 10px;
-`;
-
-const HeaderActionSpacer = styled.span`
-  flex: 1 1 auto;
-  min-width: 12px;
-`;
-
-const FastRecordingDot = styled.span`
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: ${(props) => props.theme.primary};
-  animation: fast-recording-dot-blink 1s ease-in-out infinite;
-
-  @keyframes fast-recording-dot-blink {
-    0% {
-      opacity: 0.25;
-      transform: scale(0.85);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    100% {
-      opacity: 0.25;
-      transform: scale(0.85);
-    }
-  }
-`;
-
-const FastRecordingMeta = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-`;
-
-const FAST_SPECTRUM_FALLBACK_HEIGHT = 400;
-const FAST_WATERFALL_FALLBACK_HEIGHT = 300;
-
-const FastSnapshotControl: React.FC<{
-  disabled?: boolean;
-  isRecording?: boolean;
-  recordingSecondsRemaining?: number | null;
-  onImage: () => void;
-  onVideo: () => void;
-  onStop: () => void;
-  videoFormat: SnapshotVideoFormat | null;
-}> = ({
-  disabled = false,
-  isRecording = false,
-  recordingSecondsRemaining = null,
-  onImage,
-  onVideo,
-  onStop,
-  videoFormat,
-}) => {
-  if (isRecording) {
-    return (
-      <FastSnapshotPill>
-        <FastSnapshotStopButton type="button" onClick={onStop}>
-          <FastRecordingMeta>
-            <FastRecordingDot />
-            <span>
-              Stop and Save Recording
-              {typeof recordingSecondsRemaining === "number"
-                ? ` (${recordingSecondsRemaining}s)`
-                : ""}
-            </span>
-          </FastRecordingMeta>
-        </FastSnapshotStopButton>
-      </FastSnapshotPill>
-    );
-  }
-
-  return (
-    <FastSnapshotPill $disabled={disabled}>
-      <FastSnapshotLabel>Fast Snapshot</FastSnapshotLabel>
-      <FastSnapshotDivider />
-      <FastSnapshotModeButton
-        type="button"
-        disabled={disabled}
-        onClick={onImage}
-      >
-        Image
-      </FastSnapshotModeButton>
-      <FastSnapshotDivider />
-      <FastSnapshotModeButton
-        type="button"
-        disabled={disabled || !videoFormat}
-        onClick={onVideo}
-      >
-        Video {videoFormat ? `(.${videoFormat})` : ""}
-      </FastSnapshotModeButton>
-    </FastSnapshotPill>
-  );
-};
 
 type SpectrumViewSnapshot = Partial<{
   activeSignalArea: string;
@@ -279,6 +152,62 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
+  const [showStatsSpectrum, setShowStatsSpectrum] = useState(false);
+  const [showStatsWaterfall, setShowStatsWaterfall] = useState(false);
+  const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
+    useState(false);
+  const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
+  const [hasPlayedAtLeastOnce, setHasPlayedAtLeastOnce] = useState(false);
+  const [hasRenderableCurrentFrame, setHasRenderableCurrentFrame] =
+    useState(false);
+  const [playedSourceId, setPlayedSourceId] = useState<string | null>(null);
+  const txOptionsRef = useRef<HTMLDivElement | null>(null);
+  const txSignal = useAppSelector((state) => state.spectrum.txSignal || "wifi");
+  const txSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txSampleRateHz,
+  );
+  const txCenterFrequencyHz = useAppSelector(
+    (state) => state.spectrum.txCenterFrequencyHz,
+  );
+  const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
+  const txIfftSize = useAppSelector((state) => state.spectrum.txIfftSize);
+  const showTxSlider = useAppSelector(
+    (state) => state.spectrum.showTxSlider ?? true,
+  );
+  const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
+  const sourceStatuses = useAppSelector(
+    (state) => state.websocket.sourceStatuses,
+  );
+  const sourceTransport = useAppSelector(
+    (state) => state.websocket.sourceTransport,
+  );
+  const sourceFrameReadiness = useAppSelector(
+    (state) => state.websocket.sourceFrameReadiness,
+  );
+  const getTxSliderDefaults = useCallback(
+    (range: FrequencyRange) => {
+      const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
+      const visibleMaxHz =
+        Number.isFinite(range.max) && range.max > visibleMinHz
+          ? range.max
+          : visibleMinHz + 1;
+      const visibleSpanHz = visibleMaxHz - visibleMinHz;
+      const centerHz = Number.isFinite(txCenterFrequencyHz)
+        ? txCenterFrequencyHz
+        : visibleMinHz + visibleSpanHz / 2;
+      const sampleRateHz = Number.isFinite(txSampleRateHz)
+        ? Math.max(1, txSampleRateHz)
+        : Math.max(1, Math.min(120_000, visibleSpanHz));
+
+      return {
+        visibleMinHz,
+        visibleMaxHz,
+        centerHz,
+        sampleRateHz,
+      };
+    },
+    [txCenterFrequencyHz, txSampleRateHz],
+  );
   const notesCollapsed = useAppSelector(selectNoteCardsCollapsed);
   const reduxDispatch = useAppDispatch();
   const {
@@ -288,41 +217,226 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     manualVisualizerPaused,
     effectiveSdrSettings,
     signalAreaBounds,
+    selectedSourceId,
+    selectedSource,
+    selectedSourceDerived,
     wsConnection: {
       isConnected,
-      deviceState,
+      activeSourceId,
       backend,
       deviceInfo,
       deviceName,
       deviceProfile,
+      maxSampleRateHz,
       sendFrequencyRange,
       dataRef,
       captureStatus,
       sdrLimitMarkers,
+      sources,
+      sendTransmitMode,
       sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
   const storeDispatch = dispatch as React.Dispatch<any>;
+  const selectedSourceKind = selectedSource?.kind?.toLowerCase?.() ?? "";
+  const selectedSourceObjectId = selectedSource?.id ?? "";
+  const streamingSource = useMemo(
+    () =>
+      sources.find((source) => source.id === activeSourceId) ??
+      selectedSource ??
+      null,
+    [activeSourceId, selectedSource, sources],
+  );
+  const streamingSourceId = streamingSource?.id ?? selectedSourceId;
+  // Selection is the presentation target. The active transport remains the
+  // fallback owner for untagged binary frames until the source commit lands.
+  const expectedVisualizerSourceId =
+    selectedSourceId || streamingSourceId || null;
+  const [acceptedFrameSampleRateHz, setAcceptedFrameSampleRateHz] = useState<
+    number | null
+  >(null);
+  const previousLiveSourceIdRef = useRef<string | null>(
+    streamingSourceId || null,
+  );
+  const hasInitializedLiveSourceRef = useRef(false);
+  const isSelectedMockTxSource =
+    isConnected &&
+    !!selectedSource &&
+    isMockTxSource({
+      id: selectedSourceId || selectedSourceObjectId,
+      kind: selectedSourceKind,
+    });
+  const hasActiveSourceFrame =
+    hasPlayedAtLeastOnce && playedSourceId === (streamingSourceId || null);
+  const selectedSourceStatus =
+    state.sourceMode === "live" && selectedSourceId
+      ? (sourceStatuses?.[selectedSourceId] ?? selectedSource?.status ?? null)
+      : (selectedSource?.status ?? null);
+  const [webGpuStreamResetEpoch, setWebGpuStreamResetEpoch] = useState(0);
+  const previousWebGpuStreamIdentityRef = useRef<{
+    sourceId: string | null;
+    status: string | null;
+    selectedSourceId: string | null;
+  } | null>(null);
+  useLayoutEffect(() => {
+    // Track both identities so source selection remains distinguishable from a
+    // same-source reconnect. Selection already changes the lifecycle key.
+    const nextIdentity = {
+      sourceId: activeSourceId || null,
+      status: selectedSourceStatus,
+      selectedSourceId: selectedSourceId || null,
+    };
+    const prevIdentity = previousWebGpuStreamIdentityRef.current;
+    const transition = resolveWebGpuStreamTransition(
+      prevIdentity,
+      nextIdentity,
+    );
+
+    if (transition.clearLiveFrame) {
+      // The mutable frame ref bypasses Redux for performance, so clear it at
+      // the same source boundary as the GPU presentation cache.
+      dataRef.current = null;
+      if (transition.advanceResetEpoch) {
+        fftVisualizerMachine?.discardNextPersist?.(
+          getSourceViewStorageKeyForSource(streamingSource),
+        );
+      }
+    }
+    if (transition.advanceResetEpoch) {
+      setWebGpuStreamResetEpoch((epoch) => epoch + 1);
+    }
+    previousWebGpuStreamIdentityRef.current = nextIdentity;
+  }, [
+    dataRef,
+    fftVisualizerMachine,
+    selectedSourceStatus,
+    activeSourceId,
+    streamingSource,
+    streamingSourceId,
+    selectedSourceId,
+  ]);
+  const isSelectedMockTxTransmitting =
+    isSelectedMockTxSource && selectedSourceStatus === "transmitting";
+  const shouldShowMockTxStandby = shouldPresentMockTxStandby({
+    isSelectedMockTxSource,
+    isSelectedMockTxTransmitting,
+    selectedSourceId,
+    transportSourceId: sourceTransport?.sourceId ?? null,
+    transportPhase: sourceTransport?.phase ?? "idle",
+  });
+  const liveSourceLifecycle = useLiveSourceLifecycle({
+    isLive: state.sourceMode === "live",
+    selectedSourceId: selectedSourceId || null,
+    activeSourceId: activeSourceId || null,
+    transportSourceId: sourceTransport?.sourceId ?? null,
+    transportPhase: sourceTransport?.phase ?? "idle",
+    transportError: sourceTransport?.error ?? null,
+    readinessSequence: sourceFrameReadiness?.sequence ?? null,
+    hasValidFrame:
+      isCurrentSourceFrameReady({
+        selectedSourceId: selectedSourceId || null,
+        activeSourceId: activeSourceId || null,
+        expectedStreamEpoch: streamingSource?.stream_epoch ?? null,
+        readiness: sourceFrameReadiness,
+      }) ||
+      hasRenderableCurrentFrame ||
+      (isSelectedMockTxSource
+        ? selectedSourceId === activeSourceId && hasPlayedAtLeastOnce
+        : hasActiveSourceFrame),
+    deviceStatus: selectedSourceStatus,
+    isStandby:
+      shouldShowMockTxStandby &&
+      selectedSourceId === activeSourceId &&
+      !isSelectedMockTxTransmitting,
+  });
+  const isSwitchingLiveSource = isLiveSourceHandoffPending(liveSourceLifecycle);
+  const isSourceHandoffOverlayPending =
+    isLiveSourceAwaitingFrame(liveSourceLifecycle);
+  // Use selectedSourceId for the reset key so it changes when user selects a new source,
+  // even before it becomes the active streaming source. This ensures GPU state resets
+  // during the loading phase when switching from mock to hardware.
+  const visualizerLifecycleKey = getVisualizerLifecycleKey({
+    sourceId: selectedSourceId || streamingSourceId || null,
+    epoch: webGpuStreamResetEpoch,
+    status: selectedSourceStatus,
+  });
+  const visualizerSessionKey = useMemo(
+    () => getSourceViewStorageKeyForSource(selectedSource ?? streamingSource),
+    [selectedSource, streamingSource],
+  );
+  const txCapableDeviceKind =
+    selectedSourceDerived.deviceProfile?.kind ??
+    deviceProfile?.kind ??
+    deviceKind;
+  const selectedSourceCapability = selectedSource?.capability?.toLowerCase?.();
+  const isMockLiveSource = checkIsMockLiveSource({
+    selectedSource,
+    backend: selectedSourceDerived.backend || deviceKind,
+    deviceName: selectedSource?.name,
+    sourceMode: state.sourceMode,
+  });
+  const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
+    return getMockDeviceProfile({
+      selectedSource,
+      selectedSourceId,
+      backend: selectedSourceDerived.backend || deviceKind,
+      deviceName: selectedSource?.name,
+      sourceMode: state.sourceMode,
+    });
+  }, [
+    selectedSource,
+    selectedSourceId,
+    selectedSourceDerived.backend,
+    deviceKind,
+    selectedSource?.name,
+    state.sourceMode,
+  ]);
+  const fftDeviceProfile =
+    mockTxDeviceProfile ?? selectedSourceDerived.deviceProfile ?? deviceProfile;
+  const reduxDeviceKindSupportsTx =
+    deviceKind === "hackrf_one" ||
+    isMockTxSource({ id: deviceKind, kind: deviceKind }) ||
+    deviceKind === "tx_rx" ||
+    deviceKind === "tx";
+  const isRxOnlyMockSource =
+    selectedSourceCapability === "mock" ||
+    isMockAptDevice({
+      id:
+        selectedSourceDerived.deviceProfile?.kind ??
+        selectedSourceDerived.backend,
+      kind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        selectedSourceDerived.backend,
+    });
+  const canShowTxSlider =
+    !isRxOnlyMockSource &&
+    (selectedSourceCapability === "tx" ||
+      selectedSourceCapability === "tx_rx" ||
+      reduxDeviceKindSupportsTx ||
+      txCapableDeviceKind === "hackrf_one" ||
+      isMockTxSource({ id: txCapableDeviceKind, kind: txCapableDeviceKind }) ||
+      txCapableDeviceKind === "tx_rx" ||
+      txCapableDeviceKind === "tx");
 
   const effectiveTunerGainDb = useMemo(() => {
-    if (deviceProfile?.kind === "hackrf_one") {
+    const gainConfig = effectiveSdrSettings?.gain;
+    const gainObject =
+      gainConfig && typeof gainConfig === "object" ? gainConfig : null;
+    if (
+      selectedSourceDerived.deviceProfile?.kind === "hackrf_one" &&
+      gainObject
+    ) {
       return estimateHackrfTotalGainDb({
-        ampEnabled: effectiveSdrSettings?.gain?.hackrf_amp_enable,
-        lnaGainDb: effectiveSdrSettings?.gain?.hackrf_lna_gain,
-        vgaGainDb: effectiveSdrSettings?.gain?.hackrf_vga_gain,
+        ampEnabled: gainObject.hackrf_amp_enable,
+        lnaGainDb: gainObject.hackrf_lna_gain,
+        vgaGainDb: gainObject.hackrf_vga_gain,
       });
     }
 
-    return effectiveSdrSettings?.gain?.tuner_gain ?? 0;
-  }, [
-    deviceProfile?.kind,
-    effectiveSdrSettings?.gain?.hackrf_amp_enable,
-    effectiveSdrSettings?.gain?.hackrf_lna_gain,
-    effectiveSdrSettings?.gain?.hackrf_vga_gain,
-    effectiveSdrSettings?.gain?.tuner_gain,
-  ]);
+    return gainObject ? (gainObject.tuner_gain ?? 0) : 0;
+  }, [effectiveSdrSettings?.gain, selectedSourceDerived.deviceProfile?.kind]);
 
   const handleVisualizerLoadingStateChange = useCallback(
     (isLoading: boolean) => {
@@ -352,8 +466,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
     null;
   const limitMarkers = useMemo(
-    () => buildSdrLimitMarkers(sdrLimitMarkers),
-    [sdrLimitMarkers],
+    () => (isMockLiveSource ? [] : buildSdrLimitMarkers(sdrLimitMarkers)),
+    [isMockLiveSource, sdrLimitMarkers],
   );
   // themeState removed — FFTCanvas now handles theme reactivity internally
 
@@ -363,9 +477,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     });
   }, [activeTab]);
 
+  useEffect(() => {
+    const nextDeviceKind = fftDeviceProfile?.kind ?? null;
+    if (!nextDeviceKind) return;
+    reduxDispatch(setDeviceKind(nextDeviceKind));
+  }, [reduxDispatch, fftDeviceProfile?.kind]);
+
   // Device connection state management
   useDeviceConnectionState({
-    deviceState: deviceState || "disconnected",
+    deviceState: selectedSourceDerived.deviceState || "disconnected",
     showSpikeOverlay: state.showSpikeOverlay,
     dispatch,
   });
@@ -395,6 +515,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const spectrumWidth = spectrumCanvas?.width ?? 1;
     const spectrumHeight =
       spectrumCanvas?.height ?? FAST_SPECTRUM_FALLBACK_HEIGHT;
+
+    const sdrSettingsLabel = buildSnapshotSettingsLabel({
+      effectiveSdrSettings,
+      gain: state.gain,
+      ppm: state.ppm,
+      hackrfLnaGain: state.hackrfLnaGain,
+      hackrfVgaGain: state.hackrfVgaGain,
+      hackrfAmpEnabled: state.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        deviceProfile?.kind ??
+        deviceKind ??
+        undefined,
+    });
+    const sourceName =
+      selectedSourceDerived.deviceName ??
+      deviceName ??
+      (isConnected ? "SDR" : "Offline");
+
     return (
       <FastSnapshotControl
         disabled={
@@ -404,6 +544,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         isRecording={isRecording === "spectrum"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}
+        showStats={showStatsSpectrum}
+        onShowStatsChange={setShowStatsSpectrum}
         onImage={() =>
           takeFastSnapshot(
             "spectrum",
@@ -411,6 +553,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             spectrumWidth,
             spectrumHeight,
             getCanvases,
+            {
+              showStats: showStatsSpectrum,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
+            },
           )
         }
         onVideo={() =>
@@ -425,6 +577,41 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             }),
             "fast-fft-recording",
             getCanvases,
+            {
+              showStats: showStatsSpectrum,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              getActiveSignalArea: () => state.activeSignalArea,
+              getActiveSignalAreaBounds: () =>
+                signalAreaBounds?.[state.activeSignalArea] ??
+                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
+                null,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
+              getSdrSettingsLabel: () =>
+                buildSnapshotSettingsLabel({
+                  effectiveSdrSettings,
+                  gain: state.gain,
+                  ppm: state.ppm,
+                  hackrfLnaGain: state.hackrfLnaGain,
+                  hackrfVgaGain: state.hackrfVgaGain,
+                  hackrfAmpEnabled: state.hackrfAmpEnabled,
+                  hackrfBasebandBandwidth:
+                    state.hackrfBasebandBandwidth ?? undefined,
+                  deviceKind:
+                    selectedSourceDerived.deviceProfile?.kind ??
+                    deviceProfile?.kind ??
+                    deviceKind ??
+                    undefined,
+                }),
+              getSourceName: () =>
+                selectedSourceDerived.deviceName ??
+                deviceName ??
+                (isConnected ? "SDR" : "Offline"),
+            },
           )
         }
         onStop={stopFastRecording}
@@ -440,6 +627,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     startFastRecording,
     stopFastRecording,
     getCanvases,
+    showStatsSpectrum,
+    state.activeSignalArea,
+    activeSignalAreaBounds,
+    signalAreaBounds,
+    effectiveSdrSettings,
+    state.gain,
+    state.ppm,
+    state.hackrfLnaGain,
+    state.hackrfVgaGain,
+    state.hackrfAmpEnabled,
+    state.hackrfBasebandBandwidth,
+    selectedSourceDerived.deviceProfile?.kind,
+    selectedSourceDerived.deviceName,
+    deviceProfile?.kind,
+    deviceKind,
+    deviceName,
+    isConnected,
   ]);
 
   const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
@@ -447,6 +651,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const waterfallWidth = waterfallCanvas?.width ?? 1;
     const waterfallHeight =
       waterfallCanvas?.height ?? FAST_WATERFALL_FALLBACK_HEIGHT;
+
+    const sdrSettingsLabel = buildSnapshotSettingsLabel({
+      effectiveSdrSettings,
+      gain: state.gain,
+      ppm: state.ppm,
+      hackrfLnaGain: state.hackrfLnaGain,
+      hackrfVgaGain: state.hackrfVgaGain,
+      hackrfAmpEnabled: state.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ??
+        deviceProfile?.kind ??
+        deviceKind ??
+        undefined,
+    });
+    const sourceName =
+      selectedSourceDerived.deviceName ??
+      deviceName ??
+      (isConnected ? "SDR" : "Offline");
+
     return (
       <FastSnapshotControl
         disabled={
@@ -456,6 +680,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         isRecording={isRecording === "waterfall"}
         recordingSecondsRemaining={recordingSecondsRemaining}
         videoFormat={supportedVideoFormat}
+        showStats={showStatsWaterfall}
+        onShowStatsChange={setShowStatsWaterfall}
         onImage={() =>
           takeFastSnapshot(
             "waterfall",
@@ -463,6 +689,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             waterfallWidth,
             waterfallHeight,
             getCanvases,
+            {
+              showStats: showStatsWaterfall,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
+            },
           )
         }
         onVideo={() =>
@@ -477,6 +713,41 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             }),
             "fast-waterfall-recording",
             getCanvases,
+            {
+              showStats: showStatsWaterfall,
+              activeSignalArea: state.activeSignalArea,
+              activeSignalAreaBounds,
+              getActiveSignalArea: () => state.activeSignalArea,
+              getActiveSignalAreaBounds: () =>
+                signalAreaBounds?.[state.activeSignalArea] ??
+                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
+                null,
+              sourceName,
+              sdrSettingsLabel,
+              gain: state.gain ?? undefined,
+              ppm: state.ppm ?? undefined,
+              fftSize: state.fftSize ?? undefined,
+              getSdrSettingsLabel: () =>
+                buildSnapshotSettingsLabel({
+                  effectiveSdrSettings,
+                  gain: state.gain,
+                  ppm: state.ppm,
+                  hackrfLnaGain: state.hackrfLnaGain,
+                  hackrfVgaGain: state.hackrfVgaGain,
+                  hackrfAmpEnabled: state.hackrfAmpEnabled,
+                  hackrfBasebandBandwidth:
+                    state.hackrfBasebandBandwidth ?? undefined,
+                  deviceKind:
+                    selectedSourceDerived.deviceProfile?.kind ??
+                    deviceProfile?.kind ??
+                    deviceKind ??
+                    undefined,
+                }),
+              getSourceName: () =>
+                selectedSourceDerived.deviceName ??
+                deviceName ??
+                (isConnected ? "SDR" : "Offline"),
+            },
           )
         }
         onStop={stopFastRecording}
@@ -492,6 +763,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     startFastRecording,
     stopFastRecording,
     getCanvases,
+    showStatsWaterfall,
+    state.activeSignalArea,
+    activeSignalAreaBounds,
+    signalAreaBounds,
+    effectiveSdrSettings,
+    state.gain,
+    state.ppm,
+    state.hackrfLnaGain,
+    state.hackrfVgaGain,
+    state.hackrfAmpEnabled,
+    state.hackrfBasebandBandwidth,
+    selectedSourceDerived.deviceProfile?.kind,
+    selectedSourceDerived.deviceName,
+    deviceProfile?.kind,
+    deviceKind,
+    deviceName,
+    isConnected,
   ]);
 
   const handleCreateNoteCard = useCallback(() => {
@@ -537,6 +825,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     frequencyRange: state.frequencyRange,
     sourceMode: state.sourceMode,
     sampleRateHzEffective,
+    deviceKind:
+      selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind,
+    backend: selectedSourceDerived.backend ?? backend,
+    deviceName: selectedSourceDerived.deviceName ?? deviceName,
+    isRtlSdr:
+      selectedSourceDerived.deviceProfile?.is_rtl_sdr ??
+      deviceProfile?.is_rtl_sdr,
     activeSignalArea: state.activeSignalArea,
     signalAreaBounds,
     fftFrameRate: state.fftFrameRate,
@@ -554,15 +849,18 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     signalAreaBounds,
     activeSignalArea: state.activeSignalArea,
     sourceMode: state.sourceMode,
-    backend: backend ?? undefined,
-    deviceInfo: deviceInfo ?? undefined,
+    backend: selectedSourceDerived.backend ?? backend ?? undefined,
+    deviceInfo: selectedSourceDerived.deviceInfo ?? deviceInfo ?? undefined,
     effectiveSdrSettings: effectiveSdrSettings ?? undefined,
+    gain: state.gain,
+    ppm: state.ppm,
     hackrfLnaGain: state.hackrfLnaGain,
     hackrfVgaGain: state.hackrfVgaGain,
     hackrfAmpEnabled: state.hackrfAmpEnabled,
     hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-    deviceName: deviceName ?? undefined,
-    deviceProfile: deviceProfile ?? undefined,
+    deviceName: selectedSourceDerived.deviceName ?? deviceName ?? undefined,
+    deviceProfile:
+      selectedSourceDerived.deviceProfile ?? deviceProfile ?? undefined,
     fftFrameRate: state.fftFrameRate,
     captureWholeChannelSegments,
     getSnapshotData: () => fftCanvasRef.current?.getSnapshotData() ?? undefined,
@@ -596,26 +894,153 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const handleFrequencyRangeChange = useCallback(
     (range: FrequencyRange) => {
-      const channelClampedRange = clampFrequencyRangeToBounds(
-        range,
-        activeSignalAreaBounds,
+      const zoomed = state.vizZoom > 1;
+      const primaryBounds = zoomed
+        ? hardwareSpectrumBounds
+        : activeSignalAreaBounds;
+      const clampedRange = normalizeFrequencyRangeToHz(
+        primaryBounds
+          ? clampFrequencyRangeToBounds(range, primaryBounds)
+          : range,
       );
-      const hardwareClampedRange = normalizeFrequencyRangeToHz(
-        clampFrequencyRangeToBounds(
-          channelClampedRange,
-          hardwareSpectrumBounds,
-        ),
-      );
-      dispatch({ type: "SET_FREQUENCY_RANGE", range: hardwareClampedRange });
-      sendFrequencyRange(hardwareClampedRange);
+      dispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
+      sendFrequencyRange(clampedRange);
     },
     [
       sendFrequencyRange,
       dispatch,
       hardwareSpectrumBounds,
       activeSignalAreaBounds,
+      state.vizZoom,
     ],
   );
+
+  const handleCenterFrequencyChange = useCallback(
+    (nextCenterFrequencyHz: number) => {
+      if (!state.frequencyRange) return;
+
+      const spanHz = state.frequencyRange.max - state.frequencyRange.min;
+      handleFrequencyRangeChange(
+        buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz),
+      );
+    },
+    [handleFrequencyRangeChange, state.frequencyRange],
+  );
+
+  const [mockMonitorCenterHz, setMockMonitorCenterHz] = useState<number | null>(
+    () => {
+      return Number.isFinite(txCenterFrequencyHz) ? txCenterFrequencyHz : null;
+    },
+  );
+  const isDraggingTxRef = useRef(false);
+  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncMockTxSettingsFromSlider = useCallback(
+    (centerFrequencyHz: number) => {
+      if (
+        !Number.isFinite(centerFrequencyHz) ||
+        !isSelectedMockTxSource ||
+        !isConnected ||
+        isSwitchingLiveSource
+      ) {
+        return;
+      }
+
+      const viewSampleRateHz = state.frequencyRange
+        ? state.frequencyRange.max - state.frequencyRange.min
+        : undefined;
+      const txSettings = {
+        centerFrequencyHz,
+        viewCenterHz: mockMonitorCenterHz,
+        bandwidthHz: txSampleRateHz,
+        sampleRateHz: viewSampleRateHz,
+        powerDbm: txPowerDbm,
+        txSignal,
+        txIfftSize,
+      };
+
+      if (isSelectedMockTxTransmitting) {
+        const fallbackId =
+          selectedSourceId ||
+          (selectedSource &&
+          isMockTxSource({ id: selectedSource.id, kind: selectedSource.kind })
+            ? selectedSource.id
+            : "mock-tx");
+        sendTransmitMode?.(true, selectedSource?.name ?? fallbackId, {
+          serialNumber: selectedSource?.serial_number?.trim() || fallbackId,
+          ...txSettings,
+        });
+        return;
+      }
+
+      dataRef.current = null;
+      reduxDispatch(
+        requestNextLiveFrame({
+          txSettings: {
+            ...txSettings,
+            viewCenterHz: mockMonitorCenterHz,
+          },
+        }),
+      );
+    },
+    [
+      dataRef,
+      isConnected,
+      isSelectedMockTxSource,
+      isSelectedMockTxTransmitting,
+      isSwitchingLiveSource,
+      mockMonitorCenterHz,
+      reduxDispatch,
+      selectedSource,
+      selectedSourceId,
+      sendTransmitMode,
+      state.frequencyRange,
+      txIfftSize,
+      txPowerDbm,
+      txSampleRateHz,
+      txSignal,
+    ],
+  );
+
+  const handleCenterFrequencyChangeFromSlider = useCallback(
+    (value: number, isDragging?: boolean) => {
+      isDraggingTxRef.current = !!isDragging;
+      if (dragTimeoutRef.current) {
+        clearTimeout(dragTimeoutRef.current);
+      }
+      if (isDragging) {
+        // We rely on explicit isDragging = false from TxSliderOverlay on pointerup
+        isDraggingTxRef.current = true;
+      } else {
+        isDraggingTxRef.current = false;
+      }
+
+      reduxDispatch(setTxCenterFrequencyHz(value));
+      syncMockTxSettingsFromSlider(value);
+      if (!isDragging) {
+        setMockMonitorCenterHz(value);
+      }
+    },
+    [reduxDispatch, syncMockTxSettingsFromSlider],
+  );
+
+  // Sync mockMonitorCenterHz with txCenterFrequencyHz on non-drag changes (preset/sidebar)
+  useEffect(() => {
+    if (Number.isFinite(txCenterFrequencyHz) && !isDraggingTxRef.current) {
+      setMockMonitorCenterHz(txCenterFrequencyHz);
+    }
+  }, [txCenterFrequencyHz]);
+
+  // Sync mockMonitorCenterHz with state.frequencyRange on edge panning
+  useEffect(() => {
+    if (
+      state.frequencyRange &&
+      isSelectedMockTxSource &&
+      isDraggingTxRef.current
+    ) {
+      const center = (state.frequencyRange.min + state.frequencyRange.max) / 2;
+      setMockMonitorCenterHz(center);
+    }
+  }, [state.frequencyRange, isSelectedMockTxSource]);
 
   const centerFrequencyHz = useMemo(() => {
     return calculateCenterFrequency(state.frequencyRange);
@@ -802,30 +1227,571 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dispatch,
   ]);
 
+  const mockTxMonitorSampleRateHz = isSelectedMockTxSource
+    ? resolveMockTxMonitorSampleRateHz(
+        selectedSourceDerived.sdrSettings?.min_receive_sample_rate,
+        effectiveSdrSettings?.min_receive_sample_rate,
+        sampleRateHzEffective,
+        selectedSourceDerived.sampleRateHz,
+        selectedSourceDerived.sdrSettings?.sample_rate,
+        effectiveSdrSettings?.sample_rate,
+      )
+    : null;
+  const mockTxMonitorFrequencyRange = useMemo(() => {
+    if (
+      !isSelectedMockTxSource ||
+      !state.frequencyRange ||
+      !mockTxMonitorSampleRateHz
+    ) {
+      return null;
+    }
+    const fallbackCenterHz =
+      centerFrequencyHz ??
+      (state.frequencyRange.min + state.frequencyRange.max) / 2;
+    const monitorCenterHz =
+      mockMonitorCenterHz !== null ? mockMonitorCenterHz : fallbackCenterHz;
+    return buildCenteredFrequencyRange(
+      monitorCenterHz,
+      mockTxMonitorSampleRateHz,
+    );
+  }, [
+    centerFrequencyHz,
+    isSelectedMockTxSource,
+    mockTxMonitorSampleRateHz,
+    state.frequencyRange,
+    mockMonitorCenterHz,
+  ]);
+  const fftFrequencyRange = mockTxMonitorFrequencyRange ?? state.frequencyRange;
+  const fftCenterFrequencyHz = mockTxMonitorFrequencyRange
+    ? calculateCenterFrequency(mockTxMonitorFrequencyRange)
+    : centerFrequencyHz;
+  const fftHardwareSampleRateHz =
+    mockTxMonitorSampleRateHz ??
+    resolveCanonicalDisplaySampleRateHz({
+      activeSampleRateHz: state.sampleRateHz,
+      frameSampleRateHz: acceptedFrameSampleRateHz,
+      configuredSampleRateHz:
+        selectedSourceDerived.sdrSettings?.min_receive_sample_rate ??
+        effectiveSdrSettings?.min_receive_sample_rate ??
+        selectedSourceDerived.sdrSettings?.sample_rate ??
+        effectiveSdrSettings?.sample_rate,
+      maxSampleRateHz: selectedSourceDerived.maxSampleRateHz ?? maxSampleRateHz,
+      derivedSampleRateHz: sampleRateHzEffective,
+      deviceKind:
+        selectedSourceDerived.deviceProfile?.kind ?? deviceProfile?.kind,
+      backend: selectedSourceDerived.backend ?? backend,
+      deviceName: selectedSourceDerived.deviceName ?? deviceName,
+      isRtlSdr:
+        selectedSourceDerived.deviceProfile?.is_rtl_sdr ??
+        deviceProfile?.is_rtl_sdr,
+    }) ??
+    undefined;
+  const txSliderDefaults = fftFrequencyRange
+    ? getTxSliderDefaults(fftFrequencyRange)
+    : null;
+  const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
+  const transmittingTxSource = useMemo(
+    () =>
+      sources.find((source) => {
+        const capability = source.capability?.toLowerCase?.() ?? "";
+        const status = sourceStatuses?.[source.id] ?? source.status;
+        return (
+          status === "transmitting" &&
+          (isMockTxSource({ id: source.id, kind: source.kind }) ||
+            capability === "tx" ||
+            capability === "tx_rx")
+        );
+      }) ?? null,
+    [sourceStatuses, sources],
+  );
+
+  useLayoutEffect(() => {
+    setHasPlayedAtLeastOnce(false);
+    setHasRenderableCurrentFrame(false);
+    setAcceptedFrameSampleRateHz(null);
+    setPlayedSourceId(null);
+  }, [streamingSource?.stream_epoch, streamingSourceId]);
+
+  const handleRenderableLiveFrameChange = useCallback(
+    (hasCanvasFrame: boolean) => {
+      if (!hasCanvasFrame || streamingSourceId === "mock-tx") return;
+      const latestFrame = getLatestLiveFrame(dataRef.current);
+      const isReady = resolveFrameReadiness({
+        frame: latestFrame,
+        selectedSourceId: expectedVisualizerSourceId,
+        activeSourceId: activeSourceId || streamingSourceId || null,
+        expectedStreamEpoch: streamingSource?.stream_epoch ?? null,
+        frameCounter: latestFrame?.source_id ? 1 : 0,
+        handoffStartedFrameCounter: 0,
+      });
+      if (!isReady) return;
+
+      setHasRenderableCurrentFrame(true);
+      setHasPlayedAtLeastOnce(true);
+      setPlayedSourceId(streamingSourceId || null);
+      const sampleRate = latestFrame?.sample_rate;
+      if (
+        typeof sampleRate === "number" &&
+        Number.isFinite(sampleRate) &&
+        sampleRate > 0
+      ) {
+        setAcceptedFrameSampleRateHz((current) =>
+          current === sampleRate ? current : sampleRate,
+        );
+      }
+    },
+    [
+      activeSourceId,
+      dataRef,
+      expectedVisualizerSourceId,
+      streamingSource?.stream_epoch,
+      streamingSourceId,
+    ],
+  );
+
+  useLayoutEffect(() => {
+    if (state.sourceMode !== "live") {
+      previousLiveSourceIdRef.current = streamingSourceId || null;
+      return;
+    }
+    const nextSourceId = streamingSourceId || null;
+    if (!hasInitializedLiveSourceRef.current) {
+      hasInitializedLiveSourceRef.current = true;
+      previousLiveSourceIdRef.current = nextSourceId;
+      return;
+    }
+    previousLiveSourceIdRef.current = nextSourceId;
+  }, [state.sourceMode, streamingSourceId]);
+
+  useEffect(() => {
+    if (isSelectedMockTxTransmitting) {
+      setHasPlayedAtLeastOnce(true);
+      setPlayedSourceId(streamingSourceId || null);
+    }
+  }, [isSelectedMockTxTransmitting, streamingSourceId]);
+
+  useEffect(() => {
+    if (!transmittingTxSource) {
+      lastTxSettingsSyncKeyRef.current = null;
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+      return;
+    }
+
+    const viewSampleRateHz = state.frequencyRange
+      ? state.frequencyRange.max - state.frequencyRange.min
+      : undefined;
+    const syncKey = JSON.stringify({
+      sourceId: transmittingTxSource.id,
+      txSignal,
+      txCenterFrequencyHz,
+      mockMonitorCenterHz,
+      txSampleRateHz,
+      viewSampleRateHz,
+      txPowerDbm,
+    });
+    if (lastTxSettingsSyncKeyRef.current === syncKey) {
+      return;
+    }
+
+    const sendTxSettings = () => {
+      lastTxSettingsSyncKeyRef.current = syncKey;
+      sendTransmitMode?.(
+        true,
+        transmittingTxSource.name ?? transmittingTxSource.id,
+        {
+          serialNumber:
+            transmittingTxSource.serial_number?.trim() ||
+            transmittingTxSource.id,
+          centerFrequencyHz: txCenterFrequencyHz,
+          viewCenterHz: mockMonitorCenterHz,
+          bandwidthHz: txSampleRateHz,
+          sampleRateHz: viewSampleRateHz,
+          powerDbm: txPowerDbm,
+          txSignal,
+        },
+      );
+    };
+
+    if (lastTxSettingsSyncKeyRef.current === null) {
+      sendTxSettings();
+      return;
+    }
+
+    if (txSettingsSyncTimerRef.current) {
+      clearTimeout(txSettingsSyncTimerRef.current);
+    }
+    txSettingsSyncTimerRef.current = setTimeout(() => {
+      txSettingsSyncTimerRef.current = null;
+      sendTxSettings();
+    }, 16);
+
+    return () => {
+      if (txSettingsSyncTimerRef.current) {
+        clearTimeout(txSettingsSyncTimerRef.current);
+        txSettingsSyncTimerRef.current = null;
+      }
+    };
+  }, [
+    sendTransmitMode,
+    state.frequencyRange,
+    transmittingTxSource,
+    mockMonitorCenterHz,
+    txCenterFrequencyHz,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
+  ]);
+
+  const lastMockTxPreviewRequestKeyRef = useRef<string | null>(null);
+  const mockTxPreviewRequestKey = useMemo(() => {
+    const viewSampleRateHz = state.frequencyRange
+      ? state.frequencyRange.max - state.frequencyRange.min
+      : undefined;
+    return (
+      getMockTxPreviewRequestKey({
+        sourceId: selectedSourceId,
+        centerFrequencyHz: txCenterFrequencyHz,
+        sampleRateHz: txSampleRateHz,
+        signal: txSignal,
+        powerDbm: txPowerDbm,
+        ifftSize: txIfftSize,
+      }) + `|viewCenter:${mockMonitorCenterHz}|viewSpan:${viewSampleRateHz}`
+    );
+  }, [
+    selectedSourceId,
+    txIfftSize,
+    txCenterFrequencyHz,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
+    mockMonitorCenterHz,
+    state.frequencyRange,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isSelectedMockTxSource ||
+      isSelectedMockTxTransmitting ||
+      !isConnected ||
+      isSwitchingLiveSource
+    ) {
+      lastMockTxPreviewRequestKeyRef.current = null;
+      return;
+    }
+    if (lastMockTxPreviewRequestKeyRef.current === mockTxPreviewRequestKey) {
+      return;
+    }
+    lastMockTxPreviewRequestKeyRef.current = mockTxPreviewRequestKey;
+    dataRef.current = null;
+    reduxDispatch(
+      requestNextLiveFrame({
+        txSettings: {
+          centerFrequencyHz: txCenterFrequencyHz,
+          viewCenterHz: mockMonitorCenterHz,
+          bandwidthHz: txSampleRateHz,
+          sampleRateHz: state.frequencyRange
+            ? state.frequencyRange.max - state.frequencyRange.min
+            : undefined,
+          powerDbm: txPowerDbm,
+          txSignal,
+          txIfftSize,
+        },
+      }),
+    );
+  }, [
+    dataRef,
+    isConnected,
+    isSelectedMockTxSource,
+    isSelectedMockTxTransmitting,
+    isSwitchingLiveSource,
+    mockTxPreviewRequestKey,
+    reduxDispatch,
+    txCenterFrequencyHz,
+    mockMonitorCenterHz,
+    txIfftSize,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
+  ]);
+
+  // Keep the last painted frame available during handoff. FFTCanvas rejects
+  // frames that do not match expectedSourceId, while its existing presentation
+  // remains visible until the target frame arrives or loading exceeds grace.
+  const fftDataRef = dataRef;
+  const mockTxPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
+    if (!shouldShowMockTxStandby) {
+      return null;
+    }
+    return {
+      kind: "top-bar",
+      title: "Start Tx to transmit",
+      sourceLabel:
+        selectedSource?.name ??
+        selectedSourceDerived.deviceName ??
+        "Mock Tx SDR",
+      message: "Start Tx to view backend-generated monitor I/Q.",
+    };
+  }, [
+    shouldShowMockTxStandby,
+    selectedSource?.name,
+    selectedSourceDerived.deviceName,
+  ]);
+  const deviceRecoveryPlaceholderState =
+    useMemo<CanvasPlaceholderState | null>(() => {
+      const sourceLabel =
+        selectedSourceDerived.deviceName ??
+        selectedSourceDerived.backend ??
+        "device";
+      return resolveLiveDevicePlaceholderState({
+        deviceState:
+          selectedSourceDerived.deviceState ?? streamingSource?.status ?? null,
+        sourceLabel,
+        loadingAttempt: streamingSource?.loading_attempt,
+        loadingAttemptMax: streamingSource?.loading_attempt_max,
+        sourceId: streamingSource?.id,
+        hasPlayedAtLeastOnce,
+        hasRenderableCurrentFrame,
+      });
+    }, [
+      streamingSource?.id,
+      streamingSource?.loading_attempt,
+      streamingSource?.loading_attempt_max,
+      streamingSource?.status,
+      selectedSourceDerived.backend,
+      selectedSourceDerived.deviceName,
+      selectedSourceDerived.deviceState,
+      hasPlayedAtLeastOnce,
+      hasRenderableCurrentFrame,
+    ]);
+  const sourceHandoffPlaceholderState =
+    useMemo<CanvasPlaceholderState | null>(() => {
+      if (!isSourceHandoffOverlayPending) return null;
+      return {
+        kind: "loading",
+        paneLabel: "FFT",
+        sourceLabel:
+          selectedSource?.name ??
+          selectedSourceDerived.deviceName ??
+          streamingSource?.name ??
+          "device",
+        message: "Waiting for the first frame to arrive.",
+      };
+    }, [
+      isSourceHandoffOverlayPending,
+      selectedSource?.name,
+      selectedSourceDerived.deviceName,
+      streamingSource?.name,
+    ]);
+  const presentedLiveSourceLifecycle = useMemo(
+    () =>
+      attachLiveSourceLifecyclePlaceholder(liveSourceLifecycle, {
+        devicePlaceholder: deviceRecoveryPlaceholderState,
+        handoffPlaceholder: sourceHandoffPlaceholderState,
+        standbyPlaceholder: mockTxPlaceholderState,
+      }),
+    [
+      deviceRecoveryPlaceholderState,
+      liveSourceLifecycle,
+      mockTxPlaceholderState,
+      sourceHandoffPlaceholderState,
+    ],
+  );
+  const livePlaceholderState = presentedLiveSourceLifecycle.placeholder;
+  const isDeviceRecovering =
+    presentedLiveSourceLifecycle.phase === "recovering";
+  const handleVizPanChange = useCallback(
+    (nextPan: number) => {
+      if (
+        isSelectedMockTxTransmitting &&
+        state.sourceMode === "live" &&
+        state.frequencyRange
+      ) {
+        const currentRange = state.frequencyRange;
+        const span = currentRange.max - currentRange.min;
+        if (Number.isFinite(span) && span > 0 && Number.isFinite(nextPan)) {
+          const currentCenter = (currentRange.min + currentRange.max) / 2;
+          const nextCenter = currentCenter + nextPan;
+          handleFrequencyRangeChange({
+            min: nextCenter - span / 2,
+            max: nextCenter + span / 2,
+          });
+          setVizPanOffset(0);
+          return;
+        }
+      }
+
+      setVizPanOffset(nextPan);
+    },
+    [
+      handleFrequencyRangeChange,
+      isSelectedMockTxTransmitting,
+      setVizPanOffset,
+      state.frequencyRange,
+      state.sourceMode,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isTxOptionsEditing) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const shell = txOptionsRef.current;
+      if (!shell || event.composedPath().includes(shell)) return;
+      setIsTxOptionsEditing(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTxOptionsEditing(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isTxOptionsEditing]);
+
   return (
     <SpectrumContainer>
       <SpectrumContent>
         {state.sourceMode === "live" &&
-          state.frequencyRange &&
-          centerFrequencyHz !== null && (
+          fftFrequencyRange &&
+          fftCenterFrequencyHz !== null && (
             <>
               <FFTAndWaterfall
+                key={visualizerLifecycleKey}
                 ref={fftCanvasRef}
-                dataRef={dataRef}
-                frequencyRange={state.frequencyRange}
-                centerFrequencyHz={centerFrequencyHz}
+                txSlider={
+                  showTxSlider && canShowTxSlider
+                    ? {
+                        visible: true,
+                        signalLabel: resolveTxSignalDisplayLabel(txSignal),
+                        powerDbm: txPowerDbm,
+                        visibleMinHz:
+                          txSliderDefaults?.visibleMinHz ??
+                          fftFrequencyRange.min,
+                        visibleMaxHz:
+                          txSliderDefaults?.visibleMaxHz ??
+                          fftFrequencyRange.max,
+                        txCenterHz:
+                          txSliderDefaults?.centerHz ??
+                          (fftFrequencyRange.min + fftFrequencyRange.max) / 2,
+                        txSampleRateHz:
+                          txSliderDefaults?.sampleRateHz ??
+                          Math.max(
+                            1,
+                            fftFrequencyRange.max - fftFrequencyRange.min,
+                          ),
+                        onCenterFrequencyChange:
+                          handleCenterFrequencyChangeFromSlider,
+                        onSampleRateChange: (value) =>
+                          reduxDispatch(setTxSampleRateHz(value)),
+                        onOptionsRequest: () => setIsTxOptionsEditing(true),
+                      }
+                    : undefined
+                }
+                overlayContent={
+                  <>
+                    {isCenterFrequencyEditing ? (
+                      <EditableCenterFrequency
+                        centerFrequencyHz={fftCenterFrequencyHz}
+                        onCenterFrequencyChange={handleCenterFrequencyChange}
+                        onClose={() => setIsCenterFrequencyEditing(false)}
+                      />
+                    ) : null}
+                    {isTxOptionsEditing && txSliderDefaults ? (
+                      <TxOptionsShell ref={txOptionsRef}>
+                        <TxOptionsCard>
+                          <TxOptionsTitle>Tx Slider Options</TxOptionsTitle>
+                          <TxOptionsGrid>
+                            <FrequencyInput
+                              label="Center"
+                              valueHz={txSliderDefaults.centerHz}
+                              minHz={txSliderDefaults.visibleMinHz}
+                              maxHz={txSliderDefaults.visibleMaxHz}
+                              onChangeHz={(value) =>
+                                reduxDispatch(setTxCenterFrequencyHz(value))
+                              }
+                              commitOnBlur
+                              autoFocus
+                            />
+                            <FrequencyInput
+                              label="Bandwidth"
+                              valueHz={txSliderDefaults.sampleRateHz}
+                              minHz={1}
+                              maxHz={
+                                txSliderDefaults.visibleMaxHz -
+                                txSliderDefaults.visibleMinHz
+                              }
+                              onChangeHz={(value) =>
+                                reduxDispatch(setTxSampleRateHz(value))
+                              }
+                              commitOnBlur
+                            />
+                            <TxPowerField>
+                              Power dBm
+                              <input
+                                type="number"
+                                value={
+                                  Number.isFinite(txPowerDbm) ? txPowerDbm : -18
+                                }
+                                onChange={(event) =>
+                                  reduxDispatch(
+                                    setTxPowerDbm(Number(event.target.value)),
+                                  )
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    setIsTxOptionsEditing(false);
+                                  }
+                                }}
+                              />
+                            </TxPowerField>
+                          </TxOptionsGrid>
+                        </TxOptionsCard>
+                      </TxOptionsShell>
+                    ) : null}
+                  </>
+                }
+                dataRef={fftDataRef}
+                expectedSourceId={expectedVisualizerSourceId}
+                frameSourceIdFallback={activeSourceId || streamingSourceId}
+                frequencyRange={fftFrequencyRange}
+                centerFrequencyHz={fftCenterFrequencyHz}
+                onCenterFrequencyDoubleClick={() =>
+                  setIsCenterFrequencyEditing(true)
+                }
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
-                hardwareSampleRateHz={sampleRateHzEffective ?? undefined}
-                deviceProfile={deviceProfile}
+                hardwareSampleRateHz={fftHardwareSampleRateHz}
+                deviceProfile={fftDeviceProfile}
+                deviceBackend={selectedSourceDerived.backend ?? backend}
+                deviceName={selectedSourceDerived.deviceName ?? deviceName}
                 tunerGainDb={effectiveTunerGainDb}
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
-                isPaused={manualVisualizerPaused}
+                isPaused={
+                  isSelectedMockTxTransmitting ? false : manualVisualizerPaused
+                }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}
                 powerScale={state.powerScale}
-                isDeviceConnected={deviceState === "connected"}
+                isDeviceConnected={
+                  isConnected &&
+                  (isSelectedMockTxSource ||
+                    hasRenderableCurrentFrame ||
+                    hasPlayedAtLeastOnce ||
+                    selectedSourceDerived.deviceState === "connected" ||
+                    selectedSourceDerived.deviceState === "streaming" ||
+                    isDeviceRecovering)
+                }
                 onFrequencyRangeChange={handleFrequencyRangeChange}
                 displayTemporalResolution={state.displayTemporalResolution}
                 vizZoom={vizZoom}
@@ -833,13 +1799,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 vizZoomFloorPan={state.vizZoomFloorPan}
                 vizPanOffset={vizPanOffset}
                 autoZoomStability={state.autoZoomStability}
-                placeholderSourceLabel={deviceName ?? backend ?? "device"}
+                placeholderSourceLabel={
+                  selectedSourceDerived.deviceName ??
+                  selectedSourceDerived.backend ??
+                  "device"
+                }
+                placeholderState={livePlaceholderState}
+                loadingPlaceholderDelayMs={isMockLiveSource ? 1_000 : 160}
+                onRenderableFrameChange={handleRenderableLiveFrameChange}
+                isStandby={shouldShowMockTxStandby}
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={(pan) =>
                   dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
                 }
-                onVizPanChange={setVizPanOffset}
+                onVizPanChange={handleVizPanChange}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
                 onFftDbLimitsChange={(min, max) =>
@@ -866,7 +1840,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 }
                 awaitingDeviceData={false}
                 visualizerMachine={fftVisualizerMachine}
-                visualizerSessionKey="live"
+                visualizerSessionKey={visualizerSessionKey}
+                webGpuStreamResetEpoch={webGpuStreamResetEpoch}
                 onLoadingStateChange={handleVisualizerLoadingStateChange}
                 headerActionContent={
                   <>
@@ -908,8 +1883,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               stitchSourceSettings={state.stitchSourceSettings}
               isPaused={state.isStitchPaused}
               fftSize={state.fftSize}
+              displayTemporalResolution={
+                state.displayTemporalResolution === "medium"
+                  ? "high"
+                  : state.displayTemporalResolution
+              }
               displayMode={state.displayMode}
               powerScale={state.powerScale}
+              vizZoom={vizZoom}
+              vizZoomFloor={vizZoomFloor}
+              vizZoomFloorPan={state.vizZoomFloorPan}
+              vizPanOffset={vizPanOffset}
+              autoZoomStability={state.autoZoomStability}
+              fftMin={state.fftMinDb}
+              fftMax={state.fftMaxDb}
+              onVizZoomChange={setVizZoom}
+              onVizZoomFloorChange={setVizZoomFloor}
+              onVizZoomFloorPanChange={(pan) =>
+                dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
+              }
+              onVizPanChange={handleVizPanChange}
               onStitchStatus={(status) =>
                 storeDispatch({ type: "SET_STITCH_STATUS", status })
               }

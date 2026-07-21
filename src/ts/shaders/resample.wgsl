@@ -9,6 +9,7 @@ struct ResampleParams {
 @group(0) @binding(0) var<storage, read> input_buffer: array<f32>;
 @group(0) @binding(1) var<storage, read_write> output_buffer: array<f32>;
 @group(0) @binding(2) var<uniform> params: ResampleParams;
+@group(0) @binding(3) var<storage, read_write> output_peak_indices: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -21,13 +22,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let end = max(start + 1, u32(ceil(f32(x + 1u) * f32(params.src_len) / f32(params.out_len))));
 
   var max_val: f32 = -3.402823466e38; // f32::MIN
+  var max_index: u32 = start;
   for (var i = start; i < end && i < params.src_len; i = i + 1) {
     let v = input_buffer[i];
     // Check if v is finite (not NaN or infinity) using WGSL operations
     if (v == v && abs(v) < 3.402823466e38 && v > max_val) {
       max_val = v;
+      max_index = i;
     }
   }
   
   output_buffer[x] = select(f32(-120.0), max_val, max_val > -3.402823466e38);
+  output_peak_indices[x] = max_index;
 }

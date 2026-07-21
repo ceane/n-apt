@@ -204,8 +204,8 @@ export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
         ))}
 
         <HelperText>
-          Beat detection feeds the FFT node when the flow is composed
-          left-to-right.
+          Beat detection consumes upstream Waterfall history when the flow is
+          composed top-to-bottom.
         </HelperText>
       </Section>
     </NodeContainer>

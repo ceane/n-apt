@@ -228,6 +228,7 @@ export interface GainLimits {
 interface SourceSettingsSectionProps {
   sourceMode: "live" | "file";
   deviceType?: string;
+  disabled?: boolean;
   ppm: number;
   gain: number;
   hackrfLnaGain?: number;
@@ -262,10 +263,11 @@ interface SourceSettingsSectionProps {
 export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   sourceMode,
   deviceType,
+  disabled = false,
   ppm,
   gain,
-  hackrfLnaGain = 40.0,
-  hackrfVgaGain = 62,
+  hackrfLnaGain = 0.0,
+  hackrfVgaGain = 30,
   hackrfAmpEnabled = false,
   hackrfBasebandBandwidth,
   hackrfCurrentSampleRate = 0,
@@ -274,7 +276,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   stitchSourceSettings,
   isConnected,
   disableAgcControls = false,
-  maxGain = 49.6,
+  maxGain = 46.9,
   gainLimits,
   frequencyRangeMin,
   onPpmChange,
@@ -474,7 +476,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   };
 
   return (
-    <Section>
+    <Section
+      style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}
+    >
       <SectionTitle>
         <SlidersVertical size={14} />
         <SectionText>Source Settings</SectionText>
@@ -507,8 +511,8 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 sourceMode === "file"
                   ? stitchSourceSettings.gain
                   : gainLimits?.step === 0.1
-                    ? Number(gain.toFixed(1))
-                    : gain
+                    ? Number((gain ?? 0).toFixed(1))
+                    : (gain ?? 0)
               }
               onChange={(e) => {
                 const stepVal = gainLimits?.step ?? 1.0;

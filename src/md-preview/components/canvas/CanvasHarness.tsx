@@ -215,10 +215,10 @@ export function CanvasHarness({
                 dragMomentum={false}
                 style={{ touchAction: 'none' }}
               >
-                {/* Drag handle spanning title bar */}
+                {/* Drag handle spanning middle of title bar */}
                 <div
                   onPointerDown={(e) => dragControls.start(e)}
-                  style={{ position: 'absolute', top: 0, left: 0, right: '2rem', height: '42px', zIndex: 15, cursor: 'grab', touchAction: 'none' }}
+                  style={{ position: 'absolute', top: 0, left: '2rem', right: '2rem', height: '42px', zIndex: 15, cursor: 'grab', touchAction: 'none' }}
                 />
                 {/* Close button inside the panel to revert to the dot */}
                 <div style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', zIndex: 20, cursor: 'pointer' }} onClick={handleToggleControls}>
@@ -231,6 +231,7 @@ export function CanvasHarness({
                   store={store}
                   fill
                   flat
+                  collapsed={false}
                   titleBar={{ title: 'Parameters', filter: false }}
                   theme={{
                     colors: {

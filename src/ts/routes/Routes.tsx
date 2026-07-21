@@ -57,8 +57,29 @@ const TransformersRoute = lazy(() =>
     default: m.TransformersRoute,
   })),
 );
+const Model3DGalleryRoute = lazy(() =>
+  import("@n-apt/routes/Model3DGalleryRoute").then((m) => ({
+    default: m.Model3DGalleryRoute,
+  })),
+);
+const LegalDocumentRoute = lazy(() =>
+  import("@n-apt/routes/LegalDocumentRoute").then((m) => ({
+    default: m.LegalDocumentRoute,
+  })),
+);
+const LearnSignalsRoute = lazy(() =>
+  import("@n-apt/routes/LearnSignalsRoute").then((m) => ({
+    default: m.LearnSignalsRoute,
+  })),
+);
+const CellularTriangulationTargetingDemoRoute = lazy(() =>
+  import("@n-apt/tracked-interactive/Route").then((m) => ({
+    default: m.CellularTriangulationTargetingDemoRoute,
+  })),
+);
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
+import { LearnSignalsProvider } from "@n-apt/contexts/LearnSignalsContext";
 import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
 
 import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
@@ -214,6 +235,10 @@ const AppRoutesInner: React.FC = () => {
           element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
         <Route
+          path="/auth"
+          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
+        />
+        <Route
           path="/visualizer"
           element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
@@ -283,6 +308,16 @@ const AppRoutesInner: React.FC = () => {
           }
         />
         <Route
+          path="/3d-model-gallery"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <Model3DGalleryRoute />
+            </Suspense>
+          }
+        />
+        <Route
           path="/pretext-demo"
           element={
             <Suspense
@@ -309,6 +344,68 @@ const AppRoutesInner: React.FC = () => {
               fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
             >
               <TransformersRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/terms"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/privacy"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/license"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/responsible-use"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <LegalDocumentRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/learn-signals"
+          element={
+            <LearnSignalsProvider>
+              <Suspense
+                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+              >
+                <LearnSignalsRoute />
+              </Suspense>
+            </LearnSignalsProvider>
+          }
+        />
+        <Route
+          path="/game"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <CellularTriangulationTargetingDemoRoute />
             </Suspense>
           }
         />

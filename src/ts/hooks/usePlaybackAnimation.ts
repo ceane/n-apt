@@ -5,6 +5,7 @@ interface UsePlaybackAnimationProps {
   hasStitchedData: boolean;
   isPaused: boolean;
   activeChannel: number;
+  fftSize?: number;
   allChannelsRef: React.MutableRefObject<any[]>;
   precomputedFrames: React.MutableRefObject<Array<LiveFrameData | null>>;
   fftCanvasDataRef: React.MutableRefObject<LiveFrameData | null>;
@@ -12,10 +13,17 @@ interface UsePlaybackAnimationProps {
   onFrameEmitted?: () => void;
 }
 
+type PlaybackFrameUpdate = {
+  sample_offset: number;
+  timestamp_us?: number;
+  patch: Record<string, unknown>;
+};
+
 export const usePlaybackAnimation = ({
   hasStitchedData,
   isPaused,
   activeChannel,
+  fftSize,
   allChannelsRef,
   precomputedFrames: _precomputedFrames,
   fftCanvasDataRef,
@@ -34,13 +42,17 @@ export const usePlaybackAnimation = ({
   const cachedTotalFramesRef = useRef(0);
   const cachedChunkSizeRef = useRef(0);
   const cachedChannelIdRef = useRef<any>(null); // identity check for channel object
+  const playbackMetadataRef = useRef<Record<string, unknown> | null>(null);
+  const frameUpdateIndexRef = useRef(0);
 
   useEffect(() => {
-    if (!hasStitchedData) {
+      if (!hasStitchedData) {
       iqFrameIdxRef.current = 0;
       lastFrameTimeRef.current = null;
       cachedIqRef.current = null;
       cachedChannelIdRef.current = null;
+      playbackMetadataRef.current = null;
+      frameUpdateIndexRef.current = 0;
     }
   }, [hasStitchedData]);
 
@@ -64,13 +76,20 @@ export const usePlaybackAnimation = ({
         // Rebuild cached values only when the channel object changes
         if (cachedChannelIdRef.current !== channelData) {
           cachedChannelIdRef.current = channelData;
+          playbackMetadataRef.current = {
+            center_frequency_hz: channelData.center_freq_hz,
+            sample_rate_hz: channelData.sample_rate_hz,
+            fft_size: fftSize || channelData.bins_per_frame || 2048,
+            fft_window: channelData.fft_window,
+          };
+          frameUpdateIndexRef.current = 0;
           const iqData = channelData.iq_data || channelData.iq;
           if (iqData && iqData.length > 0) {
             // Zero-copy when already Uint8Array (our worker now always provides this)
             cachedIqRef.current =
               iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-            const fftSize = channelData.bins_per_frame || 2048;
-            cachedChunkSizeRef.current = fftSize * 2;
+            const frameFftSize = fftSize || channelData.bins_per_frame || 2048;
+            cachedChunkSizeRef.current = frameFftSize * 2;
             cachedTotalFramesRef.current = Math.max(
               1,
               Math.floor(
@@ -97,11 +116,29 @@ export const usePlaybackAnimation = ({
           );
           iqFrameIdxRef.current = frameIdx + 1;
 
+          const updates = (channelData.frame_updates || []) as PlaybackFrameUpdate[];
+          while (
+            frameUpdateIndexRef.current < updates.length &&
+            Number(updates[frameUpdateIndexRef.current].sample_offset) <= offset
+          ) {
+            const update = updates[frameUpdateIndexRef.current++];
+            playbackMetadataRef.current = {
+              ...(playbackMetadataRef.current || {}),
+              ...update.patch,
+            };
+          }
+
           if (chunk.length >= 2) {
+            const playbackMetadata = playbackMetadataRef.current || {};
             fftCanvasDataRef.current = {
               type: "spectrum",
-              center_frequency_hz: channelData.center_freq_hz,
-              sample_rate: channelData.sample_rate_hz,
+              center_frequency_hz: Number(
+                playbackMetadata.center_frequency_hz ?? channelData.center_freq_hz,
+              ),
+              sample_rate: Number(
+                playbackMetadata.sample_rate_hz ?? channelData.sample_rate_hz,
+              ),
+              timestamp,
               data_type: "iq_raw",
               iq_data: chunk,
             };
@@ -118,7 +155,7 @@ export const usePlaybackAnimation = ({
         }
       }
     },
-    [allChannelsRef, activeChannel, fftCanvasDataRef, onFrameEmitted],
+    [allChannelsRef, activeChannel, fftCanvasDataRef, fftSize, onFrameEmitted],
   );
 
   useEffect(() => {

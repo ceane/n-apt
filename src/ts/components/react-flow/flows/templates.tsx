@@ -1,6 +1,7 @@
 import React from "react";
-import { Zap, Activity, BarChart3, Waves, Music } from "lucide-react";
+import { Zap, Activity, Waves, Music, Radio } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
+import { FindBeatsFlow } from "@n-apt/components/react-flow/flows/FindBeatsFlow";
 
 export interface FlowTemplate {
   id: string;
@@ -12,6 +13,78 @@ export interface FlowTemplate {
 }
 
 export const flowTemplates: FlowTemplate[] = [
+  {
+    id: "tx-suite",
+    label: "Tx Suite (Two Devices or One Duplex Device)",
+    description: "Pair receive and transmit sources for controlled Tx analysis",
+    icon: <Radio size={16} />,
+    nodes: [
+      {
+        id: "source",
+        type: "custom",
+        position: { x: 425, y: 40 },
+        data: { label: "Source", sourceNode: true, txSuite: true, txSuiteSource: true, sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "rx-channel",
+        type: "custom",
+        position: { x: 650, y: 360 },
+        data: { label: "Rx Channels", txSuite: true, channelNode: true, sourceRole: "rx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "rx-signal-config",
+        type: "custom",
+        position: { x: 1250, y: 360 },
+        data: { label: "Rx Signal Configuration", txSuite: true, signalOptions: true, sourceRole: "rx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "tx-settings",
+        type: "custom",
+        position: { x: 40, y: 360 },
+        data: { label: "Tx Settings", txSuite: true, txOptions: true, sourceRole: "tx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "tx-signal-config",
+        type: "custom",
+        position: { x: 40, y: 850 },
+        data: { label: "Tx Signal Configuration", txSuite: true, txSignalOptions: true, sourceRole: "tx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "rx-fft",
+        type: "custom",
+        position: { x: 650, y: 1350 },
+        data: { label: "Rx FFT", txSuite: true, fftOptions: true, sourceRole: "rx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "rx-waterfall",
+        type: "custom",
+        position: { x: 650, y: 1900 },
+        data: { label: "Rx Waterfall", txSuite: true, waterfallOptions: true, sourceRole: "rx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "tx-fft",
+        type: "custom",
+        position: { x: 40, y: 1350 },
+        data: { label: "Tx FFT", txSuite: true, fftOptions: true, sourceRole: "tx", sourceBindingGroup: "tx-suite" },
+      },
+      {
+        id: "tx-waterfall",
+        type: "custom",
+        position: { x: 40, y: 1900 },
+        data: { label: "Tx Waterfall", txSuite: true, waterfallOptions: true, sourceRole: "tx", sourceBindingGroup: "tx-suite" },
+      },
+    ],
+    edges: [
+      { id: "tx-suite-source-rx-channel", source: "source", target: "rx-channel", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "tx-suite-source-tx-settings", source: "source", target: "tx-settings", animated: true, style: { stroke: "#a855f7" } },
+      { id: "tx-suite-rx-channel-config", source: "rx-channel", target: "rx-signal-config", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "tx-suite-rx-config-fft", source: "rx-signal-config", target: "rx-fft", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "tx-suite-rx-config-waterfall", source: "rx-signal-config", target: "rx-waterfall", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "tx-suite-tx-signal-config", source: "tx-settings", target: "tx-signal-config", animated: true, style: { stroke: "#a855f7" } },
+      { id: "tx-suite-tx-fft", source: "tx-signal-config", target: "tx-fft", animated: true, style: { stroke: "#a855f7" } },
+      { id: "tx-suite-tx-waterfall", source: "tx-signal-config", target: "tx-waterfall", animated: true, style: { stroke: "#a855f7" } },
+    ],
+  },
   {
     id: "default",
     label: "Default Flow",
@@ -477,75 +550,5 @@ export const flowTemplates: FlowTemplate[] = [
       },
     ],
   },
-  {
-    id: "find-beats",
-    label: "Find Beats",
-    description: "Detect beat frequencies and heterodyning",
-    icon: <BarChart3 size={16} />,
-    nodes: [
-      {
-        id: "source",
-        type: "custom",
-        position: { x: 250, y: 50 },
-        data: {
-          label: "Source",
-          description: "Signal source",
-          sourceNode: true,
-        },
-      },
-      {
-        id: "channel",
-        type: "custom",
-        position: { x: 250, y: 450 },
-        data: {
-          label: "Channel",
-          description: "Channel configuration",
-          channelNode: true,
-        },
-      },
-      {
-        id: "fft",
-        type: "custom",
-        position: { x: 250, y: 850 },
-        data: {
-          label: "FFT",
-          description: "Fast Fourier Transform",
-          fftOptions: true,
-        },
-      },
-      {
-        id: "beat",
-        type: "custom",
-        position: { x: 250, y: 1250 },
-        data: {
-          label: "Beat Detection",
-          description: "Detect beat frequencies and heterodyning",
-          beatOptions: true,
-        },
-      },
-    ],
-    edges: [
-      {
-        id: "e1",
-        source: "source",
-        target: "channel",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e2",
-        source: "channel",
-        target: "fft",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e3",
-        source: "fft",
-        target: "beat",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-    ],
-  },
+  FindBeatsFlow,
 ];

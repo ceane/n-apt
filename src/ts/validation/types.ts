@@ -58,7 +58,7 @@ export interface EnhancedCaptureRequest extends SdrProcessorMetadata {
   bandwidth?: number;
   bandwidthCenterFrequency?: number;
   durationS: number;
-  fileType: ".napt" | ".wav";
+  fileType: ".napt" | ".wav" | ".iq";
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
   fftSize: number;

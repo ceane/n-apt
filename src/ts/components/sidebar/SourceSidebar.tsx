@@ -18,6 +18,23 @@ interface SourceSidebarProps {
   onSourceModeChange?: (mode: SourceMode) => void;
   backend?: string | null;
   deviceName?: string | null;
+  devices?: React.ComponentProps<typeof SourceInput>["devices"];
+  selectedDeviceId?: string;
+  onSelectedDeviceChange?: (id: string) => void;
+  selectionMode?: "single" | "multi";
+  maxSelectedDevices?: number;
+  selectedDeviceIds?: string[];
+  onSelectedDevicesChange?: (ids: string[]) => void;
+  spaceBoundDeviceId?: string | null;
+  onToggleDeviceRxPause?: (id: string) => void;
+  onToggleDeviceTxMode?: (id: string) => void;
+  deviceTxActionsEnabled?: boolean;
+  compactActiveOnly?: boolean;
+  selectedFilesCount?: number;
+  onFileAction?: () => void;
+  onFilesSelected?: (files: File[]) => void;
+  fileActionLabel?: string;
+  fileActionTitle?: string;
 }
 
 export const SourceSidebar: React.FC<SourceSidebarProps> = ({
@@ -25,6 +42,23 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
   onSourceModeChange,
   backend,
   deviceName,
+  devices,
+  selectedDeviceId,
+  onSelectedDeviceChange,
+  selectionMode = "single",
+  maxSelectedDevices = 2,
+  selectedDeviceIds,
+  onSelectedDevicesChange,
+  spaceBoundDeviceId,
+  onToggleDeviceRxPause,
+  onToggleDeviceTxMode,
+  deviceTxActionsEnabled = true,
+  compactActiveOnly,
+  selectedFilesCount,
+  onFileAction,
+  onFilesSelected,
+  fileActionLabel,
+  fileActionTitle,
 }) => {
   return (
     <Section>
@@ -34,6 +68,23 @@ export const SourceSidebar: React.FC<SourceSidebarProps> = ({
         backend={backend || null}
         deviceName={deviceName || null}
         onSourceModeChange={onSourceModeChange || (() => {})}
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onSelectedDeviceChange={onSelectedDeviceChange}
+        selectionMode={selectionMode}
+        maxSelectedDevices={maxSelectedDevices}
+        selectedDeviceIds={selectedDeviceIds}
+        onSelectedDevicesChange={onSelectedDevicesChange}
+        spaceBoundDeviceId={spaceBoundDeviceId}
+        onToggleDeviceRxPause={onToggleDeviceRxPause}
+        onToggleDeviceTxMode={onToggleDeviceTxMode}
+        deviceTxActionsEnabled={deviceTxActionsEnabled}
+        compactActiveOnly={compactActiveOnly}
+        selectedFilesCount={selectedFilesCount}
+        onFileAction={onFileAction}
+        onFilesSelected={onFilesSelected}
+        fileActionLabel={fileActionLabel}
+        fileActionTitle={fileActionTitle}
       />
     </Section>
   );

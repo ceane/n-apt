@@ -1,5 +1,6 @@
 import { useReducer, useEffect, useRef, useCallback } from "react";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
+import { isMockBackend } from "@n-apt/utils/deviceCapabilities";
 
 import {
   DeviceState,
@@ -13,6 +14,7 @@ import {
   LiveFrameData,
   DeviceProfile,
   SdrSettingsConfig,
+  SourceSdrSettings,
   WebSocketMessage,
 } from "@n-apt/consts/schemas/websocket";
 
@@ -27,6 +29,7 @@ export type {
   SpectrumFrame,
   DeviceProfile,
   SdrSettingsConfig,
+  SourceSdrSettings,
   WebSocketMessage,
 };
 
@@ -56,7 +59,7 @@ export type WebSocketData = {
   error: string | null;
   cryptoCorrupted: boolean;
   sendFrequencyRange: (range: FrequencyRange) => void;
-  sendPauseCommand: (isPaused: boolean) => void;
+  sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
   sendCaptureCommand: (req: CaptureRequest) => void;
@@ -67,6 +70,34 @@ export type WebSocketData = {
     signalArea: string,
   ) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
+  sendTransmitMode: (
+    enabled: boolean,
+    device: string,
+    txSettings: {
+      serialNumber: string;
+      centerFrequencyHz?: number | null;
+      viewCenterHz?: number | null;
+      bandwidthHz?: number | null;
+      sampleRateHz?: number | null;
+      ifftSize?: number | null;
+      powerDbm?: number | null;
+      lnaGainDb?: number | null;
+      vgaGainDb?: number | null;
+      ampEnabled?: boolean | null;
+      tunerAgc?: boolean | null;
+      rtlAgc?: boolean | null;
+      ppm?: number | null;
+      txSafetyEnabled?: boolean | null;
+      txSafetyLimit?: string | null;
+      txSignal?: string | null;
+      txHopEnabled?: boolean | null;
+      txHopType?: string | null;
+      txHopStartFrequencyHz?: number | null;
+      txHopEndFrequencyHz?: number | null;
+      txHopChannels?: string[] | null;
+      txHopRateHz?: number | null;
+    },
+  ) => void;
 };
 
 type WsState = {
@@ -98,6 +129,7 @@ type WsState = {
 
 type WsAction =
   | { type: "CONNECTED" }
+  | { type: "CONNECTION_LOST" }
   | { type: "DISCONNECTED" }
   | { type: "RESET" }
   | { type: "ERROR"; error: string }
@@ -129,15 +161,6 @@ const INITIAL_WS_STATE: WsState = {
   cryptoCorrupted: false,
 };
 
-const isMockBackend = (value: unknown): boolean => {
-  return (
-    typeof value === "string" &&
-    (value === "mock_apt" ||
-      value === "mock_apt_metal" ||
-      value.includes("mock"))
-  );
-};
-
 function wsReducer(state: WsState, action: WsAction): WsState {
   switch (action.type) {
     case "CONNECTED":
@@ -147,22 +170,19 @@ function wsReducer(state: WsState, action: WsAction): WsState {
         error: null,
         cryptoCorrupted: false,
       };
+    case "CONNECTION_LOST":
+      return {
+        ...state,
+        isConnected: false,
+      };
     case "DISCONNECTED":
       return {
         ...state,
         isConnected: false,
         deviceState: null,
         deviceLoadingReason: null,
-        backend: null,
-        deviceInfo: null,
-        deviceName: null,
-        deviceProfile: null,
-        maxSampleRateHz: null,
-        sampleRateOptions: [],
-        sampleRateHz: null,
-        minReceiveSampleRateHz: null,
-        sdrSettings: null,
-        sdrLimitMarkers: [],
+        data: null,
+        spectrumFrames: [],
         captureStatus: null,
       };
     case "RESET":
@@ -571,7 +591,7 @@ export const useWebSocket = (
 
         ws.onclose = () => {
           if (disposed) return;
-          dispatch({ type: "DISCONNECTED" });
+          dispatch({ type: "CONNECTION_LOST" });
 
           // Exponential backoff reconnection logic
           const maxAttempts = 5;
@@ -706,16 +726,20 @@ export const useWebSocket = (
   );
 
   // Function to send pause/resume commands to the server
-  const sendPauseCommand = useCallback((isPaused: boolean) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        type: "pause",
-        paused: isPaused,
-      });
-      ws.send(message);
-    }
-  }, []);
+  const sendPauseCommand = useCallback(
+    (isPaused: boolean, sourceId: string) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: "pause",
+          paused: isPaused,
+          source_id: sourceId,
+        });
+        ws.send(message);
+      }
+    },
+    [],
+  );
 
   // Function to send frequency range updates to the server
   const sendFrequencyRange = useCallback((range: FrequencyRange) => {
@@ -808,6 +832,79 @@ export const useWebSocket = (
     ws.send(message);
   }, []);
 
+  const sendTransmitMode = useCallback(
+    (
+      enabled: boolean,
+      device: string,
+      txSettings: {
+        serialNumber: string;
+        centerFrequencyHz?: number | null;
+        viewCenterHz?: number | null;
+        bandwidthHz?: number | null;
+        sampleRateHz?: number | null;
+        ifftSize?: number | null;
+        powerDbm?: number | null;
+        lnaGainDb?: number | null;
+        vgaGainDb?: number | null;
+        ampEnabled?: boolean | null;
+        tunerAgc?: boolean | null;
+        rtlAgc?: boolean | null;
+        ppm?: number | null;
+        txSafetyEnabled?: boolean | null;
+        txSafetyLimit?: string | null;
+        txSignal?: string | null;
+        txHopEnabled?: boolean | null;
+        txHopType?: string | null;
+        txHopStartFrequencyHz?: number | null;
+        txHopEndFrequencyHz?: number | null;
+        txHopChannels?: string[] | null;
+        txHopRateHz?: number | null;
+      },
+    ) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const { ifftSize, ...txSettingsWithoutIfftSize } = txSettings;
+      const roundedSettings = {
+        ...txSettingsWithoutIfftSize,
+        centerFrequencyHz:
+          typeof txSettings.centerFrequencyHz === "number"
+            ? Math.round(txSettings.centerFrequencyHz)
+            : txSettings.centerFrequencyHz,
+        bandwidthHz:
+          typeof txSettings.bandwidthHz === "number"
+            ? Math.round(txSettings.bandwidthHz)
+            : typeof txSettings.sampleRateHz === "number"
+              ? Math.round(txSettings.sampleRateHz)
+              : txSettings.bandwidthHz,
+        sampleRateHz:
+          typeof txSettings.sampleRateHz === "number"
+            ? Math.round(txSettings.sampleRateHz)
+            : txSettings.sampleRateHz,
+        txIfftSize:
+          typeof ifftSize === "number" ? Math.round(ifftSize) : ifftSize,
+        txHopStartFrequencyHz:
+          typeof txSettings.txHopStartFrequencyHz === "number"
+            ? Math.round(txSettings.txHopStartFrequencyHz)
+            : txSettings.txHopStartFrequencyHz,
+        txHopEndFrequencyHz:
+          typeof txSettings.txHopEndFrequencyHz === "number"
+            ? Math.round(txSettings.txHopEndFrequencyHz)
+            : txSettings.txHopEndFrequencyHz,
+      };
+
+      ws.send(
+        JSON.stringify({
+          type: "tx_mode",
+          active_mode: enabled ? "tx" : "rx",
+          txDevice: device,
+          ...roundedSettings,
+        }),
+      );
+    },
+    [],
+  );
+
   return {
     ...state,
     sampleRateOptions: state.sampleRateOptions,
@@ -821,5 +918,6 @@ export const useWebSocket = (
     sendCaptureStopCommand,
     sendTrainingCommand,
     sendPowerScaleCommand,
+    sendTransmitMode,
   };
 };

@@ -3,7 +3,7 @@
 //! High-performance SIMD-accelerated mock signal generation for testing and demos.
 //! Generates realistic SDR signals with multiple carriers, noise, and modulation.
 
-use crate::fft::types::RawSamples;
+use crate::s::fft::types::RawSamples;
 #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
 use crate::simd::fast_math::fast_tanhq_f32;
 use anyhow::Result;

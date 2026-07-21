@@ -1,7 +1,80 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { FrequencyRange, Alignment } from "@n-apt/consts/types";
 
+export const getMaxTxPowerDbm = (
+  frequencyHz: number,
+  deviceKind: string | null,
+): number => {
+  if (deviceKind !== "hackrf_one") {
+    return Infinity;
+  }
+  if (frequencyHz < 2_150_000_000) {
+    return 15;
+  }
+  if (frequencyHz < 2_750_000_000) {
+    return 15;
+  }
+  if (frequencyHz < 4_000_000_000) {
+    return 5;
+  }
+  return 0;
+};
+
+export const getMinTxPowerDbm = (
+  frequencyHz: number,
+  deviceKind: string | null,
+): number => {
+  if (deviceKind !== "hackrf_one") {
+    return -Infinity;
+  }
+  if (frequencyHz < 30_000_000) {
+    return -65;
+  }
+  if (frequencyHz < 100_000_000) {
+    return -70;
+  }
+  if (frequencyHz < 1_000_000_000) {
+    return -75;
+  }
+  if (frequencyHz < 3_000_000_000) {
+    return -70;
+  }
+  return -60;
+};
+
 export type DisplayTemporalResolution = "low" | "medium" | "high";
+
+export interface GpuSpikeAnalysis {
+  isNapt: boolean;
+  confidence: number;
+  baselineIsNapt: boolean;
+  baselineConfidence: number;
+  multiFrameIsNapt: boolean;
+  multiFrameConfidence: number;
+  multiFramePersistence: number;
+  multiFrameFrameCount: number;
+  multiFrameBridgeScore: number;
+  multiFrameUDipScore: number;
+  floorDbm: number;
+  spikes: Array<{ frequencyHz: number; powerDbm: number; index: number }>;
+  suspensionBridgeScore: number;
+  clumpCount: number;
+  bridgeWidthScore: number;
+  bridgeShoulderScore: number;
+  uDipScore: number;
+  floorRelativePowerScore: number;
+  temporalStability: number;
+  bandwidthPrior: number;
+  envelopeFitScore: number;
+  envelopeResidualScore: number;
+  envelopeSupportCount: number;
+  sincPenaltyScore: number;
+  unimodalBridgeScore: number;
+  partialBridgeScore: number;
+  apexProminenceScore: number;
+  shoulderSymmetryScore: number;
+  captureQualityScore: number;
+}
 export type PowerScale = "dB" | "dBm";
 export type SourceMode = "live" | "file";
 
@@ -33,6 +106,26 @@ export interface SpectrumState {
   wfSmoothEnabled: boolean;
 
   // SDR settings
+  txSignal: string;
+  txSampleRateHz: number;
+  txIfftSize: number;
+  txViewerSampleRateHz: number;
+  txViewerFftSize: number;
+  txViewerFftFrameRate: number;
+  txViewerFftWindow: string;
+  txViewerTemporalResolution: DisplayTemporalResolution;
+  txViewerPowerScale: PowerScale;
+  txCenterFrequencyHz: number;
+  txPowerDbm: number;
+  txVgaGain: number;
+  txSafetyEnabled: boolean;
+  txSafetyLimit: "person" | "room" | "min";
+  txHopType: "range" | "channels";
+  txHopStartFrequencyHz: number;
+  txHopEndFrequencyHz: number;
+  txHopChannels: string[];
+  txHopRateHz: number;
+  txHopEnabled: boolean;
   gain: number;
   hackrfLnaGain: number;
   hackrfVgaGain: number;
@@ -43,12 +136,16 @@ export interface SpectrumState {
   rtlAGC: boolean;
   sampleRateHz: number;
   minReceiveSampleRateHz: number;
+  deviceKind: string | null;
 
   // Visualization state
   visualizerPaused: boolean;
   isWaterfallCleared: boolean;
   showSpikeOverlay: boolean;
   gpuSpikeCount: number;
+  gpuSpikeAnalysis: GpuSpikeAnalysis | null;
+  hoveredSpikeIndex: number | null;
+  showTxSlider: boolean;
 
   // Diagnostic state
   diagnosticStatus: string;
@@ -77,10 +174,30 @@ const LIVE_CONTROL_DEFAULTS = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
   gain: 49.6,
+  txSignal: "wifi",
+  txSampleRateHz: 2_400_000,
+  txIfftSize: 2048,
+  txViewerSampleRateHz: 2_400_000,
+  txViewerFftSize: 65_536,
+  txViewerFftFrameRate: 60,
+  txViewerFftWindow: "Rectangular",
+  txViewerTemporalResolution: "high" as const,
+  txViewerPowerScale: "dB" as const,
+  txCenterFrequencyHz: 137_100_000,
+  txPowerDbm: -18,
+  txVgaGain: 16,
+  txSafetyEnabled: false,
+  txSafetyLimit: "room" as "person" | "room" | "min",
+  txHopType: "range" as const,
+  txHopStartFrequencyHz: 10_000_000,
+  txHopEndFrequencyHz: 20_000_000,
+  txHopChannels: ["a"],
+  txHopRateHz: 10,
+  txHopEnabled: false,
   hackrfLnaGain: 0.0,
-  hackrfVgaGain: 0.0,
-  hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: null,
+  hackrfVgaGain: 30.0,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -102,7 +219,7 @@ const initialState: SpectrumState = {
 
   fftMinDb: -120,
   fftMaxDb: 0, // This will be updated based on powerScale
-  fftSize: 32768,
+  fftSize: 2048,
   fftSizeOptions: [],
   fftWindow: "Rectangular",
   fftFrameRate: 60,
@@ -110,21 +227,45 @@ const initialState: SpectrumState = {
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
 
-  gain: 30,
+  gain: 49.6,
+  txSignal: "wifi",
+  txSampleRateHz: 2_400_000,
+  txIfftSize: 2048,
+  txViewerSampleRateHz: 2_400_000,
+  txViewerFftSize: 65_536,
+  txViewerFftFrameRate: 60,
+  txViewerFftWindow: "Rectangular",
+  txViewerTemporalResolution: "high",
+  txViewerPowerScale: "dB",
+  txCenterFrequencyHz: 137_100_000,
+  txPowerDbm: -18,
+  txVgaGain: 16,
+  txSafetyEnabled: false,
+  txSafetyLimit: "room",
+  txHopType: "range",
+  txHopStartFrequencyHz: 10_000_000,
+  txHopEndFrequencyHz: 20_000_000,
+  txHopChannels: ["a"],
+  txHopRateHz: 10,
+  txHopEnabled: false,
   hackrfLnaGain: 0.0,
-  hackrfVgaGain: 0.0,
-  hackrfAmpEnabled: true,
-  hackrfBasebandBandwidth: null,
+  hackrfVgaGain: 30.0,
+  hackrfAmpEnabled: false,
+  hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
   minReceiveSampleRateHz: 3_200_000,
+  deviceKind: "hackrf_one",
 
   visualizerPaused: false,
   isWaterfallCleared: false,
   showSpikeOverlay: false,
   gpuSpikeCount: 0,
+  gpuSpikeAnalysis: null,
+  hoveredSpikeIndex: null,
+  showTxSlider: true,
   previewRange: null,
   previewAlignment: "centered",
 
@@ -176,6 +317,19 @@ const spectrumSlice = createSlice({
       state.lastKnownRanges[action.payload.area] = action.payload.range;
     },
 
+    mergeLastKnownRanges: (
+      state,
+      action: PayloadAction<Record<string, FrequencyRange>>,
+    ) => {
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+        state.lastKnownRanges = {};
+      }
+      state.lastKnownRanges = {
+        ...state.lastKnownRanges,
+        ...action.payload,
+      };
+    },
+
     // Display settings
     setTemporalResolution: (
       state,
@@ -200,14 +354,17 @@ const spectrumSlice = createSlice({
     },
 
     setVizZoom: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoom = action.payload;
     },
 
     setVizZoomFloor: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoomFloor = action.payload;
     },
 
     setVizZoomFloorPan: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizZoomFloorPan = action.payload;
     },
 
@@ -216,6 +373,7 @@ const spectrumSlice = createSlice({
     },
 
     setVizPan: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.vizPanOffset = action.payload;
     },
 
@@ -228,11 +386,17 @@ const spectrumSlice = createSlice({
       state,
       action: PayloadAction<{ min: number; max: number }>,
     ) => {
+      if (
+        !Number.isFinite(action.payload.min) ||
+        !Number.isFinite(action.payload.max)
+      )
+        return;
       state.fftMinDb = Math.round(action.payload.min);
       state.fftMaxDb = Math.round(action.payload.max);
     },
 
     setFftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.fftSize = action.payload;
     },
 
@@ -245,6 +409,7 @@ const spectrumSlice = createSlice({
     },
 
     setFftFrameRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.fftFrameRate = action.payload;
     },
 
@@ -261,15 +426,127 @@ const spectrumSlice = createSlice({
     },
 
     // SDR settings
+    setTxSignal: (state, action: PayloadAction<string>) => {
+      state.txSignal = action.payload;
+    },
+
+    setTxSampleRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txSampleRateHz = action.payload;
+    },
+
+    setTxIfftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txIfftSize = action.payload;
+    },
+
+    setTxViewerSampleRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerSampleRateHz = action.payload;
+    },
+
+    setTxViewerFftSize: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerFftSize = action.payload;
+    },
+
+    setTxViewerFftFrameRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload) || action.payload <= 0) return;
+      state.txViewerFftFrameRate = action.payload;
+    },
+
+    setTxViewerFftWindow: (state, action: PayloadAction<string>) => {
+      state.txViewerFftWindow = action.payload;
+    },
+
+    setTxViewerTemporalResolution: (
+      state,
+      action: PayloadAction<DisplayTemporalResolution>,
+    ) => {
+      state.txViewerTemporalResolution = action.payload;
+    },
+
+    setTxViewerPowerScale: (state, action: PayloadAction<PowerScale>) => {
+      state.txViewerPowerScale = action.payload;
+    },
+
+    setTxCenterFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txCenterFrequencyHz = action.payload;
+      const minPower = getMinTxPowerDbm(action.payload, state.deviceKind);
+      const maxPower = getMaxTxPowerDbm(action.payload, state.deviceKind);
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
+    },
+
+    setTxPowerDbm: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      state.txPowerDbm = Math.max(minPower, Math.min(action.payload, maxPower));
+    },
+
+    setTxVgaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txVgaGain = action.payload;
+    },
+
+    setTxSafetyEnabled: (state, action: PayloadAction<boolean>) => {
+      state.txSafetyEnabled = action.payload;
+    },
+
+    setTxSafetyLimit: (
+      state,
+      action: PayloadAction<"person" | "room" | "min">,
+    ) => {
+      state.txSafetyLimit = action.payload;
+    },
+
+    setTxHopType: (state, action: PayloadAction<"range" | "channels">) => {
+      state.txHopType = action.payload;
+    },
+
+    setTxHopStartFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopStartFrequencyHz = action.payload;
+    },
+
+    setTxHopEndFrequencyHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopEndFrequencyHz = action.payload;
+    },
+
+    setTxHopChannels: (state, action: PayloadAction<string[]>) => {
+      state.txHopChannels = action.payload;
+    },
+
+    setTxHopRateHz: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      state.txHopRateHz = action.payload;
+    },
+
+    setTxHopEnabled: (state, action: PayloadAction<boolean>) => {
+      state.txHopEnabled = action.payload;
+    },
+
     setGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.gain = action.payload;
     },
 
     setHackrfLnaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.hackrfLnaGain = action.payload;
     },
 
     setHackrfVgaGain: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.hackrfVgaGain = action.payload;
     },
 
@@ -278,6 +555,7 @@ const spectrumSlice = createSlice({
     },
 
     setPpm: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.ppm = action.payload;
     },
 
@@ -290,19 +568,51 @@ const spectrumSlice = createSlice({
     },
 
     setSampleRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.sampleRateHz = action.payload;
     },
 
     setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.minReceiveSampleRateHz = action.payload;
     },
 
-    // Bundle updates for efficiency
     setSdrSettingsBundle: (
       state,
       action: PayloadAction<Partial<SpectrumState>>,
     ) => {
-      Object.assign(state, action.payload);
+      const cleanPayload: Partial<SpectrumState> = {};
+      for (const [key, val] of Object.entries(action.payload)) {
+        if (typeof val === "number" && !Number.isFinite(val)) {
+          continue;
+        }
+        (cleanPayload as any)[key] = val;
+      }
+      Object.assign(state, cleanPayload);
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        state.deviceKind,
+      );
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
+    },
+
+    setDeviceKind: (state, action: PayloadAction<string | null>) => {
+      state.deviceKind = action.payload;
+      const minPower = getMinTxPowerDbm(
+        state.txCenterFrequencyHz,
+        action.payload,
+      );
+      const maxPower = getMaxTxPowerDbm(
+        state.txCenterFrequencyHz,
+        action.payload,
+      );
+      const power = Number.isFinite(state.txPowerDbm) ? state.txPowerDbm : -18;
+      state.txPowerDbm = Math.max(minPower, Math.min(power, maxPower));
     },
 
     // Visualization state
@@ -326,11 +636,24 @@ const spectrumSlice = createSlice({
       state.showSpikeOverlay = action.payload;
       if (!action.payload) {
         state.gpuSpikeCount = 0;
+        state.gpuSpikeAnalysis = null;
       }
     },
 
     setGpuSpikeCount: (state, action: PayloadAction<number>) => {
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
+    },
+
+    setGpuSpikeAnalysis: (state, action: PayloadAction<GpuSpikeAnalysis | null>) => {
+      state.gpuSpikeAnalysis = action.payload;
+    },
+
+    setHoveredSpikeIndex: (state, action: PayloadAction<number | null>) => {
+      state.hoveredSpikeIndex = action.payload;
+    },
+
+    setShowTxSlider: (state, action: PayloadAction<boolean>) => {
+      state.showTxSlider = action.payload;
     },
 
     // Diagnostic state
@@ -377,6 +700,9 @@ const spectrumSlice = createSlice({
         ...state,
         displayTemporalResolution:
           LIVE_CONTROL_DEFAULTS.displayTemporalResolution,
+        txViewerTemporalResolution:
+          LIVE_CONTROL_DEFAULTS.txViewerTemporalResolution,
+        txViewerPowerScale: LIVE_CONTROL_DEFAULTS.txViewerPowerScale,
         vizZoom: LIVE_CONTROL_DEFAULTS.vizZoom,
         vizZoomFloor: LIVE_CONTROL_DEFAULTS.vizZoomFloor,
         vizZoomFloorPan: 0,
@@ -385,6 +711,7 @@ const spectrumSlice = createSlice({
         fftMinDb: isDbm ? -100 : -120,
         fftMaxDb: isDbm ? 30 : 0,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
+        txViewerFftWindow: LIVE_CONTROL_DEFAULTS.txViewerFftWindow,
         gain: LIVE_CONTROL_DEFAULTS.gain,
         hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
         hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
@@ -398,6 +725,9 @@ const spectrumSlice = createSlice({
         wfSmoothEnabled: false,
         fftSize: action.payload.fftSize ?? state.fftSize,
         fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
+        txViewerSampleRateHz: LIVE_CONTROL_DEFAULTS.txViewerSampleRateHz,
+        txViewerFftSize: LIVE_CONTROL_DEFAULTS.txViewerFftSize,
+        txViewerFftFrameRate: LIVE_CONTROL_DEFAULTS.txViewerFftFrameRate,
       };
     },
   },
@@ -407,6 +737,7 @@ export const {
   setActiveSignalArea,
   setFrequencyRange,
   setSignalAreaAndRange,
+  mergeLastKnownRanges,
   setTemporalResolution,
   setPowerScale,
   setVizZoom,
@@ -423,6 +754,27 @@ export const {
   setFftAvgEnabled,
   setFftSmoothEnabled,
   setWfSmoothEnabled,
+  setTxSignal,
+  setTxSampleRateHz,
+  setTxIfftSize,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
+  setTxViewerPowerScale,
+  setTxCenterFrequencyHz,
+  setDeviceKind,
+  setTxPowerDbm,
+  setTxVgaGain,
+  setTxSafetyEnabled,
+  setTxSafetyLimit,
+  setTxHopType,
+  setTxHopStartFrequencyHz,
+  setTxHopEndFrequencyHz,
+  setTxHopChannels,
+  setTxHopRateHz,
+  setTxHopEnabled,
   setGain,
   setHackrfLnaGain,
   setHackrfVgaGain,
@@ -443,8 +795,11 @@ export const {
   resetLiveControls,
   setShowSpikeOverlay,
   setGpuSpikeCount,
+  setGpuSpikeAnalysis,
+  setHoveredSpikeIndex,
   setPreviewRange,
   setPreviewAlignment,
+  setShowTxSlider,
 } = spectrumSlice.actions;
 
 export default spectrumSlice.reducer;

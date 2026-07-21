@@ -22,6 +22,8 @@ export { StreamNode } from "./StreamNode";
 export { TempoNoteNode } from "./TempoNoteNode";
 export { OutputNode } from "./OutputNode";
 export { IQCaptureNode } from "./IQCaptureNode";
+export { TxNode } from "./TxNode";
+export { TxSignalConfigNode } from "./TxSignalConfigNode";
 
 // Analysis viewer components
 export { SymbolsTable } from "./SymbolsTable";

@@ -1,5 +1,17 @@
 export type TemporalResolution = "low" | "medium" | "high";
 
+const TEMPORAL_RESOLUTION_LABELS: Record<TemporalResolution, string> = {
+  low: "Slow",
+  medium: "Reduced",
+  high: "Lossless",
+};
+
+export function getTemporalResolutionLabel(
+  temporalResolution: TemporalResolution,
+): string {
+  return TEMPORAL_RESOLUTION_LABELS[temporalResolution];
+}
+
 export function getTemporalResolutionAlpha(
   temporalResolution: TemporalResolution,
   fps: number = 60,

@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import styled from "styled-components";
+import { Lock } from "lucide-react";
 import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
 import {
@@ -34,6 +35,7 @@ interface FrequencyRangeSliderProps {
   scanProgress?: number; // Scan progress for visual feedback
   scanCurrentFreq?: number; // Current scanning frequency
   disabled?: boolean; // Disable slider interaction while keeping it visible
+  forceFullWidth?: boolean;
 }
 
 // Styled Components
@@ -159,6 +161,9 @@ const WindowLabel = styled.span<{ $isActive: boolean }>`
   user-select: none;
   padding: 0 8px;
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 `;
 
 const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
@@ -180,6 +185,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   scanProgress = 0,
   scanCurrentFreq,
   disabled = false,
+  forceFullWidth = false,
 }) => {
   const totalRange = maxFreq - minFreq;
   const safeTotalRange =
@@ -225,7 +231,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null);
   const internalChangeIdRef = useRef(0);
   const lastNotifiedChangeIdRef = useRef(0);
+  const isLeftLockedRef = useRef(false);
+  const isRightLockedRef = useRef(false);
+  const [isLeftLocked, setIsLeftLocked] = useState(false);
+  const [isRightLocked, setIsRightLocked] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [windowLabelWidth, setWindowLabelWidth] = useState(0);
 
   // Calculate scan position if scanning
   const scanWindowStart =
@@ -236,24 +247,24 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const isScanning = readOnly && scanProgress > 0;
 
   const [trackWidth, setTrackWidth] = useState(1000);
-  const [windowLabelWidth, setWindowLabelWidth] = useState(0);
-
   useEffect(() => {
     const track = trackRef.current;
     const thumb = thumbRef.current;
-    const windowLabel = windowLabelRef.current;
-    if (!track || !thumb || !windowLabel) return;
+    if (!track || !thumb) return;
 
     const updateWidths = () => {
-      if (track) setTrackWidth(track.clientWidth); // Use clientWidth to prevent border overflow
-      if (windowLabel)
-        setWindowLabelWidth(windowLabel.getBoundingClientRect().width);
+      // Ignore transient zero-width observer events from hidden/non-laid-out panes.
+      // Collapsing to 0 breaks min-content fallback and drag pixel math.
+      if (track.clientWidth > 0) setTrackWidth(track.clientWidth);
+      const label = windowLabelRef.current;
+      if (label) setWindowLabelWidth(label.scrollWidth);
     };
 
     const observer = new ResizeObserver(updateWidths);
     observer.observe(track);
     observer.observe(thumb);
-    observer.observe(windowLabel);
+    const label = windowLabelRef.current;
+    if (label) observer.observe(label);
 
     updateWidths();
 
@@ -297,25 +308,31 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [isActive]);
 
   const isWholeChannelWindow = windowWidth >= 1;
-  const renderedWindowWidth = isWholeChannelWindow ? 1 : windowWidth;
+  const shouldRenderFullWidth = forceFullWidth || isWholeChannelWindow;
+  const renderedWindowWidth = shouldRenderFullWidth ? 1 : windowWidth;
   const widthPercent = Math.max(0, Math.min(100, renderedWindowWidth * 100));
-  const logicalThumbWidth = Math.max(0, renderedWindowWidth * trackWidth);
-  const minContentThumbWidth = Math.max(0, Math.ceil(windowLabelWidth) + 16);
-  const renderedThumbWidth = isWholeChannelWindow
+  const minContentThumbWidth = Math.min(
+    trackWidth,
+    Math.max(0, Math.ceil(windowLabelWidth) + 16),
+  );
+  const renderedThumbWidth = shouldRenderFullWidth
     ? trackWidth
-    : Math.max(logicalThumbWidth, minContentThumbWidth);
+    : Math.min(
+        trackWidth,
+        Math.max(minContentThumbWidth, renderedWindowWidth * trackWidth),
+      );
   const logicalMaxWindowStart =
-    renderedWindowWidth <= 1 ? Math.max(0, 1 - renderedWindowWidth) : 0;
+    windowWidth <= 1 ? Math.max(0, 1 - windowWidth) : 0;
   const clampedWindowStart =
-    renderedWindowWidth <= 1
+    windowWidth <= 1
       ? Math.max(0, Math.min(logicalMaxWindowStart, windowStart))
-      : Math.max(-(renderedWindowWidth - 1), Math.min(0, windowStart));
+      : Math.max(-(windowWidth - 1), Math.min(0, windowStart));
 
   const effectiveWindowStart = isScanning
     ? scanWindowStart
     : clampedWindowStart;
   const effectiveMaxWindowStart = isScanning
-    ? 1 - renderedWindowWidth
+    ? 1 - windowWidth
     : logicalMaxWindowStart;
 
   const visualRatio = useMemo(() => {
@@ -459,6 +476,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [disabled, isActive, moveWindow, readOnly]);
 
   useEffect(() => {
+    const handleScroll = () => {
+      isLeftLockedRef.current = false;
+      isRightLockedRef.current = false;
+      setIsLeftLocked(false);
+      setIsRightLocked(false);
+    };
+    window.addEventListener("wheel", handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("wheel", handleScroll);
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !trackRef.current) return;
 
@@ -477,14 +509,57 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       if (windowWidth <= 1) {
         const ratioDelta = deltaX / draggablePixels;
         const windowStartDelta = ratioDelta * mws;
-
         newStart = dragStartWindowRef.current + windowStartDelta;
-        newStart = Math.max(0, Math.min(mws, newStart));
+
+        if (isLeftLockedRef.current && newStart > 0) {
+          isLeftLockedRef.current = false;
+          setIsLeftLocked(false);
+        }
+        if (isRightLockedRef.current && newStart < mws) {
+          isRightLockedRef.current = false;
+          setIsRightLocked(false);
+        }
+
+        if (newStart <= 0) {
+          newStart = 0;
+          if (!isLeftLockedRef.current) {
+            isLeftLockedRef.current = true;
+            setIsLeftLocked(true);
+          }
+        } else if (newStart >= mws) {
+          newStart = mws;
+          if (!isRightLockedRef.current) {
+            isRightLockedRef.current = true;
+            setIsRightLocked(true);
+          }
+        }
       } else {
         const ratioDelta = deltaX / tw;
         newStart = dragStartWindowRef.current + ratioDelta;
         const overscan = windowWidth - 1;
-        newStart = Math.max(-overscan, Math.min(0, newStart));
+
+        if (isLeftLockedRef.current && newStart > -overscan) {
+          isLeftLockedRef.current = false;
+          setIsLeftLocked(false);
+        }
+        if (isRightLockedRef.current && newStart < 0) {
+          isRightLockedRef.current = false;
+          setIsRightLocked(false);
+        }
+
+        if (newStart <= -overscan) {
+          newStart = -overscan;
+          if (!isLeftLockedRef.current) {
+            isLeftLockedRef.current = true;
+            setIsLeftLocked(true);
+          }
+        } else if (newStart >= 0) {
+          newStart = 0;
+          if (!isRightLockedRef.current) {
+            isRightLockedRef.current = true;
+            setIsRightLocked(true);
+          }
+        }
       }
 
       internalChangeIdRef.current += 1;
@@ -513,6 +588,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
     onActivate?.();
+    isLeftLockedRef.current = false;
+    isRightLockedRef.current = false;
+    setIsLeftLocked(false);
+    setIsRightLocked(false);
     isDraggingRef.current = true;
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
@@ -590,16 +669,22 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
             $isScanning={isScanning}
             style={{
               transform: `translate3d(${thumbLeftPx}px, 0, 0)`,
-              width: isWholeChannelWindow
+              width: shouldRenderFullWidth
                 ? "100%"
                 : widthPercent >= 100
                   ? "100%"
-                  : `max(${widthPercent}%, ${minContentThumbWidth}px)`,
+                  : `${widthPercent}%`,
+              minWidth: shouldRenderFullWidth
+                ? undefined
+                : `${minContentThumbWidth}px`,
+              maxWidth: "100%",
             }}
             onMouseDown={handleMouseDown}
           >
             <WindowLabel ref={windowLabelRef} $isActive={isActive}>
+              {isLeftLocked && <Lock size={10} style={{ marginRight: 2 }} />}
               {formatFreq(currentMin)} - {formatFreq(currentMax)}
+              {isRightLocked && <Lock size={10} style={{ marginLeft: 2 }} />}
             </WindowLabel>
           </VisibleWindow>
         </RangeTrack>

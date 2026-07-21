@@ -3,17 +3,20 @@ import styled from "styled-components";
 import {
   useAppSelector,
   useAppDispatch,
+  clearWaterfall,
   setFileMetadata,
   setSelectedFiles,
   setSourceMode,
   setStitchPaused,
   triggerStitch,
 } from "@n-apt/redux";
-import { sendRestartDevice } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/components/sidebar/SourceSidebar";
+import {
+  setSourceBindings,
+  setSourceSelectionMode,
+} from "@n-apt/redux/slices/sourceRoutingSlice";
 import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar";
-import { ConnectionStatusSection } from "@n-apt/components/sidebar/ConnectionStatusSection";
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
@@ -21,7 +24,16 @@ import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+
+export const getDemodFileSelectionActions = (
+  files: { id: string; name: string }[],
+) => [
+  { type: "SET_SOURCE_MODE" as const, mode: "file" as const },
+  { type: "SET_SELECTED_FILES" as const, files },
+  { type: "TRIGGER_STITCH" as const },
+];
 import type { NaptMetadata } from "@n-apt/consts/types";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -87,14 +99,45 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   detectedRegions = 0,
 }) => {
   const dispatch = useAppDispatch();
-  const { setFlow } = useDemod();
+  const { setFlow, nodes } = useDemod();
   const {
     toggleVisualizerPause,
     manualVisualizerPaused,
-    wsConnection,
+    selectedSourceId,
+    setSelectedSourceId,
+    sources,
     state: liveState,
     dispatch: storeDispatch,
+    wsConnection,
   } = useSpectrumStore();
+  const tx = useAppSelector((state) => state.spectrum);
+
+  const handleToggleTransmit = useCallback(
+    (id: string) => {
+      const source = sources.find((entry) => entry.id === id);
+      if (!source) return;
+      const transmitting = source.status === "transmitting";
+      wsConnection.sendTransmitMode?.(!transmitting, source.name ?? id, {
+        serialNumber: source.serial_number?.trim() || id,
+        centerFrequencyHz: tx.txCenterFrequencyHz,
+        bandwidthHz: tx.txSampleRateHz,
+        ifftSize: tx.txIfftSize,
+        powerDbm: tx.txPowerDbm,
+        vgaGainDb: tx.txVgaGain,
+        ampEnabled: tx.hackrfAmpEnabled,
+        txSafetyEnabled: tx.txSafetyEnabled,
+        txSafetyLimit: tx.txSafetyLimit,
+        txSignal: tx.txSignal,
+        txHopEnabled: tx.txHopEnabled,
+        txHopType: tx.txHopType,
+        txHopStartFrequencyHz: tx.txHopStartFrequencyHz,
+        txHopEndFrequencyHz: tx.txHopEndFrequencyHz,
+        txHopChannels: tx.txHopChannels,
+        txHopRateHz: tx.txHopRateHz,
+      });
+    },
+    [sources, tx, wsConnection.sendTransmitMode],
+  );
 
   const handleFlowSelect = useCallback(
     (flow: FlowTemplate) => {
@@ -104,6 +147,83 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
 
   const { sourceMode, selectedFiles } = liveState;
+  const isTxSuiteFlow = nodes.some(
+    (node) => node.data?.sourceBindingGroup === "tx-suite",
+  );
+  const routedSourceIds = useAppSelector((state) =>
+    [
+      state.sourceRouting.bindings["tx-suite:rx"],
+      state.sourceRouting.bindings["tx-suite:tx"],
+    ].filter((id): id is string => Boolean(id)),
+  );
+
+  useEffect(() => {
+    dispatch(
+      setSourceSelectionMode({
+        group: "tx-suite",
+        mode: isTxSuiteFlow ? "multi" : "single",
+      }),
+    );
+  }, [dispatch, isTxSuiteFlow]);
+
+  useEffect(() => {
+    if (!isTxSuiteFlow || routedSourceIds.length > 0) return;
+    const available = sources.map((source) => ({
+      id: source.id,
+      capability: source.capability?.toLowerCase?.() ?? "",
+    }));
+    const rx =
+      available.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
+      available[0];
+    const tx =
+      available.find(
+        (source) =>
+          source.id !== rx?.id &&
+          (source.capability === "tx" || source.capability === "tx_rx"),
+      ) ?? available[1];
+    const fileIds = selectedFiles.map((file) => `file:${file.name}`);
+    const fallbackIds = available.length > 0 ? available : fileIds.map((id) => ({ id, capability: "rx" }));
+    const fallbackRx = rx ?? fallbackIds[0];
+    const fallbackTx = tx ?? fallbackIds[1] ?? fallbackIds[0];
+    if (!fallbackRx) return;
+    dispatch(
+      setSourceBindings({
+        group: "tx-suite",
+        bindings: {
+          rx: fallbackRx.id,
+          tx: fallbackTx?.id ?? null,
+        },
+      }),
+    );
+  }, [dispatch, isTxSuiteFlow, routedSourceIds.length, selectedFiles, sources]);
+
+  const handleMultiSourceChange = useCallback(
+    (ids: string[]) => {
+      const selected = ids
+        .map((id) => sources.find((source) => source.id === id))
+        .filter(Boolean)
+        .map((source) => ({
+          id: source!.id,
+          capability: source!.capability?.toLowerCase?.() ?? "",
+        }));
+      const rx =
+        selected.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
+        selected[0];
+      const tx =
+        selected.find(
+          (source) =>
+            source.id !== rx?.id &&
+            (source.capability === "tx" || source.capability === "tx_rx"),
+        ) ?? selected.find((source) => source.id !== rx?.id);
+      dispatch(
+        setSourceBindings({
+          group: "tx-suite",
+          bindings: { rx: rx?.id ?? null, tx: tx?.id ?? null },
+        }),
+      );
+    },
+    [dispatch, sources],
+  );
   const selectedPrimaryFile = useMemo(() => {
     if (sourceMode !== "file" || selectedFiles.length !== 1) return null;
     const file = selectedFiles[0];
@@ -111,24 +231,75 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     return lower.endsWith(".napt") || lower.endsWith(".wav") ? file : null;
   }, [selectedFiles, sourceMode]);
   const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
   const isStitchPaused = useAppSelector(
     (state) => state.waterfall.isStitchPaused,
   );
+  const liveIsPaused = useAppSelector((s) => s.websocket.isPaused);
 
-  // Get real device data from Redux store
-  const isConnected = useAppSelector((s) => s.websocket.isConnected);
-  const deviceState = useAppSelector((s) => s.websocket.deviceState);
-  const deviceLoadingReason = useAppSelector(
-    (s) => s.websocket.deviceLoadingReason,
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const sourceDevices = useMemo(
+    () =>
+      sources.map((source) => {
+        const isStreaming = source.status === "streaming";
+        const isMockSource = source.capability === "mock";
+        const isTxSource =
+          source.capability?.toLowerCase().includes("tx") ||
+          source.id === "mock-tx" ||
+          source.name === "Mock Tx SDR";
+        const isPaused = source.paused ?? false;
+        const isLiveConnected =
+          source.status === "connected" || isStreaming || isMockSource;
+        const actionLabel = isLiveConnected
+          ? isPaused
+            ? "Resume"
+            : "Pause"
+          : undefined;
+        const actionTitle = isLiveConnected
+          ? isPaused
+            ? "Resume playback"
+            : "Pause playback"
+          : undefined;
+
+        return {
+          id: source.id,
+          name: source.name,
+          backend: source.kind,
+          capability: source.capability,
+          summary: source.serial_number
+            ? `SN ${source.serial_number}`
+            : source.manufacturer
+              ? source.manufacturer
+              : undefined,
+          status: {
+            color:
+              isMockSource && isStreaming
+                ? "#ffb000"
+                : isStreaming
+                  ? "#19d97d"
+                  : undefined,
+            label: source.status ?? undefined,
+            loading: source.status === "loading",
+            loadingLabel:
+              source.status === "loading"
+                ? `Loading ${source.name}`
+                : undefined,
+            actionLabel,
+            actionTitle,
+            onAction: isTxSource
+              ? () => handleToggleTransmit(source.id)
+              : isLiveConnected
+                ? () => toggleVisualizerPause(source.id)
+              : undefined,
+          },
+        };
+      }),
+    [handleToggleTransmit, sources, toggleVisualizerPause],
   );
-  const isPaused = useAppSelector((s) => s.websocket.isPaused);
-  const deviceName = useAppSelector((s) => s.websocket.deviceName);
-  const backend = useAppSelector((s) => s.websocket.backend);
-  const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
 
-  const liveIsPaused =
-    manualVisualizerPaused ?? wsConnection.isPaused ?? isPaused;
-  const wasLivePausedBeforeFileModeRef = useRef<boolean>(liveIsPaused);
+  const wasLivePausedBeforeFileModeRef = useRef<boolean>(false);
   const previousSourceModeRef = useRef<SourceMode>(
     sourceMode === "file" ? "live" : sourceMode,
   );
@@ -137,6 +308,78 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     dispatch(setSourceMode(mode));
     storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
+
+  const handleSelectedDeviceChange = useCallback(
+    (id: string) => {
+      setSelectedSourceId(id);
+      if (sourceMode === "file") {
+        handleSourceModeChange("live");
+      }
+    },
+    [handleSourceModeChange, setSelectedSourceId, sourceMode],
+  );
+
+  const fileActionLabel = useMemo(() => {
+    if (sourceMode !== "file") return "File";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process [auto]";
+    }
+    return isStitchPaused ? "Play" : "Pause";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const fileActionTitle = useMemo(() => {
+    if (sourceMode !== "file") return "Switch to File Selection";
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (!selectedFiles.length) return "Browse files";
+    if (status.includes("processing") || status.includes("loading")) {
+      return "Process selected file automatically";
+    }
+    return isStitchPaused ? "Resume playback" : "Pause playback";
+  }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
+
+  const handleFileAction = useCallback(() => {
+    if (sourceMode !== "file") return;
+    if (!selectedFiles.length) return;
+    const status = stitchStatus?.toLowerCase?.() ?? "";
+    if (status.includes("processing") || status.includes("loading")) {
+      dispatch(triggerStitch());
+      storeDispatch({ type: "TRIGGER_STITCH" });
+      return;
+    }
+    dispatch(setStitchPaused(!isStitchPaused));
+    storeDispatch({
+      type: "SET_STITCH_PAUSED",
+      paused: !isStitchPaused,
+    });
+  }, [
+    dispatch,
+    isStitchPaused,
+    selectedFiles.length,
+    sourceMode,
+    storeDispatch,
+    stitchStatus,
+  ]);
+
+  const handleSourceFilesSelected = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+
+      const registeredFiles = files.map((file) => ({
+        id: fileRegistry.register(file),
+        name: file.name,
+      }));
+
+      dispatch(setSourceMode("file"));
+      dispatch(setSelectedFiles(registeredFiles));
+      dispatch(triggerStitch());
+      storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
+      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
+      storeDispatch({ type: "TRIGGER_STITCH" });
+    },
+    [dispatch, storeDispatch],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -263,12 +506,11 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     }
 
     liveDataRef.current = null;
-    if (wasLivePausedBeforeFileModeRef.current !== manualVisualizerPaused) {
+    if (wasLivePausedBeforeFileModeRef.current) {
       toggleVisualizerPause();
     }
   }, [
     dispatch,
-    liveIsPaused,
     manualVisualizerPaused,
     sourceMode,
     storeDispatch,
@@ -280,8 +522,25 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       <SourceSidebar
         sourceMode={sourceMode}
         onSourceModeChange={handleSourceModeChange}
-        backend={backend}
-        deviceName={deviceName}
+        backend={activeSourceDerived.backend}
+        deviceName={activeSourceDerived.deviceName}
+        devices={sourceDevices as any}
+        selectedDeviceId={selectedSourceId}
+        onSelectedDeviceChange={handleSelectedDeviceChange}
+        selectionMode={isTxSuiteFlow ? "multi" : "single"}
+        maxSelectedDevices={2}
+        selectedDeviceIds={isTxSuiteFlow ? routedSourceIds : undefined}
+        onSelectedDevicesChange={
+          isTxSuiteFlow ? handleMultiSourceChange : undefined
+        }
+        spaceBoundDeviceId={selectedSourceId || null}
+        onToggleDeviceRxPause={(id) => toggleVisualizerPause(id)}
+        onToggleDeviceTxMode={handleToggleTransmit}
+        selectedFilesCount={selectedFiles.length}
+        onFileAction={handleFileAction}
+        onFilesSelected={handleSourceFilesSelected}
+        fileActionLabel={fileActionLabel}
+        fileActionTitle={fileActionTitle}
       />
 
       {sourceMode === "file" && (
@@ -298,22 +557,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
             storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
           }}
           selectedPrimaryFile={selectedPrimaryFile}
-          naptMetadata={null}
+          naptMetadata={loadedFileMetadata ?? null}
           naptMetadataError={null}
           showMetadata={false}
-        />
-      )}
-
-      {sourceMode === "live" && (
-        <ConnectionStatusSection
-          isConnected={isConnected}
-          deviceState={deviceState}
-          deviceLoadingReason={deviceLoadingReason}
-          backend={backend}
-          isPaused={liveIsPaused}
-          cryptoCorrupted={cryptoCorrupted}
-          onPauseToggle={toggleVisualizerPause}
-          onRestartDevice={() => dispatch(sendRestartDevice())}
         />
       )}
 

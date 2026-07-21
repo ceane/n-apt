@@ -2,6 +2,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useRef,
   useState,
   useMemo,
   type ReactNode,
@@ -25,6 +26,22 @@ import {
 type FFTAndWaterfallProps = FFTCanvasProps & {
   waterfallHeaderActionContent?: ReactNode;
   onLoadingStateChange?: (isLoading: boolean) => void;
+  loadingPlaceholderDelayMs?: number;
+};
+
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
 };
 
 const Container = styled.div`
@@ -48,7 +65,7 @@ const SpectrumStage = styled.div`
   display: flex;
   flex-direction: column;
   position: relative;
-  flex: 1;
+  flex: 1 1 40px;
   min-height: 0;
   width: 100%;
 `;
@@ -59,6 +76,20 @@ const SlidersRail = styled.div`
   flex-direction: column;
   align-items: center;
 `;
+
+const isTxCapableSource = (
+  source?: { capability?: string | null; kind?: string | null } | null,
+) => {
+  if (!source) return false;
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    kind === "hackrf_one" ||
+    kind === "mock_tx"
+  );
+};
 
 const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
   (props, ref) => {
@@ -78,6 +109,27 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const vizZoomFloorPan = useAppSelector(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
     );
+    const showTxSlider = useAppSelector(
+      (reduxState) => reduxState.spectrum.showTxSlider ?? true,
+    );
+    const txSignal = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSignal || "wifi",
+    );
+    const txCenterFrequencyHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txCenterFrequencyHz,
+    );
+    const txSampleRateHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSampleRateHz,
+    );
+    const txPowerDbm = useAppSelector(
+      (reduxState) => reduxState.spectrum.txPowerDbm,
+    );
+    const activeSource = useAppSelector((reduxState) =>
+      reduxState.websocket.sources?.find?.(
+        (source) => source.id === reduxState.websocket.activeSourceId,
+      ),
+    );
+    const canShowTxSlider = isTxCapableSource(activeSource);
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -88,22 +140,35 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
-    const [isFftCanvasLoading, setIsFftCanvasLoading] = useState(true);
+    const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
+      useState(true);
+    const handleRenderableFrameChange = useCallback(
+      (hasFrame: boolean) => {
+        setHasRenderableFrame(hasFrame);
+        props.onRenderableFrameChange?.(hasFrame);
+      },
+      [props.onRenderableFrameChange],
+    );
+    const awaitingFreshFrameRef = useRef(false);
+    const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
     const currentFrame = Array.isArray(props.dataRef.current)
       ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
       : props.dataRef.current;
     const hasIncomingData = !!(
-      currentFrame && (currentFrame.iq_data?.length ?? 0) > 0
+      currentFrame &&
+      ((currentFrame.iq_data?.length ?? 0) > 0 ||
+        ((currentFrame as any).data?.length ?? 0) > 0 ||
+        ((currentFrame as any).waveform?.length ?? 0) > 0)
     );
-    const hasLiveFrame = hasIncomingData || hasRenderableFrame;
-
+    const hasLiveFrame =
+      hasRenderableFrame || (props.isPaused && hasIncomingData);
     const placeholderErrorReason = useMemo(() => {
       if (props.placeholderErrorReason) {
         return props.placeholderErrorReason;
       }
       if (sourceMode === "live") {
         if (!wsState.isConnected) {
-          return "Server Disconnected";
+          return "Server down";
         }
         if (wsState.cryptoCorrupted) {
           return "Crypto Corrupted";
@@ -136,19 +201,78 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const isGlobalLoading = !!(
       awaitingDeviceData ||
       placeholderErrorReason ||
-      isFftCanvasLoading
+      props.placeholderState ||
+      (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
     );
 
-    useEffect(() => {
-      if (awaitingDeviceData || placeholderErrorReason) {
-        setHasRenderableFrame(false);
-        setIsFftCanvasLoading(true);
-      }
-    }, [awaitingDeviceData, placeholderErrorReason]);
+    const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
+      ? awaitingDeviceData ||
+        (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
+      : false;
+
+    const sharedPlaceholderState = useMemo(() => {
+      // Connection and device errors are authoritative. Do not let a stale
+      // standby/loading presentation mask the server-disconnected state.
+      if (placeholderErrorReason) return null;
+      if (props.placeholderState) return props.placeholderState;
+      if (!sharedAwaitingDeviceData) return null;
+      return {
+        kind: "loading" as const,
+        sourceLabel: props.placeholderSourceLabel,
+        paneLabel: "FFT",
+        message:
+          typeof sharedAwaitingDeviceData === "string"
+            ? sharedAwaitingDeviceData
+            : undefined,
+      };
+    }, [
+      placeholderErrorReason,
+      props.placeholderSourceLabel,
+      props.placeholderState,
+      sharedAwaitingDeviceData,
+    ]);
 
     useEffect(() => {
-      props.onLoadingStateChange?.(isGlobalLoading);
-    }, [isGlobalLoading, props.onLoadingStateChange]);
+      if (loadingPlaceholderTimeoutRef.current) {
+        window.clearTimeout(loadingPlaceholderTimeoutRef.current);
+        loadingPlaceholderTimeoutRef.current = null;
+      }
+
+      if (!isGlobalLoading) {
+        if (awaitingFreshFrameRef.current) {
+          return;
+        }
+        setShouldShowLoadingPlaceholder(false);
+        return;
+      }
+
+      awaitingFreshFrameRef.current = true;
+      setHasRenderableFrame(false);
+
+      loadingPlaceholderTimeoutRef.current = window.setTimeout(() => {
+        setShouldShowLoadingPlaceholder(true);
+        loadingPlaceholderTimeoutRef.current = null;
+      }, props.loadingPlaceholderDelayMs ?? 160);
+
+      return () => {
+        if (loadingPlaceholderTimeoutRef.current) {
+          window.clearTimeout(loadingPlaceholderTimeoutRef.current);
+          loadingPlaceholderTimeoutRef.current = null;
+        }
+      };
+    }, [isGlobalLoading, props.loadingPlaceholderDelayMs]);
+
+    useEffect(() => {
+      if (!hasRenderableFrame || !awaitingFreshFrameRef.current) {
+        return;
+      }
+      awaitingFreshFrameRef.current = false;
+      setShouldShowLoadingPlaceholder(false);
+    }, [hasRenderableFrame]);
+
+    useEffect(() => {
+      props.onLoadingStateChange?.(shouldShowLoadingPlaceholder);
+    }, [shouldShowLoadingPlaceholder, props.onLoadingStateChange]);
 
     const waterfallCanvasBindings: FFTCanvasWaterfallBindings = {
       waterfallGpuCanvasNode,
@@ -163,6 +287,54 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const powerScale = props.powerScale ?? "dB";
     const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
     const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
+    const effectiveTxSlider = useMemo(() => {
+      if (props.txSlider) return props.txSlider;
+      if (!showTxSlider) return undefined;
+      if (!canShowTxSlider) return undefined;
+      const range = props.frequencyRange;
+      if (
+        !range ||
+        !Number.isFinite(range.min) ||
+        !Number.isFinite(range.max)
+      ) {
+        return undefined;
+      }
+      const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
+      const visibleMaxHz =
+        Number.isFinite(range.max) && range.max > visibleMinHz
+          ? range.max
+          : visibleMinHz + 1;
+      const span = visibleMaxHz - visibleMinHz;
+      const centerHz = Number.isFinite(txCenterFrequencyHz)
+        ? txCenterFrequencyHz
+        : visibleMinHz + span / 2;
+      const sampleRateHz = Number.isFinite(txSampleRateHz)
+        ? Math.max(1, txSampleRateHz)
+        : Math.max(1, Math.min(120_000, span));
+      return {
+        visible: true,
+        signalLabel: resolveTxSignalDisplayLabel(txSignal),
+        powerDbm: txPowerDbm,
+        visibleMinHz,
+        visibleMaxHz,
+        txCenterHz: centerHz,
+        txSampleRateHz: sampleRateHz,
+        onCenterFrequencyChange: (value: number) =>
+          dispatch(spectrumActions.setTxCenterFrequencyHz(value)),
+        onSampleRateChange: (value: number) =>
+          dispatch(spectrumActions.setTxSampleRateHz(value)),
+      };
+    }, [
+      props.txSlider,
+      props.frequencyRange,
+      showTxSlider,
+      canShowTxSlider,
+      txCenterFrequencyHz,
+      txSampleRateHz,
+      txSignal,
+      txPowerDbm,
+      dispatch,
+    ]);
     const handleZoomChange = useCallback(
       (nextZoom: number) => {
         const clampedZoom = clampVizZoom(nextZoom, zoomFloor);
@@ -170,12 +342,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           props.signalAreaBounds?.[props.activeSignalArea] ??
           props.signalAreaBounds?.[props.activeSignalArea?.toLowerCase?.()] ??
           null;
+        const zoomedBounds = clampedZoom > 1 ? null : activeBounds;
         const retune = getRetunedVizPanForZoomChange({
           currentPan: pan,
           nextZoom: clampedZoom,
           rangeMin: props.frequencyRange.min,
           rangeMax: props.frequencyRange.max,
-          bounds: activeBounds,
+          bounds: zoomedBounds,
         });
         const nextPan = retune.retuned
           ? retune.pan
@@ -215,26 +388,45 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             <FFTCanvas
               ref={ref}
               {...props}
+              isStandby={props.isStandby}
+              txSlider={effectiveTxSlider}
               interactionDisabled={isGlobalLoading}
-              awaitingDeviceData={awaitingDeviceData || !hasLiveFrame}
+              awaitingDeviceData={sharedAwaitingDeviceData}
               placeholderSourceLabel={props.placeholderSourceLabel}
               placeholderPaneLabel="FFT"
               placeholderErrorReason={placeholderErrorReason}
-              onRenderableFrameChange={setHasRenderableFrame}
-              onCanvasLoadingChange={setIsFftCanvasLoading}
+              placeholderState={
+                sharedPlaceholderState?.kind === "loading" &&
+                !shouldShowLoadingPlaceholder
+                  ? undefined
+                  : sharedPlaceholderState?.kind === "loading"
+                    ? { ...sharedPlaceholderState, paneLabel: "FFT" }
+                    : sharedPlaceholderState
+              }
+              onRenderableFrameChange={handleRenderableFrameChange}
               waterfallCanvasBindings={waterfallCanvasBindings}
             />
+            {props.overlayContent ? props.overlayContent : null}
           </SpectrumStage>
           <FIFOWaterfallCanvas
             isPaused={props.isPaused}
+            isStandby={props.isStandby}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
             headerActionContent={props.waterfallHeaderActionContent}
             heterodyningHighlightedBins={props.heterodyningHighlightedBins}
-            awaitingDeviceData={awaitingDeviceData || !hasRenderableFrame}
+            awaitingDeviceData={sharedAwaitingDeviceData}
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
+            placeholderState={
+              sharedPlaceholderState?.kind === "loading" &&
+              !shouldShowLoadingPlaceholder
+                ? undefined
+                : sharedPlaceholderState?.kind === "loading"
+                  ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }
+                  : sharedPlaceholderState
+            }
           />
         </Left>
         <SlidersRail>
@@ -263,6 +455,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             }
             onWfSmoothChange={(enabled) =>
               dispatch(spectrumActions.setWfSmoothEnabled(enabled))
+            }
+            showTxSlider={showTxSlider}
+            canShowTxSlider={canShowTxSlider}
+            onShowTxSliderChange={(enabled) =>
+              dispatch(spectrumActions.setShowTxSlider(enabled))
             }
             onResetZoomDb={() => {
               props.onVizZoomFloorChange?.(1);

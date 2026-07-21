@@ -276,6 +276,7 @@ export const DrawSignalRoute: React.FC = () => {
     webgpuFormatRef,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    overlayDirtyRef,
   } = useWebGPUInit({
     spectrumGpuCanvasRef: canvasRef,
     waterfallGpuCanvasRef,
@@ -288,7 +289,7 @@ export const DrawSignalRoute: React.FC = () => {
   // Generate data based on params
   const data = useMemo(() => {
     return generateMockNAPTData(drawParams, state.globalNoiseFloor);
-  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData]);
+  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData, mathLoaded]);
 
   const waveformArray = useMemo(() => data.map((p) => p.x), [data]);
   const floatWaveform = useMemo(
@@ -327,13 +328,14 @@ export const DrawSignalRoute: React.FC = () => {
       device: webgpuDeviceRef.current,
       format: webgpuFormatRef.current,
       waveform: floatWaveform,
-      frequencyRange: { min: 0, max: 3 },
+      frequencyRange: { min: 0, max: 3_000_000 },
       fftMin: -120,
       fftMax: 0,
       isIqRecordingActive: true,
       hardwareSampleRateHz: sampleRateHzEffective ?? undefined,
       gridOverlayRenderer: gridOverlayRendererRef.current,
       markersOverlayRenderer: markersOverlayRendererRef.current,
+      overlayDirty: overlayDirtyRef.current,
     });
   }, [
     dimensions,
@@ -345,6 +347,7 @@ export const DrawSignalRoute: React.FC = () => {
     sampleRateHzEffective,
     gridOverlayRendererRef,
     markersOverlayRendererRef,
+    overlayDirtyRef,
     drawSpectrum,
     isInitializingWebGPU,
   ]);
@@ -361,6 +364,10 @@ export const DrawSignalRoute: React.FC = () => {
             width: entry.contentRect.width,
             height: entry.contentRect.height,
           });
+          if (overlayDirtyRef.current) {
+            overlayDirtyRef.current.grid = true;
+            overlayDirtyRef.current.markers = true;
+          }
         }
       }
     });
@@ -371,13 +378,40 @@ export const DrawSignalRoute: React.FC = () => {
       height: container.clientHeight,
     });
 
+    if (overlayDirtyRef.current) {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    }
+
     return () => observer.disconnect();
-  }, []);
+  }, [pageIndex, overlayDirtyRef]);
+
+  // Mark overlays dirty when pageIndex, drawParams, or sample rate changes
+  useEffect(() => {
+    if (overlayDirtyRef.current) {
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    }
+  }, [pageIndex, drawParams, sampleRateHzEffective, overlayDirtyRef]);
 
   // Sync render with dimensions and data
   useEffect(() => {
-    renderFrame();
-  }, [renderFrame]);
+    let frameCount = 0;
+    let rafId: number;
+
+    const loop = () => {
+      renderFrame();
+      frameCount++;
+      // Draw for several consecutive frames to ensure WebGPU
+      // swap chain and DOM layout have fully settled after remount
+      if (frameCount < 10) {
+        rafId = requestAnimationFrame(loop);
+      }
+    };
+
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [renderFrame, pageIndex]);
 
   // Cleanup on unmount
   useEffect(() => {

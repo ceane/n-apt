@@ -10,6 +10,10 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnVizZoomFloorChange = jest.fn();
   const mockOnFftDbLimitsChange = jest.fn();
   const mockOnSelectionChange = jest.fn();
+  const mockOnPowerLineDbChange = jest.fn();
+  const mockOnTxCenterFrequencyChange = jest.fn();
+  const mockOnTxSampleRateChange = jest.fn();
+  const mockOnTxOptionsRequest = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
   const spectrumGpuCanvasRef = {
@@ -59,6 +63,7 @@ describe("useFrequencyDrag Hook", () => {
     onVizZoomFloorChange: mockOnVizZoomFloorChange,
     onFftDbLimitsChange: mockOnFftDbLimitsChange,
     onSelectionChange: mockOnSelectionChange,
+    onPowerLineDbChange: mockOnPowerLineDbChange,
     vizZoomRef: { current: 1 },
     vizZoomFloorRef: { current: 1 },
     vizPanOffsetRef: { current: 0 },
@@ -66,11 +71,17 @@ describe("useFrequencyDrag Hook", () => {
     vizDbMaxRef: { current: 0 },
   };
 
+  const listenerCallbacks = new Map<string, Set<Function>>();
   let listeners: Record<string, Function> = {};
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockOnPowerLineDbChange.mockClear();
+    mockOnTxCenterFrequencyChange.mockClear();
+    mockOnTxSampleRateChange.mockClear();
+    mockOnTxOptionsRequest.mockClear();
     listeners = {};
+    listenerCallbacks.clear();
     frequencyRangeRef.current = { min: 100, max: 110 };
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 1;
     if (defaultOptions.vizZoomFloorRef)
@@ -79,14 +90,43 @@ describe("useFrequencyDrag Hook", () => {
       defaultOptions.vizPanOffsetRef.current = 0;
     if (defaultOptions.vizDbMinRef) defaultOptions.vizDbMinRef.current = -120;
     if (defaultOptions.vizDbMaxRef) defaultOptions.vizDbMaxRef.current = 0;
+    spectrumGpuCanvasRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 600,
+    });
+    spectrumContainerRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 600,
+    });
 
     // Mock window event listeners
     jest.spyOn(window, "addEventListener").mockImplementation((event, cb) => {
-      listeners[event] = cb as Function;
+      let callbacks = listenerCallbacks.get(event);
+      if (!callbacks) {
+        callbacks = new Set();
+        listenerCallbacks.set(event, callbacks);
+        listeners[event] = (...args: any[]) => {
+          callbacks!.forEach((h) => h(...args));
+        };
+      }
+      callbacks.add(cb as Function);
     });
-    jest.spyOn(window, "removeEventListener").mockImplementation((event) => {
-      delete listeners[event];
-    });
+    jest
+      .spyOn(window, "removeEventListener")
+      .mockImplementation((event, cb) => {
+        const callbacks = listenerCallbacks.get(event);
+        if (callbacks) {
+          callbacks.delete(cb as Function);
+          if (callbacks.size === 0) {
+            delete listeners[event];
+            listenerCallbacks.delete(event);
+          }
+        }
+      });
   });
 
   afterEach(() => {
@@ -108,20 +148,28 @@ describe("useFrequencyDrag Hook", () => {
     });
   };
 
-  const triggerPointerMove = (clientX: number, clientY: number) => {
+  const triggerPointerMove = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
     const handler = listeners["pointermove"];
     if (handler) {
       act(() => {
-        handler({ clientX, clientY } as any);
+        handler({ clientX, clientY, pointerId } as any);
       });
     }
   };
 
-  const triggerPointerUp = (clientX: number, clientY: number) => {
+  const triggerPointerUp = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
     const handler = listeners["pointerup"];
     if (handler) {
       act(() => {
-        handler({ clientX, clientY, pointerId: 1 } as any);
+        handler({ clientX, clientY, pointerId } as any);
       });
     }
   };
@@ -144,6 +192,22 @@ describe("useFrequencyDrag Hook", () => {
         deltaY: 0,
         ctrlKey: false,
         ...payload,
+      } as any);
+    });
+  };
+
+  const triggerDoubleClick = (clientX: number, clientY: number) => {
+    const calls =
+      spectrumContainerRef.current.addEventListener.mock.calls.filter(
+        (c: any) => c[0] === "dblclick",
+      );
+    const handler = calls[calls.length - 1][1];
+    act(() => {
+      handler({
+        clientX,
+        clientY,
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
       } as any);
     });
   };
@@ -190,6 +254,58 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnVizZoomFloorChange).toHaveBeenCalled();
   });
 
+  it("commits a box zoom from the pointerup coordinates immediately", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    triggerPointerDown(100, 100);
+    triggerPointerUp(200, 200);
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    expect(mockOnVizZoomChange).toHaveBeenLastCalledWith(
+      expect.closeTo(9.1, 5),
+    );
+    expect(mockOnVizZoomFloorChange).toHaveBeenCalledWith(
+      expect.closeTo(9.1, 5),
+    );
+  });
+
+  it("creates the zoombox before pointermove so the overlay has a stable node", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+    const mockBox = document.createElement("div");
+    jest.spyOn(document, "createElement").mockReturnValue(mockBox);
+    (document.createElement as jest.Mock).mockClear();
+
+    triggerPointerDown(100, 100);
+
+    expect(document.createElement).toHaveBeenCalledWith("div");
+    expect(document.body.contains(mockBox)).toBe(true);
+    expect(mockBox.style.zIndex).toBe("2147483647");
+    expect(mockBox.style.transition).toBe("none");
+  });
+
+  it("updates the zoombox state during drag", () => {
+    const zoomboxStateRef = { current: null };
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        zoomboxStateRef,
+      }),
+    );
+
+    triggerPointerDown(100, 100);
+    triggerPointerMove(900, 550);
+
+    expect(zoomboxStateRef.current).toEqual({
+      startX: 100,
+      startY: 100,
+      currentX: 900,
+      currentY: 550,
+    });
+
+    triggerPointerUp(900, 550);
+    expect(zoomboxStateRef.current).toBeNull();
+  });
+
   it("should start a fresh range drag inside an existing selection unless resizing", () => {
     const selectionOptions = {
       ...defaultOptions,
@@ -214,6 +330,117 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnSelectionChange).toHaveBeenCalled();
     const secondCall = mockOnSelectionChange.mock.calls[0][0];
     expect(secondCall.min).toBeLessThan(secondCall.max);
+  });
+
+  it("moves the FFT node selection when dragging inside the existing band", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(600, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 105,
+      max: 107,
+    });
+  });
+
+  it("starts a new FFT node selection when dragging outside the existing band", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(200, 120);
+    triggerPointerMove(300, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 103,
+    });
+  });
+
+  it("keeps the FFT node selection draggable while its display edge-pans", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(1100, 120);
+
+    expect(mockOnSelectionChange).toHaveBeenLastCalledWith({
+      min: 110,
+      max: 112,
+    });
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 112,
+    });
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps requesting spectrum while a selection drag is held at the FFT edge", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(995, 120);
+
+    const firstRequestedRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(firstRequestedRange).toBeDefined();
+    expect(animationFrames).toHaveLength(1);
+
+    act(() => animationFrames.shift()?.(1_000));
+    act(() => animationFrames.shift()?.(1_100));
+
+    const heldRequestedRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(heldRequestedRange.max).toBeGreaterThan(firstRequestedRange.max);
+    expect(heldRequestedRange.max - heldRequestedRange.min).toBeCloseTo(10);
+
+    triggerPointerUp(995, 120);
+    expect(window.cancelAnimationFrame).toHaveBeenCalled();
   });
 
   it("creates a range from right to left without anchoring at the center", () => {
@@ -288,6 +515,57 @@ describe("useFrequencyDrag Hook", () => {
     expect(next.max).toBeCloseTo(110, 2);
   });
 
+  it("keeps the whole FFT node selectable when React Flow scales it below the VFO threshold", () => {
+    spectrumGpuCanvasRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 150,
+    });
+    spectrumContainerRef.current.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 150,
+    });
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+      }),
+    );
+
+    triggerPointerDown(150, 75);
+    triggerPointerMove(250, 75);
+
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("edge-pans a React Flow FFT range by shifting its display range without visual overscroll", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        fullPlotSelection: true,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(900, 120);
+    triggerPointerMove(1200, 120);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 112,
+    });
+    expect(frequencyRangeRef.current).toEqual({ min: 102, max: 112 });
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+  });
+
   it("uses the latest selection range after rerendering", () => {
     const { rerender } = renderHook(
       ({ selectionRange }) =>
@@ -337,6 +615,228 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastCall.min).toBe(100);
   });
 
+  it("drags the canvas TX slider in the bottom stats row", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(414, 580);
+    triggerPointerMove(300, 580);
+    triggerPointerUp(300, 580);
+
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("preserves the TX slider body grab offset on pointer down", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(414, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBeCloseTo(105, 3);
+  });
+
+  it("drags the canvas TX slider when zoomed in", () => {
+    const clampedVizRangeRef = { current: { min: 102, max: 108 } };
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        clampedVizRangeRef,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(300, 580);
+    triggerPointerUp(300, 580);
+
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+  });
+
+  it("lets canvas TX slider body dragging reach the visible track edge", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(1200, 580);
+    triggerPointerUp(1200, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBe(110);
+  });
+
+  it("pans the hardware window in steps when TX body drag pushes past the visible edge", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(1200, 580);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastRange).toEqual({ min: 101, max: 111 });
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastCenter).toBe(110);
+  });
+
+  it("clamps TX drag at 0 Hz instead of emitting negative frequencies", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef,
+        txSliderEnabled: true,
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 0,
+            visibleMaxHz: 10,
+            txCenterHz: 5,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(-1200, 580);
+
+    const lastCenter =
+      mockOnTxCenterFrequencyChange.mock.calls[
+        mockOnTxCenterFrequencyChange.mock.calls.length - 1
+      ]?.[0];
+    // Band width=2, clamped with start at 0 → center = 1
+    expect(lastCenter).toBe(1);
+  });
+
+  it("routes wheel and double click to the canvas TX slider", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onCenterFrequencyChange: mockOnTxCenterFrequencyChange,
+            onSampleRateChange: mockOnTxSampleRateChange,
+            onOptionsRequest: mockOnTxOptionsRequest,
+          },
+        },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 580, deltaY: 120 } as any);
+    expect(mockOnTxCenterFrequencyChange).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 580,
+      deltaY: -120,
+      ctrlKey: true,
+    } as any);
+    expect(mockOnTxSampleRateChange).toHaveBeenCalled();
+
+    triggerDoubleClick(500, 580);
+    expect(mockOnTxOptionsRequest).toHaveBeenCalled();
+  });
+
   it("should clamp VFO dragging to the active channel bounds", () => {
     const channelOptions = {
       ...defaultOptions,
@@ -356,12 +856,38 @@ describe("useFrequencyDrag Hook", () => {
     expect(lastCall.min).toBe(100);
   });
 
+  it("allows hardware wheel scrolling past the selected channel edge immediately", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 102,
+      max: 112,
+    });
+  });
+
   it("should retune the hardware window when zoomed wheel panning crosses the edge", () => {
+    const panRef = { current: 2.4 };
+
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
         vizZoomRef: { current: 2 },
-        vizPanOffsetRef: { current: 2.4 },
+        vizPanOffsetRef: panRef,
       }),
     );
 
@@ -387,14 +913,16 @@ describe("useFrequencyDrag Hook", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("should keep zoomed wheel panning inside the active channel bounds", () => {
+  it("allows zoomed wheel panning past active channel bounds while respecting hardware bounds", () => {
+    const panRef = { current: 2.4 };
+
     renderHook(() =>
       useFrequencyDrag({
         ...defaultOptions,
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
         hardwareSpectrumBounds: { min: 0, max: 1000 },
         vizZoomRef: { current: 2 },
-        vizPanOffsetRef: { current: 2.4 },
+        vizPanOffsetRef: panRef,
       }),
     );
 
@@ -415,18 +943,20 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizPanChange.mock.calls.length - 1
       ][0];
 
-    expect(lastRange.min).toBe(100);
-    expect(lastRange.max).toBe(110);
-    expect(lastPan).toBeLessThanOrEqual(2.5);
+    expect(lastRange.min).toBeGreaterThan(100);
+    expect(lastRange.max).toBeGreaterThan(110);
+    expect(lastRange.max).toBeLessThanOrEqual(1000);
+    expect(Number.isFinite(lastPan)).toBe(true);
   });
 
   it("never retunes the hardware window below 0 Hz when edge panning left", () => {
+    const panRef = { current: -2.4 };
     const zeroClampOptions = {
       ...defaultOptions,
       frequencyRangeRef: { current: { min: 100, max: 110 } },
       hardwareSpectrumBounds: { min: 0, max: 1000 },
       vizZoomRef: { current: 2 },
-      vizPanOffsetRef: { current: -2.4 },
+      vizPanOffsetRef: panRef,
     };
 
     renderHook(() => useFrequencyDrag(zeroClampOptions));
@@ -553,5 +1083,48 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizZoomChange.mock.calls.length - 1
       ][0];
     expect(zoomCall).toBeGreaterThanOrEqual(3);
+  });
+
+  it("should handle draggable power line vertically in the left dB margin and clear it on pointerup", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    // Pointer down at x=20, y=300 (left scale margin area)
+    triggerPointerDown(20, 300);
+    expect(mockOnPowerLineDbChange).toHaveBeenCalled();
+    const firstCall = mockOnPowerLineDbChange.mock.calls[0][0];
+    // y=300 is 280px down from the plot top on the stable bottom-row layout.
+    expect(firstCall).toBeCloseTo(-69.4, 1);
+
+    // Pointer move to y=200
+    triggerPointerMove(20, 200);
+    const lastCall =
+      mockOnPowerLineDbChange.mock.calls[
+        mockOnPowerLineDbChange.mock.calls.length - 1
+      ][0];
+    // y=200 is 180px down from the plot top on the stable bottom-row layout.
+    expect(lastCall).toBeCloseTo(-44.6, 1);
+
+    // Pointer up should set power line to null to hide it
+    triggerPointerUp(20, 200);
+    const finalCall =
+      mockOnPowerLineDbChange.mock.calls[
+        mockOnPowerLineDbChange.mock.calls.length - 1
+      ][0];
+    expect(finalCall).toBeNull();
+  });
+
+  it("should disable scroll/wheel events in the left scale margin", () => {
+    renderHook(() => useFrequencyDrag(defaultOptions));
+
+    const preventDefaultMock = jest.fn();
+    triggerWheel({
+      clientX: 20, // inside left margin x < 50
+      clientY: 300,
+      preventDefault: preventDefaultMock,
+    });
+
+    expect(preventDefaultMock).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
   });
 });

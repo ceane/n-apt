@@ -40,6 +40,76 @@ const safeRemoveItem = (key: string): boolean => {
   }
 };
 
+export const normalizePersistedTxSignalKey = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "wifi";
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "":
+    case "apt":
+      return "wifi";
+    case "d":
+    case "d_sharp":
+    case "dsharp":
+    case "wifi":
+    case "5g":
+    case "tone":
+    case "noise":
+    case "custom":
+      return normalized === "dsharp" ? "d_sharp" : normalized;
+    default:
+      return "wifi";
+  }
+};
+
+/**
+ * Viewer settings are independent from the generated Tx/IFFT settings. Keep
+ * older or partially-written persisted state from replacing the slice
+ * defaults with undefined values during hydration.
+ */
+export const normalizePersistedTxViewerSettings = (parsed: any) => {
+  if (
+    !Number.isFinite(parsed.txViewerSampleRateHz) ||
+    parsed.txViewerSampleRateHz <= 0
+  ) {
+    parsed.txViewerSampleRateHz = 2_400_000;
+  }
+
+  if (!Number.isFinite(parsed.txViewerFftSize) || parsed.txViewerFftSize <= 0) {
+    parsed.txViewerFftSize = 65_536;
+  }
+
+  if (
+    !Number.isFinite(parsed.txViewerFftFrameRate) ||
+    parsed.txViewerFftFrameRate <= 0
+  ) {
+    parsed.txViewerFftFrameRate = 60;
+  }
+
+  if (typeof parsed.txViewerFftWindow !== "string") {
+    parsed.txViewerFftWindow = "Rectangular";
+  }
+
+  if (
+    parsed.txViewerTemporalResolution !== "low" &&
+    parsed.txViewerTemporalResolution !== "medium" &&
+    parsed.txViewerTemporalResolution !== "high"
+  ) {
+    parsed.txViewerTemporalResolution = "high";
+  }
+
+  if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {
+    parsed.txViewerPowerScale = "dB";
+  }
+
+  return parsed;
+};
+
 // Create localStorage middleware
 const createLocalStorageMiddleware =
   (): Middleware<{}, any> => (store) => (next) => (action: any) => {
@@ -77,6 +147,17 @@ const createLocalStorageMiddleware =
         activeSignalArea: spectrumState.activeSignalArea,
         lastKnownRanges: spectrumState.lastKnownRanges,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
+        txSampleRateHz: spectrumState.txSampleRateHz,
+        txIfftSize: spectrumState.txIfftSize,
+        txViewerSampleRateHz: spectrumState.txViewerSampleRateHz,
+        txViewerFftSize: spectrumState.txViewerFftSize,
+        txViewerFftFrameRate: spectrumState.txViewerFftFrameRate,
+        txViewerFftWindow: spectrumState.txViewerFftWindow,
+        txViewerTemporalResolution: spectrumState.txViewerTemporalResolution,
+        txViewerPowerScale: spectrumState.txViewerPowerScale,
+        txCenterFrequencyHz: spectrumState.txCenterFrequencyHz,
+        txPowerDbm: spectrumState.txPowerDbm,
+        txVgaGain: spectrumState.txVgaGain,
       };
       safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
     }
@@ -108,14 +189,22 @@ const createLocalStorageMiddleware =
       const websocketState = state.websocket;
 
       // Cache spectrum frames
+      if (action.type === "websocket/setSpectrumFrames") {
+        if (websocketState.spectrumFrames.length > 0) {
+          safeSetItem(
+            STORAGE_KEYS.SPECTRUM_FRAMES,
+            JSON.stringify(websocketState.spectrumFrames),
+          );
+        } else {
+          safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
+        }
+      }
+
       if (
-        action.type === "websocket/setSpectrumFrames" &&
-        websocketState.spectrumFrames.length > 0
+        action.type === "websocket/setDisconnected" ||
+        action.type === "websocket/reset"
       ) {
-        safeSetItem(
-          STORAGE_KEYS.SPECTRUM_FRAMES,
-          JSON.stringify(websocketState.spectrumFrames),
-        );
+        safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
       }
 
       // Cache SDR settings from WebSocket
@@ -127,6 +216,13 @@ const createLocalStorageMiddleware =
           STORAGE_KEYS.SDR_SETTINGS_CACHE,
           JSON.stringify(websocketState.sdrSettings),
         );
+      }
+
+      if (
+        action.type === "websocket/disconnect" ||
+        action.type === "websocket/setDisconnected"
+      ) {
+        safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
       }
     }
 
@@ -173,6 +269,68 @@ export const loadPersistedSdrSettings = () => {
       delete parsed.sampleRateHz;
     }
 
+    if (!Number.isFinite(parsed.txSampleRateHz)) {
+      parsed.txSampleRateHz = 2_400_000;
+    }
+
+    if (
+      !Number.isFinite(parsed.txCenterFrequencyHz) ||
+      parsed.txCenterFrequencyHz === 2_204_000 ||
+      parsed.txCenterFrequencyHz === 1_600_000
+    ) {
+      parsed.txCenterFrequencyHz = 137_100_000;
+    }
+
+    if (!Number.isFinite(parsed.txPowerDbm)) {
+      parsed.txPowerDbm = -18;
+    }
+
+    if (!Number.isFinite(parsed.txVgaGain)) {
+      parsed.txVgaGain = 16;
+    }
+
+    normalizePersistedTxViewerSettings(parsed);
+
+    parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
+
+    if (typeof parsed.txSafetyEnabled !== "boolean") {
+      parsed.txSafetyEnabled = false;
+    }
+
+    if (typeof parsed.txSafetyLimit !== "string") {
+      parsed.txSafetyLimit = "room";
+    }
+
+    if (typeof parsed.txHopType !== "string") {
+      parsed.txHopType = "range";
+    }
+
+    if (!Number.isFinite(parsed.txHopStartFrequencyHz)) {
+      parsed.txHopStartFrequencyHz = 10_000_000;
+    }
+
+    if (!Number.isFinite(parsed.txHopEndFrequencyHz)) {
+      parsed.txHopEndFrequencyHz = 20_000_000;
+    }
+
+    if (!Array.isArray(parsed.txHopChannels)) {
+      parsed.txHopChannels = ["a"];
+    }
+
+    if (!Number.isFinite(parsed.txHopRateHz)) {
+      parsed.txHopRateHz = 10;
+    }
+
+    if (typeof parsed.txHopEnabled !== "boolean") {
+      parsed.txHopEnabled = false;
+    }
+
+    // Preserve the restored live default gain if stale cache data wrote a zero
+    // generic gain. Zero is a common "missing value" in older persisted state.
+    if (parsed.gain === 0) {
+      delete parsed.gain;
+    }
+
     return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings:", error);
@@ -205,7 +363,13 @@ export const loadPersistedSdrSettingsCache = () => {
   if (!stored) return null;
 
   try {
-    return JSON.parse(stored);
+    const parsed = JSON.parse(stored);
+    if (parsed?.gain && typeof parsed.gain === "object") {
+      if (parsed.gain.tuner_gain === 0) {
+        delete parsed.gain.tuner_gain;
+      }
+    }
+    return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings cache:", error);
     safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);

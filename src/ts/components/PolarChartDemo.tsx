@@ -14,6 +14,17 @@ const DemoWrapper = styled.div`
   overflow: auto;
 `;
 
+const DemoTitle = styled.h1`
+  margin-top: 0;
+  font-size: 24px;
+  font-weight: 300;
+`;
+
+const DemoDescription = styled.p`
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 32px;
+`;
+
 const ControlsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -61,13 +72,11 @@ export const PolarChartDemo: React.FC = () => {
 
   return (
     <DemoWrapper>
-      <h1 style={{ marginTop: 0, fontSize: "24px", fontWeight: 300 }}>
-        Polar Radio Wave Architecture
-      </h1>
-      <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: "32px" }}>
+      <DemoTitle>Polar Radio Wave Architecture</DemoTitle>
+      <DemoDescription>
         Modeling diffraction limits and lobe structures relative to antenna
         physical geometry.
-      </p>
+      </DemoDescription>
 
       <ControlsGrid>
         <ControlItem>

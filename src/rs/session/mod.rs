@@ -6,7 +6,8 @@
 //!
 //! Sessions are persisted to `~/.n-apt/sessions.json` so they survive restarts.
 
-use redis::{Client as RedisClient, Commands, Connection};
+use redis::aio::MultiplexedConnection;
+use redis::{AsyncCommands, Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -41,23 +42,25 @@ impl SessionStore {
     })
   }
 
-  fn get_conn(&self) -> Result<Connection, String> {
+  async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
     let mut conn = self
       .client
-      .get_connection()
+      .get_multiplexed_async_connection()
+      .await
       .map_err(|e| format!("Redis connection failed: {}", e))?;
 
-    // Ensure we are on DB 1 for sessions
+    // Ensure we are on DB 1 for sessions.
     redis::cmd("SELECT")
       .arg(1)
-      .query::<()>(&mut conn)
+      .query_async::<()>(&mut conn)
+      .await
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
 
     Ok(conn)
   }
 
   /// Create a new session and return its token.
-  pub fn create_session(&self, encryption_key: [u8; 32]) -> String {
+  pub async fn create_session(&self, encryption_key: [u8; 32]) -> String {
     let token = Uuid::new_v4().to_string();
     let session = Session {
       token: token.clone(),
@@ -67,9 +70,9 @@ impl SessionStore {
     let key = format!("{}{}", self.prefix, token);
     let session_json = serde_json::to_string(&session).unwrap_or_default();
 
-    if let Ok(mut conn) = self.get_conn() {
+    if let Ok(mut conn) = self.get_conn().await {
       let _: redis::RedisResult<()> =
-        conn.set_ex(&key, session_json, self.ttl_secs);
+        conn.set_ex(&key, session_json, self.ttl_secs).await;
       log::info!("Session created in Redis: {}…", &token[..8]);
     } else {
       log::error!("Failed to create session in Redis: connection error");
@@ -79,16 +82,16 @@ impl SessionStore {
   }
 
   /// Validate a session token. Returns the session if valid and not expired.
-  pub fn validate(&self, token: &str) -> Option<Session> {
+  pub async fn validate(&self, token: &str) -> Option<Session> {
     // Reject non-UUID tokens before they reach Redis
     if Uuid::parse_str(token).is_err() {
       log::warn!("Session validate: rejected non-UUID token");
       return None;
     }
-    let mut conn = self.get_conn().ok()?;
+    let mut conn = self.get_conn().await.ok()?;
     let key = format!("{}{}", self.prefix, token);
 
-    let session_json: Option<String> = conn.get(&key).ok()?;
+    let session_json: Option<String> = conn.get(&key).await.ok()?;
     match session_json {
       Some(json) => {
         let session: Session = serde_json::from_str(&json).ok()?;
@@ -99,14 +102,14 @@ impl SessionStore {
   }
 
   /// Remove a session (logout).
-  pub fn revoke(&self, token: &str) {
+  pub async fn revoke(&self, token: &str) {
     if Uuid::parse_str(token).is_err() {
       log::warn!("Session revoke: rejected non-UUID token");
       return;
     }
-    if let Ok(mut conn) = self.get_conn() {
+    if let Ok(mut conn) = self.get_conn().await {
       let key = format!("{}{}", self.prefix, token);
-      let _: redis::RedisResult<()> = conn.del(&key);
+      let _: redis::RedisResult<()> = conn.del(&key).await;
       log::info!("Session revoked in Redis: {}…", &token[..8]);
     }
   }

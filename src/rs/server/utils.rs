@@ -79,12 +79,44 @@ pub fn preprocess_frequency_tags(content: &str) -> String {
 }
 
 pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
+  let re_seq = Regex::new(r"(?ms)sample_rate:\s*\n\s*-\s*base:\s*\S+.*?\n\s*freq_hz:\s*(\d+).*?\n\s*-\s*channel:\s*\S+.*?\n\s*freq_hz:\s*[^\n]+").unwrap();
+  let content = re_seq.replace_all(content, "sample_rate: $1").to_string();
+
   let re_floor_max = Regex::new(r"sample_rate:\s*!floor\.\.\.!max\b").unwrap();
   let content = re_floor_max
     .replace_all(
-      content,
+      &content,
       "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_MAX__\"]",
     )
+    .to_string();
+
+  let re_floor_channel =
+    Regex::new(r"sample_rate:\s*!floor\.\.\.!channel\b").unwrap();
+  let content = re_floor_channel
+    .replace_all(
+      &content,
+      "sample_rate: [\"__NAPT_SAMPLE_RATE_FLOOR__\", \"__NAPT_SAMPLE_RATE_CHANNEL__\"]",
+    )
+    .to_string();
+
+  let re_clamp_tag = Regex::new(r"sample_rate:\s*!clamp\b").unwrap();
+  let content = re_clamp_tag
+    .replace_all(&content, "sample_rate:")
+    .to_string();
+
+  let re_channel_tag = Regex::new(r"!channel\s+sample_rate\b").unwrap();
+  let content = re_channel_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_CHANNEL__\"")
+    .to_string();
+
+  let re_floor_tag = Regex::new(r"!floor\s+sample_rate\b").unwrap();
+  let content = re_floor_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_FLOOR__\"")
+    .to_string();
+
+  let re_max_tag = Regex::new(r"!max\s+sample_rate\b").unwrap();
+  let content = re_max_tag
+    .replace_all(&content, "\"__NAPT_SAMPLE_RATE_MAX__\"")
     .to_string();
 
   let re_max = Regex::new(r"sample_rate:\s*!max\b").unwrap();
@@ -93,8 +125,21 @@ pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
     .to_string();
 
   let re_floor = Regex::new(r"sample_rate:\s*!floor\b").unwrap();
-  re_floor
+  let content = re_floor
     .replace_all(&content, "sample_rate: \"__NAPT_SAMPLE_RATE_FLOOR__\"")
+    .to_string();
+
+  // Preprocess power-of-two tags (e.g. !pow2 22 or 2^11) safely:
+  let re_pow2 = Regex::new(r"(?:!pow2\s+|2\^)(\d+)\b").unwrap();
+  re_pow2
+    .replace_all(&content, |caps: &regex::Captures| {
+      let exponent: u32 = caps[1].parse().unwrap_or(0);
+      if exponent >= 8 && exponent <= 24 {
+        2u32.pow(exponent).to_string()
+      } else {
+        "2048".to_string()
+      }
+    })
     .to_string()
 }
 
@@ -357,7 +402,18 @@ pub fn compute_min_receive_sample_rate(
 ) -> u32 {
   const RTL_SDR_FLOOR_HZ: u32 = 3_200_000;
 
-  let widest_channel_bandwidth = napt
+  let widest_channel_bandwidth = widest_channel_bandwidth(napt);
+
+  let derived_floor = widest_channel_bandwidth / 2;
+  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
+  min_receive_sample_rate.min(sdr_sample_rate)
+}
+
+/// Resolve the `!channel` sample-rate ceiling from the configured N-APT
+/// channels. This is the authoritative maximum for Mock APT; device probe
+/// metadata is only a fallback when the channel configuration is unavailable.
+pub fn widest_channel_bandwidth(napt: &NaptConfig) -> u32 {
+  napt
     .channels
     .values()
     .filter_map(|channel| {
@@ -373,11 +429,7 @@ pub fn compute_min_receive_sample_rate(
       Some((max - min) as u32)
     })
     .max()
-    .unwrap_or(0);
-
-  let derived_floor = widest_channel_bandwidth / 2;
-  let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
-  min_receive_sample_rate.min(sdr_sample_rate)
+    .unwrap_or(0)
 }
 
 pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
@@ -421,14 +473,58 @@ pub fn resolve_fft_config(
   device_kind: &str,
   sample_rate: u32,
   preferred_size: Option<usize>,
+  sdr_settings: Option<&super::types::SdrConfig>,
 ) -> super::types::SdrFftConfig {
-  let max_size: usize = if device_kind == "hackrf_one" {
-    4_194_304 // 2^22
+  let mut min_size: usize = 2048;
+  let mut max_size: usize = if device_kind == "hackrf_one" {
+    262_144 // 2^18: maximum supported by the browser live visualizer
   } else {
     262_144 // 2^18
   };
 
-  let min_size: usize = 2048;
+  // Override from sdr_settings if available
+  if let Some(settings) = sdr_settings {
+    // 1. Check global fft_sizes
+    if let Some(fft_sizes_list) = &settings.fft_sizes {
+      for item in fft_sizes_list {
+        if item.base == "base_fft_sizes" {
+          if let Some(min) = item.fft_min {
+            min_size = min as usize;
+          }
+          if let Some(max) = item.fft_max {
+            max_size = max as usize;
+          }
+        }
+      }
+    }
+    // 2. Check device-specific overrides
+    if let Some(device_cfg) = settings.devices.get(device_kind) {
+      if let Some(fft_sizes_list) = &device_cfg.fft_sizes {
+        for item in fft_sizes_list {
+          if item.base == "base_fft_sizes" {
+            if let Some(min) = item.fft_min {
+              min_size = min as usize;
+            }
+            if let Some(max) = item.fft_max {
+              max_size = max as usize;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Security bounds checks
+  if min_size < 256 {
+    min_size = 256;
+  }
+  if max_size > 8_388_608 {
+    max_size = 8_388_608;
+  }
+  if min_size > max_size {
+    min_size = max_size;
+  }
+
   let mut sizes: Vec<usize> = Vec::new();
   let mut current: usize = min_size;
   let sr_usize = sample_rate as usize;
@@ -479,8 +575,12 @@ pub fn load_sdr_settings() -> super::types::SdrConfig {
   let config = signals_config();
   let mut sdr = config.signals.sdr.clone();
   apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
-  sdr.fft =
-    resolve_fft_config("mock_apt", sdr.sample_rate, Some(sdr.fft.default_size));
+  sdr.fft = resolve_fft_config(
+    "mock_apt",
+    sdr.sample_rate,
+    Some(sdr.fft.default_size),
+    Some(&sdr),
+  );
   sdr
 }
 
@@ -497,6 +597,10 @@ pub fn load_available_spectrum() -> Option<AvailableSpectrumConfig> {
 /// Load mock APT signal settings (panic if missing/malformed)
 pub fn load_mock_apt_settings() -> super::types::MockAptSignalsConfig {
   signals_config().signals.mock_apt.clone()
+}
+
+pub fn load_mock_tx_settings() -> super::types::MockTxSignalsConfig {
+  signals_config().signals.mock_tx.clone()
 }
 
 pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
@@ -588,6 +692,8 @@ pub fn reconcile_device_state(
   match (device_connected, device_state) {
     // "loading" is always authoritative — it means we're mid-transition
     (_, "loading") => "loading".to_string(),
+    // "loose" is authoritative — the device briefly vanished but may recover
+    (_, "loose") => "loose".to_string(),
     // "stale" is authoritative — the health loop set it deliberately
     (_, "stale") => "stale".to_string(),
     // Normal consistency checks
@@ -649,7 +755,7 @@ pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
 pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => "rtl_sdr",
-    "hackrf_one" => "hackrf_one",
+    "hackrf_one" | "mock_tx" => "hackrf_one",
     "mock_apt_metal" => "mock_apt",
     "mock_apt" => "mock_apt",
     kind => kind,
@@ -671,12 +777,24 @@ pub fn device_sample_rate_ceiling(
   sdr_settings: &SdrConfig,
 ) -> u32 {
   if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
-    return parse_device_info_sample_rate(device_info)
-      .unwrap_or(sdr_settings.sample_rate);
+    let configured_channel_ceiling =
+      widest_channel_bandwidth(&signals_config().signals.n_apt);
+    return if configured_channel_ceiling > 0 {
+      configured_channel_ceiling
+    } else {
+      parse_device_info_sample_rate(device_info)
+        .unwrap_or(sdr_settings.sample_rate)
+    };
   }
 
-  if matches!(device_profile.kind.as_str(), "hackrf_one") {
+  if matches!(device_profile.kind.as_str(), "hackrf_one" | "mock_tx") {
     return 20_000_000;
+  }
+
+  if device_profile.is_rtl_sdr
+    || matches!(device_profile.kind.as_str(), "rtl_sdr" | "rtl-sdr")
+  {
+    return 3_200_000;
   }
 
   if device_connected {
@@ -701,7 +819,11 @@ pub fn resolve_device_sample_rate_options(
   );
   let floor =
     if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
-      ceiling
+      let config = signals_config();
+      compute_min_receive_sample_rate(
+        &config.signals.n_apt,
+        config.signals.sdr.sample_rate,
+      )
     } else {
       sdr_settings
         .min_receive_sample_rate
@@ -732,6 +854,7 @@ pub fn status_device_backend_label(
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => "rtl-sdr".to_string(),
     "hackrf_one" => "hackrf_one".to_string(),
+    "mock_tx" => "mock_tx".to_string(),
     kind => kind.to_string(),
   }
 }
@@ -748,6 +871,7 @@ pub fn status_device_name(
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
     "hackrf_one" => "HackRF One".to_string(),
+    "mock_tx" => "Mock Tx SDR".to_string(),
     _ => device_info
       .split(" - ")
       .next()
@@ -803,6 +927,9 @@ mod tests {
     assert!(sdr_value.is_some(), "expected signals.sdr in signals.yaml");
     let parsed: Result<crate::server::types::SdrConfig, _> =
       serde_yaml::from_value(sdr_value.expect("signals.sdr value"));
+    if parsed.is_err() {
+      eprintln!("DESERIALIZATION ERROR: {:?}", parsed.as_ref().unwrap_err());
+    }
     assert!(parsed.is_ok(), "expected signals.sdr to parse");
 
     let settings = load_sdr_settings();
@@ -901,8 +1028,7 @@ mod tests {
   }
 
   #[test]
-  fn resolves_mock_sample_rate_options_from_mock_device_after_hackrf_settings()
-  {
+  fn resolves_mock_sample_rate_options_from_configured_whole_channel() {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();
 
@@ -923,8 +1049,59 @@ mod tests {
       &settings,
     );
 
+    let expected_channel_rate = load_channels()
+      .iter()
+      .map(|channel| (channel.max_hz - channel.min_hz) as u32)
+      .max()
+      .expect("signals.yaml should define a Mock APT channel");
+
+    assert_eq!(max_sample_rate, expected_channel_rate);
+    assert_eq!(options.first().copied(), Some(3_200_000));
+    assert_eq!(options.last().copied(), Some(expected_channel_rate));
+    assert!(options.contains(&3_200_000));
+  }
+
+  #[test]
+  fn resolves_rtl_sdr_sample_rate_options_to_exactly_3_2_mhz() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "rtl_sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      supports_raw_iq_stream: true,
+    };
+
+    let settings = load_sdr_settings();
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      true,
+      "RTL-SDR v4 - Freq: 1600000 Hz, Rate: 3200000 Hz",
+      &profile,
+      &settings,
+    );
+
     assert_eq!(max_sample_rate, 3_200_000);
     assert_eq!(options, vec![3_200_000]);
+  }
+
+  #[test]
+  fn signals_yaml_defaults_rtl_sdr_to_max_gain_and_one_ppm() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let settings = load_sdr_settings();
+    let rtl = settings
+      .devices
+      .get("rtl_sdr")
+      .expect("rtl_sdr device config");
+
+    assert_eq!(settings.gain.tuner_gain, 46.9);
+    assert_eq!(settings.ppm, 1.0);
+    assert_eq!(
+      rtl.gain_limits.as_ref().and_then(|limits| limits.max),
+      Some(46.9)
+    );
   }
 
   #[test]
@@ -1167,6 +1344,8 @@ signals:
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     // We can't call save_capture_file_multi easily because it writes to disk,
@@ -1362,6 +1541,93 @@ n_apt:
     assert_eq!(start, 18000.0, "start should be 18kHz = 18000.0 Hz");
     assert_eq!(end, 4390000.0, "end should be 4.39MHz = 4390000.0 Hz");
   }
+
+  #[test]
+  fn real_signals_yaml_enables_mock_tx_source() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))
+      .expect("set manifest dir");
+
+    let config = signals_config();
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    clear_signals_config_cache();
+    assert!(config.signals.mock_tx.enabled);
+  }
+
+  #[test]
+  fn real_signals_yaml_sets_mock_tx_noise_floor() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR"))
+      .expect("set manifest dir");
+
+    let config = signals_config();
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    clear_signals_config_cache();
+    assert_eq!(config.signals.mock_tx.noise_floor_db, Some(-100.0));
+  }
+
+  #[test]
+  fn test_hackrf_one_tx_power_mapping_parses() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let sdr_settings = load_sdr_settings();
+    let hackrf_cfg = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .expect("hackrf_one should exist");
+    let tx_mapping = hackrf_cfg
+      .tx_power_mapping
+      .as_ref()
+      .expect("tx_power_mapping should exist");
+
+    // Validate some points in the mapping
+    assert_eq!(tx_mapping.amp_off.len(), 10);
+    assert_eq!(tx_mapping.amp_on.len(), 7);
+
+    assert_eq!(tx_mapping.amp_off[0].vga, 0);
+    assert_eq!(tx_mapping.amp_off[0].dbm, -7.5);
+
+    assert_eq!(tx_mapping.amp_on[6].vga, 47);
+    assert_eq!(tx_mapping.amp_on[6].dbm, 15.0);
+  }
+
+  #[test]
+  fn test_hackrf_one_tx_iq_power_model_parses() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let sdr_settings = load_sdr_settings();
+    let hackrf_cfg = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .expect("hackrf_one should exist");
+    let tx_iq_power_model = hackrf_cfg
+      .tx_iq_power_model
+      .as_ref()
+      .expect("tx_iq_power_model should exist");
+
+    assert_eq!(tx_iq_power_model.iq_encoding, "offset_binary_u8");
+    assert_eq!(tx_iq_power_model.signed_range, [-128, 127]);
+    assert_eq!(tx_iq_power_model.normalized_sample, "(byte - 128) / 127");
+    assert_eq!(
+      tx_iq_power_model.complex_rms_formula,
+      "sqrt(mean(i_norm^2 + q_norm^2))"
+    );
+    assert_eq!(
+      tx_iq_power_model.dbm_formula,
+      "20 * log10(complex_rms) + calibration_db"
+    );
+    assert_eq!(
+      tx_iq_power_model.inverse_rms_formula,
+      "10 ** ((dbm - calibration_db) / 20)"
+    );
+    assert_eq!(tx_iq_power_model.calibration_db, 15.0);
+  }
 }
 
 /// A writer wrapper that calculates SHA256 checksum and tracks size on the fly.
@@ -1417,7 +1683,7 @@ pub fn save_capture_file_multi(
   }
 
   // SECURITY: Strict validation of file_type.
-  if result.file_type != ".napt" && result.file_type != ".wav" {
+  if result.file_type != ".napt" && result.file_type != ".wav" && result.file_type != ".iq" {
     return Err(format!("Unsupported file_type: '{}'", result.file_type));
   }
 
@@ -1427,7 +1693,9 @@ pub fn save_capture_file_multi(
     .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-  let filename = if result.encrypted && result.file_type == ".napt" {
+  let filename = if result.file_type == ".iq" {
+    format!("capture_{}_{}.iq", result.job_id, timestamp)
+  } else if result.encrypted && result.file_type == ".napt" {
     format!("capture_{}_{}.napt", result.job_id, timestamp)
   } else {
     // default to wav for non-encrypted capture
@@ -1456,6 +1724,13 @@ pub fn save_capture_file_multi(
     "rtl_agc": result.rtl_agc,
     "data_format": "iq_u8",
     "spectrum_shifted": true,
+    "format": if result.file_type == ".iq" { "iq" } else if result.file_type == ".wav" { "wav" } else { "napt" },
+    "format_version": 3,
+    "interleaving": "IQ",
+    "device_profile": {
+      "kind": result.source_device,
+      "firmware_version": serde_json::Value::Null,
+    },
   });
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
@@ -1485,7 +1760,44 @@ pub fn save_capture_file_multi(
     });
   }
 
-  if result.encrypted && result.file_type == ".napt" {
+  if result.file_type == ".iq" {
+    meta_obj["channels"] = serde_json::Value::Array(
+      result.channels.iter().map(|ch| serde_json::json!({
+        "center_freq_hz": ch.center_freq_hz,
+        "sample_rate_hz": ch.sample_rate_hz,
+        "bins_per_frame": ch.bins_per_frame,
+        "label": ch.label,
+      })).collect(),
+    );
+    let mut fields = meta_obj.as_object().cloned().unwrap_or_default();
+    for key in ["format", "format_version", "interleaving", "sample_encoding"] {
+      fields.remove(key);
+    }
+    let metadata = crate::server::iq_format::IqMetadata {
+      fields,
+      ..Default::default()
+    };
+    let iq_file = crate::server::iq_format::IqFile {
+      metadata,
+      private_metadata: if result.encrypted {
+        result.device_profile.clone()
+      } else {
+        None
+      },
+      frames: result.frame_updates.clone(),
+      chunks: result.channels.iter().enumerate().map(|(channel, ch)| crate::server::iq_format::IqChunk {
+        sample_offset: 0,
+        channel: channel as u32,
+        data: ch.iq_data.clone(),
+      }).collect(),
+    };
+    let encoded = crate::server::iq_format::encode(&iq_file, if result.encrypted { Some(encryption_key) } else { None })?;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&encoded);
+    let checksum = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    std::fs::write(&path, &encoded).map_err(|e| format!("Failed to write IQ: {e}"))?;
+    return Ok(CaptureArtifact { filename, path, file_size: encoded.len() as u64, checksum });
+  } else if result.encrypted && result.file_type == ".napt" {
     // Construct plaintext: JSON header with `channels` array + padding + Concatenated Data
     let header_size = 4096; // Larger header for multi-channel JSON
     let mut payload_plaintext = Vec::new();
@@ -1761,6 +2073,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1839,6 +2153,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact = save_capture_file_multi(&result, &test_encryption_key())
@@ -1914,6 +2230,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result2 = CaptureResult {
@@ -1952,6 +2270,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let artifact1 = save_capture_file_multi(&result1, &test_encryption_key())
@@ -2008,6 +2328,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result_napt = save_capture_file_multi(&result, &test_encryption_key())
@@ -2103,6 +2425,8 @@ mod save_tests {
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
+      frame_updates: Vec::new(),
+      device_profile: None,
     };
 
     let result_wav =
@@ -2145,7 +2469,7 @@ mod save_tests {
 
   #[test]
   fn test_resolve_fft_config_scales_with_sample_rate() {
-    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768));
+    let mock_low = resolve_fft_config("mock_apt", 1_000_000, Some(32768), None);
     assert_eq!(mock_low.default_size, 32768);
     assert_eq!(mock_low.max_size, 262_144);
     assert_eq!(mock_low.default_frame_rate, 30);
@@ -2153,10 +2477,12 @@ mod save_tests {
     assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
     assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
 
-    let mock_fallback = resolve_fft_config("mock_apt", 1_000_000, Some(1024));
+    let mock_fallback =
+      resolve_fft_config("mock_apt", 1_000_000, Some(1024), None);
     assert_eq!(mock_fallback.default_size, 2048);
 
-    let mock_high = resolve_fft_config("mock_apt", 3_200_000, Some(32768));
+    let mock_high =
+      resolve_fft_config("mock_apt", 3_200_000, Some(32768), None);
     assert_eq!(mock_high.default_size, 32768);
     assert_eq!(mock_high.max_size, 262_144);
     assert_eq!(mock_high.default_frame_rate, 60);
@@ -2165,8 +2491,8 @@ mod save_tests {
     assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
     assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
 
-    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768));
-    assert_eq!(hackrf.max_size, 2_097_152);
+    let hackrf = resolve_fft_config("hackrf_one", 3_200_000, Some(32768), None);
+    assert_eq!(hackrf.max_size, 262_144);
     assert_eq!(hackrf.default_size, 32768);
   }
 }

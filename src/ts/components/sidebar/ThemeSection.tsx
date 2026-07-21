@@ -28,6 +28,17 @@ const Section = styled.div`
   width: 100%;
 `;
 
+const ResetWrapper = styled.div`
+  margin-top: 12px;
+  grid-column: 1 / -1;
+`;
+
+const ResetButton = styled(Button)`
+  width: 100%;
+  font-size: 10px;
+  padding: 6px;
+`;
+
 const ColorInputWrapper = styled.div`
   display: flex;
   align-items: center;
@@ -219,15 +230,11 @@ export const ThemeSection: React.FC = () => {
           </SettingSelect>
         </Row>
 
-        <div style={{ marginTop: "12px", gridColumn: "1 / -1" }}>
-          <Button
-            $variant="secondary"
-            onClick={handleResetTheme}
-            style={{ width: "100%", fontSize: "10px", padding: "6px" }}
-          >
+        <ResetWrapper>
+          <ResetButton $variant="secondary" onClick={handleResetTheme}>
             Reset Theme to Defaults
-          </Button>
-        </div>
+          </ResetButton>
+        </ResetWrapper>
       </Collapsible>
     </Section>
   );

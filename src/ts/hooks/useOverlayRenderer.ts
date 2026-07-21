@@ -13,15 +13,16 @@ import {
   BOUNDARY_LINE_COLOR,
   BOUNDARY_TEXT_COLOR,
 } from "@n-apt/consts";
-import {
-  formatFrequency,
-  formatFrequencyHighRes,
-} from "@n-apt/utils/frequency";
+import { formatFrequency } from "@n-apt/utils/frequency";
 import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
 } from "@n-apt/utils/rendering/vfoAxis";
+import {
+  drawLiveCanvasStatusRow,
+  type LiveCanvasStatusRow,
+} from "@n-apt/hooks/useDraw2DFFTSignal";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
 
@@ -36,6 +37,18 @@ export interface DemodFocusOverlay {
 export interface SelectionOverlay {
   minFrequencyHz: number;
   maxFrequencyHz: number;
+}
+
+export interface TxSliderOverlayState {
+  visible: boolean;
+  visibleMinHz: number;
+  visibleMaxHz: number;
+  txCenterHz: number;
+  txSampleRateHz: number;
+  isTransmitting?: boolean;
+  deviceLabel?: string;
+  signalLabel?: string;
+  powerDbm?: number;
 }
 
 const readCssColor = (name: string, fallback: string) => {
@@ -82,7 +95,7 @@ const getDarkerColor = (colorStr: string) => {
   return "rgba(170, 30, 30, 0.8)";
 };
 
-const getCanvasThemeColors = () => ({
+const createCanvasThemeColors = () => ({
   gridColor: readCssColor("--color-fft-grid", FFT_GRID_COLOR),
   textColor: readCssColor("--color-fft-text", FFT_TEXT_COLOR),
   centerLineColor: readCssColor("--color-fft-center-line", CENTER_LINE_COLOR),
@@ -101,20 +114,82 @@ const getCanvasThemeColors = () => ({
   boundaryText: readCssColor("--color-fft-boundary-text", BOUNDARY_TEXT_COLOR),
   spectrumOverlay: readCssColor(
     "--color-spectrum-overlay",
-    "rgba(255, 255, 255, 0.15)",
+    "rgba(255, 255, 255, 0.08)",
   ),
   spectrumOverlayBorder: readCssColor(
     "--color-spectrum-overlay-border",
-    "rgba(255, 255, 255, 0.75)",
+    "rgba(37, 64, 105, 0.78)",
+  ),
+  surfaceColor: readCssColor("--color-surface", "#ffffff"),
+  powerLineColor: readCssColor(
+    "--color-fft-power-line",
+    "rgba(0, 212, 255, 0.85)",
   ),
   textPrimary: readCssColor("--color-text-primary", "#cccccc"),
 });
+
+let cachedCanvasThemeColors: ReturnType<typeof createCanvasThemeColors> | null =
+  null;
+
+export const invalidateOverlayThemeColorCache = () => {
+  cachedCanvasThemeColors = null;
+};
+
+const getCanvasThemeColors = () => {
+  if (!cachedCanvasThemeColors) {
+    cachedCanvasThemeColors = createCanvasThemeColors();
+  }
+  return cachedCanvasThemeColors;
+};
+
+const applyOpacityToColor = (color: string, opacity: number) => {
+  const alpha = Math.max(0, Math.min(1, opacity));
+  if (alpha >= 0.999) return color;
+  const rgbaMatch = color.match(
+    /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/,
+  );
+  if (rgbaMatch) {
+    return `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, ${alpha})`;
+  }
+  const rgbMatch = color.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+  if (rgbMatch) {
+    return `rgba(${rgbMatch[1]}, ${rgbMatch[2]}, ${rgbMatch[3]}, ${alpha})`;
+  }
+  if (color.startsWith("#")) {
+    const hex = color.substring(1);
+    let r = 0,
+      g = 0,
+      b = 0;
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.substring(0, 2), 16);
+      g = parseInt(hex.substring(2, 4), 16);
+      b = parseInt(hex.substring(4, 6), 16);
+    } else {
+      return color;
+    }
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return color;
+};
+
+const VFO_AXIS_ROW_HEIGHT = 40;
+const LIVE_STATUS_ROW_HEIGHT = 56;
+export const TX_SLIDER_ROW_HEIGHT = LIVE_STATUS_ROW_HEIGHT;
+const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
+const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
  * Provides functions to draw grid and markers onto OffscreenCanvas contexts
  */
 export function useOverlayRenderer() {
+  // A React render is the invalidation boundary for CSS theme changes. Canvas
+  // draw callbacks can then reuse the parsed values for every animation frame.
+  invalidateOverlayThemeColorCache();
   // formatFrequencyHighRes moved to shared.ts
 
   const drawGridOnContext = useCallback(
@@ -129,10 +204,15 @@ export function useOverlayRenderer() {
       _hardwareSampleRateHz?: number,
       fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
+      };
       const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
@@ -148,15 +228,13 @@ export function useOverlayRenderer() {
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
-      const useHighRes = zoom >= 100;
       const formatFreq = (f: number) =>
-        useHighRes
-          ? formatFrequencyHighRes(f)
-          : formatFrequency(f, {
-              precisionMHz: 6,
-              precisionKHz: 3,
-              trimTrailingZeros: true,
-            });
+        formatFrequency(f, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+          precisionGHz: 3,
+        });
 
       const clampLabelX = (x: number, text: string) => {
         const tw = ctx.measureText(text).width;
@@ -169,7 +247,7 @@ export function useOverlayRenderer() {
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = canvasTheme.textColor;
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
@@ -195,10 +273,13 @@ export function useOverlayRenderer() {
         // Bounds check with small padding
         if (yPos < FFT_AREA_MIN.y - 2 || yPos > fftAreaMax.y + 2) continue;
 
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.beginPath();
         ctx.moveTo(FFT_AREA_MIN.x, Math.round(yPos));
         ctx.lineTo(fftAreaMax.x, Math.round(yPos));
         ctx.stroke();
+        ctx.restore();
 
         let label = `${Math.round(line)}`;
         // Append unit only to the top-most label (the first one in our array)
@@ -210,15 +291,14 @@ export function useOverlayRenderer() {
       }
 
       const step = findBestFrequencyRange(viewBandwidth2, 10);
-      const tickPrec = tickPrecisionForStep(step);
+      const tickPrecision = tickPrecisionForStep(step);
       const formatTickLabel = (freq: number) =>
-        useHighRes
-          ? formatFrequencyHighRes(freq)
-          : formatFrequency(freq, {
-              trimTrailingZeros: true,
-              precisionMHz: 6,
-              precisionKHz: 3,
-            });
+        formatFrequency(freq, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+          precisionGHz: tickPrecision.precisionGHz,
+        });
       const lowerFreq2 = Math.ceil(minFreq / step) * step;
       const upperFreq2 = maxFreq;
 
@@ -243,9 +323,12 @@ export function useOverlayRenderer() {
         return formatFrequency(hz, { trimTrailingZeros: true });
       };
 
+      const isGHzRange = Math.max(Math.abs(minFreq), Math.abs(maxFreq)) >= 1e9;
+      const tickFontPx = isGHzRange ? 10 : 12;
+
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = canvasTheme.textColor;
-      ctx.font = "12px JetBrains Mono";
+      ctx.font = `${tickFontPx}px 'JetBrains Mono', monospace`;
       ctx.textAlign = "center";
 
       // ── Collision Avoidance Setup ──────────────────────────────────────────
@@ -255,13 +338,12 @@ export function useOverlayRenderer() {
       const centerLabelText =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "--MHz"
-          : useHighRes
-            ? formatFrequencyHighRes(visualCenterFreq)
-            : formatFrequency(visualCenterFreq, {
-                precisionMHz: 6,
-                precisionKHz: 3,
-                trimTrailingZeros: true,
-              });
+          : formatFrequency(visualCenterFreq, {
+              trimTrailingZeros: true,
+              precisionMHz: 4,
+              precisionKHz: 2,
+              precisionGHz: 3,
+            });
 
       const startW = ctx.measureText(startLabel).width;
       const endW = ctx.measureText(endLabel).width;
@@ -315,11 +397,14 @@ export function useOverlayRenderer() {
         const ix = xPos;
 
         // Grid line
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = canvasTheme.gridColor;
         ctx.beginPath();
         ctx.moveTo(ix, FFT_AREA_MIN.y);
         ctx.lineTo(ix, fftAreaMax.y);
         ctx.stroke();
+        ctx.restore();
 
         // Tick mark
         ctx.strokeStyle = canvasTheme.textColor;
@@ -359,10 +444,11 @@ export function useOverlayRenderer() {
 
       if (shouldShowHWGrid) {
         ctx.save();
-        ctx.strokeStyle = canvasTheme.snapHwRateLine;
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
+        ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
         ctx.lineWidth = 1 / dpr;
-        ctx.fillStyle = canvasTheme.snapHwRateText;
-        ctx.font = "10px JetBrains Mono";
+        ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
+        ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.setLineDash([4, 4]);
@@ -417,7 +503,7 @@ export function useOverlayRenderer() {
                 ? "Hardware Sample Rate"
                 : "Next Sample";
               const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, FFT_AREA_MIN.y + 20);
+              ctx.fillText(label, cx, FFT_AREA_MIN.y + 35);
               ctx.fillText(subLabel, cx, FFT_AREA_MIN.y + 32);
             }
           }
@@ -427,7 +513,7 @@ export function useOverlayRenderer() {
         ctx.restore();
       }
     },
-    [formatFrequency, formatFrequencyHighRes],
+    [formatFrequency],
   );
 
   const drawMarkersOnContext = useCallback(
@@ -442,10 +528,21 @@ export function useOverlayRenderer() {
       _fullCaptureRange?: { min: number; max: number },
       _isIqRecordingActive?: boolean,
       _limitMarkers?: SdrLimitMarker[],
+      _fftSize?: number,
+      _fftWindow?: string,
+      _temporalResolution?: "low" | "medium" | "high",
+      showStatusRow = true,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      _statusRow?: LiveCanvasStatusRow,
+      overlayOpacity: number = 1,
+      isStandby = false,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
+      };
       if (!_frequencyRange) return;
       const minFreq = _frequencyRange.min;
       const maxFreq = _frequencyRange.max;
@@ -455,6 +552,11 @@ export function useOverlayRenderer() {
         ? _fullCaptureRange.max - _fullCaptureRange.min
         : 0;
       const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
+
+      const centerLineColor = isStandby
+        ? applyOpacityToColor(canvasTheme.centerLineColor, 0.1)
+        : canvasTheme.centerLineColor;
+
       drawVfoAxis({
         ctx: createCanvasVfoAxisContext(ctx),
         frequencyRange: { min: minFreq, max: maxFreq },
@@ -474,7 +576,7 @@ export function useOverlayRenderer() {
         showEdgeLabels: false,
         showTickMarks: false,
         showTickLabels: false,
-        showCenterLine: true,
+        showCenterLine: overlayOpacity >= 0.999 || isStandby,
         centerLineTop: FFT_AREA_MIN.y,
         centerLineBottom: fftAreaMax.y,
         icon: "wave",
@@ -482,20 +584,85 @@ export function useOverlayRenderer() {
           tick: canvasTheme.textColor,
           label: canvasTheme.textColor,
           center: canvasTheme.centerLabelText,
-          centerLine: canvasTheme.centerLineColor,
+          centerLine: centerLineColor,
         },
         fontPx: 12,
         centerFontPx: 12,
         textBaseline: "alphabetic",
-        useHighResLabels: zoom >= 100,
+        useHighResLabels: false,
         lineWidth: Math.max(0.5 / dpr, 1),
       });
+
+      if (showStatusRow) {
+        const statusRowOptions = _statusRow
+          ? {
+              statusRow: _statusRow,
+              textColor: canvasTheme.textColor,
+            }
+          : typeof _hardwareSampleRateHz === "number" &&
+              typeof _fftSize === "number" &&
+              _fftWindow &&
+              _temporalResolution
+            ? {
+                sampleRateHz: _hardwareSampleRateHz,
+                fftSize: _fftSize,
+                fftWindow: _fftWindow,
+                temporalResolution: _temporalResolution,
+                textColor: canvasTheme.textColor,
+              }
+            : null;
+        if (statusRowOptions) {
+          drawLiveCanvasStatusRow(
+            ctx as CanvasRenderingContext2D,
+            width,
+            height,
+            statusRowOptions,
+          );
+        }
+      }
 
       const viewBandwidth = maxFreq - minFreq;
       const freqToX = (freq: number) =>
         FFT_AREA_MIN.x + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
-      void _limitMarkers;
+      ctx.save();
+
+      const limitMarkers = (_limitMarkers ?? []).filter(
+        (marker) =>
+          Number.isFinite(marker.freq) &&
+          marker.freq >= minFreq &&
+          marker.freq <= maxFreq,
+      );
+
+      if (limitMarkers.length > 0 && viewBandwidth > 0) {
+        ctx.save();
+        ctx.font = "11px 'JetBrains Mono', monospace";
+        ctx.textBaseline = "top";
+        ctx.lineWidth = Math.max(1, 1 / dpr);
+
+        for (const marker of limitMarkers) {
+          const x = freqToX(marker.freq);
+          const label = marker.label || formatFrequency(marker.freq);
+
+          ctx.strokeStyle = HARDWARE_LIMIT_LINE_COLOR;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, FFT_AREA_MIN.y);
+          ctx.lineTo(x, fftAreaMax.y);
+          ctx.stroke();
+
+          ctx.setLineDash([]);
+          ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
+          ctx.textAlign = x > width - 160 ? "right" : "left";
+          ctx.fillText(
+            label,
+            x + (ctx.textAlign === "right" ? -6 : 6),
+            FFT_AREA_MIN.y + 45,
+          );
+        }
+
+        ctx.restore();
+      }
 
       void _fullCaptureRange;
     },
@@ -510,6 +677,8 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       demodFocus: DemodFocusOverlay | null | undefined,
       nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       if (!demodFocus) return;
 
@@ -542,7 +711,9 @@ export function useOverlayRenderer() {
       const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
       const plotRight = nodePreview ? width : width - 40;
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
-      const plotBottom = nodePreview ? height : height - 40;
+      const plotBottom = nodePreview
+        ? height
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -559,7 +730,7 @@ export function useOverlayRenderer() {
       const label = formatFrequency(centerFrequencyHz, {
         showUnits: true,
         precisionMHz: 6,
-        precisionGHz: 9,
+        precisionGHz: 3,
         precisionKHz: 3,
         trimTrailingZeros: true,
       });
@@ -570,20 +741,20 @@ export function useOverlayRenderer() {
           ? `±${formatFrequency(halfBandwidthHz, {
               showUnits: true,
               precisionMHz: 6,
-              precisionGHz: 9,
+              precisionGHz: 3,
               precisionKHz: 3,
               trimTrailingZeros: true,
             })}`
           : formatFrequency(halfBandwidthHz * 2, {
               showUnits: true,
               precisionMHz: 6,
-              precisionGHz: 9,
+              precisionGHz: 3,
               precisionKHz: 3,
               trimTrailingZeros: true,
             });
 
-      ctx.save();
       const canvasTheme = getCanvasThemeColors();
+      ctx.save();
 
       // 1. Selection Box - Background Highlight (from theme)
       ctx.fillStyle = canvasTheme.spectrumOverlay;
@@ -605,7 +776,10 @@ export function useOverlayRenderer() {
       const centerLineX = freqToX(centerFrequencyHz);
       if (centerLineX >= plotLeft && centerLineX <= plotRight) {
         ctx.save();
-        ctx.strokeStyle = canvasTheme.centerLineColor;
+        ctx.strokeStyle = applyOpacityToColor(
+          canvasTheme.centerLineColor,
+          overlayOpacity,
+        );
         ctx.lineWidth = Math.max(1, 2.5 / (window.devicePixelRatio || 1));
         ctx.beginPath();
         ctx.moveTo(centerLineX, plotTop);
@@ -618,8 +792,8 @@ export function useOverlayRenderer() {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.font = nodePreview
-        ? "bold 10px JetBrains Mono"
-        : "bold 12px JetBrains Mono";
+        ? "bold 10px 'JetBrains Mono', monospace"
+        : "bold 12px 'JetBrains Mono', monospace";
 
       const labelWidth = Math.max(
         ctx.measureText(label).width,
@@ -653,7 +827,7 @@ export function useOverlayRenderer() {
       ctx.fillStyle = "#07111f"; // Dark text on light label bg
       ctx.fillText(label, labelX, plotTop + (nodePreview ? 6 : 13));
 
-      ctx.font = "bold 9px JetBrains Mono";
+      ctx.font = "bold 9px 'JetBrains Mono', monospace";
       ctx.fillStyle = "rgba(7, 17, 31, 0.8)";
       ctx.fillText(subLabel, labelX, plotTop + (nodePreview ? 17 : 28));
 
@@ -670,6 +844,7 @@ export function useOverlayRenderer() {
       frequencyRange: { min: number; max: number },
       selectionRange: SelectionOverlay | null | undefined,
       nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
     ) => {
       if (!selectionRange) return;
 
@@ -700,7 +875,9 @@ export function useOverlayRenderer() {
       const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
       const plotRight = nodePreview ? width : width - 40;
       const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
-      const plotBottom = nodePreview ? height : height - 40;
+      const plotBottom = nodePreview
+        ? height
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
       const plotWidth = plotRight - plotLeft;
       if (plotWidth <= 0 || plotBottom <= plotTop) return;
 
@@ -718,6 +895,7 @@ export function useOverlayRenderer() {
       ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 2 / (window.devicePixelRatio || 1));
       ctx.lineCap = "round";
+      ctx.setLineDash([4, 4]);
       for (const x of [leftX, rightX]) {
         ctx.beginPath();
         ctx.moveTo(x, plotTop);
@@ -725,15 +903,153 @@ export function useOverlayRenderer() {
         ctx.stroke();
       }
 
-      // Draw yellow dotted center line using the center frequency line color
-      const centerX = (leftX + rightX) / 2;
-      ctx.strokeStyle = canvasTheme.centerLineColor;
+      const selectionCenterHz = (minFrequencyHz + maxFrequencyHz) / 2;
+      const centerX = Math.max(
+        plotLeft,
+        Math.min(plotRight, freqToX(selectionCenterHz)),
+      );
+      ctx.strokeStyle = canvasTheme.spectrumOverlayBorder;
       ctx.lineWidth = Math.max(1, 1.5 / (window.devicePixelRatio || 1));
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(centerX, plotTop);
       ctx.lineTo(centerX, plotBottom);
       ctx.stroke();
 
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawTxSliderOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      slider: TxSliderOverlayState | null | undefined,
+      visualRange?: FrequencyRange,
+      overlayOpacity: number = 1,
+    ) => {
+      if (
+        !slider?.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return;
+      }
+
+      const canvasTheme = getCanvasThemeColors();
+      const plotLeft = Math.min(50, width);
+      const plotRight = Math.max(plotLeft, width - 40);
+      const left = 4;
+      const right = Math.max(left, width - 4);
+      const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
+      const bottom = Math.max(top + 1, height - 4);
+      const trackLeft = plotLeft;
+      const trackRight = Math.max(trackLeft + 80, plotRight);
+      const trackWidth = Math.max(1, trackRight - trackLeft);
+      const visRange = visualRange || {
+        min: slider.visibleMinHz,
+        max: slider.visibleMaxHz,
+      };
+      const visibleSpan = visRange.max - visRange.min;
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const bandMin = slider.txCenterHz - bandwidth / 2;
+      const bandMax = slider.txCenterHz + bandwidth / 2;
+      const toX = (hz: number) =>
+        trackLeft + ((hz - visRange.min) / visibleSpan) * trackWidth;
+      const rawBandLeft = toX(bandMin);
+      const rawBandRight = toX(bandMax);
+      const bandLeft = Math.max(trackLeft, Math.min(trackRight, rawBandLeft));
+      const bandRight = Math.max(trackLeft, Math.min(trackRight, rawBandRight));
+      const boundaryDashColor = slider.isTransmitting
+        ? "rgba(0, 212, 255, 0.98)"
+        : "rgba(148, 163, 184, 0.96)";
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
+      ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textBaseline = "middle";
+
+      if (bandRight > bandLeft) {
+        const plotBottom = Math.max(0, top - VFO_AXIS_ROW_HEIGHT);
+        const plotTop = Math.min(20, height);
+        ctx.save();
+        ctx.strokeStyle = boundaryDashColor;
+        ctx.lineWidth = 1.75;
+        ctx.lineCap = "round";
+        ctx.setLineDash([4, 4]);
+        for (const x of [rawBandLeft, rawBandRight]) {
+          if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, plotTop);
+          ctx.lineTo(x, plotBottom);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawTxSliderBackdropOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      slider: TxSliderOverlayState | null | undefined,
+      visualRange?: FrequencyRange,
+      fftMin: number = -120,
+      fftMax: number = 0,
+    ) => {
+      if (
+        !slider?.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return;
+      }
+
+      const plotLeft = Math.min(50, width);
+      const plotRight = Math.max(plotLeft, width - 40);
+      const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
+      const trackLeft = plotLeft;
+      const trackRight = Math.max(trackLeft + 80, plotRight);
+      const trackWidth = Math.max(1, trackRight - trackLeft);
+      const visRange = visualRange || {
+        min: slider.visibleMinHz,
+        max: slider.visibleMaxHz,
+      };
+      const visibleSpan = visRange.max - visRange.min;
+      if (!Number.isFinite(visibleSpan) || visibleSpan <= 0) return;
+
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const bandMin = slider.txCenterHz - bandwidth / 2;
+      const bandMax = slider.txCenterHz + bandwidth / 2;
+      const toX = (hz: number) =>
+        trackLeft + ((hz - visRange.min) / visibleSpan) * trackWidth;
+      const bandLeft = Math.max(trackLeft, Math.min(trackRight, toX(bandMin)));
+      const bandRight = Math.max(trackLeft, Math.min(trackRight, toX(bandMax)));
+      if (bandRight <= bandLeft) return;
+
+      const blockLeft = bandLeft;
+      const blockWidth = bandRight - bandLeft;
+      const blockTop = Math.max(0, top - VFO_AXIS_ROW_HEIGHT);
+      const blockBottom = height;
+      ctx.save();
+      ctx.fillStyle = slider.isTransmitting
+        ? "rgba(0, 212, 255, 0.12)"
+        : "rgba(100, 116, 139, 0.12)";
+      ctx.beginPath();
+      ctx.rect(blockLeft, blockTop, blockWidth, blockBottom - blockTop);
+      ctx.fill();
       ctx.restore();
     },
     [],
@@ -808,10 +1124,15 @@ export function useOverlayRenderer() {
       height: number,
       frequencyRange: { min: number; max: number },
       fullCaptureRange?: { min: number; max: number },
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      overlayOpacity: number = 1,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
-      const fftAreaMax = { x: width - 40, y: height - 40 };
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
+      };
       const plotWidth = fftAreaMax.x - FFT_AREA_MIN.x;
 
       if (!frequencyRange) return;
@@ -819,9 +1140,15 @@ export function useOverlayRenderer() {
       const maxFreq = frequencyRange.max;
       const viewBandwidth = maxFreq - minFreq;
       const visualCenterFreq = (minFreq + maxFreq) / 2;
+      const isGhzRange =
+        Math.abs(visualCenterFreq) >= 1_000_000_000 ||
+        Math.abs(minFreq) >= 1_000_000_000 ||
+        Math.abs(maxFreq) >= 1_000_000_000;
 
       const centerTicksHz: number[] = [];
-      if (viewBandwidth <= 5_000_000) centerTicksHz.push(500_000);
+      if (viewBandwidth <= 5_000_000) {
+        centerTicksHz.push(isGhzRange ? 1_000_000 : 500_000);
+      }
       if (viewBandwidth <= 1_000_000) centerTicksHz.push(100_000);
       if (viewBandwidth <= 500_000) {
         centerTicksHz.push(50_000);
@@ -848,9 +1175,10 @@ export function useOverlayRenderer() {
 
       if (centerTicksHz.length > 0 && Number.isFinite(visualCenterFreq)) {
         ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
         ctx.strokeStyle = canvasTheme.offsetTickLine;
         ctx.fillStyle = canvasTheme.offsetTickText;
-        ctx.font = "10px JetBrains Mono";
+        ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
 
@@ -875,12 +1203,210 @@ export function useOverlayRenderer() {
     [formatFrequency],
   );
 
+  const drawPowerLineOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      powerLineDb: number | null,
+      fftMin: number,
+      fftMax: number,
+      powerScale: "dB" | "dBm" = "dB",
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      snapDbm: number | null = null,
+      isHeld = false,
+    ) => {
+      if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const canvasTheme = getCanvasThemeColors();
+      const fftAreaMax = {
+        x: width - 40,
+        y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
+      };
+      const fftHeight = fftAreaMax.y - FFT_AREA_MIN.y;
+
+      const vertRange = fftMax - fftMin;
+      if (vertRange <= 0) return;
+      const scaleFactor = fftHeight / vertRange;
+
+      const yPos = fftAreaMax.y - (powerLineDb - fftMin) * scaleFactor;
+
+      // Bounds check with padding
+      if (yPos < FFT_AREA_MIN.y || yPos > fftAreaMax.y) return;
+
+      // Formulate label e.g., -35.4dBm or -35.4dB
+      const valueLabel = `${powerLineDb.toFixed(1)}${powerScale}`;
+      const hintLabel = isHeld ? "Click to release" : "";
+      ctx.font = "12px 'JetBrains Mono', monospace";
+      const valueWidth = ctx.measureText(valueLabel).width;
+      ctx.font = "9px 'JetBrains Mono', monospace";
+      const hintWidth = hintLabel ? ctx.measureText(hintLabel).width : 0;
+      const hasLockDot =
+        powerScale === "dBm" &&
+        typeof snapDbm === "number" &&
+        Number.isFinite(snapDbm);
+      const lockDotWidth = hasLockDot ? 12 : 0;
+      const textWidth = isHeld
+        ? valueWidth + 16 + hintWidth + lockDotWidth
+        : valueWidth + lockDotWidth;
+
+      const ix = Math.round(yPos);
+
+      // Measure label dimensions
+      const paddingX = 10;
+      const rectHeight = 20;
+      const rectWidth = textWidth + paddingX * 2;
+      const rectX = FFT_AREA_MIN.x + 4;
+      const pillGap = 10;
+      const topRectY = ix - rectHeight - pillGap;
+      const bottomRectY = ix + pillGap;
+      const shouldPlaceBelow = yPos <= FFT_AREA_MIN.y + fftHeight * 0.3;
+      const rectY = shouldPlaceBelow
+        ? Math.min(bottomRectY, fftAreaMax.y - rectHeight - 4)
+        : topRectY >= FFT_AREA_MIN.y + 4
+          ? topRectY
+          : Math.min(bottomRectY, fftAreaMax.y - rectHeight - 4);
+
+      // 1. Draw dashed line across the full plot width
+      ctx.save();
+      ctx.strokeStyle = canvasTheme.powerLineColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(FFT_AREA_MIN.x, ix);
+      ctx.lineTo(fftAreaMax.x, ix);
+      ctx.stroke();
+
+      if (hasLockDot) {
+        const snapY = fftAreaMax.y - (snapDbm - fftMin) * scaleFactor;
+        if (snapY >= FFT_AREA_MIN.y && snapY <= fftAreaMax.y) {
+          const snapX = FFT_AREA_MIN.x + 2;
+          ctx.fillStyle = canvasTheme.powerLineColor;
+          ctx.strokeStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.9);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(snapX, Math.round(snapY), 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+
+      // 2. Draw background pill
+      // Use the theme's surface color so it reads correctly in both light and dark modes.
+      ctx.fillStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.92);
+      ctx.strokeStyle = canvasTheme.powerLineColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, 4);
+      } else {
+        ctx.rect(rectX, rectY, rectWidth, rectHeight);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // 3. Draw text inside the pill
+      ctx.fillStyle = canvasTheme.powerLineColor;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.font = "12px 'JetBrains Mono', monospace";
+      const textStartX = rectX + paddingX + (hasLockDot ? 12 : 0);
+      if (hasLockDot) {
+        const dotX = rectX + paddingX + 4;
+        const dotY = rectY + rectHeight / 2;
+        ctx.save();
+        ctx.fillStyle = canvasTheme.powerLineColor;
+        ctx.strokeStyle = applyOpacityToColor(canvasTheme.surfaceColor, 0.9);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.fillText(valueLabel, textStartX, rectY + rectHeight / 2);
+      if (isHeld && hintLabel) {
+        ctx.font = "9px 'JetBrains Mono', monospace";
+        ctx.fillText(
+          hintLabel,
+          textStartX + valueWidth + 16,
+          rectY + rectHeight / 2,
+        );
+      }
+
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawZoomboxOnContext = useCallback(
+    (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      width: number,
+      height: number,
+      zoombox:
+        | { startX: number; startY: number; currentX: number; currentY: number }
+        | null
+        | undefined,
+      nodePreview = false,
+      reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+    ) => {
+      if (!zoombox) return;
+
+      const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+      const plotRight = nodePreview ? width : width - 40;
+      const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+      const plotBottom = nodePreview
+        ? height
+        : height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx;
+      const plotWidth = plotRight - plotLeft;
+      const plotHeight = plotBottom - plotTop;
+      if (plotWidth <= 0 || plotHeight <= 0) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(plotLeft, plotTop, plotWidth, plotHeight);
+      ctx.clip();
+
+      const left = Math.min(zoombox.startX, zoombox.currentX);
+      const top = Math.min(zoombox.startY, zoombox.currentY);
+      const boxWidth = Math.abs(zoombox.currentX - zoombox.startX);
+      const boxHeight = Math.abs(zoombox.currentY - zoombox.startY);
+
+      ctx.fillStyle = "rgba(56, 189, 248, 0.14)";
+      ctx.fillRect(left, top, boxWidth, boxHeight);
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.98)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(
+        left + 1,
+        top + 1,
+        Math.max(0, boxWidth - 2),
+        Math.max(0, boxHeight - 2),
+      );
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.beginPath();
+      ctx.moveTo(left + boxWidth / 2, top);
+      ctx.lineTo(left + boxWidth / 2, top + boxHeight);
+      ctx.stroke();
+      ctx.restore();
+    },
+    [],
+  );
+
   return {
     drawGridOnContext,
     drawMarkersOnContext,
     drawDemodFocusOnContext,
     drawSelectionOverlayOnContext,
+    drawTxSliderOnContext,
+    drawTxSliderBackdropOnContext,
     drawSpikeMarkersOnContext,
     drawZoomMarkersOnContext,
+    drawPowerLineOnContext,
+    drawZoomboxOnContext,
   };
 }

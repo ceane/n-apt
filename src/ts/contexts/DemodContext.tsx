@@ -35,7 +35,10 @@ import {
   useNodesState,
   useEdgesState,
 } from "@xyflow/react";
-import { buildDemodFlowGraph } from "@n-apt/components/react-flow/flows";
+import {
+  adaptDemodFlowForSourceMode,
+  buildDemodFlowGraph,
+} from "@n-apt/components/react-flow/flows";
 import {
   AnalysisSession,
   AnalysisType,
@@ -147,6 +150,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [flowVersion, setFlowVersion] = useState(0);
+  const previousSourceModeRef = React.useRef(state.sourceMode || "live");
 
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -251,28 +255,39 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [sourceSyncPayload]);
 
   useEffect(() => {
-    // Only build the initial graph if we don't have nodes yet.
-    // This prevents the flow from resetting when switching sources (e.g. Live -> File).
-    if (nodes.length === 0) {
-      const nextFlow = buildDemodFlowGraph(state.sourceMode || "live");
+    const nextSourceMode = state.sourceMode || "live";
+    const sourceModeChanged = previousSourceModeRef.current !== nextSourceMode;
+    previousSourceModeRef.current = nextSourceMode;
+
+    // Source-specific nodes are not interchangeable: adapt only that node so
+    // switching sources does not discard the flow selected by the user.
+    if (sourceModeChanged || nodes.length === 0) {
+      const nextFlow =
+        nodes.length === 0
+          ? buildDemodFlowGraph(nextSourceMode)
+          : adaptDemodFlowForSourceMode({ nodes, edges }, nextSourceMode);
       setNodes(nextFlow.nodes);
       setEdges(nextFlow.edges);
       setFlowVersion((v) => v + 1);
     }
-  }, [setEdges, setNodes, state.sourceMode, nodes.length]);
+  }, [edges, nodes, setEdges, setNodes, state.sourceMode]);
 
   const setFlow = useCallback(
     (_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
       if (customNodes && customEdges) {
-        setNodes(customNodes);
-        setEdges(customEdges);
+        const adapted = adaptDemodFlowForSourceMode(
+          { nodes: customNodes, edges: customEdges },
+          state.sourceMode || "live",
+        );
+        setNodes(adapted.nodes);
+        setEdges(adapted.edges);
         // Increment flow version to force layout re-trigger
         setFlowVersion((v) => v + 1);
         return;
       }
       // Fallback or preset logic can go here if needed
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, state.sourceMode],
   );
 
   const fmDemod = useAudioDemodFM({

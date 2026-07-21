@@ -235,6 +235,9 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
     ? (activeCardModel.stats.centerFrequencyHz ??
       calculateCenterFrequency(activeCardModel.stats.frequencyRange))
     : null;
+  const activeCardId = activeCardModel?.id ?? null;
+  const activeCardWidth = activeCardModel?.size.width ?? null;
+  const activeCardHeight = activeCardModel?.size.height ?? null;
 
   const flushPendingUpdates = React.useCallback(() => {
     frameRef.current = null;
@@ -357,7 +360,15 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
         frameRef.current = null;
       }
     };
-  }, [activeCardModel, cardRef, endDrag, onPointerMove, scheduleFlush]);
+  }, [
+    activeCardId,
+    activeCardWidth,
+    activeCardHeight,
+    cardRef,
+    endDrag,
+    onPointerMove,
+    scheduleFlush,
+  ]);
 
   if (!activeCardModel || isCollapsed) {
     return null;

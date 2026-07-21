@@ -125,6 +125,41 @@ fn init_logging() {
   });
 }
 
+fn shutdown_signal_received_message(signal_name: &str) -> String {
+  format!("Shutdown signal received ({signal_name}), signaling I/O thread...")
+}
+
+fn shutdown_signal_propagated_message(signal_name: &str) -> String {
+  format!("Shutdown signal propagated ({signal_name}).")
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() -> &'static str {
+  let ctrl_c = tokio::signal::ctrl_c();
+  let mut sigterm =
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+      .expect("Failed to install SIGTERM handler");
+  let mut sighup =
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+      .expect("Failed to install SIGHUP handler");
+  let mut sigquit =
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())
+      .expect("Failed to install SIGQUIT handler");
+
+  tokio::select! {
+    _ = ctrl_c => "SIGINT",
+    _ = sigterm.recv() => "SIGTERM",
+    _ = sighup.recv() => "SIGHUP",
+    _ = sigquit.recv() => "SIGQUIT",
+  }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() -> &'static str {
+  tokio::signal::ctrl_c().await.ok();
+  "SIGINT"
+}
+
 impl websocket_server::WebSocketServer {
   fn spawn_sdr_thread(
     websocket_server: websocket_server::WebSocketServer,
@@ -233,6 +268,10 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::capture_download_handler),
       )
       .route(
+        "/api/cli/snapshot-frame",
+        get(http_endpoints::cli_snapshot_frame_handler),
+      )
+      .route(
         "/api/towers/bounds",
         get(http_endpoints::towers_bounds_handler),
       )
@@ -309,6 +348,10 @@ impl websocket_server::WebSocketServer {
       )
       .merge(protected_routes)
       // WebSocket endpoint
+      .route(
+        "/ws/source/{stream_key}/iq",
+        get(websocket_handlers::source_iq_ws_upgrade_handler),
+      )
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 
@@ -381,7 +424,16 @@ impl websocket_server::WebSocketServer {
     // and device work never compete with the main HTTP runtime.
     let _sdr_thread = Self::spawn_sdr_thread(websocket_server.clone(), cmd_rx);
 
-    axum::serve(listener, app).await?;
+    let shutdown_state = websocket_server.get_shared_state();
+    let shutdown_signal = async move {
+      while !shutdown_state.shutdown.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+      }
+    };
+
+    axum::serve(listener, app)
+      .with_graceful_shutdown(shutdown_signal)
+      .await?;
 
     Ok(())
   }
@@ -406,30 +458,16 @@ pub async fn run_server() -> Result<()> {
   let shared = websocket_server.get_shared_state();
   let _broadcast_tx = websocket_server.get_broadcast_tx();
 
-  // Install signal handler: on SIGINT/SIGTERM, signal the I/O thread to shut down
-  // so it can release the RTL-SDR device cleanly before the process exits.
+  // Install signal handler: on shutdown signals, signal the I/O thread to
+  // shut down so it can release the RTL-SDR device cleanly before exit.
   let shutdown_shared = shared.clone();
   tokio::spawn(async move {
-    let ctrl_c = tokio::signal::ctrl_c();
-    #[cfg(unix)]
-    let mut sigterm =
-      tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .expect("Failed to install SIGTERM handler");
-
-    #[cfg(unix)]
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = sigterm.recv() => {},
-    }
-    #[cfg(not(unix))]
-    ctrl_c.await.ok();
-
-    info!("Shutdown signal received, signaling I/O thread...");
+    let signal_name = wait_for_shutdown_signal().await;
+    info!("{}", shutdown_signal_received_message(signal_name));
     shutdown_shared.shutdown.store(true, Ordering::Relaxed);
-    // Give the I/O thread time to close the device cleanly
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    info!("Exiting.");
-    std::process::exit(0);
+    // Give the I/O thread time to observe the shutdown flag and unwind.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    info!("{}", shutdown_signal_propagated_message(signal_name));
   });
 
   // HTTP server runs in the main thread, WebSocket server runs in a spawned thread (handled in run_server)
@@ -450,6 +488,18 @@ mod tests {
     assert_eq!(
       websocket_server::WebSocketServer::sdr_thread_name(),
       "n-apt-sdr-io"
+    );
+  }
+
+  #[test]
+  fn shutdown_signal_messages_include_the_signal_name() {
+    assert_eq!(
+      shutdown_signal_received_message("SIGTERM"),
+      "Shutdown signal received (SIGTERM), signaling I/O thread..."
+    );
+    assert_eq!(
+      shutdown_signal_propagated_message("SIGINT"),
+      "Shutdown signal propagated (SIGINT)."
     );
   }
 }

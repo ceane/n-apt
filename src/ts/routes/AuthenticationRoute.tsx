@@ -1,17 +1,31 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import styled, { keyframes } from "styled-components";
+import styled, {
+  keyframes,
+  ThemeProvider,
+  ThemeContext,
+} from "styled-components";
+import { Link, useLocation } from "react-router-dom";
+import { Canvas } from "@react-three/fiber";
 import { Button } from "@n-apt/components/ui/Button";
-import { Lock } from "lucide-react";
+import { FileSignal, Lock, Radio, SunMoon } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import {
+  buildAppTheme,
+  GlobalThemeStyle,
+  useResolvedThemeMode,
+  type AppStyledTheme,
+} from "@n-apt/components/ui/Theme";
 import {
   InitializingContainer,
   InitializingTitle,
   InitializingText,
 } from "@n-apt/components/Layout";
 import nAptLogo from "@n-apt/public/images/icon.svg";
+import { SDRs } from "@n-apt/components/3D/SDRs";
 
 export type AuthState =
   | "connecting"
+  | "server_down"
   | "awaiting_challenge"
   | "ready"
   | "authenticating"
@@ -22,6 +36,23 @@ export type AuthState =
 interface AuthenticationRouteProps {
   children: React.ReactNode;
 }
+
+type AuthThemeMode = "system" | "dark" | "light";
+
+const AUTH_THEME_KEY = "n-apt-auth-theme-mode";
+
+const getInitialAuthThemeMode = (): AuthThemeMode => {
+  try {
+    const stored = localStorage.getItem(AUTH_THEME_KEY);
+    if (stored === "system" || stored === "dark" || stored === "light") {
+      return stored;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+
+  return "system";
+};
 
 const pulse = keyframes`
   0% { opacity: 0.4; }
@@ -70,6 +101,30 @@ const waveDriftReverse = keyframes`
   }
   100% {
     transform: translate3d(0, 0, 0);
+  }
+`;
+
+const pillDropIntro = keyframes`
+  0% {
+    transform: translateY(-18px) scale(0.92);
+  }
+  18% {
+    transform: translateY(0) scale(1.08);
+  }
+  30% {
+    transform: translateY(1px) scale(0.98);
+  }
+  42% {
+    transform: translateY(0) scale(1.01);
+  }
+  58% {
+    transform: translateY(0) scale(1);
+  }
+  72% {
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
   }
 `;
 
@@ -228,6 +283,22 @@ const StatusText = styled.p<{ $variant?: "info" | "error" | "success" }>`
   text-align: center;
   max-width: 400px;
   line-height: 1.6;
+
+  code {
+    display: inline-block;
+    padding: 0.12em 0.38em;
+    border-radius: 6px;
+    border: 1px solid ${(props) => props.theme.border};
+    background: ${(props) => props.theme.surface ?? "rgba(0, 0, 0, 0.08)"};
+    color: ${(props) => props.theme.textPrimary};
+    font-size: 0.95em;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+`;
+
+const TitleText = styled.span`
+  animation: none;
 `;
 
 const Form = styled.form`
@@ -266,7 +337,7 @@ const Input = styled.input`
   }
 `;
 
-const AuthButton = styled(Button)<{
+const AuthButton = styled(Button) <{
   $variant?: "primary" | "secondary" | "danger";
 }>`
   width: 24cqw;
@@ -291,6 +362,22 @@ const AuthButton = styled(Button)<{
 
       &:disabled {
         color: ${props.theme.textMuted};
+      }
+    `}
+
+  ${(props) =>
+    props.$variant === "secondary" &&
+    `
+      background-color: ${props.theme.surface};
+      border: 1px solid ${props.theme.border} !important;
+      color: ${props.theme.textSecondary};
+      box-shadow: none;
+
+      &:hover {
+        background-color: ${props.theme.surfaceHover};
+        border-color: ${props.theme.borderHover} !important;
+        color: ${props.theme.textPrimary};
+        box-shadow: 0 0 0 1px ${props.theme.borderHover}33;
       }
     `}
 `;
@@ -329,6 +416,139 @@ const LinkButton = styled.button`
   }
 `;
 
+const LegalNotice = styled.p`
+  width: min(100%, 360px);
+  margin: 0;
+  color: ${(props) => props.theme.textMuted};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+
+  a {
+    color: ${(props) => props.theme.primary};
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+`;
+
+const LearnMoreLink = styled(Link)`
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) =>
+    props.theme.typography?.mono ?? '"JetBrains Mono", monospace'};
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  z-index: 30;
+
+  &:hover {
+    color: ${(props) => props.theme.primary};
+  }
+`;
+
+const AuthTopBar = styled.div`
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px;
+  border-radius: 999px;
+  background: ${(props) => props.theme.surface ?? "rgba(255, 255, 255, 0.04)"};
+  border: 1px solid ${(props) => props.theme.border};
+  backdrop-filter: blur(10px);
+  z-index: 35;
+  overflow: hidden;
+  transform-origin: center center;
+  perspective: 800px;
+  animation: ${pillDropIntro} 0.7s ease-in-out 1;
+  animation-fill-mode: forwards;
+`;
+
+const AuthTopBarLabel = styled.span`
+  padding-left: 6px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+`;
+
+const AuthThemeButton = styled.button<{ $active?: boolean }>`
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: ${(props) =>
+    props.$active ? props.theme.primary : "transparent"};
+  color: ${(props) =>
+    props.$active ? props.theme.background : props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+
+  &:hover {
+    color: ${(props) => props.theme.textPrimary};
+    background: ${(props) =>
+    props.$active ? props.theme.primary : props.theme.surfaceHover};
+  }
+`;
+
+const ThemeRevealButton = styled.button<{ $expanded?: boolean }>`
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px 6px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition:
+    color 0.18s ease,
+    transform 0.18s ease;
+
+  &:hover {
+    color: ${(props) => props.theme.textPrimary};
+  }
+`;
+
+const ThemeControls = styled.div<{ $expanded?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: ${(props) => (props.$expanded ? "360px" : "0px")};
+  opacity: ${(props) => (props.$expanded ? 1 : 0)};
+  transform: ${(props) =>
+    props.$expanded ? "translateX(0)" : "translateX(-8px)"};
+  overflow: hidden;
+  transition:
+    max-width 0.28s ease,
+    opacity 0.18s ease,
+    transform 0.28s ease;
+  pointer-events: ${(props) => (props.$expanded ? "auto" : "none")};
+`;
+
 const LoadingDot = styled.span`
   animation: ${pulse} 1.5s ease-in-out infinite;
 `;
@@ -340,10 +560,115 @@ const LogoContainer = styled.div`
   margin-bottom: 24px;
 `;
 
+const Essentials = styled.section`
+  width: min(100%, 760px);
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 14px;
+  background: ${(props) => props.theme.surface ?? "rgba(0, 0, 0, 0.12)"};
+  backdrop-filter: blur(12px);
+  box-sizing: border-box;
+`;
+
+const EssentialsLabel = styled.p`
+  margin: 0 0 12px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+`;
+
+const EssentialsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const EssentialCard = styled.a`
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 10px;
+  background: ${(props) => props.theme.background};
+  text-decoration: none;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+    transform: translateY(-2px);
+  }
+`;
+
+const CardIcon = styled.div`
+  display: flex;
+  height: 158px;
+  align-items: center;
+  justify-content: center;
+  color: ${(props) => props.theme.primary};
+  background: linear-gradient(135deg, ${(props) => props.theme.surface}, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+`;
+
+const ModelPlaceholder = styled.div`
+  display: flex;
+  width: 82%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed ${(props) => props.theme.primary};
+  border-radius: 5px;
+  color: ${(props) => props.theme.primary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: perspective(100px) rotateX(8deg) rotateY(-10deg);
+`;
+
+const SDRPreview = styled.div`
+  width: 100%;
+  height: 100%;
+
+  canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+`;
+
+const CardCopy = styled.span`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 600;
+
+  small {
+    color: ${(props) => props.theme.textMuted};
+    font-size: 10px;
+    font-weight: 400;
+  }
+`;
+
 const Logo = styled.img`
   width: 128px;
   height: 128px;
-  mix-blend-mode: multiply;
+  filter: none;
+  mix-blend-mode: normal;
 
   @media (prefers-color-scheme: dark) {
     filter: invert(1);
@@ -368,7 +693,21 @@ export const AuthenticationUI = ({
   onPasskeyAuth,
   onRegisterPasskey,
 }: AuthenticationUIProps) => {
+  const themeContext = React.useContext(ThemeContext);
+  const baseTheme = (themeContext ??
+    buildAppTheme({
+      accentColor: "#00d4ff",
+      fftColor: "#00d4ff",
+      appMode: "system",
+      resolvedMode: "dark",
+      waterfallTheme: "classic",
+    })) as AppStyledTheme;
   const [password, setPassword] = useState("");
+  const [authThemeMode, setAuthThemeMode] = useState<AuthThemeMode>(
+    getInitialAuthThemeMode,
+  );
+  const [themeExpanded, setThemeExpanded] = useState(false);
+  const [themeIntroExpanded, setThemeIntroExpanded] = useState(true);
   const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
     null,
   );
@@ -411,6 +750,31 @@ export const AuthenticationUI = ({
     return digits;
   });
   const inputRef = useRef<HTMLInputElement>(null);
+  const resolvedAuthThemeMode = useResolvedThemeMode(authThemeMode);
+  const authTheme = React.useMemo(
+    () =>
+      buildAppTheme({
+        accentColor: baseTheme.primary,
+        fftColor: baseTheme.fft,
+        appMode: authThemeMode,
+        resolvedMode: resolvedAuthThemeMode,
+        waterfallTheme: baseTheme.waterfallTheme,
+      }),
+    [authThemeMode, baseTheme, resolvedAuthThemeMode],
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTH_THEME_KEY, authThemeMode);
+    } catch {
+      // localStorage unavailable
+    }
+  }, [authThemeMode]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setThemeIntroExpanded(false), 750);
+    return () => window.clearTimeout(id);
+  }, []);
 
   // Derive effective state: if user hasn't explicitly toggled, follow hasPasskeys
   const effectiveShowPasswordForm = showPasswordForm ?? !hasPasskeys;
@@ -484,7 +848,7 @@ export const AuthenticationUI = ({
   );
 
   // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => {}, []);
+  useEffect(() => { }, []);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -508,6 +872,7 @@ export const AuthenticationUI = ({
 
   const isLoading =
     authState === "connecting" ||
+    authState === "server_down" ||
     authState === "awaiting_challenge" ||
     authState === "authenticating";
   const canInteract =
@@ -518,6 +883,8 @@ export const AuthenticationUI = ({
     switch (authState) {
       case "connecting":
         return "Connecting to server...";
+      case "server_down":
+        return "Try to restart the server by running <code>npm run dev</code> and wait until this message is gone";
       case "awaiting_challenge":
         return "Establishing secure channel...";
       case "ready":
@@ -546,120 +913,263 @@ export const AuthenticationUI = ({
   };
 
   return (
-    <Container>
-      <WaveBackground aria-hidden="true">
-        <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
-          <WavePath d={wavePathA} />
-          <WavePath d={wavePathB} $delay="-4s" $reverse />
-        </WaveSvg>
-        {binaryDigits.map((digit) => (
-          <BinaryDigitContainer
-            key={digit.id}
-            $delay={digit.delay}
-            $duration={digit.duration}
-            style={
-              {
-                "--digit-y": `${digit.y}%`,
-              } as React.CSSProperties
+    <ThemeProvider theme={authTheme}>
+      <GlobalThemeStyle theme={authTheme} />
+      <Container>
+        <AuthTopBar aria-label="Auth theme mode">
+          <ThemeRevealButton
+            type="button"
+            $expanded={themeExpanded}
+            onClick={() => {
+              setThemeIntroExpanded(false);
+              setThemeExpanded((value) => !value);
+            }}
+            aria-expanded={themeExpanded}
+            aria-label={
+              themeExpanded ? "Collapse theme picker" : "Expand theme picker"
             }
           >
-            <BinaryDigitInner $size={digit.size}>
-              {digit.value}
-            </BinaryDigitInner>
-          </BinaryDigitContainer>
-        ))}
-      </WaveBackground>
-      <LogoContainer>
-        <Logo src={nAptLogo} alt="N-APT Logo" />
-      </LogoContainer>
-      <TextBackdrop>
-        <Title>
-          <Lock size={16} strokeWidth={2} />
-          {isLoading ? (
-            <LoadingDot>Secure Access Required for N-APT</LoadingDot>
-          ) : (
-            "Secure Access Required for N-APT"
-          )}
-        </Title>
+            <Radio size={12} strokeWidth={2} />
+            <span>Theme</span>
+            <span>{themeExpanded ? "x" : ">"}</span>
+          </ThemeRevealButton>
+          <ThemeControls $expanded={themeExpanded || themeIntroExpanded}>
+            <AuthThemeButton
+              type="button"
+              $active={authThemeMode === "system"}
+              onClick={() => setAuthThemeMode("system")}
+            >
+              System
+            </AuthThemeButton>
+            <AuthThemeButton
+              type="button"
+              $active={authThemeMode === "light"}
+              onClick={() => setAuthThemeMode("light")}
+            >
+              Light
+            </AuthThemeButton>
+            <AuthThemeButton
+              type="button"
+              $active={authThemeMode === "dark"}
+              onClick={() => setAuthThemeMode("dark")}
+            >
+              Dark
+            </AuthThemeButton>
+          </ThemeControls>
+        </AuthTopBar>
+        <LearnMoreLink to="/learn-signals">
+          <Radio size={12} strokeWidth={2} />
+          <span>Learn More about Signals &gt;</span>
+        </LearnMoreLink>
+        <WaveBackground aria-hidden="true">
+          <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
+            <WavePath d={wavePathA} />
+            <WavePath d={wavePathB} $delay="-4s" $reverse />
+          </WaveSvg>
+          {binaryDigits.map((digit) => (
+            <BinaryDigitContainer
+              key={digit.id}
+              $delay={digit.delay}
+              $duration={digit.duration}
+              style={
+                {
+                  "--digit-y": `${digit.y}%`,
+                } as React.CSSProperties
+              }
+            >
+              <BinaryDigitInner $size={digit.size}>
+                {digit.value}
+              </BinaryDigitInner>
+            </BinaryDigitContainer>
+          ))}
+        </WaveBackground>
+        <LogoContainer>
+          <Logo src={nAptLogo} alt="N-APT Logo" />
+        </LogoContainer>
+        <TextBackdrop>
+          <Title>
+            <Lock size={16} strokeWidth={2} />
+            {authState === "server_down" ? (
+              <TitleText>Server is down</TitleText>
+            ) : (
+              <TitleText>Secure Access Required for N-APT</TitleText>
+            )}
+          </Title>
 
-        <StatusText
-          $variant={getStatusVariant()}
-          dangerouslySetInnerHTML={{
-            __html: getStatusMessage().replace(/\n/g, "<br>"),
-          }}
-        />
-      </TextBackdrop>
+          <StatusText
+            $variant={getStatusVariant()}
+            dangerouslySetInnerHTML={{
+              __html: getStatusMessage().replace(/\n/g, "<br>"),
+            }}
+          />
+        </TextBackdrop>
 
-      {showActions && (
-        <>
-          {hasPasskeys && !effectiveShowPasswordForm && (
-            <>
-              <AuthButton
-                $variant="primary"
-                onClick={onPasskeyAuth}
-                disabled={authState === "authenticating"}
-              >
-                {authState === "authenticating"
-                  ? "Authenticating..."
-                  : "Sign in with Passkey"}
-              </AuthButton>
-              <Divider>or</Divider>
-              <LinkButton onClick={() => setShowPasswordForm(true)}>
-                Use password instead
-              </LinkButton>
-            </>
-          )}
+        {showActions && (
+          <>
+            <LegalNotice>
+              By continuing you are agreeing to the{" "}
+              <Link to="/terms">Terms of Use</Link> and{" "}
+              <Link to="/privacy">Privacy Policy</Link>.
+            </LegalNotice>
 
-          {(effectiveShowPasswordForm || !hasPasskeys) && (
-            <Form onSubmit={handlePasswordSubmit}>
-              <Input
-                ref={inputRef}
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={authState === "authenticating"}
-                autoComplete="off"
-              />
-              <AuthButton
-                type="submit"
-                $variant="primary"
-                disabled={!password.trim() || authState === "authenticating"}
-              >
-                {authState === "authenticating"
-                  ? "Authenticating..."
-                  : authState === "failed" || authState === "timeout"
-                    ? "Retry"
-                    : "Authenticate"}
-              </AuthButton>
-              {hasPasskeys && effectiveShowPasswordForm && (
-                <>
-                  <Divider>or</Divider>
-                  <LinkButton onClick={() => setShowPasswordForm(false)}>
-                    Use passkey instead
-                  </LinkButton>
-                </>
-              )}
-            </Form>
-          )}
+            {hasPasskeys && !effectiveShowPasswordForm && (
+              <>
+                <AuthButton
+                  $variant="primary"
+                  onClick={onPasskeyAuth}
+                  disabled={authState === "authenticating"}
+                >
+                  {authState === "authenticating"
+                    ? "Authenticating..."
+                    : "Sign in with Passkey"}
+                </AuthButton>
+                <Divider>or</Divider>
+                <LinkButton onClick={() => setShowPasswordForm(true)}>
+                  Use password instead
+                </LinkButton>
+              </>
+            )}
 
-          {!hasPasskeys && canInteract && (
-            <>
-              <Divider>setup</Divider>
-              <LinkButton onClick={handleRegisterPasskey}>
-                Register a passkey for this device
-              </LinkButton>
-            </>
-          )}
-        </>
-      )}
-    </Container>
+            {(effectiveShowPasswordForm || !hasPasskeys) && (
+              <Form onSubmit={handlePasswordSubmit}>
+                <Input
+                  ref={inputRef}
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={authState === "authenticating"}
+                  autoComplete="off"
+                />
+                <AuthButton
+                  type="submit"
+                  $variant="primary"
+                  disabled={!password.trim() || authState === "authenticating"}
+                >
+                  {authState === "authenticating"
+                    ? "Authenticating..."
+                    : authState === "failed" || authState === "timeout"
+                      ? "Retry"
+                      : "Authenticate"}
+                </AuthButton>
+                {hasPasskeys && effectiveShowPasswordForm && (
+                  <>
+                    <Divider>or</Divider>
+                    <LinkButton onClick={() => setShowPasswordForm(false)}>
+                      Use passkey instead
+                    </LinkButton>
+                  </>
+                )}
+              </Form>
+            )}
+
+            {!hasPasskeys && canInteract && (
+              <>
+                <Divider>setup</Divider>
+                <LinkButton onClick={handleRegisterPasskey}>
+                  Register a passkey for this device
+                </LinkButton>
+              </>
+            )}
+
+            <Essentials aria-label="What you need to get started (and view signals in the air)">
+              <EssentialsLabel>What you need to get started (and view signals in the air)</EssentialsLabel>
+              <EssentialsGrid>
+                <EssentialCard to="/learn-signals" as={Link} aria-label="I/Q captures and files">
+                  <CardIcon>
+                    <FileSignal size={30} strokeWidth={1.5} />
+                  </CardIcon>
+                  <CardCopy>
+                    I/Q captures <small>learn more →</small>
+                  </CardCopy>
+                </EssentialCard>
+                <EssentialCard
+                  href="https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="RTL-SDR"
+                >
+                  <CardIcon>
+                    <SDRPreview aria-label="RTL-SDR 3D model spinning">
+                      <Canvas
+                        camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
+                        dpr={[1, 1.5]}
+                        frameloop="demand"
+                      >
+                        <ambientLight intensity={1.2} />
+                        <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
+                        <directionalLight position={[0, 6, 2]} intensity={7} color="#ffffff" />
+                        <spotLight
+                          position={[0, 5, 2]}
+                          angle={0.7}
+                          penumbra={0.45}
+                          intensity={12}
+                          color="#ffffff"
+                        />
+                        <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
+                        <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
+                        <SDRs.rx.SpinningRTLSdr
+                          scale={1.2}
+                          position={[0, -0.2, 0]}
+                          speed={0.8}
+                        />
+                      </Canvas>
+                    </SDRPreview>
+                  </CardIcon>
+                  <CardCopy>
+                    RTL-SDR <small>buy →</small>
+                  </CardCopy>
+                </EssentialCard>
+                <EssentialCard
+                  href="https://greatscottgadgets.com/hackrf/one/"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="HackRF One"
+                >
+                  <CardIcon>
+                    <SDRPreview aria-label="HackRF One 3D model spinning">
+                      <Canvas
+                        camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
+                        dpr={[1, 1.5]}
+                        frameloop="demand"
+                      >
+                        <ambientLight intensity={1.2} />
+                        <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
+                        <directionalLight position={[0, 6, 2]} intensity={7} color="#ffffff" />
+                        <spotLight
+                          position={[0, 5, 2]}
+                          angle={0.7}
+                          penumbra={0.45}
+                          intensity={12}
+                          color="#ffffff"
+                        />
+                        <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
+                        <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
+                        <SDRs.tx.SpinningHackRFOne
+                          scale={0.72}
+                          position={[0, -0.55, 0]}
+                          speed={0.8}
+                        />
+                      </Canvas>
+                    </SDRPreview>
+                  </CardIcon>
+                  <CardCopy>
+                    HackRF One <small>buy →</small>
+                  </CardCopy>
+                </EssentialCard>
+              </EssentialsGrid>
+            </Essentials>
+          </>
+        )}
+      </Container>
+    </ThemeProvider>
   );
 };
 
 export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
   children,
 }) => {
+  const location = useLocation();
   const {
     authState,
     isAuthenticated,
@@ -670,6 +1180,16 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handlePasskeyAuth,
     handleRegisterPasskey,
   } = useAuthentication();
+  const isPublicRoute =
+    location.pathname === "/terms" ||
+    location.pathname === "/privacy" ||
+    location.pathname === "/license" ||
+    location.pathname === "/responsible-use" ||
+    location.pathname === "/learn-signals";
+
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
 
   if (isInitialAuthCheck) {
     return (

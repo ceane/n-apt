@@ -15,6 +15,7 @@ import {
   authenticateWithPasskey,
   registerPasskey,
   fetchAuthInfo,
+  fetchServerStatus,
   fetchVaultKey,
   clearSession,
   type AuthInfo,
@@ -49,6 +50,7 @@ type AuthAction =
   | { type: "AUTHENTICATING" }
   | { type: "AUTH_SUCCESS"; sessionToken: string; aesKey: CryptoKey }
   | { type: "AUTH_FAILED"; error: string }
+  | { type: "SERVER_DOWN" }
   | { type: "READY"; hasPasskeys?: boolean }
   | { type: "SET_PASSKEYS"; hasPasskeys: boolean }
   | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
@@ -94,6 +96,13 @@ function authReducer(
       };
     case "AUTH_FAILED":
       return { ...state, authState: "failed", authError: action.error };
+    case "SERVER_DOWN":
+      return {
+        ...state,
+        authState: "server_down",
+        authError: "Server is down",
+        isInitialAuthCheck: false,
+      };
     case "READY":
       return {
         ...state,
@@ -151,6 +160,8 @@ const useAuthenticationInternal = (
 ): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
   const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatActiveRef = useRef(false);
 
   const importBase64Key = useCallback(
     async (base64: string): Promise<CryptoKey> => {
@@ -229,6 +240,54 @@ const useAuthenticationInternal = (
 
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const stopHeartbeat = () => {
+      heartbeatActiveRef.current = false;
+      if (heartbeatTimerRef.current !== null) {
+        clearTimeout(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
+    };
+
+    const startHeartbeat = () => {
+      if (heartbeatActiveRef.current) return;
+      heartbeatActiveRef.current = true;
+
+      const tick = async () => {
+        try {
+          await fetchServerStatus();
+          const info = await fetchAuthInfo();
+          if (!cancelled) {
+            const effectiveHasPasskeys =
+              info.has_passkeys && isWebAuthnAvailable;
+            try {
+              localStorage.setItem(
+                "n_apt_has_passkeys",
+                effectiveHasPasskeys ? "true" : "false",
+              );
+            } catch {
+              console.debug("localStorage unavailable for auth state");
+            }
+            dispatch({
+              type: "READY",
+              hasPasskeys: effectiveHasPasskeys,
+            });
+            stopHeartbeat();
+            return;
+          }
+        } catch {
+          if (!cancelled) {
+            dispatch({ type: "SERVER_DOWN" });
+          }
+        }
+
+        if (!cancelled) {
+          heartbeatTimerRef.current = setTimeout(tick, 3000);
+        }
+      };
+
+      void tick();
+    };
 
     const fetchAuthInfoWithTimeout = () =>
       new Promise<AuthInfo>((resolve, reject) => {
@@ -334,7 +393,8 @@ const useAuthenticationInternal = (
       } catch {
         if (!cancelled) {
           console.warn("Backend unavailable, showing auth prompt:");
-          dispatch({ type: "READY" });
+          dispatch({ type: "SERVER_DOWN" });
+          startHeartbeat();
           scheduleAuthInfoRetry();
         }
       }
@@ -343,6 +403,7 @@ const useAuthenticationInternal = (
     init();
     return () => {
       cancelled = true;
+      stopHeartbeat();
       if (retryTimeout !== null) {
         clearTimeout(retryTimeout);
       }
@@ -367,6 +428,14 @@ const useAuthenticationInternal = (
         aesKey: key,
       });
     } catch (e: any) {
+      if (
+        e?.message?.includes("Server disconnected") ||
+        e?.message?.includes("Failed to start passkey authentication") ||
+        e?.message?.includes("The app isn't running")
+      ) {
+        dispatch({ type: "SERVER_DOWN" });
+        return;
+      }
       dispatch({
         type: "AUTH_FAILED",
         error: e.message || "Authentication failed",
@@ -392,6 +461,14 @@ const useAuthenticationInternal = (
       });
     } catch (e: any) {
       const errorMessage = e.message || "Passkey authentication failed";
+      if (
+        errorMessage.includes("Server disconnected") ||
+        errorMessage.includes("Failed to start passkey authentication") ||
+        errorMessage.includes("The app isn't running")
+      ) {
+        dispatch({ type: "SERVER_DOWN" });
+        return;
+      }
       if (
         errorMessage.includes("privacy-considerations-client") ||
         errorMessage.includes("not allowed")

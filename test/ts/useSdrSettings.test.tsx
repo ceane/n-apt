@@ -3,7 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
+import {
+  deriveStateFromConfig,
+  useSdrSettings,
+} from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
@@ -14,6 +17,13 @@ import spectrumSlice, {
 } from "@n-apt/redux/slices/spectrumSlice";
 
 const testApi = typeof jest !== "undefined" ? jest : (globalThis as any).vi;
+
+describe("N-APT SDR defaults", () => {
+  it("defaults RTL-SDR reception to 46.9 dB gain and 1 PPM", () => {
+    expect(deriveStateFromConfig(3_200_000, {}).gain).toBe(46.9);
+    expect(deriveStateFromConfig(3_200_000, {}).ppm).toBe(1);
+  });
+});
 
 testApi.mock("@n-apt/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -57,6 +67,8 @@ testApi.mock("@n-apt/hooks/useWebSocket", () => ({
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
   sampleRateOptions?: number[];
+  deviceType?: string;
+  currentSampleRateHz?: number;
   spectrumStateOverride?: Pick<
     SpectrumState,
     | "fftSize"
@@ -76,21 +88,34 @@ type HookHarnessProps = {
 const HookHarness: React.FC<HookHarnessProps> = ({
   sdrSettings,
   sampleRateOptions,
+  deviceType,
+  currentSampleRateHz,
   spectrumStateOverride,
 }) => {
-  const { fftSize, fftFrameRate, gain, ppm, tunerAGC, rtlAGC, fftSizeOptions } =
-    useSdrSettings({
-      maxSampleRate: sdrSettings.sample_rate,
-      sampleRateOptions,
-      onSettingsChange: mockOnSettingsChange,
-      sdrSettings,
-      spectrumStateOverride,
-    });
+  const {
+    fftSize,
+    fftFrameRate,
+    maxFrameRate,
+    gain,
+    ppm,
+    tunerAGC,
+    rtlAGC,
+    fftSizeOptions,
+  } = useSdrSettings({
+    maxSampleRate: sdrSettings.sample_rate,
+    currentSampleRateHz,
+    sampleRateOptions,
+    deviceType,
+    onSettingsChange: mockOnSettingsChange,
+    sdrSettings,
+    spectrumStateOverride,
+  });
 
   return (
     <div>
       <div data-testid="fftSize">{fftSize}</div>
       <div data-testid="fftFrameRate">{fftFrameRate}</div>
+      <div data-testid="maxFrameRate">{maxFrameRate}</div>
       <div data-testid="gain">{gain}</div>
       <div data-testid="ppm">{ppm}</div>
       <div data-testid="tunerAGC">{String(tunerAGC)}</div>
@@ -106,7 +131,9 @@ let hookApi: ReturnType<typeof useSdrSettings> | null = null;
 const CouplingHarness: React.FC<HookHarnessProps> = (props) => {
   hookApi = useSdrSettings({
     maxSampleRate: props.sdrSettings.sample_rate,
+    currentSampleRateHz: props.currentSampleRateHz,
     sampleRateOptions: props.sampleRateOptions,
+    deviceType: props.deviceType,
     onSettingsChange: mockOnSettingsChange,
     sdrSettings: props.sdrSettings,
     spectrumStateOverride: props.spectrumStateOverride,
@@ -161,7 +188,7 @@ describe("useSdrSettings", () => {
     );
 
     expect(screen.getByTestId("fftSize")).toHaveTextContent("16384");
-    expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("42");
+    expect(screen.getByTestId("fftFrameRate")).toHaveTextContent("48");
     expect(screen.getByTestId("gain")).toHaveTextContent("49.6");
     expect(screen.getByTestId("ppm")).toHaveTextContent("2");
     expect(screen.getByTestId("tunerAGC")).toHaveTextContent("false");
@@ -211,10 +238,10 @@ describe("useSdrSettings", () => {
                   fftWindow: "Rectangular",
                   fftFrameRate: 48,
                   gain: 49.6,
-                  hackrfLnaGain: 49.6,
-                  hackrfVgaGain: 62,
+                  hackrfLnaGain: 0,
+                  hackrfVgaGain: 30,
                   hackrfAmpEnabled: false,
-                  hackrfBasebandBandwidth: 0,
+                  hackrfBasebandBandwidth: 3_200_000,
                   ppm: 2,
                   tunerAGC: false,
                   rtlAGC: true,
@@ -235,12 +262,46 @@ describe("useSdrSettings", () => {
       expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
           fftSize: 16384,
-          frameRate: 42,
+          frameRate: 48,
         }),
       );
     });
 
     jest.useRealTimers();
+  });
+
+  it("uses the current live sample rate for the logical frame-rate ceiling", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <AuthProvider>
+            <SpectrumProvider>
+              <HookHarness
+                sdrSettings={mockSdrSettings}
+                spectrumStateOverride={
+                  {
+                    fftSize: 262144,
+                    fftWindow: "Rectangular",
+                    fftFrameRate: 16,
+                    gain: 49.6,
+                    hackrfLnaGain: 0,
+                    hackrfVgaGain: 30,
+                    hackrfAmpEnabled: false,
+                    hackrfBasebandBandwidth: 3_200_000,
+                    ppm: 0,
+                    tunerAGC: false,
+                    rtlAGC: false,
+                  } as any
+                }
+                currentSampleRateHz={3_200_000}
+              />
+            </SpectrumProvider>
+          </AuthProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(screen.getByTestId("maxFrameRate")).toHaveTextContent("12");
   });
 
   it("does not overwrite an existing fft size with the config default", () => {
@@ -256,10 +317,10 @@ describe("useSdrSettings", () => {
                   fftWindow: "Rectangular",
                   fftFrameRate: 42,
                   gain: 49.6,
-                  hackrfLnaGain: 49.6,
-                  hackrfVgaGain: 62,
+                  hackrfLnaGain: 0,
+                  hackrfVgaGain: 30,
                   hackrfAmpEnabled: false,
-                  hackrfBasebandBandwidth: 0,
+                  hackrfBasebandBandwidth: 3_200_000,
                   ppm: 2,
                   tunerAGC: false,
                   rtlAGC: true,
@@ -322,6 +383,170 @@ describe("useSdrSettings", () => {
     localStorage.removeItem("napt-sdr-settings-v2");
   });
 
+  it("preserves per-source persisted fft size instead of backend defaults when sdrSettings updates", async () => {
+    localStorage.setItem(
+      "napt-spectrum-view-v1:mock-device",
+      JSON.stringify({
+        fftSize: 8192,
+      }),
+    );
+
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 8192,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: true,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <HookHarness
+          sdrSettings={{
+            ...mockSdrSettings,
+            fft: {
+              ...mockSdrSettings.fft,
+              default_size: 16384,
+            },
+          }}
+          deviceType="mock-device"
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftSize).toBe(8192);
+    });
+    expect(screen.getByTestId("fftSize")).toHaveTextContent("8192");
+
+    localStorage.removeItem("napt-spectrum-view-v1:mock-device");
+  });
+
+  it("resets stale HackRF fft size that would collapse the display to 1fps", async () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 4_194_304,
+        fftWindow: "Rectangular",
+        fftFrameRate: 1,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    const Harness = () => {
+      useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftSize).toBe(16_384);
+    });
+    expect(store.getState().spectrum.fftFrameRate).toBe(48);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        fftSize: 16_384,
+        frameRate: 48,
+      }),
+    );
+  });
+
+  it("resets stale HackRF 1fps frame rate when the fft size is otherwise valid", async () => {
+    localStorage.setItem(
+      "napt-spectrum-view-v1:hackrf_one",
+      JSON.stringify({
+        fftSize: 262_144,
+      }),
+    );
+
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 262_144,
+        fftWindow: "Rectangular",
+        fftFrameRate: 1,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    const Harness = () => {
+      useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.fftFrameRate).toBe(12);
+    });
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        frameRate: 12,
+      }),
+    );
+
+    localStorage.removeItem("napt-spectrum-view-v1:hackrf_one");
+  });
+
   it("does not re-enable HackRF baseband filtering when sample rate changes while disabled", () => {
     const store = configureStore({
       reducer: {
@@ -335,8 +560,8 @@ describe("useSdrSettings", () => {
         fftWindow: "Rectangular",
         fftFrameRate: 42,
         gain: 49.6,
-        hackrfLnaGain: 49.6,
-        hackrfVgaGain: 62,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
         hackrfAmpEnabled: false,
         hackrfBasebandBandwidth: 0,
         ppm: 2,
@@ -351,6 +576,7 @@ describe("useSdrSettings", () => {
     const Harness = () => {
       hookApi = useSdrSettings({
         maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
         deviceType: "hackrf_one",
         onSettingsChange: mockOnSettingsChange as any,
         sdrSettings: mockSdrSettings,
@@ -377,6 +603,88 @@ describe("useSdrSettings", () => {
         sampleRate: 5_200_000,
         tunerBandwidth: 0,
       }),
+    );
+  });
+
+  it("routes HackRF LNA, VGA, and AMP changes through the live settings payload", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: {
+          ...mockSdrSettings,
+          gain: {
+            tuner_gain: 49.6,
+            hackrf_lna_gain: 0,
+            hackrf_vga_gain: 30,
+            hackrf_amp_enable: false,
+            tuner_bandwidth: 3_200_000,
+            rtl_agc: false,
+            tuner_agc: false,
+          },
+        },
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    expect(hookApi).not.toBeNull();
+
+    act(() => {
+      hookApi!.setHackrfLnaGain(8);
+    });
+    expect(store.getState().spectrum.hackrfLnaGain).toBe(8);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hackrfLnaGain: 8 }),
+    );
+
+    act(() => {
+      hookApi!.setHackrfVgaGain(20);
+    });
+    expect(store.getState().spectrum.hackrfVgaGain).toBe(20);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hackrfVgaGain: 20 }),
+    );
+
+    act(() => {
+      hookApi!.setHackrfAmpEnabled(true);
+    });
+    expect(store.getState().spectrum.hackrfAmpEnabled).toBe(true);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hackrfAmpEnabled: true }),
     );
   });
 });

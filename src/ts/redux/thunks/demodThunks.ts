@@ -357,13 +357,16 @@ export const resolveDemodSourceRange = (
   const liveFrequencyRange = normalizeRange(payload.liveFrequencyRange);
   const liveFrameRange = rangeFromCenterAndSampleRate(
     payload.liveFrame?.center_frequency_hz,
-    payload.liveFrame?.sample_rate,
+    payload.sampleRateHz ?? payload.liveFrame?.sample_rate,
   );
   if (liveFrameRange) {
     if (
       liveFrequencyRange &&
       !rangesOverlap(liveFrameRange, liveFrequencyRange)
     ) {
+      return { range: liveFrequencyRange, reason: "live_frequency_range" };
+    }
+    if (liveFrequencyRange && isFinitePositive(payload.sampleRateHz)) {
       return { range: liveFrequencyRange, reason: "live_frequency_range" };
     }
     return { range: liveFrameRange, reason: "live_frame" };

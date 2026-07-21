@@ -33,7 +33,7 @@ pub async fn auth_logout_handler(
 ) -> impl IntoResponse {
   if let Some(token) = params.token {
     info!("Revoking session token: {}…", &token[..token.len().min(8)]);
-    state.session_store.revoke(&token);
+    state.session_store.revoke(&token).await;
   }
 
   info!("Logout requested, clearing site data and redirecting");
@@ -131,7 +131,7 @@ pub async fn auth_verify_handler(
 
   // Authentication successful — create session with a unique key
   let session_key = crate::crypto::generate_nonce(); // 32 random bytes
-  let token = state.session_store.create_session(session_key);
+  let token = state.session_store.create_session(session_key).await;
   info!("Password authentication successful, session created");
 
   (
@@ -149,7 +149,7 @@ pub async fn auth_session_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<AuthSessionRequest>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&body.token) {
+  match state.session_store.validate(&body.token).await {
     Some(_session) => {
       info!("Session token validated successfully");
       (
@@ -181,7 +181,7 @@ pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&query.token) {
+  match state.session_store.validate(&query.token).await {
     Some(_session) => {
       info!("Vault key requested and session validated");
       (
@@ -387,7 +387,7 @@ pub async fn passkey_auth_finish_handler(
     Ok(_auth_result) => {
       // Authentication successful — create session with a unique key
       let session_key = crate::crypto::generate_nonce();
-      let token = state.session_store.create_session(session_key);
+      let token = state.session_store.create_session(session_key).await;
       info!("Passkey authentication successful, session created");
 
       (

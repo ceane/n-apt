@@ -6,7 +6,13 @@ import {
   isValidAuthInfo,
   isValidAuthResult,
   isValidWebSocketMessage,
+  isValidSourceInfoMessage,
+  isValidActiveSourceMessage,
+  isValidSourceStatusMessage,
+  isValidSourceSdrSettingsMessage,
+  isValidSourceErrorMessage,
   isValidSpectrumFrame,
+  isValidSpectrumFrameEnhanced,
   isValidCaptureRequest,
   calculateExpectedLatency,
   calculateTrustLevel,
@@ -51,6 +57,109 @@ describe("Validation System", () => {
   });
 
   describe("WebSocket Message Validation", () => {
+    test("should validate source info snapshot", () => {
+      const validMessage = {
+        type: "source_info",
+        active_source: "mock-apt",
+        active_source_mode: "live",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "streaming",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [2_400_000, 3_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3_200_000,
+                fft_size: 2048,
+              },
+            },
+          },
+        ],
+      };
+
+      expect(isValidSourceInfoMessage(validMessage)).toBe(true);
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should validate active source update", () => {
+      const validMessage = {
+        type: "active_source",
+        source_id: "rtl-sdr-1",
+        source_mode: "live",
+      };
+
+      expect(isValidActiveSourceMessage(validMessage)).toBe(true);
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should reject active source update with invalid mode", () => {
+      const invalidMessage = {
+        type: "active_source",
+        source_id: "rtl-sdr-1",
+        source_mode: "invalid_mode",
+      };
+
+      expect(isValidActiveSourceMessage(invalidMessage)).toBe(false);
+    });
+
+    test("should validate source status update", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "mock-apt",
+          status: "loading",
+          loading_attempt: 1,
+          loading_attempt_max: 3,
+        }),
+      ).toBe(true);
+    });
+
+    test("should validate source status update for mock apt payload", () => {
+      const mockAptStatus = {
+        type: "status",
+        source_id: "mock-apt",
+        status: "connected",
+        loading_attempt: 0,
+        loading_attempt_max: 2,
+      };
+
+      expect(isValidSourceStatusMessage(mockAptStatus)).toBe(true);
+      expect(isValidWebSocketMessage(mockAptStatus)).toBe(true);
+    });
+
+    test("should validate source sdr settings update", () => {
+      expect(
+        isValidSourceSdrSettingsMessage({
+          type: "sdr_settings",
+          source_id: "mock-apt",
+          sdr: {
+            sample_rate: 3_200_000,
+            gain: 12,
+          },
+        }),
+      ).toBe(true);
+    });
+
+    test("should validate source error update", () => {
+      expect(
+        isValidSourceErrorMessage({
+          type: "error",
+          source_id: "mock-apt",
+          code: "device_disconnect",
+          message: "Device disconnected",
+        }),
+      ).toBe(true);
+    });
+
     test("should validate valid frequency range message", () => {
       const validMessage = {
         type: "frequency_range",
@@ -65,6 +174,25 @@ describe("Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: true,
+        source_id: "mock-apt",
+      };
+
+      expect(isValidWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should reject pause messages without source_id", () => {
+      expect(
+        isValidWebSocketMessage({
+          type: "pause",
+          paused: true,
+        }),
+      ).toBe(false);
+    });
+
+    test("should validate select source message", () => {
+      const validMessage = {
+        type: "select_source",
+        source_id: "rtl-sdr-1",
       };
 
       expect(isValidWebSocketMessage(validMessage)).toBe(true);
@@ -103,7 +231,7 @@ describe("Validation System", () => {
         description: "Test description",
       };
 
-      expect(isValidSpectrumFrame(invalidFrame)).toBe(false);
+      expect(isValidSpectrumFrameEnhanced(invalidFrame)).toBe(false);
     });
   });
 
@@ -115,6 +243,7 @@ describe("Validation System", () => {
           { minFreq: 100_000_000, maxFreq: 200_000_000 },
           { minFreq: 300_000_000, maxFreq: 400_000_000 },
         ],
+        durationMode: "timed" as const,
         durationS: 60.0,
         fileType: ".napt" as const,
         acquisitionMode: "stepwise" as const,

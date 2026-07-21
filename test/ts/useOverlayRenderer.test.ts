@@ -1,5 +1,8 @@
 import { renderHook } from "@testing-library/react";
-import { useOverlayRenderer } from "@n-apt/hooks/useOverlayRenderer";
+import {
+  invalidateOverlayThemeColorCache,
+  useOverlayRenderer,
+} from "@n-apt/hooks/useOverlayRenderer";
 
 describe("useOverlayRenderer Hook", () => {
   const mockCtx = {
@@ -14,8 +17,46 @@ describe("useOverlayRenderer Hook", () => {
     setLineDash: jest.fn(),
     clearRect: jest.fn(),
     rect: jest.fn(),
+    roundRect: jest.fn(),
     clip: jest.fn(),
+    fill: jest.fn(),
+    strokeRect: jest.fn(),
+    fillRect: jest.fn(),
+    arc: jest.fn(),
   } as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    invalidateOverlayThemeColorCache();
+  });
+
+  it("caches parsed theme colors across draw calls", () => {
+    const computedStyleSpy = jest.spyOn(window, "getComputedStyle");
+    const { result } = renderHook(() => useOverlayRenderer());
+    const frequencyRange = { min: 90e6, max: 110e6 };
+
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+    );
+    const firstCallCount = computedStyleSpy.mock.calls.length;
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      frequencyRange,
+      -120,
+      0,
+    );
+
+    expect(firstCallCount).toBeGreaterThan(0);
+    expect(computedStyleSpy).toHaveBeenCalledTimes(firstCallCount);
+    computedStyleSpy.mockRestore();
+  });
 
   it("should draw hardware sample rate lines when appropriate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
@@ -117,5 +158,96 @@ describe("useOverlayRenderer Hook", () => {
     expect(labels).toContain("90.25MHz");
     expect(labels).toContain("90.75MHz");
     expect(labels).not.toContain("91MHz"); // Collides with center
+  });
+
+  it("draws the Tx slider without labels", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawTxSliderOnContext(mockCtx, 1000, 600, {
+      visible: true,
+      signalLabel: "APT",
+      powerDbm: -18,
+      visibleMinHz: 136_000_000,
+      visibleMaxHz: 138_000_000,
+      txCenterHz: 137_100_000,
+      txSampleRateHz: 240_000,
+    });
+
+    expect(mockCtx.fillText).not.toHaveBeenCalled();
+  });
+
+  it("draws the Tx backdrop as a bandwidth by power rectangle", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawTxSliderBackdropOnContext(
+      mockCtx,
+      1000,
+      600,
+      {
+        visible: true,
+        isTransmitting: true,
+        powerDbm: -60,
+        visibleMinHz: 136_000_000,
+        visibleMaxHz: 138_000_000,
+        txCenterHz: 137_000_000,
+        txSampleRateHz: 200_000,
+      },
+      { min: 136_000_000, max: 138_000_000 },
+      -120,
+      0,
+    );
+
+    expect(mockCtx.rect).toHaveBeenCalled();
+    const [x, y, width, height] = mockCtx.rect.mock.calls.at(-1);
+    expect(x).toBeCloseTo(459.5, 1);
+    expect(width).toBeCloseTo(91, 0);
+    expect(y).toBeCloseTo(504, 0);
+    expect(height).toBeCloseTo(96, 0);
+  });
+
+  it("leaves the FFT node status row out of the spectrum canvas", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawSelectionOverlayOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 136_000_000, max: 138_000_000 },
+      {
+        minFrequencyHz: 135_900_000,
+        maxFrequencyHz: 138_300_000,
+      },
+      true,
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((call: any[]) => call[0]);
+    expect(labels).toEqual([]);
+    expect(mockCtx.lineTo).not.toHaveBeenCalledWith(expect.any(Number), 572);
+  });
+
+  it("can suppress the live status row when another overlay owns the bottom band", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 136_000_000, max: 138_000_000 },
+      137_000_000,
+      true,
+      2_400_000,
+      { min: 136_000_000, max: 138_000_000 },
+      false,
+      [],
+      16_384,
+      "Rectangular",
+      "medium",
+      false,
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((c: any) => c[0]);
+    expect(labels).not.toContain("FFT Size: 16,384");
+    expect(labels).not.toContain("FFT Window: Rectangular");
+    expect(labels).not.toContain("Timing: Lossless");
   });
 });

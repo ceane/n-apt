@@ -21,19 +21,6 @@ pub enum LiveData {
   },
 }
 
-/// WebSocket message types
-#[derive(Debug, Deserialize)]
-pub struct WsStatusMessage {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  pub device_connected: bool,
-  pub device_info: String,
-  pub device_name: String,
-  pub device_state: String,
-  pub paused: bool,
-  pub max_sample_rate: u32,
-}
-
 /// Authentication challenge response
 #[derive(Debug, Serialize)]
 pub struct AuthRequest {

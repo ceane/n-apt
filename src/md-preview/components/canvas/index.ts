@@ -11,4 +11,5 @@ export { EndpointRangeCanvas } from "@n-apt/md-preview/components/canvas/Endpoin
 export { TriangulationMapCanvas } from "@n-apt/md-preview/components/canvas/TriangulationMapCanvas";
 export { TriangulationCloseEnoughCanvas } from "@n-apt/md-preview/components/canvas/TriangulationCloseEnoughCanvas";
 export { HeroAsciiCanvas } from "@n-apt/md-preview/components/canvas/HeroAsciiCanvas";
+export { RadioWavesCanvas } from "@n-apt/md-preview/components/canvas/RadioWavesCanvas";
 export * from "@n-apt/md-preview/components/canvas/shared";

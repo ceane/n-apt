@@ -66,6 +66,18 @@ const SidebarContent = memo(styled.div`
   );
 `);
 
+const MainLayoutContainer = memo(styled.div`
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  transition: all 0.3s ease;
+`);
+
+const StyledContentArea = memo(styled(ContentArea)`
+  position: relative;
+`);
+
 interface MainLayoutProps {
   children: React.ReactNode;
   sidebar: React.ReactNode;
@@ -103,15 +115,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       {!isSidebarOpen && (
         <CollapsedToggleButton onClick={() => setIsSidebarOpen(true)} />
       )}
-      <div
-        style={{
-          display: "flex",
-          width: "100%",
-          height: "100vh",
-          overflow: "hidden",
-          transition: "all 0.3s ease",
-        }}
-      >
+      <MainLayoutContainer>
         {isSidebarOpen && (
           <NavigationContainer ref={navigationContainerRef}>
             <NAPTSidebarHeader
@@ -154,16 +158,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               >
                 Map Endpoints
               </NavigationTab>
+              <NavigationTab
+                $isActive={path === "/learn-signals"}
+                onClick={(event) => handleTabClick("/learn-signals", event)}
+                data-path="/learn-signals"
+              >
+                Learn Signals
+              </NavigationTab>
             </NavigationTabs>
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>
         )}
-        <ContentArea
-          style={{ flex: 1, overflow: "hidden", position: "relative" }}
-        >
-          {children}
-        </ContentArea>
-      </div>
+        <StyledContentArea>{children}</StyledContentArea>
+      </MainLayoutContainer>
     </>
   );
 };

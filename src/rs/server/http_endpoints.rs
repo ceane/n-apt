@@ -19,9 +19,57 @@ use super::types::{
   CaptureDownloadParams, ChannelSpec, SpectrumFrameMessage, TowerBoundsQuery,
   WebMCPToolRequest, WebMCPToolResponse,
 };
-use super::websocket_server::reconcile_stale_device_snapshot;
-use crate::fft::anti_aliasing;
-use crate::sdr::rtlsdr::RtlSdrDevice;
+use super::websocket_server::{
+  build_source_info_snapshot, reconcile_stale_device_snapshot,
+};
+use crate::s::fft::anti_aliasing;
+
+#[derive(Debug, Deserialize)]
+pub struct CliSnapshotFramesQuery {
+  frames: Option<usize>,
+  fft_size: Option<usize>,
+}
+
+/// Returns a short history of current Rust SDR frames for the authenticated
+/// CLI snapshot harness. The endpoint exposes data only; image composition
+/// stays shared with the frontend's existing 2D snapshot renderers.
+pub async fn cli_snapshot_frame_handler(
+  State(state): State<Arc<super::AppState>>,
+  Query(query): Query<CliSnapshotFramesQuery>,
+) -> impl IntoResponse {
+  let mut receiver = state.spectrum_tx.subscribe();
+  let requested = query.frames.unwrap_or(1).clamp(1, 128);
+  let iq_bytes = query.fft_size.unwrap_or(4096).clamp(256, 262_144) * 2;
+  let mut frames = Vec::with_capacity(requested);
+  let collection = async {
+    while frames.len() < requested {
+      match receiver.recv().await {
+        Ok(frame) => {
+          let mut snapshot_frame = (*frame).clone();
+          snapshot_frame.waveform.clear();
+          snapshot_frame.iq_data.truncate(iq_bytes);
+          frames.push(snapshot_frame);
+        }
+        Err(error) => return Err(error),
+      }
+    }
+    Ok(())
+  };
+  let result = tokio::time::timeout(std::time::Duration::from_secs(4), collection).await;
+  if !frames.is_empty() {
+    return Json(frames).into_response();
+  }
+  match result {
+    Ok(Err(error)) => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      format!("Signal frames unavailable: {error}"),
+    ).into_response(),
+    _ => (
+      StatusCode::GATEWAY_TIMEOUT,
+      "Timed out waiting for signal frames",
+    ).into_response(),
+  }
+}
 
 // Haversine distance calculation for tower filtering
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
@@ -563,58 +611,17 @@ pub async fn status_handler(
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   let _ = reconcile_stale_device_snapshot(&state.shared);
-  let device_connected = state.shared.device_connected.load(Ordering::Relaxed);
-  let device_info = state.shared.device_info.lock().unwrap().clone();
   let client_count = state.shared.client_count.load(Ordering::Relaxed);
   let authenticated_count =
     state.shared.authenticated_count.load(Ordering::Relaxed);
-
-  // This is a cheap, non-blocking check (does not open the device) and remains
-  // responsive even if the SDR I/O thread is busy.
-  let device_count = RtlSdrDevice::get_device_count();
-  let device_present = device_count > 0;
-
-  let device_state = state.shared.device_state.lock().unwrap().clone();
-  let device_loading_reason =
-    state.shared.device_loading_reason.lock().unwrap().clone();
-  let device_backend_error =
-    state.shared.device_backend_error.lock().unwrap().clone();
-  let device_loading = *state.shared.device_loading.lock().unwrap();
-  let paused = state.shared.is_paused.load(Ordering::SeqCst);
-  let sdr_settings = state.shared.sdr_settings.lock().unwrap().clone();
-  let channels = state.shared.channels.lock().unwrap().clone();
-  let device_profile = state.shared.device_profile.lock().unwrap().clone();
-  let device_name = crate::server::utils::status_device_name(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
-  let device_backend = crate::server::utils::status_device_backend_label(
-    device_connected,
-    &device_info,
-    &device_profile,
-  );
+  let snapshot = build_source_info_snapshot(&state.shared);
 
   Json(serde_json::json!({
-    "type": "status",
-    "device_connected": device_connected,
-    "device_present": device_present,
-    "device_count": device_count,
-    "device_state": device_state,
-    "device_loading": device_loading,
-    "device_loading_reason": device_loading_reason,
-    "device_info": device_info,
-    "device_name": device_name,
-    "paused": paused,
-    "max_sample_rate": sdr_settings.sample_rate,
-    "channels": channels,
-    "sdr_settings": sdr_settings,
-    "device": device_backend,
-    "backend": device_backend,
-    "device_backend_error": device_backend_error,
-    "device_profile": device_profile,
-    "clients": client_count,
-    "authenticated_clients": authenticated_count,
+    "meta": {
+      "clients": client_count,
+      "authenticated_clients": authenticated_count,
+    },
+    "status": snapshot,
   }))
 }
 
@@ -646,7 +653,7 @@ pub async fn capture_download_handler(
       .into_response();
   }
 
-  let _session = match state.session_store.validate(&params.token) {
+  let _session = match state.session_store.validate(&params.token).await {
     Some(s) => s,
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")

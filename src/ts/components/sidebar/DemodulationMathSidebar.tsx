@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
+import { Collapsible } from "@n-apt/components/ui/Collapsible";
 
 const Section = styled.div`
   display: grid;
@@ -21,17 +22,19 @@ const MathFallback = styled.div`
 
 const loadDemodMath = async () => {
   try {
-    const modulePath = [
-      "@n-apt",
-      "encrypted-modules",
-      "tmp",
-      "ts",
-      "components",
-      "math",
-      "DemodMath",
-    ].join("/");
+    const modulePath =
+      "/" +
+      [
+        "@n-apt",
+        "encrypted-modules",
+        "tmp",
+        "ts",
+        "components",
+        "math",
+        "DemodMath",
+      ].join("/");
 
-    return await import(/* @vite-ignore */ modulePath);
+    return await import(/* @vite-ignore */ modulePath + "?v=" + Date.now());
   } catch {
     return {
       default: () => (
@@ -48,9 +51,11 @@ const DemodMath = React.lazy(async () => {
 export const DemodulationMathSidebar: React.FC = () => {
   return (
     <Section>
-      <React.Suspense fallback={<MathFallback>Loading Math…</MathFallback>}>
-        <DemodMath />
-      </React.Suspense>
+      <Collapsible title="Demodulation Math" defaultOpen={false}>
+        <React.Suspense fallback={<MathFallback>Loading Math…</MathFallback>}>
+          <DemodMath />
+        </React.Suspense>
+      </Collapsible>
     </Section>
   );
 };

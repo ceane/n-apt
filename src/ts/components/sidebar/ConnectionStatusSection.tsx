@@ -25,6 +25,16 @@ const ConnectionStatusContainer = styled.div`
   box-shadow: none;
 `;
 
+const ExtraActionsContainer = styled.div`
+  grid-column: 1 / -1;
+  width: 100%;
+`;
+
+const CryptoErrorContainer = styled.div`
+  grid-column: 1 / -1;
+  margin-top: 8px;
+`;
+
 const ConnectionStatus = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -139,6 +149,17 @@ const ActionsColumn = styled.div`
   display: grid;
   gap: 8px;
   width: 100%;
+`;
+
+const LoadingState = styled.div`
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: ${(props) => props.theme.warning};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
 `;
 
 const FileActionButton = styled(PauseButton)<{
@@ -351,19 +372,32 @@ export const ConnectionStatusSection: React.FC<
     (backend === "mock_apt" ||
       backend === "mock_apt_metal" ||
       backend.includes("mock"));
+  const isHackRfBackend =
+    typeof backend === "string" &&
+    backend.toLowerCase().replace(/[-\s]/g, "_").includes("hackrf_one");
   const isServerConnectedButNoDevice =
-    isConnected && deviceState === "connected" && isMockBackend;
-
+    isConnected &&
+    (deviceState === "connected" || deviceState === "streaming") &&
+    isMockBackend;
+  const staleStateLabel =
+    deviceState === "stale"
+      ? "Stale…"
+      : deviceState === "disconnected"
+        ? "Disconnected"
+        : null;
   return (
     <>
       <ConnectionStatusContainer>
         <ConnectionStatus>
           <StatusDot
-            $connected={isConnected && deviceState === "connected"}
+            $connected={
+              isConnected &&
+              (deviceState === "connected" || deviceState === "streaming")
+            }
             $loading={deviceState === "loading"}
             $color={
               cryptoCorrupted
-                ? deviceState === "connected"
+                ? deviceState === "connected" || deviceState === "streaming"
                   ? "var(--color-danger)"
                   : "var(--color-warning)"
                 : isConnected && deviceState === "disconnected"
@@ -384,7 +418,8 @@ export const ConnectionStatusSection: React.FC<
                       : "Loading device..."
                     : isServerConnectedButNoDevice
                       ? "Connected to server but not device"
-                      : deviceState === "connected"
+                      : deviceState === "connected" ||
+                          deviceState === "streaming"
                         ? "Connected to server and device"
                         : "Connected to server but device not connected"}
           </StatusText>
@@ -461,25 +496,46 @@ export const ConnectionStatusSection: React.FC<
           ) : (
             isConnected &&
             (deviceState === "loading" && deviceLoadingReason === "restart" ? (
-              <WarningButton
-                $paused={false}
-                $narrow
-                $isDisabled
-                onClick={() => {}}
-                disabled={true}
-                title="Device is restarting..."
+              <LoadingState
+                role="status"
+                aria-label={
+                  isHackRfBackend ? "Waiting for Rx" : "Restarting device"
+                }
               >
-                Restarting…
-              </WarningButton>
+                <Loader2
+                  size={16}
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
+                {isHackRfBackend ? "Waiting for Rx…" : "Restarting…"}
+              </LoadingState>
             ) : deviceState === "loading" ? (
+              <LoadingState
+                role="status"
+                aria-label={
+                  isHackRfBackend ? "Waiting for Rx" : "Loading device"
+                }
+              >
+                <Loader2
+                  size={16}
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
+                {isHackRfBackend ? "Waiting for Rx…" : "Loading…"}
+              </LoadingState>
+            ) : staleStateLabel ? (
               <WarningButton
                 $paused={false}
                 $isDisabled
                 onClick={() => {}}
                 disabled={true}
-                title="Device is being initialized..."
+                title={
+                  deviceState === "stale"
+                    ? "Device is stale and waiting for a fresh frame..."
+                    : "Device disconnected."
+                }
               >
-                Loading…
+                {staleStateLabel}
               </WarningButton>
             ) : (
               !hidePauseButton && (
@@ -496,16 +552,14 @@ export const ConnectionStatusSection: React.FC<
           )}
         </ActionsColumn>
         {extraActions && (
-          <div style={{ gridColumn: "1 / -1", width: "100%" }}>
-            {extraActions}
-          </div>
+          <ExtraActionsContainer>{extraActions}</ExtraActionsContainer>
         )}
       </ConnectionStatusContainer>
 
       {cryptoCorrupted && !fileMode && (
-        <div style={{ gridColumn: "1 / -1", marginTop: "8px" }}>
+        <CryptoErrorContainer>
           <DecryptionFallback moduleName="Live Stream" errorType="vault" />
-        </div>
+        </CryptoErrorContainer>
       )}
     </>
   );

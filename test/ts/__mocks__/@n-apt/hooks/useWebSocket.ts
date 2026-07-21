@@ -81,7 +81,7 @@ export type WebSocketData = {
   autoFftOptions: any;
   error: string | null;
   sendFrequencyRange: (range: FrequencyRange) => void;
-  sendPauseCommand: (isPaused: boolean) => void;
+  sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
   sendSettings: (settings: SDRSettings) => void;
   sendRestartDevice: () => void;
   sendCaptureCommand: (req: any) => void;
@@ -139,7 +139,7 @@ export function useWebSocket(
   }, [url, enabled]);
 
   const sendFrequencyRange = useCallback((_range: FrequencyRange) => {}, []);
-  const sendPauseCommand = useCallback((paused: boolean) => {
+  const sendPauseCommand = useCallback((paused: boolean, _sourceId: string) => {
     setIsPaused(paused);
     setServerPaused(paused);
   }, []);

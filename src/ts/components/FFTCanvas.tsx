@@ -1,6 +1,7 @@
 import {
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   forwardRef,
   useImperativeHandle,
@@ -10,19 +11,31 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
-import { styled } from "styled-components";
+import styled, { keyframes } from "styled-components";
+import { Lock, Unlock } from "lucide-react";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
+import {
+  formatLiveCanvasStatusRow,
+  type LiveCanvasStatusRow,
+} from "@n-apt/hooks/useDraw2DFFTSignal";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
-import { useUnifiedFFTWaterfall } from "@n-apt/hooks/useUnifiedFFTWaterfall";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
 import { useWaterfallRetuneCompute } from "@n-apt/hooks/useWaterfallRetuneCompute";
-import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
+import {
+  useFrequencyDrag,
+  type CanvasTxSliderState,
+} from "@n-apt/hooks/useFrequencyDrag";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { setGpuSpikeCount } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  setGpuSpikeCount,
+  setGpuSpikeAnalysis,
+  setTxCenterFrequencyHz,
+  setTxSampleRateHz,
+} from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -31,6 +44,10 @@ import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
+import {
+  isRtlSdrDevice,
+  resolveRenderableFrequencyRange,
+} from "@n-apt/utils/sdrSampleRateGuards";
 // New hooks
 import { useCanvasState } from "@n-apt/hooks/useCanvasState";
 import { useWaterfallBufferPool } from "@n-apt/hooks/useWaterfallBufferPool";
@@ -46,6 +63,7 @@ import {
   FFT_MIN_DB,
   FFT_MAX_DB,
 } from "@n-apt/consts";
+import { FFT_AREA_MIN } from "@n-apt/consts";
 import { detectHeterodyningFromHistory } from "@n-apt/utils/detectHeterodyning";
 import type {
   FFTVisualizerMachine,
@@ -61,13 +79,259 @@ import {
   peakResampleWaterfallRow,
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/utils/waterfallRows";
-import { roundDbValue } from "@n-apt/utils/frequency";
+import {
+  flushWebGpuPresentation,
+  flushWebGpuPresentationMultiple,
+  getInitialHandledWebGpuResetEpoch,
+  resetWebGpuStreamTemporalHistory,
+  shouldAcceptWebGpuStreamFrame,
+  shouldCommitSourcePresentationReset,
+  shouldPreservePresentationDuringFrameGap,
+  shouldRestoreWebGpuStreamState,
+} from "@n-apt/utils/webgpuStreamReset";
+import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
+import { findBestFrequencyRange } from "@n-apt/consts";
+import {
+  formatVfoAxisCenterLabel,
+  formatVfoAxisEdgeLabel,
+  getVfoAxisIcon,
+} from "@n-apt/utils/rendering/vfoAxis";
+import { getFrontendFftSize } from "@n-apt/utils/frontendFftSize";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/utils/hackrfCalibration";
 import {
+  TX_SLIDER_ROW_HEIGHT,
   useOverlayRenderer,
   type DemodFocusOverlay,
 } from "@n-apt/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
+import { createFFTZoomProcessor } from "@n-apt/utils/rendering/fftZoom";
+
+type FrameRenderRangeInput = {
+  currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
+  requestedRange: FrequencyRange;
+  propsCenterFrequencyHz: number;
+  propsHardwareSampleRateHz?: number | null;
+  preferRequestedRange?: boolean;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isRtlSdr?: boolean | null;
+};
+
+const EMPTY_FLOAT32_ARRAY = new Float32Array(0);
+const WATERFALL_BIN_COUNT = 4096;
+
+const isMockTxIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}) => {
+  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedName = deviceName?.toLowerCase?.() ?? "";
+  return (
+    normalizedKind === "mock-tx" ||
+    normalizedBackend === "mock-tx" ||
+    normalizedName.includes("mock tx")
+  );
+};
+
+const resolveTxSignalDisplayLabel = (signal: string) => {
+  switch (signal) {
+    case "d":
+      return "D";
+    case "wifi":
+      return "Mock WiFi";
+    case "d_sharp":
+      return "D#";
+    case "5g":
+      return "Mock 5G";
+    default:
+      return signal.toUpperCase();
+  }
+};
+
+const isMockAptIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}) => {
+  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
+  const normalizedName = deviceName?.toLowerCase?.() ?? "";
+  return (
+    normalizedKind === "mock-apt" ||
+    normalizedBackend === "mock-apt" ||
+    normalizedName.includes("mock apt")
+  );
+};
+
+/**
+ * Full-channel accumulation is only needed for hardware that delivers a
+ * channel through multiple tuned hops. Mock sources synthesize the requested
+ * range directly; accumulating their changing preview windows causes old Tx
+ * sample-rate windows to stack into the new one.
+ */
+export const shouldAccumulateFullChannelWaveform = ({
+  isRtlSdr,
+  deviceKind,
+  backend,
+  deviceName,
+}: {
+  isRtlSdr?: boolean | null;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+}): boolean =>
+  !isRtlSdr &&
+  !isMockAptIdentity({ deviceKind, backend, deviceName }) &&
+  !isMockTxIdentity({ deviceKind, backend, deviceName });
+
+export const resolveTxModeDeviceName = (
+  sources: Array<{ status: string | null; name?: string | null }>,
+  deviceName: string | null | undefined,
+  canTransmit: boolean,
+  isStandby: boolean,
+): string | null => {
+  const transmittingSource = sources.find(
+    (item) => item.status === "transmitting",
+  );
+  if (transmittingSource?.name?.trim()) {
+    return transmittingSource.name.trim();
+  }
+
+  if (isStandby && canTransmit) {
+    return deviceName?.trim() || null;
+  }
+
+  return null;
+};
+
+/** True only when a blocking placeholder has entered a new visual state. */
+export const shouldClearBlockingPlaceholder = (
+  previousKind: number,
+  nextKind: number,
+): boolean => nextKind !== 0 && previousKind !== nextKind;
+
+/** A paused one-shot frame is still newly processed data for downstream
+ * source-bound views, even though it did not arrive through the play loop. */
+export const shouldPublishProcessedSpectrumFrame = ({
+  hasNewData,
+  shouldReprocessCurrentFrame,
+  processedCurrentFrame,
+}: {
+  hasNewData: boolean;
+  shouldReprocessCurrentFrame: boolean;
+  processedCurrentFrame: boolean;
+}): boolean =>
+  processedCurrentFrame || hasNewData || shouldReprocessCurrentFrame;
+
+export const resolveEffectiveDbmOffsetDb = ({
+  powerScale,
+  deviceKind,
+  backend,
+  deviceName,
+  isTransmitting,
+  tunerGainDb,
+}: {
+  powerScale: "dB" | "dBm";
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isTransmitting?: boolean;
+  tunerGainDb?: number | null;
+}): number => {
+  if (powerScale !== "dBm") return 0.0;
+
+  const isMockTxDevice = isMockTxIdentity({ deviceKind, backend, deviceName });
+  const isMockAptDevice = isMockAptIdentity({
+    deviceKind,
+    backend,
+    deviceName,
+  });
+  if (isMockTxDevice || (isMockAptDevice && isTransmitting)) {
+    return 15.0;
+  }
+
+  if (deviceKind === "hackrf_one") {
+    return computeHackrfApproxDbmOffsetDb({
+      totalGainDb: tunerGainDb ?? 0,
+    });
+  }
+
+  return 30.0;
+};
+
+export const getTxSpectrumRevisionKey = ({
+  centerFrequencyHz,
+  sampleRateHz,
+  signal,
+  powerDbm,
+}: {
+  centerFrequencyHz?: number | null;
+  sampleRateHz?: number | null;
+  signal?: string | null;
+  powerDbm?: number | null;
+}) => {
+  const center =
+    typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
+      ? Math.round(centerFrequencyHz)
+      : "n";
+  const sampleRate =
+    typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+      ? Math.round(sampleRateHz)
+      : "n";
+  const normalizedSignal = signal ?? null;
+  const signalKey =
+    normalizedSignal === null
+      ? "n"
+      : `${normalizedSignal.length}:${normalizedSignal}`;
+  const power =
+    typeof powerDbm === "number" && Number.isFinite(powerDbm)
+      ? Math.round(powerDbm * 1000) / 1000
+      : "n";
+  return `${center}|${sampleRate}|${signalKey}|${power}`;
+};
+
+export const resolveLiveFrameRenderableFrequencyRange = ({
+  currentFrame,
+  requestedRange,
+  propsCenterFrequencyHz,
+  propsHardwareSampleRateHz,
+  preferRequestedRange,
+  deviceKind,
+  backend,
+  deviceName,
+  isRtlSdr,
+}: FrameRenderRangeInput): FrequencyRange => {
+  const mockTxMonitor = isMockTxIdentity({ deviceKind, backend, deviceName });
+  const canonicalSampleRateHz =
+    typeof propsHardwareSampleRateHz === "number" &&
+    Number.isFinite(propsHardwareSampleRateHz) &&
+    propsHardwareSampleRateHz > 0
+      ? propsHardwareSampleRateHz
+      : currentFrame.sample_rate;
+  return resolveRenderableFrequencyRange({
+    requestedRange,
+    centerFrequencyHz: mockTxMonitor
+      ? propsCenterFrequencyHz
+      : currentFrame.center_frequency_hz,
+    hardwareSampleRateHz: canonicalSampleRateHz,
+    preferRequestedRange,
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr,
+  });
+};
 
 // Use dynamic import for WASM module loading
 (async () => {
@@ -184,15 +448,138 @@ const CanvasWrapper = memo(styled.div`
 `);
 
 const NodePreviewCanvasWrapper = memo(styled(CanvasWrapper)`
-  flex: 1;
+  flex: 1 1 0;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-width: 0;
   min-height: 0;
   align-self: stretch;
   border: none;
   border-radius: 0;
 `);
+
+const NodePreviewLayout = memo(styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+`);
+
+const NodePreviewSelectionBar = memo(styled.div`
+  position: relative;
+  flex: 0 0 44px;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: transparent;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  white-space: nowrap;
+`);
+
+const NodePreviewStatsMeta = memo(styled.div`
+  flex: 0 0 34px;
+  width: 100%;
+  min-height: 34px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+`);
+
+const NodePreviewMiniVfo = memo(styled.div`
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  background: transparent;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+`);
+
+// A VFO is a frequency ruler: ticks and labels show where the spectrum sits
+// in frequency space. The node version is compressed to this compact row so
+// it remains legible without covering the FFT plot.
+const NodePreviewVfoRuler = styled.div`
+  position: relative;
+  width: 100%;
+  height: 28px;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const NodePreviewVfoTick = styled.div<{ $active?: boolean }>`
+  position: absolute;
+  top: 0;
+  left: var(--tick-left);
+  width: 1px;
+  height: ${({ $active }) => ($active ? "8px" : "5px")};
+  background: ${({ theme, $active }) =>
+    $active ? theme.colors.primary : theme.colors.textMuted};
+  opacity: var(--tick-opacity, 0.6);
+`;
+
+const NodePreviewVfoTickLabel = styled.span<{
+  $active?: boolean;
+  $visible?: boolean;
+}>`
+  position: absolute;
+  top: 10px;
+  visibility: ${({ $visible }) => ($visible === false ? "hidden" : "visible")};
+  left: var(--tick-label-left);
+  transform: var(--tick-label-transform);
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.textPrimary : theme.colors.textSecondary};
+  font-size: 9px;
+  font-weight: var(--tick-label-weight, 600);
+  white-space: nowrap;
+  opacity: var(--tick-label-opacity, 0.5);
+`;
+
+const NodePreviewVfoCenterLabel = styled.span`
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+`;
+
+const NodePreviewVfoCenterTick = styled.div`
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 8px;
+  transform: translateX(-50%);
+  background: ${({ theme }) => theme.colors.primary};
+`;
 
 const SpectrumRow = memo(styled.div`
   display: flex;
@@ -210,11 +597,263 @@ const CanvasLayer = memo(styled.canvas`
   will-change: width, height;
 `);
 
+const FloorLineOverlay = styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--floor-line-top);
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(255, 120, 150, 0.9) 0,
+    rgba(255, 120, 150, 0.9) 24px,
+    transparent 24px,
+    transparent 38px
+  );
+  pointer-events: none;
+  z-index: 4;
+`;
+
 const HighlightOverlay = memo(styled.div`
   position: absolute;
   inset: 0;
   pointer-events: none;
 `);
+
+const TxSliderVisualRow = memo(styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: ${TX_SLIDER_ROW_HEIGHT}px;
+  z-index: 130;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  display: flex;
+  align-items: center;
+  isolation: isolate;
+`);
+
+const TxSliderVisualLabel = styled.div`
+  padding-left: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  z-index: 1;
+`;
+
+const TxSliderLockButton = styled.button`
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceHover};
+    border-color: ${({ theme }) => theme.colors.border};
+    color: ${({ theme }) => theme.colors.textPrimary};
+  }
+`;
+
+const TxBlinkingDot = styled.div`
+  position: absolute;
+  top: -1px;
+  right: -8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.colors.primary};
+  box-shadow: 0 0 8px ${({ theme }) => theme.colors.primary}66;
+  z-index: 1;
+`;
+
+const TxSliderMetaText = styled.span`
+  position: absolute;
+  left: 50px;
+  top: -9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  opacity: 0.85;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  font-family: ${({ theme }) => theme.typography.mono};
+`;
+
+const TxSliderVisualTrack = styled.div`
+  position: absolute;
+  left: 50px;
+  right: 40px;
+  top: 8px;
+  bottom: 0;
+  z-index: 1;
+`;
+
+const TxSliderVisualBase = styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 999px;
+  background: ${({ theme }) => theme.colors.border};
+  z-index: 1;
+`;
+
+const TxSliderVisualBand = styled.div<{
+  $width: number;
+  $centerLeft: number;
+  $isTransmitting: boolean;
+}>`
+  position: absolute;
+  left: ${({ $centerLeft }) => `${$centerLeft}%`};
+  width: ${({ $width }) => `max(${$width}%, 6px)`};
+  top: 50%;
+  transform: translate(-50%, -50%);
+  height: 8px;
+  border-radius: 999px;
+  background: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  transition: background 0.3s ease;
+  z-index: 1;
+`;
+
+const TxSliderVisualText = styled.div<{
+  $isTransmitting: boolean;
+}>`
+  position: absolute;
+  left: var(--tx-label-left);
+  top: calc(50% + 7px);
+  transform: translate(-50%, 0);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 14px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.05;
+  white-space: nowrap;
+  transition: color 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+`;
+
+const TxSliderVisualCenterFrequencyText = styled.div<{
+  $isTransmitting: boolean;
+  $isLocked: boolean;
+}>`
+  position: absolute;
+  left: var(--tx-center-label-left);
+  bottom: calc(50% + 7px);
+  transform: translate(-50%, 0);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 14px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.05;
+  white-space: nowrap;
+  transition: color 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+`;
+
+const TxSliderCenterLockIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  filter: none;
+`;
+
+const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
+  color: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.textPrimary : theme.colors.textDisabled};
+  font-size: 10px;
+  font-weight: 600;
+`;
+
+const TxSliderVisualPowerDot = styled.span<{ $isTransmitting: boolean }>`
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: ${({ $isTransmitting, theme }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  box-shadow: 0 0 0 1px
+    ${({ $isTransmitting, theme }) =>
+      $isTransmitting ? theme.colors.primary : theme.colors.textDisabled};
+  margin-right: 5px;
+  transform: translateY(0px);
+`;
+
+const TxSliderVisualOffScreenIndicator = styled.button<{
+  $direction: "left" | "right";
+  $isTransmitting: boolean;
+}>`
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  ${({ $direction }) => ($direction === "left" ? "left: 3px;" : "right: 3px;")}
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.surface : theme.colors.textPrimary};
+  background: ${({ theme, $isTransmitting }) =>
+    $isTransmitting ? theme.colors.primary : theme.colors.surfaceHover};
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px
+    ${({ theme, $isTransmitting }) =>
+      $isTransmitting ? theme.colors.primary : theme.colors.border};
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 1;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  &:hover {
+    opacity: 0.9;
+    transform: translateY(-50%) scale(1.03);
+  }
+  &:active {
+    transform: translateY(-50%) scale(0.97);
+  }
+`;
 
 const SelectionTooltip = memo(styled.div`
   position: absolute;
@@ -271,6 +910,116 @@ const COMPACT_VISUALIZER_STYLE = {
 } as const;
 const COMPACT_VISUALIZER_CONTENT_STYLE = { gap: 0 } as const;
 const EMPTY_STYLE = {} as const;
+
+export const getNodePreviewSelectionBarLabels = (
+  selectionRange?: FrequencyRange,
+  fallbackRange?: FrequencyRange,
+): { center: string; bandwidth: string } | null => {
+  const range =
+    selectionRange &&
+    Number.isFinite(selectionRange.min) &&
+    Number.isFinite(selectionRange.max) &&
+    selectionRange.max > selectionRange.min
+      ? selectionRange
+      : fallbackRange &&
+          Number.isFinite(fallbackRange.min) &&
+          Number.isFinite(fallbackRange.max) &&
+          fallbackRange.max > fallbackRange.min
+        ? fallbackRange
+        : null;
+
+  if (!range) {
+    return null;
+  }
+
+  const formatBarFrequency = (hz: number) =>
+    formatFrequency(hz, {
+      showUnits: true,
+      precisionMHz: 3,
+      precisionGHz: 3,
+      precisionKHz: 3,
+    }).replace(/(\d)(?=[A-Za-z])/g, "$1 ");
+
+  return {
+    center: `○ ${formatBarFrequency((range.min + range.max) / 2)}`,
+    bandwidth: `| ${formatBarFrequency(range.max - range.min)} |`,
+  };
+};
+
+export const getNodePreviewMiniVfoMetrics = ({
+  displayRange,
+  selectionRange,
+}: {
+  displayRange?: FrequencyRange;
+  selectionRange?: FrequencyRange;
+}): { center: string; leftPercent: number; widthPercent: number } | null => {
+  if (
+    !displayRange ||
+    !Number.isFinite(displayRange.min) ||
+    !Number.isFinite(displayRange.max) ||
+    displayRange.max <= displayRange.min
+  ) {
+    return null;
+  }
+
+  const span = displayRange.max - displayRange.min;
+  const selection =
+    selectionRange &&
+    Number.isFinite(selectionRange.min) &&
+    Number.isFinite(selectionRange.max) &&
+    selectionRange.max > selectionRange.min
+      ? selectionRange
+      : {
+          min: (displayRange.min + displayRange.max) / 2 - span * 0.01,
+          max: (displayRange.min + displayRange.max) / 2 + span * 0.01,
+        };
+  const leftPercent = Math.max(
+    0,
+    Math.min(100, ((selection.min - displayRange.min) / span) * 100),
+  );
+  const widthPercent = Math.max(
+    0.8,
+    Math.min(100 - leftPercent, ((selection.max - selection.min) / span) * 100),
+  );
+  const center = formatFrequency((selection.min + selection.max) / 2, {
+    showUnits: true,
+    precisionMHz: 3,
+    precisionGHz: 3,
+    precisionKHz: 3,
+  }).replace(/(\d)(?=[A-Za-z])/g, "$1 ");
+
+  return { center, leftPercent, widthPercent };
+};
+
+export const getNodePreviewVfoScaleTicks = (
+  displayRange?: FrequencyRange,
+): Array<{ frequencyHz: number; positionPercent: number }> => {
+  if (
+    !displayRange ||
+    !Number.isFinite(displayRange.min) ||
+    !Number.isFinite(displayRange.max) ||
+    displayRange.max <= displayRange.min
+  ) {
+    return [];
+  }
+  const span = displayRange.max - displayRange.min;
+  const stepHz = findBestFrequencyRange(span, 10);
+  const ticks = [{ frequencyHz: displayRange.min, positionPercent: 0 }];
+  for (
+    let frequencyHz = Math.ceil(displayRange.min / stepHz) * stepHz;
+    frequencyHz < displayRange.max;
+    frequencyHz += stepHz
+  ) {
+    if (frequencyHz > displayRange.min) {
+      ticks.push({
+        frequencyHz,
+        positionPercent: ((frequencyHz - displayRange.min) / span) * 100,
+      });
+    }
+  }
+  ticks.push({ frequencyHz: displayRange.max, positionPercent: 100 });
+  return ticks;
+};
 
 const DB_MAX_RANGE: Record<"dB" | "dBm", { min: number; max: number }> = {
   dB: { min: FFT_MIN_DB, max: FFT_MAX_DB },
@@ -357,9 +1106,15 @@ export interface FFTCanvasProps {
   isDeviceConnected?: boolean;
   /** Callback for frequency range changes */
   onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  /** Fires when the user double-clicks the center-frequency/VFO label region. */
+  onCenterFrequencyDoubleClick?: () => void;
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
   selectionMode?: "zoom" | "range";
+  /** How range selection should move the spectrum when it crosses a plot edge. */
+  selectionEdgePanMode?: "visual" | "frequency-range";
+  /** How plain pointer drags interact with an existing range selection. */
+  rangeSelectionInteraction?: "create-only" | "edit-existing";
   /** Whether the selection overlay is disabled */
   selectionDisabled?: boolean;
   /** Callback for selection range changes (dragging the box) */
@@ -384,8 +1139,22 @@ export interface FFTCanvasProps {
   compact?: boolean;
   /** Tighten FFT margins for small node previews */
   nodePreview?: boolean;
+  /** Multiplier applied to the backing-canvas pixel density. */
+  canvasResolutionScale?: number;
+  /** Publishes the processed source spectrum to sibling visualization targets. */
+  onSpectrumFrame?: (
+    spectrum: Float32Array,
+    sourceFrame: LiveFrameData,
+  ) => void;
   /** Optional overlay rendered inside the FFT canvas wrapper */
   overlayContent?: ReactNode;
+  /** Optional TX slider drawn into the bottom FFT status band. */
+  txSlider?: CanvasTxSliderState & {
+    signalLabel?: string;
+    powerDbm?: number;
+  };
+  /** Optional explicit labels for the bottom FFT status band. */
+  canvasStatusRow?: LiveCanvasStatusRow | null;
   /** Optional action content rendered beside the FFT section title */
   headerActionContent?: ReactNode;
   /** Optional label used to personalize loading / error placeholders. */
@@ -394,6 +1163,8 @@ export interface FFTCanvasProps {
   placeholderPaneLabel?: string;
   /** Optional explicit playback error message for the placeholder overlay. */
   placeholderErrorReason?: string | null;
+  /** Optional explicit placeholder state for non-loading display modes. */
+  placeholderState?: CanvasPlaceholderState | null;
   /** Disable canvas interactions while a placeholder is shown. */
   interactionDisabled?: boolean;
   /** Emits when the rAF loop sees a real live frame from a mutable data ref. */
@@ -401,6 +1172,7 @@ export interface FFTCanvasProps {
   /** Emits the actual placeholder/loading state owned by the FFT canvas. */
   onCanvasLoadingChange?: (isLoading: boolean) => void;
   showSpikeOverlay?: boolean;
+  isStandby?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
   vizZoomFloorPan?: number;
@@ -417,6 +1189,8 @@ export interface FFTCanvasProps {
   onFftDbLimitsChange?: (min: number, max: number) => void;
   hardwareSampleRateHz?: number;
   deviceProfile?: DeviceProfile | null;
+  deviceBackend?: string | null;
+  deviceName?: string | null;
   tunerGainDb?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
@@ -432,8 +1206,16 @@ export interface FFTCanvasProps {
     highlightedBins: Array<{ start: number; end: number }>;
   }) => void;
   awaitingDeviceData?: boolean | string;
+  /** Source whose first frame may end the loading handoff. */
+  expectedSourceId?: string | null;
+  /** Active transport owner used when binary live frames are untagged. */
+  frameSourceIdFallback?: string | null;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
+  /** Whether this canvas may read or write persisted paused-frame snapshots. */
+  pauseSnapshotEnabled?: boolean;
+  /** Increments at a source/reconnect boundary to discard stale GPU output. */
+  webGpuStreamResetEpoch?: number;
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings;
   demodulationCenterFreqHz?: number | null;
   demodulationRangeHz?: number | null;
@@ -455,6 +1237,90 @@ export const getLatestLiveFrame = <T,>(
     : liveData;
 };
 
+export const getLiveFrameSignature = (
+  liveFrame: LiveFrameData | null | undefined,
+): LiveFrameData | null => {
+  if (!liveFrame) return null;
+  return liveFrame;
+};
+
+export const shouldRenderWaterfallWithFrameOrRestore = (
+  hasDimensions: boolean,
+  hasCurrentFrame: boolean,
+  hasPendingRestore: boolean,
+): boolean => hasDimensions && (hasCurrentFrame || hasPendingRestore);
+
+export const shouldCreatePausedFallbackWaveform = (
+  cachedWaveform: Float32Array | null,
+): boolean => !cachedWaveform || cachedWaveform.length === 0;
+
+export const shouldDrawZoomMarkersForCanvas = (nodePreview: boolean): boolean =>
+  !nodePreview;
+
+export const getCanvasPixelRatio = (
+  devicePixelRatio: number,
+  resolutionScale = 1,
+): number => {
+  const safeDevicePixelRatio =
+    Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+      ? devicePixelRatio
+      : 1;
+  const safeResolutionScale =
+    Number.isFinite(resolutionScale) && resolutionScale > 0
+      ? resolutionScale
+      : 1;
+  // A scale above one used to multiply an already DPR-scaled canvas. In a
+  // React Flow node that produced 4x linear resolution on Retina displays,
+  // or 16x the base pixel work. Keep the argument for API compatibility but
+  // cap live backing stores at the physical device density.
+  return Math.min(safeDevicePixelRatio, safeDevicePixelRatio * safeResolutionScale);
+};
+
+export const resolveDemodFocusOverlay = ({
+  selectionMode,
+  selectionRange,
+  demodulationCenterFreqHz,
+  demodulationRangeHz,
+  bandwidthAlignment,
+}: {
+  selectionMode: "zoom" | "range";
+  selectionRange?: FrequencyRange;
+  demodulationCenterFreqHz?: number | null;
+  demodulationRangeHz?: number | null;
+  bandwidthAlignment: Alignment;
+}): DemodFocusOverlay | null => {
+  if (
+    selectionMode !== "range" &&
+    selectionRange &&
+    Number.isFinite(selectionRange.min) &&
+    Number.isFinite(selectionRange.max) &&
+    selectionRange.max > selectionRange.min
+  ) {
+    return {
+      centerFrequencyHz: (selectionRange.min + selectionRange.max) / 2,
+      halfBandwidthHz: (selectionRange.max - selectionRange.min) / 2,
+      alignment: bandwidthAlignment,
+    };
+  }
+
+  if (
+    demodulationCenterFreqHz === null ||
+    demodulationCenterFreqHz === undefined ||
+    !Number.isFinite(demodulationCenterFreqHz)
+  ) {
+    return null;
+  }
+
+  const range = demodulationRangeHz ?? 100_000;
+  if (!Number.isFinite(range) || range <= 0) return null;
+
+  return {
+    centerFrequencyHz: demodulationCenterFreqHz,
+    halfBandwidthHz: range / 2,
+    alignment: bandwidthAlignment,
+  };
+};
+
 /**
  * FFT canvas component with FFT spectrum and waterfall displays
  * Uses SDR++ style rendering for professional spectrum analysis
@@ -465,6 +1331,7 @@ export type SnapshotData = {
   frequencyRange: FrequencyRange;
   dbMin: number;
   dbMax: number;
+  powerScale?: "dB" | "dBm";
   fftSize?: number;
   fftWindow?: string;
   centerFrequencyHz: number;
@@ -483,6 +1350,7 @@ export type SnapshotData = {
   hardwareSampleRateHz?: number;
   isIqRecordingActive?: boolean;
   demodFocusOverlay?: DemodFocusOverlay | null;
+  activeSignalArea?: string;
 
   colormap: number[][];
 };
@@ -516,16 +1384,20 @@ const FFTCanvas = memo(
       powerScale,
       isDeviceConnected = true,
       onFrequencyRangeChange,
+      onCenterFrequencyDoubleClick,
       displayTemporalResolution = "medium",
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
-      overlayContent,
       headerActionContent,
+      txSlider,
+      canvasStatusRow,
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
       placeholderErrorReason = null,
+      placeholderState: explicitPlaceholderState = null,
       interactionDisabled = false,
+      isStandby: explicitIsStandby,
       onRenderableFrameChange,
       onCanvasLoadingChange,
       vizZoom = 1,
@@ -541,6 +1413,8 @@ const FFTCanvas = memo(
       onFftDbLimitsChange,
       hardwareSampleRateHz,
       deviceProfile,
+      deviceBackend,
+      deviceName,
       tunerGainDb,
       isIqRecordingActive = false,
       limitMarkers = [],
@@ -550,32 +1424,197 @@ const FFTCanvas = memo(
       heterodyningHighlightedBins = [],
       onHeterodyningAnalyzed,
       awaitingDeviceData = false,
+      expectedSourceId = null,
+      frameSourceIdFallback = null,
       visualizerMachine,
       visualizerSessionKey = "default",
+      pauseSnapshotEnabled = true,
+      webGpuStreamResetEpoch = 0,
       waterfallCanvasBindings,
       compact = false,
       nodePreview = false,
+      canvasResolutionScale = 1,
+      onSpectrumFrame,
       demodulationCenterFreqHz = null,
       demodulationRangeHz = null,
       selectionRange,
       selectionMode = "zoom",
+      selectionEdgePanMode = "visual",
+      rangeSelectionInteraction = "create-only",
       selectionDisabled = false,
       bandwidthAlignment = "centered",
       onSelectionChange,
       autoZoomStability = false,
     } = props;
+    const canRestoreVisualizerSession = shouldRestoreWebGpuStreamState(
+      webGpuStreamResetEpoch,
+    );
     const dispatch = useAppDispatch();
     const {
       drawMarkersOnContext,
       drawDemodFocusOnContext,
       drawSelectionOverlayOnContext,
       drawZoomMarkersOnContext,
+      drawPowerLineOnContext,
+      drawZoomboxOnContext,
     } = useOverlayRenderer();
     const fftColor = useAppSelector((reduxState) => reduxState.theme.fftColor);
+    const gpuSpikeAnalysis = useAppSelector(
+      (reduxState) => reduxState.spectrum.gpuSpikeAnalysis,
+    );
+    const hoveredSpikeIndex = useAppSelector(
+      (reduxState) => reduxState.spectrum.hoveredSpikeIndex,
+    );
     const themeAppMode = useAppSelector(
       (reduxState) => reduxState.theme.appMode,
     );
     const resolvedThemeMode = useResolvedThemeMode(themeAppMode);
+    const reduxShowTxSlider = useAppSelector(
+      (reduxState) => reduxState.spectrum.showTxSlider ?? true,
+    );
+    const reduxTxSignal = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSignal || "wifi",
+    );
+    const reduxTxCenterFrequencyHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txCenterFrequencyHz,
+    );
+    const reduxTxSampleRateHz = useAppSelector(
+      (reduxState) => reduxState.spectrum.txSampleRateHz,
+    );
+    const reduxTxPowerDbm = useAppSelector(
+      (reduxState) => reduxState.spectrum.txPowerDbm,
+    );
+    const reduxDeviceKind = useAppSelector(
+      (reduxState) => reduxState.spectrum.deviceKind,
+    );
+    const reduxWebsocketSources = useAppSelector(
+      (reduxState) => reduxState.websocket.sources,
+    );
+    const isTransmittingGlobal = useMemo(() => {
+      return reduxWebsocketSources.some(
+        (source) => source.status === "transmitting",
+      );
+    }, [reduxWebsocketSources]);
+    const isStandby = useMemo(() => {
+      if (typeof explicitIsStandby === "boolean") {
+        return explicitIsStandby;
+      }
+      return !!(
+        explicitPlaceholderState &&
+        explicitPlaceholderState.kind === "idle" &&
+        explicitPlaceholderState.title === "Start Tx to transmit"
+      );
+    }, [explicitIsStandby, explicitPlaceholderState]);
+    const canTransmit = useMemo(() => {
+      return (
+        reduxDeviceKind === "hackrf_one" ||
+        reduxDeviceKind === "mock_tx" ||
+        reduxDeviceKind === "tx_rx" ||
+        reduxDeviceKind === "tx"
+      );
+    }, [reduxDeviceKind]);
+    const txModeDeviceName = useMemo(() => {
+      return resolveTxModeDeviceName(
+        reduxWebsocketSources,
+        deviceName,
+        canTransmit,
+        isStandby,
+      );
+    }, [canTransmit, deviceName, isStandby, reduxWebsocketSources]);
+    const explicitPlaceholderStateRef = useRef<CanvasPlaceholderState | null>(
+      explicitPlaceholderState,
+    );
+    explicitPlaceholderStateRef.current = explicitPlaceholderState;
+    const pendingTxSliderDispatchRef = useRef<{
+      centerHz?: number;
+      sampleRateHz?: number;
+    }>({});
+    const txSliderDispatchTimerRef = useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
+    const flushTxSliderDispatch = useCallback(() => {
+      txSliderDispatchTimerRef.current = null;
+      const pending = pendingTxSliderDispatchRef.current;
+      pendingTxSliderDispatchRef.current = {};
+      if (typeof pending.sampleRateHz === "number") {
+        dispatch(setTxSampleRateHz(pending.sampleRateHz));
+      }
+      if (typeof pending.centerHz === "number") {
+        dispatch(setTxCenterFrequencyHz(pending.centerHz));
+      }
+    }, [dispatch]);
+    const scheduleTxSliderDispatch = useCallback(
+      (patch: { centerHz?: number; sampleRateHz?: number }) => {
+        pendingTxSliderDispatchRef.current = {
+          ...pendingTxSliderDispatchRef.current,
+          ...patch,
+        };
+        if (txSliderDispatchTimerRef.current) return;
+        txSliderDispatchTimerRef.current = setTimeout(
+          flushTxSliderDispatch,
+          16,
+        );
+      },
+      [flushTxSliderDispatch],
+    );
+    useEffect(() => {
+      return () => {
+        if (txSliderDispatchTimerRef.current) {
+          clearTimeout(txSliderDispatchTimerRef.current);
+          txSliderDispatchTimerRef.current = null;
+        }
+      };
+    }, []);
+    const effectiveTxSlider = useMemo(() => {
+      if (txSlider?.visible) return txSlider;
+      if (!reduxShowTxSlider || !canTransmit) return null;
+      if (
+        !frequencyRange ||
+        !Number.isFinite(frequencyRange.min) ||
+        !Number.isFinite(frequencyRange.max)
+      ) {
+        return null;
+      }
+      const visibleMinHz = frequencyRange.min;
+      const visibleMaxHz =
+        frequencyRange.max > visibleMinHz
+          ? frequencyRange.max
+          : visibleMinHz + 1;
+      const visibleSpanHz = visibleMaxHz - visibleMinHz;
+      const centerHz = Number.isFinite(reduxTxCenterFrequencyHz)
+        ? reduxTxCenterFrequencyHz
+        : visibleMinHz + visibleSpanHz / 2;
+      const sampleRateHz = Number.isFinite(reduxTxSampleRateHz)
+        ? Math.max(1, reduxTxSampleRateHz)
+        : Math.max(1, Math.min(120_000, visibleSpanHz));
+      return {
+        visible: true,
+        isTransmitting: isTransmittingGlobal,
+        deviceLabel: txModeDeviceName ?? undefined,
+        signalLabel: resolveTxSignalDisplayLabel(reduxTxSignal),
+        powerDbm: reduxTxPowerDbm,
+        visibleMinHz,
+        visibleMaxHz,
+        txCenterHz: centerHz,
+        txSampleRateHz: sampleRateHz,
+        onCenterFrequencyChange: (value: number) =>
+          scheduleTxSliderDispatch({ centerHz: value }),
+        onSampleRateChange: (value: number) =>
+          scheduleTxSliderDispatch({ sampleRateHz: value }),
+      };
+    }, [
+      frequencyRange,
+      canTransmit,
+      reduxDeviceKind,
+      reduxShowTxSlider,
+      reduxTxCenterFrequencyHz,
+      reduxTxPowerDbm,
+      reduxTxSampleRateHz,
+      reduxTxSignal,
+      isTransmittingGlobal,
+      scheduleTxSliderDispatch,
+      txSlider,
+    ]);
 
     const autoZoomStabilityRef = useRef(autoZoomStability);
     useEffect(() => {
@@ -603,6 +1642,7 @@ const FFTCanvas = memo(
     const {
       spectrumGpuCanvasNode,
       setSpectrumGpuCanvasNode,
+      spectrumOverlayCanvasNode,
       setSpectrumOverlayCanvasNode: _setSpectrumOverlayCanvasNode,
       waterfallGpuCanvasNode,
       waterfallOverlayCanvasNode,
@@ -614,14 +1654,45 @@ const FFTCanvas = memo(
       waterfallOverlayCanvasRef,
       spectrumContainerRef,
     } = canvasState;
+    const zoomboxStateRef = useRef<{
+      startX: number;
+      startY: number;
+      currentX: number;
+      currentY: number;
+    } | null>(null);
 
     // Sync state to refs (this is now handled inside useCanvasState hook)
 
     const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
     const lastIncomingFrameRef = useRef<LiveFrameData | null>(null);
-    const liveGpuProcessInFlightRef = useRef(false);
+    const lastRenderableFrameRef = useRef<LiveFrameData | null>(null);
+    const blockingPlaceholderClearKindRef = useRef(0);
+    const pendingSourcePresentationResetRef = useRef(false);
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
+
+    const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
+    const [fontLoadedTrigger, setFontLoadedTrigger] = useState(0);
+
+    const powerLineDbRef = useRef<number | null>(null);
+    const isPowerLineHeldRef = useRef(false);
+    const txSliderRef = useRef<CanvasTxSliderState | null>(null);
+    txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+    const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
+      const wasActive = powerLineDbRef.current !== null;
+      const isActive = nextPowerLineDb !== null;
+      if (Object.is(powerLineDbRef.current, nextPowerLineDb)) return;
+
+      powerLineDbRef.current = nextPowerLineDb;
+      if (nextPowerLineDb === null) {
+        isPowerLineHeldRef.current = false;
+      }
+      if (wasActive !== isActive) {
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+      }
+      forceRenderRef.current?.();
+    }, []);
 
     const {
       waterfallBufferRef,
@@ -635,24 +1706,110 @@ const FFTCanvas = memo(
     // Track canvas dimensions for cache management
     const spectrumWidthRef = useRef<number>(0);
     const spectrumHeightRef = useRef<number>(0);
+    const context2DCacheRef = useRef<WeakMap<
+      HTMLCanvasElement,
+      CanvasRenderingContext2D | null
+    > | null>(null);
+    if (!context2DCacheRef.current) {
+      context2DCacheRef.current = new WeakMap();
+    }
+    const getCached2DContext = useCallback((canvas: HTMLCanvasElement) => {
+      const cache = context2DCacheRef.current!;
+      if (cache.has(canvas)) return cache.get(canvas) ?? null;
+      const context = canvas.getContext("2d");
+      cache.set(canvas, context);
+      return context;
+    }, []);
 
     const clearOverlayCanvas = useCallback(
       (canvas: HTMLCanvasElement | null) => {
         if (!canvas) return;
-        const ctx = canvas.getContext("2d");
+        const ctx = getCached2DContext(canvas);
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
-      [],
+      [getCached2DContext],
+    );
+
+    const drawTxSliderOnContext = useCallback(
+      (
+        ctx: CanvasRenderingContext2D,
+        width: number,
+        height: number,
+        visualRange: FrequencyRange,
+        slider: CanvasTxSliderState | null,
+      ) => {
+        if (
+          !slider?.visible ||
+          !Number.isFinite(slider.visibleMinHz) ||
+          !Number.isFinite(slider.visibleMaxHz) ||
+          slider.visibleMaxHz <= slider.visibleMinHz ||
+          !Number.isFinite(slider.txCenterHz) ||
+          !Number.isFinite(slider.txSampleRateHz)
+        ) {
+          return;
+        }
+
+        const plotLeft = Math.min(50, width);
+        const plotRight = Math.max(plotLeft, width - 40);
+        const left = 4;
+        const right = Math.max(left, width - 4);
+        const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
+        const bottom = Math.max(top + 1, height - 4);
+        const trackLeft = plotLeft;
+        const trackRight = Math.max(trackLeft + 80, plotRight);
+        const trackWidth = Math.max(1, trackRight - trackLeft);
+        const visibleSpan = visualRange.max - visualRange.min;
+        const bandwidth = Math.max(1, slider.txSampleRateHz);
+        const bandMin = slider.txCenterHz - bandwidth / 2;
+        const bandMax = slider.txCenterHz + bandwidth / 2;
+        const toX = (hz: number) =>
+          trackLeft + ((hz - visualRange.min) / visibleSpan) * trackWidth;
+        const rawBandLeft = toX(bandMin);
+        const rawBandRight = toX(bandMax);
+        const bandLeft = Math.max(trackLeft, Math.min(trackRight, rawBandLeft));
+        const bandRight = Math.max(
+          trackLeft,
+          Math.min(trackRight, rawBandRight),
+        );
+        const boundaryDashColor = slider.isTransmitting
+          ? "rgba(0, 212, 255, 0.98)"
+          : "rgba(148, 163, 184, 0.96)";
+        const plotBottom = Math.max(0, top - 40);
+        const plotTop = Math.min(20, height);
+
+        ctx.save();
+        ctx.clearRect(left - 2, top - 2, right - left + 4, bottom - top + 4);
+        if (bandRight > bandLeft) {
+          ctx.save();
+          ctx.strokeStyle = boundaryDashColor;
+          ctx.lineWidth = 1.75;
+          ctx.lineCap = "round";
+          ctx.setLineDash([4, 4]);
+          for (const x of [rawBandLeft, rawBandRight]) {
+            if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
+            ctx.beginPath();
+            ctx.moveTo(x, plotTop);
+            ctx.lineTo(x, plotBottom);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        ctx.restore();
+      },
+      [resolvedThemeMode],
     );
 
     const drawLoadingPlaceholder = useCallback(
       (canvas: HTMLCanvasElement | null, fontOverride?: string) => {
         if (!canvas) return;
-        const ctx = canvas.getContext("2d");
+        const ctx = getCached2DContext(canvas);
         if (!ctx) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getCanvasPixelRatio(
+          window.devicePixelRatio || 1,
+          canvasResolutionScale,
+        );
         const logicalWidth = canvas.width / dpr;
         const logicalHeight = canvas.height / dpr;
         ctx.save();
@@ -667,13 +1824,14 @@ const FFTCanvas = memo(
         );
         ctx.restore();
       },
-      [],
+      [canvasResolutionScale, getCached2DContext],
     );
 
     const lastWaterfallRowRef = useRef<Float32Array | null>(null);
     const pausedWaterfallRowRef = useRef<Float32Array | null>(null);
     const retuneTransitionRowRef = useRef<Float32Array | null>(null);
     const waterfallTextureSnapshotRef = useRef<Uint8Array | null>(null);
+    const waterfallRowBytesRef = useRef<Uint8Array | null>(null);
     const waterfallTextureMetaRef = useRef<{
       width: number;
       height: number;
@@ -688,14 +1846,49 @@ const FFTCanvas = memo(
       null,
     );
     const restoredWaterfallRef = useRef(false);
+    const activeVisualizerSessionKeyRef = useRef(visualizerSessionKey);
+    const latestVisualizerMachineRef = useRef(visualizerMachine);
+    const latestVisualizerSessionKeyRef = useRef(visualizerSessionKey);
+    const lastVisualizerAutoPersistAtRef = useRef(0);
+    const lastWebGpuStreamResetEpochRef = useRef(
+      getInitialHandledWebGpuResetEpoch(webGpuStreamResetEpoch),
+    );
+
+    useEffect(() => {
+      latestVisualizerMachineRef.current = visualizerMachine;
+      latestVisualizerSessionKeyRef.current = visualizerSessionKey;
+    }, [visualizerMachine, visualizerSessionKey]);
 
     // Simplified frame management
     const frameBufferRef = useRef<Float32Array[]>([]);
     const maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
+    const hasPresentedSpectrumFrameRef = useRef(false);
+    const lastProcessedFrameSignatureRef = useRef<LiveFrameData | null>(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
     centerFreqRef.current = centerFrequencyHz;
+    const renderableFrequencyRange = useMemo(
+      () =>
+        resolveRenderableFrequencyRange({
+          requestedRange: frequencyRange,
+          centerFrequencyHz,
+          hardwareSampleRateHz,
+          deviceKind: deviceProfile?.kind,
+          backend: deviceBackend,
+          deviceName,
+          isRtlSdr: deviceProfile?.is_rtl_sdr,
+        }),
+      [
+        frequencyRange,
+        centerFrequencyHz,
+        hardwareSampleRateHz,
+        deviceProfile?.kind,
+        deviceProfile?.is_rtl_sdr,
+        deviceBackend,
+        deviceName,
+      ],
+    );
 
     const retuneSmearRef = useRef(0);
     const retuneDriftPxRef = useRef(0);
@@ -703,17 +1896,61 @@ const FFTCanvas = memo(
 
     const effectivePowerScale = powerScale ?? "dB";
     const isHackrfDevice = deviceProfile?.kind === "hackrf_one";
-    const effectiveDbmOffsetDb =
-      effectivePowerScale === "dBm"
-        ? isHackrfDevice
-          ? computeHackrfApproxDbmOffsetDb({
-              totalGainDb: tunerGainDb ?? 0,
-            })
-          : 30.0
-        : 0.0;
+    const isRtlSdr = isRtlSdrDevice({
+      deviceKind: deviceProfile?.kind,
+      backend: deviceBackend,
+      deviceName,
+      isRtlSdr: deviceProfile?.is_rtl_sdr,
+    });
+    // This arrives from the source-aware resolver in SpectrumRoute; do not
+    // substitute a rendered channel span or a duplicate device constant here.
+    const displayHardwareSampleRateHz = hardwareSampleRateHz ?? 0;
+    const effectiveDbmOffsetDb = resolveEffectiveDbmOffsetDb({
+      powerScale: effectivePowerScale,
+      deviceKind: deviceProfile?.kind,
+      backend: deviceBackend,
+      deviceName,
+      isTransmitting: isTransmittingGlobal,
+      tunerGainDb,
+    });
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;
     const effectiveFftSize = fftSize ?? 32768;
+    const frontendFftSize = getFrontendFftSize(effectiveFftSize);
+    const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
+      const txModeLabel = canTransmit
+        ? txModeDeviceName
+          ? `${txModeDeviceName} > ${resolveTxSignalDisplayLabel(reduxTxSignal)}`
+          : resolveTxSignalDisplayLabel(reduxTxSignal)
+        : null;
+
+      if (canvasStatusRow) {
+        return {
+          ...canvasStatusRow,
+          ...(txModeLabel ? { txModeLabel } : {}),
+        };
+      }
+
+      if (typeof hardwareSampleRateHz !== "number") return null;
+      return {
+        ...formatLiveCanvasStatusRow({
+          sampleRateHz: displayHardwareSampleRateHz,
+          fftSize: effectiveFftSize,
+          fftWindow: fftWindow ?? "Rectangular",
+          temporalResolution: displayTemporalResolution,
+        }),
+        ...(txModeLabel ? { txModeLabel } : {}),
+      };
+    }, [
+      canTransmit,
+      canvasStatusRow,
+      displayTemporalResolution,
+      effectiveFftSize,
+      fftWindow,
+      displayHardwareSampleRateHz,
+      reduxTxSignal,
+      txModeDeviceName,
+    ]);
     const validatedDbRange = useMemo(
       () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
       [baseDbMin, baseDbMax, effectivePowerScale],
@@ -755,6 +1992,24 @@ const FFTCanvas = memo(
     }, [baseDbMin, baseDbMax, vizDbMin, vizDbMax, onFftDbLimitsChange]);
 
     const currentVizZoom = vizZoom ?? 1;
+
+    const currentVisualRange = useMemo(() => {
+      const minFreq = frequencyRange?.min ?? 0;
+      const maxFreq = frequencyRange?.max ?? 0;
+      const fullSpan = maxFreq - minFreq;
+      if (fullSpan <= 0) return { min: minFreq, max: maxFreq };
+
+      const halfSpan = fullSpan / (2 * currentVizZoom);
+      const centerFreq = (minFreq + maxFreq) / 2;
+      const visualCenter = centerFreq + vizPanOffset;
+      return {
+        min: visualCenter - halfSpan,
+        max: visualCenter + halfSpan,
+      };
+    }, [frequencyRange, currentVizZoom, vizPanOffset]);
+
+    const clampedVizRangeRef = useRef<FrequencyRange>(currentVisualRange);
+    clampedVizRangeRef.current = currentVisualRange;
 
     const fftAvgEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.fftAvgEnabled,
@@ -810,38 +2065,71 @@ const FFTCanvas = memo(
     vizDbMinRef.current = vizDbMin;
     vizPanOffsetRef.current = vizPanOffset;
 
-    const demodFocusOverlay = useMemo(() => {
-      // Prioritize active selection range
-      if (
-        selectionRange &&
-        Number.isFinite(selectionRange.min) &&
-        Number.isFinite(selectionRange.max) &&
-        selectionRange.max > selectionRange.min
-      ) {
-        return {
-          centerFrequencyHz: (selectionRange.min + selectionRange.max) / 2,
-          halfBandwidthHz: (selectionRange.max - selectionRange.min) / 2,
-          alignment: bandwidthAlignment,
-        };
-      }
+    const isLoadingPlaceholder =
+      !placeholderErrorReason &&
+      !isStandby &&
+      (explicitPlaceholderState?.kind === "loading" ||
+        !hasRenderedSpectrumFrame);
 
-      if (
-        demodulationCenterFreqHz === null ||
-        demodulationCenterFreqHz === undefined ||
-        !Number.isFinite(demodulationCenterFreqHz)
-      ) {
+    const canvasPlaceholderState =
+      useMemo<CanvasPlaceholderState | null>(() => {
+        if (isStandby && !explicitPlaceholderState) {
+          return null;
+        }
+        if (explicitPlaceholderState) {
+          return explicitPlaceholderState;
+        }
+
+        if (!isDeviceConnected) {
+          return {
+            kind: "error",
+            sourceLabel: placeholderSourceLabel,
+            reason: "Server down",
+          };
+        }
+
+        if (placeholderErrorReason) {
+          return {
+            kind: "error",
+            sourceLabel: placeholderSourceLabel,
+            reason: placeholderErrorReason,
+          };
+        }
+
+        if (isLoadingPlaceholder || awaitingDeviceData) {
+          return {
+            kind: "loading",
+            sourceLabel: placeholderSourceLabel,
+            paneLabel: placeholderPaneLabel,
+            message:
+              typeof awaitingDeviceData === "string"
+                ? awaitingDeviceData
+                : undefined,
+          };
+        }
+
         return null;
-      }
+      }, [
+        isLoadingPlaceholder,
+        placeholderErrorReason,
+        placeholderSourceLabel,
+        placeholderPaneLabel,
+        awaitingDeviceData,
+        explicitPlaceholderState,
+        isDeviceConnected,
+        isStandby,
+      ]);
 
-      const range = demodulationRangeHz ?? 100_000;
-      if (!Number.isFinite(range) || range <= 0) return null;
-
-      return {
-        centerFrequencyHz: demodulationCenterFreqHz,
-        halfBandwidthHz: range / 2,
-        alignment: bandwidthAlignment,
-      };
+    const demodFocusOverlay = useMemo(() => {
+      return resolveDemodFocusOverlay({
+        selectionMode,
+        selectionRange,
+        demodulationCenterFreqHz,
+        demodulationRangeHz,
+        bandwidthAlignment,
+      });
     }, [
+      selectionMode,
       selectionRange,
       demodulationCenterFreqHz,
       demodulationRangeHz,
@@ -892,84 +2180,176 @@ const FFTCanvas = memo(
       };
     }, [selectionRange]);
 
-    // Compute zoomed visual frequency range and waveform slice
-    // When zoom > 1: shows a subset of bins (magnified view)
-    // When zoom < 1: pads the waveform with minimum dB values (zoomed out view)
-    const getZoomedData = useCallback(
-      (
-        fullWaveform: Float32Array,
-        fullRange: FrequencyRange,
-        zoom: number,
-        panOffset: number,
-      ): {
-        slicedWaveform: Float32Array;
-        visualRange: FrequencyRange;
-        clampedPan: number;
-      } => {
-        // Fast path: no zoom and no pan means show the full waveform unmodified
-        if (zoom === 1 && panOffset === 0) {
-          return {
-            slicedWaveform: fullWaveform,
-            visualRange: fullRange,
-            clampedPan: 0,
-          };
+    const nodePreviewSelectionBarLabels = useMemo(
+      () => getNodePreviewSelectionBarLabels(selectionRange),
+      [selectionRange],
+    );
+    const nodePreviewMiniVfoMetrics = useMemo(
+      () =>
+        getNodePreviewMiniVfoMetrics({
+          displayRange: frequencyRange,
+          selectionRange,
+        }),
+      [frequencyRange, selectionRange],
+    );
+    const nodePreviewVfoTicks = useMemo(
+      () => getNodePreviewVfoScaleTicks(frequencyRange),
+      [frequencyRange],
+    );
+    const filteredTicks = useMemo(() => {
+      if (!nodePreviewVfoTicks || nodePreviewVfoTicks.length === 0) return [];
+      const width = 525;
+      const charWidthPx = 6.5;
+      const labelPaddingPx = 8;
+
+      const getEstimatedWidthPercent = (charCount: number) => {
+        return ((charCount * charWidthPx + labelPaddingPx) / width) * 100;
+      };
+
+      const centerWidthPercent = getEstimatedWidthPercent(8) + 4;
+      const centerMin = 50 - centerWidthPercent / 2;
+      const centerMax = 50 + centerWidthPercent / 2;
+
+      const leftWidthPercent = getEstimatedWidthPercent(7);
+      const leftMin = 0;
+      const leftMax = leftWidthPercent;
+
+      const rightWidthPercent = getEstimatedWidthPercent(7);
+      const rightMin = 100 - rightWidthPercent;
+      const rightMax = 100;
+
+      const placedIntervals: { min: number; max: number }[] = [
+        { min: centerMin, max: centerMax },
+        { min: leftMin, max: leftMax },
+        { min: rightMin, max: rightMax },
+      ];
+
+      return nodePreviewVfoTicks.map((tick) => {
+        if (tick.positionPercent === 0 || tick.positionPercent === 100) {
+          return { ...tick, showLabel: true };
         }
 
-        const totalBins = fullWaveform.length;
-        const visibleBins = Math.max(1, Math.floor(totalBins / zoom));
+        const estChars = tick.frequencyHz >= 1000000 ? 6 : 5;
+        const tickWidthPercent = getEstimatedWidthPercent(estChars);
+        const labelMin = tick.positionPercent - tickWidthPercent / 2;
+        const labelMax = tick.positionPercent + tickWidthPercent / 2;
 
-        const fullSpan = fullRange.max - fullRange.min;
-        const halfSpan = fullSpan / (2 * zoom);
-
-        // The event handlers (useFrequencyDrag, useFFTHandlers) already properly clamp the pan
-        // based on the component's state (e.g. allowing full plot panning if edge-panning is active).
-        // Re-clamping here causes snap-back bugs when live frames arrive.
-        let clampedPan = panOffset;
-
-        const centerFreq = (fullRange.min + fullRange.max) / 2;
-        const visualCenter = centerFreq + clampedPan;
-
-        // Convert visual center frequency to bin index in the full waveform
-        const visualCenterBin = Math.round(
-          ((visualCenter - fullRange.min) / fullSpan) * totalBins,
+        const collides = placedIntervals.some(
+          (interval) => labelMin < interval.max && labelMax > interval.min,
         );
 
-        let startBin = Math.round(visualCenterBin - visibleBins / 2);
-
-        const visualRange = {
-          min: visualCenter - halfSpan,
-          max: visualCenter + halfSpan,
-        };
-
-        let slicedWaveform: Float32Array;
-
-        // Pad with minimum dB values to fill the display if out of bounds or zoomed out
-        if (startBin < 0 || startBin + visibleBins > totalBins || zoom < 1) {
-          slicedWaveform = new Float32Array(visibleBins).fill(FFT_MIN_DB);
-          const destOffset = Math.max(0, -startBin);
-          const dataToCopy = Math.min(totalBins, visibleBins - destOffset);
-          const srcOffset = Math.max(0, startBin);
-
-          if (dataToCopy > 0 && srcOffset < totalBins) {
-            const validDataToCopy = Math.min(dataToCopy, totalBins - srcOffset);
-            if (validDataToCopy > 0) {
-              slicedWaveform.set(
-                fullWaveform.subarray(srcOffset, srcOffset + validDataToCopy),
-                destOffset,
-              );
-            }
-          }
-        } else {
-          // Extract the visible slice from the waveform
-          const validStart = Math.max(0, startBin);
-          const validEnd = Math.min(totalBins, startBin + visibleBins);
-          slicedWaveform = fullWaveform.slice(validStart, validEnd);
+        if (!collides) {
+          placedIntervals.push({ min: labelMin, max: labelMax });
+          return { ...tick, showLabel: true };
         }
+        return { ...tick, showLabel: false };
+      });
+    }, [nodePreviewVfoTicks]);
 
-        return { slicedWaveform, visualRange, clampedPan };
+    const txSliderVisualMetrics = useMemo(() => {
+      const slider = effectiveTxSlider;
+      if (
+        !slider?.visible ||
+        !Number.isFinite(slider.visibleMinHz) ||
+        !Number.isFinite(slider.visibleMaxHz) ||
+        slider.visibleMaxHz <= slider.visibleMinHz ||
+        !Number.isFinite(slider.txCenterHz) ||
+        !Number.isFinite(slider.txSampleRateHz)
+      ) {
+        return null;
+      }
+
+      const visualMin = currentVisualRange.min;
+      const visualMax = currentVisualRange.max;
+      const span = visualMax - visualMin;
+      if (span <= 0) return null;
+
+      const bandwidth = Math.max(1, slider.txSampleRateHz);
+      const rawBandStart = slider.txCenterHz - bandwidth / 2;
+      const rawBandEnd = slider.txCenterHz + bandwidth / 2;
+      const center = (rawBandStart + rawBandEnd) / 2;
+      const bandStart = Math.max(visualMin, rawBandStart);
+      const bandEnd = Math.min(visualMax, rawBandEnd);
+      const left = ((bandStart - visualMin) / span) * 100;
+      const width =
+        bandEnd > bandStart ? ((bandEnd - bandStart) / span) * 100 : 0;
+      const centerLeft = ((center - visualMin) / span) * 100;
+      const powerLabel =
+        typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)
+          ? `${slider.powerDbm.toFixed(0)} dBm`
+          : null;
+
+      let offScreenDirection: "left" | "right" | null = null;
+      if (center < visualMin) offScreenDirection = "left";
+      else if (center > visualMax) offScreenDirection = "right";
+
+      const formatHz = (hz: number) => {
+        if (!Number.isFinite(hz)) return "Unknown";
+        const abs = Math.abs(hz);
+        if (abs >= 1_000_000) return `${(hz / 1_000_000).toFixed(3)} MHz`;
+        if (abs >= 1_000) return `${(hz / 1_000).toFixed(0)} kHz`;
+        return `${Math.round(hz)} Hz`;
+      };
+
+      return {
+        left: Math.max(0, Math.min(100, left)),
+        width: Math.max(0, Math.min(100, width)),
+        centerLeft: Math.max(0, Math.min(100, centerLeft)),
+        signalLabel: slider.signalLabel ?? "TX",
+        powerLabel,
+        isOffScreen: offScreenDirection !== null,
+        offScreenDirection,
+        centerHzFormatted: `○ ${formatHz(center)}`,
+        bandwidthFormatted: `| ${formatHz(bandwidth)} |`,
+      };
+    }, [effectiveTxSlider, currentVisualRange]);
+    const txSliderDisplayLabel = useMemo(() => {
+      if (!txSliderVisualMetrics) return null;
+      return txModeDeviceName
+        ? `${txModeDeviceName} > ${txSliderVisualMetrics.signalLabel || "Unknown"}`
+        : txSliderVisualMetrics.signalLabel || "Unknown";
+    }, [txModeDeviceName, txSliderVisualMetrics]);
+
+    const handleOffscreenIndicatorClick = useCallback(
+      (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const slider = effectiveTxSlider;
+        if (!slider || !frequencyRange) return;
+
+        const span = frequencyRange.max - frequencyRange.min;
+        const visualCenter =
+          (currentVisualRange.min + currentVisualRange.max) / 2;
+        onVizPanChange?.(slider.txCenterHz - visualCenter);
+        if (onFrequencyRangeChange && Number.isFinite(span) && span > 0) {
+          const center = Math.max(0, slider.txCenterHz);
+          let nextMin = center - span / 2;
+          let nextMax = center + span / 2;
+          if (nextMin < 0) {
+            nextMax -= nextMin;
+            nextMin = 0;
+          }
+          onFrequencyRangeChange({ min: nextMin, max: nextMax });
+          onVizPanChange?.(0);
+          return;
+        }
       },
-      [],
+      [
+        effectiveTxSlider,
+        frequencyRange,
+        currentVisualRange,
+        onFrequencyRangeChange,
+        onVizPanChange,
+      ],
     );
+
+    const zoomProcessorRef = useRef<ReturnType<
+      typeof createFFTZoomProcessor
+    > | null>(null);
+    if (!zoomProcessorRef.current) {
+      zoomProcessorRef.current = createFFTZoomProcessor(FFT_MIN_DB);
+    }
+    const getZoomedData = zoomProcessorRef.current.process;
 
     // Ref to track snapshot grid preference (for 2D shadow renders)
     const snapshotGridPreferenceRef = useRef(true);
@@ -1013,32 +2393,141 @@ const FFTCanvas = memo(
       resampleParamsBufferRef,
       gpuBufferPoolRef,
     });
+
+    // Trigger redraw once fonts are fully loaded to prevent serif font fallback glitch in Safari
+    useEffect(() => {
+      if (typeof document !== "undefined" && document.fonts) {
+        document.fonts.ready.then(() => {
+          if (overlayDirtyRef.current) {
+            overlayDirtyRef.current.grid = true;
+            overlayDirtyRef.current.markers = true;
+          }
+          setFontLoadedTrigger((prev) => prev + 1);
+          forceRenderRef.current?.();
+        });
+      }
+    }, [overlayDirtyRef]);
+
     const spectrumWebgpuEnabled = webgpuEnabled;
     const activeScaleDbMin = vizDbMin;
     const activeScaleDbMax = vizDbMax;
-    const gpuProcessingDevice = webgpuDeviceRef.current;
+
+    const clearSpectrumBackbuffer = useCallback(() => {
+      const device = webgpuDeviceRef.current;
+      const format = webgpuFormatRef.current;
+
+      if (device && format) {
+        const canvases = [
+          spectrumGpuCanvasRef.current,
+          waterfallGpuCanvasRef.current,
+        ];
+        flushWebGpuPresentationMultiple({
+          canvases,
+          device,
+          format,
+        });
+      } else {
+        flushWebGpuPresentation({
+          canvas: spectrumGpuCanvasRef.current,
+          device,
+          format,
+        });
+        flushWebGpuPresentation({
+          canvas: waterfallGpuCanvasRef.current,
+          device,
+          format,
+        });
+      }
+      clearOverlayCanvas(spectrumOverlayCanvasRef.current);
+      clearOverlayCanvas(waterfallOverlayCanvasRef.current);
+    }, [
+      spectrumGpuCanvasRef,
+      spectrumOverlayCanvasRef,
+      waterfallGpuCanvasRef,
+      waterfallOverlayCanvasRef,
+      webgpuDeviceRef,
+      webgpuFormatRef,
+    ]);
 
     // Temporal frames ring buffer refs
     const temporalFramePoolRef = useRef<Float32Array[]>([]);
     const temporalWriteIndexRef = useRef(0);
     const temporalActiveCountRef = useRef(0);
     const activeTemporalFramesRef = useRef<Float32Array[]>([]);
+    const hasTxSpectrumRevisionRef = useRef(false);
+    const lastTxCenterFrequencyHzRef = useRef<number | null>(null);
+    const lastTxSampleRateHzRef = useRef<number | null>(null);
+    const lastTxSignalRef = useRef<string | null>(null);
+    const lastTxPowerMilliDbmRef = useRef<number | null>(null);
 
     const resetTemporalAveragingState = useCallback(() => {
-      temporalFramePoolRef.current.length = 0;
+      resetWebGpuStreamTemporalHistory(
+        temporalFramePoolRef.current,
+        activeTemporalFramesRef.current,
+      );
       temporalWriteIndexRef.current = 0;
       temporalActiveCountRef.current = 0;
-      activeTemporalFramesRef.current.length = 0;
     }, []);
 
     const invalidateSpectrumProcessingCaches = useCallback(() => {
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       lastRenderedPowerScaleRef.current = null;
       pendingFftSizeChangeRef.current = true;
       fftProcessedBufferRef.current = null;
       spectrumOutputBufferRef.current = null;
       resetTemporalAveragingState();
     }, [resetTemporalAveragingState]);
+
+    useEffect(() => {
+      const centerFrequencyHz =
+        typeof reduxTxCenterFrequencyHz === "number" &&
+        Number.isFinite(reduxTxCenterFrequencyHz)
+          ? Math.round(reduxTxCenterFrequencyHz)
+          : null;
+      const sampleRateHz =
+        typeof reduxTxSampleRateHz === "number" &&
+        Number.isFinite(reduxTxSampleRateHz)
+          ? Math.round(reduxTxSampleRateHz)
+          : null;
+      const signal = reduxTxSignal ?? null;
+      const powerMilliDbm =
+        typeof reduxTxPowerDbm === "number" && Number.isFinite(reduxTxPowerDbm)
+          ? Math.round(reduxTxPowerDbm * 1000)
+          : null;
+
+      if (!hasTxSpectrumRevisionRef.current) {
+        hasTxSpectrumRevisionRef.current = true;
+        lastTxCenterFrequencyHzRef.current = centerFrequencyHz;
+        lastTxSampleRateHzRef.current = sampleRateHz;
+        lastTxSignalRef.current = signal;
+        lastTxPowerMilliDbmRef.current = powerMilliDbm;
+        return;
+      } else if (
+        lastTxCenterFrequencyHzRef.current === centerFrequencyHz &&
+        lastTxSampleRateHzRef.current === sampleRateHz &&
+        lastTxSignalRef.current === signal &&
+        lastTxPowerMilliDbmRef.current === powerMilliDbm
+      ) {
+        return;
+      }
+      lastTxCenterFrequencyHzRef.current = centerFrequencyHz;
+      lastTxSampleRateHzRef.current = sampleRateHz;
+      lastTxSignalRef.current = signal;
+      lastTxPowerMilliDbmRef.current = powerMilliDbm;
+      invalidateSpectrumProcessingCaches();
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [
+      invalidateSpectrumProcessingCaches,
+      reduxTxCenterFrequencyHz,
+      reduxTxSampleRateHz,
+      reduxTxSignal,
+      reduxTxPowerDbm,
+    ]);
 
     // Refs for volatile rendering parameters to stabilize callbacks
     const fftColorRef = useRef(fftColor);
@@ -1052,6 +2541,29 @@ const FFTCanvas = memo(
     const activeScaleDbMinRef = useRef(activeScaleDbMin);
     const activeScaleDbMaxRef = useRef(activeScaleDbMax);
     const showSpikeOverlayRef = useRef(showSpikeOverlay);
+    const stableSpikeFloorDbmRef = useRef<number | null>(null);
+    const stableSpikeClassifierRef = useRef<{
+      confidence: number;
+      suspensionBridgeScore: number;
+      uDipScore: number;
+      floorRelativePowerScore: number;
+      sincPenaltyScore: number;
+      captureQualityScore: number;
+      envelopeFitScore: number;
+      envelopeResidualScore: number;
+    } | null>(null);
+    const stableSpikeDecisionRef = useRef(false);
+    const floorLinePercent = useMemo(() => {
+      if (!showSpikeOverlay || !gpuSpikeAnalysis) return null;
+      const span = Math.max(
+        1,
+        activeScaleDbMaxRef.current - activeScaleDbMinRef.current,
+      );
+      const ratio =
+        (gpuSpikeAnalysis.floorDbm - activeScaleDbMinRef.current) / span;
+      if (!Number.isFinite(ratio)) return null;
+      return Math.max(0, Math.min(100, 100 - ratio * 100));
+    }, [gpuSpikeAnalysis, showSpikeOverlay]);
     const awaitingDeviceDataRef = useRef(awaitingDeviceData);
     const demodFocusOverlayRef = useRef(demodFocusOverlay);
     const selectionOverlayRef = useRef(selectionOverlay);
@@ -1102,6 +2614,17 @@ const FFTCanvas = memo(
 
     const forceRenderRef = useRef<(() => void) | null>(null);
 
+    useEffect(() => {
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [
+      effectiveTxSlider,
+      spectrumOverlayCanvasNode,
+      overlayDirtyRef,
+      isInitializingWebGPU,
+      webgpuEnabled,
+    ]);
+
     const handleSpikeCount = useCallback(
       (count: number) => {
         dispatch(setGpuSpikeCount(count));
@@ -1119,22 +2642,13 @@ const FFTCanvas = memo(
       [isPaused, setVizPanOffset],
     );
 
-    const { processUnified } = useUnifiedFFTWaterfall({
-      device: webgpuDeviceRef.current ?? null,
-      fftSize: effectiveFftSize,
-      waterfallHeight: 1,
-      windowType: toUnifiedWindowType(fftWindow),
-      enableAveraging: fftAvgEnabled,
-      enableSmoothing: fftSmoothEnabled,
-    });
-
     // Effect: When hardware frequency range changes, mark overlays for redraw
     // and sync the ref used by drag/render logic. Note: this does NOT retune the device.
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
-      frequencyRangeRef.current = frequencyRange;
-    }, [frequencyRange, overlayDirtyRef]);
+      frequencyRangeRef.current = renderableFrequencyRange;
+    }, [renderableFrequencyRange, overlayDirtyRef]);
 
     // Effect: When center frequency changes, only mark markers overlay for redraw
     // (grid lines stay at same positions, but frequency labels shift)
@@ -1147,11 +2661,29 @@ const FFTCanvas = memo(
     // to show/hide red limit lines indicating hardware boundaries
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
+      if (!isDeviceConnected) {
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        lastIncomingFrameRef.current = null;
+        renderWaveformRef.current = null;
+        waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+        frameBufferRef.current = [];
+        forceRenderRef.current?.();
+      }
     }, [isDeviceConnected]);
 
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
     }, [demodFocusOverlay, overlayDirtyRef]);
+
+    // Effect: When Tx center frequency or sample rate changes, mark markers overlay as dirty
+    // and redraw the canvas (especially useful if the visualization is paused)
+    useEffect(() => {
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.();
+    }, [reduxTxCenterFrequencyHz, reduxTxSampleRateHz, overlayDirtyRef]);
 
     // Effect: Recording state or sample rate changes trigger grid redraw
     // to update the recording indicator visual elements
@@ -1162,18 +2694,44 @@ const FFTCanvas = memo(
     const hasRealWaveform = !!(
       waveformFloatRef.current && waveformFloatRef.current.length > 0
     );
-    const hasRestoredSnapshot = !!(
-      waveformFloatRef.current && lastProcessedDataRef.current
-    );
-    const isLoadingPlaceholder =
-      !placeholderErrorReason && !hasRenderedSpectrumFrame;
-
     useEffect(() => {
       if (awaitingDeviceData || placeholderErrorReason) {
         setHasRenderedSpectrumFrame(false);
         onRenderableFrameChange?.(false);
       }
     }, [awaitingDeviceData, onRenderableFrameChange, placeholderErrorReason]);
+
+    useLayoutEffect(() => {
+      if (
+        (!explicitPlaceholderState ||
+          explicitPlaceholderState.kind === "top-bar" ||
+          explicitPlaceholderState.kind === "overlay-only") &&
+        !placeholderErrorReason
+      ) {
+        return;
+      }
+
+      setHasRenderedSpectrumFrame(false);
+      onRenderableFrameChange?.(false);
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      hasPresentedSpectrumFrameRef.current = false;
+      frameBufferRef.current = [];
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      resetTemporalAveragingState();
+      clearSpectrumBackbuffer();
+    }, [
+      clearSpectrumBackbuffer,
+      explicitPlaceholderState,
+      isInitializingWebGPU,
+      onRenderableFrameChange,
+      placeholderErrorReason,
+      resetTemporalAveragingState,
+      webGpuStreamResetEpoch,
+    ]);
 
     useEffect(() => {
       onCanvasLoadingChange?.(isLoadingPlaceholder);
@@ -1186,6 +2744,7 @@ const FFTCanvas = memo(
       spectrumGpuCanvasRef,
       spectrumGpuCanvasNode,
       spectrumContainerRef,
+      zoomboxStateRef,
       frequencyRangeRef,
       spectrumWebgpuEnabled,
       activeSignalArea: _activeSignalArea,
@@ -1195,9 +2754,12 @@ const FFTCanvas = memo(
       selectionRange,
       onSelectionChange,
       fullPlotSelection: nodePreview,
+      selectionEdgePanMode,
+      rangeSelectionInteraction,
       vizZoomRef,
       vizZoomFloorRef,
       vizPanOffsetRef,
+      clampedVizRangeRef,
       onVizPanChange: handleVizPanChange,
       vizDbMinRef,
       vizDbMaxRef,
@@ -1214,6 +2776,18 @@ const FFTCanvas = memo(
         forceRenderRef.current?.();
       }, [overlayDirtyRef]),
       tooltipSpanRef,
+      powerLineDbRef,
+      onPowerLineDbChange: setPowerLineDb,
+      onPowerLineHoldChange: useCallback((held: boolean) => {
+        if (isPowerLineHeldRef.current === held) return;
+        isPowerLineHeldRef.current = held;
+        overlayDirtyRef.current.markers = true;
+        forceRenderRef.current?.();
+      }, []),
+      powerScale: effectivePowerScale,
+      txSliderRef,
+      txSliderEnabled: !!effectiveTxSlider?.visible,
+      txSliderLocked: isTxSliderLocked,
     });
 
     // Initialize WASM SIMD for optimized data processing
@@ -1231,6 +2805,24 @@ const FFTCanvas = memo(
       computeWaterfallRetuneRow,
       cleanup: cleanupWaterfallRetuneCompute,
     } = useWaterfallRetuneCompute();
+
+    useEffect(() => {
+      const hasBlockingPlaceholder =
+        !!placeholderErrorReason ||
+        (explicitPlaceholderState !== null &&
+          explicitPlaceholderState.kind !== "top-bar" &&
+          explicitPlaceholderState.kind !== "overlay-only");
+      if (!hasBlockingPlaceholder) return;
+      cleanupWebGPUFIFOWaterfall();
+      clearSpectrumBackbuffer();
+    }, [
+      cleanupWebGPUFIFOWaterfall,
+      clearSpectrumBackbuffer,
+      explicitPlaceholderState,
+      isInitializingWebGPU,
+      placeholderErrorReason,
+      webgpuEnabled,
+    ]);
 
     // Effect: Clears all waterfall state when isWaterfallCleared becomes true.
     // This resets the persisted snapshot, CPU history, and WebGPU circular texture.
@@ -1267,9 +2859,41 @@ const FFTCanvas = memo(
       waterfallOverlayCanvasNode,
     ]);
 
+    const commitPendingSourcePresentationReset = useCallback(() => {
+      pendingSourcePresentationResetRef.current = false;
+      cleanupWebGPUFIFOWaterfall();
+      waterfallBufferRef.current = null;
+      waterfallCappedBufferRef.current = null;
+      waterfallTextureSnapshotRef.current = null;
+      waterfallTextureMetaRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      pendingWaterfallRestoreRef.current = null;
+      restoredWaterfallRef.current = false;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      frameBufferRef.current = [];
+      resetTemporalAveragingState();
+      clearSpectrumBackbuffer();
+    }, [
+      cleanupWebGPUFIFOWaterfall,
+      clearSpectrumBackbuffer,
+      resetTemporalAveragingState,
+      waterfallBufferRef,
+    ]);
+
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const restoreWaveformFromStorageRef = useRef<() => void>(() => {
+      if (!pauseSnapshotEnabled) return;
+
       // When paused and no current IQ data, try to reprocess from last valid frame
       // using the CPU path (authoritative spectrum source).
       const lastData = lastProcessedDataRef.current;
@@ -1277,7 +2901,7 @@ const FFTCanvas = memo(
         const restored = processIqToDbmSpectrum(
           lastData.iq_data,
           effectiveDbmOffsetDb,
-          effectiveFftSize,
+          frontendFftSize,
           fftWindow,
           spectrumOutputBufferRef.current ?? undefined,
         );
@@ -1293,9 +2917,10 @@ const FFTCanvas = memo(
         }
       }
 
-      // If no previous data, create a fallback waveform
-      const fallbackWaveform = new Float32Array(1024).fill(FFT_MIN_DB);
-      renderWaveformRef.current = fallbackWaveform;
+      // Never overwrite a valid frozen frame with the all-floor fallback.
+      if (shouldCreatePausedFallbackWaveform(renderWaveformRef.current)) {
+        renderWaveformRef.current = new Float32Array(1024).fill(FFT_MIN_DB);
+      }
     });
 
     /**
@@ -1308,132 +2933,277 @@ const FFTCanvas = memo(
      */
     const onRenderFrame = useCallback(
       (_runId: number) => {
-        performance.clearMeasures();
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
         const spectrumOverlayCanvas = spectrumOverlayCanvasRef.current;
         const waterfallOverlayCanvas = waterfallOverlayCanvasRef.current;
 
         const currentData = dataRef.current;
-        const currentFrame = getLatestLiveFrame(currentData);
+        const incomingFrame = getLatestLiveFrame(currentData);
+        const currentFrame =
+          incomingFrame ??
+          (isPaused && pauseSnapshotEnabled
+            ? lastRenderableFrameRef.current
+            : null);
+        const isCurrentSourceFrame = shouldAcceptWebGpuStreamFrame({
+          expectedSourceId,
+          frameSourceId: currentFrame?.source_id,
+          fallbackFrameSourceId: frameSourceIdFallback,
+        });
+        if (currentFrame && !isCurrentSourceFrame) {
+          lastIncomingFrameRef.current = null;
+          const blockingState = explicitPlaceholderStateRef.current;
+          const hasAuthoritativeBlockingState = !!(
+            placeholderErrorReason ||
+            isLoadingPlaceholder ||
+            awaitingDeviceData ||
+            (blockingState &&
+              blockingState.kind !== "top-bar" &&
+              blockingState.kind !== "overlay-only")
+          );
+          // The mutable transport ref can still contain the previous source
+          // while a handoff is in flight. Reject that frame without erasing
+          // the last presentation; the target frame or delayed placeholder
+          // will replace it.
+          if (!hasAuthoritativeBlockingState) {
+            return;
+          }
+        }
+        const hasCurrentSourceFrame = !!currentFrame && isCurrentSourceFrame;
         const hasRenderableFrame = !!(
-          currentFrame &&
-          currentFrame.iq_data &&
-          currentFrame.iq_data.length > 0
+          hasCurrentSourceFrame &&
+          ((currentFrame.iq_data && currentFrame.iq_data.length > 0) ||
+            ((currentFrame as any).waveform &&
+              (currentFrame as any).waveform.length > 0) ||
+            ((currentFrame as any).data &&
+              (currentFrame as any).data.length > 0))
         );
 
-        const hasDrawableCachedWaveform = !!(
-          (renderWaveformRef.current && renderWaveformRef.current.length > 0) ||
-          (waveformFloatRef.current && waveformFloatRef.current.length > 0) ||
-          (waveformFloatRef.current && lastProcessedDataRef.current)
-        );
+        if (
+          shouldCommitSourcePresentationReset(
+            pendingSourcePresentationResetRef.current,
+            hasRenderableFrame,
+          )
+        ) {
+          commitPendingSourcePresentationReset();
+        }
+
+        // Notify the parent as soon as the first frame is present in the
+        // mutable WebSocket ref. The parent uses this signal to remove its
+        // loading placeholder; waiting until after the placeholder gate below
+        // can deadlock the first live frame until Pause/Resume forces a new
+        // render pass.
+        if (hasRenderableFrame) {
+          onRenderableFrameChange?.(true);
+        }
+
+        if (hasRenderableFrame && currentFrame) {
+          lastRenderableFrameRef.current = currentFrame;
+        }
+
+        lastIncomingFrameRef.current = currentFrame;
+
+        const shouldBlockForSourceHandoff =
+          !!awaitingDeviceData && !hasCurrentSourceFrame;
         const showLoadingPlaceholder =
-          isLoadingPlaceholder &&
-          !hasRenderableFrame &&
-          !hasDrawableCachedWaveform;
+          (isLoadingPlaceholder || shouldBlockForSourceHandoff) &&
+          !hasRenderableFrame;
         const showErrorPlaceholder =
           !!placeholderErrorReason ||
           (!isDeviceConnected && !hasRenderableFrame);
-
-        if (showLoadingPlaceholder || showErrorPlaceholder) {
+        const currentExplicitPlaceholderState =
+          explicitPlaceholderStateRef.current;
+        const hasExplicitPlaceholder = !!currentExplicitPlaceholderState;
+        const preservePresentationDuringGap =
+          shouldPreservePresentationDuringFrameGap({
+            hasPresentedFrame: hasPresentedSpectrumFrameRef.current,
+            hasCurrentFrame: !!currentFrame,
+            isDeviceConnected,
+            hasExplicitPlaceholder,
+            hasPlaceholderError: !!placeholderErrorReason,
+          });
+        const isExplicitStandbyPlaceholder =
+          hasExplicitPlaceholder &&
+          currentExplicitPlaceholderState?.kind === "idle";
+        const explicitPlaceholderBlocksFrame = !!(
+          hasExplicitPlaceholder &&
+          !isExplicitStandbyPlaceholder &&
+          currentExplicitPlaceholderState?.kind !== "top-bar" &&
+          !hasCurrentSourceFrame
+        );
+        const blockingPlaceholderKind = isExplicitStandbyPlaceholder
+          ? 1
+          : showErrorPlaceholder
+            ? 2
+            : showLoadingPlaceholder
+              ? 3
+              : explicitPlaceholderBlocksFrame
+                ? 4
+                : 0;
+        if (isExplicitStandbyPlaceholder) {
+          if (
+            !shouldClearBlockingPlaceholder(
+              blockingPlaceholderClearKindRef.current,
+              blockingPlaceholderKind,
+            )
+          ) {
+            return;
+          }
+          blockingPlaceholderClearKindRef.current = blockingPlaceholderKind;
+          lastProcessedDataRef.current = null;
+          lastProcessedFrameSignatureRef.current = null;
+          frameBufferRef.current = [];
+          renderWaveformRef.current = null;
+          waveformFloatRef.current = null;
+          fullChannelWaveformRef.current = null;
+          fullChannelRangeRef.current = null;
+          frequencyRangeRef.current = frequencyRange;
+          centerFreqRef.current = centerFrequencyHz;
+          clearSpectrumBackbuffer();
           clearOverlayCanvas(spectrumOverlayCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
           return;
         }
 
-        clearOverlayCanvas(spectrumOverlayCanvas);
+        if (
+          showLoadingPlaceholder ||
+          showErrorPlaceholder ||
+          explicitPlaceholderBlocksFrame
+        ) {
+          if (preservePresentationDuringGap) {
+            return;
+          }
+          if (
+            !shouldClearBlockingPlaceholder(
+              blockingPlaceholderClearKindRef.current,
+              blockingPlaceholderKind,
+            )
+          ) {
+            return;
+          }
+          blockingPlaceholderClearKindRef.current = blockingPlaceholderKind;
+          clearSpectrumBackbuffer();
+          clearOverlayCanvas(spectrumOverlayCanvas);
+          clearOverlayCanvas(waterfallOverlayCanvas);
+
+          if (spectrumOverlayCanvas) {
+            const ctx = getCached2DContext(spectrumOverlayCanvas);
+            if (ctx) {
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
+              const logicalW = spectrumOverlayCanvas.width / dpr;
+              const logicalH = spectrumOverlayCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
+            }
+          }
+
+          if (waterfallOverlayCanvas) {
+            const ctx = getCached2DContext(waterfallOverlayCanvas);
+            if (ctx) {
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
+              const logicalW = waterfallOverlayCanvas.width / dpr;
+              const logicalH = waterfallOverlayCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
+            }
+          }
+          return;
+        }
+
+        blockingPlaceholderClearKindRef.current = 0;
+
         clearOverlayCanvas(waterfallOverlayCanvas);
 
         const powerScale = effectivePowerScaleRef.current;
-        const isDbmMode = powerScale === "dBm";
         const powerScaleChanged =
           lastRenderedPowerScaleRef.current !== powerScale;
         const fftWindowChanged =
           previousFftWindowRef.current !== (fftWindow ?? "Rectangular");
         const hasNewData =
+          !isExplicitStandbyPlaceholder &&
           !isPaused &&
           currentFrame &&
-          currentFrame !== lastProcessedDataRef.current &&
-          !!currentFrame.iq_data;
+          getLiveFrameSignature(currentFrame) !==
+            lastProcessedFrameSignatureRef.current &&
+          (!!currentFrame.iq_data ||
+            !!(currentFrame as any).waveform ||
+            !!(currentFrame as any).data);
         const shouldReprocessCurrentFrame = !!(
+          !isExplicitStandbyPlaceholder &&
           currentFrame &&
-          (currentFrame === lastProcessedDataRef.current || isPaused) &&
+          (getLiveFrameSignature(currentFrame) ===
+            lastProcessedFrameSignatureRef.current ||
+            isPaused) &&
           (powerScaleChanged || fftWindowChanged) &&
-          !!currentFrame.iq_data
+          (!!currentFrame.iq_data ||
+            !!(currentFrame as any).waveform ||
+            !!(currentFrame as any).data)
         );
+        let processedCurrentFrame = false;
 
-        if (hasNewData || shouldReprocessCurrentFrame) {
+        if (
+          (hasNewData || shouldReprocessCurrentFrame) &&
+          currentFrame?.iq_data
+        ) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
           // The only variable is the dB offset for the power scale.
           const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
-          if (gpuProcessingDevice && webgpuEnabled && !isInitializingWebGPU) {
-            if (!liveGpuProcessInFlightRef.current) {
-              liveGpuProcessInFlightRef.current = true;
-              const liveChunkSize = effectiveFftSize * 2;
-              const liveIqChunk =
-                iqBytes.length > liveChunkSize
-                  ? iqBytes.subarray(0, liveChunkSize)
-                  : iqBytes;
-              // GPU unified path: drives the waterfall texture only.
-              // Do NOT write spectrumData back to waveformFloatRef — the CPU
-              // processIqToDbmSpectrum path below is the authoritative spectrum
-              // source and uses a different normalization / FFT implementation.
-              // Letting the async GPU result overwrite the CPU result causes
-              // dB mode to draw with dBm-shaped values (race condition).
-              void processUnified(liveIqChunk, {
-                inputMode: "complex_iq",
-                powerMode: isDbmMode ? "dbm" : "db",
-                minDb: activeScaleDbMinRef.current,
-                maxDb: activeScaleDbMaxRef.current,
-                hardwareSampleRateHz: currentFrame.sample_rate,
-                centerFrequencyHz: currentFrame.center_frequency_hz,
-                tunerGainDb: tunerGainDb ?? 0,
-                calibrationMode: isHackrfDevice ? "hackrf_one" : "generic",
-                ...(isHackrfDevice
-                  ? { baseCalibrationDb: 30, chainLossDb: 0 }
-                  : {}),
-              })
-                .finally(() => {
-                  liveGpuProcessInFlightRef.current = false;
-                })
-                .catch(() => {
-                  liveGpuProcessInFlightRef.current = false;
-                });
-            }
-          }
+          frequencyRangeRef.current = resolveLiveFrameRenderableFrequencyRange({
+            currentFrame,
+            requestedRange: frequencyRange,
+            propsCenterFrequencyHz: centerFreqRef.current,
+            propsHardwareSampleRateHz: hardwareSampleRateHz,
+            preferRequestedRange: isIqRecordingActive,
+            deviceKind: deviceProfile?.kind,
+            backend: deviceBackend,
+            deviceName,
+            isRtlSdr: deviceProfile?.is_rtl_sdr,
+          });
 
           let waveform: Float32Array;
 
           const rawSpectrum = processIqToDbmSpectrum(
             iqBytes,
             effectiveDbmOffsetDb,
-            effectiveFftSize,
+            frontendFftSize,
             fftWindow,
             spectrumOutputBufferRef.current ?? undefined,
           );
           spectrumOutputBufferRef.current = rawSpectrum;
-          const prev = renderWaveformRef.current;
-          if (!prev || prev.length !== rawSpectrum.length) {
-            renderWaveformRef.current = new Float32Array(rawSpectrum);
-          } else {
-            prev.set(rawSpectrum);
-          }
-          waveform = renderWaveformRef.current!;
+          waveform = rawSpectrum;
           pendingFftSizeChangeRef.current = false;
 
           // Validate waveform before processing
           if (waveform && waveform.length > 0) {
+            processedCurrentFrame = true;
             waveformFloatRef.current = waveform;
             lastProcessedDataRef.current = currentFrame;
+            lastProcessedFrameSignatureRef.current =
+              getLiveFrameSignature(currentFrame);
             lastRenderedPowerScaleRef.current = effectivePowerScale;
             previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
             // Accumulate frequency-hop data into full-channel composite buffer.
             // This builds a 4096-bin representation of the entire channel span
-            // from individual hop-sized I/Q chunks for "Whole Channel" snapshots.
-            {
+            // from individual hop-sized I/Q chunks for intentional wide snapshots.
+            // RTL-SDR must never synthesize a whole-channel buffer because its
+            // hardware window is limited to the current 3.2MHz sample rate.
+            const shouldAccumulate = shouldAccumulateFullChannelWaveform({
+              isRtlSdr,
+              deviceKind: deviceProfile?.kind,
+              backend: deviceBackend,
+              deviceName,
+            });
+            if (!shouldAccumulate) {
+              fullChannelWaveformRef.current = null;
+              fullChannelRangeRef.current = null;
+            } else {
               const channelRange = frequencyRangeRef.current;
               if (!channelRange) return;
               const channelSpan = channelRange.max - channelRange.min;
@@ -1498,13 +3268,7 @@ const FFTCanvas = memo(
               fftFrameRate,
             );
             if (temporalWindow <= 1) {
-              // Fast path: single frame, no averaging needed. Reuse the render buffer.
-              const prev = renderWaveformRef.current;
-              if (!prev || prev.length !== waveform.length) {
-                renderWaveformRef.current = new Float32Array(waveform);
-              } else {
-                prev.set(waveform);
-              }
+              renderWaveformRef.current = waveform;
               temporalActiveCountRef.current = 0;
             } else {
               const pool = temporalFramePoolRef.current;
@@ -1514,7 +3278,7 @@ const FFTCanvas = memo(
               ) {
                 pool.length = 0;
                 for (let i = 0; i < temporalWindow; i++) {
-                  pool.push(new Float32Array(waveform.length));
+                  pool[i] = new Float32Array(waveform.length);
                 }
                 temporalWriteIndexRef.current = 0;
                 temporalActiveCountRef.current = 0;
@@ -1522,7 +3286,9 @@ const FFTCanvas = memo(
 
               const writeIdx = temporalWriteIndexRef.current;
               pool[writeIdx].set(waveform);
-              temporalWriteIndexRef.current = (writeIdx + 1) % temporalWindow;
+              const nextWriteIdx = writeIdx + 1;
+              temporalWriteIndexRef.current =
+                nextWriteIdx === temporalWindow ? 0 : nextWriteIdx;
               temporalActiveCountRef.current = Math.min(
                 temporalWindow,
                 temporalActiveCountRef.current + 1,
@@ -1531,16 +3297,18 @@ const FFTCanvas = memo(
               const activeFrames = activeTemporalFramesRef.current;
               const activeCount = temporalActiveCountRef.current;
               activeFrames.length = activeCount;
+              let readIdx = temporalWriteIndexRef.current - 1;
+              if (readIdx < 0) readIdx = temporalWindow - 1;
               for (let i = 0; i < activeCount; i++) {
-                const idx =
-                  (temporalWriteIndexRef.current - 1 - i + temporalWindow) %
-                  temporalWindow;
-                activeFrames[i] = pool[idx];
+                activeFrames[i] = pool[readIdx];
+                readIdx--;
+                if (readIdx < 0) readIdx = temporalWindow - 1;
               }
 
               if (
                 !renderWaveformRef.current ||
-                renderWaveformRef.current.length !== waveform.length
+                renderWaveformRef.current.length !== waveform.length ||
+                renderWaveformRef.current === waveform
               ) {
                 renderWaveformRef.current = new Float32Array(waveform.length);
               }
@@ -1552,43 +3320,108 @@ const FFTCanvas = memo(
             }
           }
         } else if (
-          isPaused &&
-          currentFrame?.iq_data &&
-          (currentFrame !== lastProcessedDataRef.current || powerScaleChanged)
+          currentFrame &&
+          (currentFrame.iq_data ? isPaused : true) &&
+          (currentFrame.iq_data ||
+            (currentFrame as any).waveform ||
+            (currentFrame as any).data) &&
+          (currentFrame !== lastProcessedDataRef.current ||
+            powerScaleChanged ||
+            fftWindowChanged)
         ) {
-          // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-          const processedWaveform = processIqToDbmSpectrum(
-            currentFrame.iq_data,
-            effectiveDbmOffsetDb,
-            effectiveFftSize,
-            fftWindow,
-            spectrumOutputBufferRef.current ?? undefined,
-          );
+          let processedWaveform: Float32Array | undefined;
+
+          if (currentFrame.iq_data) {
+            // Paused: ingest once to avoid blank frames (file mode or first paused frame)
+            processedWaveform = processIqToDbmSpectrum(
+              currentFrame.iq_data,
+              effectiveDbmOffsetDb,
+              frontendFftSize,
+              fftWindow,
+              spectrumOutputBufferRef.current ?? undefined,
+            );
+            spectrumOutputBufferRef.current = processedWaveform;
+            previousFftWindowRef.current = fftWindow ?? "Rectangular";
+          } else {
+            // Handle pre-processed FFT data (playback mode)
+            processedWaveform = ((currentFrame as any).waveform ||
+              (currentFrame as any).data) as Float32Array;
+          }
 
           // Validate waveform before processing
           if (!processedWaveform || processedWaveform.length === 0) {
             return;
           }
 
-          spectrumOutputBufferRef.current = processedWaveform;
           waveformFloatRef.current = processedWaveform;
+          processedCurrentFrame = true;
           lastProcessedDataRef.current = currentFrame;
+          lastProcessedFrameSignatureRef.current =
+            getLiveFrameSignature(currentFrame);
           lastRenderedPowerScaleRef.current = powerScale;
-          previousFftWindowRef.current = fftWindow ?? "Rectangular";
 
-          const prev = renderWaveformRef.current;
-          if (!prev || prev.length !== processedWaveform.length) {
-            renderWaveformRef.current = new Float32Array(processedWaveform);
+          const temporalWindow = getTemporalResolutionWindow(
+            displayTemporalResolution,
+            fftFrameRate,
+          );
+          if (temporalWindow <= 1) {
+            renderWaveformRef.current = processedWaveform;
+            temporalActiveCountRef.current = 0;
           } else {
-            prev.fill(0);
-            prev.set(processedWaveform);
+            const pool = temporalFramePoolRef.current;
+            if (
+              pool.length !== temporalWindow ||
+              (pool.length > 0 && pool[0].length !== processedWaveform.length)
+            ) {
+              pool.length = 0;
+              for (let i = 0; i < temporalWindow; i++) {
+                pool[i] = new Float32Array(processedWaveform.length);
+              }
+              temporalWriteIndexRef.current = 0;
+              temporalActiveCountRef.current = 0;
+            }
+
+            const writeIdx = temporalWriteIndexRef.current;
+            pool[writeIdx].set(processedWaveform);
+            const nextWriteIdx = writeIdx + 1;
+            temporalWriteIndexRef.current =
+              nextWriteIdx === temporalWindow ? 0 : nextWriteIdx;
+            temporalActiveCountRef.current = Math.min(
+              temporalWindow,
+              temporalActiveCountRef.current + 1,
+            );
+
+            const activeFrames = activeTemporalFramesRef.current;
+            const activeCount = temporalActiveCountRef.current;
+            activeFrames.length = activeCount;
+            let readIdx = temporalWriteIndexRef.current - 1;
+            if (readIdx < 0) readIdx = temporalWindow - 1;
+            for (let i = 0; i < activeCount; i++) {
+              activeFrames[i] = pool[readIdx];
+              readIdx--;
+              if (readIdx < 0) readIdx = temporalWindow - 1;
+            }
+
+            if (
+              !renderWaveformRef.current ||
+              renderWaveformRef.current.length !== processedWaveform.length ||
+              renderWaveformRef.current === processedWaveform
+            ) {
+              renderWaveformRef.current = new Float32Array(
+                processedWaveform.length,
+              );
+            }
+            renderWaveformRef.current = averageTemporalWaveforms(
+              activeFrames,
+              renderWaveformRef.current,
+              renderWaveformRef.current,
+            );
           }
           pendingFftSizeChangeRef.current = false;
         }
 
-        const waveform = renderWaveformRef.current;
-        if (!waveform || waveform.length === 0) {
-          if (isPaused && !waveform) {
+        if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
+          if (isPaused) {
             restoreWaveformFromStorageRef.current();
             if (
               !renderWaveformRef.current ||
@@ -1601,8 +3434,67 @@ const FFTCanvas = memo(
           }
         }
 
+        if (isStandby) {
+          if (
+            !renderWaveformRef.current ||
+            renderWaveformRef.current.length === 0
+          ) {
+            const previewWaveform = new Float32Array(effectiveFftSize).fill(
+              FFT_MIN_DB,
+            );
+            const prev = renderWaveformRef.current;
+            if (!prev || prev.length !== previewWaveform.length) {
+              renderWaveformRef.current = new Float32Array(previewWaveform);
+            } else {
+              prev.set(previewWaveform);
+            }
+            waveformFloatRef.current = renderWaveformRef.current;
+          }
+
+          if (frequencyRange) {
+            frequencyRangeRef.current = frequencyRange;
+          }
+          centerFreqRef.current = centerFrequencyHz;
+
+          // Explicit standby placeholders must not preserve the previous source's waterfall.
+          const waterfallDevice = webgpuDeviceRef.current;
+          const waterfallFormat = webgpuFormatRef.current;
+          if (waterfallGpuCanvas && waterfallDevice && waterfallFormat) {
+            const standbyWaterfallData = isExplicitStandbyPlaceholder
+              ? new Float32Array(effectiveFftSize).fill(FFT_MIN_DB)
+              : new Float32Array(0);
+            drawWebGPUFIFOWaterfall({
+              canvas: waterfallGpuCanvas,
+              device: waterfallDevice,
+              format: waterfallFormat,
+              fftData: standbyWaterfallData,
+              fftMin: activeScaleDbMinRef.current,
+              fftMax: activeScaleDbMaxRef.current,
+              driftAmount: 0,
+              freeze: !isExplicitStandbyPlaceholder,
+              colormap: colormapRef.current,
+              colormapName: waterfallThemeRef.current,
+            });
+          }
+        } else {
+          // Reset standby cleared ref or state if any
+        }
+
         // Update waveform reference after potential restoration
         const currentWaveform = renderWaveformRef.current;
+
+        if (
+          currentFrame &&
+          currentWaveform &&
+          currentWaveform.length > 0 &&
+          shouldPublishProcessedSpectrumFrame({
+            hasNewData: Boolean(hasNewData),
+            shouldReprocessCurrentFrame,
+            processedCurrentFrame,
+          })
+        ) {
+          onSpectrumFrame?.(currentWaveform, currentFrame);
+        }
 
         if (
           currentWaveform &&
@@ -1687,6 +3579,19 @@ const FFTCanvas = memo(
             //   slicedWaveform = smoothed;
             // }
           }
+          const currentTxSlider = txSliderRef.current as
+            | (CanvasTxSliderState & {
+                signalLabel?: string;
+                powerDbm?: number;
+              })
+            | null;
+          const bottomReservedPx = nodePreview
+            ? 0
+            : compact
+              ? 0
+              : TX_SLIDER_ROW_HEIGHT;
+          const markerOverlayOpacity =
+            powerLineDbRef.current !== null ? 0.1 : 1;
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
             drawSpectrum({
@@ -1704,43 +3609,147 @@ const FFTCanvas = memo(
               gridOverlayRenderer: compact
                 ? undefined
                 : gridOverlayRendererRef.current,
-              markersOverlayRenderer: undefined,
+              markersOverlayRenderer: compact
+                ? undefined
+                : markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: centerFreqRef.current,
               isDeviceConnected,
-              hardwareSampleRateHz,
+              hardwareSampleRateHz: displayHardwareSampleRateHz,
+              fftSize: effectiveFftSize,
+              fftWindow,
+              temporalResolution: displayTemporalResolution,
+              reservedBottomPx: bottomReservedPx,
               fullCaptureRange: frequencyRangeRef.current,
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : limitMarkers,
               showSpikeOverlay: showSpikeOverlayRef.current,
-              demodFocusOverlay: liveDragSelectionRef.current
-                ? {
-                    centerFrequencyHz:
-                      (liveDragSelectionRef.current.min +
-                        liveDragSelectionRef.current.max) /
-                      2,
-                    halfBandwidthHz:
-                      (liveDragSelectionRef.current.max -
-                        liveDragSelectionRef.current.min) /
-                      2,
-                    alignment: bandwidthAlignment,
-                  }
-                : demodFocusOverlayRef.current,
-              selectionOverlay: liveDragSelectionRef.current
-                ? {
-                    minFrequencyHz: liveDragSelectionRef.current.min,
-                    maxFrequencyHz: liveDragSelectionRef.current.max,
-                  }
-                : selectionOverlayRef.current,
+              // Node previews use the transparent 2D overlay canvas as the
+              // single selection renderer. Painting the same band into the
+              // spectrum backbuffer makes it flicker as frames swap.
+              demodFocusOverlay: nodePreview
+                ? null
+                : liveDragSelectionRef.current
+                  ? {
+                      centerFrequencyHz:
+                        (liveDragSelectionRef.current.min +
+                          liveDragSelectionRef.current.max) /
+                        2,
+                      halfBandwidthHz:
+                        (liveDragSelectionRef.current.max -
+                          liveDragSelectionRef.current.min) /
+                        2,
+                      alignment: bandwidthAlignment,
+                    }
+                  : demodFocusOverlayRef.current,
+              selectionOverlay: nodePreview
+                ? null
+                : liveDragSelectionRef.current
+                  ? {
+                      minFrequencyHz: liveDragSelectionRef.current.min,
+                      maxFrequencyHz: liveDragSelectionRef.current.max,
+                    }
+                  : selectionOverlayRef.current,
+              txSlider: compact ? null : currentTxSlider,
+              overlayOpacity: markerOverlayOpacity,
+              canvasStatusRow: compact ? null : effectiveCanvasStatusRow,
               onSpikeCount: (count) => {
                 dispatch(setGpuSpikeCount(count));
               },
+              onSpikeAnalysis: (analysis) => {
+                if (!Number.isFinite(analysis.floorDbm)) return;
+                const previousFloor = stableSpikeFloorDbmRef.current;
+                const floorDbm =
+                  previousFloor === null
+                    ? analysis.floorDbm
+                    : previousFloor +
+                      (analysis.floorDbm - previousFloor) * 0.18;
+                stableSpikeFloorDbmRef.current = floorDbm;
+                const previousClassifier = stableSpikeClassifierRef.current;
+                const smooth = (value: number, previous: number | undefined) =>
+                  previous === undefined
+                    ? value
+                    : previous + (value - previous) * 0.12;
+                const temporalReady = analysis.multiFrameFrameCount >= 4;
+                const sincPenaltyScore = smooth(
+                  analysis.sincPenaltyScore,
+                  previousClassifier?.sincPenaltyScore,
+                );
+                const classifier = {
+                  confidence: smooth(
+                    analysis.confidence,
+                    previousClassifier?.confidence,
+                  ),
+                  suspensionBridgeScore: smooth(
+                    temporalReady
+                      ? analysis.multiFrameBridgeScore
+                      : analysis.suspensionBridgeScore,
+                    previousClassifier?.suspensionBridgeScore,
+                  ),
+                  uDipScore: smooth(
+                    temporalReady
+                      ? analysis.multiFrameUDipScore
+                      : analysis.uDipScore,
+                    previousClassifier?.uDipScore,
+                  ),
+                  floorRelativePowerScore: smooth(
+                    analysis.floorRelativePowerScore,
+                    previousClassifier?.floorRelativePowerScore,
+                  ),
+                  sincPenaltyScore,
+                  // Quality is the inverse of the same displayed penalty.
+                  // Deriving it here prevents transient readback frames from
+                  // showing contradictory sinc and quality diagnostics.
+                  captureQualityScore: Math.max(
+                    0,
+                    Math.min(1, 1 - sincPenaltyScore),
+                  ),
+                  envelopeFitScore: smooth(
+                    analysis.envelopeFitScore,
+                    previousClassifier?.envelopeFitScore,
+                  ),
+                  envelopeResidualScore: smooth(
+                    analysis.envelopeResidualScore,
+                    previousClassifier?.envelopeResidualScore,
+                  ),
+                };
+                stableSpikeClassifierRef.current = classifier;
+                const wasNapt = stableSpikeDecisionRef.current;
+                // Keep the one-frame result as the baseline until the
+                // higher-order pass has four frames. After that point, use
+                // only the temporal decision for the final UI state. This
+                // prevents a single noisy FFT frame from flipping a stable
+                // signal while still allowing the baseline to diagnose the
+                // first frame immediately.
+                const rawDecision = temporalReady
+                  ? analysis.multiFrameIsNapt
+                  : analysis.baselineIsNapt;
+                const isNapt =
+                  rawDecision &&
+                  (wasNapt
+                    ? classifier.confidence >= 0.55
+                    : classifier.confidence >= 0.75);
+                stableSpikeDecisionRef.current = isNapt;
+                dispatch(
+                  setGpuSpikeAnalysis({
+                    ...analysis,
+                    ...classifier,
+                    floorDbm,
+                    // Keep the displayed decision consistent with the smoothed
+                    // confidence; never show Yes while the visible score is
+                    // below the classifier threshold.
+                    isNapt,
+                  }),
+                );
+              },
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
+              isStandby: isStandby,
             });
 
             if (!hasRenderedSpectrumFrame) {
+              hasPresentedSpectrumFrameRef.current = true;
               setHasRenderedSpectrumFrame(true);
               onRenderableFrameChange?.(true);
             }
@@ -1748,25 +3757,62 @@ const FFTCanvas = memo(
 
           // Render overlays to 2D HTML canvas instead of WebGPU texture
           if (spectrumOverlayCanvas) {
-            const ctx = spectrumOverlayCanvas.getContext("2d");
+            const ctx = getCached2DContext(spectrumOverlayCanvas);
             if (ctx) {
-              const dpr = window.devicePixelRatio || 1;
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
               const logicalW = spectrumOverlayCanvas.width / dpr;
               const logicalH = spectrumOverlayCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
 
-              const activeDemodFocus = liveDragSelectionRef.current
-                ? {
-                    centerFrequencyHz:
-                      (liveDragSelectionRef.current.min +
-                        liveDragSelectionRef.current.max) /
-                      2,
-                    halfBandwidthHz:
-                      (liveDragSelectionRef.current.max -
-                        liveDragSelectionRef.current.min) /
-                      2,
-                    alignment: bandwidthAlignment,
-                  }
-                : demodFocusOverlayRef.current;
+              if (showSpikeOverlay && gpuSpikeAnalysis) {
+                const hoveredSpike =
+                  hoveredSpikeIndex === null
+                    ? null
+                    : gpuSpikeAnalysis.spikes.find(
+                        (spike) => spike.index === hoveredSpikeIndex,
+                      );
+                if (hoveredSpike) {
+                  const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+                  const plotRight = logicalW - (nodePreview ? 0 : 40);
+                  const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+                  const plotBottom =
+                    logicalH - (nodePreview ? 0 : 40 + bottomReservedPx);
+                  const x =
+                    plotLeft +
+                    ((hoveredSpike.frequencyHz - visualRange.min) /
+                      Math.max(1, visualRange.max - visualRange.min)) *
+                      (plotRight - plotLeft);
+                  const y =
+                    plotBottom -
+                    ((hoveredSpike.powerDbm - activeScaleDbMinRef.current) /
+                      Math.max(
+                        1,
+                        activeScaleDbMaxRef.current -
+                          activeScaleDbMinRef.current,
+                      )) *
+                      (plotBottom - plotTop);
+                  const bandWidth = Math.max(5, logicalW / 180);
+                  ctx.save();
+                  ctx.fillStyle = "rgba(220, 40, 255, 0.18)";
+                  ctx.fillRect(
+                    x - bandWidth / 2,
+                    plotTop,
+                    bandWidth,
+                    plotBottom - plotTop,
+                  );
+                  ctx.fillStyle = "#d800ff";
+                  ctx.beginPath();
+                  ctx.moveTo(x, Math.max(plotTop, y - 22));
+                  ctx.lineTo(x - 7, Math.max(plotTop, y - 8));
+                  ctx.lineTo(x + 7, Math.max(plotTop, y - 8));
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.restore();
+                }
+              }
 
               const activeSelection = liveDragSelectionRef.current
                 ? {
@@ -1774,8 +3820,30 @@ const FFTCanvas = memo(
                     maxFrequencyHz: liveDragSelectionRef.current.max,
                   }
                 : selectionOverlayRef.current;
+              const activeDemodFocus =
+                selectionMode === "range" && activeSelection
+                  ? null
+                  : liveDragSelectionRef.current
+                    ? {
+                        centerFrequencyHz:
+                          (liveDragSelectionRef.current.min +
+                            liveDragSelectionRef.current.max) /
+                          2,
+                        halfBandwidthHz:
+                          (liveDragSelectionRef.current.max -
+                            liveDragSelectionRef.current.min) /
+                          2,
+                        alignment: bandwidthAlignment,
+                      }
+                    : demodFocusOverlayRef.current;
+              const rendersMarkersInWebGpuOverlay =
+                !compact && !!markersOverlayRendererRef.current;
 
-              if (!nodePreview && centerFreqRef.current !== undefined) {
+              if (
+                !rendersMarkersInWebGpuOverlay &&
+                !nodePreview &&
+                centerFreqRef.current !== undefined
+              ) {
                 drawMarkersOnContext(
                   ctx,
                   logicalW,
@@ -1787,10 +3855,18 @@ const FFTCanvas = memo(
                   frequencyRangeRef.current,
                   isIqRecordingActive,
                   compact ? [] : limitMarkers,
+                  frontendFftSize,
+                  fftWindow,
+                  displayTemporalResolution,
+                  !currentTxSlider?.visible,
+                  bottomReservedPx,
+                  compact ? undefined : (effectiveCanvasStatusRow ?? undefined),
+                  1.0,
+                  isStandby,
                 );
               }
 
-              if (activeDemodFocus) {
+              if (!rendersMarkersInWebGpuOverlay && activeDemodFocus) {
                 drawDemodFocusOnContext(
                   ctx,
                   logicalW,
@@ -1798,10 +3874,12 @@ const FFTCanvas = memo(
                   visualRange,
                   activeDemodFocus,
                   nodePreview,
+                  bottomReservedPx,
+                  markerOverlayOpacity,
                 );
               }
 
-              if (activeSelection) {
+              if (!rendersMarkersInWebGpuOverlay && activeSelection) {
                 drawSelectionOverlayOnContext(
                   ctx,
                   logicalW,
@@ -1809,17 +3887,49 @@ const FFTCanvas = memo(
                   visualRange,
                   activeSelection,
                   nodePreview,
+                  bottomReservedPx,
                 );
               }
 
-              // Draw zoom markers at top (e.g. 500kHz)
-              drawZoomMarkersOnContext(
-                ctx,
-                logicalW,
-                logicalH,
-                visualRange,
-                frequencyRangeRef.current,
-              );
+              if (shouldDrawZoomMarkersForCanvas(nodePreview)) {
+                drawZoomMarkersOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  visualRange,
+                  frequencyRangeRef.current,
+                  bottomReservedPx,
+                  markerOverlayOpacity,
+                );
+              }
+
+              // Draw draggable horizontal power line
+              if (powerLineDbRef.current !== null) {
+                drawPowerLineOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  powerLineDbRef.current,
+                  activeScaleDbMinRef.current,
+                  activeScaleDbMaxRef.current,
+                  effectivePowerScaleRef.current,
+                  bottomReservedPx,
+                  currentTxSlider?.powerDbm ?? null,
+                  isPowerLineHeldRef.current,
+                );
+              }
+
+              // Draw Zoombox if active
+              if (zoomboxStateRef.current) {
+                drawZoomboxOnContext(
+                  ctx,
+                  logicalW,
+                  logicalH,
+                  zoomboxStateRef.current,
+                  nodePreview,
+                  bottomReservedPx,
+                );
+              }
             }
           }
 
@@ -1833,13 +3943,21 @@ const FFTCanvas = memo(
             waterfallGpuCanvas
           ) {
             const dims = waterfallGpuDimsRef.current;
-            if (dims && currentFrame) {
+            if (
+              shouldRenderWaterfallWithFrameOrRestore(
+                !!dims,
+                !!currentFrame,
+                !!pendingWaterfallRestoreRef.current,
+              )
+            ) {
+              const waterfallDims = dims!;
               const waterfallMotion = getWaterfallMotion({
                 previousVisualRange: lastWaterfallVisualRangeRef.current,
                 currentVisualRange: visualRange,
                 textureWidth: 4096,
               });
               const shouldUpdateWaterfallRow =
+                !isStandby &&
                 !isPaused &&
                 (hasNewData || waterfallMotion.shouldPaintMotionRow);
               retuneDriftPxRef.current = waterfallMotion.driftBins;
@@ -1849,14 +3967,13 @@ const FFTCanvas = memo(
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
               // texture resets when zoom changes. The shader handles the final
               // mapping from 4096 bins to display pixels.
-              const FIXED_WATERFALL_BINS = 4096;
               // Ensure we have a persistent buffer for the fixed-width data
               if (
                 !waterfallCappedBufferRef.current ||
-                waterfallCappedBufferRef.current.length !== FIXED_WATERFALL_BINS
+                waterfallCappedBufferRef.current.length !== WATERFALL_BIN_COUNT
               ) {
                 waterfallCappedBufferRef.current = new Float32Array(
-                  FIXED_WATERFALL_BINS,
+                  WATERFALL_BIN_COUNT,
                 );
               }
               const processed = waterfallCappedBufferRef.current;
@@ -1870,7 +3987,6 @@ const FFTCanvas = memo(
                 processed,
               );
 
-              const rowsToDraw: Float32Array[] = [];
               let waterfallGpuRowBuffer: GPUBuffer | null = null;
 
               if (shouldUpdateWaterfallRow) {
@@ -1906,8 +4022,6 @@ const FFTCanvas = memo(
                   waterfallBins = retuneTransitionRowRef.current;
                 }
 
-                rowsToDraw.push(waterfallBins);
-
                 // Cache the last row for pause state and snapshots
                 if (
                   !lastWaterfallRowRef.current ||
@@ -1935,15 +4049,16 @@ const FFTCanvas = memo(
                   const history = heterodyningHistoryRef.current;
                   if (history.length === 0) {
                     for (let i = 0; i < maxHistory; i++) {
-                      history.push(new Float32Array(FIXED_WATERFALL_BINS));
+                      history.push(new Float32Array(WATERFALL_BIN_COUNT));
                     }
                     heterodyningWriteIndexRef.current = 0;
                     heterodyningHistoryCountRef.current = 0;
                   }
                   const writeIdx = heterodyningWriteIndexRef.current;
                   history[writeIdx].set(waterfallBins);
+                  const nextWriteIdx = writeIdx + 1;
                   heterodyningWriteIndexRef.current =
-                    (writeIdx + 1) % maxHistory;
+                    nextWriteIdx === maxHistory ? 0 : nextWriteIdx;
                   heterodyningHistoryCountRef.current = Math.min(
                     maxHistory,
                     heterodyningHistoryCountRef.current + 1,
@@ -1955,24 +4070,56 @@ const FFTCanvas = memo(
                 retuneDriftPxRef.current = 0;
                 retuneSmearRef.current = 0;
                 waterfallBins = lastWaterfallRowRef.current ?? processed;
-                rowsToDraw.push(waterfallBins);
               }
 
               // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
               // for session persistence. Always 4096 bins wide × RGBA.
-              const textureBytesPerRow = FIXED_WATERFALL_BINS * 4;
-              const textureByteSize = textureBytesPerRow * dims.height;
+              const textureBytesPerRow = WATERFALL_BIN_COUNT * 4;
+              const textureByteSize = textureBytesPerRow * waterfallDims.height;
               if (
                 !waterfallTextureSnapshotRef.current ||
                 waterfallTextureSnapshotRef.current.length !== textureByteSize
               ) {
-                waterfallTextureSnapshotRef.current = new Uint8Array(
-                  textureByteSize,
-                );
+                const oldSnapshot = waterfallTextureSnapshotRef.current;
+                const oldMeta = waterfallTextureMetaRef.current;
+
+                const newSnapshot = new Uint8Array(textureByteSize);
+                let newWriteRow = 0;
+
+                if (oldSnapshot && oldMeta) {
+                  // Repack the circular buffer by display age so the visible history
+                  // stays in the same order after a height change. Matches WebGPU logic.
+                  const prevH = oldMeta.height;
+                  const needH = waterfallDims.height;
+                  const prevRenderRow =
+                    prevH > 0 ? (oldMeta.writeRow - 1 + prevH) % prevH : 0;
+                  const nextRenderRow =
+                    needH > 0 ? (oldMeta.writeRow - 1 + needH) % needH : 0;
+
+                  for (let age = 0; age < needH; age++) {
+                    const srcAge = Math.max(
+                      0,
+                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+                    );
+                    const srcY =
+                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const dstY = (nextRenderRow - age + needH) % needH;
+
+                    const srcOff = srcY * textureBytesPerRow;
+                    const dstOff = dstY * textureBytesPerRow;
+                    newSnapshot.set(
+                      oldSnapshot.subarray(srcOff, srcOff + textureBytesPerRow),
+                      dstOff,
+                    );
+                  }
+                  newWriteRow = Math.min(oldMeta.writeRow, needH - 1);
+                }
+
+                waterfallTextureSnapshotRef.current = newSnapshot;
                 waterfallTextureMetaRef.current = {
-                  width: FIXED_WATERFALL_BINS,
-                  height: dims.height,
-                  writeRow: 0,
+                  width: WATERFALL_BIN_COUNT,
+                  height: waterfallDims.height,
+                  writeRow: newWriteRow,
                 };
               }
               const meta = waterfallTextureMetaRef.current;
@@ -1982,54 +4129,130 @@ const FFTCanvas = memo(
                 shouldUpdateWaterfallRow,
                 hasRenderedRestore: restoredWaterfallRef.current,
               });
+
+              // Sync restore data into CPU snapshot so auto-persist
+              // doesn't overwrite restored history with an empty buffer.
+              if (restoreTexture && meta && snapshot) {
+                const restoreBytes = restoreTexture.data;
+                const restoreW = restoreTexture.width;
+                const restoreH = restoreTexture.height;
+                if (
+                  restoreW === WATERFALL_BIN_COUNT &&
+                  restoreH === waterfallDims.height &&
+                  restoreBytes.length === textureByteSize
+                ) {
+                  // Exact match — bulk copy
+                  snapshot.set(restoreBytes);
+                } else if (
+                  restoreW === WATERFALL_BIN_COUNT &&
+                  restoreBytes.length >= restoreW * restoreH * 4
+                ) {
+                  // Height may differ; repack chronologically to match WebGPU logic.
+                  const prevH = restoreH;
+                  const needH = waterfallDims.height;
+                  const prevRenderRow =
+                    prevH > 0
+                      ? (restoreTexture.writeRow - 1 + prevH) % prevH
+                      : 0;
+                  const nextRenderRow =
+                    needH > 0
+                      ? (restoreTexture.writeRow - 1 + needH) % needH
+                      : 0;
+
+                  for (let age = 0; age < needH; age++) {
+                    const srcAge = Math.max(
+                      0,
+                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+                    );
+                    const srcY =
+                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+                    const dstY = (nextRenderRow - age + needH) % needH;
+
+                    const srcOff = srcY * textureBytesPerRow;
+                    const dstOff = dstY * textureBytesPerRow;
+                    snapshot.set(
+                      restoreBytes.subarray(
+                        srcOff,
+                        srcOff + textureBytesPerRow,
+                      ),
+                      dstOff,
+                    );
+                  }
+                }
+                meta.writeRow = Math.max(
+                  0,
+                  Math.min(restoreTexture.writeRow, waterfallDims.height - 1),
+                );
+              }
+
               if (
                 shouldUpdateWaterfallRow &&
                 meta &&
                 snapshot &&
-                meta.width === FIXED_WATERFALL_BINS
+                meta.width === WATERFALL_BIN_COUNT
               ) {
-                for (const rowData of rowsToDraw) {
-                  const rowBytes = new Uint8Array(
-                    rowData.buffer,
-                    rowData.byteOffset,
-                    rowData.byteLength,
+                let rowBytes = waterfallRowBytesRef.current;
+                if (
+                  !rowBytes ||
+                  rowBytes.buffer !== waterfallBins.buffer ||
+                  rowBytes.byteOffset !== waterfallBins.byteOffset ||
+                  rowBytes.byteLength !== waterfallBins.byteLength
+                ) {
+                  rowBytes = new Uint8Array(
+                    waterfallBins.buffer,
+                    waterfallBins.byteOffset,
+                    waterfallBins.byteLength,
                   );
-                  const row = meta.writeRow % dims.height;
-                  const offset = row * textureBytesPerRow;
-                  snapshot.set(rowBytes, offset);
-                  meta.writeRow = (meta.writeRow + 1) % dims.height;
+                  waterfallRowBytesRef.current = rowBytes;
                 }
-                pendingWaterfallRestoreRef.current = null;
-                restoredWaterfallRef.current = false;
+                const row = meta.writeRow;
+                const offset = row * textureBytesPerRow;
+                snapshot.set(rowBytes, offset);
+                const nextWriteRow = row + 1;
+                meta.writeRow =
+                  nextWriteRow === waterfallDims.height ? 0 : nextWriteRow;
+                if (pendingWaterfallRestoreRef.current) {
+                  pendingWaterfallRestoreRef.current = null;
+                  restoredWaterfallRef.current = false;
+                }
+
+                const now = performance.now();
+                if (
+                  visualizerMachine &&
+                  now - lastVisualizerAutoPersistAtRef.current > 250
+                ) {
+                  lastVisualizerAutoPersistAtRef.current = now;
+                  visualizerMachine.persist(visualizerSessionKey, {
+                    waveform: renderWaveformRef.current,
+                    waterfallTextureSnapshot: snapshot,
+                    waterfallTextureMeta: meta,
+                    waterfallBuffer: waterfallBufferRef.current,
+                    waterfallDims: waterfallDimsRef.current,
+                  });
+                }
               }
 
               const waterfallDevice = webgpuDeviceRef.current;
               const waterfallFormat = webgpuFormatRef.current;
               if (!waterfallDevice || !waterfallFormat) return;
 
-              rowsToDraw.forEach((rowData, index) => {
-                // Pass 4096 bins to hook — shader handles pixel mapping.
-                drawWebGPUFIFOWaterfall({
-                  canvas: waterfallGpuCanvas,
-                  device: waterfallDevice,
-                  format: waterfallFormat,
-                  fftData:
-                    waterfallGpuRowBuffer && index === rowsToDraw.length - 1
-                      ? new Float32Array(0)
-                      : rowData,
-                  fftDataBuffer:
-                    index === rowsToDraw.length - 1
-                      ? (waterfallGpuRowBuffer ?? undefined)
-                      : undefined,
-                  fftMin: activeScaleDbMinRef.current,
-                  fftMax: activeScaleDbMaxRef.current,
-                  driftAmount: 0,
-                  freeze: !shouldUpdateWaterfallRow,
-                  restoreTexture: index === 0 ? restoreTexture : undefined,
-                  wfSmooth: wfSmoothEnabledRef.current,
-                  colormap: colormapRef.current,
-                  colormapName: waterfallThemeRef.current,
-                });
+              // Pass 4096 bins to the hook; the shader maps bins to pixels.
+              drawWebGPUFIFOWaterfall({
+                canvas: waterfallGpuCanvas,
+                device: waterfallDevice,
+                format: waterfallFormat,
+                fftData: waterfallGpuRowBuffer
+                  ? EMPTY_FLOAT32_ARRAY
+                  : waterfallBins,
+                fftDataBuffer: waterfallGpuRowBuffer ?? undefined,
+                fftMin: activeScaleDbMinRef.current,
+                fftMax: activeScaleDbMaxRef.current,
+                driftAmount: 0,
+                freeze: !shouldUpdateWaterfallRow,
+                restoreTexture,
+                wfSmooth: wfSmoothEnabledRef.current,
+                colormap: colormapRef.current,
+                colormapName: waterfallThemeRef.current,
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -2083,6 +4306,7 @@ const FFTCanvas = memo(
         drawWebGPUFIFOWaterfall,
         computeWaterfallRetuneRow,
         isPaused,
+        pauseSnapshotEnabled,
         displayTemporalResolution,
         spectrumWebgpuEnabled,
         webgpuEnabled,
@@ -2095,14 +4319,25 @@ const FFTCanvas = memo(
         waterfallGpuCanvasNode,
         drawLoadingPlaceholder,
         clearOverlayCanvas,
+        clearSpectrumBackbuffer,
+        commitPendingSourcePresentationReset,
+        awaitingDeviceData,
+        expectedSourceId,
+        frameSourceIdFallback,
         placeholderErrorReason,
         isLoadingPlaceholder,
         hasRenderedSpectrumFrame,
+        frontendFftSize,
         onRenderableFrameChange,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
         fftWindow,
+        frequencyRange,
+        deviceProfile?.kind,
+        deviceProfile?.is_rtl_sdr,
+        deviceBackend,
+        deviceName,
         drawMarkersOnContext,
         drawDemodFocusOnContext,
         drawSelectionOverlayOnContext,
@@ -2112,7 +4347,16 @@ const FFTCanvas = memo(
         limitMarkers,
         compact,
         nodePreview,
+        canvasResolutionScale,
+        onSpectrumFrame,
+        selectionMode,
         bandwidthAlignment,
+        visualizerMachine,
+        visualizerSessionKey,
+        effectiveCanvasStatusRow,
+        isStandby,
+        gpuSpikeAnalysis,
+        hoveredSpikeIndex,
       ],
     );
 
@@ -2155,9 +4399,15 @@ const FFTCanvas = memo(
       const currentWaveform = waveformFloatRef.current;
       if (currentWaveform && currentWaveform.length > 0) {
         renderWaveformRef.current = new Float32Array(currentWaveform);
-      } else if (isPaused && dataRef.current?.iq_data) {
+      } else if (
+        isPaused &&
+        (dataRef.current?.iq_data ||
+          (dataRef.current as any)?.waveform ||
+          (dataRef.current as any)?.data)
+      ) {
         // Trigger a re-process of paused I/Q data
         lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
       }
 
       overlayDirtyRef.current.grid = true;
@@ -2222,6 +4472,11 @@ const FFTCanvas = memo(
     // Effect: Toggle spike detection overlay. The spike hook owns persistence.
     useEffect(() => {
       overlayDirtyRef.current.spikes = true;
+      if (!showSpikeOverlay) {
+        stableSpikeFloorDbmRef.current = null;
+        stableSpikeClassifierRef.current = null;
+        stableSpikeDecisionRef.current = false;
+      }
       forceRender();
     }, [showSpikeOverlay, forceRender, overlayDirtyRef]);
 
@@ -2232,6 +4487,30 @@ const FFTCanvas = memo(
       forceRender();
     }, [selectionRange, forceRender, overlayDirtyRef]);
 
+    // A warm source switch can retain the previous spectrum frame by design,
+    // but its device limits must never carry across with it. Destroy only the
+    // marker texture and repaint; the waveform remains visible until the new
+    // source produces its first I/Q frame.
+    useEffect(() => {
+      markersOverlayRendererRef.current?.destroy();
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      clearOverlayCanvas(spectrumOverlayCanvasNode);
+      forceRender();
+    }, [
+      clearOverlayCanvas,
+      deviceBackend,
+      deviceName,
+      deviceProfile?.is_rtl_sdr,
+      deviceProfile?.kind,
+      forceRender,
+      hardwareSampleRateHz,
+      limitMarkers,
+      markersOverlayRendererRef,
+      overlayDirtyRef,
+      spectrumOverlayCanvasNode,
+    ]);
+
     const { restoreWaveformFromStorage, ensurePausedFrame } = usePauseLogic({
       isPaused,
       renderWaveformRef,
@@ -2241,6 +4520,7 @@ const FFTCanvas = memo(
       dataRef,
       forceRender,
       snapshotScope: visualizerSessionKey,
+      enabled: pauseSnapshotEnabled,
     });
 
     restoreWaveformFromStorageRef.current = restoreWaveformFromStorage;
@@ -2348,58 +4628,184 @@ const FFTCanvas = memo(
       visualizerSessionKey,
     ]);
 
-    // Effect: On mount: restore visualizer state from machine if available.
-    // On unmount: persist current state to machine and cleanup resources.
-    useEffect(() => {
-      const restoredFromMachine = restoreVisualizerSessionSnapshot(
-        visualizerMachine?.restore(visualizerSessionKey) ?? null,
-      );
-      if (restoredFromMachine) {
-        forceRender();
-      }
-
-      return () => {
-        persistVisualizerSession();
-        cleanupSpectrum();
-        cleanupWebGPUFIFOWaterfall();
-        cleanupWaterfallRetuneCompute();
-      };
+    const clearLocalVisualizerSession = useCallback(() => {
+      cleanupWebGPUFIFOWaterfall();
+      waterfallBufferRef.current = null;
+      waterfallCappedBufferRef.current = null;
+      waterfallTextureSnapshotRef.current = null;
+      waterfallTextureMetaRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      pendingWaterfallRestoreRef.current = null;
+      restoredWaterfallRef.current = false;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      retuneSmearRef.current = 0;
+      retuneDriftPxRef.current = 0;
+      lastWaterfallVisualRangeRef.current = null;
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      renderWaveformRef.current = null;
+      waveformFloatRef.current = null;
+      fullChannelWaveformRef.current = null;
+      fullChannelRangeRef.current = null;
+      frameBufferRef.current = [];
+      resetTemporalAveragingState();
+      clearOverlayCanvas(waterfallOverlayCanvasNode);
     }, [
       cleanupWebGPUFIFOWaterfall,
-      cleanupWaterfallRetuneCompute,
-      cleanupSpectrum,
-      forceRender,
-      persistVisualizerSession,
+      clearOverlayCanvas,
+      resetTemporalAveragingState,
+      waterfallOverlayCanvasNode,
+    ]);
+
+    useEffect(() => {
+      const previousSessionKey = activeVisualizerSessionKeyRef.current;
+      if (previousSessionKey === visualizerSessionKey) {
+        return;
+      }
+
+      visualizerMachine?.persist(
+        previousSessionKey,
+        buildVisualizerSessionSnapshot(),
+      );
+      activeVisualizerSessionKeyRef.current = visualizerSessionKey;
+
+      if (isStandby) {
+        // Standby is already a complete presentation. Clear the previous
+        // source beneath its overlay immediately so no foreign spectrum or
+        // waterfall history can show through the translucent scrim.
+        pendingSourcePresentationResetRef.current = false;
+        clearLocalVisualizerSession();
+      }
+
+      // Switching sources is a presentation handoff, not a disconnect. Reset
+      // processing state so samples cannot blend across devices, while leaving
+      // the current GPU surfaces painted until a saved target presentation or
+      // its first live frame is ready to replace them.
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      lastWaterfallRowRef.current = null;
+      pausedWaterfallRowRef.current = null;
+      retuneTransitionRowRef.current = null;
+      heterodyningHistoryRef.current = [];
+      heterodyningWriteIndexRef.current = 0;
+      heterodyningHistoryCountRef.current = 0;
+      activeHistoryRef.current = [];
+      frameBufferRef.current = [];
+      resetTemporalAveragingState();
+
+      const restoredFromMachine = canRestoreVisualizerSession
+        ? restoreVisualizerSessionSnapshot(
+            visualizerMachine?.restore(visualizerSessionKey) ?? null,
+          )
+        : false;
+      pendingSourcePresentationResetRef.current =
+        !isStandby && !restoredFromMachine;
+      if (restoredFromMachine) {
+        forceRenderRef.current?.();
+      }
+    }, [
+      buildVisualizerSessionSnapshot,
+      canRestoreVisualizerSession,
+      clearLocalVisualizerSession,
+      isStandby,
+      resetTemporalAveragingState,
       restoreVisualizerSessionSnapshot,
       visualizerMachine,
       visualizerSessionKey,
     ]);
 
-    // Effect: When hardware frequency range changes, invalidate all cached waveforms
-    // and buffers since they represent data from a different frequency span.
-    // If paused, force a re-render to update the visual state.
+    // Hotplug can reconnect to the same source id, so a session-key change is
+    // not enough to protect against presenting old I/Q. This explicit epoch
+    // clears CPU history, the circular waterfall texture, and both WebGPU
+    // presentation surfaces before the replacement stream's first frame.
+    useEffect(() => {
+      if (lastWebGpuStreamResetEpochRef.current === webGpuStreamResetEpoch) {
+        return;
+      }
+      lastWebGpuStreamResetEpochRef.current = webGpuStreamResetEpoch;
+      visualizerMachine?.clear(visualizerSessionKey);
+      clearLocalVisualizerSession();
+      lastIncomingFrameRef.current = null;
+      setHasRenderedSpectrumFrame(false);
+      hasPresentedSpectrumFrameRef.current = false;
+      onRenderableFrameChange?.(false);
+      clearSpectrumBackbuffer();
+      forceRenderRef.current?.();
+    }, [
+      clearLocalVisualizerSession,
+      clearSpectrumBackbuffer,
+      onRenderableFrameChange,
+      visualizerMachine,
+      visualizerSessionKey,
+      webGpuStreamResetEpoch,
+    ]);
+
+    // Effect: On mount: restore visualizer state from machine if available.
+    // On unmount: persist current state to machine and cleanup resources.
+    useEffect(() => {
+      const restoredFromMachine = canRestoreVisualizerSession
+        ? restoreVisualizerSessionSnapshot(
+            latestVisualizerMachineRef.current?.restore(
+              latestVisualizerSessionKeyRef.current,
+            ) ?? null,
+          )
+        : false;
+      if (restoredFromMachine) {
+        forceRenderRef.current?.();
+      }
+
+      return () => {
+        latestVisualizerMachineRef.current?.persist(
+          latestVisualizerSessionKeyRef.current,
+          buildVisualizerSessionSnapshot(),
+        );
+        cleanupSpectrum();
+        cleanupWebGPUFIFOWaterfall();
+        cleanupWaterfallRetuneCompute();
+      };
+    }, [
+      buildVisualizerSessionSnapshot,
+      canRestoreVisualizerSession,
+      cleanupWebGPUFIFOWaterfall,
+      cleanupWaterfallRetuneCompute,
+      cleanupSpectrum,
+      restoreVisualizerSessionSnapshot,
+    ]);
+
+    // Effect: When hardware frequency range changes, invalidate live caches.
+    // While paused, keep the cached waveform intact so a channel/zoom change
+    // redraws the frozen frame instead of rebuilding from a transient frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
-      frequencyRangeRef.current = frequencyRange;
+      frequencyRangeRef.current = renderableFrequencyRange;
 
       if (
-        frequencyRange &&
+        renderableFrequencyRange &&
         prevRange &&
-        (prevRange.min !== frequencyRange.min ||
-          prevRange.max !== frequencyRange.max)
+        (prevRange.min !== renderableFrequencyRange.min ||
+          prevRange.max !== renderableFrequencyRange.max)
       ) {
         lastProcessedDataRef.current = null;
-        renderWaveformRef.current = null;
-        waveformFloatRef.current = null;
-        fullChannelWaveformRef.current = null;
-        fullChannelRangeRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
         frameBufferRef.current = [];
+
+        if (!isPaused) {
+          renderWaveformRef.current = null;
+          waveformFloatRef.current = null;
+          fullChannelWaveformRef.current = null;
+          fullChannelRangeRef.current = null;
+        }
       }
 
       if (isPaused) {
         forceRender();
       }
-    }, [frequencyRange, isPaused, forceRender]);
+    }, [renderableFrequencyRange, isPaused, forceRender]);
 
     // Effect: Tracks when new data frames arrive while paused.
     // Uses a polling interval instead of dataFrameCounter to avoid triggering
@@ -2411,7 +4817,12 @@ const FFTCanvas = memo(
       const id = setInterval(() => {
         const currentData = dataRef.current;
         const currentFrame = getLatestLiveFrame(currentData);
-        const hasData = !!(currentFrame && currentFrame.iq_data);
+        const hasData = !!(
+          currentFrame &&
+          (currentFrame.iq_data ||
+            (currentFrame as any).waveform ||
+            (currentFrame as any).data)
+        );
 
         if (hasData && currentFrame !== lastIncomingFrameRef.current) {
           lastIncomingFrameRef.current = currentFrame;
@@ -2434,7 +4845,10 @@ const FFTCanvas = memo(
       const gpuCanvas = spectrumGpuCanvasRef.current ?? spectrumGpuCanvasNode;
 
       const handleResize = () => {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = getCanvasPixelRatio(
+          window.devicePixelRatio || 1,
+          canvasResolutionScale,
+        );
 
         // Use offsetWidth/offsetHeight instead of getBoundingClientRect() —
         // getBoundingClientRect() returns post-CSS-transform visual dimensions,
@@ -2457,18 +4871,26 @@ const FFTCanvas = memo(
 
         if (spectrumRect && spectrumOverlayCanvasRef.current) {
           const canvas = spectrumOverlayCanvasRef.current;
-          canvas.width = spectrumRect.width * dpr;
-          canvas.height = spectrumRect.height * dpr;
-          canvas.style.width = `${spectrumRect.width}px`;
-          canvas.style.height = `${spectrumRect.height}px`;
-          canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const targetW = spectrumRect.width * dpr;
+          const targetH = spectrumRect.height * dpr;
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${spectrumRect.width}px`;
+            canvas.style.height = `${spectrumRect.height}px`;
+            getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
         }
 
         if (spectrumRect && spectrumWebgpuEnabled && gpuCanvas) {
-          gpuCanvas.width = Math.max(1, Math.round(spectrumRect.width * dpr));
-          gpuCanvas.height = Math.max(1, Math.round(spectrumRect.height * dpr));
-          gpuCanvas.style.width = `${spectrumRect.width}px`;
-          gpuCanvas.style.height = `${spectrumRect.height}px`;
+          const targetW = Math.max(1, Math.round(spectrumRect.width * dpr));
+          const targetH = Math.max(1, Math.round(spectrumRect.height * dpr));
+          if (gpuCanvas.width !== targetW || gpuCanvas.height !== targetH) {
+            gpuCanvas.width = targetW;
+            gpuCanvas.height = targetH;
+            gpuCanvas.style.width = `${spectrumRect.width}px`;
+            gpuCanvas.style.height = `${spectrumRect.height}px`;
+          }
 
           spectrumWidthRef.current = spectrumRect.width;
           spectrumHeightRef.current = spectrumRect.height;
@@ -2478,19 +4900,27 @@ const FFTCanvas = memo(
 
         if (waterfallRect && waterfallOverlayCanvasRef.current) {
           const canvas = waterfallOverlayCanvasRef.current;
-          canvas.width = waterfallRect.width * dpr;
-          canvas.height = waterfallRect.height * dpr;
-          canvas.style.width = `${waterfallRect.width}px`;
-          canvas.style.height = `${waterfallRect.height}px`;
-          canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const targetW = waterfallRect.width * dpr;
+          const targetH = waterfallRect.height * dpr;
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${waterfallRect.width}px`;
+            canvas.style.height = `${waterfallRect.height}px`;
+            getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
         }
 
         if (waterfallRect && waterfallGpuCanvasRef.current) {
           const canvas = waterfallGpuCanvasRef.current;
-          canvas.width = Math.max(1, Math.round(waterfallRect.width * dpr));
-          canvas.height = Math.max(1, Math.round(waterfallRect.height * dpr));
-          canvas.style.width = `${waterfallRect.width}px`;
-          canvas.style.height = `${waterfallRect.height}px`;
+          const targetW = Math.max(1, Math.round(waterfallRect.width * dpr));
+          const targetH = Math.max(1, Math.round(waterfallRect.height * dpr));
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = `${waterfallRect.width}px`;
+            canvas.style.height = `${waterfallRect.height}px`;
+          }
 
           const marginX = Math.round(40 * dpr);
           const marginY = Math.round(8 * dpr);
@@ -2516,7 +4946,7 @@ const FFTCanvas = memo(
           ensurePausedFrame();
         }
 
-        forceRender();
+        forceRenderRef.current?.();
       };
 
       handleResize();
@@ -2540,11 +4970,14 @@ const FFTCanvas = memo(
         resizeObserver.disconnect();
       };
     }, [
-      forceRender,
       spectrumWebgpuEnabled,
       isPaused,
       ensurePausedFrame,
       spectrumGpuCanvasNode,
+      spectrumOverlayCanvasNode,
+      waterfallGpuCanvasNode,
+      waterfallOverlayCanvasNode,
+      canvasResolutionScale,
     ]);
 
     // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool
@@ -2562,7 +4995,13 @@ const FFTCanvas = memo(
           }
         }
 
-        if (waveformFloatRef.current && !dataRef.current?.iq_data) {
+        const currentFrameForCleanup = getLatestLiveFrame(dataRef.current);
+        if (
+          waveformFloatRef.current &&
+          !currentFrameForCleanup?.iq_data &&
+          !(currentFrameForCleanup as any)?.waveform &&
+          !(currentFrameForCleanup as any)?.data
+        ) {
           waveformFloatRef.current = null;
         }
       }, 30000);
@@ -2610,6 +5049,7 @@ const FFTCanvas = memo(
       }
       previousPowerScaleRef.current = effectivePowerScale;
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       lastRenderedPowerScaleRef.current = null;
       // Keep render buffers intact so the new power scale can redraw immediately
       // from the existing live IQ frame instead of flashing a blank placeholder.
@@ -2620,6 +5060,39 @@ const FFTCanvas = memo(
       }
     }, [effectivePowerScale, isPaused, forceRender]);
 
+    const lastExpectedSourceIdRef = useRef<string | null | undefined>(
+      expectedSourceId,
+    );
+
+    // Reject cached processing state as soon as the expected source changes,
+    // but retain the already-painted presentation until the target source
+    // supplies its first frame. The delayed loading placeholder remains the
+    // fallback for a slow handoff instead of becoming a mandatory middle step.
+    useEffect(() => {
+      if (expectedSourceId !== lastExpectedSourceIdRef.current) {
+        lastExpectedSourceIdRef.current = expectedSourceId;
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        lastRenderableFrameRef.current = null;
+        frameBufferRef.current = [];
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+        forceRender();
+      }
+    }, [expectedSourceId, forceRender]);
+
+    // Effect: When FFT Window or Temporal Resolution changes, re-process the frame
+    // to apply the new windowing function or averaging window.
+    useEffect(() => {
+      lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
+      if (isPaused) {
+        forceRender();
+      }
+    }, [fftWindow, displayTemporalResolution, isPaused, forceRender]);
+
     // Effect: When FFT size changes, drop the cached processed frame so the
     // next render recomputes at the newly selected resolution.
     useEffect(() => {
@@ -2629,6 +5102,7 @@ const FFTCanvas = memo(
 
       previousFftSizeRef.current = effectiveFftSize;
       lastProcessedDataRef.current = null;
+      lastProcessedFrameSignatureRef.current = null;
       pendingFftSizeChangeRef.current = true;
     }, [effectiveFftSize, isPaused, forceRender]);
 
@@ -2641,12 +5115,19 @@ const FFTCanvas = memo(
 
       return {
         waveform: new Float32Array(waveform),
-        fullChannelWaveform: fullChannelWaveformRef.current
-          ? new Float32Array(fullChannelWaveformRef.current)
-          : null,
+        fullChannelWaveform:
+          shouldAccumulateFullChannelWaveform({
+            isRtlSdr,
+            deviceKind: deviceProfile?.kind,
+            backend: deviceBackend,
+            deviceName,
+          }) && fullChannelWaveformRef.current
+            ? new Float32Array(fullChannelWaveformRef.current)
+            : null,
         frequencyRange: { ...frequencyRangeCurrent },
         dbMin: roundDbValue(vizDbMinRef.current),
         dbMax: roundDbValue(vizDbMaxRef.current),
+        powerScale: effectivePowerScaleRef.current,
         fftSize: effectiveFftSize,
         fftWindow: fftWindow ?? "Rectangular",
         centerFrequencyHz: centerFreqRef.current,
@@ -2670,6 +5151,7 @@ const FFTCanvas = memo(
         isIqRecordingActive,
         colormap: colormap || [],
         demodFocusOverlay: demodFocusOverlayRef.current,
+        activeSignalArea: _activeSignalArea,
       };
     }, [
       colormap,
@@ -2678,39 +5160,10 @@ const FFTCanvas = memo(
       hardwareSampleRateHz,
       isDeviceConnected,
       isIqRecordingActive,
+      isRtlSdr,
       webgpuEnabled,
+      _activeSignalArea,
     ]);
-
-    const canvasPlaceholderState =
-      useMemo<CanvasPlaceholderState | null>(() => {
-        if (placeholderErrorReason) {
-          return {
-            kind: "error",
-            sourceLabel: placeholderSourceLabel,
-            reason: placeholderErrorReason,
-          };
-        }
-
-        if (isLoadingPlaceholder) {
-          return {
-            kind: "loading",
-            sourceLabel: placeholderSourceLabel,
-            paneLabel: placeholderPaneLabel,
-            message:
-              typeof awaitingDeviceData === "string"
-                ? awaitingDeviceData
-                : undefined,
-          };
-        }
-
-        return null;
-      }, [
-        isLoadingPlaceholder,
-        placeholderErrorReason,
-        placeholderSourceLabel,
-        placeholderPaneLabel,
-        awaitingDeviceData,
-      ]);
 
     const getCompositeSnapshot = useCallback(() => {
       const spectrumCanvas = spectrumGpuCanvasRef.current;
@@ -2726,7 +5179,7 @@ const FFTCanvas = memo(
       const compositeCanvas = document.createElement("canvas");
       compositeCanvas.width = width;
       compositeCanvas.height = height;
-      const ctx = compositeCanvas.getContext("2d");
+      const ctx = getCached2DContext(compositeCanvas);
       if (!ctx) {
         return null;
       }
@@ -2771,38 +5224,174 @@ const FFTCanvas = memo(
     return (
       <Suspense fallback={<div>Loading FFT visualization…</div>}>
         {nodePreview ? (
-          <NodePreviewCanvasWrapper
-            ref={spectrumContainerRef}
-            style={NODE_PREVIEW_BACKGROUND_STYLE}
-          >
-            {canvasPlaceholderState && (
-              <CanvasPlaceholder state={canvasPlaceholderState} />
-            )}
-            {!isInitializingWebGPU && (
+          <NodePreviewLayout>
+            <NodePreviewCanvasWrapper
+              ref={spectrumContainerRef}
+              style={NODE_PREVIEW_BACKGROUND_STYLE}
+            >
+              {canvasPlaceholderState && (
+                <CanvasPlaceholder state={canvasPlaceholderState} />
+              )}
+              {!isInitializingWebGPU && (
+                <CanvasLayer
+                  ref={setSpectrumGpuCanvasNode}
+                  id="fft-spectrum-canvas-webgpu"
+                />
+              )}
               <CanvasLayer
-                ref={setSpectrumGpuCanvasNode}
-                id="fft-spectrum-canvas-webgpu"
+                ref={_setSpectrumOverlayCanvasNode}
+                id="fft-spectrum-canvas-overlay"
               />
-            )}
-            <CanvasLayer
-              ref={_setSpectrumOverlayCanvasNode}
-              id="fft-spectrum-canvas-overlay"
-            />
-            {heterodyningHighlightedBins.length > 0 && (
-              <HighlightOverlay>
-                {heterodyningHighlightedBins.map((bin) => (
-                  <HighlightBand
-                    key={`spectrum-highlight-${bin.start}-${bin.end}`}
-                    $left={Math.max(0, Math.min(100, bin.start * 100))}
-                    $width={Math.max(
-                      0.2,
-                      Math.min(100, (bin.end - bin.start) * 100),
+              {floorLinePercent !== null && (
+                <FloorLineOverlay
+                  style={
+                    {
+                      "--floor-line-top": `${floorLinePercent}%`,
+                    } as React.CSSProperties
+                  }
+                />
+              )}
+
+              {heterodyningHighlightedBins.length > 0 && (
+                <HighlightOverlay>
+                  {heterodyningHighlightedBins.map((bin) => (
+                    <HighlightBand
+                      key={`spectrum-highlight-${bin.start}-${bin.end}`}
+                      $left={Math.max(0, Math.min(100, bin.start * 100))}
+                      $width={Math.max(
+                        0.2,
+                        Math.min(100, (bin.end - bin.start) * 100),
+                      )}
+                    />
+                  ))}
+                </HighlightOverlay>
+              )}
+            </NodePreviewCanvasWrapper>
+            <NodePreviewMiniVfo
+              data-testid="fft-node-mini-vfo"
+              data-center={nodePreviewMiniVfoMetrics?.center}
+            >
+              {nodePreviewMiniVfoMetrics && filteredTicks.length > 0 && (
+                <NodePreviewVfoRuler>
+                  <NodePreviewVfoCenterLabel>
+                    {getVfoAxisIcon("wave")} {"  "}
+                    {formatVfoAxisCenterLabel(
+                      (frequencyRange.min + frequencyRange.max) / 2,
+                      false,
+                      (frequencyRange.max - frequencyRange.min) / 6,
                     )}
-                  />
-                ))}
-              </HighlightOverlay>
-            )}
-          </NodePreviewCanvasWrapper>
+                  </NodePreviewVfoCenterLabel>
+                  <NodePreviewVfoCenterTick />
+                  {filteredTicks.map((tick) => {
+                    const tickLabel = formatVfoAxisEdgeLabel(
+                      tick.frequencyHz,
+                      false,
+                      (frequencyRange.max - frequencyRange.min) / 6,
+                    );
+                    const keySuffix =
+                      tick.positionPercent === 0
+                        ? "min"
+                        : tick.positionPercent === 100
+                          ? "max"
+                          : tick.frequencyHz.toString();
+                    return [
+                      <NodePreviewVfoTickLabel
+                        key={`label-${keySuffix}`}
+                        $active={false}
+                        $visible={tick.showLabel}
+                        style={
+                          {
+                            "--tick-label-left":
+                              tick.positionPercent === 0
+                                ? "4px"
+                                : tick.positionPercent === 100
+                                  ? "auto"
+                                  : `${tick.positionPercent}%`,
+                            right:
+                              tick.positionPercent === 100 ? "4px" : "auto",
+                            "--tick-label-transform":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "none"
+                                : "translateX(-50%)",
+                            textAlign:
+                              tick.positionPercent === 100 ? "right" : "left",
+                            "--tick-label-opacity":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "1"
+                                : "0.5",
+                            "--tick-label-weight":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "800"
+                                : "600",
+                          } as React.CSSProperties
+                        }
+                      >
+                        {tickLabel}
+                      </NodePreviewVfoTickLabel>,
+                      <NodePreviewVfoTick
+                        key={`tick-${keySuffix}`}
+                        $active={false}
+                        style={
+                          {
+                            "--tick-left":
+                              tick.positionPercent === 100
+                                ? "calc(100% - 1px)"
+                                : `${tick.positionPercent}%`,
+                            "--tick-opacity":
+                              tick.positionPercent === 0 ||
+                              tick.positionPercent === 100
+                                ? "1"
+                                : "0.6",
+                          } as React.CSSProperties
+                        }
+                      />,
+                    ];
+                  })}
+                </NodePreviewVfoRuler>
+              )}
+            </NodePreviewMiniVfo>
+            <NodePreviewSelectionBar
+              data-testid="fft-node-selection-bar"
+              data-has-selection={
+                nodePreviewSelectionBarLabels ? "true" : "false"
+              }
+            >
+              {nodePreviewSelectionBarLabels ? (
+                <>
+                  <span data-testid="fft-node-stats-selection">
+                    Center: {nodePreviewSelectionBarLabels.center}
+                  </span>
+                  <span>
+                    Bandwidth: {nodePreviewSelectionBarLabels.bandwidth}
+                  </span>
+                </>
+              ) : (
+                <span data-testid="fft-node-stats-selection">
+                  No current bandwidth selection
+                </span>
+              )}
+            </NodePreviewSelectionBar>
+            <NodePreviewStatsMeta data-testid="fft-node-stats-meta">
+              <span>FFT Size: {effectiveFftSize.toLocaleString()}</span>
+              <span>
+                Sample Rate:{" "}
+                {formatFrequency(
+                  hardwareSampleRateHz ??
+                    frequencyRange.max - frequencyRange.min,
+                  {
+                    showUnits: true,
+                    precisionMHz: 3,
+                    precisionGHz: 3,
+                    precisionKHz: 3,
+                  },
+                ).replace(/(\d)(?=[A-Za-z])/g, "$1 ")}
+              </span>
+              <span>{deviceName || placeholderSourceLabel || "Unknown"}</span>
+            </NodePreviewStatsMeta>
+          </NodePreviewLayout>
         ) : (
           <VisualizerContainer
             style={compact ? COMPACT_VISUALIZER_STYLE : EMPTY_STYLE}
@@ -2814,7 +5403,9 @@ const FFTCanvas = memo(
                 {!compact && (
                   <SectionTitleRow>
                     <SectionTitle>
-                      FFT Signal Display {isPaused && "(Paused)"}
+                      {isStandby
+                        ? "FFT Signal Display (Standby)"
+                        : `FFT Signal Display ${isPaused ? "(Paused)" : ""}`}
                     </SectionTitle>
                     {headerActionContent && (
                       <SectionTitleActions
@@ -2826,7 +5417,10 @@ const FFTCanvas = memo(
                   </SectionTitleRow>
                 )}
                 <SpectrumRow>
-                  <CanvasWrapper ref={spectrumContainerRef}>
+                  <CanvasWrapper
+                    ref={spectrumContainerRef}
+                    onDoubleClick={onCenterFrequencyDoubleClick}
+                  >
                     {canvasPlaceholderState && (
                       <CanvasPlaceholder state={canvasPlaceholderState} />
                     )}
@@ -2840,6 +5434,16 @@ const FFTCanvas = memo(
                       ref={_setSpectrumOverlayCanvasNode}
                       id="fft-spectrum-canvas-overlay"
                     />
+                    {floorLinePercent !== null && (
+                      <FloorLineOverlay
+                        style={
+                          {
+                            "--floor-line-top": `${floorLinePercent}%`,
+                          } as React.CSSProperties
+                        }
+                      />
+                    )}
+
                     {heterodyningHighlightedBins.length > 0 && (
                       <HighlightOverlay>
                         {heterodyningHighlightedBins.map((bin) => (
@@ -2854,15 +5458,129 @@ const FFTCanvas = memo(
                         ))}
                       </HighlightOverlay>
                     )}
-                    {selectionTooltipText && selectionMode === "range" && (
-                      <SelectionTooltip>
-                        <strong>Selection</strong>
-                        <span ref={tooltipSpanRef}>
-                          Span: {selectionTooltipText.spanHz} Hz
-                        </span>
-                      </SelectionTooltip>
-                    )}
-                    {overlayContent}
+                    {selectionTooltipText &&
+                      selectionMode === "range" &&
+                      !nodePreview && (
+                        <SelectionTooltip>
+                          <strong>Selection</strong>
+                          <span ref={tooltipSpanRef}>
+                            Span: {selectionTooltipText.spanHz} Hz
+                          </span>
+                        </SelectionTooltip>
+                      )}
+                    {txSliderVisualMetrics && !compact ? (
+                      <TxSliderVisualRow data-testid="tx-slider-visual-row">
+                        <TxSliderVisualLabel>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              height: "18px",
+                            }}
+                          >
+                            <TxSliderLockButton
+                              type="button"
+                              onClick={() =>
+                                setIsTxSliderLocked((value) => !value)
+                              }
+                              aria-pressed={isTxSliderLocked}
+                              aria-label={
+                                isTxSliderLocked
+                                  ? "Unlock Tx slider"
+                                  : "Lock Tx slider"
+                              }
+                              title={
+                                isTxSliderLocked
+                                  ? "Unlock Tx slider"
+                                  : "Lock Tx slider"
+                              }
+                            >
+                              {isTxSliderLocked ? (
+                                <Lock size={10} strokeWidth={2.5} />
+                              ) : (
+                                <Unlock size={10} strokeWidth={2.5} />
+                              )}
+                            </TxSliderLockButton>
+                            <TxSliderMetaText>
+                              {txSliderDisplayLabel}
+                            </TxSliderMetaText>
+                          </div>
+                        </TxSliderVisualLabel>
+                        <TxSliderVisualTrack>
+                          <TxSliderVisualBase />
+                          <TxSliderVisualBand
+                            $width={txSliderVisualMetrics.width}
+                            $centerLeft={txSliderVisualMetrics.centerLeft}
+                            $isTransmitting={isTransmittingGlobal}
+                          />
+                          {!txSliderVisualMetrics.isOffScreen && (
+                            <>
+                              <TxSliderVisualCenterFrequencyText
+                                $isTransmitting={isTransmittingGlobal}
+                                $isLocked={isTxSliderLocked}
+                                style={
+                                  {
+                                    "--tx-center-label-left": `${txSliderVisualMetrics.centerLeft}%`,
+                                  } as React.CSSProperties
+                                }
+                              >
+                                {isTxSliderLocked ? (
+                                  <TxSliderCenterLockIcon aria-hidden="true">
+                                    <Lock size={10} strokeWidth={2.5} />
+                                  </TxSliderCenterLockIcon>
+                                ) : null}
+                                {txSliderVisualMetrics.centerHzFormatted}
+                              </TxSliderVisualCenterFrequencyText>
+                              <TxSliderVisualText
+                                $isTransmitting={isTransmittingGlobal}
+                                style={
+                                  {
+                                    "--tx-label-left": `${txSliderVisualMetrics.centerLeft}%`,
+                                  } as React.CSSProperties
+                                }
+                              >
+                                <span>
+                                  {txSliderVisualMetrics.bandwidthFormatted}
+                                </span>
+                                {txSliderVisualMetrics.powerLabel ? (
+                                  <TxSliderVisualPower
+                                    $isTransmitting={isTransmittingGlobal}
+                                  >
+                                    {"·"}
+                                    {txSliderVisualMetrics.powerLabel}
+                                  </TxSliderVisualPower>
+                                ) : null}
+                              </TxSliderVisualText>
+                            </>
+                          )}
+                          {txSliderVisualMetrics.isOffScreen &&
+                            txSliderVisualMetrics.offScreenDirection && (
+                              <TxSliderVisualOffScreenIndicator
+                                type="button"
+                                $direction={
+                                  txSliderVisualMetrics.offScreenDirection
+                                }
+                                $isTransmitting={isTransmittingGlobal}
+                                onClick={handleOffscreenIndicatorClick}
+                              >
+                                {txSliderVisualMetrics.offScreenDirection ===
+                                "left"
+                                  ? "←"
+                                  : ""}{" "}
+                                {txSliderVisualMetrics.centerHzFormatted} ·{" "}
+                                {txSliderVisualMetrics.powerLabel ?? "Unknown"}{" "}
+                                · {txSliderVisualMetrics.bandwidthFormatted}{" "}
+                                {txSliderVisualMetrics.offScreenDirection ===
+                                "right"
+                                  ? "→"
+                                  : ""}
+                              </TxSliderVisualOffScreenIndicator>
+                            )}
+                        </TxSliderVisualTrack>
+                        <span aria-hidden="true" />
+                      </TxSliderVisualRow>
+                    ) : null}
                   </CanvasWrapper>
                 </SpectrumRow>
               </SpectrumSection>

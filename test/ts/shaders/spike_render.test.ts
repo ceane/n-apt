@@ -17,4 +17,22 @@ describe("spike_render.wgsl", () => {
     expect(SPIKE_RENDER_WGSL).toContain("fn vs_circle");
     expect(SPIKE_RENDER_WGSL).toContain("fn fs_circle");
   });
+
+  it("anchors the annotation stem to the exact FFT peak coordinate", () => {
+    expect(SPIKE_RENDER_WGSL).toContain(
+      "let peak_y = value_to_y(spike.value);",
+    );
+    expect(SPIKE_RENDER_WGSL).toContain("let line_bottom = peak_y;");
+    expect(SPIKE_RENDER_WGSL).toContain("peak_y + hover_gap");
+  });
+
+  it("keeps edge markers fully inside the visible plot", () => {
+    expect(SPIKE_RENDER_WGSL).toContain("fn marker_x_for_peak");
+    expect(SPIKE_RENDER_WGSL).toContain(
+      "clamp(peak_x, plot_left + radius, plot_right - radius)",
+    );
+    expect(SPIKE_RENDER_WGSL).toContain(
+      "let x = marker_x_for_peak(idx_to_x(spike.index));",
+    );
+  });
 });

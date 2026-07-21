@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import { formatChannelFreq } from "@n-apt/utils/frequency";
 
 type RangeVariant = "primary" | "secondary";
 
@@ -138,13 +138,13 @@ export const Range: React.FC<RangeProps> = ({
         aria-label={label}
         $variant={variant}
       >
-        <RangeStart>{formatFrequency(min)}</RangeStart>
+        <RangeStart>{formatChannelFreq(min)}</RangeStart>
         <RangeTotal
           $active={selected}
           aria-hidden={!selected}
           $variant={variant}
         />
-        <RangeEnd>{formatFrequency(max)}</RangeEnd>
+        <RangeEnd>{formatChannelFreq(max)}</RangeEnd>
       </RangeButton>
       {children}
     </RangeWrapper>

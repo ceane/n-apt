@@ -11,7 +11,7 @@
 //! - `hackrf` module provides real hardware interface for HackRF One devices
 //! - `processor` contains the main signal processing pipeline
 
-use crate::fft::types::RawSamples;
+use crate::s::fft::types::RawSamples;
 use anyhow::Result;
 use std::thread;
 use std::time::Duration;
@@ -55,6 +55,11 @@ pub trait SdrDevice: Send {
 
   /// Initialize the device and prepare for operation
   fn initialize(&mut self) -> Result<()>;
+
+  /// Suspend sample transfers while retaining the open device handle.
+  fn enter_standby(&mut self) -> Result<()> {
+    Ok(())
+  }
 
   /// Check if device is ready for reading
   fn is_ready(&self) -> bool;
@@ -143,6 +148,30 @@ pub trait SdrDevice: Send {
   /// deciding to abandon the device and fall back to mock.
   fn is_healthy(&self) -> bool;
 
+  /// Check if the device is actively streaming/receiving samples (Rx active)
+  fn is_rx_active(&self) -> bool {
+    false
+  }
+
+  /// Get the device serial number (empty string if unavailable)
+  fn get_serial_number(&self) -> String {
+    String::new()
+  }
+
+  /// Get the device manufacturer string (empty string if unavailable)
+  fn get_manufacturer(&self) -> String {
+    String::new()
+  }
+
+  /// Get the device product string (empty string if unavailable)
+  fn get_product(&self) -> String {
+    String::new()
+  }
+
+  fn get_firmware_version(&self) -> Option<String> {
+    None
+  }
+
   /// Get the last error message if any
   fn get_error(&self) -> Option<String>;
 }
@@ -153,8 +182,35 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
-    // Prefer HackRF One when both devices are present, then fall back to RTL-SDR,
-    // then finally to the mock device.
+    // Prefer opening the device that is physically connected according to USB snapshots.
+    let snapshots =
+      match crate::sdr::hotplug::scan_supported_usb_device_snapshots() {
+        Ok(s) => s,
+        Err(_) => Vec::new(),
+      };
+
+    let has_hackrf_connected =
+      snapshots.iter().any(|s| s.device_type == "hackrf_one");
+    let has_rtlsdr_connected =
+      snapshots.iter().any(|s| s.device_type == "rtl-sdr");
+
+    #[cfg(has_hackrf)]
+    {
+      if has_hackrf_connected {
+        if let Ok(device) = open_hackrf_with_retry() {
+          return Ok(device);
+        }
+      }
+    }
+
+    if has_rtlsdr_connected {
+      if let Ok(device) = crate::sdr::rtlsdr::RtlSdrDevice::open_first() {
+        log::info!("Using RTL-SDR device");
+        return Ok(Box::new(device));
+      }
+    }
+
+    // If snapshots scan is inconclusive or both are listed, try to open HackRF then RTL-SDR
     #[cfg(has_hackrf)]
     {
       if let Ok(device) = open_hackrf_with_retry() {
@@ -173,17 +229,11 @@ impl SdrDeviceFactory {
 
   /// Force creation of a mock APT device
   pub fn create_mock_device() -> Box<dyn SdrDevice> {
-    log::info!("Creating mock APT SDR device");
-    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-    {
-      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
-        return Box::new(
-          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
-        );
-      }
-    }
-
-    Box::new(crate::sdr::mock_apt::MockAptDevice::new())
+    log::info!(
+      "Creating mock APT SDR device with fixed seed for visual continuity"
+    );
+    // Use a fixed seed so frequencies stay aligned when swapping away and back
+    Box::new(crate::sdr::mock_apt::MockAptDevice::new_with_seed(0x0A97))
   }
 
   /// Force creation of an RTL-SDR device (will error if none available)
@@ -210,15 +260,6 @@ impl SdrDeviceFactory {
     log::info!(
       "No RTL-SDR or HackRF One device found, using mock APT implementation"
     );
-    #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
-    {
-      if crate::sdr::mock_apt::MockAptDevice::metal_backend_available() {
-        return Ok(Box::new(
-          crate::sdr::mock_apt::MockAptDevice::new_with_gpu_backend(),
-        ));
-      }
-    }
-
     Ok(Box::new(crate::sdr::mock_apt::MockAptDevice::new()))
   }
 }

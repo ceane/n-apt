@@ -355,7 +355,7 @@ fn generic_true_dbm(sample: Complex) -> f32 {
 }
 
 fn interpolate_rtl_sdr_gain_offset(gain_db: f32) -> f32 {
-  let g = clamp(gain_db, 0.0, 49.6);
+  let g = clamp(gain_db, 0.0, 46.9);
 
   if (g <= 10.0) {
     return -32.0 + (g / 10.0) * 4.0;

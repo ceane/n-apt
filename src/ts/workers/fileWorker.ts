@@ -26,6 +26,28 @@ function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
 }
 
 type FileMetadata = {
+  format?: string;
+  format_version?: number;
+  interleaving?: string;
+  sample_encoding?: {
+    element_type: string;
+    bits_per_element: number;
+    signed: boolean;
+    byte_order: string;
+    normalization: string;
+  };
+  device_profile?: {
+    kind?: string;
+    model?: string;
+    serial?: string;
+    driver?: string;
+    firmware_version?: string | null;
+  };
+  frame_updates?: {
+    sample_offset: number;
+    timestamp_us?: number;
+    patch: Record<string, unknown>;
+  }[];
   center_frequency_hz?: number;
   capture_sample_rate_hz?: number;
   hardware_sample_rate_hz?: number;
@@ -68,6 +90,69 @@ type WavLoadResult = {
     bins_per_frame?: number;
   }[];
 };
+
+async function loadIqFile(
+  fileData: ArrayBuffer,
+  aesKey: CryptoKey | null,
+): Promise<{ raw: Uint8Array; metadata: FileMetadata | null }> {
+  const view = new DataView(fileData);
+  const magic = new TextDecoder().decode(new Uint8Array(fileData, 0, 8));
+  if (magic !== "NAPT-IQ3" || fileData.byteLength < 40) {
+    throw new Error("Invalid IQ v3 header");
+  }
+  const metadataLength = Number(view.getBigUint64(8, true));
+  const framesLength = Number(view.getBigUint64(16, true));
+  const payloadLength = Number(view.getBigUint64(24, true));
+  const encrypted = view.getUint8(32) !== 0;
+  const metadataStart = 40;
+  const framesStart = metadataStart + metadataLength;
+  const payloadStart = framesStart + framesLength;
+  if (payloadStart + payloadLength > fileData.byteLength) {
+    throw new Error("Truncated IQ v3 file");
+  }
+  const metadata = JSON.parse(new TextDecoder().decode(
+    new Uint8Array(fileData, metadataStart, metadataLength),
+  )) as FileMetadata;
+  const frameUpdates = JSON.parse(new TextDecoder().decode(
+    new Uint8Array(fileData, framesStart, framesLength),
+  )) as FileMetadata["frame_updates"];
+  metadata.frame_updates = frameUpdates;
+  let payload = new Uint8Array(fileData, payloadStart, payloadLength).slice();
+  if (encrypted) {
+    if (!aesKey) throw new Error("IQ v3 file is encrypted");
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: payload.slice(0, 12) },
+      aesKey,
+      payload.slice(12),
+    );
+    payload = new Uint8Array(plain);
+  }
+  let privateMetadata: Record<string, unknown> | undefined;
+  const chunks: Uint8Array[] = [];
+  let offset = 0;
+  while (offset < payload.length) {
+    if (offset + 12 <= payload.length &&
+        new TextDecoder().decode(payload.slice(offset, offset + 4)) === "PMD3") {
+      const privateLength = Number(new DataView(payload.buffer, payload.byteOffset + offset + 4, 8).getBigUint64(0, true));
+      offset += 12;
+      if (offset + privateLength > payload.length) throw new Error("Truncated IQ private metadata");
+      privateMetadata = JSON.parse(new TextDecoder().decode(payload.slice(offset, offset + privateLength)));
+      offset += privateLength;
+      continue;
+    }
+    if (offset + 20 > payload.length) throw new Error("Truncated IQ chunk");
+    const length = Number(new DataView(payload.buffer, payload.byteOffset + offset + 12, 8).getBigUint64(0, true));
+    offset += 20;
+    if (offset + length > payload.length) throw new Error("Truncated IQ chunk data");
+    chunks.push(payload.slice(offset, offset + length));
+    offset += length;
+  }
+  const total = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let write = 0;
+  for (const chunk of chunks) { total.set(chunk, write); write += chunk.length; }
+  if (privateMetadata) metadata.device_profile = privateMetadata as FileMetadata["device_profile"];
+  return { raw: total, metadata };
+}
 
 function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   const view = new DataView(fileData);
@@ -526,7 +611,11 @@ self.onmessage = async function (e) {
 
         const lower = fileName.toLowerCase();
         let rawData: Uint8Array = new Uint8Array(0);
-        if (lower.endsWith(".wav")) {
+        if (lower.endsWith(".iq")) {
+          const res = await loadIqFile(fileData, aesKey);
+          rawData = res.raw;
+          (self as any).postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } }, [rawData.buffer]);
+        } else if (lower.endsWith(".wav")) {
           const res = loadWavFile(fileData);
           rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
 
@@ -739,7 +828,19 @@ self.onmessage = async function (e) {
             let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
 
-            if (lower.endsWith(".wav")) {
+            if (lower.endsWith(".iq")) {
+              const res = await loadIqFile(file.fileData, aesKey);
+              rawData = res.raw;
+              metadata = res.metadata;
+              (metadata as any).channels_data = [{
+                iq_data: rawData,
+                center_freq_hz: metadata?.center_frequency_hz || 0,
+                sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
+                bins_per_frame: metadata?.fft_size,
+                frame_rate: metadata?.frame_rate,
+                frame_updates: metadata?.frame_updates,
+              }];
+            } else if (lower.endsWith(".wav")) {
               const {
                 raw,
                 metadata: wavMeta,

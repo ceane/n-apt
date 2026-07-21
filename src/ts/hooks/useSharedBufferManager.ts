@@ -18,6 +18,7 @@ export interface RingBuffer {
   capacity: number;
   stride: number;
   owner: string;
+  lastAccessed: number;
 }
 
 export interface SharedBufferManagerOptions {
@@ -174,6 +175,7 @@ export function useSharedBufferManager(options: SharedBufferManagerOptions) {
         capacity,
         stride,
         owner,
+        lastAccessed: performance.now(),
       };
 
       ringBuffersRef.current.set(id, ringBuffer);
@@ -221,6 +223,7 @@ export function useSharedBufferManager(options: SharedBufferManagerOptions) {
       ringBuffer.writeIndex =
         (ringBuffer.writeIndex + Math.ceil(dataSize / ringBuffer.stride)) %
         ringBuffer.capacity;
+      ringBuffer.lastAccessed = performance.now();
 
       return true;
     },
@@ -241,6 +244,7 @@ export function useSharedBufferManager(options: SharedBufferManagerOptions) {
 
       const ringBuffer = ringBuffersRef.current.get(ringBufferId);
       if (!ringBuffer) return Promise.resolve(null);
+      ringBuffer.lastAccessed = performance.now();
 
       // Create temporary buffer for reading
       const tempBuffer = createBuffer(
@@ -353,10 +357,7 @@ export function useSharedBufferManager(options: SharedBufferManagerOptions) {
     // Clean up unused ring buffers
     const ringBuffersToDelete: string[] = [];
     ringBuffersRef.current.forEach((ringBuffer, id) => {
-      if (
-        now - ringBuffer.writeIndex > maxAge &&
-        now - ringBuffer.readIndex > maxAge
-      ) {
+      if (now - ringBuffer.lastAccessed > maxAge) {
         ringBuffersToDelete.push(id);
       }
     });

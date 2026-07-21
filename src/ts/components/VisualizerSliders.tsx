@@ -12,6 +12,8 @@ import {
   RotateCcw,
   Sigma,
   Wand2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const SlidersGrid = styled.div`
@@ -176,6 +178,11 @@ export interface VisualizerSlidersProps {
   onRefocusZoomFloor?: () => void;
   /** Disable the control rail while the canvas is loading. */
   disabled?: boolean;
+  /** Toggle visibility of the TX slider overlay */
+  showTxSlider?: boolean;
+  /** Whether the active source can expose TX controls */
+  canShowTxSlider?: boolean;
+  onShowTxSliderChange?: (show: boolean) => void;
 }
 
 // Module-level format functions — avoid inline lambdas that break React.memo
@@ -205,6 +212,9 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
     onLockZoomFloor,
     onRefocusZoomFloor,
     disabled = false,
+    showTxSlider = true,
+    canShowTxSlider = true,
+    onShowTxSliderChange,
   }) => {
     // Calculate appropriate ranges based on power scale
     const isDbm = powerScale === "dBm";
@@ -238,6 +248,10 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
     const toggleAutoZoom = useCallback(
       () => onAutoZoomStabilityChange?.(!autoZoomStability),
       [autoZoomStability, onAutoZoomStabilityChange],
+    );
+    const toggleShowTxSlider = useCallback(
+      () => onShowTxSliderChange?.(!showTxSlider),
+      [showTxSlider, onShowTxSliderChange],
     );
 
     return (
@@ -292,6 +306,21 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
             <Maximize2 size={13} strokeWidth={1.5} />
             Auto Zoom Stability
           </ActionButton>
+          {canShowTxSlider ? (
+            <ActionButton
+              $active={showTxSlider}
+              disabled={disabled}
+              onClick={toggleShowTxSlider}
+              title="Toggle Tx Slider visibility"
+            >
+              {showTxSlider ? (
+                <EyeOff size={13} strokeWidth={1.5} />
+              ) : (
+                <Eye size={13} strokeWidth={1.5} />
+              )}
+              {showTxSlider ? "Hide Tx Slider" : "Show Tx Slider"}
+            </ActionButton>
+          ) : null}
           {canShowZoomFloorAction && (
             <ActionButton
               $refocus={hasZoomFloor}

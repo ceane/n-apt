@@ -64,6 +64,28 @@ export const getCenteredFrequencyHz = (
   bandwidthHz: number,
 ): number => centerHz - bandwidthHz / 2;
 
+export const buildCenteredFrequencyRange = (
+  centerHz: number,
+  spanHz: number,
+): FrequencyRange => {
+  const safeSpan = Number.isFinite(spanHz) && spanHz > 0 ? spanHz : 0;
+  const halfSpan = safeSpan / 2;
+  const rawMin = Math.round(centerHz - halfSpan);
+  const rawMax = Math.round(centerHz + halfSpan);
+
+  if (!Number.isFinite(rawMin) || !Number.isFinite(rawMax) || safeSpan <= 0) {
+    return { min: 0, max: 0 };
+  }
+
+  if (rawMin < 0) {
+    return { min: 0, max: Math.round(safeSpan) };
+  }
+
+  return rawMin <= rawMax
+    ? { min: rawMin, max: rawMax }
+    : { min: rawMax, max: rawMin };
+};
+
 export const getBandwidthEndHz = (
   startHz: number,
   bandwidthHz: number,
@@ -96,6 +118,29 @@ export const normalizeFrequencyRangeToHz = (
 
 export const getFrequencyRangeCenterHz = (range: FrequencyRange): number =>
   Math.round((range.min + range.max) / 2);
+
+export const clampCenteredFrequencyRangeToZeroHz = (
+  centerHz: number,
+  bandwidthHz: number,
+): FrequencyRange => {
+  const safeBandwidth =
+    Number.isFinite(bandwidthHz) && bandwidthHz > 0 ? bandwidthHz : 0;
+  const halfBandwidth = safeBandwidth / 2;
+  const rawCenter = Number.isFinite(centerHz) ? centerHz : 0;
+
+  if (safeBandwidth <= 0) {
+    return { min: 0, max: 0 };
+  }
+
+  const adjustedCenter = Math.max(rawCenter, halfBandwidth);
+  const min = adjustedCenter - halfBandwidth;
+  const max = adjustedCenter + halfBandwidth;
+
+  return {
+    min: Math.round(Math.max(0, min)),
+    max: Math.round(Math.max(0, max)),
+  };
+};
 
 export const getAvailableSpectrumBounds = (
   bounds?: FrequencyRange | null,
@@ -147,6 +192,37 @@ export const clampFrequencyRangeToBounds = (
   return { min, max };
 };
 
+export const isFrequencyWithinRange = (
+  frequencyHz: number,
+  range: FrequencyRange | null | undefined,
+): boolean => {
+  if (
+    !range ||
+    !Number.isFinite(frequencyHz) ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max)
+  ) {
+    return false;
+  }
+
+  const min = Math.min(range.min, range.max);
+  const max = Math.max(range.min, range.max);
+  return frequencyHz >= min && frequencyHz <= max;
+};
+
+export const findRangeContainingFrequency = <T extends FrequencyRange>(
+  frequencyHz: number,
+  ranges: readonly T[] | null | undefined,
+): T | null => {
+  if (!Array.isArray(ranges) || !Number.isFinite(frequencyHz)) {
+    return null;
+  }
+
+  return (
+    ranges.find((range) => isFrequencyWithinRange(frequencyHz, range)) ?? null
+  );
+};
+
 export const clampBandwidthWithMinSpan = (
   startHz: number,
   endHz: number,
@@ -180,7 +256,7 @@ export const roundDbValue = (value: number) => {
   return Object.is(rounded, -0) ? 0 : rounded;
 };
 
-const trimNumericString = (value: string): string =>
+export const trimNumericString = (value: string): string =>
   value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 
 const formatIntegerWithSeparators = (value: number): string =>
@@ -209,36 +285,38 @@ export const formatFrequency = (
     return "---" + (showUnits ? "Hz" : "");
   }
 
-  const abs = Math.abs(freqHz);
+  const normalizedFreqHz = Object.is(freqHz, -0) ? 0 : freqHz;
+  const abs = Math.abs(normalizedFreqHz);
   let val: number;
   let unit: string;
   let precision: number;
 
-  if (freqHz === 0) {
+  if (normalizedFreqHz === 0) {
     val = 0;
     unit = "Hz";
     precision = 0;
   } else if (abs < 1000) {
-    val = freqHz;
+    val = normalizedFreqHz;
     unit = "Hz";
     precision = 0;
   } else if (abs < 1_000_000) {
-    val = freqHz / 1000;
+    val = normalizedFreqHz / 1000;
     unit = "kHz";
     precision = precisionKHz;
   } else if (abs < 1_000_000_000) {
-    val = freqHz / 1_000_000;
+    val = normalizedFreqHz / 1_000_000;
     unit = "MHz";
     precision = precisionMHz;
   } else {
-    val = freqHz / 1_000_000_000;
+    val = normalizedFreqHz / 1_000_000_000;
     unit = "GHz";
     precision = precisionGHz;
   }
 
+  const displayVal = Number(val.toFixed(precision)) === 0 ? 0 : val;
   const formattedNumber = trimTrailingZeros
-    ? trimNumericString(val.toFixed(precision))
-    : val.toFixed(precision);
+    ? trimNumericString(displayVal.toFixed(precision))
+    : displayVal.toFixed(precision);
   return formattedNumber + (showUnits ? unit : "");
 };
 
@@ -250,6 +328,11 @@ export const formatFrequency = (
 export const formatFrequencyHz = (freqHz: number): string => {
   if (!Number.isFinite(freqHz)) return "0";
   return formatIntegerWithSeparators(freqHz);
+};
+
+export const formatPowerDbm = (powerDbm: number): string => {
+  const value = Number.isFinite(powerDbm) ? Math.round(powerDbm) : 0;
+  return `${value} dBm`;
 };
 
 /**

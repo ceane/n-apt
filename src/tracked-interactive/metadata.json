@@ -1,0 +1,5 @@
+{
+  "name": "Tracked! Interactive",
+  "description": "A 3D city block simulation where the 3 nearest cell towers act as spotlights tracking the player.",
+  "requestFramePermissions": []
+}

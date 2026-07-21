@@ -23,6 +23,7 @@ import {
   Signal,
   FileBox,
   FileSignal,
+  SatelliteDish,
 } from "lucide-react";
 
 const NodePaletteContainer = styled.div`
@@ -108,6 +109,103 @@ interface NodeType {
 
 const availableNodes: NodeType[] = [
   {
+    id: "tx",
+    type: "custom",
+    label: "Tx",
+    description: "Configure a transmit signal for controlled demod tests",
+    icon: <SatelliteDish size={16} />,
+    position: { x: 100, y: 50 },
+    data: {
+      label: "Tx",
+      description: "Configure a transmit signal for controlled demod tests",
+      txOptions: true,
+    },
+  },
+  {
+    id: "fft",
+    type: "custom",
+    label: "FFT",
+    description: "Fast Fourier Transform",
+    icon: <Activity size={16} />,
+    position: { x: 400, y: 250 },
+    data: {
+      label: "FFT",
+      description: "Fast Fourier Transform",
+      fftOptions: true,
+    },
+  },
+  {
+    id: "waterfall",
+    type: "custom",
+    label: "Waterfall",
+    description: "Frequency spectrum waterfall",
+    icon: <Waves size={16} />,
+    position: { x: 100, y: 350 },
+    data: {
+      label: "Waterfall",
+      description: "Frequency spectrum waterfall",
+      waterfallOptions: true,
+    },
+  },
+  {
+    id: "symbols",
+    type: "custom",
+    label: "Symbols (I/Q)",
+    description:
+      "Turns signal measurements like amplitude and phase into symbols that represent bits.",
+    icon: <Signal size={16} />,
+    position: { x: 350, y: 850 },
+    data: {
+      label: "Symbols (I/Q)",
+      description:
+        "Turns signal measurements like amplitude and phase into symbols that represent bits.",
+      symbolOptions: true,
+    },
+  },
+  {
+    id: "bitstream",
+    type: "custom",
+    label: "Bitstream (0s/1s)",
+    description:
+      "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
+    icon: <Binary size={16} />,
+    position: { x: 150, y: 950 },
+    data: {
+      label: "Bitstream (0s/1s)",
+      description:
+        "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
+      bitstreamOptions: true,
+    },
+  },
+  {
+    id: "stimulus",
+    type: "custom",
+    label: "Stimulus (N-APT)",
+    description:
+      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+    icon: <Volume2 size={16} />,
+    position: { x: 150, y: 550 },
+    data: {
+      label: "Stimulus",
+      description:
+        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+      stimulusOptions: true,
+    },
+  },
+  {
+    id: "iq-capture",
+    type: "custom",
+    label: "I/Q Capture",
+    description: "Take an I/Q capture from the demod route",
+    icon: <FileSignal size={16} />,
+    position: { x: 250, y: 300 },
+    data: {
+      label: "I/Q Capture",
+      description: "Take an I/Q capture from the demod route",
+      iqCaptureNode: true,
+    },
+  },
+  {
     id: "source",
     type: "custom",
     label: "Source",
@@ -132,19 +230,6 @@ const availableNodes: NodeType[] = [
       label: "Signal Configuration",
       description: "Hardware sampling and FFT settings",
       signalOptions: true,
-    },
-  },
-  {
-    id: "iq-capture",
-    type: "custom",
-    label: "I/Q Capture",
-    description: "Take an I/Q capture from the demod route",
-    icon: <FileSignal size={16} />,
-    position: { x: 250, y: 300 },
-    data: {
-      label: "I/Q Capture",
-      description: "Take an I/Q capture from the demod route",
-      iqCaptureNode: true,
     },
   },
   {
@@ -202,32 +287,6 @@ const availableNodes: NodeType[] = [
     },
   },
   {
-    id: "fft",
-    type: "custom",
-    label: "FFT",
-    description: "Fast Fourier Transform",
-    icon: <Activity size={16} />,
-    position: { x: 400, y: 250 },
-    data: {
-      label: "FFT",
-      description: "Fast Fourier Transform",
-      fftOptions: true,
-    },
-  },
-  {
-    id: "waterfall",
-    type: "custom",
-    label: "Waterfall",
-    description: "Frequency spectrum waterfall",
-    icon: <Waves size={16} />,
-    position: { x: 100, y: 350 },
-    data: {
-      label: "Waterfall",
-      description: "Frequency spectrum waterfall",
-      waterfallOptions: true,
-    },
-  },
-  {
     id: "spectogram-128",
     type: "custom",
     label: "Spectogram 128",
@@ -273,21 +332,6 @@ const availableNodes: NodeType[] = [
       label: "Span",
       description: "Arbitrary frequency range",
       spanOptions: true,
-    },
-  },
-  {
-    id: "stimulus",
-    type: "custom",
-    label: "Stimulus (N-APT)",
-    description:
-      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-    icon: <Volume2 size={16} />,
-    position: { x: 150, y: 550 },
-    data: {
-      label: "Stimulus",
-      description:
-        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-      stimulusOptions: true,
     },
   },
   {
@@ -375,36 +419,6 @@ const availableNodes: NodeType[] = [
     },
   },
   {
-    id: "symbols",
-    type: "custom",
-    label: "Symbols (I/Q)",
-    description:
-      "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
-    icon: <Signal size={16} />,
-    position: { x: 350, y: 850 },
-    data: {
-      label: "Symbols (I/Q)",
-      description:
-        "Converts baseband waveform into discrete modulation symbols. Each symbol represents one or more bits.",
-      symbolOptions: true,
-    },
-  },
-  {
-    id: "bitstream",
-    type: "custom",
-    label: "Bitstream (0s/1s)",
-    description:
-      "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
-    icon: <Binary size={16} />,
-    position: { x: 150, y: 950 },
-    data: {
-      label: "Bitstream (0s/1s)",
-      description:
-        "Maps symbols into raw bits after demodulation. Continuous 0s and 1s, no framing applied yet.",
-      bitstreamOptions: true,
-    },
-  },
-  {
     id: "baseband",
     type: "custom",
     label: "Baseband (I/Q waveform)",
@@ -447,7 +461,7 @@ export const DemodSidebarNodes: React.FC = () => {
     <NodeSection>
       <Collapsible
         title="Node Library (Advanced)"
-        defaultOpen={true}
+        defaultOpen={false}
         icon={<ToyBrick size={14} />}
       >
         <NodePaletteContainer>

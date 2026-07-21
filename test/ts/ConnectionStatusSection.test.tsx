@@ -35,6 +35,44 @@ describe("ConnectionStatusSection file mode", () => {
     expect(onFileProcess).toHaveBeenCalled();
   });
 
+  it("shows a stale placeholder instead of the pause button", () => {
+    render(
+      <TestWrapper>
+        <ConnectionStatusSection
+          {...baseProps}
+          deviceState="stale"
+          onPauseToggle={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: /stale/i })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /pause/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an Rx spinner instead of pause controls while HackRF loads", () => {
+    render(
+      <TestWrapper>
+        <ConnectionStatusSection
+          {...baseProps}
+          backend="hackrf_one"
+          deviceState="loading"
+          deviceLoadingReason="connect"
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("status", { name: /waiting for rx/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Waiting for Rx…")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /pause|resume/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the file not processed state once a file is selected", () => {
     render(
       <TestWrapper>

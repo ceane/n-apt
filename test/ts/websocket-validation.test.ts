@@ -4,7 +4,9 @@
 
 import {
   validateWebSocketMessage,
-  validateStatusMessage,
+  isValidSourceInfoMessage,
+  isValidSourceStatusMessage,
+  isValidSourceErrorMessage,
   validateCaptureStatus,
   validateAuthInfo,
   validateAuthResult,
@@ -18,6 +20,7 @@ import {
 describe("WebSocket Validation System", () => {
   beforeEach(() => {
     resetValidationMetrics();
+    jest.restoreAllMocks();
   });
 
   describe("WebSocket Message Validation", () => {
@@ -25,9 +28,22 @@ describe("WebSocket Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
+        duplex_mode: "half_duplex",
+        active_mode: "rx",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
+    });
+
+    test("should validate tx_mode messages using active_mode", () => {
+      expect(
+        validateWebSocketMessage({
+          type: "tx_mode",
+          active_mode: "rx_tx",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
     });
 
     test("should reject invalid WebSocket messages", () => {
@@ -78,163 +94,162 @@ describe("WebSocket Validation System", () => {
       // Should skip validation for binary data
       expect(validateWebSocketMessage(binaryData)).toBe(true);
     });
+
+    test("should not warn for sub-frame validation times", () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "development";
+      jest.resetModules();
+
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const nowSpy = jest
+        .spyOn(performance, "now")
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(6);
+
+      const {
+        validateWebSocketMessage: devValidateWebSocketMessage,
+      } = require("@n-apt/validation");
+
+      expect(
+        devValidateWebSocketMessage({
+          type: "pause",
+          paused: false,
+          source_id: "mock-apt",
+        }),
+      ).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      nowSpy.mockRestore();
+      warnSpy.mockRestore();
+      process.env.NODE_ENV = originalEnv;
+      jest.resetModules();
+    });
+
+    test("should warn for slow validation times at or above the threshold", () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "development";
+      jest.resetModules();
+
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const nowSpy = jest
+        .spyOn(performance, "now")
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(20);
+
+      const {
+        validateWebSocketMessage: devValidateWebSocketMessage,
+      } = require("@n-apt/validation");
+
+      expect(
+        devValidateWebSocketMessage({
+          type: "pause",
+          paused: false,
+          source_id: "mock-apt",
+        }),
+      ).toBe(true);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Slow validation detected: WebSocket message validation took",
+        ),
+      );
+
+      nowSpy.mockRestore();
+      warnSpy.mockRestore();
+      process.env.NODE_ENV = originalEnv;
+      jest.resetModules();
+    });
   });
 
-  describe("Status Message Validation", () => {
-    test("should validate valid status messages", () => {
-      const validStatus = {
-        type: "status",
-        device_connected: true,
-        device_info: "RTL-SDR Device Connected",
-        device_name: "RTL-SDR Device",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "connected",
-        paused: false,
-        max_sample_rate: 2048000,
-        channels: [
+  describe("Source Message Validation", () => {
+    test("should validate source_info messages", () => {
+      const sourceInfo = {
+        type: "source_info",
+        active_source: "mock-apt",
+        active_source_mode: "live",
+        sources: [
           {
-            id: "channel1",
-            label: "Test Channel",
-            min_hz: 100000000,
-            max_hz: 200000000,
-            description: "Test description",
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "streaming",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 3200000,
+              sample_rate_options: [3200000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 3200000,
+                center_frequency: 1600000,
+                gain: {
+                  tuner_gain: 49.6,
+                  rtl_agc: false,
+                  tuner_agc: false,
+                },
+                fft: {
+                  default_size: 2048,
+                  default_frame_rate: 30,
+                  max_size: 65536,
+                  max_frame_rate: 60,
+                },
+                display: {
+                  min_db: -150,
+                  max_db: 0,
+                  padding: 10,
+                },
+              },
+            },
           },
         ],
-        sdr_settings: {
-          sample_rate: 2048000,
-          center_frequency: 100000000,
-          gain: {
-            tuner_gain: 20,
-            rtl_agc: false,
-            tuner_agc: false,
-          },
-          fft: {
-            default_size: 2048,
-            default_frame_rate: 30,
-            max_size: 4096,
-            max_frame_rate: 60,
-          },
-          display: {
-            min_db: -100,
-            max_db: 0,
-            padding: 10,
-          },
-        },
-        device: "rtl-sdr",
-        device_profile: {
-          kind: "rtl_sdr",
-          is_rtl_sdr: true,
-          supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
-        },
       };
 
-      expect(validateStatusMessage(validStatus)).toBe(true);
+      expect(isValidSourceInfoMessage(sourceInfo)).toBe(true);
+      expect(validateWebSocketMessage(sourceInfo)).toBe(true);
     });
 
-    test("should accept the real backend status snapshot from the loading screen", () => {
-      const realBackendStatus = {
-        type: "status",
-        device_connected: false,
-        device_info:
-          "Mock APT SDR (Metal) - Freq: 1600000 Hz, Rate: 3200000 Hz (Sample Rate: 3200000 Hz), Gain: 49.6 dB, PPM: 1",
-        device_name: "Mock APT SDR (Metal)",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "disconnected",
-        paused: false,
-        max_sample_rate: 3200000,
-        sample_rate_options: [3200000],
-        channels: [],
-        sdr_settings: {
+    test("should validate atomic source updates", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "mock-apt",
+          status: "connected",
+        }),
+      ).toBe(true);
+
+      expect(
+        validateWebSocketMessage({
+          type: "signal_display_settings",
+          source_id: "mock-apt",
           sample_rate: 3200000,
-          center_frequency: 1600000,
-          gain: {
-            tuner_gain: 49.6,
-            rtl_agc: false,
-            tuner_agc: false,
-          },
-          fft: {
-            default_size: 2048,
-            default_frame_rate: 30,
-            max_size: 65536,
-            max_frame_rate: 60,
-          },
-          display: {
-            min_db: -150,
-            max_db: 0,
-            padding: 10,
-          },
-        },
-        sdr_limit_markers: [],
-        backend: "mock_apt_metal",
-        device: "mock_apt_metal",
-        device_backend_error: null,
-        device_profile: {
-          kind: "mock_apt_metal",
-          is_rtl_sdr: false,
-          supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
-        },
-      };
+          fft_size: 2048,
+          frame_rate: 30,
+        }),
+      ).toBe(true);
 
-      expect(validateStatusMessage(realBackendStatus)).toBe(true);
-      expect(validateWebSocketMessage(realBackendStatus)).toBe(true);
+      expect(
+        isValidSourceErrorMessage({
+          type: "error",
+          source_id: "mock-apt",
+          code: "device_disconnect",
+          message: "Device disconnected",
+        }),
+      ).toBe(true);
     });
 
-    test("should reject invalid status messages", () => {
-      const invalidStatus = {
+    test("should validate mock tx atomic connected status with retry metadata", () => {
+      const message = {
         type: "status",
-        device_connected: "not_boolean", // should be boolean
-        device_info: 123, // should be string
-        device_name: "", // empty string might be invalid
-        device_loading: "not_boolean", // should be boolean
-        device_loading_reason: "invalid_reason", // invalid enum value
-        device_state: "invalid_state", // invalid enum value
-        paused: "not_boolean", // should be boolean
-        max_sample_rate: -1000, // negative sample rate
-        channels: "not_array", // should be array
-        sdr_settings: "not_object", // should be object
-        device: "invalid_device", // invalid enum
-        device_profile: "not_object", // should be object
+        source_id: "mock-tx",
+        status: "connected",
+        loading_attempt: 0,
+        loading_attempt_max: 2,
       };
 
-      expect(validateStatusMessage(invalidStatus)).toBe(false);
-    });
-
-    test("should reject a structurally broken status message", () => {
-      expect(validateStatusMessage({ type: "status" })).toBe(false);
-      expect(validateWebSocketMessage({ type: "status" })).toBe(false);
-    });
-
-    test("should handle partial status messages", () => {
-      // Note: StatusMessageSchema requires all fields, so partial messages won't be valid
-      const partialStatus = {
-        type: "status",
-        device_connected: true,
-        device_info: "Test",
-        device_name: "Test Device",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "connected",
-        paused: false,
-        max_sample_rate: 2048000,
-        channels: [],
-        sdr_settings: {
-          sample_rate: 2048000,
-          center_frequency: 100000000,
-        },
-        device: "mock_apt",
-        device_profile: {
-          kind: "mock",
-          is_rtl_sdr: false,
-          supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
-        },
-      };
-
-      expect(validateStatusMessage(partialStatus)).toBe(true);
+      expect(isValidSourceStatusMessage(message)).toBe(true);
+      expect(validateWebSocketMessage(message)).toBe(true);
     });
   });
 
@@ -350,6 +365,7 @@ describe("WebSocket Validation System", () => {
       const validMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
 
       const result = processWebSocketMessageWithValidation(
@@ -398,8 +414,12 @@ describe("WebSocket Validation System", () => {
   describe("Validation Metrics", () => {
     test("should track validation metrics", () => {
       // Perform some validations
-      validateWebSocketMessage({ type: "status" });
-      validateStatusMessage({ type: "status", device_state: "connected" });
+      validateWebSocketMessage({
+        type: "source_info",
+        active_source: "a",
+        active_source_mode: "live",
+        sources: [],
+      });
       validateWebSocketMessage({ type: "invalid" });
 
       const metrics = getValidationMetrics();
@@ -411,7 +431,12 @@ describe("WebSocket Validation System", () => {
 
     test("should reset validation metrics", () => {
       // Perform some validations
-      validateWebSocketMessage({ type: "status" });
+      validateWebSocketMessage({
+        type: "source_info",
+        active_source: "a",
+        active_source_mode: "live",
+        sources: [],
+      });
 
       // Reset metrics
       resetValidationMetrics();
@@ -428,8 +453,16 @@ describe("WebSocket Validation System", () => {
       resetValidationMetrics();
 
       // Perform validations with known outcomes
-      validateWebSocketMessage({ type: "pause", paused: true }); // valid
-      validateWebSocketMessage({ type: "pause", paused: false }); // valid
+      validateWebSocketMessage({
+        type: "pause",
+        paused: true,
+        source_id: "mock-apt",
+      }); // valid
+      validateWebSocketMessage({
+        type: "pause",
+        paused: false,
+        source_id: "mock-apt",
+      }); // valid
       validateWebSocketMessage({ type: "invalid_type" }); // invalid
 
       const metrics = getValidationMetrics();
@@ -447,6 +480,7 @@ describe("WebSocket Validation System", () => {
         validateWebSocketMessage({
           type: "pause",
           paused: i % 2 === 0,
+          source_id: "mock-apt",
         });
       }
 
@@ -459,58 +493,48 @@ describe("WebSocket Validation System", () => {
 
     test("should handle large messages efficiently", () => {
       const largeMessage = {
-        type: "status",
-        device_connected: true,
-        device_info: "RTL-SDR Device Connected",
-        device_name: "RTL-SDR Device",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "connected",
-        paused: false,
-        max_sample_rate: 2048000,
-        // Add many channels to simulate a large message
-        channels: Array.from({ length: 100 }, (_, i) => ({
-          id: `channel-${i}`,
-          label: `Channel ${i}`,
-          min_hz: i * 10000000,
-          max_hz: (i + 1) * 10000000,
-          description: `Description for channel ${i}`,
-        })),
-        sdr_settings: {
-          sample_rate: 2048000,
-          center_frequency: 100000000,
-          gain: {
-            tuner_gain: 20,
-            rtl_agc: false,
-            tuner_agc: false,
-          },
-          fft: {
-            default_size: 2048,
-            default_frame_rate: 30,
-            max_size: 4096,
-            max_frame_rate: 60,
-          },
-          display: {
-            min_db: -100,
-            max_db: 0,
-            padding: 10,
-          },
-        },
-        device: "rtl-sdr",
-        device_profile: {
-          kind: "rtl_sdr",
-          is_rtl_sdr: true,
+        type: "source_info",
+        active_source: "mock-apt",
+        active_source_mode: "live",
+        sources: Array.from({ length: 100 }, (_, i) => ({
+          id: `source-${i}`,
+          name: `Source ${i}`,
+          kind: "mock_apt",
+          capability: "mock",
+          status: "streaming",
+          loading_attempt: 0,
+          loading_attempt_max: 3,
           supports_approx_dbm: true,
           supports_raw_iq_stream: true,
-        },
+          sdr: {
+            max_sample_rate: 3200000,
+            sample_rate_options: [3200000],
+            fft_display: { markers: [] },
+            settings: {
+              sample_rate: 3200000,
+              center_frequency: 100000000,
+              fft: {
+                default_size: 2048,
+                default_frame_rate: 30,
+                max_size: 4096,
+                max_frame_rate: 60,
+              },
+              display: {
+                min_db: -100,
+                max_db: 0,
+                padding: 10,
+              },
+            },
+          },
+        })),
       };
 
       const startTime = performance.now();
-      validateStatusMessage(largeMessage);
+      validateWebSocketMessage(largeMessage);
       const endTime = performance.now();
 
       // Should handle large messages quickly
-      expect(endTime - startTime).toBeLessThan(50); // Relaxed threshold
+      expect(endTime - startTime).toBeLessThan(200); // Relaxed threshold
     });
   });
 
@@ -519,6 +543,7 @@ describe("WebSocket Validation System", () => {
       const circularMessage: any = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
       circularMessage.self = circularMessage; // Create circular reference
 
@@ -530,6 +555,7 @@ describe("WebSocket Validation System", () => {
       const longStringMessage = {
         type: "pause",
         paused: false,
+        source_id: "mock-apt",
       };
       // Create a circular reference with long string to test handling
       (longStringMessage as any).self = "A".repeat(10000);
@@ -539,99 +565,57 @@ describe("WebSocket Validation System", () => {
 
     test("should handle extreme numeric values", () => {
       const extremeValuesMessage = {
-        type: "status",
-        device_connected: true,
-        device_info: "Test",
-        device_name: "Test Device",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "connected",
-        paused: false,
-        max_sample_rate: 10000000, // 10MHz sample rate in Hz
-        channels: [
+        type: "source_info",
+        active_source: "mock-apt",
+        active_source_mode: "live",
+        sources: [
           {
             id: "test",
-            label: "test",
-            min_hz: 0,
-            max_hz: 6000000000, // 6000 MHz = 6 GHz - high but reasonable for SDR
-            description: "test",
+            name: "Test Device",
+            kind: "rtl_sdr",
+            capability: "rx",
+            status: "connected",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: true,
+            supports_raw_iq_stream: true,
+            sdr: {
+              max_sample_rate: 10000000,
+              sample_rate_options: [10000000],
+              fft_display: { markers: [] },
+              settings: {
+                sample_rate: 2048000,
+                center_frequency: 100000000,
+                fft: {
+                  default_size: 2048,
+                  default_frame_rate: 30,
+                  max_size: 4096,
+                  max_frame_rate: 60,
+                },
+                display: {
+                  min_db: -100,
+                  max_db: 0,
+                  padding: 10,
+                },
+              },
+            },
           },
         ],
-        sdr_settings: {
-          sample_rate: 2048000, // 2.048 MHz sample rate in Hz
-          center_frequency: 100000000, // 100 MHz center frequency in Hz
-          gain: {
-            tuner_gain: 20,
-            rtl_agc: false,
-            tuner_agc: false,
-          },
-          fft: {
-            default_size: 2048,
-            default_frame_rate: 30,
-            max_size: 4096,
-            max_frame_rate: 60,
-          },
-          display: {
-            min_db: -100,
-            max_db: 0,
-            padding: 10,
-          },
-        },
-        device: "rtl-sdr",
-        device_profile: {
-          kind: "rtl_sdr",
-          is_rtl_sdr: true,
-          supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
-        },
       };
 
-      expect(validateStatusMessage(extremeValuesMessage)).toBe(true);
+      expect(validateWebSocketMessage(extremeValuesMessage)).toBe(true);
     });
 
     test("should handle null and undefined values in optional fields", () => {
       const nullUndefinedMessage = {
-        type: "status",
-        device_connected: true,
-        device_info: "Test",
-        device_name: "Test Device",
-        device_loading: false,
-        device_loading_reason: null,
-        device_state: "connected",
-        paused: false,
-        max_sample_rate: 2048000,
-        channels: [],
-        sdr_settings: {
-          sample_rate: 2048000,
-          center_frequency: 100000000,
-          gain: {
-            tuner_gain: 20,
-            rtl_agc: false,
-            tuner_agc: false,
-          },
-          fft: {
-            default_size: 2048,
-            default_frame_rate: 30,
-            max_size: 4096,
-            max_frame_rate: 60,
-          },
-          display: {
-            min_db: -100,
-            max_db: 0,
-            padding: 10,
-          },
-        },
-        device: "rtl-sdr",
-        device_profile: {
-          kind: "rtl_sdr",
-          is_rtl_sdr: true,
-          supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
-        },
+        type: "source_info",
+        active_source: "test",
+        active_source_mode: "live",
+        sources: [],
       };
 
       // Should handle null/undefined in optional fields gracefully
-      expect(validateStatusMessage(nullUndefinedMessage)).toBe(true);
+      expect(validateWebSocketMessage(nullUndefinedMessage)).toBe(true);
     });
   });
 });

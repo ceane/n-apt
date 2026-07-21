@@ -59,6 +59,21 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.getByText("Capture")).toBeInTheDocument();
   });
 
+  it("offers capture formats in .napt, .iq, .wav order", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    const [fileTypeSelect] = screen.getAllByRole("combobox");
+    const options = Array.from(fileTypeSelect.querySelectorAll("option")).map(
+      (option) => option.value,
+    );
+    expect(options).toEqual([".napt", ".iq", ".wav"]);
+  });
+
   it("should handle area selection", () => {
     render(
       <TestWrapper>
@@ -104,6 +119,60 @@ describe("IQCaptureControlsSection", () => {
     expect(
       screen.queryByRole("option", { name: "Interleaved (TDMS)" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("should force Whole Sample and hide sweep modes for an onscreen range", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          availableCaptureAreas={[
+            { label: "Onscreen", min: 0, max: 100 },
+            { label: "Area A", min: 20_000, max: 40_000 },
+          ]}
+          captureRange={{
+            min: 0,
+            max: 40_000,
+            segments: [
+              { label: "Onscreen", min: 0, max: 100 },
+              { label: "Area A", min: 20_000, max: 40_000 },
+            ],
+          }}
+          activeCaptureAreas={["Onscreen", "Area A"]}
+          maxSampleRate={100}
+          acquisitionMode="interleaved"
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.getByDisplayValue("Whole Sample")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Stepwise" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Interleaved (TDMS)" })).not.toBeInTheDocument();
+  });
+
+  it("should offer Whole Sample for a named range within the hardware rate", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          availableCaptureAreas={[{ label: "Area A", min: 0, max: 100 }]}
+          captureRange={{
+            min: 0,
+            max: 100,
+            segments: [{ label: "Area A", min: 0, max: 100 }],
+          }}
+          activeCaptureAreas={["Area A"]}
+          maxSampleRate={200}
+          acquisitionMode="stepwise"
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.getByRole("option", { name: "Whole Sample" })).toBeInTheDocument();
   });
 
   it("should handle duration change", () => {

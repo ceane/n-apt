@@ -21,6 +21,20 @@ interface ReduxVisualizerSlidersProps {
   onResetZoomDb?: () => void;
 }
 
+const isTxCapableSource = (
+  source?: { capability?: string | null; kind?: string | null } | null,
+) => {
+  if (!source) return false;
+  const capability = source.capability?.toLowerCase?.() ?? "";
+  const kind = source.kind?.toLowerCase?.() ?? "";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    kind === "hackrf_one" ||
+    kind === "mock_tx"
+  );
+};
+
 const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   onResetZoomDb,
 }) => {
@@ -49,6 +63,15 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   const vizZoomFloorPan = useAppSelector(
     (state) => state.spectrum.vizZoomFloorPan,
   );
+  const showTxSlider = useAppSelector(
+    (state) => state.spectrum.showTxSlider ?? true,
+  );
+  const activeSource = useAppSelector((state) =>
+    state.websocket.sources?.find?.(
+      (source) => source.id === state.websocket.activeSourceId,
+    ),
+  );
+  const canShowTxSlider = isTxCapableSource(activeSource);
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(
@@ -136,6 +159,11 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
         autoZoomStability={autoZoomStability}
         onAutoZoomStabilityChange={(enabled) =>
           dispatch(spectrumActions.setAutoZoomStability(enabled))
+        }
+        showTxSlider={showTxSlider}
+        canShowTxSlider={canShowTxSlider}
+        onShowTxSliderChange={(show) =>
+          dispatch(spectrumActions.setShowTxSlider(show))
         }
         onLockZoomFloor={() => {
           dispatch(spectrumActions.setVizZoomFloor(vizZoom));

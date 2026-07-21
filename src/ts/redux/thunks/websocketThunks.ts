@@ -28,6 +28,11 @@ const buildTunedFrequencyPayload = (
   };
 };
 
+const optionalIntegerHz = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
+};
+
 // Connect to WebSocket
 export const connectWebSocket = createAsyncThunk(
   "websocket/connect",
@@ -65,8 +70,9 @@ export const sendFrequencyRange = createAsyncThunk(
           type: "frequency_range",
           data: {
             ...tunedRange,
-            bandwidth_center_frequency: (state as any).demod
-              ?.bandwidthCenterFreqHz,
+            bandwidth_center_frequency: optionalIntegerHz(
+              (state as any).demod?.bandwidthCenterFreqHz,
+            ),
           },
         },
       });
@@ -75,16 +81,82 @@ export const sendFrequencyRange = createAsyncThunk(
   },
 );
 
+export interface RequestNextLiveFrameOptions {
+  txSettings?: {
+    centerFrequencyHz?: number | null;
+    viewCenterHz?: number | null;
+    bandwidthHz?: number | null;
+    sampleRateHz?: number | null;
+    powerDbm?: number | null;
+    txSignal?: string | null;
+    txIfftSize?: number | null;
+  };
+}
+
+const buildRequestNextFrameData = (
+  options?: RequestNextLiveFrameOptions,
+): Record<string, unknown> => {
+  const txSettings = options?.txSettings;
+  if (!txSettings) return {};
+  const data: Record<string, unknown> = {};
+  if (
+    typeof txSettings.centerFrequencyHz === "number" &&
+    Number.isFinite(txSettings.centerFrequencyHz)
+  ) {
+    data.centerFrequencyHz = Math.round(txSettings.centerFrequencyHz);
+  }
+  if (
+    typeof txSettings.viewCenterHz === "number" &&
+    Number.isFinite(txSettings.viewCenterHz)
+  ) {
+    data.viewCenterHz = Math.round(txSettings.viewCenterHz);
+  }
+  if (
+    typeof txSettings.bandwidthHz === "number" &&
+    Number.isFinite(txSettings.bandwidthHz)
+  ) {
+    const bandwidthHz = Math.round(txSettings.bandwidthHz);
+    data.bandwidthHz = bandwidthHz;
+  }
+  if (
+    typeof txSettings.sampleRateHz === "number" &&
+    Number.isFinite(txSettings.sampleRateHz)
+  ) {
+    data.sample_rate = Math.round(txSettings.sampleRateHz);
+  }
+  if (
+    typeof txSettings.powerDbm === "number" &&
+    Number.isFinite(txSettings.powerDbm)
+  ) {
+    data.powerDbm = txSettings.powerDbm;
+  }
+  if (typeof txSettings.txSignal === "string" && txSettings.txSignal.trim()) {
+    data.txSignal = txSettings.txSignal;
+  }
+  if (
+    typeof txSettings.txIfftSize === "number" &&
+    Number.isFinite(txSettings.txIfftSize)
+  ) {
+    data.txIfftSize = Math.round(txSettings.txIfftSize);
+  }
+  return data;
+};
+
 export const requestNextLiveFrame = createAsyncThunk(
   "websocket/requestNextLiveFrame",
-  async (_, { dispatch, getState }) => {
+  async (
+    options: RequestNextLiveFrameOptions | undefined,
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {},
+          data: {
+            ...buildRequestNextFrameData(options),
+          },
         },
       });
     }
@@ -93,14 +165,19 @@ export const requestNextLiveFrame = createAsyncThunk(
 
 export const requestNextPausedFrame = createAsyncThunk(
   "websocket/requestNextPausedFrame",
-  async (_, { dispatch, getState }) => {
+  async (
+    options: RequestNextLiveFrameOptions | undefined,
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {},
+          data: {
+            ...buildRequestNextFrameData(options),
+          },
         },
       });
     }
@@ -139,18 +216,21 @@ export const sendCenterFrequency = createAsyncThunk(
 // Send pause/resume command
 export const sendPauseCommand = createAsyncThunk(
   "websocket/sendPauseCommand",
-  async (isPaused: boolean, { dispatch, getState }) => {
+  async (
+    payload: { isPaused: boolean; sourceId: string },
+    { dispatch, getState },
+  ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "pause",
-          data: { paused: isPaused },
+          data: { paused: payload.isPaused, source_id: payload.sourceId },
         },
       });
     }
-    return isPaused;
+    return payload.isPaused;
   },
 );
 
@@ -255,6 +335,24 @@ export const sendRestartDevice = createAsyncThunk(
         },
       });
     }
+  },
+);
+
+// Request the backend to make a source the active live stream
+export const sendSelectSource = createAsyncThunk(
+  "websocket/sendSelectSource",
+  async (sourceId: string, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: sourceId },
+        },
+      });
+    }
+    return sourceId;
   },
 );
 

@@ -74,17 +74,7 @@ module.exports = {
     },
   },
   transform: {
-    "^.+\\.(ts|tsx)$": [
-      "ts-jest",
-      {
-        useESM: true,
-        tsconfig: {
-          esModuleInterop: true,
-          allowSyntheticDefaultImports: true,
-          jsx: "react-jsx",
-        },
-      },
-    ],
+    "^.+\\.(ts|tsx)$": "<rootDir>/scripts/test/ts-jest-typescript6.cjs",
     "\\.wgsl$": "jest-transform-stub"
   },
   transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|@chenglou/pretext))"],

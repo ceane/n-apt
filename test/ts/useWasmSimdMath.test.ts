@@ -47,6 +47,44 @@ describe("computeIqToDbSpectrumScalar", () => {
 
     expect(spectrum).toHaveLength(128);
   });
+
+  it("reuses a caller-provided output buffer", () => {
+    const iq = buildToneIqSamples(64, 5);
+    const output = new Float32Array(64);
+
+    const spectrum = computeIqToDbSpectrumScalar(
+      iq,
+      {
+        fftSize: 64,
+        offsetDb: 0,
+        windowType: "rectangular",
+      },
+      output,
+    );
+
+    expect(spectrum).toBe(output);
+    expect(spectrum.some((value) => value !== 0)).toBe(true);
+  });
+
+  it("does not reuse stale padded samples for non-power-of-two input", () => {
+    computeIqToDbSpectrumScalar(buildToneIqSamples(8, 1), {
+      fftSize: 8,
+      offsetDb: 0,
+      windowType: "rectangular",
+    });
+
+    const centeredIq = new Uint8Array(12);
+    centeredIq.fill(128);
+    const spectrum = computeIqToDbSpectrumScalar(centeredIq, {
+      fftSize: 8,
+      offsetDb: 0,
+      windowType: "rectangular",
+    });
+
+    for (let i = 0; i < spectrum.length; i++) {
+      expect(spectrum[i]).toBeCloseTo(-150, 5);
+    }
+  });
 });
 
 describe("useWasmSimdMath", () => {
@@ -71,12 +109,7 @@ describe("useWasmSimdMath", () => {
       64,
       "rectangular",
     );
-    const nuttall = result.current.processIqToDbmSpectrum(
-      iq,
-      0,
-      64,
-      "Nuttall",
-    );
+    const nuttall = result.current.processIqToDbmSpectrum(iq, 0, 64, "Nuttall");
 
     expect(Array.from(rectangular)).not.toEqual(Array.from(nuttall));
   });

@@ -40,10 +40,6 @@ function getCurrentBranch(): string | null {
   }
 }
 
-function shouldRunEncryptedModules(): boolean {
-  const branch = getCurrentBranch();
-  return branch === 'encrypted-modules' || branch === 'demod-progress';
-}
 
 function deriveKey(password: string, salt: Buffer): Buffer {
   // Use scryptSync for better security than PBKDF2
@@ -75,13 +71,22 @@ function decrypt(buffer: Buffer, password: string): string {
   const authTag = buffer.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + 16);
   const encrypted = buffer.subarray(SALT_LENGTH + IV_LENGTH + 16);
   
-  const key = deriveKey(password, salt);
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  try {
+    const key = deriveKey(password, salt);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    // Fallback to pbkdf2Sync (legacy encryption format)
+    const key = crypto.pbkdf2Sync(password, salt, 100000, KEY_LENGTH, 'sha256');
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  }
 }
 
 function bundle(dir: string): FileBundle {
@@ -110,7 +115,24 @@ function unbundle(bundle: FileBundle, targetDir: string) {
     const normalizedPath = file.path.split('/').join(path.sep);
     const fullPath = path.join(targetDir, normalizedPath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+    // Write file content. For text-like files, run a sanitizer to remove
+    // zero-width / combining characters that can corrupt KaTeX and other
+    // sensitive text pipelines. Binary files are written verbatim.
+    const textExt = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md', '.txt']);
+    const ext = path.extname(fullPath).toLowerCase();
+    if (textExt.has(ext)) {
+      try {
+        const decoded = Buffer.from(file.content, 'base64').toString('utf8');
+        // Strip zero-width and common combining ranges (U+200B..U+200D, U+FEFF, U+0300..U+036F)
+        const cleaned = decoded.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F]/g, '');
+        fs.writeFileSync(fullPath, cleaned, { encoding: 'utf8' });
+      } catch (e) {
+        // If decoding fails, fall back to writing raw buffer
+        fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+      }
+    } else {
+      fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+    }
   }
 }
 
@@ -173,20 +195,12 @@ function decryptBundle(
 
 const mode = process.argv[2]; // 'encrypt', 'decrypt', or 'decrypt-if-needed'
 const forceFlag = process.argv.includes('--force');
-
-if (!shouldRunEncryptedModules()) {
-  if (mode === 'decrypt-if-needed') {
-    process.exit(0);
-  }
-
-  console.log('ℹ [skip] Encrypted module operations only run on the `encrypted-modules` or `demod-progress` branch.');
-  process.exit(0);
-}
+const branch = getCurrentBranch();
 
 const { latex, demod } = getPasswords();
 
 if (mode === 'encrypt') {
-  if (getCurrentBranch() !== 'encrypted-modules') {
+  if (branch !== 'encrypted-modules') {
     console.log('ℹ [skip] Encryption is only allowed on the `encrypted-modules` branch.');
     process.exit(0);
   }
@@ -213,57 +227,67 @@ if (mode === 'encrypt') {
     console.error('✗ [fail] Encrypting N-APT modules:', e);
     process.exit(1);
   }
-} else if (mode === 'decrypt') {
-  // Explicit decrypt: protect local edits unless --force is passed
-  const protect = !forceFlag;
-  try {
-    if (latex) {
-      decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
-        protectLocalEdits: protect,
-        label: 'TS modules',
-      });
+} else if (mode === 'decrypt' || mode === 'decrypt-if-needed') {
+  if (branch === 'encrypted-modules') {
+    if (mode === 'decrypt-if-needed') {
+      process.exit(0);
     }
-
-    if (demod) {
-      decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
-        protectLocalEdits: protect,
-        label: 'RS modules',
-      });
-    }
-    console.log('✔ [pass] Decrypting N-APT modules...');
-  } catch (e) {
-    console.error('✗ [fail] Decrypting N-APT modules:', e);
-  }
-} else if (mode === 'decrypt-if-needed') {
-  // Check if tmp/ files exist at all (not just a single sentinel)
-  const rsTmpExists = fs.existsSync('src/encrypted-modules/tmp/rs') &&
-    getNewestMtime('src/encrypted-modules/tmp/rs') > 0;
-  const tsTmpExists = fs.existsSync('src/encrypted-modules/tmp/ts') &&
-    getNewestMtime('src/encrypted-modules/tmp/ts') > 0;
-
-  if (rsTmpExists && tsTmpExists) {
-    // Already decrypted, exit silently
+    console.log('ℹ [skip] Decryption is prevented on the `encrypted-modules` branch to avoid overwriting local changes.');
     process.exit(0);
   }
 
-  // Decrypt only the missing bundles, always protect existing local edits
-  try {
-    if (latex && !tsTmpExists) {
-      decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
-        protectLocalEdits: true,
-        label: 'TS modules',
-      });
+  if (mode === 'decrypt') {
+    // Explicit decrypt: protect local edits unless --force is passed
+    const protect = !forceFlag;
+    try {
+      if (latex) {
+        decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
+          protectLocalEdits: protect,
+          label: 'TS modules',
+        });
+      }
+
+      if (demod) {
+        decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
+          protectLocalEdits: protect,
+          label: 'RS modules',
+        });
+      }
+      console.log('✔ [pass] Decrypting N-APT modules...');
+    } catch (e) {
+      console.error('✗ [fail] Decrypting N-APT modules:', e);
+    }
+  } else if (mode === 'decrypt-if-needed') {
+    // Check if tmp/ files exist at all (not just a single sentinel)
+    const rsTmpExists = fs.existsSync('src/encrypted-modules/tmp/rs') &&
+      getNewestMtime('src/encrypted-modules/tmp/rs') > 0;
+    const tsTmpExists = fs.existsSync('src/encrypted-modules/tmp/ts') &&
+      getNewestMtime('src/encrypted-modules/tmp/ts') > 0;
+
+    if (rsTmpExists && tsTmpExists) {
+      // Already decrypted, exit silently
+      process.exit(0);
     }
 
-    if (demod && !rsTmpExists) {
-      decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
-        protectLocalEdits: true,
-        label: 'RS modules',
-      });
+    // Decrypt only the missing bundles, always protect existing local edits
+    try {
+      if (latex && !tsTmpExists) {
+        decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
+          protectLocalEdits: true,
+          label: 'TS modules',
+        });
+      }
+
+      if (demod && !rsTmpExists) {
+        decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
+          protectLocalEdits: true,
+          label: 'RS modules',
+        });
+      }
+      console.log('✔ [pass] Decrypting N-APT modules...');
+    } catch (e) {
+      console.error('✗ [fail] Decrypting N-APT modules:', e);
     }
-    console.log('✔ [pass] Decrypting N-APT modules...');
-  } catch (e) {
-    console.error('✗ [fail] Decrypting N-APT modules:', e);
   }
 } else {
   console.log('Usage: tsx scripts/crypt.ts [encrypt|decrypt|decrypt-if-needed] [--force]');

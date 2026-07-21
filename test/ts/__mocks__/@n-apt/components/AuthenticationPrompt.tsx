@@ -2,6 +2,7 @@ import * as React from "react";
 
 export type AuthState =
   | "connecting"
+  | "server_down"
   | "awaiting_challenge"
   | "ready"
   | "authenticating"
@@ -41,6 +42,8 @@ export default function AuthenticationPrompt({
     switch (authState) {
       case "connecting":
         return "Connecting to server...";
+      case "server_down":
+        return "Server is down";
       case "awaiting_challenge":
         return "Establishing secure channel...";
       case "ready":
@@ -64,6 +67,7 @@ export default function AuthenticationPrompt({
 
   const isLoading =
     authState === "connecting" ||
+    authState === "server_down" ||
     authState === "awaiting_challenge" ||
     authState === "authenticating";
 

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import "@testing-library/jest-dom";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -22,6 +23,9 @@ import {
 } from "@n-apt/routes/AuthenticationRoute";
 
 describe("AuthenticationRoute", () => {
+  const renderAuthenticationUI = (ui: React.ReactElement) =>
+    render(<MemoryRouter>{ui}</MemoryRouter>);
+
   const defaultProps = {
     authState: "ready" as AuthState,
     error: null,
@@ -36,19 +40,67 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should render authentication prompt correctly", () => {
-    render(<AuthenticationUI {...defaultProps} />);
+    renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
     expect(
       screen.getByText("Secure Access Required for N-APT"),
     ).toBeInTheDocument();
   });
 
+  it("should show the files and SDR hardware row beneath the auth controls", () => {
+    renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
+
+    expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
+      "href",
+      "/learn-signals",
+    );
+    expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
+      "href",
+      "https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/",
+    );
+    expect(screen.getByRole("link", { name: /HackRF One/i })).toHaveAttribute(
+      "href",
+      "https://greatscottgadgets.com/hackrf/one/",
+    );
+    expect(screen.getByLabelText("HackRF One 3D model spinning")).toBeInTheDocument();
+  });
+
   it("should show loading state during authentication", () => {
-    render(<AuthenticationUI {...defaultProps} authState="authenticating" />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} authState="authenticating" />,
+    );
     expect(screen.getByText("Authenticating...")).toBeInTheDocument();
   });
 
+  it("should show server down state", () => {
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} authState="server_down" />,
+    );
+    expect(
+      screen.getByText("Server is down", { selector: "h2 span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName.toLowerCase() === "p" &&
+          element.textContent?.includes("Try to restart the server"),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("npm run dev", { selector: "code" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Sign in with Passkey/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Authenticate/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("should show success state", () => {
-    render(<AuthenticationUI {...defaultProps} authState="success" />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} authState="success" />,
+    );
     expect(
       screen.getByText("Authentication successful — starting stream..."),
     ).toBeInTheDocument();
@@ -56,7 +108,7 @@ describe("AuthenticationRoute", () => {
 
   it("should show error state", () => {
     const errorMessage = "Invalid credentials";
-    render(
+    renderAuthenticationUI(
       <AuthenticationUI
         {...defaultProps}
         authState="failed"
@@ -69,7 +121,7 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show timeout state", () => {
-    render(
+    renderAuthenticationUI(
       <AuthenticationUI
         {...defaultProps}
         authState="timeout"
@@ -83,7 +135,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should display passkey option when available", () => {
-    render(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={true} />,
+    );
     expect(
       screen.getByRole("button", { name: /Sign in with Passkey/ }),
     ).toBeInTheDocument();
@@ -91,7 +145,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should not display passkey option when not available", () => {
-    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+    );
     expect(
       screen.queryByRole("button", { name: /Sign in with Passkey/ }),
     ).not.toBeInTheDocument();
@@ -101,7 +157,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show password form when passkey available and user clicks 'Use password instead'", () => {
-    render(<AuthenticationUI {...defaultProps} hasPasskeys={true} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={true} />,
+    );
 
     // Initially passkey form should be shown
     expect(
@@ -123,7 +181,7 @@ describe("AuthenticationRoute", () => {
 
   it("should handle password submission", async () => {
     const mockPasswordSubmit = jest.fn();
-    render(
+    renderAuthenticationUI(
       <AuthenticationUI
         {...defaultProps}
         onPasswordSubmit={mockPasswordSubmit}
@@ -142,7 +200,7 @@ describe("AuthenticationRoute", () => {
 
   it("should handle passkey authentication", () => {
     const mockPasskeyAuth = jest.fn();
-    render(
+    renderAuthenticationUI(
       <AuthenticationUI
         {...defaultProps}
         onPasskeyAuth={mockPasskeyAuth}
@@ -160,7 +218,7 @@ describe("AuthenticationRoute", () => {
 
   it("should handle passkey registration", () => {
     const mockRegisterPasskey = jest.fn();
-    render(
+    renderAuthenticationUI(
       <AuthenticationUI
         {...defaultProps}
         onRegisterPasskey={mockRegisterPasskey}
@@ -177,7 +235,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should disable submit button when password is empty", async () => {
-    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+    );
 
     const submitButton = screen.getByRole("button", { name: /Authenticate/ });
     expect(submitButton).toBeDisabled();
@@ -209,7 +269,7 @@ describe("AuthenticationRoute", () => {
     ];
 
     testCases.forEach(({ state, expectedMessage }) => {
-      const { unmount } = render(
+      const { unmount } = renderAuthenticationUI(
         <AuthenticationUI {...defaultProps} authState={state} />,
       );
       expect(screen.getByText(expectedMessage)).toBeInTheDocument();
@@ -218,7 +278,9 @@ describe("AuthenticationRoute", () => {
   });
 
   it("should show different message for ready state without passkeys", () => {
-    render(<AuthenticationUI {...defaultProps} hasPasskeys={false} />);
+    renderAuthenticationUI(
+      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+    );
     expect(
       screen.getByText("Enter password to authenticate and start streaming"),
     ).toBeInTheDocument();

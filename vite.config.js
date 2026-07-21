@@ -63,6 +63,16 @@ const injectBrowserEnv = (browserEnv) => ({
   },
 });
 
+const styledComponentsFixPlugin = () => ({
+  name: 'styled-components-fix',
+  async resolveId(id) {
+    if (id === 'styled-components') {
+      // Force resolution to the node_modules version only
+      return { id: require.resolve('styled-components'), external: false };
+    }
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
@@ -75,38 +85,95 @@ export default defineConfig(({ mode }) => {
 
   return {
   plugins: [
-    injectBrowserEnv(browserEnv), /* reactDevtools(), */ react(), glsl({
-    defaultExtension: 'wgsl',
-    compress: false,
-  })],
+    injectBrowserEnv(browserEnv),
+    styledComponentsFixPlugin(),
+    react({
+      // Configure React Fast Refresh to handle styled-components better
+      jsxRuntime: 'automatic',
+      // Ensure JSX is parsed correctly
+    }),
+    glsl({
+      defaultExtension: 'wgsl',
+      compress: false,
+    })
+  ],
+  optimizeDeps: {
+    include: ['styled-components', 'react', 'react-dom'],
+    exclude: [],
+  },
+  ssr: {
+    noExternal: ['styled-components'],
+  },
   root: "./src/ts",
   envDir: "../../",
   publicDir: path.resolve(dirname, "public"),
   build: {
-    outDir: "./dist"
+    outDir: "./dist",
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/styled-components')) {
+            return 'vendor-styled';
+          }
+        },
+      },
+    },
   },
   resolve: {
     alias: [{
-      find: /^@n-apt\/encrypted-modules\/(.*)$/,
+      find: /^\/?@n-apt\/md-signals\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/md-signals")}/$1`
+    }, {
+      find: /^\/?@n-apt\/md-preview\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+    }, {
+      find: /^\/?@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
-      find:  /^@n-apt\/public\/(.*)$/,
+      find: /^\/?@n-apt\/public\/(.*)$/,
       replacement: path.resolve(dirname, "public/$1")
     }, {
-      find: /^@n-apt\/webmcp\/(.*)$/,
+      find: /^\/?@n-apt\/webmcp\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/agents/webmcp/$1")
     }, {
-      find: /^@n-apt\/(.*)$/,
+      find: /^\/?@n-apt\/tracked-interactive\/(.*)$/,
+      replacement: path.resolve(dirname, "src/tracked-interactive/$1")
+    }, {
+      find: /^\/?@n-apt\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/$1")
     }, {
-      find: "@n-apt",
+      find: /^\/?@n-apt$/,
       replacement: path.resolve(dirname, "src/ts")
     }]
   },
   server: {
     port: 5173,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5173,
+    },
     fs: {
       allow: fsAllow,
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/rebuild-status') {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          const statusFile = path.resolve(dirname, '.rebuild_status.json');
+          if (fs.existsSync(statusFile)) {
+            res.end(fs.readFileSync(statusFile));
+          } else {
+            res.end(JSON.stringify({ rebuilding: false }));
+          }
+        } else {
+          next();
+        }
+      });
     },
     proxy: {
       "/ws": {
@@ -114,7 +181,18 @@ export default defineConfig(({ mode }) => {
         ws: true,
         changeOrigin: true,
         timeout: 10000,
-        proxyTimeout: 10000
+        proxyTimeout: 10000,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, socket) => {
+            if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
+              if (socket && typeof socket.destroy === 'function') {
+                socket.destroy();
+              }
+            } else {
+              console.error('WebSocket proxy error:', err);
+            }
+          });
+        }
       },
       "/auth": {
         target: "http://localhost:8765",

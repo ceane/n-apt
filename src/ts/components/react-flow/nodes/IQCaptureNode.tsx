@@ -123,14 +123,19 @@ export const IQCaptureNode = memo(
       useAppSelector((state) => state.spectrum.sampleRateHz) ?? 3_200_000;
     const captureRange = useMemo(() => {
       const halfSampleSizeHz = sampleRateHz / 2;
-      const onscreenMin =
-        demodCenterFreqHz !== null
-          ? Math.max(0, Math.round(demodCenterFreqHz - halfSampleSizeHz))
-          : (spectrumRange?.min ?? 0);
-      const onscreenMax =
-        demodCenterFreqHz !== null
-          ? Math.round(demodCenterFreqHz + halfSampleSizeHz)
-          : (spectrumRange?.max ?? sampleRateHz);
+      // The displayed spectrum range is the source of truth for "Onscreen".
+      // demod.centerFreqHz can describe a separate analysis target and may be
+      // stale when the active source (for example Mock APT) changes.
+      const onscreenMin = Math.max(
+        0,
+        Math.round(spectrumRange?.min ?? (demodCenterFreqHz ?? 0)),
+      );
+      const onscreenMax = Math.round(
+        spectrumRange?.max ??
+          (demodCenterFreqHz !== null
+            ? demodCenterFreqHz + halfSampleSizeHz
+            : sampleRateHz),
+      );
 
       const customMin = Math.max(0, Math.round(customRange.startHz));
       const customMax = Math.max(0, Math.round(customRange.endHz));
@@ -210,12 +215,14 @@ export const IQCaptureNode = memo(
 
     useEffect(() => {
       if (hasInitialized) return;
-      const centerHz = demodCenterFreqHz ?? spectrumRange?.min ?? 0;
       const spanHz = Math.max(sampleRateHz, MIN_CAPTURE_BANDWIDTH_HZ);
-      const half = spanHz / 2;
-
-      const start = Math.max(0, Math.round(centerHz - half));
-      const end = start + spanHz;
+      const start = Math.max(
+        0,
+        Math.round(spectrumRange?.min ?? (demodCenterFreqHz ?? 0) - spanHz / 2),
+      );
+      const end = spectrumRange?.max
+        ? Math.round(spectrumRange.max)
+        : start + spanHz;
 
       setCustomRange({ startHz: start, endHz: end });
       setHasInitialized(true);
@@ -327,7 +334,9 @@ export const IQCaptureNode = memo(
           fftSize,
           fftWindow,
           geolocation: geolocation ?? undefined,
-          liveMode: sourceMode === "live",
+          // Demod-route captures must be persisted so the completion status
+          // includes a downloadable artifact, including Mock APT captures.
+          liveMode: false,
         }),
       );
     };

@@ -6,7 +6,11 @@
 import type { Dispatch } from "@reduxjs/toolkit";
 import {
   isValidWebSocketMessageWithIntegrity,
-  isValidStatusMessageEnhanced,
+  isValidChannelsMessageEnhanced,
+  isValidSourceInfoMessageEnhanced,
+  isValidSourceStatusMessageEnhanced,
+  isValidSourceSdrSettingsMessageEnhanced,
+  isValidSourceErrorMessageEnhanced,
   isValidCaptureStatus,
   quickValidate,
   validateAndExtract,
@@ -25,6 +29,9 @@ const VALIDATION_CONFIG = {
   skipBinaryValidation: true, // Performance optimization
   logValidationFailures: true,
 };
+
+// Keep warnings aligned with a 60 FPS frame budget so routine dev work does not spam the console.
+const SLOW_VALIDATION_WARNING_MS = 16;
 
 // Validation metrics tracking
 interface ValidationMetrics {
@@ -56,7 +63,10 @@ function measureValidationTime<T>(validator: () => T, operation: string): T {
       duration) /
     validationMetrics.totalValidations;
 
-  if (VALIDATION_CONFIG.enableLogging && duration > 5) {
+  if (
+    VALIDATION_CONFIG.enableLogging &&
+    duration >= SLOW_VALIDATION_WARNING_MS
+  ) {
     console.warn(
       `Slow validation detected: ${operation} took ${duration.toFixed(2)}ms`,
     );
@@ -85,15 +95,46 @@ export function validateWebSocketMessage(data: unknown): boolean {
       return VALIDATION_CONFIG.skipBinaryValidation;
     }
 
-    // Status snapshots are the most important control-plane messages, so we
-    // validate them via the dedicated status path first and tolerate minor
+    // Snapshot/control messages are the most important control-plane messages,
+    // so we validate them via the dedicated paths first and tolerate minor
     // schema drift instead of dropping the entire update stream.
-    if (isValidObject(data) && (data as { type?: unknown }).type === "status") {
-      const isStatusValid = validateStatusMessage(data);
-      if (!isStatusValid) {
-        logValidationFailure("WebSocket message", data);
+    if (isValidObject(data)) {
+      const type = (data as { type?: unknown }).type;
+      if (type === "source_info") {
+        const isValid = isValidSourceInfoMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source info message", data);
+        }
+        return isValid;
       }
-      return isStatusValid;
+      if (type === "channels") {
+        const isValid = isValidChannelsMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Channels message", data);
+        }
+        return isValid;
+      }
+      if (type === "status" && "source_id" in data) {
+        const isValid = isValidSourceStatusMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source status message", data);
+        }
+        return isValid;
+      }
+      if (type === "sdr_settings" && "source_id" in data) {
+        const isValid = isValidSourceSdrSettingsMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source sdr settings message", data);
+        }
+        return isValid;
+      }
+      if (type === "error" && "source_id" in data) {
+        const isValid = isValidSourceErrorMessageEnhanced(data);
+        if (!isValid) {
+          logValidationFailure("Source error message", data);
+        }
+        return isValid;
+      }
     }
 
     // Quick validation for common message types
@@ -120,19 +161,6 @@ export function validateWebSocketMessage(data: unknown): boolean {
 
     return isValid;
   }, "WebSocket message validation");
-}
-
-// Status message validation
-export function validateStatusMessage(data: unknown): boolean {
-  return measureValidationTime(() => {
-    const isValid = isValidStatusMessageEnhanced(data);
-
-    if (!isValid) {
-      logValidationFailure("Status message", data);
-    }
-
-    return isValid;
-  }, "Status message validation");
 }
 
 // Capture status validation
@@ -240,8 +268,19 @@ export function processWebSocketMessageWithValidation(
     const data = parsedData as Record<string, unknown>;
 
     switch (data.type) {
+      case "source_info":
+        return isValidSourceInfoMessageEnhanced(data);
+      case "channels":
+        return isValidChannelsMessageEnhanced(data);
+
       case "status":
-        return validateStatusMessage(data);
+        return isValidSourceStatusMessageEnhanced(data);
+
+      case "sdr_settings":
+        return isValidSourceSdrSettingsMessageEnhanced(data);
+
+      case "error":
+        return isValidSourceErrorMessageEnhanced(data);
 
       case "capture_status":
         // Temporarily allow all capture status messages to fix I/Q capture

@@ -6,9 +6,13 @@ import {
   buildSnapshotStatsLines,
   buildFastSpectrumCanvas,
   buildFastWaterfallCanvas,
+  pinFastRecordingOptions,
+  renderSpectrumSnapshotCanvas,
+  renderWaterfallSnapshotCanvas,
   useSnapshot,
 } from "@n-apt/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/utils/rendering/formatters";
+import { fmtFreqTick } from "@n-apt/utils/rendering/formatters";
 import { renderHook, act } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
 
@@ -45,6 +49,38 @@ describe("fmtFreq", () => {
     const result = fmtFreq(-0.5e6);
     expect(result).toContain("kHz");
     expect(result).toContain("-500");
+  });
+});
+
+describe("fmtFreqTick", () => {
+  it("keeps three decimal places in GHz", () => {
+    expect(fmtFreqTick(1_001_000_000, 250_000)).toBe("1.001GHz");
+  });
+
+  it("keeps sub-MHz GHz ticks distinct", () => {
+    expect(fmtFreqTick(1_000_500_000, 250_000)).toBe("1.0005GHz");
+  });
+});
+
+describe("pinFastRecordingOptions", () => {
+  it("freezes channel labels and bounds without freezing the frame axis", () => {
+    let area = "first";
+    let bounds = { min: 100, max: 200 };
+    const pinned = pinFastRecordingOptions({
+      activeSignalArea: area,
+      activeSignalAreaBounds: bounds,
+      signalAreaBounds: { first: bounds },
+      getActiveSignalArea: () => area,
+      getActiveSignalAreaBounds: () => bounds,
+    });
+
+    area = "second";
+    bounds = { min: 300, max: 400 };
+
+    expect(pinned.activeSignalArea).toBe("first");
+    expect(pinned.activeSignalAreaBounds).toEqual({ min: 100, max: 200 });
+    expect(pinned.getActiveSignalArea).toBeUndefined();
+    expect(pinned.getActiveSignalAreaBounds).toBeUndefined();
   });
 });
 
@@ -129,6 +165,104 @@ describe("dbToColor", () => {
   it("clamps out-of-range dB values gracefully", () => {
     expect(() => dbToColor(-200, -120, 0, mockColormap)).not.toThrow();
     expect(() => dbToColor(50, -120, 0, mockColormap)).not.toThrow();
+  });
+});
+
+describe("renderSpectrumSnapshotCanvas", () => {
+  it("uses the explicit dBm power scale for axis labels", () => {
+    global.clearCanvasCalls?.();
+
+    renderSpectrumSnapshotCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        waveform: new Float32Array([-100, -95, -90, -85]),
+        fullChannelWaveform: null,
+        dbMin: -120,
+        dbMax: -10,
+        powerScale: "dBm",
+        centerFrequencyHz: 1_618_000,
+        isDeviceConnected: true,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        waterfallTextureSnapshot: null,
+        waterfallTextureMeta: null,
+        waterfallBuffer: null,
+        waterfallDims: null,
+        webgpuEnabled: false,
+        colormap: [],
+      } as any,
+      { min: 18_000, max: 3_218_000 },
+      true,
+      320,
+      180,
+      undefined,
+      [],
+      undefined,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+    );
+
+    const fillTextCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText",
+    );
+    expect(
+      fillTextCalls.some((call: any) => String(call.args[0]).includes("dBm")),
+    ).toBe(true);
+  });
+
+  it("shows the exact top dBm bound when it is not on a 10dB marker", () => {
+    global.clearCanvasCalls?.();
+
+    renderSpectrumSnapshotCanvas(
+      {
+        frequencyRange: { min: 4_750_000, max: 23_000_000 },
+        waveform: new Float32Array([-55, -48, -60, -42]),
+        fullChannelWaveform: null,
+        dbMin: -70,
+        dbMax: -25,
+        powerScale: "dBm",
+        centerFrequencyHz: 13_875_000,
+        isDeviceConnected: true,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        waterfallTextureSnapshot: null,
+        waterfallTextureMeta: null,
+        waterfallBuffer: null,
+        waterfallDims: null,
+        webgpuEnabled: false,
+        colormap: [],
+      } as any,
+      { min: 4_750_000, max: 23_000_000 },
+      true,
+      1506,
+      750,
+      undefined,
+      [],
+      undefined,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#00d5ff",
+        shadow: "#063b44",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+    );
+
+    const fillTextCalls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText",
+    );
+    expect(fillTextCalls.map((call: any) => call.args[0])).toContain("-25dBm");
   });
 });
 
@@ -274,6 +408,40 @@ describe("fast snapshot canvases", () => {
           call.args[0] !== undefined,
       ),
     ).toBe(true);
+  });
+
+  it("uses the snapshot colormap when recoloring raw waterfall textures", () => {
+    const canvas = renderWaterfallSnapshotCanvas(
+      {
+        dbMin: 0,
+        dbMax: 10,
+        colormap: [
+          [0, 0, 255],
+          [255, 0, 0],
+        ],
+        waterfallTextureSnapshot: new Uint8Array(new Float32Array([30]).buffer),
+        waterfallTextureMeta: {
+          width: 1,
+          height: 1,
+          writeRow: 1,
+        },
+        waterfallBuffer: null,
+        waterfallDims: null,
+      } as any,
+      1,
+      1,
+      { marginX: 0, marginY: 0, noBackground: true },
+    );
+
+    expect(canvas).toBeTruthy();
+    const putImageCall = (global as any).__CANVAS_CALLS__.find(
+      (call: any) => call.name === "putImageData",
+    );
+    expect(putImageCall).toBeTruthy();
+    const imageData = putImageCall.args[0];
+    expect(imageData.data[0]).toBeGreaterThan(200);
+    expect(imageData.data[1]).toBe(0);
+    expect(imageData.data[2]).toBeLessThan(60);
   });
 
   it("renders the demod channel band on fast spectrum snapshots", () => {
@@ -478,7 +646,7 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines).toEqual([
-      "4.380.001MHz – 4.389.999MHz",
+      "4.38MHz – 4.39MHz",
       "2026-05-18 09:05:26 America/Los_Angeles",
       "Device Name: Mock APT SDR",
       "Onscreen / partial Channel A",
@@ -487,7 +655,7 @@ describe("buildSnapshotStatsLines", () => {
     ]);
   });
 
-  it("uses dot-grouped formatting for MHz snapshot ranges", () => {
+  it("uses trimmed MHz formatting for snapshot ranges", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 2_201_269, max: 2_206_731 },
       timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
@@ -500,7 +668,7 @@ describe("buildSnapshotStatsLines", () => {
       ppm: 1,
     });
 
-    expect(lines[0]).toBe("2.201.269MHz – 2.206.731MHz");
+    expect(lines[0]).toBe("2.2013MHz – 2.2067MHz");
   });
 
   it("uses whole-channel label when whole is true", () => {
@@ -552,6 +720,65 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines[3]).toBe("Whole Channel B");
+  });
+
+  it("lists each channel visible in the snapshot range", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 20_500_000, max: 30_000_000 },
+      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "C",
+      activeSignalAreaBounds: { min: 20_000_000, max: 25_000_000 },
+      signalAreaBounds: {
+        c: { min: 20_000_000, max: 25_000_000 },
+        b: { min: 25_000_000, max: 30_000_000 },
+        a: { min: 30_000_000, max: 35_000_000 },
+      },
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Channels C (partial), B (whole)");
+  });
+
+  it("marks a straddled channel partial when only part of it is visible", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 22_000_000, max: 27_000_000 },
+      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      deviceName: "HackRF One",
+      channelName: "C",
+      signalAreaBounds: {
+        c: { min: 20_000_000, max: 25_000_000 },
+        b: { min: 25_000_000, max: 30_000_000 },
+      },
+      whole: false,
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+    });
+
+    expect(lines[3]).toBe("Channels C (partial), B (partial)");
+  });
+
+  it("does not infer whole-channel just because an RTL-SDR snapshot spans the hardware sample rate", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 100_000_000, max: 103_200_000 },
+      timestampLabel: "2026-06-03 12:00:00 America/Los_Angeles",
+      deviceName: "RTL-SDR Blog V4",
+      channelName: "A",
+      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+      hardwareSampleRateHz: 3_200_000,
+      whole: false,
+      modeLabel: "Onscreen",
+      fftSize: 262144,
+      fftWindow: "Rectangular",
+      gain: 49.6,
+      ppm: 1,
+    });
+
+    expect(lines[3]).toBe("Onscreen / partial Channel A");
   });
 
   it("falls back to Onscreen when no channel name is present", () => {

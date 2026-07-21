@@ -7,12 +7,18 @@ import {
   setSdrSettingsBundle,
   setFftFrameRate as setFftFrameRateAction,
 } from "@n-apt/redux";
+import {
+  MAX_SCREEN_REFRESH_RATE,
+  computeMaxFrameRate,
+  getLogicalMaxFrameRate,
+} from "@n-apt/utils/signals";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
+  currentSampleRateHz?: number;
   minReceiveSampleRate?: number;
   sampleRateOptions?: number[];
-  sdrSettings?: SdrSettingsConfig | null;
+  sdrSettings?: any;
   deviceType?: string;
   onSettingsChange?: (settings: SDRSettings) => void;
   spectrumStateOverride?: Pick<
@@ -67,65 +73,18 @@ interface UseSdrSettingsReturn {
   ) => void;
 }
 
-export const MAX_SCREEN_REFRESH_RATE = 60;
-
-export const computeMaxFrameRate = (
-  maxSampleRate: number,
-  fftSize: number,
-  maxFrameRateLimit?: number,
-): number => {
-  if (!fftSize) return 0;
-  // Fallback calculation: floor(sample_rate / fft_size) clamped to range [1, MAX_SCREEN_REFRESH_RATE]
-  const theoretical = Math.floor(maxSampleRate / fftSize);
-  const limit = Math.min(
-    maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE,
-    MAX_SCREEN_REFRESH_RATE,
-  );
-  return Math.max(1, Math.min(theoretical, limit));
-};
-
-const getLogicalSizeToFrameRate = (
-  sdrSettings?: SdrSettingsConfig | null,
-): Map<number, number> => {
-  const sizeMap = sdrSettings?.fft?.size_to_frame_rate;
-  if (!sizeMap) return new Map();
-
-  return new Map(
-    Object.entries(sizeMap)
-      .reduce<[number, number][]>((acc, [size, frameRate]) => {
-        const s = Number(size);
-        const r = Number(frameRate);
-        if (Number.isFinite(s) && s > 0 && Number.isFinite(r) && r > 0)
-          acc.push([s, r]);
-        return acc;
-      }, [])
-      .sort((a, b) => a[0] - b[0]),
-  );
-};
-
-export const getLogicalMaxFrameRate = (
-  maxSampleRate: number,
-  fftSize: number,
-  sdrSettings?: SdrSettingsConfig | null,
-): number => {
-  const logicalMap = getLogicalSizeToFrameRate(sdrSettings);
-  const mapped = logicalMap.get(fftSize);
-  if (typeof mapped === "number") {
-    // Inherit directly from the backend's size_to_frame_rate map (already floor(sample_rate / fft_size) clamped to max logical frame rate)
-    return mapped;
-  }
-
-  return computeMaxFrameRate(
-    maxSampleRate,
-    fftSize,
-    sdrSettings?.fft?.max_frame_rate,
-  );
-};
-
-const hasPersistedSpectrumSettings = (): boolean => {
+const hasPersistedSpectrumSettings = (deviceType?: string): boolean => {
   if (typeof window === "undefined") return false;
 
   const storageKeys = ["napt-sdr-settings-v2", "napt-sdr-settings"];
+
+  if (deviceType) {
+    const normalized = deviceType.toLowerCase().replace(/_/g, "-");
+    const normalizedUnderscore = deviceType.toLowerCase().replace(/-/g, "_");
+    storageKeys.push(`napt-spectrum-view-v1:${deviceType}`);
+    storageKeys.push(`napt-spectrum-view-v1:${normalized}`);
+    storageKeys.push(`napt-spectrum-view-v1:${normalizedUnderscore}`);
+  }
 
   for (const storage of [window.localStorage, window.sessionStorage]) {
     for (const key of storageKeys) {
@@ -145,6 +104,27 @@ const hasPersistedSpectrumSettings = (): boolean => {
         // Ignore invalid cache entries and continue checking other stores.
       }
     }
+
+    try {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && key.startsWith("napt-spectrum-view-v1:")) {
+          const raw = storage.getItem(key);
+          if (!raw) continue;
+
+          const parsed = JSON.parse(raw) as { fftSize?: unknown };
+          if (
+            typeof parsed.fftSize === "number" &&
+            Number.isFinite(parsed.fftSize) &&
+            parsed.fftSize > 0
+          ) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      // Ignore storage access errors.
+    }
   }
 
   return false;
@@ -152,7 +132,7 @@ const hasPersistedSpectrumSettings = (): boolean => {
 
 export const deriveStateFromConfig = (
   maxSampleRate: number,
-  sdrSettings?: SdrSettingsConfig | null,
+  sdrSettings?: any,
 ): Partial<SpectrumState> => {
   const fft = sdrSettings?.fft;
   const gainConfig = sdrSettings?.gain;
@@ -162,35 +142,33 @@ export const deriveStateFromConfig = (
     fftSize,
     sdrSettings,
   );
-  const rawFrameRate =
-    typeof fft?.default_frame_rate === "number"
-      ? fft.default_frame_rate
-      : maxFrameRate;
-
   return {
     fftSize,
     fftWindow: "Rectangular",
-    fftFrameRate: maxFrameRate
-      ? Math.min(rawFrameRate, maxFrameRate)
-      : rawFrameRate,
+    fftFrameRate:
+      maxFrameRate && maxFrameRate > 0
+        ? maxFrameRate
+        : typeof fft?.default_frame_rate === "number"
+          ? fft.default_frame_rate
+          : 0,
     gain:
-      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 0,
+      typeof gainConfig?.tuner_gain === "number" ? gainConfig.tuner_gain : 46.9,
     hackrfLnaGain:
       typeof gainConfig?.hackrf_lna_gain === "number"
         ? gainConfig.hackrf_lna_gain
-        : 49.6,
+        : 0,
     hackrfVgaGain:
       typeof gainConfig?.hackrf_vga_gain === "number"
         ? gainConfig.hackrf_vga_gain
-        : 62,
+        : 30,
     hackrfAmpEnabled: gainConfig?.hackrf_amp_enable ?? false,
     hackrfBasebandBandwidth:
       typeof gainConfig?.tuner_bandwidth === "number"
         ? gainConfig.tuner_bandwidth
-        : 0,
+        : 3_200_000,
     tunerAGC: gainConfig?.tuner_agc ?? false,
     rtlAGC: gainConfig?.rtl_agc ?? false,
-    ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 0,
+    ppm: typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 1,
   };
 };
 
@@ -221,6 +199,7 @@ const buildSampleRateOptions = (
 
 export const useSdrSettings = ({
   maxSampleRate,
+  currentSampleRateHz,
   minReceiveSampleRate,
   sampleRateOptions: backendSampleRateOptions,
   sdrSettings,
@@ -235,8 +214,20 @@ export const useSdrSettings = ({
     : reduxState;
 
   const maxFrameRate = useMemo(() => {
-    return getLogicalMaxFrameRate(maxSampleRate, state.fftSize, sdrSettings);
-  }, [maxSampleRate, state.fftSize, sdrSettings]);
+    const currentSampleRate =
+      currentSampleRateHz ?? state.sampleRateHz ?? maxSampleRate;
+    return getLogicalMaxFrameRate(
+      currentSampleRate,
+      state.fftSize,
+      sdrSettings,
+    );
+  }, [
+    currentSampleRateHz,
+    state.sampleRateHz,
+    maxSampleRate,
+    state.fftSize,
+    sdrSettings,
+  ]);
   const sampleRateOptions = useMemo(() => {
     const backendRates = backendSampleRateOptions
       ?.filter((rate) => Number.isFinite(rate) && rate > 0)
@@ -260,7 +251,6 @@ export const useSdrSettings = ({
   const stateRef = useRef(state);
   const onSettingsChangeRef = useRef(onSettingsChange);
   const appliedConfigSignatureRef = useRef<string | null>(null);
-  const hasPersistedSettingsRef = useRef(hasPersistedSpectrumSettings());
 
   useEffect(() => {
     stateRef.current = state;
@@ -320,6 +310,12 @@ export const useSdrSettings = ({
     (sampleRate: number) => {
       const isHackrfBasebandEnabled =
         (stateRef.current.hackrfBasebandBandwidth ?? 0) > 0;
+      const currentFftSize = stateRef.current.fftSize;
+      const nextFrameRate = getLogicalMaxFrameRate(
+        sampleRate,
+        currentFftSize,
+        sdrSettings,
+      );
       if (deviceType === "hackrf_one") {
         const nextHackrfBasebandBandwidth = isHackrfBasebandEnabled
           ? sampleRate
@@ -330,17 +326,24 @@ export const useSdrSettings = ({
             ...(isHackrfBasebandEnabled
               ? { hackrfBasebandBandwidth: nextHackrfBasebandBandwidth }
               : {}),
+            fftFrameRate: nextFrameRate,
           }),
         );
         sendCurrentSettings({
           sampleRate,
+          frameRate: nextFrameRate,
           ...(isHackrfBasebandEnabled
             ? { tunerBandwidth: nextHackrfBasebandBandwidth }
             : { tunerBandwidth: 0 }),
         });
       } else {
-        dispatch(setSdrSettingsBundle({ sampleRateHz: sampleRate }));
-        sendCurrentSettings({ sampleRate });
+        dispatch(
+          setSdrSettingsBundle({
+            sampleRateHz: sampleRate,
+            fftFrameRate: nextFrameRate,
+          }),
+        );
+        sendCurrentSettings({ sampleRate, frameRate: nextFrameRate });
       }
     },
     [dispatch, sendCurrentSettings, deviceType],
@@ -465,10 +468,12 @@ export const useSdrSettings = ({
 
       couplingTimerRef.current = window.setTimeout(() => {
         couplingTimerRef.current = null;
+        const currentSampleRate =
+          currentSampleRateHz ?? stateRef.current.sampleRateHz ?? maxSampleRate;
 
         if (trigger === "fftSize") {
           const desiredFrameRate = getLogicalMaxFrameRate(
-            maxSampleRate,
+            currentSampleRate,
             nextFftSize,
             sdrSettings,
           );
@@ -480,7 +485,7 @@ export const useSdrSettings = ({
         }
 
         const cappedFrameRate = getLogicalMaxFrameRate(
-          maxSampleRate,
+          currentSampleRate,
           nextFftSize,
           sdrSettings,
         );
@@ -496,6 +501,7 @@ export const useSdrSettings = ({
     },
     [
       maxSampleRate,
+      currentSampleRateHz,
       sdrSettings,
       sendCurrentSettings,
       setFftFrameRate,
@@ -535,14 +541,31 @@ export const useSdrSettings = ({
 
     // If the user already has persisted spectrum settings for this session,
     // do not reapply backend defaults and clobber their chosen FFT size.
-    if (hasPersistedSettingsRef.current) {
+    if (hasPersistedSpectrumSettings(deviceType)) {
       return;
     }
 
     if (sdrSettings?.fft?.default_size) {
-      setFftSize(sdrSettings.fft.default_size);
+      const defaultFftSize = sdrSettings.fft.default_size;
+      const currentSampleRate =
+        currentSampleRateHz ?? stateRef.current.sampleRateHz ?? maxSampleRate;
+      const defaultFrameRate = getLogicalMaxFrameRate(
+        currentSampleRate,
+        defaultFftSize,
+        sdrSettings,
+      );
+      dispatch(
+        setSdrSettingsBundle({
+          fftSize: defaultFftSize,
+          fftFrameRate: defaultFrameRate,
+        }),
+      );
+      sendCurrentSettings({
+        fftSize: defaultFftSize,
+        frameRate: defaultFrameRate,
+      });
     }
-    if (sdrSettings?.gain?.tuner_gain) {
+    if (sdrSettings?.gain?.tuner_gain !== undefined) {
       setGain(sdrSettings.gain.tuner_gain);
     }
     if (sdrSettings?.gain?.hackrf_lna_gain !== undefined) {
@@ -556,6 +579,8 @@ export const useSdrSettings = ({
     }
     if (sdrSettings?.gain?.tuner_bandwidth !== undefined) {
       setHackrfBasebandBandwidth(sdrSettings.gain.tuner_bandwidth);
+    } else if (deviceType === "hackrf_one") {
+      setHackrfBasebandBandwidth(3_200_000);
     }
     if (sdrSettings?.ppm !== undefined) {
       setPpm(sdrSettings.ppm);
@@ -577,6 +602,50 @@ export const useSdrSettings = ({
     setPpm,
     setRtlAGC,
     setTunerAGC,
+    currentSampleRateHz,
+    dispatch,
+    maxSampleRate,
+    sendCurrentSettings,
+  ]);
+
+  useEffect(() => {
+    const defaultFftSize = sdrSettings?.fft?.default_size;
+    const currentSampleRate =
+      currentSampleRateHz ?? state.sampleRateHz ?? maxSampleRate;
+    if (
+      deviceType !== "hackrf_one" ||
+      !defaultFftSize ||
+      !Number.isFinite(currentSampleRate) ||
+      currentSampleRate <= 0 ||
+      state.fftSize <= currentSampleRate
+    ) {
+      return;
+    }
+
+    const defaultFrameRate = getLogicalMaxFrameRate(
+      currentSampleRate,
+      defaultFftSize,
+      sdrSettings,
+    );
+    dispatch(
+      setSdrSettingsBundle({
+        fftSize: defaultFftSize,
+        fftFrameRate: defaultFrameRate,
+      }),
+    );
+    sendCurrentSettings({
+      fftSize: defaultFftSize,
+      frameRate: defaultFrameRate,
+    });
+  }, [
+    currentSampleRateHz,
+    deviceType,
+    dispatch,
+    maxSampleRate,
+    sdrSettings,
+    sendCurrentSettings,
+    state.fftSize,
+    state.sampleRateHz,
   ]);
 
   useEffect(() => {
@@ -585,6 +654,17 @@ export const useSdrSettings = ({
       setFftFrameRate(maxFrameRate);
     }
   }, [maxFrameRate, setFftFrameRate]);
+
+  useEffect(() => {
+    if (
+      maxFrameRate <= 1 ||
+      state.fftFrameRate > 1
+    ) {
+      return;
+    }
+
+    setFftFrameRate(maxFrameRate);
+  }, [maxFrameRate, setFftFrameRate, state.fftFrameRate]);
 
   return {
     ...state,

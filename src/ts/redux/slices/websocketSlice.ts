@@ -6,6 +6,8 @@ import {
   SpectrumFrame,
   DeviceProfile,
   CaptureStatus,
+  SourceInfo,
+  SourceStatus,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 
@@ -24,9 +26,9 @@ const shallowEqualObject = (
   return true;
 };
 
-const equalSpectrumFrames = (
-  a: SpectrumFrame[] | null | undefined,
-  b: SpectrumFrame[] | null | undefined,
+const equalArrayValues = (
+  a: unknown[] | null | undefined,
+  b: unknown[] | null | undefined,
 ): boolean => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -34,13 +36,7 @@ const equalSpectrumFrames = (
   for (let i = 0; i < a.length; i += 1) {
     const left = a[i];
     const right = b[i];
-    if (
-      left.id !== right.id ||
-      left.label !== right.label ||
-      left.min_hz !== right.min_hz ||
-      left.max_hz !== right.max_hz ||
-      left.description !== right.description
-    ) {
+    if (!equalValue(left, right)) {
       return false;
     }
   }
@@ -62,10 +58,7 @@ const validateCaptureStatusEnhanced = (
 const equalValue = (current: unknown, next: unknown): boolean => {
   if (current === next) return true;
   if (Array.isArray(current) && Array.isArray(next)) {
-    return equalSpectrumFrames(
-      current as SpectrumFrame[],
-      next as SpectrumFrame[],
-    );
+    return equalArrayValues(current, next);
   }
   if (
     current &&
@@ -98,6 +91,22 @@ export interface WebSocketState {
   deviceLoadingReason: DeviceLoadingReason;
   isPaused: boolean;
   serverPaused: boolean;
+  activeSourceId: string | null;
+  activeSourceMode: "live" | "file" | null;
+  sources: SourceInfo[];
+  sourceStatuses: Record<string, SourceStatus>;
+  /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
+  sourceTransport: {
+    sourceId: string | null;
+    phase: "idle" | "warming" | "ready" | "failed";
+    error: string | null;
+  };
+  sourceFrameReadiness: {
+    sourceId: string;
+    streamEpoch: number | null;
+    sequence: number;
+  } | null;
+  channels: SpectrumFrame[];
 
   // Device info
   backend: string | null;
@@ -143,6 +152,13 @@ const initialState: WebSocketState = {
   deviceLoadingReason: null,
   isPaused: false,
   serverPaused: false,
+  activeSourceId: null,
+  activeSourceMode: null,
+  sources: [],
+  sourceStatuses: {},
+  sourceTransport: { sourceId: null, phase: "idle", error: null },
+  sourceFrameReadiness: null,
+  channels: [],
 
   backend: null,
   deviceInfo: null,
@@ -173,6 +189,7 @@ const websocketSlice = createSlice({
     setConnecting: (state) => {
       state.connectionStatus = "connecting";
       state.error = null;
+      state.sourceFrameReadiness = null;
     },
 
     setConnected: (state) => {
@@ -188,6 +205,13 @@ const websocketSlice = createSlice({
       state.connectionStatus = "disconnected";
       state.deviceState = null;
       state.deviceLoadingReason = null;
+      state.activeSourceId = null;
+      state.activeSourceMode = null;
+      state.sources = [];
+      state.sourceStatuses = {};
+      state.sourceTransport = { sourceId: null, phase: "idle", error: null };
+      state.sourceFrameReadiness = null;
+      state.channels = [];
       state.backend = null;
       state.deviceInfo = null;
       state.deviceName = null;
@@ -198,6 +222,9 @@ const websocketSlice = createSlice({
       state.sdrSettings = null;
       state.sdrLimitMarkers = [];
       state.captureStatus = null;
+      state.spectrumFrames = [];
+      state.dataFrameCounter = 0;
+      state.queuedMessages = [];
     },
 
     setReconnecting: (state, action: PayloadAction<number>) => {

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -260,7 +262,11 @@ interface SymbolsTableProps {
 export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   frequencyRange,
 }) => {
-  const reduxDeviceName = useAppSelector((s) => s.websocket.deviceName);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -279,9 +285,11 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
 
   useEffect(() => {
     const id = setInterval(() => {
-      const current = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const sourceRef =
+        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+      const current = Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
 
       if (nextRef !== lastIqRefRef.current) {
@@ -290,7 +298,16 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
       }
     }, 250); // 4fps
     return () => clearInterval(id);
-  }, []);
+  }, [sourceMode]);
+
+  useEffect(() => {
+    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const current = Array.isArray(sourceRef.current)
+      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+      : sourceRef.current;
+    lastIqRefRef.current = current?.iq_data;
+    setFrameIqData(current?.iq_data as Uint8Array | undefined);
+  }, [activeSourceId, sourceMode]);
 
   useEffect(() => {
     if (!gridRef.current) return;
@@ -364,7 +381,7 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
   const handleNextPage = () => setPage((p) => Math.min(p + 1, totalPages - 1));
   const handlePrevPage = () => setPage((p) => Math.max(0, p - 1));
 
-  const deviceName = reduxDeviceName || "SDR Device";
+  const deviceName = activeSourceDerived.deviceName || "SDR Device";
 
   const renderTable = (full: boolean = false) => (
     <OuterContainer style={full ? { border: "none", borderRadius: 0 } : {}}>

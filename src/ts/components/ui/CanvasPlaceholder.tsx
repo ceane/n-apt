@@ -3,15 +3,28 @@ import styled from "styled-components";
 
 export type CanvasPlaceholderState =
   | {
+      kind: "idle" | "top-bar" | "overlay-only";
+      sourceLabel?: string;
+      title: string;
+      message?: string;
+    }
+  | {
       kind: "loading";
       sourceLabel?: string;
       paneLabel: string;
+      title?: string;
+      message?: string;
+    }
+  | {
+      kind: "disconnected";
+      sourceLabel?: string;
       message?: string;
     }
   | {
       kind: "error";
       sourceLabel?: string;
       reason: string;
+      title?: string;
       message?: string;
     };
 
@@ -19,18 +32,19 @@ interface CanvasPlaceholderProps {
   state: CanvasPlaceholderState;
 }
 
-const PlaceholderOverlay = styled.div`
+const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
   position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
   pointer-events: none;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%),
-    linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96));
+  background: ${({ $idle }) =>
+    $idle
+      ? "linear-gradient(180deg, rgba(12, 15, 20, 0.36), rgba(5, 7, 10, 0.54))"
+      : "radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%), linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96))"};
 `;
 
 const PlaceholderCard = styled.div`
@@ -109,13 +123,86 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
 }) => {
   const sourceLabel = state.sourceLabel?.trim() || "source";
 
+  if (state.kind === "overlay-only") {
+    return <PlaceholderOverlay $idle role="status" aria-live="polite" />;
+  }
+
+  if (state.kind === "idle" || state.kind === "top-bar") {
+    const isTopBar = state.kind === "top-bar";
+    return (
+      <PlaceholderOverlay
+        $idle
+        role="status"
+        aria-live="polite"
+        style={
+          isTopBar
+            ? {
+                alignItems: "flex-start",
+                paddingTop: "12px",
+              }
+            : undefined
+        }
+      >
+        <PlaceholderCard
+          style={
+            isTopBar
+              ? {
+                  width: "auto",
+                  maxWidth: "100%",
+                  padding: "8px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "24px",
+                  justifyContent: "space-between",
+                  textAlign: "left",
+                  background: "rgba(6, 9, 15, 0.75)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "8px",
+                }
+              : undefined
+          }
+        >
+          <div
+            style={
+              isTopBar
+                ? { display: "flex", alignItems: "baseline", gap: "12px" }
+                : undefined
+            }
+          >
+            <PlaceholderKicker
+              style={isTopBar ? { marginBottom: 0 } : undefined}
+            >
+              Standby
+            </PlaceholderKicker>
+            <PlaceholderTitle
+              style={isTopBar ? { fontSize: "14px" } : undefined}
+            >
+              {state.title}
+            </PlaceholderTitle>
+          </div>
+          {isTopBar && (
+            <PlaceholderSource style={{ marginTop: 0, fontSize: "12px" }}>
+              from {sourceLabel}
+            </PlaceholderSource>
+          )}
+          {state.message && !isTopBar ? (
+            <PlaceholderBody>{state.message}</PlaceholderBody>
+          ) : null}
+          {!isTopBar && (
+            <PlaceholderSource>from {sourceLabel}</PlaceholderSource>
+          )}
+        </PlaceholderCard>
+      </PlaceholderOverlay>
+    );
+  }
+
   if (state.kind === "loading") {
     return (
       <PlaceholderOverlay role="status" aria-live="polite">
         <PlaceholderCard>
           <PlaceholderTitle>
             <LoadingTitle>
-              <span>Loading {state.paneLabel}</span>
+              <span>{state.title || `Loading ${state.paneLabel}`}</span>
               <Dot $delay="0ms">.</Dot>
               <Dot $delay="120ms">.</Dot>
               <Dot $delay="240ms">.</Dot>
@@ -130,14 +217,43 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
     );
   }
 
+  if (state.kind === "disconnected") {
+    return (
+      <PlaceholderOverlay role="status" aria-live="polite">
+        <PlaceholderCard>
+          <PlaceholderKicker $error>Disconnected</PlaceholderKicker>
+          <PlaceholderTitle $error>Device Disconnected</PlaceholderTitle>
+          <PlaceholderSource>from {sourceLabel}</PlaceholderSource>
+          <PlaceholderBody>
+            {state.message ||
+              "The device disconnected. The backend is retrying the connection."}
+          </PlaceholderBody>
+        </PlaceholderCard>
+      </PlaceholderOverlay>
+    );
+  }
+
   return (
     <PlaceholderOverlay role="alert" aria-live="assertive">
       <PlaceholderCard>
         <PlaceholderKicker $error>Error</PlaceholderKicker>
-        <PlaceholderTitle $error>Error / {state.reason}</PlaceholderTitle>
+        <PlaceholderTitle $error>
+          {state.kind === "error" && state.title
+            ? state.title
+            : state.kind === "error" && state.reason === "Server down"
+              ? "Server Down"
+              : state.kind === "error"
+                ? `Error / ${state.reason}`
+                : "Error"}
+        </PlaceholderTitle>
         <PlaceholderBody>
-          {state.message ||
-            `Can't playback from ${sourceLabel}. Reason: ${state.reason}`}
+          {state.kind === "error" && state.reason === "Server down"
+            ? state.message ||
+              "The server was disconnected due to being manually exited or an error."
+            : state.message ||
+              (state.kind === "error"
+                ? `Can't playback from ${sourceLabel}. Reason: ${state.reason}`
+                : "An error occurred")}
         </PlaceholderBody>
       </PlaceholderCard>
     </PlaceholderOverlay>

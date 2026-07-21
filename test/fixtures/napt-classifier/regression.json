@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "large-suspension-bridges-and-u-dip",
+      "capture_dir": "captures/large_suspension_bridges_and_u_dip_capture_cap_1784255110934_20260717_022511",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "positive" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.70 },
+        "u_dip": { "peak_min": 0.90, "p75_min": 0.70 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "large-suspension-bridge",
+      "capture_dir": "captures/large_suspension_bridge_capture_cap_1784255167483_20260717_022608",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "unasserted" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.70 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "small-suspension-bridge-and-spikes",
+      "capture_dir": "captures/small_suspension_bridge_and_spikes_capture_cap_1784255344280_20260717_022905",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "unasserted" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.60 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "small-suspension-bridges",
+      "capture_dir": "captures/small_suspension_bridges_capture_cap_1784255075167_20260717_022436",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "unasserted" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.60 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "suspension-bridges-and-spikes",
+      "capture_dir": "captures/suspension_bridges_and_spikes_1784343110307",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "unasserted" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.60 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "suspension-bridges-low-rise-spikes",
+      "capture_dir": "captures/suspension_bridges_low_rise_spikes_1784343495773",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "unasserted" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.50 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "wide-u-dip-and-suspension-bridge",
+      "capture_dir": "captures/wide_udip_and_suspension_bridge_capture_cap_1784255258351_20260717_022739",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "positive" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.60 },
+        "u_dip": { "peak_min": 0.90, "p75_min": 0.60 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "wide-u-dip-and-suspension-bridge-clumps",
+      "capture_dir": "captures/wide_udip_and_suspension_bridge_clumps_capture_cap_1784255190916_20260717_022631",
+      "expected": { "napt": "yes", "suspension_bridge": "positive", "u_dip": "positive" },
+      "thresholds": {
+        "suspension_bridge": { "peak_min": 0.90, "p75_min": 0.60 },
+        "u_dip": { "peak_min": 0.90, "p75_min": 0.60 },
+        "napt": { "confidence_min": 0.80, "yes_fraction_min": 0.50 }
+      }
+    },
+    {
+      "id": "mock-capture-064914",
+      "capture_dir": "captures/mock_capture_cap_1784270953420_20260717_064914",
+      "expected": { "napt": "no", "suspension_bridge": "negative", "u_dip": "negative" },
+      "thresholds": {
+        "suspension_bridge": { "peak_max": 0.35 },
+        "u_dip": { "peak_max": 0.35 },
+        "napt": { "confidence_max": 0.50, "yes_fraction_max": 0.00 }
+      }
+    },
+    {
+      "id": "mock-capture-064937",
+      "capture_dir": "captures/mock_capture_cap_1784270976536_20260717_064937",
+      "expected": { "napt": "no", "suspension_bridge": "negative", "u_dip": "negative" },
+      "thresholds": {
+        "suspension_bridge": { "peak_max": 0.35 },
+        "u_dip": { "peak_max": 0.35 },
+        "napt": { "confidence_max": 0.50, "yes_fraction_max": 0.00 }
+      }
+    },
+    {
+      "id": "mock-capture-064946",
+      "capture_dir": "captures/mock_capture_cap_1784270985553_20260717_064946",
+      "expected": { "napt": "no", "suspension_bridge": "negative", "u_dip": "negative" },
+      "thresholds": {
+        "suspension_bridge": { "peak_max": 0.35 },
+        "u_dip": { "peak_max": 0.35 },
+        "napt": { "confidence_max": 0.50, "yes_fraction_max": 0.00 }
+      }
+    },
+    {
+      "id": "mock-deformed",
+      "capture_dir": "captures/mock_deformed_capture_demod_capture_1784319510400_20260717_201831",
+      "expected": { "napt": "no", "suspension_bridge": "negative", "u_dip": "negative" },
+      "thresholds": {
+        "suspension_bridge": { "peak_max": 0.35 },
+        "u_dip": { "peak_max": 0.35 },
+        "napt": { "confidence_max": 0.50, "yes_fraction_max": 0.00 }
+      }
+    }
+  ]
+}

@@ -56,9 +56,9 @@ start_redis() {
     mkdir -p "$REDIS_DATA_DIR"
     
     # Check if Redis is already running on our port
-    if lsof -ti:$REDIS_PORT > /dev/null 2>&1; then
+    if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then
         echo -e "${GREY}Redis is already running on port $REDIS_PORT${RESET}"
-        REDIS_PID=$(lsof -ti:$REDIS_PORT)
+        REDIS_PID=$(lsof -tPni :$REDIS_PORT)
         return 0
     fi
     
@@ -71,8 +71,8 @@ start_redis() {
     sleep 2
     
     # Check if Redis started successfully
-    if lsof -ti:$REDIS_PORT > /dev/null 2>&1; then
-        REDIS_PID=$(lsof -ti:$REDIS_PORT)
+    if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then
+        REDIS_PID=$(lsof -tPni :$REDIS_PORT)
         echo -e "${GREEN}✓ Redis server started (PID: $REDIS_PID)${RESET}"
         return 0
     else
@@ -89,16 +89,16 @@ stop_redis() {
         sleep 1
         
         # Force kill if still running
-        if lsof -ti:$REDIS_PORT > /dev/null 2>&1; then
-            lsof -ti:$REDIS_PORT | xargs kill -9 2>/dev/null || true
+        if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then
+            lsof -tPni :$REDIS_PORT | xargs kill -9 2>/dev/null || true
         fi
         
         echo -e "${GREEN}✓ Redis server stopped${RESET}"
     else
         # Try to stop any Redis process on our port
-        if lsof -ti:$REDIS_PORT > /dev/null 2>&1; then
+        if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then
             echo -e "${ORANGE}Stopping existing Redis process...${RESET}"
-            lsof -ti:$REDIS_PORT | xargs kill 2>/dev/null || true
+            lsof -tPni :$REDIS_PORT | xargs kill 2>/dev/null || true
             sleep 1
         fi
     fi

@@ -22,7 +22,7 @@ export const useDeviceConnectionState = ({
   } | null>(null);
 
   useEffect(() => {
-    if (deviceState === "connected") {
+    if (deviceState === "connected" || deviceState === "streaming") {
       lastUnavailableStateRef.current = null;
       dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
       return;
@@ -39,7 +39,11 @@ export const useDeviceConnectionState = ({
 
     lastUnavailableStateRef.current = { deviceState, showSpikeOverlay };
 
-    if (deviceState !== "connected" && showSpikeOverlay) {
+    if (
+      deviceState !== "connected" &&
+      deviceState !== "streaming" &&
+      showSpikeOverlay
+    ) {
       dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
     }
     dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });

@@ -278,6 +278,12 @@ const noteCardsSlice = createSlice({
     ) => {
       const card = state.cards.find((c) => c.id === action.payload.id);
       if (card) {
+        if (
+          card.size.width === action.payload.size.width &&
+          card.size.height === action.payload.size.height
+        ) {
+          return;
+        }
         card.size = action.payload.size;
       }
     },
