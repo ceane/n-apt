@@ -49,104 +49,12 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 // Standby remains request-only through should_hold_mock_tx_standby_stream.
 const TX_MONITOR_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 
-struct PreparedMonitorFrameCache<K, T> {
-  key: Option<K>,
-  frame: Option<T>,
-}
-
-impl<K, T> Default for PreparedMonitorFrameCache<K, T> {
-  fn default() -> Self {
-    Self {
-      key: None,
-      frame: None,
-    }
-  }
-}
-
-impl<K: PartialEq, T: Clone> PreparedMonitorFrameCache<K, T> {
-  fn needs_prepare(&self, key: &K) -> bool {
-    self.key.as_ref() != Some(key) || self.frame.is_none()
-  }
-
-  fn store(&mut self, key: K, frame: T) {
-    self.key = Some(key);
-    self.frame = Some(frame);
-  }
-
-  fn prepared(&self) -> Option<T> {
-    self.frame.clone()
-  }
-
-  #[cfg(test)]
-  fn get_or_prepare(
-    &mut self,
-    key: K,
-    prepare: impl FnOnce() -> T,
-  ) -> T {
-    if self.key.as_ref() != Some(&key) || self.frame.is_none() {
-      self.frame = Some(prepare());
-      self.key = Some(key);
-    }
-    self.frame.as_ref().expect("prepared frame").clone()
-  }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MockTxMonitorSettingsKey {
-  fft_size: usize,
-  sample_rate: u32,
-  view_center_bits: u64,
-  tx_center_bits: u64,
-  bandwidth_bits: u64,
-  ifft_size: usize,
-  power_bits: u64,
-  signal: String,
-}
-
-impl MockTxMonitorSettingsKey {
-  fn capture(shared_state: &SharedState) -> Self {
-    let sdr_settings = shared_state.sdr_settings.lock().unwrap();
-    let requested_sample_rate =
-      crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
-    let sample_rate = if requested_sample_rate > 0 {
-      requested_sample_rate
-    } else {
-      sdr_settings.sample_rate.max(1)
-    };
-    Self {
-      fft_size: sdr_settings
-        .fft
-        .default_size
-        .max(256)
-        .min(crate::server::websocket_handlers::MOCK_TX_MONITOR_IQ_FFT_SIZE),
-      sample_rate,
-      view_center_bits: crate::safety::TX_MONITOR_VIEW_CENTER_HZ
-        .lock()
-        .unwrap()
-        .to_bits(),
-      tx_center_bits: crate::safety::TX_CENTER_FREQUENCY_HZ
-        .lock()
-        .unwrap()
-        .to_bits(),
-      bandwidth_bits: crate::safety::TX_BANDWIDTH_HZ
-        .lock()
-        .unwrap()
-        .to_bits(),
-      ifft_size: *crate::safety::TX_IFFT_SIZE.lock().unwrap(),
-      power_bits: crate::safety::TX_POWER_DBM.lock().unwrap().to_bits(),
-      signal: crate::safety::TX_SIGNAL.lock().unwrap().clone(),
-    }
-  }
-}
-
 fn spawn_mock_tx_monitor_stream(
   shared_state: Arc<SharedState>,
   spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
 ) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move {
     let mut ticker = tokio::time::interval(TX_MONITOR_FRAME_INTERVAL);
-    let mut prepared_frames =
-      PreparedMonitorFrameCache::<MockTxMonitorSettingsKey, SpectrumData>::default();
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
       ticker.tick().await;
@@ -159,31 +67,20 @@ fn spawn_mock_tx_monitor_stream(
         continue;
       }
 
-      let settings_key = MockTxMonitorSettingsKey::capture(&shared_state);
-      if prepared_frames.needs_prepare(&settings_key) {
-        let frame_state = shared_state.clone();
-        let prepared = match tokio::task::spawn_blocking(move || {
-          crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
-            &frame_state,
-          )
-        })
-        .await
-        {
-          Ok(frame) => frame,
-          Err(error) => {
-            warn!("Mock Tx monitor worker failed: {error}");
-            continue;
-          }
-        };
-        prepared_frames.store(settings_key, prepared);
-      }
-      let Some(mut frame) = prepared_frames.prepared() else {
-        continue;
+      let frame_state = shared_state.clone();
+      let frame = match tokio::task::spawn_blocking(move || {
+        crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+          &frame_state,
+        )
+      })
+      .await
+      {
+        Ok(frame) => frame,
+        Err(error) => {
+          warn!("Mock Tx monitor worker failed: {error}");
+          continue;
+        }
       };
-      let (stream_epoch, sequence) = shared_state.next_stream_frame_identity();
-      frame.stream_epoch = stream_epoch;
-      frame.sequence = sequence;
-      frame.timestamp = chrono::Utc::now().timestamp_millis();
       let _ = spectrum_tx.send(Arc::new(frame));
     }
   })
@@ -325,6 +222,7 @@ impl SourceLifecycleModel {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use serial_test::serial;
 
   #[test]
   fn mock_tx_request_next_frame_uses_monitor_synthesis_when_not_transmitting() {
@@ -351,25 +249,37 @@ mod tests {
     assert!(TX_MONITOR_FRAME_INTERVAL <= Duration::from_millis(17));
   }
 
-  #[test]
-  fn active_mock_tx_monitor_prepares_dsp_once_per_settings_state() {
-    let mut cache = PreparedMonitorFrameCache::default();
-    let mut preparations = 0;
+  #[tokio::test]
+  #[serial]
+  async fn active_mock_tx_monitor_emits_fresh_iq_for_each_tick() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    shared
+      .mock_tx_transmitting
+      .store(true, Ordering::Relaxed);
 
-    for _ in 0..60 {
-      let frame = cache.get_or_prepare(7_u64, || {
-        preparations += 1;
-        vec![1_u8, 2, 3]
-      });
-      assert_eq!(frame, vec![1_u8, 2, 3]);
-    }
-    assert_eq!(preparations, 1);
+    let monitor = spawn_mock_tx_monitor_stream(shared.clone(), spectrum_tx);
+    let first = tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      .await
+      .expect("first active Tx monitor frame should arrive")
+      .expect("active Tx monitor channel should remain open");
+    let second = tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      .await
+      .expect("second active Tx monitor frame should arrive")
+      .expect("active Tx monitor channel should remain open");
 
-    let _ = cache.get_or_prepare(8_u64, || {
-      preparations += 1;
-      vec![4_u8, 5, 6]
-    });
-    assert_eq!(preparations, 2);
+    assert_eq!(first.source_id, MOCK_TX_SOURCE_ID);
+    assert_eq!(second.source_id, MOCK_TX_SOURCE_ID);
+    assert_ne!(first.iq_data, second.iq_data);
+
+    shared.shutdown.store(true, Ordering::Relaxed);
+    monitor.await.expect("active Tx monitor should stop cleanly");
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    shared
+      .mock_tx_transmitting
+      .store(false, Ordering::Relaxed);
   }
 
   #[test]
