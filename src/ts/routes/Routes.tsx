@@ -72,6 +72,11 @@ const LearnSignalsRoute = lazy(() =>
     default: m.LearnSignalsRoute,
   })),
 );
+const IQCapturesRoute = lazy(() =>
+  import("@n-apt/routes/IQCapturesRoute").then((m) => ({
+    default: m.IQCapturesRoute,
+  })),
+);
 const CellularTriangulationTargetingDemoRoute = lazy(() =>
   import("@n-apt/tracked-interactive/Route").then((m) => ({
     default: m.CellularTriangulationTargetingDemoRoute,
@@ -397,6 +402,16 @@ const AppRoutesInner: React.FC = () => {
                 <LearnSignalsRoute />
               </Suspense>
             </LearnSignalsProvider>
+          }
+        />
+        <Route
+          path="/iq-captures"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <IQCapturesRoute />
+            </Suspense>
           }
         />
         <Route

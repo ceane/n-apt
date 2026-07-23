@@ -52,7 +52,7 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
       "href",
-      "/learn-signals",
+      "/iq-captures",
     );
     expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
       "href",
@@ -62,6 +62,11 @@ describe("AuthenticationRoute", () => {
       "href",
       "https://greatscottgadgets.com/hackrf/one/",
     );
+    expect(screen.getByText("(Rx or read only)")).toBeInTheDocument();
+    expect(
+      screen.getByText("(Rx AND Tx, Half-Duplex or one mode at a time)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Playback .napt and .iq files")).toBeInTheDocument();
     expect(screen.getByLabelText("HackRF One 3D model spinning")).toBeInTheDocument();
   });
 

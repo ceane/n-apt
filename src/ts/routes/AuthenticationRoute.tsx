@@ -664,6 +664,19 @@ const CardCopy = styled.span`
   }
 `;
 
+const CardFooter = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const CardCapability = styled.span`
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  line-height: 1.4;
+`;
+
 const Logo = styled.img`
   width: 128px;
   height: 128px;
@@ -1075,13 +1088,20 @@ export const AuthenticationUI = ({
             <Essentials aria-label="What you need to get started (and view signals in the air)">
               <EssentialsLabel>What you need to get started (and view signals in the air)</EssentialsLabel>
               <EssentialsGrid>
-                <EssentialCard to="/learn-signals" as={Link} aria-label="I/Q captures and files">
+                <EssentialCard
+                  to="/iq-captures"
+                  as={Link}
+                  aria-label="I/Q captures and files"
+                >
                   <CardIcon>
                     <FileSignal size={30} strokeWidth={1.5} />
                   </CardIcon>
-                  <CardCopy>
-                    I/Q captures <small>learn more →</small>
-                  </CardCopy>
+                  <CardFooter>
+                    <CardCopy>
+                      I/Q captures <small>learn more →</small>
+                    </CardCopy>
+                    <CardCapability>Playback .napt and .iq files</CardCapability>
+                  </CardFooter>
                 </EssentialCard>
                 <EssentialCard
                   href="https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/"
@@ -1116,9 +1136,12 @@ export const AuthenticationUI = ({
                       </Canvas>
                     </SDRPreview>
                   </CardIcon>
-                  <CardCopy>
-                    RTL-SDR <small>buy →</small>
-                  </CardCopy>
+                  <CardFooter>
+                    <CardCopy>
+                      RTL-SDR <small>buy →</small>
+                    </CardCopy>
+                    <CardCapability>(Rx or read only)</CardCapability>
+                  </CardFooter>
                 </EssentialCard>
                 <EssentialCard
                   href="https://greatscottgadgets.com/hackrf/one/"
@@ -1153,9 +1176,14 @@ export const AuthenticationUI = ({
                       </Canvas>
                     </SDRPreview>
                   </CardIcon>
-                  <CardCopy>
-                    HackRF One <small>buy →</small>
-                  </CardCopy>
+                  <CardFooter>
+                    <CardCopy>
+                      HackRF One <small>buy →</small>
+                    </CardCopy>
+                    <CardCapability>
+                      (Rx AND Tx, Half-Duplex or one mode at a time)
+                    </CardCapability>
+                  </CardFooter>
                 </EssentialCard>
               </EssentialsGrid>
             </Essentials>
@@ -1185,7 +1213,8 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     location.pathname === "/privacy" ||
     location.pathname === "/license" ||
     location.pathname === "/responsible-use" ||
-    location.pathname === "/learn-signals";
+    location.pathname === "/learn-signals" ||
+    location.pathname === "/iq-captures";
 
   if (isPublicRoute) {
     return <>{children}</>;
