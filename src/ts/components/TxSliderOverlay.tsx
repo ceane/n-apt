@@ -178,6 +178,7 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
   onSampleRateChange,
   onFrequencyRangeChange,
 }) => {
+  const displayedSampleRateHz = txSampleRateHz;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
@@ -189,28 +190,19 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
     visibleMinHz,
     visibleMaxHz,
     txCenterHz,
-    txSampleRateHz,
+    txSampleRateHz: displayedSampleRateHz,
     onCenterFrequencyChange,
     onSampleRateChange,
   });
 
-  useEffect(() => {
-    latestDragStateRef.current = {
-      visibleMinHz,
-      visibleMaxHz,
-      txCenterHz,
-      txSampleRateHz,
-      onCenterFrequencyChange,
-      onSampleRateChange,
-    };
-  }, [
+  latestDragStateRef.current = {
+    visibleMinHz,
+    visibleMaxHz,
+    txCenterHz,
+    txSampleRateHz: displayedSampleRateHz,
     onCenterFrequencyChange,
     onSampleRateChange,
-    visibleMaxHz,
-    visibleMinHz,
-    txCenterHz,
-    txSampleRateHz,
-  ]);
+  };
 
   const stopCanvasInteraction = (event: React.SyntheticEvent<HTMLElement>) => {
     event.preventDefault();
@@ -398,24 +390,21 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
 
   const band = useMemo(() => {
     const span = Math.max(1, visibleMaxHz - visibleMinHz);
-    const halfSpan = Math.max(0, txSampleRateHz / 2);
+    const halfSpan = Math.max(0, displayedSampleRateHz / 2);
     const start = txCenterHz - halfSpan;
     const end = txCenterHz + halfSpan;
     const center = (start + end) / 2;
     const left = ((start - visibleMinHz) / span) * 100;
-    const right = ((end - visibleMinHz) / span) * 100;
+    const width = ((end - start) / span) * 100;
     return {
-      left: Math.max(0, Math.min(100, left)),
-      width: Math.max(
-        0,
-        Math.min(100, right) - Math.max(0, Math.min(100, left)),
-      ),
+      left,
+      width,
       center: ((center - visibleMinHz) / span) * 100,
       start,
       end,
       centerHz: center,
     };
-  }, [txCenterHz, txSampleRateHz, visibleMaxHz, visibleMinHz]);
+  }, [displayedSampleRateHz, txCenterHz, visibleMaxHz, visibleMinHz]);
   const displayLabel = deviceLabel
     ? `${deviceLabel} > ${signalLabel}`
     : signalLabel;
@@ -467,7 +456,7 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
             <span>{formatHz(band.end)}</span>
           </Marks>
           <Hint>
-            {formatHz(txSampleRateHz)} sample rate · {formatHz(band.centerHz)}{" "}
+            {formatHz(displayedSampleRateHz)} sample rate · {formatHz(band.centerHz)}{" "}
             center · {(Number.isFinite(powerDbm) ? powerDbm : 0).toFixed(1)} dBm
             target
           </Hint>

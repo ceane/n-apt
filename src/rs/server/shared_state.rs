@@ -41,6 +41,12 @@ pub struct SharedState {
   pub is_paused: AtomicBool,
   /// Allow exactly one spectrum frame through while paused after a one-frame request
   pub allow_next_paused_frame: AtomicBool,
+  /// Stream epoch captured when the current paused one-frame request was made.
+  pub paused_frame_request_epoch: AtomicU64,
+  /// Last frame sequence visible when the current paused one-frame request was made.
+  pub paused_frame_request_sequence: AtomicU64,
+  /// Source that owns the current paused one-frame request.
+  pub paused_frame_request_source_id: Mutex<Option<String>>,
   /// Monotonic presentation lifecycle for source-scoped v2 I/Q frames.
   pub stream_epoch: AtomicU64,
   /// Monotonic frame sequence reset whenever `stream_epoch` advances.
@@ -68,6 +74,10 @@ pub struct SharedState {
   pub device_backend_error: Mutex<Option<String>>,
   /// Current device profile/capabilities for frontend feature gating
   pub device_profile: Mutex<DeviceProfile>,
+  /// Source requested by a client while the active processor is still on the
+  /// previous source. The frame loop uses this as a hard publication fence so
+  /// old-source frames cannot leak during a handoff.
+  pub pending_source_switch: Mutex<Option<String>>,
   /// Device loading state (when device is being initialized)
   pub device_loading: Mutex<bool>,
   /// When device_loading is true, why: "connect" | "restart" (optional)
@@ -134,6 +144,9 @@ impl SharedState {
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
       allow_next_paused_frame: AtomicBool::new(false),
+      paused_frame_request_epoch: AtomicU64::new(1),
+      paused_frame_request_sequence: AtomicU64::new(0),
+      paused_frame_request_source_id: Mutex::new(None),
       stream_epoch: AtomicU64::new(1),
       stream_sequence: AtomicU64::new(0),
       stream_identity_lock: Mutex::new(()),
@@ -152,6 +165,7 @@ impl SharedState {
         supports_approx_dbm: true,
         supports_raw_iq_stream: true,
       }),
+      pending_source_switch: Mutex::new(None),
       device_loading: Mutex::new(false),
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
@@ -185,6 +199,24 @@ impl SharedState {
     self.stream_epoch.load(Ordering::Acquire)
   }
 
+  /// Record the latest source handoff intent before its command is queued.
+  pub fn request_source_switch(&self, source_id: &str) {
+    *self.pending_source_switch.lock().unwrap() = Some(source_id.to_string());
+  }
+
+  /// Read the source handoff fence used by the frame publisher.
+  pub fn pending_source_switch(&self) -> Option<String> {
+    self.pending_source_switch.lock().unwrap().clone()
+  }
+
+  /// Clear a completed/failed handoff without erasing a newer request.
+  pub fn clear_pending_source_switch(&self, source_id: &str) {
+    let mut pending = self.pending_source_switch.lock().unwrap();
+    if pending.as_deref() == Some(source_id) {
+      *pending = None;
+    }
+  }
+
   /// Start a new source presentation generation and reset frame ordering.
   pub fn begin_stream_epoch(&self) -> u64 {
     let _identity_guard = self.stream_identity_lock.lock().unwrap();
@@ -198,6 +230,50 @@ impl SharedState {
     let epoch = self.stream_epoch.load(Ordering::Acquire);
     let sequence = self.stream_sequence.fetch_add(1, Ordering::AcqRel) + 1;
     (epoch, sequence)
+  }
+
+  /// Mark a paused preview request at the current source stream boundary.
+  ///
+  /// Frames already broadcast before this call are not valid responses to the
+  /// request. The source-I/Q handler uses this floor to avoid replaying an old
+  /// buffered frame after a retune or sample-rate change.
+  pub fn mark_paused_frame_requested(&self, source_id: &str) {
+    self
+      .paused_frame_request_epoch
+      .store(self.current_stream_epoch(), Ordering::Release);
+    self.paused_frame_request_sequence.store(
+      self.stream_sequence.load(Ordering::Acquire),
+      Ordering::Release,
+    );
+    *self.paused_frame_request_source_id.lock().unwrap() =
+      Some(source_id.to_string());
+    self.allow_next_paused_frame.store(true, Ordering::SeqCst);
+  }
+
+  /// Return the request floor when a paused request belongs to this source.
+  pub fn paused_frame_request_for_source(
+    &self,
+    source_id: &str,
+  ) -> Option<(u64, u64)> {
+    let owns_request = self
+      .paused_frame_request_source_id
+      .lock()
+      .unwrap()
+      .as_deref()
+      == Some(source_id);
+    if !owns_request || !self.allow_next_paused_frame.load(Ordering::SeqCst) {
+      return None;
+    }
+    Some((
+      self.paused_frame_request_epoch.load(Ordering::Acquire),
+      self.paused_frame_request_sequence.load(Ordering::Acquire),
+    ))
+  }
+
+  /// Clear the source ownership associated with a consumed or cancelled request.
+  pub fn clear_paused_frame_request(&self) {
+    self.allow_next_paused_frame.store(false, Ordering::SeqCst);
+    *self.paused_frame_request_source_id.lock().unwrap() = None;
   }
 
   /// Update device connection status and info string.
@@ -265,7 +341,7 @@ impl SharedState {
   pub fn sync_active_source_pause_state(&self, source_id: &str) {
     let paused = self.is_source_paused(source_id);
     self.is_paused.store(paused, Ordering::SeqCst);
-    self.allow_next_paused_frame.store(false, Ordering::SeqCst);
+    self.clear_paused_frame_request();
   }
 
   /// Record a pause change for the active source and mirror it into the
@@ -273,7 +349,7 @@ impl SharedState {
   pub fn set_active_source_pause_state(&self, source_id: &str, paused: bool) {
     self.set_source_pause_state(source_id, paused);
     self.is_paused.store(paused, Ordering::SeqCst);
-    self.allow_next_paused_frame.store(false, Ordering::SeqCst);
+    self.clear_paused_frame_request();
   }
 
   /// Update USB device identification strings (serial, manufacturer, product).

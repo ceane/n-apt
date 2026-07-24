@@ -130,9 +130,9 @@ describe("spectrumReducer", () => {
   it("SET_TEMPORAL_RESOLUTION updates resolution", () => {
     const next = spectrumReducer(INITIAL_SPECTRUM_STATE, {
       type: "SET_TEMPORAL_RESOLUTION",
-      resolution: "high",
+      resolution: "lossless",
     });
-    expect(next.displayTemporalResolution).toBe("high");
+    expect(next.displayTemporalResolution).toBe("lossless");
   });
 
   it("SET_SELECTED_FILES updates files", () => {

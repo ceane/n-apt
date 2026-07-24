@@ -26,6 +26,7 @@ import {
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { formatDuration } from "@n-apt/utils/formatters";
@@ -42,7 +43,7 @@ interface FFTPlaybackCanvasProps {
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   snapshotGridPreference?: boolean;
   fftSize: number;
-  displayTemporalResolution?: "low" | "medium" | "high";
+  displayTemporalResolution?: TemporalResolution;
   vizZoom?: number;
   vizZoomFloor?: number;
   vizZoomFloorPan?: number;

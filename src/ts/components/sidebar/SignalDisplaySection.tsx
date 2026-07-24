@@ -14,6 +14,7 @@ import {
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import { computeMaxFrameRate } from "@n-apt/utils/signals";
 import { showsApproxDbmToggle } from "@n-apt/utils/deviceCapabilities";
 
@@ -170,7 +171,7 @@ interface SignalDisplaySectionProps {
   fftSize: number;
   fftSizeOptions: number[];
   fftWindow: string;
-  temporalResolution: "low" | "medium" | "high";
+  temporalResolution: TemporalResolution;
   backend: string | null;
   deviceProfile?: DeviceProfile | null;
   powerScale: "dB" | "dBm";
@@ -179,7 +180,7 @@ interface SignalDisplaySectionProps {
   onFftSizeChange: (value: number) => void;
   onSampleRateChange: (value: number) => void;
   onFftWindowChange: (value: string) => void;
-  onTemporalResolutionChange: (value: "low" | "medium" | "high") => void;
+  onTemporalResolutionChange: (value: TemporalResolution) => void;
   onPowerScaleChange: (value: "dB" | "dBm") => void;
   onDisplayModeChange?: (value: "fft" | "iq") => void;
   scheduleCoupledAdjustment: (
@@ -419,21 +420,23 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
         <Row
           label={<IconLabel icon={Gauge} text="Temporal Resolution" />}
           tooltipTitle="Display Temporal Resolution"
-          tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, high displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
+          tooltip="Signal visualization precision. Low blends signal patterns, medium shows averaged activity, and lossless displays exact signal interactions with sharp transitions, with the ability to see patterns (like dots) in the waterfall as the signal rises and falls sharply."
         >
           <WideSettingSelect
             value={temporalResolution}
             onChange={(e) => {
               onTemporalResolutionChange(
-                e.target.value as "low" | "medium" | "high",
+                e.target.value as TemporalResolution,
               );
             }}
           >
-            <option value="low">{getTemporalResolutionLabel("low")}</option>
-            <option value="medium">
-              {getTemporalResolutionLabel("medium")}
+            <option value="slow">{getTemporalResolutionLabel("slow")}</option>
+            <option value="reduced">
+              {getTemporalResolutionLabel("reduced")}
             </option>
-            <option value="high">{getTemporalResolutionLabel("high")}</option>
+            <option value="lossless">
+              {getTemporalResolutionLabel("lossless")}
+            </option>
           </WideSettingSelect>
         </Row>
       )}

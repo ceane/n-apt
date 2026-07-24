@@ -8,7 +8,7 @@ interface FFTCanvasProps {
   isPaused: boolean;
   isDeviceConnected?: boolean;
   onFrequencyRangeChange?: (range: any) => void;
-  displayTemporalResolution?: "low" | "medium" | "high";
+  displayTemporalResolution?: "slow" | "reduced" | "lossless";
 }
 
 export default function FFTCanvas({
@@ -19,7 +19,7 @@ export default function FFTCanvas({
   isPaused,
   isDeviceConnected = true,
   onFrequencyRangeChange: _onFrequencyRangeChange,
-  displayTemporalResolution = "medium",
+  displayTemporalResolution = "reduced",
 }: FFTCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [webgpuEnabled, setWebgpuEnabled] = React.useState(false);

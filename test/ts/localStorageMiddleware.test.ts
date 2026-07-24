@@ -68,7 +68,7 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.txViewerFftSize).toBe(65_536);
     expect(parsed.txViewerFftFrameRate).toBe(60);
     expect(parsed.txViewerFftWindow).toBe("Rectangular");
-    expect(parsed.txViewerTemporalResolution).toBe("high");
+    expect(parsed.txViewerTemporalResolution).toBe("lossless");
     expect(parsed.txViewerPowerScale).toBe("dB");
   });
 

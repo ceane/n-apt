@@ -8,6 +8,7 @@ describe("Tx Suite source control", () => {
     expect(
       resolveTxSuiteControlSourceId({
         isTxSuite: true,
+        isTxSuiteRouteActive: true,
         rxSourceId: "mock-apt",
         selectedSourceId: "mock-tx",
         activeSourceId: "mock-tx",
@@ -19,6 +20,7 @@ describe("Tx Suite source control", () => {
     expect(
       resolveTxSuiteControlSourceId({
         isTxSuite: false,
+        isTxSuiteRouteActive: false,
         rxSourceId: "mock-apt",
         selectedSourceId: "mock-tx",
         activeSourceId: "mock-tx",
@@ -30,6 +32,7 @@ describe("Tx Suite source control", () => {
     expect(
       shouldPinTxSuiteToRxSource({
         isTxSuite: true,
+        isTxSuiteRouteActive: true,
         rxSourceId: "mock-apt",
         selectedSourceId: "mock-tx",
       }),
@@ -37,7 +40,19 @@ describe("Tx Suite source control", () => {
     expect(
       shouldPinTxSuiteToRxSource({
         isTxSuite: true,
+        isTxSuiteRouteActive: true,
         rxSourceId: null,
+        selectedSourceId: "mock-tx",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not pin Visualizer selection when Tx Suite mode is still persisted", () => {
+    expect(
+      shouldPinTxSuiteToRxSource({
+        isTxSuite: true,
+        isTxSuiteRouteActive: false,
+        rxSourceId: "mock-apt",
         selectedSourceId: "mock-tx",
       }),
     ).toBe(false);

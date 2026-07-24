@@ -145,6 +145,8 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     sampleRateOptions: sourceSampleRateOptions,
     sdrSettings: sourceSdrSettings,
     deviceType: roleSource?.kind ?? deviceProfile?.kind,
+    onSettingsChange:
+      data.sourceRole === "tx" ? undefined : wsConnection.sendSettings,
   });
   const applyFrequencyRange = React.useCallback(
     (range: { min: number; max: number }) => {

@@ -6,17 +6,53 @@ use crate::s::fft::processor::WindowType;
 #[allow(unused_imports)]
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 use crate::simd::common::WindowFunctions;
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{num_complex::Complex, Fft, FftPlanner};
 #[cfg(target_arch = "wasm32")]
 #[allow(unused_imports)]
 use std::arch::wasm32::*;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// SIMD-accelerated processor for rendering operations
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct RenderingProcessor {
-  _private: (),
+  scratch: Mutex<RenderingScratch>,
+}
+
+struct RenderingScratch {
+  planner: FftPlanner<f32>,
+  fft_plans: HashMap<usize, Arc<dyn Fft<f32>>>,
+  buffer: Vec<Complex<f32>>,
+  window_type: Option<WindowType>,
+  window_len: usize,
+  window_coeffs: Vec<f32>,
+  window_sum: f32,
+}
+
+impl RenderingScratch {
+  fn new() -> Self {
+    Self {
+      planner: FftPlanner::new(),
+      fft_plans: HashMap::new(),
+      buffer: Vec::new(),
+      window_type: None,
+      window_len: 0,
+      window_coeffs: Vec::new(),
+      window_sum: 0.0,
+    }
+  }
+
+  fn fft_plan(&mut self, fft_size: usize) -> Arc<dyn Fft<f32>> {
+    if let Some(plan) = self.fft_plans.get(&fft_size) {
+      return Arc::clone(plan);
+    }
+
+    let plan = self.planner.plan_fft_forward(fft_size);
+    self.fft_plans.insert(fft_size, Arc::clone(&plan));
+    plan
+  }
 }
 
 impl Default for RenderingProcessor {
@@ -30,7 +66,9 @@ impl RenderingProcessor {
   /// Creates a new SIMD rendering processor instance
   #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
   pub fn new() -> RenderingProcessor {
-    RenderingProcessor { _private: () }
+    RenderingProcessor {
+      scratch: Mutex::new(RenderingScratch::new()),
+    }
   }
 
   /// Resamples spectrum data using ARM-optimized SIMD operations
@@ -96,35 +134,55 @@ impl RenderingProcessor {
       _ => WindowType::Hanning,
     };
 
-    let window_coeffs =
-      WindowFunctions::get_coeffs(normalized_window, num_samples);
-    let window_sum =
-      WindowFunctions::get_window_sum(normalized_window, num_samples);
-    let inv_norm = 1.0 / (window_sum * window_sum).max(1e-12);
+    let mut scratch = self.scratch.lock().unwrap();
+    if scratch.window_type != Some(normalized_window)
+      || scratch.window_len != num_samples
+    {
+      scratch.window_coeffs =
+        WindowFunctions::get_coeffs(normalized_window, num_samples);
+      scratch.window_sum =
+        WindowFunctions::get_window_sum(normalized_window, num_samples);
+      scratch.window_type = Some(normalized_window);
+      scratch.window_len = num_samples;
+    }
+    let inv_norm = 1.0 / (scratch.window_sum * scratch.window_sum).max(1e-12);
 
-    let mut buffer = vec![Complex::new(0.0f32, 0.0f32); fft_size];
+    scratch
+      .buffer
+      .resize(fft_size, Complex::new(0.0f32, 0.0f32));
+    scratch.buffer.fill(Complex::new(0.0f32, 0.0f32));
     for i in 0..num_samples {
-      let window = window_coeffs[i];
+      let window = scratch.window_coeffs[i];
       let re = ((input[i * 2] as f32) - 128.0) / 128.0;
       let im = ((input[i * 2 + 1] as f32) - 128.0) / 128.0;
-      buffer[i] = Complex::new(re * window, im * window);
+      scratch.buffer[i] = Complex::new(re * window, im * window);
     }
 
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(fft_size);
-    fft.process(&mut buffer);
+    let fft = scratch.fft_plan(fft_size);
+    fft.process(&mut scratch.buffer);
 
     let half = fft_size / 2;
-    buffer.rotate_left(half);
+    scratch.buffer.rotate_left(half);
 
     let epsilon = 1e-15f32;
-    buffer
+    scratch
+      .buffer
       .iter()
       .map(|c| {
         let mag_sq = c.norm_sqr() * inv_norm;
         (10.0 * (mag_sq + epsilon).log10() + offset_db).clamp(-150.0, 0.0)
       })
       .collect()
+  }
+
+  #[cfg(test)]
+  fn cached_fft_plan_count(&self) -> usize {
+    self.scratch.lock().unwrap().fft_plans.len()
+  }
+
+  #[cfg(test)]
+  fn scratch_buffer_capacity(&self) -> usize {
+    self.scratch.lock().unwrap().buffer.capacity()
   }
 
   /// NEW: Enhanced resampling with algorithm selection
@@ -197,5 +255,19 @@ mod tests {
     for i in (3..output.len()).step_by(4) {
       assert_eq!(output[i], 255);
     }
+  }
+
+  #[test]
+  fn process_iq_reuses_fft_plan_and_scratch_for_same_size() {
+    let processor = RenderingProcessor::new();
+    let input = vec![128_u8; 2 * 1024];
+
+    let first = processor.process_iq_to_dbm_spectrum(&input, 0.0, 1024, "hann");
+    let second =
+      processor.process_iq_to_dbm_spectrum(&input, 0.0, 1024, "hann");
+
+    assert_eq!(first, second);
+    assert_eq!(processor.cached_fft_plan_count(), 1);
+    assert_eq!(processor.scratch_buffer_capacity(), 1024);
   }
 }

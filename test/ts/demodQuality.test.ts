@@ -28,27 +28,27 @@ describe("demodQuality", () => {
     ).toEqual([65_536, 131_072, 262_144]);
   });
 
-  it("enforces the minimum FFT size and high temporal resolution when locked", () => {
+  it("enforces the minimum FFT size and lossless temporal resolution when locked", () => {
     expect(
       beforeDemodEnforceQuality(
-        { fftSize: 32_768, temporalResolution: "low" },
+        { fftSize: 32_768, temporalResolution: "slow" },
         true,
       ),
     ).toEqual({
       fftSize: 65_536,
-      temporalResolution: "high",
+      temporalResolution: "lossless",
     });
   });
 
   it("preserves settings when the quality guard is not active", () => {
     expect(
       beforeDemodEnforceQuality(
-        { fftSize: 32_768, temporalResolution: "medium" },
+        { fftSize: 32_768, temporalResolution: "reduced" },
         false,
       ),
     ).toEqual({
       fftSize: 32_768,
-      temporalResolution: "medium",
+      temporalResolution: "reduced",
     });
   });
 

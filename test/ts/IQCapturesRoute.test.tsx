@@ -24,7 +24,7 @@ describe("IQCapturesRoute", () => {
     );
 
     expect(screen.getByRole("heading", { name: "I/Q captures" })).toBeInTheDocument();
-    expect(screen.getByText(/your radio turns what it hears/i)).toBeInTheDocument();
+    expect(screen.getByText(/your radio turns what it receives/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /what an i\/q capture stores/i })).toBeInTheDocument();
     expect(screen.getByText(/what frequency was being listened to/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /what playback outputs/i })).toBeInTheDocument();

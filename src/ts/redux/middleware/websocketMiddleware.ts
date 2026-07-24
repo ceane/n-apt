@@ -485,6 +485,7 @@ export const resetPausedFrameRequestGate = (): void => {
 };
 
 export const resetWebSocketMiddlewareState = (): void => {
+  requestedSourceId = null;
   lastSettingsRequest = null;
   lastFrameRequestTime = 0;
   lastFrequencyRangeRequest = null;
@@ -576,18 +577,29 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const frames = Array.isArray(pendingDataUpdate)
       ? pendingDataUpdate
       : [pendingDataUpdate];
-    let hasSourceKeyedFrame = false;
     for (const frame of frames) {
       const sourceId = frame?.source_id;
       if (typeof sourceId === "string" && sourceId.length > 0) {
-        hasSourceKeyedFrame = true;
         if (sourceVisualizationRuntime.publish(frame)) {
           liveDataBySourceRef.current[sourceId] =
             sourceVisualizationRuntime.getSourceRef(sourceId);
         }
       }
     }
+    // Per-source refs retain their own latest frames for secondary previews,
+    // but only the source currently being presented may enter the shared
+    // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
+    // before the backend commits activeSourceId.
+    const presentationSourceId = requestedSourceId ?? activeSourceId;
+    const presentationFrames = presentationSourceId
+      ? frames.filter(
+          (frame) =>
+            frame?.source_id === presentationSourceId ||
+            (requestedSourceId === null && !frame?.source_id),
+        )
+      : frames;
     if (
+      presentationFrames.length > 0 &&
       ((!isPaused && !isActiveMockTxStandby) ||
         allowNextPausedFrame ||
         isActiveMockTxTransmitting) &&
@@ -598,22 +610,17 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         allowNextPausedFrame &&
         !isActiveMockTxTransmitting
       ) {
-        liveDataRef.current = collapsePausedFrameBatch(pendingDataUpdate);
-      } else if (Array.isArray(pendingDataUpdate)) {
-        if (Array.isArray(liveDataRef.current)) {
-          liveDataRef.current.push(...pendingDataUpdate);
-        } else if (liveDataRef.current) {
-          liveDataRef.current = [liveDataRef.current, ...pendingDataUpdate];
-        } else {
-          liveDataRef.current = [...pendingDataUpdate];
-        }
+        liveDataRef.current = collapsePausedFrameBatch(presentationFrames);
       } else {
         if (Array.isArray(liveDataRef.current)) {
-          liveDataRef.current.push(pendingDataUpdate);
+          liveDataRef.current.push(...presentationFrames);
         } else if (liveDataRef.current) {
-          liveDataRef.current = [liveDataRef.current, pendingDataUpdate];
+          liveDataRef.current = [
+            liveDataRef.current,
+            ...presentationFrames,
+          ];
         } else {
-          liveDataRef.current = pendingDataUpdate;
+          liveDataRef.current = [...presentationFrames];
         }
       }
       if (Array.isArray(liveDataRef.current)) {
@@ -963,6 +970,7 @@ const isMockDeviceStatus = (parsedData: Record<string, unknown>): boolean => {
 };
 
 const cleanupSocket = () => {
+  requestedSourceId = null;
   if (wsInstance.reconnectTimeout) {
     clearTimeout(wsInstance.reconnectTimeout);
     wsInstance.reconnectTimeout = null;
@@ -1014,10 +1022,21 @@ const sendSecondaryTxPreviewRequest = (
   getState: () => any,
 ) => {
   if (ws.readyState !== WebSocket.OPEN) return;
-  const txSettings = getState().spectrum;
+  const state = getState();
+  const txSettings = state.spectrum;
+  const frequencyRange = state.spectrum?.frequencyRange;
+  const viewSpanHz =
+    frequencyRange &&
+    typeof frequencyRange.max === "number" &&
+    typeof frequencyRange.min === "number" &&
+    frequencyRange.max > frequencyRange.min
+      ? frequencyRange.max - frequencyRange.min
+      : undefined;
   const viewerSampleRateHz =
-    typeof txSettings.txViewerSampleRateHz === "number" &&
-    txSettings.txViewerSampleRateHz > 0
+    viewSpanHz && viewSpanHz > 0
+      ? viewSpanHz
+      : typeof txSettings.txViewerSampleRateHz === "number" &&
+        txSettings.txViewerSampleRateHz > 0
       ? txSettings.txViewerSampleRateHz
       : txSettings.txSampleRateHz;
   const payload = {
@@ -1037,6 +1056,7 @@ const sendSecondaryTxPreviewRequest = (
     return;
   }
   lastTxPreviewRequestBySocket.set(ws, { signature, sentAt: now });
+  allowNextPausedFrame = true;
   ws.send(JSON.stringify(payload));
 };
 
@@ -1949,7 +1969,9 @@ const createWebSocketMiddleware =
 
           try {
             dispatch(setConnecting());
-            const ws = new WebSocket(url);
+            const parsedUrl = new URL(url);
+            parsedUrl.searchParams.set("iq_protocol", "2");
+            const ws = new WebSocket(parsedUrl.toString());
             ws.binaryType = "arraybuffer";
             wsInstance.ws = ws;
             controlIqFramePump = createStoreIqFramePump(
@@ -2171,7 +2193,7 @@ const createWebSocketMiddleware =
 
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
-        const normalizedData = normalizeFrequencyRangeMessageData(type, data);
+        let normalizedData = normalizeFrequencyRangeMessageData(type, data);
         if (shouldSuppressDuplicateFrequencyRangeSend(type, normalizedData)) {
           return next(action);
         }
@@ -2202,6 +2224,16 @@ const createWebSocketMiddleware =
         }
 
         if (type === "request_next_frame") {
+          const frameSourceId =
+            normalizedData?.source_id ??
+            requestedSourceId ??
+            getState().websocket.activeSourceId;
+          if (frameSourceId) {
+            normalizedData = {
+              ...(normalizedData ?? {}),
+              source_id: frameSourceId,
+            };
+          }
           const now = Date.now();
           if (now - lastFrameRequestTime < FRAME_REQUEST_THROTTLE_MS) {
             console.debug(
@@ -2237,6 +2269,9 @@ const createWebSocketMiddleware =
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
           if (requestedSourceId) {
+            pendingDataUpdate = null;
+            liveDataRef.current = null;
+            sourceIqFramePump?.reset();
             dispatch(updateDeviceState({ sourceFrameReadiness: null }));
             publishSourceTransport(
               dispatch,
@@ -2246,6 +2281,7 @@ const createWebSocketMiddleware =
               null,
               true,
             );
+            allowNextPausedFrame = true;
           }
           // Start the target transport during backend device swap so the
           // first committed frame does not wait on a second WebSocket

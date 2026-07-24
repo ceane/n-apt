@@ -34,11 +34,44 @@ export const shouldAcceptWebGpuStreamFrame = ({
   );
 };
 
-/** Commit a deferred source reset in the same frame that replaces its pixels. */
+/**
+ * Resolves when a deferred source-boundary GPU reset may be committed.
+ *
+ * Normal handoffs retain the painted frame until the replacement is ready.
+ * Source standby is different: no replacement is expected to render beneath
+ * its top bar, so retaining the previous source would misrepresent ownership.
+ * A matching standby snapshot is explicitly preserved across a mode-only reset.
+ */
 export const shouldCommitSourcePresentationReset = (
   resetPending: boolean,
   hasReplacementFrame: boolean,
-): boolean => resetPending && hasReplacementFrame;
+  clearWithoutReplacement = false,
+  preserveCurrentPresentation = false,
+): boolean =>
+  resetPending &&
+  !preserveCurrentPresentation &&
+  (hasReplacementFrame || clearWithoutReplacement);
+
+/**
+ * Determines whether source standby must clear a painted frame immediately.
+ *
+ * A standby transition preserves the last frame when it belongs to the
+ * selected source (for example, Stop Tx). It clears only when the painted
+ * owner differs from the selection, which prevents an underlying RX source
+ * from leaking into a newly selected Tx standby view.
+ */
+export const shouldClearStandbySourcePresentation = ({
+  isStandbyTopBar,
+  presentedSourceId,
+  expectedSourceId,
+}: {
+  isStandbyTopBar: boolean;
+  presentedSourceId: string | null;
+  expectedSourceId: string | null;
+}): boolean =>
+  isStandbyTopBar &&
+  expectedSourceId !== null &&
+  presentedSourceId !== expectedSourceId;
 
 export const shouldPreservePresentationDuringFrameGap = ({
   hasPresentedFrame,
@@ -160,6 +193,13 @@ export const shouldFlushWebGpuStreamCache = (
   );
 };
 
+/** Whether a new selection invalidates the currently painted presentation. */
+export const shouldResetVisualPresentationForSelection = (
+  previousSelectedSourceId: string | null | undefined,
+  nextSelectedSourceId: string | null | undefined,
+): boolean =>
+  (previousSelectedSourceId ?? null) !== (nextSelectedSourceId ?? null);
+
 /**
  * Resolve the minimal presentation reset for a source lifecycle transition.
  * Source selection retains the currently painted canvas until the target's
@@ -173,10 +213,25 @@ export const resolveWebGpuStreamTransition = (
     return { clearLiveFrame: false, advanceResetEpoch: false };
   }
   const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
-  const activeSourceCommitted = previous.sourceId !== next.sourceId;
+  const selectedSourceChanged = shouldResetVisualPresentationForSelection(
+    previous.selectedSourceId,
+    next.selectedSourceId,
+  );
+  const activeSourceChanged = previous.sourceId !== next.sourceId;
+  const activeSourceCommittedToSelection =
+    activeSourceChanged &&
+    next.selectedSourceId != null &&
+    next.sourceId === next.selectedSourceId;
   return {
-    clearLiveFrame: activeSourceCommitted || reconnectBoundary,
-    advanceResetEpoch: reconnectBoundary,
+    // Selection owns presentation. Clear immediately even when Mock Tx is an
+    // overlay and the backend deliberately keeps the previous RX source active.
+    // When that transport later commits to the already-selected source, avoid a
+    // second clear that would discard the first valid replacement frame.
+    clearLiveFrame:
+      selectedSourceChanged ||
+      (activeSourceChanged && !activeSourceCommittedToSelection) ||
+      reconnectBoundary,
+    advanceResetEpoch: selectedSourceChanged || reconnectBoundary,
   };
 };
 

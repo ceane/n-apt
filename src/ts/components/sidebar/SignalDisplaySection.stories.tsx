@@ -1,5 +1,6 @@
 import React from "react";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import { ThemeProvider } from "styled-components";
 
 const theme = {
@@ -38,7 +39,7 @@ const Template = () => {
     statusPayload.sdr_settings.fft.default_frame_rate,
   );
   const [window, setWindow] = React.useState("Hamming");
-  const [res, setRes] = React.useState<"low" | "medium" | "high">("medium");
+  const [res, setRes] = React.useState<TemporalResolution>("reduced");
   const [scale, setScale] = React.useState<"dB" | "dBm">("dB");
 
   return (

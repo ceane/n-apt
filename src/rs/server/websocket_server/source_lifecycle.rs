@@ -61,6 +61,7 @@ pub(super) fn prepare_selected_source_for_rx(
 }
 
 /// Removes one retained source in stable order for fallback/recovery.
+#[cfg(test)]
 pub(super) fn take_next_warm_source<T>(
   warm_sources: &mut HashMap<String, T>,
 ) -> Option<(String, T)> {

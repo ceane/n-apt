@@ -16,6 +16,7 @@ import {
 import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
 import { tickPrecisionForStep } from "@n-apt/utils/rendering/formatters";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export type LiveCanvasStatusRow = {
   sampleRateLabel: string;
@@ -34,7 +35,7 @@ export function formatLiveCanvasStatusRow({
   sampleRateHz: number;
   fftSize: number;
   fftWindow: string;
-  temporalResolution: "low" | "medium" | "high";
+  temporalResolution: TemporalResolution;
 }): LiveCanvasStatusRow {
   const sampleRateLabel = formatFrequency(sampleRateHz, {
     trimTrailingZeros: true,
@@ -60,7 +61,7 @@ export function drawLiveCanvasStatusRow(
         sampleRateHz: number;
         fftSize: number;
         fftWindow: string;
-        temporalResolution: "low" | "medium" | "high";
+        temporalResolution: TemporalResolution;
         statusRow?: never;
       }
     | {
@@ -210,7 +211,7 @@ export interface Draw2DFFTSignalOptions {
   limitMarkers?: SdrLimitMarker[];
   fftSize?: number;
   fftWindow?: string;
-  temporalResolution?: "low" | "medium" | "high";
+  temporalResolution?: TemporalResolution;
   displayMode?: "fft" | "iq";
   textColor?: string;
   backgroundColor?: string;

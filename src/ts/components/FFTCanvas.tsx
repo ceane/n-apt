@@ -18,6 +18,7 @@ import {
   formatLiveCanvasStatusRow,
   type LiveCanvasStatusRow,
 } from "@n-apt/hooks/useDraw2DFFTSignal";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
@@ -53,6 +54,8 @@ import { useCanvasState } from "@n-apt/hooks/useCanvasState";
 import { useWaterfallBufferPool } from "@n-apt/hooks/useWaterfallBufferPool";
 import {
   averageTemporalWaveforms,
+  clampTemporalActiveCount,
+  ensureTemporalFrameSlot,
   getTemporalResolutionWindow,
 } from "@n-apt/utils/temporalResolution";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
@@ -105,6 +108,10 @@ import {
 } from "@n-apt/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import { createFFTZoomProcessor } from "@n-apt/utils/rendering/fftZoom";
+import {
+  resolvePausedFramePresentation,
+  type LiveSourcePresentationPolicy,
+} from "@n-apt/hooks/liveSourceLifecycle";
 
 type FrameRenderRangeInput = {
   currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
@@ -120,6 +127,24 @@ type FrameRenderRangeInput = {
 
 const EMPTY_FLOAT32_ARRAY = new Float32Array(0);
 const WATERFALL_BIN_COUNT = 4096;
+
+/** Vertically mirrors dB values while preserving their frequency order. */
+export const invertSpectrumVertically = (
+  waveform: Float32Array,
+  dbMin: number,
+  dbMax: number,
+  target?: Float32Array,
+): Float32Array => {
+  const output =
+    target && target.length === waveform.length
+      ? target
+      : new Float32Array(waveform.length);
+  const midpoint = dbMin + dbMax;
+  for (let index = 0; index < waveform.length; index += 1) {
+    output[index] = midpoint - waveform[index];
+  }
+  return output;
+};
 
 const isMockTxIdentity = ({
   deviceKind,
@@ -1120,7 +1145,7 @@ export interface FFTCanvasProps {
   /** Callback for selection range changes (dragging the box) */
   onSelectionChange?: (range: FrequencyRange) => void;
   bandwidthAlignment?: Alignment;
-  displayTemporalResolution?: "low" | "medium" | "high";
+  displayTemporalResolution?: TemporalResolution;
   /** Callback to trigger a snapshot render for the sidebar */
   onSnapshot?: (data: {
     waveform: Float32Array;
@@ -1165,6 +1190,10 @@ export interface FFTCanvasProps {
   placeholderErrorReason?: string | null;
   /** Optional explicit placeholder state for non-loading display modes. */
   placeholderState?: CanvasPlaceholderState | null;
+  /** Source lifecycle policy for stale-frame suppression and standby retention. */
+  presentationPolicy?: LiveSourcePresentationPolicy;
+  /** Vertically invert the FFT power plot for visual diagnostics. */
+  invertSpectrum?: boolean;
   /** Disable canvas interactions while a placeholder is shown. */
   interactionDisabled?: boolean;
   /** Emits when the rAF loop sees a real live frame from a mutable data ref. */
@@ -1254,6 +1283,11 @@ export const shouldCreatePausedFallbackWaveform = (
   cachedWaveform: Float32Array | null,
 ): boolean => !cachedWaveform || cachedWaveform.length === 0;
 
+/**
+ * Paused standby views must not preserve a rendered waveform across a source
+ * handoff. The selected source label can update before its first frame, so
+ * retaining the old canvas would display a foreign signal under the new name.
+ */
 export const shouldDrawZoomMarkersForCanvas = (nodePreview: boolean): boolean =>
   !nodePreview;
 
@@ -1385,7 +1419,7 @@ const FFTCanvas = memo(
       isDeviceConnected = true,
       onFrequencyRangeChange,
       onCenterFrequencyDoubleClick,
-      displayTemporalResolution = "medium",
+      displayTemporalResolution = "reduced",
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
@@ -1396,6 +1430,8 @@ const FFTCanvas = memo(
       placeholderPaneLabel = "FFT",
       placeholderErrorReason = null,
       placeholderState: explicitPlaceholderState = null,
+      presentationPolicy,
+      invertSpectrum = false,
       interactionDisabled = false,
       isStandby: explicitIsStandby,
       onRenderableFrameChange,
@@ -1597,6 +1633,7 @@ const FFTCanvas = memo(
         visibleMaxHz,
         txCenterHz: centerHz,
         txSampleRateHz: sampleRateHz,
+        rxSampleRateHz: visibleSpanHz,
         onCenterFrequencyChange: (value: number) =>
           scheduleTxSliderDispatch({ centerHz: value }),
         onSampleRateChange: (value: number) =>
@@ -1863,7 +1900,14 @@ const FFTCanvas = memo(
     const frameBufferRef = useRef<Float32Array[]>([]);
     const maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
+    const invertedSpectrumBufferRef = useRef<Float32Array | null>(null);
     const hasPresentedSpectrumFrameRef = useRef(false);
+    const lastPresentedSourceIdRef = useRef<string | null>(null);
+    // Retain the identity of the frame that was frozen before a source reset.
+    // The mutable presentation identity is cleared at the boundary, but the
+    // paused marker still needs to explain which frame was on screen.
+    const lastPausedFrameSourceIdRef = useRef<string | null>(null);
+    const hasPresentedStandbySpectrumRef = useRef(false);
     const lastProcessedFrameSignatureRef = useRef<LiveFrameData | null>(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
@@ -2268,11 +2312,8 @@ const FFTCanvas = memo(
       const rawBandStart = slider.txCenterHz - bandwidth / 2;
       const rawBandEnd = slider.txCenterHz + bandwidth / 2;
       const center = (rawBandStart + rawBandEnd) / 2;
-      const bandStart = Math.max(visualMin, rawBandStart);
-      const bandEnd = Math.min(visualMax, rawBandEnd);
-      const left = ((bandStart - visualMin) / span) * 100;
-      const width =
-        bandEnd > bandStart ? ((bandEnd - bandStart) / span) * 100 : 0;
+      const left = ((rawBandStart - visualMin) / span) * 100;
+      const width = ((rawBandEnd - rawBandStart) / span) * 100;
       const centerLeft = ((center - visualMin) / span) * 100;
       const powerLabel =
         typeof slider.powerDbm === "number" && Number.isFinite(slider.powerDbm)
@@ -2716,6 +2757,8 @@ const FFTCanvas = memo(
       lastProcessedDataRef.current = null;
       lastProcessedFrameSignatureRef.current = null;
       hasPresentedSpectrumFrameRef.current = false;
+      lastPresentedSourceIdRef.current = null;
+      hasPresentedStandbySpectrumRef.current = false;
       frameBufferRef.current = [];
       renderWaveformRef.current = null;
       waveformFloatRef.current = null;
@@ -2880,8 +2923,13 @@ const FFTCanvas = memo(
       fullChannelWaveformRef.current = null;
       fullChannelRangeRef.current = null;
       frameBufferRef.current = [];
+      lastRenderableFrameRef.current = null;
+      lastIncomingFrameRef.current = null;
+      hasPresentedSpectrumFrameRef.current = false;
+      hasPresentedStandbySpectrumRef.current = false;
       resetTemporalAveragingState();
       clearSpectrumBackbuffer();
+      lastPresentedSourceIdRef.current = null;
     }, [
       cleanupWebGPUFIFOWaterfall,
       clearSpectrumBackbuffer,
@@ -2942,7 +2990,7 @@ const FFTCanvas = memo(
         const incomingFrame = getLatestLiveFrame(currentData);
         const currentFrame =
           incomingFrame ??
-          (isPaused && pauseSnapshotEnabled
+          ((isPaused || isStandby) && pauseSnapshotEnabled
             ? lastRenderableFrameRef.current
             : null);
         const isCurrentSourceFrame = shouldAcceptWebGpuStreamFrame({
@@ -2950,6 +2998,20 @@ const FFTCanvas = memo(
           frameSourceId: currentFrame?.source_id,
           fallbackFrameSourceId: frameSourceIdFallback,
         });
+        const hasStalePresentedSource =
+          expectedSourceId != null &&
+          lastPresentedSourceIdRef.current != null &&
+          lastPresentedSourceIdRef.current !== expectedSourceId;
+        if (
+          presentationPolicy?.clearStalePresentation &&
+          (hasStalePresentedSource ||
+            (currentFrame != null && !isCurrentSourceFrame))
+        ) {
+          // The selected lifecycle owns the source boundary. Clear the
+          // mutable canvas fallback as soon as it is known to belong to a
+          // different source, even when no replacement frame has arrived.
+          commitPendingSourcePresentationReset();
+        }
         if (currentFrame && !isCurrentSourceFrame) {
           lastIncomingFrameRef.current = null;
           const blockingState = explicitPlaceholderStateRef.current;
@@ -2961,6 +3023,21 @@ const FFTCanvas = memo(
               blockingState.kind !== "top-bar" &&
               blockingState.kind !== "overlay-only")
           );
+          const shouldClearStaleStandby =
+            presentationPolicy?.clearStalePresentation ??
+            (isStandby &&
+              blockingState?.kind === "top-bar" &&
+              expectedSourceId != null &&
+              lastPresentedSourceIdRef.current !== expectedSourceId);
+          if (
+            shouldCommitSourcePresentationReset(
+              pendingSourcePresentationResetRef.current,
+              false,
+              shouldClearStaleStandby,
+            )
+          ) {
+            commitPendingSourcePresentationReset();
+          }
           // The mutable transport ref can still contain the previous source
           // while a handoff is in flight. Reject that frame without erasing
           // the last presentation; the target frame or delayed placeholder
@@ -2978,14 +3055,33 @@ const FFTCanvas = memo(
             ((currentFrame as any).data &&
               (currentFrame as any).data.length > 0))
         );
-
+        const preservesMatchingStandbyPresentation =
+          (presentationPolicy?.preserveMatchingPresentation ??
+            (isStandby &&
+              expectedSourceId != null &&
+              lastPresentedSourceIdRef.current === expectedSourceId)) &&
+          currentFrame === lastRenderableFrameRef.current;
         if (
           shouldCommitSourcePresentationReset(
             pendingSourcePresentationResetRef.current,
             hasRenderableFrame,
+            presentationPolicy?.clearStalePresentation ??
+              (isStandby &&
+                explicitPlaceholderStateRef.current?.kind === "top-bar" &&
+                expectedSourceId != null &&
+                lastPresentedSourceIdRef.current !== expectedSourceId),
+            preservesMatchingStandbyPresentation,
           )
         ) {
           commitPendingSourcePresentationReset();
+        }
+        if (hasRenderableFrame) {
+          lastPresentedSourceIdRef.current =
+            expectedSourceId ??
+            currentFrame?.source_id ??
+            frameSourceIdFallback ??
+            null;
+          lastPausedFrameSourceIdRef.current = currentFrame?.source_id ?? null;
         }
 
         // Notify the parent as soon as the first frame is present in the
@@ -3284,7 +3380,11 @@ const FFTCanvas = memo(
                 temporalActiveCountRef.current = 0;
               }
 
-              const writeIdx = temporalWriteIndexRef.current;
+              const writeIdx = ensureTemporalFrameSlot(
+                pool,
+                temporalWriteIndexRef.current,
+                waveform.length,
+              );
               pool[writeIdx].set(waveform);
               const nextWriteIdx = writeIdx + 1;
               temporalWriteIndexRef.current =
@@ -3295,7 +3395,11 @@ const FFTCanvas = memo(
               );
 
               const activeFrames = activeTemporalFramesRef.current;
-              const activeCount = temporalActiveCountRef.current;
+              const activeCount = clampTemporalActiveCount(
+                temporalActiveCountRef.current,
+                temporalWindow,
+              );
+              temporalActiveCountRef.current = activeCount;
               activeFrames.length = activeCount;
               let readIdx = temporalWriteIndexRef.current - 1;
               if (readIdx < 0) readIdx = temporalWindow - 1;
@@ -3381,7 +3485,11 @@ const FFTCanvas = memo(
               temporalActiveCountRef.current = 0;
             }
 
-            const writeIdx = temporalWriteIndexRef.current;
+            const writeIdx = ensureTemporalFrameSlot(
+              pool,
+              temporalWriteIndexRef.current,
+              processedWaveform.length,
+            );
             pool[writeIdx].set(processedWaveform);
             const nextWriteIdx = writeIdx + 1;
             temporalWriteIndexRef.current =
@@ -3392,7 +3500,11 @@ const FFTCanvas = memo(
             );
 
             const activeFrames = activeTemporalFramesRef.current;
-            const activeCount = temporalActiveCountRef.current;
+            const activeCount = clampTemporalActiveCount(
+              temporalActiveCountRef.current,
+              temporalWindow,
+            );
+            temporalActiveCountRef.current = activeCount;
             activeFrames.length = activeCount;
             let readIdx = temporalWriteIndexRef.current - 1;
             if (readIdx < 0) readIdx = temporalWindow - 1;
@@ -3436,8 +3548,11 @@ const FFTCanvas = memo(
 
         if (isStandby) {
           if (
-            !renderWaveformRef.current ||
-            renderWaveformRef.current.length === 0
+            !hasRenderableFrame &&
+            !hasRenderedSpectrumFrame &&
+            (!renderWaveformRef.current ||
+              renderWaveformRef.current.length !== effectiveFftSize ||
+              !hasPresentedStandbySpectrumRef.current)
           ) {
             const previewWaveform = new Float32Array(effectiveFftSize).fill(
               FFT_MIN_DB,
@@ -3449,6 +3564,7 @@ const FFTCanvas = memo(
               prev.set(previewWaveform);
             }
             waveformFloatRef.current = renderWaveformRef.current;
+            hasPresentedStandbySpectrumRef.current = true;
           }
 
           if (frequencyRange) {
@@ -3477,7 +3593,7 @@ const FFTCanvas = memo(
             });
           }
         } else {
-          // Reset standby cleared ref or state if any
+          hasPresentedStandbySpectrumRef.current = false;
         }
 
         // Update waveform reference after potential restoration
@@ -3585,6 +3701,17 @@ const FFTCanvas = memo(
                 powerDbm?: number;
               })
             | null;
+          const spectrumWaveform = invertSpectrum
+            ? invertSpectrumVertically(
+                slicedWaveform,
+                activeScaleDbMinRef.current,
+                activeScaleDbMaxRef.current,
+                invertedSpectrumBufferRef.current ?? undefined,
+              )
+            : slicedWaveform;
+          if (invertSpectrum) {
+            invertedSpectrumBufferRef.current = spectrumWaveform;
+          }
           const bottomReservedPx = nodePreview
             ? 0
             : compact
@@ -3600,7 +3727,7 @@ const FFTCanvas = memo(
               isInitializingWebGPU,
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
-              waveform: slicedWaveform,
+              waveform: spectrumWaveform,
               frequencyRange: visualRange,
               fftMin: activeScaleDbMinRef.current,
               fftMax: activeScaleDbMaxRef.current,
@@ -3930,6 +4057,63 @@ const FFTCanvas = memo(
                   bottomReservedPx,
                 );
               }
+
+              // A paused/standby view is an explicit presentation boundary.
+              // Identify the frame that is frozen on this canvas instead of
+              // borrowing the selected device label (which may already have
+              // changed during a source handoff). This marker is intentionally
+              // drawn as a small orange band above the graph; it does not
+              // alter or synthesize the spectrum itself.
+              const pausedFrame = resolvePausedFramePresentation({
+                isPaused,
+                isStandby,
+                frameSourceId:
+                  currentFrame?.source_id ??
+                  lastPausedFrameSourceIdRef.current ??
+                  lastPresentedSourceIdRef.current,
+                frameSourceName:
+                  reduxWebsocketSources.find(
+                    (source) =>
+                      source.id ===
+                      (currentFrame?.source_id ??
+                        lastPausedFrameSourceIdRef.current ??
+                        lastPresentedSourceIdRef.current),
+                  )?.name,
+              });
+              if (pausedFrame) {
+                const markerHeight = nodePreview ? 22 : 30;
+                const markerTop = Math.max(
+                  0,
+                  logicalH - bottomReservedPx - markerHeight,
+                );
+                ctx.save();
+                if (isStandby && !hasRenderableFrame && !hasRenderedSpectrumFrame) {
+                  // Standby is intentionally not a spectrum view when no frame
+                  // is available. If a standby preview frame has been rendered,
+                  // present the spectrum line without drawing the guide line over it.
+                  ctx.strokeStyle = "rgba(245, 158, 11, 0.9)";
+                  ctx.lineWidth = nodePreview ? 1 : 2;
+                  ctx.beginPath();
+                  ctx.moveTo(0, logicalH * 0.52);
+                  ctx.lineTo(logicalW, logicalH * 0.52);
+                  ctx.stroke();
+                }
+                ctx.fillStyle = "rgba(40, 24, 4, 0.88)";
+                ctx.fillRect(0, markerTop, logicalW, markerHeight);
+                ctx.fillStyle = "#f59e0b";
+                ctx.fillRect(0, markerTop + markerHeight - 2, logicalW, 2);
+                ctx.font = nodePreview
+                  ? "600 11px monospace"
+                  : "600 13px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(
+                  `PAUSED · ${pausedFrame.label}`,
+                  logicalW / 2,
+                  markerTop + markerHeight / 2 - 1,
+                );
+                ctx.restore();
+              }
             }
           }
 
@@ -4241,10 +4425,16 @@ const FFTCanvas = memo(
                 canvas: waterfallGpuCanvas,
                 device: waterfallDevice,
                 format: waterfallFormat,
-                fftData: waterfallGpuRowBuffer
-                  ? EMPTY_FLOAT32_ARRAY
-                  : waterfallBins,
-                fftDataBuffer: waterfallGpuRowBuffer ?? undefined,
+                // Always upload the validated 4096-bin row. The optional GPU
+                // retune buffer can retain a source-sized row after an FFT
+                // size transition, leaving the remainder of the waterfall at
+                // the floor. Retune blending is already reflected in the CPU
+                // row above, so using it here keeps the full width coherent.
+                fftData: waterfallBins,
+                fftDataBuffer: undefined,
+                fftSize: effectiveFftSize,
+                sampleRate: hardwareSampleRateHz,
+                centerFrequencyHz: centerFreqRef.current,
                 fftMin: activeScaleDbMinRef.current,
                 fftMax: activeScaleDbMaxRef.current,
                 driftAmount: 0,
@@ -4306,6 +4496,7 @@ const FFTCanvas = memo(
         drawWebGPUFIFOWaterfall,
         computeWaterfallRetuneRow,
         isPaused,
+        invertSpectrum,
         pauseSnapshotEnabled,
         displayTemporalResolution,
         spectrumWebgpuEnabled,
@@ -4321,6 +4512,7 @@ const FFTCanvas = memo(
         clearOverlayCanvas,
         clearSpectrumBackbuffer,
         commitPendingSourcePresentationReset,
+        presentationPolicy,
         awaitingDeviceData,
         expectedSourceId,
         frameSourceIdFallback,

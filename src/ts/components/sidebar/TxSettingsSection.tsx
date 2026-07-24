@@ -7,8 +7,6 @@ import { useAppSelector } from "@n-apt/redux/store";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import {
   Radio,
-  SlidersHorizontal,
-  Waves,
   ShieldAlert,
   GitFork,
 } from "lucide-react";
@@ -389,6 +387,12 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     Number.isFinite(effectiveRxSampleRateHz) &&
     hopBandwidthHz > 0 &&
     hopBandwidthHz <= effectiveRxSampleRateHz;
+  const autoHopRequired =
+    (hopType === "channels" && selectedLabels.length > 1) ||
+    (hopType === "range" &&
+      typeof effectiveRxSampleRateHz === "number" &&
+      widthBandwidthHz > effectiveRxSampleRateHz);
+  const effectiveHopEnabled = hopEnabled || autoHopRequired;
 
   const handleChannelsChange = (nextLabels: string[]) => {
     onHopChannelsChange(nextLabels.map((l) => l.toLowerCase()));
@@ -752,111 +756,62 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
         <HopHeaderRow>
           <HopHeaderLabel>
             <GitFork size={14} />
-            Hop
+            Range
             <Tooltip
-              title="Frequency Hopping"
-              content="Simulate rapid frequency hopping across multiple frequencies or channels at a defined rate."
+              title="Range"
+              content="Tx I/Q range."
             />
           </HopHeaderLabel>
-          <Toggle
-            $active={hopEnabled}
-            onClick={() => onHopEnabledChange(!hopEnabled)}
-            activeLabel="On"
-            inactiveLabel="Off"
-          />
         </HopHeaderRow>
 
-        {hopEnabled && (
-          <HopOptionsContainer>
-            <HopFieldRow>
-              <HopFieldLabel>
-                Hop type
-                <Tooltip
-                  title="Hop Type"
-                  content="Choose between hopping across a continuous range of frequencies (Range) or specific predefined channels (Channels)."
-                />
-              </HopFieldLabel>
-              <HopFieldControl>
-                <Select
-                  value={hopType}
-                  onChange={(e) =>
-                    onHopTypeChange(e.target.value as "range" | "channels")
-                  }
-                  style={{ width: "auto", minWidth: "120px" }}
-                >
-                  <option value="range">Range</option>
-                  <option value="channels">Channels</option>
-                </Select>
-              </HopFieldControl>
-            </HopFieldRow>
-
-            {hopType === "range" ? (
-              <>
-                <HopFieldRow
-                  style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
-                >
-                  <HopFieldLabel>
-                    Hop start
-                    <Tooltip
-                      title="Hop Start Frequency"
-                      content="The lowest frequency of the hopping range in Hz."
-                    />
-                  </HopFieldLabel>
-                  <HopFieldControl>
-                    <FrequencyInput
-                      valueHz={hopStartFrequencyHz}
-                      onChangeHz={onHopStartFrequencyHzChange}
-                      minHz={0}
-                      maxHz={30_000_000_000}
-                    />
-                  </HopFieldControl>
-                </HopFieldRow>
-                <HopFieldRow
-                  style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}
-                >
-                  <HopFieldLabel>
-                    Hop end
-                    <Tooltip
-                      title="Hop End Frequency"
-                      content="The highest frequency of the hopping range in Hz."
-                    />
-                  </HopFieldLabel>
-                  <HopFieldControl>
-                    <FrequencyInput
-                      valueHz={hopEndFrequencyHz}
-                      onChangeHz={onHopEndFrequencyHzChange}
-                      minHz={0}
-                      maxHz={30_000_000_000}
-                    />
-                  </HopFieldControl>
-                </HopFieldRow>
-              </>
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                  width: "100%",
-                }}
+        <HopOptionsContainer>
+          <HopFieldRow>
+            <HopFieldLabel>
+              Range type
+              <Tooltip
+                title="Range Type"
+                content="Choose Channels or a continuous bandwidth and center frequency range."
+              />
+            </HopFieldLabel>
+            <HopFieldControl>
+              <Select
+                value={hopType}
+                onChange={(e) =>
+                  onHopTypeChange(e.target.value as "range" | "channels")
+                }
+                style={{ width: "auto", minWidth: "120px" }}
               >
-                <HopFieldLabel
-                  style={{ borderBottom: "none", paddingBottom: 0 }}
-                >
-                  Channels
-                  <Tooltip
-                    title="Predefined Channels"
-                    content="Select which specific predefined channels the signal will hop between."
-                  />
-                </HopFieldLabel>
-                <ChannelsGrid
-                  channels={channelsList}
-                  selectedLabels={selectedLabels}
-                  onChange={handleChannelsChange}
-                />
-              </div>
-            )}
+                <option value="range">Bandwidth + center</option>
+                <option value="channels">Channels</option>
+              </Select>
+            </HopFieldControl>
+          </HopFieldRow>
 
+          {hopType === "range" ? (
+            <>
+              <HopFieldRow style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}>
+                <HopFieldLabel>
+                  Tx Bandwidth
+                </HopFieldLabel>
+                <HopFieldControl>
+                  <FrequencyInput valueHz={widthBandwidthHz} onChangeHz={handleBandwidthChange} minHz={1} maxHz={maxWidthBandwidthHz} />
+                </HopFieldControl>
+              </HopFieldRow>
+              <HopFieldRow style={{ display: "grid", gridTemplateColumns: "120px 1fr" }}>
+                <HopFieldLabel>Center frequency</HopFieldLabel>
+                <HopFieldControl>
+                  <FrequencyInput valueHz={centerFrequencyHz} onChangeHz={onCenterFrequencyChange} minHz={0} maxHz={30_000_000_000} />
+                </HopFieldControl>
+              </HopFieldRow>
+            </>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+              <HopFieldLabel>Channels</HopFieldLabel>
+              <ChannelsGrid channels={channelsList} selectedLabels={selectedLabels} onChange={handleChannelsChange} />
+            </div>
+          )}
+
+          <>
             <HopFieldRow>
               <HopFieldLabel>
                 Rx Sample Rate
@@ -877,6 +832,25 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
               </HopFieldControl>
             </HopFieldRow>
 
+            <HopFieldRow>
+              <HopFieldLabel>
+                Hop
+                <Tooltip
+                  title="Frequency Hopping"
+                  content="Enable hopping within the selected range or channels."
+                />
+              </HopFieldLabel>
+              <Toggle
+                $active={effectiveHopEnabled}
+                onClick={() => {
+                  if (!autoHopRequired) onHopEnabledChange(!hopEnabled);
+                }}
+                activeLabel="On"
+                inactiveLabel="Off"
+              />
+            </HopFieldRow>
+
+            {effectiveHopEnabled && (
             <HopFieldRow>
               <HopFieldLabel>
                 Hop rate
@@ -905,36 +879,11 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
                 </InlineField>
               </HopFieldControl>
             </HopFieldRow>
-          </HopOptionsContainer>
-        )}
+            )}
+          </>
+        </HopOptionsContainer>
       </HopSectionContainer>
 
-      <Row
-        label={<IconLabel icon={SlidersHorizontal} text="Tx bandwidth" />}
-        tooltip="The occupied transmit bandwidth used by the IFFT signal generator. It is independent of the FFT viewer sample rate. Disabled when frequency hopping is active."
-        tooltipTitle="Tx Bandwidth"
-      >
-        <FrequencyInput
-          valueHz={widthBandwidthHz}
-          onChangeHz={handleBandwidthChange}
-          minHz={1}
-          maxHz={maxWidthBandwidthHz}
-          disabled={hopEnabled}
-        />
-      </Row>
-      <Row
-        label={<IconLabel icon={Waves} text="Center frequency" />}
-        tooltip="The center RF carrier frequency (in Hz) for the transmission. Disabled when frequency hopping is active."
-        tooltipTitle="Center Frequency"
-      >
-        <FrequencyInput
-          valueHz={centerFrequencyHz}
-          onChangeHz={onCenterFrequencyChange}
-          minHz={0}
-          maxHz={30_000_000_000}
-          disabled={hopEnabled}
-        />
-      </Row>
       <Row
         label="IFFT Size"
         tooltip="Tx synthesis size. This controls the generated I/Q resolution before the signal is viewed by the receive FFT. Larger IFFT sizes can represent lower quantized RMS powers but increase generation cost."

@@ -241,7 +241,7 @@ describe("useOverlayRenderer Hook", () => {
       [],
       16_384,
       "Rectangular",
-      "medium",
+      "reduced",
       false,
     );
 

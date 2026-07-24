@@ -32,6 +32,7 @@ import {
   setHackrfAmpEnabled,
   setDeviceKind,
   setShowTxSlider,
+  setFrequencyRange,
 } from "@n-apt/redux";
 import {
   getSupportedSnapshotVideoFormat,
@@ -747,8 +748,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     : liveSampleRateOptions;
   const supportsWholeChannelSampleRate =
     sourceMode === "live" && !isRtlSdr && (isHackrfOne || isMockLiveSource);
-  // Whole Channel is the selected channel's span. The source maximum is only
-  // a ceiling; using it here would make Channel A inherit Channel C's rate.
   const liveWholeChannelSampleRate = activeChannelSampleRate;
   // For frame rate computation, use the actual SDR sample rate — NOT the
   // channel bandwidth.  The channel bandwidth (max_hz - min_hz) can exceed
@@ -923,6 +922,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ? liveManualSampleRateOptions
     : sampleRateOptions;
 
+  const setSampleRateForVisualizer = useCallback(
+    (rate: number) => {
+      setSampleRate(rate);
+      storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+    },
+    [setSampleRate, storeDispatch],
+  );
+
   const {
     wholeChannelSampleRate: hackrfWholeChannelSampleRate,
     handleSampleRateChange,
@@ -937,9 +944,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     sampleRateHz: sampleRateHzLocal,
     fftSize,
     maxFrameRateLimit: maxFrameRate,
-    setSampleRate,
+    setSampleRate: setSampleRateForVisualizer,
     setFftFrameRate,
     applyFrequencyRange: (range) => {
+      dispatch(setFrequencyRange(range));
       storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
       wsConnection.sendFrequencyRange(range);
     },
@@ -1339,6 +1347,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               hopRateHz: txHopRateHz,
             })
           : null;
+        const isPhysicalHackRf =
+          source.kind?.toLowerCase?.() === "hackrf_one" ||
+          (selectedSource?.id === source.id && selectedBackendKind === "hackrf_one");
+        if (
+          nextEnabled &&
+          source.duplex_mode?.toLowerCase?.() === "half-duplex" &&
+          isPhysicalHackRf
+        ) {
+          // HackRF cannot receive and transmit simultaneously. Stop RX first so
+          // the backend can switch the device cleanly into TX standby/active mode.
+          wsConnection.sendPauseCommand?.(true, source.id);
+        }
         wsConnection.sendTransmitMode?.(nextEnabled, source.name ?? sourceId, {
           serialNumber: source.serial_number?.trim() || sourceId,
           centerFrequencyHz:
@@ -1423,6 +1443,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txHopRateHz,
       isConnected,
       wsConnection.sendTransmitMode,
+      wsConnection.sendPauseCommand,
     ],
   );
 
@@ -2636,9 +2657,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 hopRateHz={txHopRateHz}
                 onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
                 rxSampleRateHz={
-                  activeChannelSampleRate ??
                   sampleRateHzLocal ??
                   liveSdrSettingsToUse?.sample_rate ??
+                  sampleRateHzEffective ??
                   maxSampleRate
                 }
               />

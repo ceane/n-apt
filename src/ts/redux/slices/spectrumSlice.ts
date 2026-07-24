@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { FrequencyRange, Alignment } from "@n-apt/consts/types";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export const getMaxTxPowerDbm = (
   frequencyHz: number,
@@ -42,8 +43,6 @@ export const getMinTxPowerDbm = (
   return -60;
 };
 
-export type DisplayTemporalResolution = "low" | "medium" | "high";
-
 export interface GpuSpikeAnalysis {
   isNapt: boolean;
   confidence: number;
@@ -85,7 +84,7 @@ export interface SpectrumState {
   lastKnownRanges: Record<string, { min: number; max: number }>;
 
   // Display settings
-  displayTemporalResolution: DisplayTemporalResolution;
+  displayTemporalResolution: TemporalResolution;
   powerScale: PowerScale;
   vizZoom: number;
   vizZoomFloor: number;
@@ -113,7 +112,7 @@ export interface SpectrumState {
   txViewerFftSize: number;
   txViewerFftFrameRate: number;
   txViewerFftWindow: string;
-  txViewerTemporalResolution: DisplayTemporalResolution;
+  txViewerTemporalResolution: TemporalResolution;
   txViewerPowerScale: PowerScale;
   txCenterFrequencyHz: number;
   txPowerDbm: number;
@@ -158,7 +157,7 @@ export interface SpectrumState {
 }
 
 const LIVE_CONTROL_DEFAULTS = {
-  displayTemporalResolution: "medium" as const,
+  displayTemporalResolution: "reduced" as const,
   powerScale: "dB" as const,
   vizZoom: 1,
   vizZoomFloor: 1,
@@ -181,7 +180,7 @@ const LIVE_CONTROL_DEFAULTS = {
   txViewerFftSize: 65_536,
   txViewerFftFrameRate: 60,
   txViewerFftWindow: "Rectangular",
-  txViewerTemporalResolution: "high" as const,
+  txViewerTemporalResolution: "lossless" as const,
   txViewerPowerScale: "dB" as const,
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
@@ -208,7 +207,7 @@ const initialState: SpectrumState = {
   frequencyRange: null,
   lastKnownRanges: {},
 
-  displayTemporalResolution: "medium",
+  displayTemporalResolution: "reduced",
   powerScale: "dB",
   vizZoom: 1,
   vizZoomFloor: 1,
@@ -235,7 +234,7 @@ const initialState: SpectrumState = {
   txViewerFftSize: 65_536,
   txViewerFftFrameRate: 60,
   txViewerFftWindow: "Rectangular",
-  txViewerTemporalResolution: "high",
+  txViewerTemporalResolution: "lossless",
   txViewerPowerScale: "dB",
   txCenterFrequencyHz: 137_100_000,
   txPowerDbm: -18,
@@ -333,7 +332,7 @@ const spectrumSlice = createSlice({
     // Display settings
     setTemporalResolution: (
       state,
-      action: PayloadAction<DisplayTemporalResolution>,
+      action: PayloadAction<TemporalResolution>,
     ) => {
       state.displayTemporalResolution = action.payload;
     },
@@ -461,7 +460,7 @@ const spectrumSlice = createSlice({
 
     setTxViewerTemporalResolution: (
       state,
-      action: PayloadAction<DisplayTemporalResolution>,
+      action: PayloadAction<TemporalResolution>,
     ) => {
       state.txViewerTemporalResolution = action.payload;
     },

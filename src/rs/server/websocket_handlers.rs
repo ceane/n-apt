@@ -25,7 +25,6 @@ use super::websocket_server::{
 use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
-pub(crate) const MOCK_TX_MONITOR_IQ_FFT_SIZE: usize = 16_384;
 
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
   let canonical = canonical_mock_tx_signal_key(signal_name.unwrap_or("wifi"));
@@ -101,11 +100,13 @@ pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> Spect
   // A monitor preview does not need the full acquisition FFT length. The
   // browser can still zero-pad to the configured viewer FFT size, while this
   // keeps standby/Tx monitoring work bounded.
-  let fft_size = sdr_settings
-    .fft
-    .default_size
-    .max(256)
-    .min(MOCK_TX_MONITOR_IQ_FFT_SIZE);
+  let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+  let fft_size = if tx_ifft_size > 0 {
+    tx_ifft_size
+  } else {
+    sdr_settings.fft.default_size
+  }
+  .clamp(256, 262_144);
   let sample_rate = {
     let requested =
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
@@ -125,7 +126,6 @@ pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> Spect
   };
   let tx_center_hz = *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
   let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
-  let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
   let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
   let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
   let power_model = mock_tx::resolve_mock_tx_iq_power_model();
@@ -482,6 +482,116 @@ fn source_iq_v2_frame_matches_source(
   subscribed_source_id == frame_source_id
 }
 
+fn is_frame_after_paused_request(
+  frame_epoch: u64,
+  frame_sequence: u64,
+  request_epoch: u64,
+  request_sequence_floor: u64,
+) -> bool {
+  frame_epoch == request_epoch && frame_sequence > request_sequence_floor
+}
+
+/// Return a paused-frame request only when it belongs to this source socket.
+///
+/// The global allowance is deliberately never swapped here: doing so would
+/// let an old source socket consume a request intended for the newly selected
+/// source before that source can publish its first frame.
+fn take_source_owned_paused_frame_request(
+  shared: &SharedState,
+  source_id: &str,
+) -> Option<(u64, u64)> {
+  shared.paused_frame_request_for_source(source_id)
+}
+
+fn drain_latest_source_iq_frame(
+  spectrum_rx: &mut broadcast::Receiver<Arc<super::types::SpectrumData>>,
+  source_id: &str,
+  iq_protocol: IqStreamProtocol,
+  mut latest: Arc<super::types::SpectrumData>,
+) -> Arc<super::types::SpectrumData> {
+  loop {
+    match spectrum_rx.try_recv() {
+      Ok(candidate) => {
+        let matches_source = match iq_protocol {
+          IqStreamProtocol::V2 => source_iq_v2_frame_matches_source(
+            source_id,
+            &candidate.source_id,
+          ),
+          IqStreamProtocol::V1 => source_iq_frame_matches_source(
+            source_id,
+            candidate.is_mock_apt,
+          ),
+        };
+        if matches_source {
+          latest = candidate;
+        }
+      }
+      Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+      Err(
+        broadcast::error::TryRecvError::Empty
+        | broadcast::error::TryRecvError::Closed,
+      ) => break,
+    }
+  }
+  latest
+}
+
+fn drain_latest_source_iq_frame_after_request(
+  spectrum_rx: &mut broadcast::Receiver<Arc<super::types::SpectrumData>>,
+  source_id: &str,
+  iq_protocol: IqStreamProtocol,
+  request_epoch: u64,
+  request_sequence_floor: u64,
+  initial: Arc<super::types::SpectrumData>,
+) -> Option<Arc<super::types::SpectrumData>> {
+  let mut latest: Option<Arc<super::types::SpectrumData>> = None;
+  let mut consider = |candidate: Arc<super::types::SpectrumData>| {
+    let matches_source = match iq_protocol {
+      IqStreamProtocol::V2 => {
+        source_iq_v2_frame_matches_source(source_id, &candidate.source_id)
+      }
+      IqStreamProtocol::V1 => {
+        source_iq_frame_matches_source(source_id, candidate.is_mock_apt)
+      }
+    };
+    if !matches_source
+      || !is_frame_after_paused_request(
+        candidate.stream_epoch,
+        candidate.sequence,
+        request_epoch,
+        request_sequence_floor,
+      )
+    {
+      return;
+    }
+    if latest
+      .as_ref()
+      .map(|current| {
+        (candidate.stream_epoch, candidate.sequence)
+          <= (current.stream_epoch, current.sequence)
+      })
+      .unwrap_or(false)
+    {
+      return;
+    }
+    latest = Some(candidate);
+  };
+
+  consider(initial);
+  loop {
+    match spectrum_rx.try_recv() {
+      Ok(candidate) => consider(candidate),
+      Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+      Err(
+        broadcast::error::TryRecvError::Empty
+        | broadcast::error::TryRecvError::Closed,
+      ) => break,
+    }
+  }
+  latest
+}
+
+#[cfg(test)]
 fn source_kind_hint_from_id(source_id: &str) -> Option<&'static str> {
   if source_id.starts_with("rtl-sdr") || source_id.starts_with("rtl_sdr") {
     return Some("rtl-sdr");
@@ -492,6 +602,7 @@ fn source_kind_hint_from_id(source_id: &str) -> Option<&'static str> {
   None
 }
 
+#[cfg(test)]
 fn source_iq_subscription_matches_active_source(
   shared: &SharedState,
   source_id: &str,
@@ -588,10 +699,38 @@ pub(crate) async fn handle_source_iq_connection(
             {
               continue;
             }
-            let allow_next_paused_frame = shared
-              .allow_next_paused_frame
-              .swap(false, Ordering::SeqCst);
             let is_paused = shared.is_paused.load(Ordering::SeqCst);
+            let paused_request = if is_paused {
+              take_source_owned_paused_frame_request(&shared, &source_id)
+            } else {
+              None
+            };
+            let spectrum_data = if let Some((request_epoch, request_floor)) =
+              paused_request
+            {
+              let Some(fresh_frame) = drain_latest_source_iq_frame_after_request(
+                &mut spectrum_rx,
+                &source_id,
+                iq_protocol,
+                request_epoch,
+                request_floor,
+                spectrum_data,
+              ) else {
+                // Keep the request token armed. The next broadcast may be the
+                // first frame produced after the new settings are applied.
+                continue;
+              };
+              shared.clear_paused_frame_request();
+              fresh_frame
+            } else {
+              drain_latest_source_iq_frame(
+                &mut spectrum_rx,
+                &source_id,
+                iq_protocol,
+                spectrum_data,
+              )
+            };
+            let allow_next_paused_frame = paused_request.is_some();
             let is_mock_tx_monitor =
               source_id == "mock-tx"
                 && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
@@ -867,9 +1006,21 @@ pub fn handle_message(
       }
     }
     "request_next_frame" => {
-      apply_mock_tx_preview_settings(&message);
-      shared.allow_next_paused_frame.store(true, Ordering::SeqCst);
-      let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
+      let source_id = message
+        .source_id
+        .clone()
+        .unwrap_or_else(|| active_source_id(shared));
+      let active_source = active_source_id(shared);
+      if source_id != active_source {
+        debug!(
+          "Ignoring request_next_frame for inactive source: requested={}, active={}",
+          source_id, active_source
+        );
+      } else {
+        apply_mock_tx_preview_settings(&message);
+        shared.mark_paused_frame_requested(&source_id);
+        let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
+      }
     }
     "pause" => {
       if let Some(paused) = message.paused {
@@ -881,8 +1032,7 @@ pub fn handle_message(
         if source_id == active_source_id(shared) {
           shared.is_paused.store(paused, Ordering::SeqCst);
           shared
-            .allow_next_paused_frame
-            .store(false, Ordering::SeqCst);
+            .clear_paused_frame_request();
         }
         broadcast_device_status(&shared, &broadcast_tx);
       }
@@ -1130,7 +1280,10 @@ pub fn handle_message(
         if is_mock_tx_device {
           crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
             .store(sample_rate_hz, Ordering::Relaxed);
-        } else {
+        }
+        let is_mock_tx_active_receiver =
+          is_mock_tx_device_label(&shared.device_info.lock().unwrap());
+        if is_mock_tx_active_receiver {
           sdr_settings.sample_rate = sample_rate_hz;
         }
       }
@@ -1264,15 +1417,22 @@ pub fn handle_message(
       let current_tx_bandwidth_hz =
         *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
       let tx_bw = match message.bandwidth {
-        Some(bw) => bw as f64,
-        None if !enabled && current_tx_bandwidth_hz > 0.0 => {
-          current_tx_bandwidth_hz
-        }
-        None => sdr_settings.sample_rate as f64,
+        Some(bw) if bw > 0 => bw as f64,
+        _ if current_tx_bandwidth_hz > 0.0 => current_tx_bandwidth_hz,
+        _ => sdr_settings.sample_rate as f64,
       };
       *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = tx_bw;
-      if let Some(tx_ifft_size) = message.tx_ifft_size {
-        *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
+      let is_mock_tx_active_receiver =
+        is_mock_tx_device_label(&shared.device_info.lock().unwrap());
+      if let Some(sr) = message.sample_rate {
+        if sr.is_finite() && sr > 0.0 {
+          let sr_hz = sr.round().clamp(1.0, u32::MAX as f64) as u32;
+          crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
+            .store(sr_hz, Ordering::Relaxed);
+          if is_mock_tx_active_receiver {
+            sdr_settings.sample_rate = sr_hz;
+          }
+        }
       }
       let was_transmitting = crate::safety::TX_TRANSMITTING
         .swap(enabled, std::sync::atomic::Ordering::Relaxed);
@@ -1284,7 +1444,10 @@ pub fn handle_message(
         serial_number: serial_number.clone(),
         tx_signal: Some(tx_signal),
         center_frequency_hz: Some(tx_center_frequency_hz),
-        sample_rate_hz: Some(sdr_settings.sample_rate as u64),
+        sample_rate_hz: message
+          .sample_rate
+          .map(|sr| sr as u64)
+          .or(Some(sdr_settings.sample_rate as u64)),
         bandwidth_hz: Some(tx_bw),
         tx_ifft_size: message.tx_ifft_size,
         power_dbm: Some(tx_power),
@@ -1364,6 +1527,10 @@ pub fn handle_message(
           source_id = "mock-apt".to_string();
         }
         info!("Client requested source switch: {}", source_id);
+        // Fence the old stream before queueing the blocking swap command.
+        // This closes the refresh/device-switch window in which the frame
+        // loop could otherwise publish a Mock APT frame to a Mock Tx client.
+        shared.request_source_switch(&source_id);
         match cmd_tx.send(super::types::SdrCommand::SetActiveSource {
           source_id: source_id.clone(),
         }) {
@@ -1371,6 +1538,7 @@ pub fn handle_message(
             info!("Queued source switch: {}", source_id);
           }
           Err(error) => {
+            shared.clear_pending_source_switch(&source_id);
             error!("Failed to enqueue source switch {}: {}", source_id, error);
             let payload = serde_json::json!({
               "type": "error",
@@ -1546,15 +1714,19 @@ pub fn handle_message(
 mod tests {
   use super::{
     build_mock_tx_standby_preview_frame, encode_encrypted_iq_frame,
-    handle_message, live_tune_is_out_of_bounds, resolve_live_center_frequency,
-    should_send_source_iq_frame, source_iq_frame_matches_source,
-    source_iq_subscription_matches_active_source,
-    source_iq_v2_frame_matches_source, IqStreamProtocol,
+    drain_latest_source_iq_frame, handle_message, live_tune_is_out_of_bounds,
+    is_frame_after_paused_request,
+    resolve_live_center_frequency, should_send_source_iq_frame,
+    source_iq_frame_matches_source, source_iq_subscription_matches_active_source,
+    source_iq_v2_frame_matches_source, take_source_owned_paused_frame_request,
+    IqStreamProtocol,
   };
   use crate::server::shared_state::SharedState;
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
+  use crate::server::websocket_server::active_source_id;
+  use crate::sdr::processor::SdrProcessor;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
   use std::sync::mpsc;
@@ -1576,6 +1748,23 @@ mod tests {
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (broadcast_tx, _) = broadcast::channel(8);
     (cmd_tx, cmd_rx, broadcast_tx)
+  }
+
+  /// Compact payload-form fingerprint used by the swap regression test. It
+  /// deliberately ignores source metadata and captures only byte-shape
+  /// characteristics of the interleaved I/Q payload.
+  fn payload_form(iq: &[u8]) -> (usize, u64, u64) {
+    let mut magnitude_sum = 0u64;
+    let mut adjacent_delta_sum = 0u64;
+    for pair in iq.chunks_exact(2) {
+      let i = i16::from(pair[0]) - 128;
+      let q = i16::from(pair[1]) - 128;
+      magnitude_sum += u64::from(i.unsigned_abs()) + u64::from(q.unsigned_abs());
+    }
+    for window in iq.windows(2) {
+      adjacent_delta_sum += u64::from(window[0].abs_diff(window[1]));
+    }
+    (iq.len(), magnitude_sum, adjacent_delta_sum)
   }
 
   #[test]
@@ -1756,6 +1945,10 @@ mod tests {
       }
       other => panic!("unexpected command: {:?}", other),
     }
+    assert_eq!(
+      shared.pending_source_switch().as_deref(),
+      Some("rtl-sdr-1")
+    );
     assert!(
       broadcast_rx.try_recv().is_err(),
       "queue acknowledgement must not mark a warm source loading"
@@ -1830,7 +2023,7 @@ mod tests {
         assert_eq!(device, "Mock Tx SDR");
         assert_eq!(serial_number, "mock-tx");
         assert_eq!(center_frequency_hz, Some(1_600_000));
-        assert_eq!(sample_rate_hz, Some(initial_rx_sample_rate as u64));
+        assert_eq!(sample_rate_hz, Some(2_400_000));
         assert_eq!(tx_ifft_size, Some(8192));
         assert_eq!(
           power_dbm,
@@ -1987,6 +2180,43 @@ mod tests {
 
   #[test]
   #[serial]
+  fn request_next_frame_never_wakes_a_different_active_source() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+    assert_eq!(active_source_id(&shared), "mock-apt");
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"request_next_frame",
+        "source_id":"mock-tx",
+        "centerFrequencyHz":137100000,
+        "sample_rate":2400000
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(
+      cmd_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "an inactive-source preview must not wake the active SDR loop"
+    );
+    assert!(shared.paused_frame_request_for_source("mock-tx").is_none());
+  }
+
+  #[test]
+  fn paused_frame_request_cannot_be_consumed_by_another_source_socket() {
+    let shared = test_shared_state();
+    shared.mark_paused_frame_requested("mock-tx");
+
+    assert!(
+      take_source_owned_paused_frame_request(&shared, "mock-apt").is_none()
+    );
+    assert!(shared.paused_frame_request_for_source("mock-tx").is_some());
+  }
+
+  #[test]
+  #[serial]
   fn mock_tx_standby_preview_is_source_owned_and_contains_iq() {
     let shared = test_shared_state();
     crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
@@ -2002,6 +2232,30 @@ mod tests {
     assert_eq!(frame.data_type.as_deref(), Some("iq_raw"));
     assert_eq!(frame.sample_rate, Some(2_400_000));
     assert!(!frame.iq_data.is_empty());
+  }
+
+  #[test]
+  #[serial]
+  fn device_swap_changes_payload_form_independent_of_source_identifier() {
+    let shared = test_shared_state();
+    let mut mock_apt = SdrProcessor::new_mock_apt().expect("mock apt processor");
+    mock_apt
+      .initialize()
+      .expect("mock apt device should initialize");
+    mock_apt
+      .read_and_process_frame()
+      .expect("mock apt should produce a frame");
+    let apt_form = payload_form(&mock_apt.frame.last_frame_raw_iq);
+
+    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(2_400_000, Ordering::Relaxed);
+    *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = 137_100_000.0;
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 137_100_000.0;
+    *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
+    *crate::safety::TX_SIGNAL.lock().unwrap() = "wifi".to_string();
+    let tx_frame = build_mock_tx_standby_preview_frame(&shared);
+    let tx_form = payload_form(&tx_frame.iq_data);
+
+    assert_ne!(apt_form, tx_form, "source swap must change the I/Q payload form");
   }
 
   #[test]
@@ -2181,6 +2435,52 @@ mod tests {
   fn v2_source_filter_requires_exact_frame_ownership() {
     assert!(source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-1"));
     assert!(!source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-2"));
+  }
+
+  #[test]
+  fn source_iq_delivery_discards_backlog_and_keeps_latest_owned_frame() {
+    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
+    let frame = |source_id: &str, sequence: u64| {
+      Arc::new(SpectrumData {
+        message_type: "spectrum".to_string(),
+        waveform: Vec::new(),
+        is_mock_apt: source_id == "mock-apt",
+        source_id: source_id.to_string(),
+        stream_epoch: 1,
+        sequence,
+        center_frequency_hz: Some(137_100_000),
+        waveform_span_hz: None,
+        timestamp: sequence as i64,
+        data_type: Some("iq_raw".to_string()),
+        sample_rate: Some(3_200_000),
+        power_scale: None,
+        iq_data: vec![128, 128],
+      })
+    };
+
+    spectrum_tx.send(frame("mock-tx", 1)).unwrap();
+    spectrum_tx.send(frame("mock-apt", 2)).unwrap();
+    spectrum_tx.send(frame("mock-tx", 3)).unwrap();
+    let first = spectrum_rx.try_recv().unwrap();
+
+    let latest = drain_latest_source_iq_frame(
+      &mut spectrum_rx,
+      "mock-tx",
+      IqStreamProtocol::V2,
+      first,
+    );
+
+    assert_eq!(latest.source_id, "mock-tx");
+    assert_eq!(latest.sequence, 3);
+    assert!(spectrum_rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn paused_request_rejects_frames_from_before_the_request_floor() {
+    assert!(!is_frame_after_paused_request(7, 10, 7, 10));
+    assert!(!is_frame_after_paused_request(7, 9, 7, 10));
+    assert!(is_frame_after_paused_request(7, 11, 7, 10));
+    assert!(!is_frame_after_paused_request(8, 1, 7, 10));
   }
 
   #[test]

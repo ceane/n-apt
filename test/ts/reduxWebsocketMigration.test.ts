@@ -528,6 +528,28 @@ describe("Redux WebSocket Migration", () => {
       expect(controlSocket.send).not.toHaveBeenCalledWith(
         expect.stringContaining('"type":"request_next_frame"'),
       );
+
+      // Verify the preview frame requested on open enters liveDataRef even when isPaused is false
+      const previewFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-tx",
+        center_frequency_hz: 137_100_000,
+        sample_rate: 2_400_000,
+        iq_data: new Uint8Array([128, 128, 129, 127]),
+      };
+      jest.useFakeTimers();
+      try {
+        __testQueueLiveDataForMiddleware(
+          previewFrame,
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+        jest.advanceTimersByTime(16);
+        expect(liveDataRef.current).toEqual(previewFrame);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it("clears stale live spectrum caches immediately when disconnecting", () => {
@@ -2187,6 +2209,71 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Live data ref isolation", () => {
+    it("never promotes a previous-source frame into the active Mock Tx canvas", () => {
+      jest.useFakeTimers();
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: false,
+          activeSourceId: "mock-tx",
+          sourceStatuses: {
+            "mock-apt": "connected",
+            "mock-tx": "transmitting",
+          },
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+            },
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "transmitting",
+            },
+          ],
+        } as any),
+      );
+
+      const staleAptFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-apt",
+        stream_epoch: 4,
+        sequence: 9,
+        iq_data: new Uint8Array([128, 128, 129, 127]),
+        sample_rate: 4_372_000,
+        center_frequency_hz: 137_100_000,
+      } as IqRawFrame;
+
+      __testQueueLiveDataForMiddleware(
+        staleAptFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+      jest.advanceTimersByTime(16);
+
+      expect(liveDataBySourceRef.current["mock-apt"]?.current).toBe(
+        staleAptFrame,
+      );
+      expect(liveDataRef.current).toBeNull();
+      jest.useRealTimers();
+    });
+
     it("publishes a paused secondary-source preview revision without playing Rx", () => {
       jest.useFakeTimers();
       const middlewareStore = configureStore({

@@ -11,6 +11,7 @@ import {
 import { OverlayTextureRenderer } from "@n-apt/hooks/useWebGPUInit";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 const finiteOrEmpty = (value: number | undefined | null) =>
   typeof value === "number" && Number.isFinite(value) ? String(value) : "";
@@ -171,7 +172,7 @@ export interface SpectrumRendererOptions {
   /** FFT window displayed in the live canvas status row */
   fftWindow?: string;
   /** Temporal resolution displayed in the live canvas status row */
-  temporalResolution?: "low" | "medium" | "high";
+  temporalResolution?: TemporalResolution;
   /** Bottom pixels reserved below the FFT plot for VFO/status labels */
   reservedBottomPx?: number;
   /** The full unzoomed capture range used as an anchor for hardware blocks */

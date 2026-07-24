@@ -19,6 +19,7 @@ import {
   shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
   shouldPublishProcessedSpectrumFrame,
+  invertSpectrumVertically,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -31,6 +32,12 @@ import { createRef } from "react";
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 const drawSpectrumMock = jest.fn(() => true);
+
+test("inverts spectrum power values without reversing frequency order", () => {
+  expect(
+    invertSpectrumVertically(new Float32Array([-120, -80, -40]), -120, 0),
+  ).toEqual(new Float32Array([0, -40, -80]));
+});
 
 // Mock useAuthentication to avoid auth errors during state init
 jest.mock("@n-apt/hooks/useAuthentication", () => ({

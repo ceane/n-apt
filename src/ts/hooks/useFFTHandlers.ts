@@ -8,6 +8,7 @@ import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
 import type { CanvasState } from "@n-apt/hooks/useCanvasState";
 import type { VisualizationState } from "@n-apt/hooks/useVisualizationState";
 import { roundDbValue } from "@n-apt/utils/frequency";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export interface FFTHandlersState {
   // Processing refs
@@ -56,7 +57,7 @@ export interface FFTHandlersProps {
   fftSize?: number;
   fftWindow?: string;
   isPaused: boolean;
-  displayTemporalResolution?: "low" | "medium" | "high";
+  displayTemporalResolution?: TemporalResolution;
   isDeviceConnected?: boolean;
   showSpikeOverlay?: boolean;
   awaitingDeviceData?: boolean;
@@ -83,7 +84,7 @@ export const useFFTHandlers = ({
   fftSize = 32768,
   fftWindow = "Rectangular",
   isPaused: _isPaused,
-  displayTemporalResolution: _displayTemporalResolution = "medium",
+  displayTemporalResolution: _displayTemporalResolution = "reduced",
   isDeviceConnected = true,
   showSpikeOverlay: _showSpikeOverlay,
   awaitingDeviceData: _awaitingDeviceData,

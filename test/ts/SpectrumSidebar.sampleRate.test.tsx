@@ -221,7 +221,7 @@ const initMockState = () => {
   mockLiveState = {
     activeSignalArea: "C",
     frequencyRange: { min: 24_720_000, max: 29_920_000 },
-    displayTemporalResolution: "medium",
+    displayTemporalResolution: "reduced",
     powerScale: "dB",
     selectedFiles: [],
     snapshotGridPreference: true,

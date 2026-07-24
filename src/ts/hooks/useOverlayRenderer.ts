@@ -25,6 +25,7 @@ import {
 } from "@n-apt/hooks/useDraw2DFFTSignal";
 import type { SdrLimitMarker } from "@n-apt/utils/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/hooks/useWasmSimdMath";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export type Alignment = "centered" | "start" | "end";
 
@@ -49,6 +50,7 @@ export interface TxSliderOverlayState {
   deviceLabel?: string;
   signalLabel?: string;
   powerDbm?: number;
+  rxSampleRateHz?: number;
 }
 
 const readCssColor = (name: string, fallback: string) => {
@@ -530,7 +532,7 @@ export function useOverlayRenderer() {
       _limitMarkers?: SdrLimitMarker[],
       _fftSize?: number,
       _fftWindow?: string,
-      _temporalResolution?: "low" | "medium" | "high",
+      _temporalResolution?: TemporalResolution,
       showStatusRow = true,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
       _statusRow?: LiveCanvasStatusRow,

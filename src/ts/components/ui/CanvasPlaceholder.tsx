@@ -137,8 +137,8 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
         style={
           isTopBar
             ? {
-                alignItems: "flex-start",
-                paddingTop: "12px",
+                alignItems: "flex-end",
+                paddingBottom: "12px",
               }
             : undefined
         }

@@ -106,6 +106,7 @@ type WaterfallState = {
   clearBuf: ArrayBuffer;
   clearBytes: Uint8Array;
   writeRow: number;
+  lastFftSize?: number;
   currentColorMapName?: string;
   defaultBackgroundColor: string;
   backgroundColor: string;
@@ -224,6 +225,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         clearBuf: new ArrayBuffer(0),
         clearBytes: new Uint8Array(0),
         writeRow: 0,
+        lastFftSize: undefined,
         currentColorMapName: colormapName,
         defaultBackgroundColor: readCssColor(
           "--color-fft-background",
@@ -315,7 +317,12 @@ export function useDrawWebGPUFIFOWaterfall() {
 
         // -- Resize texture IF PLOT HEIGHT changes OR force reset on source change --
         // (internal width is constant 4096)
+        const fftSizeChanged =
+          typeof fftSize === "number" &&
+          s.lastFftSize !== undefined &&
+          s.lastFftSize !== fftSize;
         const forceReset =
+          fftSizeChanged ||
           restoreTexture &&
           restoreTexture.width > 0 &&
           restoreTexture.height > 0 &&
@@ -401,6 +408,7 @@ export function useDrawWebGPUFIFOWaterfall() {
             ],
           });
         }
+        if (typeof fftSize === "number") s.lastFftSize = fftSize;
 
         // -- Restore snapshot --
         if (restoreTexture && s.dataTex) {
@@ -523,7 +531,20 @@ export function useDrawWebGPUFIFOWaterfall() {
             const f32 = s.rowFloats;
             const fftDataLength = fftData.length;
             for (let i = 0; i < s.texW; i++) {
-              f32[i] = i < fftDataLength ? fftData[i] : -200;
+              if (fftDataLength === 0) {
+                f32[i] = -200;
+                continue;
+              }
+              // Callers such as WaterfallNode provide a display-width row,
+              // while this renderer owns a fixed 4096-bin texture. Resample
+              // across the complete texture instead of flooring the tail.
+              const sourceIndex = Math.min(
+                fftDataLength - 1,
+                Math.floor((i * fftDataLength) / s.texW),
+              );
+              f32[i] = Number.isFinite(fftData[sourceIndex])
+                ? fftData[sourceIndex]
+                : -200;
             }
             for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
               let row = s.writeRow - smearIdx;

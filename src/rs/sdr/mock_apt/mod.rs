@@ -16,9 +16,9 @@
 
 use crate::s::fft::types::RawSamples;
 use crate::s::ifft::mock_tx_gen::{
-  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
+  canonical_mock_tx_signal_key, MockTxGenerator, MockTxParams,
 };
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Cached Mock Tx synthesis state.
 ///
@@ -26,19 +26,40 @@ use std::sync::Mutex;
 /// receive path still recomputes the requested frame on every read.
 struct MockTxBuffer {
   params: Option<MockTxParams>,
-  samples: Vec<Complex<f32>>,
+  samples: Arc<Vec<Complex<f32>>>,
+  generator: MockTxGenerator,
 }
 
 impl MockTxBuffer {
-  const fn new() -> Self {
+  fn new() -> Self {
     Self {
       params: None,
-      samples: Vec::new(),
+      samples: Arc::new(Vec::new()),
+      generator: MockTxGenerator::new(),
     }
+  }
+
+  fn prepare(&mut self, params: &MockTxParams) {
+    if self.params.as_ref() == Some(params)
+      && !self.samples.is_empty()
+      && self.samples.len() == params.tx_ifft_size
+    {
+      return;
+    }
+
+    self
+      .generator
+      .generate_into(params, Arc::make_mut(&mut self.samples));
+    self.params = Some(params.clone());
+  }
+
+  fn snapshot_samples(&self) -> Arc<Vec<Complex<f32>>> {
+    Arc::clone(&self.samples)
   }
 }
 
-static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+static MOCK_TX_CACHE: LazyLock<Mutex<MockTxBuffer>> =
+  LazyLock::new(|| Mutex::new(MockTxBuffer::new()));
 
 use std::cell::RefCell;
 
@@ -1392,22 +1413,17 @@ impl MockAptDevice {
               tx_ifft_size: render_ifft_size,
               phase_seed: if is_ofdm { self.frame_log_counter } else { 0 },
             };
-            let mut cache = MOCK_TX_CACHE.lock().unwrap();
-            if cache.params.as_ref() != Some(&current_params)
-              || cache.samples.is_empty()
-              || cache.samples.len() != render_ifft_size
-            {
-              cache.samples = generate_mock_tx_samples_ifft(&current_params);
-              cache.params = Some(current_params);
-            }
-            let block = cache.samples.clone();
-            drop(cache);
+            let block = {
+              let mut cache = MOCK_TX_CACHE.lock().unwrap();
+              cache.prepare(&current_params);
+              cache.snapshot_samples()
+            };
             let block_cursor =
               (self.frame_log_counter as usize) % render_ifft_size;
             let frame_seed = self.frame_log_counter;
 
             let mut max_peak = 0.0_f64;
-            for s in &block {
+            for s in block.iter() {
               let peak = ((s.re * s.re + s.im * s.im) as f64).sqrt();
               if peak > max_peak {
                 max_peak = peak;
@@ -1764,6 +1780,27 @@ mod tests {
   use crate::server::utils::cwd_lock;
   use std::fs;
   use std::thread::sleep;
+
+  #[test]
+  fn mock_tx_overlay_cache_reuses_plans_when_phase_changes() {
+    let mut cache = MockTxBuffer::new();
+    let mut params = MockTxParams {
+      signal_key: "wifi".to_string(),
+      sample_rate_hz: 3_200_000.0,
+      bandwidth_hz: 100_000.0,
+      tx_ifft_size: 1024,
+      phase_seed: 1,
+    };
+
+    cache.prepare(&params);
+    let first_capacity = cache.samples.capacity();
+    params.phase_seed = 2;
+    cache.prepare(&params);
+
+    assert_eq!(cache.samples.len(), 1024);
+    assert_eq!(cache.samples.capacity(), first_capacity);
+    assert_eq!(cache.generator.cached_fft_size_count(), 1);
+  }
 
   fn write_test_signals_yaml(
     path: &std::path::Path,

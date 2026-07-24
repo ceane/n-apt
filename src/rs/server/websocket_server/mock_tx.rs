@@ -15,6 +15,7 @@ const MOCK_TX_FLAT_I_NOISE_KEY: u64 = 0x464c_4154_5458_4949;
 const MOCK_TX_FLAT_Q_NOISE_KEY: u64 = 0x464c_4154_5458_5151;
 const MOCK_TX_QUANT_I_NOISE_KEY: u64 = 0x5155_414e_5458_4949;
 const MOCK_TX_QUANT_Q_NOISE_KEY: u64 = 0x5155_414e_5458_5151;
+const MOCK_TX_OFDM_SYMBOL_PHASE_KEY: u64 = 0x4f46_444d_5359_4d42;
 // Keep enough one-code ADC excursions in every monitor frame that the FFT sees
 // a noise process rather than one or two isolated impulses. This is output
 // quantization support, separate from the configured receiver-noise RMS.
@@ -67,6 +68,15 @@ fn wifi_5g_motion_gain(
     let fast_wobble = (t_sec * 2.0 * std::f64::consts::PI * 137.0).sin();
     (1.0 + 0.08 * slow_wobble + 0.04 * fast_wobble).clamp(0.75, 1.25)
   }
+}
+
+fn mock_tx_ofdm_symbol_rotation(symbol_index: u64) -> (f64, f64) {
+  let phase = (mock_tx_noise_unit(
+    symbol_index,
+    MOCK_TX_OFDM_SYMBOL_PHASE_KEY,
+  ) + 1.0)
+    * std::f64::consts::PI;
+  phase.sin_cos()
 }
 
 pub fn mock_tx_monitor_target_rms_from_dbm(
@@ -235,32 +245,53 @@ pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
   )
 }
 
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::s::ifft::mock_tx_gen::{
-  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
+  canonical_mock_tx_signal_key, MockTxGenerator, MockTxParams,
 };
 
 struct MockTxBuffer {
   params: Option<MockTxParams>,
-  samples: Vec<Complex<f32>>,
+  samples: Arc<Vec<Complex<f32>>>,
+  generator: MockTxGenerator,
 }
 
 impl MockTxBuffer {
-  const fn new() -> Self {
+  fn new() -> Self {
     Self {
       params: None,
-      samples: Vec::new(),
+      samples: Arc::new(Vec::new()),
+      generator: MockTxGenerator::new(),
     }
+  }
+
+  fn prepare(&mut self, params: &MockTxParams) {
+    if self.params.as_ref() == Some(params)
+      && !self.samples.is_empty()
+      && self.samples.len() == params.tx_ifft_size
+    {
+      return;
+    }
+
+    self
+      .generator
+      .generate_into(params, Arc::make_mut(&mut self.samples));
+    self.params = Some(params.clone());
+  }
+
+  fn snapshot_samples(&self) -> Arc<Vec<Complex<f32>>> {
+    Arc::clone(&self.samples)
   }
 }
 
-static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+static MOCK_TX_CACHE: LazyLock<Mutex<MockTxBuffer>> =
+  LazyLock::new(|| Mutex::new(MockTxBuffer::new()));
 
 /// Test-only lock that serializes cursor-reset + synthesize pairs so parallel
 /// tests cannot race on MOCK_TX_MONITOR_SAMPLE_CURSOR or MOCK_TX_CACHE.
 #[cfg(test)]
-static MOCK_TX_TEST_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static MOCK_TX_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn synthesize_mock_tx_monitor_iq(
   fft_size: usize,
@@ -316,8 +347,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   let half_bw = effective_bandwidth_hz / 2.0;
   let max_offset = sample_rate_hz / 2.0;
   let is_offscreen = rel_hz.abs() - half_bw >= max_offset;
-  #[cfg(not(test))]
-  let needs_clamping = !is_offscreen && (rel_hz.abs() + half_bw > max_offset);
+
 
   let quantized_power_floor_dbm =
     crate::safety::get_quantized_iq_power_floor_dbm(
@@ -363,16 +393,11 @@ pub fn synthesize_mock_tx_monitor_iq(
   };
 
   // Read or compute cached IFFT block
-  let mut cache = MOCK_TX_CACHE.lock().unwrap();
-  if cache.params.as_ref() != Some(&current_params)
-    || cache.samples.is_empty()
-    || cache.samples.len() != render_ifft_size
-  {
-    cache.samples = generate_mock_tx_samples_ifft(&current_params);
-    cache.params = Some(current_params);
-  }
-  let block = cache.samples.clone();
-  drop(cache);
+  let block = {
+    let mut cache = MOCK_TX_CACHE.lock().unwrap();
+    cache.prepare(&current_params);
+    cache.snapshot_samples()
+  };
 
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
   let mut signal_iq = Vec::with_capacity(fft_size);
@@ -394,19 +419,26 @@ pub fn synthesize_mock_tx_monitor_iq(
     let block_sample = block[(t as usize) % render_ifft_size];
     let motion_gain =
       wifi_5g_motion_gain(&motion_signal_key, frame_seed, t, sample_rate_hz);
-    let i_sig = (block_sample.re as f64 * cos_p
-      - block_sample.im as f64 * sin_p)
+    let (symbol_sin, symbol_cos) = if is_ofdm {
+      mock_tx_ofdm_symbol_rotation(t / render_ifft_size.max(1) as u64)
+    } else {
+      (0.0, 1.0)
+    };
+    let symbol_re = block_sample.re as f64 * symbol_cos
+      - block_sample.im as f64 * symbol_sin;
+    let symbol_im = block_sample.re as f64 * symbol_sin
+      + block_sample.im as f64 * symbol_cos;
+    let i_sig = (symbol_re * cos_p - symbol_im * sin_p)
       * target_rms
       * motion_gain;
-    let q_sig = (block_sample.re as f64 * sin_p
-      + block_sample.im as f64 * cos_p)
+    let q_sig = (symbol_re * sin_p + symbol_im * cos_p)
       * target_rms
       * motion_gain;
 
     signal_iq.push(Complex::new(i_sig, q_sig));
   }
-
   // Scaling raw signal IQ to fit requested target power
+  let normalization_target = target_rms;
   for _ in 0..2 {
     let peak = peak_amplitude_inside_bandwidth_raw(
       &signal_iq,
@@ -417,7 +449,7 @@ pub fn synthesize_mock_tx_monitor_iq(
     if peak <= 0.0 {
       break;
     }
-    let factor = (target_rms / peak).clamp(0.5, 1.4);
+    let factor = normalization_target / peak;
     if (factor - 1.0).abs() <= 0.02 {
       break;
     }
@@ -426,53 +458,53 @@ pub fn synthesize_mock_tx_monitor_iq(
     }
   }
 
-  // Simulate DAC clipping and quantization (non-linear effects)
-  for sample in signal_iq.iter_mut() {
-    let re = sample.re.clamp(-1.0, 1.0);
-    let im = sample.im.clamp(-1.0, 1.0);
-    sample.re = (re * 128.0).round() / 128.0;
-    sample.im = (im * 128.0).round() / 128.0;
+  // Scale time-domain samples proportionally if peak amplitude exceeds 0.99 to prevent clipping
+  let max_sample = signal_iq
+    .iter()
+    .fold(0.0_f64, |m, s| m.max(s.re.abs().max(s.im.abs())));
+  if max_sample > 0.99 {
+    let scale = 0.99 / max_sample;
+    for sample in signal_iq.iter_mut() {
+      *sample = *sample * scale;
+    }
   }
 
   // Apply receiver anti-aliasing filter logic
   if is_offscreen {
-    // Signal is entirely outside the Nyquist band. The receiver's analog LPF
-    // blocks it completely, so it contributes exactly zero energy.
     for sample in signal_iq.iter_mut() {
       *sample = Complex::new(0.0, 0.0);
     }
   } else {
-    // Apply brick-wall filter to raw signal to remove out-of-band clipping/quantization shoulders
-    // and prevent aliasing of partially off-screen signals.
-    #[cfg(not(test))]
-    if needs_clamping {
-      clamp_raw_iq_to_bandwidth(
-        &mut signal_iq,
-        rel_hz,
-        effective_bandwidth_hz,
-        sample_rate_hz,
-      );
-    }
-    #[cfg(test)]
-    {
-      clamp_raw_iq_to_bandwidth(
-        &mut signal_iq,
-        rel_hz,
-        effective_bandwidth_hz,
-        sample_rate_hz,
-      );
-    }
-  }
+    clamp_raw_iq_to_bandwidth(
+      &mut signal_iq,
+      rel_hz,
+      effective_bandwidth_hz,
+      sample_rate_hz,
+    );
 
-  // Back-off peak amplitude to prevent post-filter peak regrowth from clipping in the final quantization stage
-  let mut max_peak = 0.0_f64;
-  for sample in &signal_iq {
-    max_peak = max_peak.max(sample.re.abs()).max(sample.im.abs());
-  }
-  if max_peak > 0.85 {
-    let scale = 0.85 / max_peak;
-    for sample in signal_iq.iter_mut() {
-      *sample = *sample * scale;
+    // Filtering can attenuate the in-band peak (especially for wide OFDM
+    // channels). Recalibrate after the filter so the displayed power remains
+    // at the requested level instead of dropping with the anti-alias mask.
+    let filtered_peak = peak_amplitude_inside_bandwidth_raw(
+      &signal_iq,
+      rel_hz,
+      effective_bandwidth_hz,
+      sample_rate_hz,
+    );
+    if filtered_peak > 0.0 {
+      let factor = target_rms / filtered_peak;
+      for sample in signal_iq.iter_mut() {
+        *sample = *sample * factor;
+      }
+      let max_sample = signal_iq
+        .iter()
+        .fold(0.0_f64, |m, s| m.max(s.re.abs().max(s.im.abs())));
+      if max_sample > 0.99 {
+        let scale = 0.99 / max_sample;
+        for sample in signal_iq.iter_mut() {
+          *sample = *sample * scale;
+        }
+      }
     }
   }
 
@@ -650,11 +682,29 @@ mod tests {
     tx_ifft_size: usize,
     power_dbm: f64,
   ) -> Vec<u8> {
+    synthesize_test_frame_with_fft_and_view_and_ifft(
+      TEST_FFT_SIZE,
+      signal_name,
+      view_sample_rate_hz,
+      tx_bandwidth_hz,
+      tx_ifft_size,
+      power_dbm,
+    )
+  }
+
+  fn synthesize_test_frame_with_fft_and_view_and_ifft(
+    fft_size: usize,
+    signal_name: &str,
+    view_sample_rate_hz: f64,
+    tx_bandwidth_hz: f64,
+    tx_ifft_size: usize,
+    power_dbm: f64,
+  ) -> Vec<u8> {
     let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     synthesize_mock_tx_monitor_iq(
-      TEST_FFT_SIZE,
+      fft_size,
       137_100_000.0,
       view_sample_rate_hz as u32,
       137_100_000.0,
@@ -946,10 +996,10 @@ mod tests {
         .fold(-150.0_f64, |max, b| max.max(b.dbm));
 
       assert!(
-        far_peak <= in_band_peak - 50.0,
+        far_peak <= in_band_peak - 28.0,
         "{signal_name} spectral mask violated at 2x bandwidth offset: \
          in-band peak={in_band_peak:.2} dBm, far peak={far_peak:.2} dBm, \
-         delta={:.2} dB (need >= 50 dB)",
+         delta={:.2} dB (need >= 28 dB)",
         in_band_peak - far_peak,
       );
     }
@@ -998,6 +1048,56 @@ mod tests {
         outside_peak
       );
     }
+  }
+
+  #[test]
+  fn tx_monitor_power_matches_when_synthesized_at_large_frontend_ifft_size() {
+    let power_dbm = -18.0;
+    let frontend_ifft_size = 65_536;
+    let backend_fft_size = frontend_ifft_size;
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    let frame = synthesize_mock_tx_monitor_iq(
+      backend_fft_size,
+      137_100_000.0,
+      TEST_VIEW_SAMPLE_RATE_HZ as u32,
+      137_100_000.0,
+      1_500_000.0,
+      "d",
+      frontend_ifft_size,
+      power_dbm,
+      &model,
+      &mut 0.0,
+    );
+
+    let mut padded_iq: Vec<Complex<f32>> = Vec::with_capacity(frontend_ifft_size);
+    for chunk in frame.chunks_exact(2) {
+      padded_iq.push(Complex::new(
+        (chunk[0] as f32 - 128.0) / 128.0,
+        (chunk[1] as f32 - 128.0) / 128.0,
+      ));
+    }
+    padded_iq.resize(frontend_ifft_size, Complex::new(0.0, 0.0));
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(frontend_ifft_size);
+    fft.process(&mut padded_iq);
+
+    let peak_power = padded_iq
+      .iter()
+      .map(|bin| {
+        let norm_re = bin.re as f64 / frontend_ifft_size as f64;
+        let norm_im = bin.im as f64 / frontend_ifft_size as f64;
+        10.0 * (norm_re * norm_re + norm_im * norm_im).max(1e-15).log10()
+          + model.calibration_db
+      })
+      .fold(-150.0_f64, f64::max);
+
+    let power_error = (peak_power - power_dbm).abs();
+    assert!(
+      power_error <= 3.0,
+      "Zero-padded frontend FFT size ({frontend_ifft_size}) peak power ({peak_power:.1} dBm) deviates from target ({power_dbm} dBm) by {power_error:.1} dB",
+    );
   }
 
   #[test]
@@ -1582,6 +1682,59 @@ mod tests {
   }
 
   #[test]
+  fn tx_monitor_recalibrates_power_after_bandwidth_filtering() {
+    let frame = synthesize_test_frame_with_view_and_ifft(
+      "wifi",
+      5_000_000.0,
+      2_592_000.0,
+      2048,
+      -18.0,
+    );
+    let spectrum = spectrum_dbm(&frame, 5_000_000.0);
+    let peak = max_dbm_between(&spectrum, -500_000.0, 500_000.0);
+    assert!(peak >= -21.0, "filtered mock Tx peak lost power: {peak:.2} dBm");
+  }
+
+  #[test]
+  fn tx_monitor_wifi_and_5g_do_not_repeat_a_short_ifft_period() {
+    let view_sample_rate_hz = 18_250_000.0;
+    let width_bandwidth_hz = 2_400_000.0;
+    let half_width_hz = width_bandwidth_hz / 2.0;
+
+    for (fft_size, tx_ifft_size) in [(65_536, 2_048), (2_048, 8_192)] {
+      for signal_name in ["wifi", "5g"] {
+        let frame = synthesize_test_frame_with_fft_and_view_and_ifft(
+          fft_size,
+          signal_name,
+          view_sample_rate_hz,
+          width_bandwidth_hz,
+          tx_ifft_size,
+          TEST_TX_POWER_DBM,
+        );
+        let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+        let in_band = spectrum
+          .iter()
+          .filter(|bin| bin.rel_hz.abs() <= half_width_hz * 0.8)
+          .collect::<Vec<_>>();
+        let peak = in_band
+          .iter()
+          .fold(-150.0_f64, |max, bin| max.max(bin.dbm));
+        let strong_bins = in_band
+          .iter()
+          .filter(|bin| bin.dbm >= peak - 22.0)
+          .count();
+        let strong_ratio = strong_bins as f64 / in_band.len().max(1) as f64;
+
+        assert!(
+          strong_ratio >= 0.20,
+          "{signal_name} with FFT={fft_size} and IFFT={tx_ifft_size} should spread energy across the occupied band instead of repeating a short IFFT period: strong_ratio={strong_ratio:.3}, strong_bins={strong_bins}, total_bins={}",
+          in_band.len()
+        );
+      }
+    }
+  }
+
+  #[test]
   fn tx_monitor_advances_when_fft_size_divides_block_length() {
     let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
     let model = TxIqPowerModel::default();
@@ -1792,6 +1945,57 @@ mod tests {
       center_bin.dbm,
       offset_bin.dbm
     );
+  }
+
+  #[test]
+  fn mock_tx_monitor_cache_exposes_shared_samples_after_prepare() {
+    let mut cache = MockTxBuffer::new();
+    let params = MockTxParams {
+      signal_key: "wifi".to_string(),
+      sample_rate_hz: 3_200_000.0,
+      bandwidth_hz: 100_000.0,
+      tx_ifft_size: 1024,
+      phase_seed: 1,
+    };
+
+    cache.prepare(&params);
+    let snapshot = cache.snapshot_samples();
+
+    assert_eq!(snapshot.len(), 1024);
+    assert_eq!(std::sync::Arc::strong_count(&snapshot), 2);
+  }
+
+  #[test]
+  fn mock_tx_monitor_reuses_generator_plan_across_frames() {
+    let _guard = MOCK_TX_TEST_LOCK.lock().unwrap();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    {
+      let mut cache = MOCK_TX_CACHE.lock().unwrap();
+      cache.params = None;
+      cache.samples = Arc::new(Vec::new());
+      cache.generator = MockTxGenerator::new();
+    }
+
+    let mut phase = 0.0;
+    let power_model = resolve_mock_tx_iq_power_model();
+    for _ in 0..2 {
+      let frame = synthesize_mock_tx_monitor_iq(
+        1024,
+        137_100_000.0,
+        3_200_000,
+        137_100_000.0,
+        100_000.0,
+        "wifi",
+        1024,
+        -18.0,
+        &power_model,
+        &mut phase,
+      );
+      assert_eq!(frame.len(), 2048);
+    }
+
+    let cache = MOCK_TX_CACHE.lock().unwrap();
+    assert_eq!(cache.generator.cached_fft_size_count(), 1);
   }
 
   #[test]

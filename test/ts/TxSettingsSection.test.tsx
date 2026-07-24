@@ -90,14 +90,33 @@ describe("TxSettingsSection", () => {
     expect(screen.getByText("Hop rate")).toBeInTheDocument();
   });
 
-  it("labels the IFFT signal width as Tx bandwidth", () => {
+  it("updates the Rx sample rate when the parent sample-rate state changes", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} rxSampleRateHz={5_200_000} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(/5\.2\s*MHz/)).toBeInTheDocument();
+
+    rerender(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} rxSampleRateHz={2_400_000} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(/2\.4\s*MHz/)).toBeInTheDocument();
+    expect(screen.queryByText(/5\.2\s*MHz/)).not.toBeInTheDocument();
+  });
+
+  it("labels the Tx I/Q width as Tx Bandwidth", () => {
     render(
       <TestWrapper>
         <TxSettingsSection {...defaultProps} hopEnabled={false} />
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Tx bandwidth")).toBeInTheDocument();
+    expect(screen.getAllByText("Tx Bandwidth").length).toBeGreaterThan(0);
   });
 
   it("disables hop rate when the Tx bandwidth fills the Rx sample rate", () => {
@@ -132,6 +151,56 @@ describe("TxSettingsSection", () => {
     const hopRateRow = hopRateLabel.closest("div")!;
     const hopRateInput = within(hopRateRow).getByRole("textbox");
     expect(hopRateInput).toBeDisabled();
+  });
+
+  it("automatically enables hopping for multiple channels", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopEnabled={false}
+          hopType="channels"
+          hopChannels={["a", "b"]}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByText("Range").length).toBeGreaterThan(0);
+    expect(screen.getByText("Hop rate")).toBeInTheDocument();
+    const hopRate = within(screen.getByText("Hop rate").closest("div")!).getByRole("textbox");
+    expect(hopRate).toBeEnabled();
+  });
+
+  it("automatically enables hopping when bandwidth exceeds the Rx sample rate", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopEnabled={false}
+          bandwidthHz={6_000_000}
+          rxSampleRateHz={5_200_000}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByText("Range").length).toBeGreaterThan(0);
+    const hopRate = within(screen.getByText("Hop rate").closest("div")!).getByRole("textbox");
+    expect(hopRate).toBeEnabled();
+  });
+
+  it("keeps Range visible while exposing Hop as a nested option", () => {
+    render(
+      <TestWrapper>
+        <TxSettingsSection {...defaultProps} hopEnabled={false} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getAllByText("Range").length).toBeGreaterThan(0);
+    expect(screen.getByText("Hop")).toBeInTheDocument();
+    expect(screen.getByText("Range type")).toBeInTheDocument();
+    expect(screen.getAllByText("Tx Bandwidth").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Center frequency")).toBeInTheDocument();
+    expect(screen.queryByText("Tx I/Q range.")).toBeInTheDocument();
   });
 
   it("labels the transmit button as Stop Tx while transmitting", () => {

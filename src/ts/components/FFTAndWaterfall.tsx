@@ -319,6 +319,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         visibleMaxHz,
         txCenterHz: centerHz,
         txSampleRateHz: sampleRateHz,
+        rxSampleRateHz: span,
         onCenterFrequencyChange: (value: number) =>
           dispatch(spectrumActions.setTxCenterFrequencyHz(value)),
         onSampleRateChange: (value: number) =>

@@ -575,7 +575,7 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
         centerFrequencyHz: processOptions?.centerFrequencyHz ?? 0,
         sampleRateHz: processOptions?.hardwareSampleRateHz ?? 0,
         tunerGainDb: processOptions?.tunerGainDb ?? 0,
-        baseCalibrationDb: processOptions?.baseCalibrationDb ?? -30.0,
+        baseCalibrationDb: processOptions?.baseCalibrationDb ?? 15.0,
         chainLossDb: processOptions?.chainLossDb ?? 2.5,
         calibrationMode: processOptions?.calibrationMode ?? "generic",
       };

@@ -11,7 +11,7 @@ describe("formatLiveCanvasStatusRow", () => {
         sampleRateHz: 5_160_000,
         fftSize: 131_072,
         fftWindow: "Hamming",
-        temporalResolution: "high",
+        temporalResolution: "lossless",
       }),
     ).toEqual({
       sampleRateLabel: "5.16MHz sample rate",
@@ -73,7 +73,7 @@ describe("useDraw2DFFTSignal", () => {
       hardwareSampleRateHz: 4_372_000,
       fftSize: 16_384,
       fftWindow: "Rectangular",
-      temporalResolution: "medium",
+      temporalResolution: "reduced",
       txSlider: {
         visible: true,
         signalLabel: "APT",

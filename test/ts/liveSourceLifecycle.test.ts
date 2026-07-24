@@ -2,7 +2,11 @@ import {
   attachLiveSourceLifecyclePlaceholder,
   buildLiveSourceLifecycleTrace,
   isCurrentSourceFrameReady,
+  resolveLiveSourcePresentationPolicy,
   resolveLiveSourceLifecycle,
+  resolvePausedFramePresentation,
+  shouldClearPausedStandbyPresentation,
+  shouldRequestMockTxStandbyPreview,
   shouldPresentMockTxStandby,
 } from "../../src/ts/hooks/liveSourceLifecycle";
 
@@ -14,6 +18,58 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("clears paused standby when the painted frame belongs to the old source", () => {
+    expect(
+      shouldClearPausedStandbyPresentation({
+        isStandby: true,
+        selectedSourceId: "mock-tx",
+        presentedSourceId: "mock-apt",
+        readiness: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPausedStandbyPresentation({
+        isStandby: true,
+        selectedSourceId: "mock-tx",
+        presentedSourceId: "mock-tx",
+        readiness: { sourceId: "mock-tx", streamEpoch: 12, sequence: 1 },
+      }),
+    ).toBe(false);
+  });
+  test("isolates a paused frame to its source label", () => {
+    expect(
+      resolvePausedFramePresentation({
+        isPaused: true,
+        isStandby: false,
+        frameSourceId: "mock-apt",
+        frameSourceName: "Mock APT SDR",
+      }),
+    ).toEqual({ sourceId: "mock-apt", label: "Mock APT SDR" });
+    expect(
+      resolvePausedFramePresentation({
+        isPaused: true,
+        isStandby: false,
+        frameSourceId: "mock-apt",
+        frameSourceName: null,
+      }),
+    ).toEqual({ sourceId: "mock-apt", label: "mock-apt" });
+    expect(
+      resolvePausedFramePresentation({
+        isPaused: false,
+        isStandby: false,
+        frameSourceId: "mock-apt",
+        frameSourceName: "Mock APT SDR",
+      }),
+    ).toBeNull();
+    expect(
+      resolvePausedFramePresentation({
+        isPaused: false,
+        isStandby: true,
+        frameSourceId: "mock-tx",
+        frameSourceName: "Mock Tx SDR",
+      }),
+    ).toEqual({ sourceId: "mock-tx", label: "Mock Tx SDR" });
+  });
   test("does not flash Mock Tx standby while transport departs for Mock APT", () => {
     expect(
       shouldPresentMockTxStandby({
@@ -42,6 +98,33 @@ describe("resolveLiveSourceLifecycle", () => {
         transportPhase: "ready",
       }),
     ).toBe(true);
+  });
+
+  test("requests a source-owned Mock Tx preview while the device swap is warming", () => {
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isConnected: true,
+        phase: "warming-transport",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isConnected: true,
+        phase: "disconnected",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: true,
+        isConnected: true,
+        phase: "standby",
+      }),
+    ).toBe(false);
   });
 
   test("accepts the frame-pump readiness boundary for the current source epoch", () => {
@@ -158,6 +241,50 @@ describe("resolveLiveSourceLifecycle", () => {
         standbyPlaceholder,
       }),
     ).toMatchObject({ phase: "standby", placeholder: standbyPlaceholder });
+  });
+
+  test("owns standby source retention and stale-frame clearing in the lifecycle", () => {
+    expect(
+      resolveLiveSourcePresentationPolicy({
+        phase: "standby",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        readiness: null,
+        presentedSourceId: "mock-apt",
+        isStandby: true,
+      }),
+    ).toMatchObject({
+      suppressStaleFrames: false,
+      clearStalePresentation: true,
+      preserveMatchingPresentation: false,
+    });
+    expect(
+      resolveLiveSourcePresentationPolicy({
+        phase: "standby",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        readiness: { sourceId: "mock-tx", streamEpoch: 4, sequence: 9 },
+        presentedSourceId: null,
+        isStandby: true,
+      }),
+    ).toMatchObject({
+      suppressStaleFrames: false,
+      clearStalePresentation: true,
+      preserveMatchingPresentation: false,
+    });
+    expect(
+      resolveLiveSourcePresentationPolicy({
+        phase: "standby",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        readiness: { sourceId: "mock-tx", streamEpoch: 4, sequence: 10 },
+        presentedSourceId: "mock-tx",
+        isStandby: true,
+      }),
+    ).toMatchObject({
+      clearStalePresentation: false,
+      preserveMatchingPresentation: true,
+    });
   });
 
   test("keeps recovery and terminal switch failure distinct", () => {

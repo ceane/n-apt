@@ -3,19 +3,58 @@ import {
   resolveWebGpuStreamTransition,
   getVisualizerLifecycleKey,
   getWebGpuStreamResetKey,
+  shouldClearStandbySourcePresentation,
   shouldCommitSourcePresentationReset,
   shouldPreservePresentationDuringFrameGap,
   shouldRestoreWebGpuStreamState,
   shouldAcceptWebGpuStreamFrame,
   shouldShowSourceHandoffOverlay,
   shouldFlushWebGpuStreamCache,
+  shouldResetVisualPresentationForSelection,
 } from "@n-apt/utils/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
+  test("resets visual presentation when selection changes", () => {
+    expect(
+      shouldResetVisualPresentationForSelection("mock-apt", "mock-tx"),
+    ).toBe(true);
+    expect(
+      shouldResetVisualPresentationForSelection("mock-tx", "mock-tx"),
+    ).toBe(false);
+  });
   test("commits a pending source reset only with the replacement frame", () => {
     expect(shouldCommitSourcePresentationReset(true, true)).toBe(true);
     expect(shouldCommitSourcePresentationReset(true, false)).toBe(false);
     expect(shouldCommitSourcePresentationReset(false, true)).toBe(false);
+  });
+
+  test("commits a pending source reset without a frame for stale source standby", () => {
+    expect(
+      shouldCommitSourcePresentationReset(true, false, true),
+    ).toBe(true);
+    expect(
+      shouldCommitSourcePresentationReset(false, false, true),
+    ).toBe(false);
+    expect(
+      shouldCommitSourcePresentationReset(true, true, false, true),
+    ).toBe(false);
+  });
+
+  test("clears stale standby ownership but freezes the selected source frame", () => {
+    expect(
+      shouldClearStandbySourcePresentation({
+        isStandbyTopBar: true,
+        presentedSourceId: "mock-apt",
+        expectedSourceId: "mock-tx",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearStandbySourcePresentation({
+        isStandbyTopBar: true,
+        presentedSourceId: "mock-tx",
+        expectedSourceId: "mock-tx",
+      }),
+    ).toBe(false);
   });
 
   test("preserves the last presentation during a connected frame-processing gap", () => {
@@ -207,7 +246,7 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
-  test("retains the painted frame through selection and active-source commit", () => {
+  test("invalidates the old presentation at selection without clearing again on commit", () => {
     const selection = resolveWebGpuStreamTransition(
       {
         sourceId: "mock-apt",
@@ -221,8 +260,8 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(selection).toEqual({
-      clearLiveFrame: false,
-      advanceResetEpoch: false,
+      clearLiveFrame: true,
+      advanceResetEpoch: true,
     });
 
     const commit = resolveWebGpuStreamTransition(
@@ -238,7 +277,7 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(commit).toEqual({
-      clearLiveFrame: true,
+      clearLiveFrame: false,
       advanceResetEpoch: false,
     });
   });

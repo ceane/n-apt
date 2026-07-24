@@ -16,7 +16,7 @@ const baseProps = {
   fftSize: 262144,
   fftSizeOptions: [262144],
   fftWindow: "Rectangular",
-  temporalResolution: "medium" as const,
+  temporalResolution: "reduced" as const,
   autoFftOptions: null,
   backend: "hackrf_one",
   deviceProfile: {

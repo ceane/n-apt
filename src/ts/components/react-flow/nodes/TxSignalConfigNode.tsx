@@ -135,7 +135,7 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
   // action lands, avoiding duplicate request_next_frame messages.
   React.useEffect(() => {
     dispatch({ type: "txSuite/requestPreview" });
-    dispatch(setTxViewerTemporalResolution("high"));
+    dispatch(setTxViewerTemporalResolution("lossless"));
   }, [dispatch]);
 
   return (

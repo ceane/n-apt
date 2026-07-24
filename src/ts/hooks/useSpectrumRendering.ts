@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import { useDraw2DFFTSignal } from "@n-apt/hooks/useDraw2DFFTSignal";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export interface SpectrumRenderingOptions {
-  displayTemporalResolution: "low" | "medium" | "high";
+  displayTemporalResolution: TemporalResolution;
   snapshotGridPreferenceRef: React.MutableRefObject<boolean>;
   frequencyRangeRef: React.MutableRefObject<{ min: number; max: number }>;
 }
@@ -25,10 +26,10 @@ export function useSpectrumRendering({
           canvas,
           waveform: spectrumData,
           frequencyRange: frequencyRangeRef.current,
-          fftMin: displayTemporalResolution === "high" ? -120 : -100,
-          fftMax: displayTemporalResolution === "high" ? 20 : 0,
+          fftMin: displayTemporalResolution === "lossless" ? -120 : -100,
+          fftMax: displayTemporalResolution === "lossless" ? 20 : 0,
           showGrid: snapshotGridPreferenceRef.current,
-          highPerformanceMode: displayTemporalResolution === "high",
+          highPerformanceMode: displayTemporalResolution === "lossless",
         }) ??
         (width > 0 && height > 0)
       );

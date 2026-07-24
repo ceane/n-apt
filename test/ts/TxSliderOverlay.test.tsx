@@ -27,4 +27,38 @@ describe("TxSliderOverlay", () => {
     ).toBeDefined();
     expect(screen.getByText("APT")).toBeDefined();
   });
+
+  it("dynamically updates displayed sample rate and band width when props change", () => {
+    const { container, rerender } = render(
+      <TestWrapper>
+        <TxSliderOverlay
+          signalLabel="APT"
+          visibleMinHz={0}
+          visibleMaxHz={10_000_000}
+          txCenterHz={5_000_000}
+          txSampleRateHz={8_000_000}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(/8\.000MHz sample rate/)).toBeInTheDocument();
+    const track = container.querySelector('[role="slider"]');
+    const bandFill = track?.firstElementChild as HTMLElement;
+    expect(bandFill).toHaveStyle({ width: "80%" });
+
+    rerender(
+      <TestWrapper>
+        <TxSliderOverlay
+          signalLabel="APT"
+          visibleMinHz={0}
+          visibleMaxHz={10_000_000}
+          txCenterHz={5_000_000}
+          txSampleRateHz={2_000_000}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(/2\.000MHz sample rate/)).toBeInTheDocument();
+    expect(bandFill).toHaveStyle({ width: "20%" });
+  });
 });

@@ -1,5 +1,6 @@
 export interface TxSuiteSourceControlInput {
   isTxSuite: boolean;
+  isTxSuiteRouteActive: boolean;
   rxSourceId: string | null | undefined;
   selectedSourceId: string | null | undefined;
   activeSourceId: string | null | undefined;
@@ -8,20 +9,25 @@ export interface TxSuiteSourceControlInput {
 /** Keep Tx Suite's legacy control stream on the assigned Rx source. */
 export const resolveTxSuiteControlSourceId = ({
   isTxSuite,
+  isTxSuiteRouteActive,
   rxSourceId,
   selectedSourceId,
   activeSourceId,
 }: TxSuiteSourceControlInput): string | null => {
-  if (isTxSuite && rxSourceId) return rxSourceId;
+  if (isTxSuite && isTxSuiteRouteActive && rxSourceId) return rxSourceId;
   return selectedSourceId || activeSourceId || null;
 };
 
 export const shouldPinTxSuiteToRxSource = ({
   isTxSuite,
+  isTxSuiteRouteActive,
   rxSourceId,
   selectedSourceId,
 }: Pick<
   TxSuiteSourceControlInput,
-  "isTxSuite" | "rxSourceId" | "selectedSourceId"
+  "isTxSuite" | "isTxSuiteRouteActive" | "rxSourceId" | "selectedSourceId"
 >): boolean =>
-  isTxSuite && Boolean(rxSourceId) && selectedSourceId !== rxSourceId;
+  isTxSuite &&
+  isTxSuiteRouteActive &&
+  Boolean(rxSourceId) &&
+  selectedSourceId !== rxSourceId;

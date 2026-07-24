@@ -11,6 +11,16 @@ describe("demod signal configuration", () => {
     expect(source).toContain('from "@n-apt/components/sidebar/SourceSettingsSection"');
   });
 
+  it("sends node sample-rate changes to the live SDR backend", () => {
+    const source = readFileSync(
+      "src/ts/components/react-flow/nodes/SignalConfigNode.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("onSettingsChange");
+    expect(source).toContain("wsConnection.sendSettings");
+  });
+
   it("keeps shared setting rows flush with the node background", () => {
     const source = readFileSync(
       "src/ts/components/react-flow/nodes/SignalConfigNode.tsx",

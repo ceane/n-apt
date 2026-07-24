@@ -655,14 +655,14 @@ export const IQCaptureControlsSection: React.FC<
     return { isValid, reasons, isGainValid, isPpmValid, isFreqValid };
   }, [gain, ppm, captureRange, activeCaptureAreas, availableCaptureAreas]);
 
-  // Auto-switch to .wav if .napt is selected but invalid
+  // Raw .iq is the lossless default fallback when .napt eligibility is lost.
   React.useEffect(() => {
     if (
       captureFileType === ".napt" &&
       !naptValidation.isValid &&
       activeCaptureAreas.length > 0
     ) {
-      onCaptureFileTypeChange(".wav");
+      onCaptureFileTypeChange(".iq");
     }
   }, [
     naptValidation.isValid,

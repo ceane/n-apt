@@ -30,6 +30,109 @@ export type SourceFrameReadiness = {
   sequence: number;
 };
 
+/**
+ * Rendering policy owned by the live-source lifecycle.
+ *
+ * The route decides whether a frame belongs to the selected source; canvas
+ * code only applies this policy to its mutable presentation buffers.
+ */
+export type LiveSourcePresentationPolicy = {
+  suppressStaleFrames: boolean;
+  clearStalePresentation: boolean;
+  preserveMatchingPresentation: boolean;
+};
+
+/**
+ * The only identity used by the paused-frame marker.
+ *
+ * A paused canvas may still contain a valid frame while the selected source
+ * changes. Keeping this tiny decision in the lifecycle prevents presentation
+ * code from accidentally substituting the selected device name for the frame
+ * that is actually frozen on screen.
+ */
+export const resolvePausedFramePresentation = ({
+  isPaused,
+  isStandby,
+  frameSourceId,
+  frameSourceName,
+}: {
+  isPaused: boolean;
+  isStandby: boolean;
+  frameSourceId?: string | null;
+  frameSourceName?: string | null;
+}): { sourceId: string; label: string } | null => {
+  if ((!isPaused && !isStandby) || !frameSourceId) return null;
+  return {
+    sourceId: frameSourceId,
+    label: frameSourceName?.trim() || frameSourceId,
+  };
+};
+
+/**
+ * A paused/standby canvas may retain its last painted frame while transport
+ * metadata catches up. Clear it when that frame is owned by another source;
+ * preserve it only after the selected source has an accepted readiness frame.
+ */
+export const shouldClearPausedStandbyPresentation = ({
+  isStandby,
+  selectedSourceId,
+  presentedSourceId,
+  readiness,
+}: {
+  isStandby: boolean;
+  selectedSourceId: string | null;
+  presentedSourceId: string | null;
+  readiness?: SourceFrameReadiness | null;
+}): boolean => {
+  if (!isStandby || !selectedSourceId) return false;
+  const presentedFrameMatchesSelection =
+    presentedSourceId === selectedSourceId;
+  const selectedFrameReady = readiness?.sourceId === selectedSourceId;
+  return !presentedFrameMatchesSelection || !selectedFrameReady;
+};
+
+/** Resolve source ownership rules for the current presentation boundary. */
+export const resolveLiveSourcePresentationPolicy = ({
+  phase,
+  selectedSourceId,
+  activeSourceId,
+  readiness,
+  presentedSourceId,
+  isStandby,
+}: {
+  phase: LiveSourceLifecyclePhase;
+  selectedSourceId: string | null;
+  activeSourceId: string | null;
+  readiness?: SourceFrameReadiness | null;
+  presentedSourceId?: string | null;
+  isStandby: boolean;
+}): LiveSourcePresentationPolicy => {
+  const sourceHandoff =
+    !!selectedSourceId && selectedSourceId !== activeSourceId;
+  const selectedFrameReady = readiness?.sourceId === selectedSourceId;
+  // A null presentation is deliberately not treated as matching. The canvas
+  // may still hold a last-renderable fallback from the previous source even
+  // after the transport ref has been cleared, so only an explicitly tagged
+  // selected-source frame is safe to preserve.
+  const presentedFrameMatchesSelection =
+    presentedSourceId != null && presentedSourceId === selectedSourceId;
+  const standby = isStandby || phase === "standby";
+  return {
+    // Suppress frames only while the backend still owns the previous source.
+    // A mismatched mutable presentation is cleared independently so the
+    // selected source can publish immediately after the handoff commits.
+    suppressStaleFrames: sourceHandoff,
+    clearStalePresentation: shouldClearPausedStandbyPresentation({
+      isStandby: standby,
+      selectedSourceId,
+      presentedSourceId: presentedSourceId ?? null,
+      readiness,
+    }),
+    preserveMatchingPresentation:
+      standby && presentedFrameMatchesSelection && selectedFrameReady,
+  };
+};
+
 /** File playback uses the same paused-frame presentation path as live data. */
 export const isFilePlaybackPaused = ({
   sourceMode,
@@ -70,6 +173,31 @@ export const shouldPresentMockTxStandby = ({
 };
 
 /**
+ * Allows a source-owned Mock Tx preview to be requested during handoff.
+ *
+ * The preview socket is independently scoped to Mock Tx, so waiting for the
+ * backend to commit the active source only adds a blank frame to the visual
+ * handoff. Terminal transport failures and explicit disconnection still stop
+ * the request; warming and device-swap phases intentionally do not.
+ */
+export const shouldRequestMockTxStandbyPreview = ({
+  isSelectedMockTxSource,
+  isSelectedMockTxTransmitting,
+  isConnected,
+  phase,
+}: {
+  isSelectedMockTxSource: boolean;
+  isSelectedMockTxTransmitting: boolean;
+  isConnected: boolean;
+  phase: LiveSourceLifecyclePhase;
+}): boolean =>
+  isSelectedMockTxSource &&
+  !isSelectedMockTxTransmitting &&
+  isConnected &&
+  phase !== "disconnected" &&
+  phase !== "failed";
+
+/**
  * Confirms that the frame pump has accepted data for the selected lifecycle.
  * V2 requires the current epoch; v1 remains valid once source ownership is
  * aligned because it has no epoch field.
@@ -108,6 +236,7 @@ export type LiveSourceLifecycle = {
   transportSourceId: string | null;
   readinessSequence: number | null;
   placeholder: CanvasPlaceholderState | null;
+  presentation: LiveSourcePresentationPolicy;
 };
 
 /** Structured, low-frequency transition record owned by the route lifecycle. */
@@ -145,6 +274,8 @@ export const resolveLiveSourceLifecycle = ({
   isLive = true,
   isStandby = false,
   readinessSequence = null,
+  readiness = null,
+  presentedSourceId = null,
 }: {
   selectedSourceId: string | null;
   activeSourceId: string | null;
@@ -159,6 +290,8 @@ export const resolveLiveSourceLifecycle = ({
   isLive?: boolean;
   isStandby?: boolean;
   readinessSequence?: number | null;
+  readiness?: SourceFrameReadiness | null;
+  presentedSourceId?: string | null;
 }): LiveSourceLifecycle => {
   const result = (
     phase: LiveSourceLifecyclePhase,
@@ -170,6 +303,14 @@ export const resolveLiveSourceLifecycle = ({
     transportSourceId,
     readinessSequence,
     placeholder,
+    presentation: resolveLiveSourcePresentationPolicy({
+      phase,
+      selectedSourceId,
+      activeSourceId,
+      readiness,
+      presentedSourceId,
+      isStandby,
+    }),
   });
 
   if (!isLive) return result("idle", null);
@@ -312,7 +453,9 @@ export const useLiveSourceLifecycle = (
       input.hasValidFrame,
       input.isLive,
       input.isStandby,
+      input.readiness,
       input.readinessSequence,
+      input.presentedSourceId,
       input.selectedSourceId,
       input.transportError,
       input.transportPhase,

@@ -11,14 +11,14 @@ Violations of this policy constitute a breach of the License and trigger the **D
 Licensee **may not use the Software or any derivatives** for purposes that:
 
 1. **Violate human rights**  
-   - Arbitrary killing, slavery, forced labor, torture, inhumane treatment.  
+   - Arbitrary wrongdoing, violence, killing, slavery, forced labor, torture, inhumane treatment.  
    - Discrimination or denial of fundamental rights.  
 
 2. **Engage in unlawful surveillance or privacy violations**  
    - Mass surveillance, unauthorized data collection, stalking, eavesdropping, or tracking.  
 
 3. **Cause psychological, emotional, or physical harm**  
-   - Manipulation, coercion, harassment, cyberbullying, intimidation, or emotional abuse.  
+   - Intimidation, manipulation, witholding, coercion, harassment, cyberbullying, or emotional abuse.  
    - Licensee must **avoid use that imposes extreme, disproportionate, or sustained harm, or exploits individuals or systems in ways beyond legitimate purposes**.
 
 4. **Use in offensive military or weaponized applications**  
@@ -28,7 +28,7 @@ Licensee **may not use the Software or any derivatives** for purposes that:
    - Exploiting loopholes to bypass privacy laws, consent requirements, or regulatory safeguards.  
 
 6. **Engage in hate crimes, unlawful discrimination, or harassment**  
-   - Target individuals or groups based on **identity, belief, sexual orientation, gender, race, ethnicity, nationality, religion, ability, or any protected status**.  
+   - Target individuals or groups based on **nationality, religion, ethnicity, gender, race, identity, belief, sexual orientation, ability, or any protected status**.  
    - Licensee must not use the Software to **arbitrarily single out, coerce, or manipulate** any person or group for discriminatory purposes. 
 
 ---

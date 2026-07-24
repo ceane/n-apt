@@ -1,12 +1,12 @@
-import type { DisplayTemporalResolution } from "@n-apt/redux/slices/spectrumSlice";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export const DEMOD_MIN_FFT_SIZE = 65_536;
-export const DEMOD_REQUIRED_TEMPORAL_RESOLUTION: DisplayTemporalResolution =
-  "high";
+export const DEMOD_REQUIRED_TEMPORAL_RESOLUTION: TemporalResolution =
+  "lossless";
 
 export interface DemodQualitySettings {
   fftSize: number;
-  temporalResolution: DisplayTemporalResolution;
+  temporalResolution: TemporalResolution;
 }
 
 type DemodQualityNode = {

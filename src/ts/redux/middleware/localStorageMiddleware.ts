@@ -96,11 +96,11 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
   }
 
   if (
-    parsed.txViewerTemporalResolution !== "low" &&
-    parsed.txViewerTemporalResolution !== "medium" &&
-    parsed.txViewerTemporalResolution !== "high"
+    parsed.txViewerTemporalResolution !== "slow" &&
+    parsed.txViewerTemporalResolution !== "reduced" &&
+    parsed.txViewerTemporalResolution !== "lossless"
   ) {
-    parsed.txViewerTemporalResolution = "high";
+    parsed.txViewerTemporalResolution = "lossless";
   }
 
   if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {

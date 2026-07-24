@@ -104,6 +104,7 @@ import {
   resolveTxSuiteControlSourceId,
   shouldPinTxSuiteToRxSource,
 } from "@n-apt/utils/txSuiteSourceControl";
+import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -465,7 +466,7 @@ const detectRefreshRate = async (sampleCount = 180): Promise<number | null> => {
 };
 
 export const LIVE_CONTROL_DEFAULTS = {
-  displayTemporalResolution: "medium" as const,
+  displayTemporalResolution: "reduced" as const,
   powerScale: "dB" as const,
   vizZoom: 1,
   vizZoomFloor: 1,
@@ -507,7 +508,7 @@ export type DrawParams = {
 export type SpectrumState = {
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
-  displayTemporalResolution: "low" | "medium" | "high";
+  displayTemporalResolution: TemporalResolution;
   powerScale: "dB" | "dBm";
   selectedFiles: SelectedFile[];
   snapshotGridPreference: boolean;
@@ -660,7 +661,7 @@ export type SpectrumAction =
     }
   | {
       type: "SET_TEMPORAL_RESOLUTION";
-      resolution: "low" | "medium" | "high";
+      resolution: TemporalResolution;
     }
   | { type: "SET_POWER_SCALE"; powerScale: "dB" | "dBm" }
   | { type: "SET_SELECTED_FILES"; files: SelectedFile[] }
@@ -728,7 +729,7 @@ export type SpectrumAction =
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
-  displayTemporalResolution: "medium",
+  displayTemporalResolution: "reduced",
   powerScale: "dB",
   selectedFiles: [],
   snapshotGridPreference: true,
@@ -1427,6 +1428,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const fftVisualizerMachine = fftVisualizerMachineRef.current;
     const location = useLocation();
     const reduxDispatch = useAppDispatch();
+    const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
     const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
     const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
@@ -1496,6 +1498,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         !hasBoundRxTransport ||
         !shouldPinTxSuiteToRxSource({
           isTxSuite: isTxSuiteFlow,
+          isTxSuiteRouteActive: !isVisualizerRoute,
           rxSourceId: txSuiteRxSourceId,
           selectedSourceId,
         })
@@ -1505,6 +1508,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
       const controlSourceId = resolveTxSuiteControlSourceId({
         isTxSuite: isTxSuiteFlow,
+        isTxSuiteRouteActive: !isVisualizerRoute,
         rxSourceId: txSuiteRxSourceId,
         selectedSourceId,
         activeSourceId,
@@ -1514,6 +1518,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     }, [
       activeSourceId,
+      isVisualizerRoute,
       isTxSuiteFlow,
       selectedSourceId,
       setSelectedSourceId,
@@ -2101,7 +2106,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     // Track active spectrum route globally
-    const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
     const [manualVisualizerPaused, setManualVisualizerPaused] = useState(false);
     const previousDeviceStateRef = useRef<DeviceState | null>(null);
 
@@ -2420,8 +2424,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const wasPausedForPreviewRef = useRef(false);
     useEffect(() => {
       const isLiveSource = state.sourceMode === "live";
+      const isMockTxStandby =
+        selectedSource?.id === "mock-tx" &&
+        selectedSource?.status !== "transmitting";
       const isPausedForPreview =
-        manualVisualizerPaused &&
+        (manualVisualizerPaused || isMockTxStandby) &&
         isConnected &&
         shouldRequestPausedPreview(selectedSource);
       const isSwitchingSource =

@@ -167,7 +167,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "high",
+        displayTemporalResolution: "lossless",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 3.5,
@@ -275,7 +275,7 @@ describe("SpectrumRoute file mode", () => {
         fftPlaybackCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(playbackProps).toMatchObject({
-      displayTemporalResolution: "high",
+        displayTemporalResolution: "lossless",
       fftMin: -120,
       fftMax: 0,
       vizZoom: 3.5,
@@ -301,7 +301,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 0, max: 4_372_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -435,7 +435,7 @@ describe("SpectrumRoute file mode", () => {
     expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
   });
 
-  it("rejects the stale mock apt frame while retaining its painted GPU presentation", async () => {
+  it("clears the stale mock apt frame at the Mock Tx selection boundary", async () => {
     const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
     requestNextLiveFrameMock.mockClear();
 
@@ -459,7 +459,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -625,7 +625,7 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(handoffProps.dataRef).toBe(dataRef);
-    expect(dataRef.current).toBe(liveFrame);
+    expect(dataRef.current).toBeNull();
     expect(handoffProps.expectedSourceId).toBe("mock-tx");
     expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
@@ -705,7 +705,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -837,7 +837,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dBm",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 135_500_000, max: 138_700_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1002,7 +1002,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 0, max: 3_200_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1177,7 +1177,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 18_000, max: 4_390_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1542,7 +1542,7 @@ describe("SpectrumRoute file mode", () => {
           displayMode: "fft",
           powerScale: "dBm",
           snapshotGridPreference: true,
-          displayTemporalResolution: "medium",
+          displayTemporalResolution: "reduced",
           frequencyRange: { min: 134_914_000, max: 139_286_000 },
           activeSignalArea: "A",
           vizZoom: 1,
@@ -1717,7 +1717,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 18_000, max: 4_372_000 },
         activeSignalArea: "A",
         vizZoom: 1,
