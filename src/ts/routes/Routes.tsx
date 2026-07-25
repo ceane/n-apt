@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
@@ -75,6 +75,11 @@ const LearnSignalsRoute = lazy(() =>
 const IQCapturesRoute = lazy(() =>
   import("@n-apt/routes/IQCapturesRoute").then((m) => ({
     default: m.IQCapturesRoute,
+  })),
+);
+const FFTIFFTRoute = lazy(() =>
+  import("@n-apt/routes/FFTIFFTRoute").then((m) => ({
+    default: m.FFTIFFTRoute,
   })),
 );
 const CellularTriangulationTargetingDemoRoute = lazy(() =>
@@ -405,7 +410,11 @@ const AppRoutesInner: React.FC = () => {
           }
         />
         <Route
-          path="/iq-captures"
+          path="/faq"
+          element={<Navigate to="/faq/iq-captures" replace />}
+        />
+        <Route
+          path="/faq/iq-captures"
           element={
             <Suspense
               fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
@@ -413,6 +422,24 @@ const AppRoutesInner: React.FC = () => {
               <IQCapturesRoute />
             </Suspense>
           }
+        />
+        <Route
+          path="/iq-captures"
+          element={<Navigate to="/faq/iq-captures" replace />}
+        />
+        <Route
+          path="/faq/fft-ifft"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <FFTIFFTRoute />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/fft-ifft"
+          element={<Navigate to="/faq/fft-ifft" replace />}
         />
         <Route
           path="/game"

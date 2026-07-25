@@ -1091,7 +1091,7 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toEqual([
-        "ws://localhost/ws?token=session-token",
+        "ws://localhost/ws?token=session-token&iq_protocol=2",
       ]);
 
       sockets[0].readyState = WebSocket.OPEN;

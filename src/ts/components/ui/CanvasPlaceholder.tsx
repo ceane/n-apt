@@ -1,32 +1,47 @@
-import React from "react";
-import styled from "styled-components";
+import React, { useEffect, useState } from "react";
+import styled, { keyframes, css } from "styled-components";
+import { ReactReduxContext } from "react-redux";
+import { markPageLoadAnimationComplete } from "@n-apt/redux/slices/themeSlice";
+
+const standbyBarSlamIntro = keyframes`
+  0% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+`;
 
 export type CanvasPlaceholderState =
   | {
-      kind: "idle" | "top-bar" | "overlay-only";
-      sourceLabel?: string;
-      title: string;
-      message?: string;
-    }
+    kind: "idle" | "top-bar" | "overlay-only";
+    sourceLabel?: string;
+    title: string;
+    message?: string;
+  }
   | {
-      kind: "loading";
-      sourceLabel?: string;
-      paneLabel: string;
-      title?: string;
-      message?: string;
-    }
+    kind: "loading";
+    sourceLabel?: string;
+    paneLabel: string;
+    title?: string;
+    message?: string;
+  }
   | {
-      kind: "disconnected";
-      sourceLabel?: string;
-      message?: string;
-    }
+    kind: "disconnected";
+    sourceLabel?: string;
+    message?: string;
+  }
   | {
-      kind: "error";
-      sourceLabel?: string;
-      reason: string;
-      title?: string;
-      message?: string;
-    };
+    kind: "error";
+    sourceLabel?: string;
+    reason: string;
+    title?: string;
+    message?: string;
+  };
 
 interface CanvasPlaceholderProps {
   state: CanvasPlaceholderState;
@@ -47,7 +62,7 @@ const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
       : "radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%), linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96))"};
 `;
 
-const PlaceholderCard = styled.div`
+const PlaceholderCard = styled.div<{ $animateSlam?: boolean }>`
   width: min(100%, 420px);
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -58,6 +73,13 @@ const PlaceholderCard = styled.div`
   text-align: center;
   font-family: "JetBrains Mono", monospace;
   backdrop-filter: blur(10px);
+  transform-origin: center center;
+
+  ${({ $animateSlam }) =>
+    $animateSlam &&
+    css`
+      animation: ${standbyBarSlamIntro} 0.25s ease-in-out 1 forwards;
+    `}
 `;
 
 const LoadingTitle = styled.div`
@@ -121,7 +143,28 @@ const PlaceholderSource = styled.div`
 export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
   state,
 }) => {
+  const reduxContext = React.useContext(ReactReduxContext);
+  const store = (reduxContext as any)?.store;
+  const dispatch = store?.dispatch;
+  const shouldPageLoadAnimationRun = store
+    ? (store.getState()?.theme?.shouldPageLoadAnimationRun ?? true)
+    : true;
+
   const sourceLabel = state.sourceLabel?.trim() || "source";
+  const isStandbyKind = state.kind === "idle" || state.kind === "top-bar";
+
+  const [shouldAnimateSlam] = useState(
+    () => isStandbyKind && shouldPageLoadAnimationRun,
+  );
+
+  useEffect(() => {
+    if (isStandbyKind && shouldPageLoadAnimationRun && dispatch) {
+      const timer = setTimeout(() => {
+        dispatch(markPageLoadAnimationComplete());
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isStandbyKind, shouldPageLoadAnimationRun, dispatch]);
 
   if (state.kind === "overlay-only") {
     return <PlaceholderOverlay $idle role="status" aria-live="polite" />;
@@ -137,28 +180,29 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
         style={
           isTopBar
             ? {
-                alignItems: "flex-end",
-                paddingBottom: "12px",
-              }
+              alignItems: "flex-start",
+              paddingTop: "12px",
+            }
             : undefined
         }
       >
         <PlaceholderCard
+          $animateSlam={shouldAnimateSlam}
           style={
             isTopBar
               ? {
-                  width: "auto",
-                  maxWidth: "100%",
-                  padding: "8px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "24px",
-                  justifyContent: "space-between",
-                  textAlign: "left",
-                  background: "rgba(6, 9, 15, 0.75)",
-                  border: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderRadius: "8px",
-                }
+                width: "auto",
+                maxWidth: "100%",
+                padding: "8px 16px",
+                display: "flex",
+                alignItems: "center",
+                gap: "24px",
+                justifyContent: "space-between",
+                textAlign: "left",
+                background: "rgba(6, 9, 15, 0.75)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                borderRadius: "8px",
+              }
               : undefined
           }
         >
@@ -249,11 +293,11 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
         <PlaceholderBody>
           {state.kind === "error" && state.reason === "Server down"
             ? state.message ||
-              "The server was disconnected due to being manually exited or an error."
+            "The server was disconnected due to being manually exited or an error."
             : state.message ||
-              (state.kind === "error"
-                ? `Can't playback from ${sourceLabel}. Reason: ${state.reason}`
-                : "An error occurred")}
+            (state.kind === "error"
+              ? `Can't playback from ${sourceLabel}. Reason: ${state.reason}`
+              : "An error occurred")}
         </PlaceholderBody>
       </PlaceholderCard>
     </PlaceholderOverlay>

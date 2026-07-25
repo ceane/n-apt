@@ -235,7 +235,12 @@ export const loadPersistedTheme = () => {
   if (!stored) return null;
 
   try {
-    return JSON.parse(stored);
+    const parsed = JSON.parse(stored);
+    if (parsed && typeof parsed === "object") {
+      parsed.shouldPageLoadAnimationRun = true;
+      delete parsed.hasPlayedStandbySlam;
+    }
+    return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted theme data:", error);
     safeRemoveItem(STORAGE_KEYS.THEME);

@@ -2442,12 +2442,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           pausedPreviewTimeoutRef.current = null;
         }
         lastPausedPreviewSignatureRef.current = null;
-        wasPausedForPreviewRef.current = isPausedForPreview;
+        wasPausedForPreviewRef.current = false;
         return;
-      }
-
-      if (!wasPausedForPreviewRef.current && isPausedForPreview) {
-        wasPausedForPreviewRef.current = true;
       }
 
       const nextSignature = buildPausedPreviewSignature({
@@ -2461,6 +2457,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         txSignal: reduxSpectrumState.txSignal,
         txIfftSize: reduxSpectrumState.txIfftSize,
       });
+
+      if (!wasPausedForPreviewRef.current && isPausedForPreview) {
+        wasPausedForPreviewRef.current = true;
+        lastPausedPreviewSignatureRef.current = nextSignature;
+        return;
+      }
 
       if (nextSignature === lastPausedPreviewSignatureRef.current) {
         return;
@@ -3129,9 +3131,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             : false);
         const nextPaused = !currentPaused;
 
-        if (targetIsTxCapable && !isHalfDuplexSourceInfo(pauseTargetSource)) {
-          return;
-        }
+
 
         if (nextPaused) {
           manualPausedSourceIdsRef.current.add(pauseTargetSourceId);

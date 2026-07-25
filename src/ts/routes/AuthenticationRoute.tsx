@@ -1214,7 +1214,9 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     location.pathname === "/license" ||
     location.pathname === "/responsible-use" ||
     location.pathname === "/learn-signals" ||
-    location.pathname === "/iq-captures";
+    location.pathname === "/iq-captures" ||
+    location.pathname === "/fft-ifft" ||
+    location.pathname.startsWith("/faq");
 
   if (isPublicRoute) {
     return <>{children}</>;

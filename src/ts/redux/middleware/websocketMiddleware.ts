@@ -2314,6 +2314,12 @@ const createWebSocketMiddleware =
         lastPauseCommandTime = Date.now();
         lastExpectedPauseState = isPaused;
 
+        if (isPaused) {
+          allowNextPausedFrame = false;
+          resetPausedFrameRequestGate();
+          pendingDataUpdate = null;
+        }
+
         if (
           sourceId &&
           wsInstance.ws &&

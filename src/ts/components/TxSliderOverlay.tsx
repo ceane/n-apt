@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import styled from "styled-components";
-import { Signal } from "lucide-react";
+import { Signal, Zap } from "lucide-react";
 import {
   computeEdgeResizedBand,
   getPointerOffsetWithinBandHz,
@@ -457,8 +457,17 @@ export const TxSliderOverlay: React.FC<TxSliderOverlayProps> = ({
           </Marks>
           <Hint>
             {formatHz(displayedSampleRateHz)} sample rate · {formatHz(band.centerHz)}{" "}
-            center · {(Number.isFinite(powerDbm) ? powerDbm : 0).toFixed(1)} dBm
-            target
+            center ·{" "}
+            <Zap
+              size={10}
+              strokeWidth={2.2}
+              style={{
+                display: "inline-block",
+                verticalAlign: "-1px",
+                marginRight: "2px",
+              }}
+            />
+            {(Number.isFinite(powerDbm) ? powerDbm : 0).toFixed(1)} dBm target
           </Hint>
         </Body>
       </OverlayCard>

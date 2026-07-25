@@ -544,8 +544,7 @@ fn drain_latest_source_iq_frame_after_request(
   request_sequence_floor: u64,
   initial: Arc<super::types::SpectrumData>,
 ) -> Option<Arc<super::types::SpectrumData>> {
-  let mut latest: Option<Arc<super::types::SpectrumData>> = None;
-  let mut consider = |candidate: Arc<super::types::SpectrumData>| {
+  let is_valid_frame = |candidate: &Arc<super::types::SpectrumData>| -> bool {
     let matches_source = match iq_protocol {
       IqStreamProtocol::V2 => {
         source_iq_v2_frame_matches_source(source_id, &candidate.source_id)
@@ -554,41 +553,25 @@ fn drain_latest_source_iq_frame_after_request(
         source_iq_frame_matches_source(source_id, candidate.is_mock_apt)
       }
     };
-    if !matches_source
-      || !is_frame_after_paused_request(
+    matches_source
+      && is_frame_after_paused_request(
         candidate.stream_epoch,
         candidate.sequence,
         request_epoch,
         request_sequence_floor,
       )
-    {
-      return;
-    }
-    if latest
-      .as_ref()
-      .map(|current| {
-        (candidate.stream_epoch, candidate.sequence)
-          <= (current.stream_epoch, current.sequence)
-      })
-      .unwrap_or(false)
-    {
-      return;
-    }
-    latest = Some(candidate);
   };
 
-  consider(initial);
-  loop {
-    match spectrum_rx.try_recv() {
-      Ok(candidate) => consider(candidate),
-      Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
-      Err(
-        broadcast::error::TryRecvError::Empty
-        | broadcast::error::TryRecvError::Closed,
-      ) => break,
+  if is_valid_frame(&initial) {
+    return Some(initial);
+  }
+
+  while let Ok(candidate) = spectrum_rx.try_recv() {
+    if is_valid_frame(&candidate) {
+      return Some(candidate);
     }
   }
-  latest
+  None
 }
 
 #[cfg(test)]
@@ -766,18 +749,7 @@ pub(crate) async fn handle_source_iq_connection(
               if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
                 if message.message_type == "request_next_frame" {
                   apply_mock_tx_preview_settings(&message);
-                  let preview = build_mock_tx_standby_preview_frame(&shared);
-                  if send_encrypted_iq_frame(
-                    &mut ws_sender,
-                    &enc_key,
-                    &preview,
-                    iq_protocol,
-                  )
-                  .await
-                  .is_err()
-                  {
-                    break;
-                  }
+                  shared.mark_paused_frame_requested(&source_id);
                 }
               }
             }

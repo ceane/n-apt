@@ -1516,6 +1516,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     // settings used by this route.
     if (isSwitchingLiveSource) {
       reduxDispatch({ type: "txSuite/requestPreview" });
+      lastMockTxPreviewRequestKeyRef.current = null;
     } else {
       reduxDispatch(
         requestNextLiveFrame({

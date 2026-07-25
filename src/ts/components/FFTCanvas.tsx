@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import styled, { keyframes } from "styled-components";
-import { Lock, Unlock } from "lucide-react";
+import { Lock, Unlock, Zap } from "lucide-react";
 import { useFFTAnimation } from "@n-apt/hooks/useFFTAnimation";
 import {
   formatLiveCanvasStatusRow,
@@ -108,10 +108,7 @@ import {
 } from "@n-apt/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/components/ui/Theme";
 import { createFFTZoomProcessor } from "@n-apt/utils/rendering/fftZoom";
-import {
-  resolvePausedFramePresentation,
-  type LiveSourcePresentationPolicy,
-} from "@n-apt/hooks/liveSourceLifecycle";
+import { type LiveSourcePresentationPolicy } from "@n-apt/hooks/liveSourceLifecycle";
 
 type FrameRenderRangeInput = {
   currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
@@ -3221,7 +3218,6 @@ const FFTCanvas = memo(
           previousFftWindowRef.current !== (fftWindow ?? "Rectangular");
         const hasNewData =
           !isExplicitStandbyPlaceholder &&
-          !isPaused &&
           currentFrame &&
           getLiveFrameSignature(currentFrame) !==
             lastProcessedFrameSignatureRef.current &&
@@ -4058,60 +4054,17 @@ const FFTCanvas = memo(
                 );
               }
 
-              // A paused/standby view is an explicit presentation boundary.
-              // Identify the frame that is frozen on this canvas instead of
-              // borrowing the selected device label (which may already have
-              // changed during a source handoff). This marker is intentionally
-              // drawn as a small orange band above the graph; it does not
-              // alter or synthesize the spectrum itself.
-              const pausedFrame = resolvePausedFramePresentation({
-                isPaused,
-                isStandby,
-                frameSourceId:
-                  currentFrame?.source_id ??
-                  lastPausedFrameSourceIdRef.current ??
-                  lastPresentedSourceIdRef.current,
-                frameSourceName:
-                  reduxWebsocketSources.find(
-                    (source) =>
-                      source.id ===
-                      (currentFrame?.source_id ??
-                        lastPausedFrameSourceIdRef.current ??
-                        lastPresentedSourceIdRef.current),
-                  )?.name,
-              });
-              if (pausedFrame) {
-                const markerHeight = nodePreview ? 22 : 30;
-                const markerTop = Math.max(
-                  0,
-                  logicalH - bottomReservedPx - markerHeight,
-                );
+              if (isStandby && !hasRenderableFrame && !hasRenderedSpectrumFrame) {
+                // Standby is intentionally not a spectrum view when no frame
+                // is available. If a standby preview frame has been rendered,
+                // present the spectrum line without drawing the guide line over it.
                 ctx.save();
-                if (isStandby && !hasRenderableFrame && !hasRenderedSpectrumFrame) {
-                  // Standby is intentionally not a spectrum view when no frame
-                  // is available. If a standby preview frame has been rendered,
-                  // present the spectrum line without drawing the guide line over it.
-                  ctx.strokeStyle = "rgba(245, 158, 11, 0.9)";
-                  ctx.lineWidth = nodePreview ? 1 : 2;
-                  ctx.beginPath();
-                  ctx.moveTo(0, logicalH * 0.52);
-                  ctx.lineTo(logicalW, logicalH * 0.52);
-                  ctx.stroke();
-                }
-                ctx.fillStyle = "rgba(40, 24, 4, 0.88)";
-                ctx.fillRect(0, markerTop, logicalW, markerHeight);
-                ctx.fillStyle = "#f59e0b";
-                ctx.fillRect(0, markerTop + markerHeight - 2, logicalW, 2);
-                ctx.font = nodePreview
-                  ? "600 11px monospace"
-                  : "600 13px monospace";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(
-                  `PAUSED · ${pausedFrame.label}`,
-                  logicalW / 2,
-                  markerTop + markerHeight / 2 - 1,
-                );
+                ctx.strokeStyle = "rgba(245, 158, 11, 0.9)";
+                ctx.lineWidth = nodePreview ? 1 : 2;
+                ctx.beginPath();
+                ctx.moveTo(0, logicalH * 0.52);
+                ctx.lineTo(logicalW, logicalH * 0.52);
+                ctx.stroke();
                 ctx.restore();
               }
             }
@@ -4142,8 +4095,7 @@ const FFTCanvas = memo(
               });
               const shouldUpdateWaterfallRow =
                 !isStandby &&
-                !isPaused &&
-                (hasNewData || waterfallMotion.shouldPaintMotionRow);
+                (hasNewData || (!isPaused && waterfallMotion.shouldPaintMotionRow));
               retuneDriftPxRef.current = waterfallMotion.driftBins;
               retuneSmearRef.current = 0;
 
@@ -5739,7 +5691,16 @@ const FFTCanvas = memo(
                                   <TxSliderVisualPower
                                     $isTransmitting={isTransmittingGlobal}
                                   >
-                                    {"·"}
+                                    <Zap
+                                      size={9}
+                                      strokeWidth={2.2}
+                                      style={{
+                                        display: "inline-block",
+                                        verticalAlign: "-1px",
+                                        marginRight: "3px",
+                                        marginLeft: "4px",
+                                      }}
+                                    />
                                     {txSliderVisualMetrics.powerLabel}
                                   </TxSliderVisualPower>
                                 ) : null}

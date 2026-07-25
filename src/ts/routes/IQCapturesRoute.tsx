@@ -1,33 +1,7 @@
 import React from "react";
-import { Link } from "react-router-dom";
 import styled from "styled-components";
+import FaqLayout from "@n-apt/components/FaqLayout";
 import IQCaptureCanvasGraphic from "@n-apt/components/canvas/IQCaptureCanvasGraphic";
-
-const Page = styled.main`
-  min-height: 100dvh;
-  box-sizing: border-box;
-  padding: 48px 24px;
-  background: ${(props) => props.theme.background};
-  color: ${(props) => props.theme.textPrimary};
-`;
-
-const Content = styled.div`
-  width: min(100%, 820px);
-  margin: 0 auto;
-`;
-
-const BackLink = styled(Link)`
-  display: inline-block;
-  margin-bottom: 48px;
-  color: ${(props) => props.theme.textMuted};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  text-decoration: none;
-
-  &:hover {
-    color: ${(props) => props.theme.primary};
-  }
-`;
 
 const Eyebrow = styled.p`
   margin: 0 0 12px;
@@ -40,8 +14,9 @@ const Eyebrow = styled.p`
 
 const Heading = styled.h1`
   margin: 0 0 20px;
-  font-size: clamp(32px, 6vw, 52px);
-  line-height: 1.05;
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1.1;
+  color: ${(props) => props.theme.textPrimary};
 `;
 
 const Intro = styled.p`
@@ -59,6 +34,8 @@ const Section = styled.section`
 const SectionHeading = styled.h2`
   margin: 0 0 12px;
   font-size: 22px;
+  color: ${(props) => props.theme.textPrimary};
+  scroll-margin-top: 24px;
 `;
 
 const Body = styled.p`
@@ -80,20 +57,26 @@ const List = styled.ul`
   }
 `;
 
+const iqSections = [
+  { href: "#top", label: "Top" },
+  { href: "#what-is-an-iq-capture", label: "What is an I/Q capture?" },
+  { href: "#what-an-iq-capture-stores", label: "What an I/Q capture stores" },
+  { href: "#what-playback-outputs", label: "What playback outputs" },
+];
+
 export const IQCapturesRoute: React.FC = () => (
-  <Page>
-    <Content>
-      <BackLink to="/">← Back to N-APT</BackLink>
+  <FaqLayout sections={iqSections}>
+    <div id="top">
       <Eyebrow>Playback and analysis</Eyebrow>
       <Heading>I/Q captures</Heading>
       <Intro>
         An I/Q capture is like a video recording, but for radio. It saves a
-       slice of radio waves in the air so N-APT can play it back later.
+        slice of radio waves in the air so N-APT can play it back later.
       </Intro>
 
       <IQCaptureCanvasGraphic />
 
-      <Section>
+      <Section id="what-is-an-iq-capture">
         <SectionHeading>What is an I/Q capture?</SectionHeading>
         <Body>
           Your radio turns what it receives into two streams of numbers. Those
@@ -103,7 +86,7 @@ export const IQCapturesRoute: React.FC = () => (
         </Body>
       </Section>
 
-      <Section>
+      <Section id="what-an-iq-capture-stores">
         <SectionHeading>What an I/Q capture stores</SectionHeading>
         <List>
           <li>The two streams of numbers recorded by the radio.</li>
@@ -112,7 +95,7 @@ export const IQCapturesRoute: React.FC = () => (
         </List>
       </Section>
 
-      <Section>
+      <Section id="what-playback-outputs">
         <SectionHeading>What playback outputs</SectionHeading>
         <Body>
           When you press play, N-APT rebuilds the recorded radio signal. You
@@ -120,8 +103,8 @@ export const IQCapturesRoute: React.FC = () => (
           snapshots, or try to demodulate it—all without the radio connected.
         </Body>
       </Section>
-    </Content>
-  </Page>
+    </div>
+  </FaqLayout>
 );
 
 export default IQCapturesRoute;
