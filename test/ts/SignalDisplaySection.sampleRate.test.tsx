@@ -23,7 +23,6 @@ const baseProps = {
     kind: "hackrf_one" as const,
     is_rtl_sdr: false,
     supports_approx_dbm: false,
-    supports_raw_iq_stream: true,
   },
   powerScale: "dB" as const,
   displayMode: "fft" as const,
@@ -113,7 +112,6 @@ describe("SignalDisplaySection sample rate selector", () => {
             kind: "rtl_sdr" as const,
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
           }}
           sampleRate={3_200_000}
           wholeChannelSampleRate={3_200_000}
@@ -144,7 +142,29 @@ describe("SignalDisplaySection sample rate selector", () => {
             kind: "mock_apt" as const,
             is_rtl_sdr: true,
             supports_approx_dbm: false,
-            supports_raw_iq_stream: false,
+          }}
+          sampleRate={4_372_000}
+          wholeChannelSampleRate={4_372_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("option", { name: "Whole Channel (4.372MHz)" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows whole-channel for a mock backend even if the profile is stale RTL-SDR metadata", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          backend="mock_tx"
+          deviceProfile={{
+            kind: "rtl_sdr" as const,
+            is_rtl_sdr: true,
+            supports_approx_dbm: true,
           }}
           sampleRate={4_372_000}
           wholeChannelSampleRate={4_372_000}

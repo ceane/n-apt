@@ -91,3 +91,10 @@ export const resolveMockTxMonitorSampleRateHz = (
   }
   return 3_200_000;
 };
+
+/** Prefer the active displayed span over stale source metadata. */
+export const resolveMockTxMonitorSampleRateForView = (
+  viewSampleRateHz: number | null | undefined,
+  ...sourceCandidates: Array<number | null | undefined>
+): number =>
+  resolveMockTxMonitorSampleRateHz(viewSampleRateHz, ...sourceCandidates);

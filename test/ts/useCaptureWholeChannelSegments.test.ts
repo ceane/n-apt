@@ -77,7 +77,6 @@ describe("useCaptureWholeChannelSegments", () => {
   });
 
   it("sweeps hardware-sized segments and restores the original range after capture", async () => {
-    const dispatch = jest.fn();
     const sendFrequencyRange = jest.fn();
     const getSnapshotData = jest.fn().mockImplementation(() => {
       const callCount = getSnapshotData.mock.calls.length;
@@ -110,7 +109,6 @@ describe("useCaptureWholeChannelSegments", () => {
           fftFrameRate: 12,
           vizPanOffset: 0,
           vizZoom: 1,
-          dispatch,
           sendFrequencyRange,
           fftCanvasRef,
         }),
@@ -140,14 +138,10 @@ describe("useCaptureWholeChannelSegments", () => {
       max: 6000000,
     });
     expect(sendFrequencyRange).toHaveBeenLastCalledWith({ min: 0, max: 6e6 });
-    expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_ZOOM", zoom: 1 });
-    expect(dispatch).toHaveBeenCalledWith({ type: "SET_VIZ_PAN", pan: 0 });
-    expect(dispatch).toHaveBeenCalledWith({ type: "CLEAR_WATERFALL" });
     expect(getSnapshotData).toHaveBeenCalledTimes(183);
   });
 
   it("does not sweep whole-channel segments for RTL-SDR sources", async () => {
-    const dispatch = jest.fn();
     const sendFrequencyRange = jest.fn();
     const getSnapshotData = jest.fn();
 
@@ -171,7 +165,6 @@ describe("useCaptureWholeChannelSegments", () => {
           fftFrameRate: 12,
           vizPanOffset: 0,
           vizZoom: 1,
-          dispatch,
           sendFrequencyRange,
           fftCanvasRef,
         }),

@@ -4,7 +4,7 @@ use std::ffi::CStr;
 use std::sync::atomic::Ordering;
 
 use crate::server::shared_state::SharedState;
-use crate::server::types::DeviceProfile;
+use crate::server::types::{DeviceProfile, IqFormat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSelection {
@@ -31,25 +31,25 @@ pub fn build_device_profile(device_type: &str) -> DeviceProfile {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     "hackrf_one" | "hackrf" => DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     "mock_tx" | "mock-tx" => DeviceProfile {
       kind: "mock_tx".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     _ => DeviceProfile {
       kind: "mock_apt".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
   }
 }
@@ -228,6 +228,15 @@ mod tx_suite_tests {
     ])
     .is_none());
   }
+
+  #[test]
+  fn reports_mock_tx_standby_when_tx_is_not_active() {
+    crate::safety::TX_TRANSMITTING.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(true, false, "connected", "mock_tx"),
+      "standby"
+    );
+  }
 }
 
 fn is_tx_capable_source_kind(kind: &str) -> bool {
@@ -241,6 +250,9 @@ fn source_status_for_entry(
   kind: &str,
 ) -> &'static str {
   if is_paused {
+    if kind == "mock_tx" {
+      return "standby";
+    }
     return "connected";
   }
   let active_tx_state = is_active_source
@@ -256,7 +268,7 @@ fn source_status_for_entry(
     if active_tx_state || device_state == "transmitting" {
       "transmitting"
     } else {
-      "connected"
+      "standby"
     }
   } else if active_tx_state {
     "transmitting"
@@ -353,7 +365,7 @@ fn build_source_payload(
     "loading_attempt": loading_attempt,
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
-    "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
+    "iq_format": device_profile.iq_format,
     "iq_stream_protocols": [1, 2],
     "stream_epoch": shared.current_stream_epoch(),
     "serial_number": serial_number,
@@ -452,7 +464,10 @@ pub fn remove_idle_mock_sources_for_hardware(
   sources.retain(|source| {
     let kind = source["kind"].as_str().unwrap_or("");
     !kind.starts_with("mock")
-      || source["status"].as_str() == Some("transmitting")
+      || matches!(
+        source["status"].as_str(),
+        Some("transmitting") | Some("standby")
+      )
   });
 }
 
@@ -541,7 +556,7 @@ fn build_mock_tx_source_payload(
     {
       "transmitting"
     } else {
-      "connected"
+      "standby"
     },
     None,
     0,

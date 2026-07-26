@@ -101,7 +101,9 @@ import {
   createNoteCardFromSpectrum,
   setNoteCardsCollapsed,
   useAppDispatch,
+  useAppSelector,
 } from "@n-apt/redux";
+import { selectSourceMode } from "@n-apt/redux/selectors/performanceSelectors";
 
 const SpectrumRouteWithSidebar: React.FC<{
   activeTab: "visualizer" | "analysis" | "draw";
@@ -205,7 +207,8 @@ const RouteLoadingFallback = styled.div`
 `;
 
 const GlobalSpacePauseHandler: React.FC = () => {
-  const { toggleVisualizerPause, state: liveState } = useSpectrumStore();
+  const { toggleVisualizerPause } = useSpectrumStore();
+  const sourceMode = useAppSelector(selectSourceMode);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -220,7 +223,7 @@ const GlobalSpacePauseHandler: React.FC = () => {
         (event.code === "Space" ||
           event.key === " " ||
           event.key === "Spacebar") &&
-        liveState.sourceMode === "live"
+        sourceMode === "live"
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -230,7 +233,7 @@ const GlobalSpacePauseHandler: React.FC = () => {
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [liveState.sourceMode, toggleVisualizerPause]);
+  }, [sourceMode, toggleVisualizerPause]);
 
   return null;
 };

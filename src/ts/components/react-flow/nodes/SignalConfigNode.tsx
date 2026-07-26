@@ -11,6 +11,7 @@ import {
 import { useSdrSettings } from "@n-apt/hooks/useSdrSettings";
 import { useLiveSampleRateControl } from "@n-apt/hooks/useLiveSampleRateControl";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
@@ -70,6 +71,7 @@ interface SignalConfigNodeProps {
 
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
+  const spectrumTransport = useSpectrumTransport();
   const spectrum = useAppSelector((state) => state.spectrum);
   const roleSource = useAppSelector((state) => {
     const sourceId =
@@ -152,7 +154,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     (range: { min: number; max: number }) => {
       spectrumStoreDispatch({ type: "SET_FREQUENCY_RANGE", range });
       dispatch(setFrequencyRange(range));
-      wsConnection.sendFrequencyRange(range);
+      spectrumTransport.sendFrequencyRange(range);
     },
     [dispatch, spectrumStoreDispatch, wsConnection],
   );
@@ -166,8 +168,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     activeChannelSampleRate: wholeChannelSampleRate,
     maxSampleRateHz: sourceMaxSampleRate,
     activeSignalAreaBounds,
-    frequencyRange:
-      liveSpectrumState.frequencyRange ?? spectrum.frequencyRange,
+    frequencyRange: liveSpectrumState.frequencyRange ?? spectrum.frequencyRange,
     sampleRateHz: sourceSampleRateValue,
     fftSize: spectrum.fftSize,
     maxFrameRateLimit: settings.maxFrameRate,

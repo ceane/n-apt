@@ -130,7 +130,7 @@ fn source_info_reports_hackrf_duplex_mode() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
 
@@ -158,7 +158,7 @@ fn source_info_reports_loose_hardware_as_loading() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
   shared.set_device_state("loose", None);

@@ -164,10 +164,6 @@ jest.mock("@n-apt/consts/shaders/resample", () => ({
   RESAMPLE_WGSL: "mock shader code",
 }));
 
-jest.mock("@n-apt/utils/detectHeterodyning", () => ({
-  detectHeterodyningFromHistory: jest.fn(),
-}));
-
 // Mock WASM module
 jest.mock("n_apt_canvas", () => {
   const mockModule: any = {

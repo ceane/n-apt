@@ -2,6 +2,7 @@ import {
   getMockTxPreviewRequestKey,
   resolveLiveDevicePlaceholderState,
 } from "../../src/ts/routes/SpectrumRoute";
+import { resolveMockTxMonitorSampleRateForView } from "../../src/ts/routes/spectrum/mockTxPreview";
 
 describe("getMockTxPreviewRequestKey", () => {
   it("changes when TX preview bandwidth changes", () => {
@@ -22,6 +23,19 @@ describe("getMockTxPreviewRequestKey", () => {
         powerDbm: -18,
       }),
     ).not.toBe(base);
+  });
+});
+
+describe("resolveMockTxMonitorSampleRateForView", () => {
+  it("keeps the Whole Channel view rate ahead of stale 3.2 MHz source metadata", () => {
+    expect(
+      resolveMockTxMonitorSampleRateForView(
+        4_372_000,
+        3_200_000,
+        3_200_000,
+        3_200_000,
+      ),
+    ).toBe(4_372_000);
   });
 });
 

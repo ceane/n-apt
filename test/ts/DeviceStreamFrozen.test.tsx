@@ -45,6 +45,11 @@ jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
+  useSpectrumInteraction: () => ({
+    handleMouseDown: jest.fn(),
+    handleMouseMove: jest.fn(),
+    handleMouseUp: jest.fn(),
+  }),
   useFrequencyDrag: () => ({
     handleMouseDown: jest.fn(),
     handleMouseMove: jest.fn(),
@@ -54,6 +59,16 @@ jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
 
 // Mock WebGPU
 jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+  useWebGPULifecycle: () => ({
+    webgpuEnabled: false,
+    webgpuDeviceRef: { current: null },
+    spectrumRendererRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    waterfallRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: true, markers: true } },
+    overlayLastUploadMsRef: { current: { grid: 0, markers: 0 } },
+  }),
   useWebGPUInit: () => ({
     webgpuEnabled: false,
     webgpuDeviceRef: { current: null },
@@ -86,6 +101,7 @@ jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
+  useSpectrumInteraction: () => {},
   useFrequencyDrag: () => {},
 }));
 

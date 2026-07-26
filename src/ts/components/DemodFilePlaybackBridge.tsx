@@ -8,7 +8,7 @@ import {
 import { useStitchingLogic } from "@n-apt/hooks/useStitchingLogic";
 import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { fileFrameRuntime } from "@n-apt/visualization/frameRuntime";
 
 interface DemodFilePlaybackBridgeProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -30,7 +30,7 @@ export const DemodFilePlaybackBridge: React.FC<
   onStitchStatus,
 }) => {
   const dispatch = useAppDispatch();
-  const playbackDataRef = filePlaybackDataRef;
+  const playbackDataRef = fileFrameRuntime.ref;
 
   const {
     hasStitchedData,

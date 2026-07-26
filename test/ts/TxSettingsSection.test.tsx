@@ -292,4 +292,60 @@ describe("TxSettingsSection", () => {
     fireEvent.change(select, { target: { value: "4096" } });
     expect(defaultProps.onIfftSizeChange).toHaveBeenCalledWith(4096);
   });
+
+  it("automatically selects the first channel and updates bandwidth when range type changes to channels", () => {
+    const onBandwidthChange = jest.fn();
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopType="range"
+          onBandwidthChange={onBandwidthChange}
+        />
+      </TestWrapper>,
+    );
+
+    const rangeTypeLabel = screen.getByText("Range type");
+    const rangeTypeRow = rangeTypeLabel.closest("div")?.parentElement;
+    const select = within(rangeTypeRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+
+    fireEvent.change(select, { target: { value: "channels" } });
+
+    expect(defaultProps.onHopTypeChange).toHaveBeenCalledWith("channels");
+    expect(defaultProps.onHopChannelsChange).toHaveBeenCalledWith(["a"]);
+    // Channel A min: 18_000, max: 4_390_000 -> bw: 4_372_000, center: 2_204_000
+    expect(onBandwidthChange).toHaveBeenCalledWith(4_372_000);
+    expect(defaultProps.onCenterFrequencyChange).toHaveBeenCalledWith(2_204_000);
+  });
+
+  it("dispatches primary channel parameters when multiple channels are selected", () => {
+    const onBandwidthChange = jest.fn();
+    const onCenterFrequencyChange = jest.fn();
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          hopType="channels"
+          hopChannels={["a"]}
+          onBandwidthChange={onBandwidthChange}
+          onCenterFrequencyChange={onCenterFrequencyChange}
+        />
+      </TestWrapper>,
+    );
+
+    const channelBButton = screen.getByRole("button", { name: "B" });
+    fireEvent.click(channelBButton);
+
+    expect(defaultProps.onHopChannelsChange).toHaveBeenCalledWith(["a", "b"]);
+
+    // Should dispatch Channel A's native bandwidth (4_372_000), NOT summed bandwidth (10_642_000)
+    expect(onBandwidthChange).toHaveBeenCalledWith(4_372_000);
+    expect(onBandwidthChange).not.toHaveBeenCalledWith(10_642_000);
+
+    // Should dispatch Channel A's native center (2_204_000), NOT ghost center (15_194_000)
+    expect(onCenterFrequencyChange).toHaveBeenCalledWith(2_204_000);
+    expect(onCenterFrequencyChange).not.toHaveBeenCalledWith(15_194_000);
+  });
 });

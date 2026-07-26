@@ -945,7 +945,7 @@ mod tests {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
     };
 
     assert_eq!(
@@ -969,7 +969,7 @@ mod tests {
       kind: "rtl_sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
     };
 
     assert_eq!(
@@ -1011,7 +1011,7 @@ mod tests {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
     };
 
     let settings = load_sdr_settings();
@@ -1036,7 +1036,7 @@ mod tests {
       kind: "mock_apt".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
     };
     let mut settings = load_sdr_settings();
     settings.sample_rate = 20_000_000;
@@ -1070,7 +1070,7 @@ mod tests {
       kind: "rtl_sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
     };
 
     let settings = load_sdr_settings();

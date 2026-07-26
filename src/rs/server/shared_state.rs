@@ -163,7 +163,7 @@ impl SharedState {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: Some(crate::server::types::IqFormat::default()),
       }),
       pending_source_switch: Mutex::new(None),
       device_loading: Mutex::new(false),

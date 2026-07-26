@@ -145,7 +145,13 @@ export const DeviceProfileSchema = z.object({
   kind: z.string(),
   is_rtl_sdr: z.boolean(),
   supports_approx_dbm: z.boolean(),
-  supports_raw_iq_stream: z.boolean(),
+  iq_format: z
+    .object({
+      element_type: z.literal("u8"),
+      layout: z.literal("interleaved_iq"),
+      typed_array: z.literal("Uint8Array"),
+    })
+    .optional(),
 });
 
 export const SourceCapabilitySchema = z.enum(["rx", "tx", "tx_rx", "mock"]);
@@ -157,6 +163,7 @@ export const SourceStatusSchema = z.enum([
   "disconnected",
   "stale",
   "error",
+  "standby",
   "transmitting",
   "streaming",
 ]);
@@ -209,7 +216,13 @@ export const SourceInfoSchema = z.object({
   loading_attempt: z.number().int().nonnegative(),
   loading_attempt_max: z.number().int().nonnegative(),
   supports_approx_dbm: z.boolean(),
-  supports_raw_iq_stream: z.boolean(),
+  iq_format: z
+    .object({
+      element_type: z.literal("u8"),
+      layout: z.literal("interleaved_iq"),
+      typed_array: z.literal("Uint8Array"),
+    })
+    .optional(),
   stream_key: z.string().optional(),
   stream_key_kind: z.enum(["serial", "source_id"]).optional(),
   iq_stream_protocols: z

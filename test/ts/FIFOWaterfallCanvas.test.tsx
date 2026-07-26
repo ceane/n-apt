@@ -20,7 +20,7 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfallCanvas", () => {
-  it("renders the paused title, all waterfall layers, and heterodyning highlights", () => {
+  it("renders the paused title and all waterfall layers", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
 
@@ -30,10 +30,6 @@ describe("FIFOWaterfallCanvas", () => {
           isPaused={true}
           setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
           setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
-          heterodyningHighlightedBins={[
-            { start: 0.1, end: 0.2 },
-            { start: 0.7, end: 0.9 },
-          ]}
         />
       </ThemeProvider>,
     );
@@ -47,9 +43,6 @@ describe("FIFOWaterfallCanvas", () => {
     expect(
       container.querySelector("#fft-waterfall-canvas-overlay"),
     ).toBeInTheDocument();
-    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(
-      2,
-    );
     expect(setWaterfallGpuCanvasNode).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
     );

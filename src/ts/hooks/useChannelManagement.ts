@@ -1,4 +1,58 @@
 import { useCallback } from "react";
+import {
+  useAppDispatch,
+  setSignalAreaAndRange,
+  tuneToChannels,
+} from "@n-apt/redux";
+import { useOptionalSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+
+export interface ChannelDescriptor {
+  label: string;
+  min: number;
+  max: number;
+}
+
+export const useChannelTuner = () => {
+  const reduxDispatch = useAppDispatch();
+  const spectrumStore = useOptionalSpectrumStore();
+
+  const tuneChannels = useCallback(
+    (
+      channels: ChannelDescriptor[],
+      selectedLabels?: string[],
+      rangeOverride?: { min: number; max: number },
+    ) => {
+      if (!channels || channels.length === 0) return;
+
+      const primary = channels[0];
+      const primaryMin = primary.min;
+      const primaryMax = primary.max;
+      const range = rangeOverride ?? { min: primaryMin, max: primaryMax };
+      const primaryLabel = primary.label.toUpperCase();
+
+      reduxDispatch(tuneToChannels({ channels, selectedLabels }));
+      reduxDispatch(
+        setSignalAreaAndRange({
+          area: primaryLabel,
+          range,
+        }),
+      );
+
+      if (spectrumStore) {
+        spectrumStore.dispatch({
+          type: "SET_SIGNAL_AREA_AND_RANGE",
+          area: primaryLabel,
+          range,
+        });
+
+        spectrumStore.wsConnection?.sendFrequencyRange?.(range);
+      }
+    },
+    [reduxDispatch, spectrumStore],
+  );
+
+  return { tuneChannels };
+};
 
 interface UseChannelManagementProps {
   allChannelsRef: React.MutableRefObject<any[]>;
@@ -22,6 +76,8 @@ export const useChannelManagement = ({
   setFrequencyRange,
   onChannelMetadataChange,
 }: UseChannelManagementProps) => {
+  const { tuneChannels } = useChannelTuner();
+
   // Channel switching helper - batches state updates for better performance
   const switchChannel = useCallback(
     (newIdx: number) => {
@@ -53,23 +109,23 @@ export const useChannelManagement = ({
         hardware_sample_rate_hz: ch.hardware_sample_rate_hz,
         frequency_range: freqRange,
       });
+
       if (freqRange) {
-        setFrequencyRange({
-          min: freqRange[0],
-          max: freqRange[1],
-        });
+        tuneChannels([{ label: channelLabel, min: freqRange[0], max: freqRange[1] }]);
         return;
       }
 
       const span = ch.sample_rate_hz || 3_200_000;
       const center = ch.center_freq_hz || 0;
-      setFrequencyRange({ min: center - span / 2, max: center + span / 2 });
+      const min = center - span / 2;
+      const max = center + span / 2;
+      tuneChannels([{ label: channelLabel, min, max }]);
     },
     [
       setActiveChannel,
-      setFrequencyRange,
       onChannelMetadataChange,
       allChannelsRef,
+      tuneChannels,
     ],
   );
 

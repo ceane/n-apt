@@ -104,6 +104,7 @@ export const SignalPreviewNode: React.FC<SignalPreviewNodeProps> = ({
           snapshotGridPreference={true}
           compact={true}
           nodePreview={true}
+          isStandby={true}
           awaitingDeviceData={false}
           isIqRecordingActive={true}
           placeholderSourceLabel={label}

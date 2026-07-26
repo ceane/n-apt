@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import type { FFTCanvasWaterfallBindings } from "@n-apt/components/FFTCanvas";
+import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 
 export interface CanvasState {
   spectrumGpuCanvasNode: HTMLCanvasElement | null;
@@ -21,7 +21,7 @@ export interface CanvasState {
   spectrumContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export const useCanvasState = (
+export const useCanvasNodes = (
   waterfallCanvasBindings?: FFTCanvasWaterfallBindings,
 ): CanvasState => {
   // GPU canvas state
@@ -90,3 +90,6 @@ export const useCanvasState = (
     spectrumContainerRef,
   };
 };
+
+/** @deprecated Use useCanvasNodes. */
+export const useCanvasState = useCanvasNodes;

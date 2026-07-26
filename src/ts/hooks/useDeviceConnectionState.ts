@@ -9,7 +9,7 @@ interface UseDeviceConnectionStateOptions {
 
 /**
  * Hook for managing UI state based on device connection status
- * Handles spike overlay and heterodyning verification states
+ * Handles spike-overlay state.
  */
 export const useDeviceConnectionState = ({
   deviceState,
@@ -24,7 +24,6 @@ export const useDeviceConnectionState = ({
   useEffect(() => {
     if (deviceState === "connected" || deviceState === "streaming") {
       lastUnavailableStateRef.current = null;
-      dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: false });
       return;
     }
 
@@ -46,13 +45,5 @@ export const useDeviceConnectionState = ({
     ) {
       dispatch({ type: "SET_SHOW_SPIKE_OVERLAY", enabled: false });
     }
-    dispatch({ type: "SET_HETERODYNING_VERIFY_DISABLED", disabled: true });
-    dispatch({
-      type: "SET_HETERODYNING_RESULT",
-      detected: false,
-      confidence: null,
-      statusText: "Unavailable",
-      highlightedBins: [],
-    });
   }, [deviceState, showSpikeOverlay, dispatch]);
 };

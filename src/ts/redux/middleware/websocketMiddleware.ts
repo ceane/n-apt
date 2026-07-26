@@ -166,7 +166,7 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
       kind: getDeviceKindFromSource(source),
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
-      supports_raw_iq_stream: source.supports_raw_iq_stream,
+      iq_format: source.iq_format,
     },
     maxSampleRateHz: source.sdr.max_sample_rate,
     sampleRateOptions: source.sdr.sample_rate_options,
@@ -273,7 +273,9 @@ const applyOptimisticTransmitStatus = (
 
   const nextStatus: SourceInfo["status"] = enabled
     ? "transmitting"
-    : "connected";
+    : isMockTxSource({ id: targetSource.id, kind: targetSource.kind })
+      ? "standby"
+      : "connected";
   const nextSources = currentSources.map((source) => {
     if (source.id === targetSource.id) {
       return { ...source, status: nextStatus };
@@ -1115,10 +1117,14 @@ const sendTxPreviewRequestToOpenSockets = (getState: () => any) => {
   const activeTxSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === activeSourceId && source.id === txSourceId,
   );
+  const isPaused =
+    state.isPaused ||
+    (activeSourceId ? state.pausedSources?.[activeSourceId] : false);
   if (
     activeTxSource &&
     activeTxSource.status !== "transmitting" &&
     state.sourceStatuses?.[activeTxSource.id] !== "transmitting" &&
+    isPaused &&
     sourceIqWsInstance.ws?.readyState === WebSocket.OPEN
   ) {
     sendSecondaryTxPreviewRequest(sourceIqWsInstance.ws, getState);
@@ -1152,13 +1158,13 @@ const syncSecondaryTxSourceIqSocket = (
           (source: SourceInfo) =>
             source.id === boundTxSourceId &&
             source.id !== activeSourceId &&
-            source.supports_raw_iq_stream,
+            source.iq_format,
         )
       : null) ??
     (state.sources ?? []).find(
       (source: SourceInfo) =>
         source.id !== activeSourceId &&
-        source.supports_raw_iq_stream &&
+        source.iq_format &&
         (source.capability === "tx" || source.capability === "tx_rx"),
     );
 
@@ -1273,7 +1279,7 @@ const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
   const activeSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === transportSourceId,
   );
-  if (!activeSource?.supports_raw_iq_stream) {
+  if (!activeSource?.iq_format) {
     cleanupSourceIqSocket();
     syncSecondaryTxSourceIqSocket(dispatch, getState);
     return;

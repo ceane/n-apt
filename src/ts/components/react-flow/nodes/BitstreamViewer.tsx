@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import {
+  fileFrameRuntime,
+  liveFrameRuntime,
+} from "@n-apt/visualization/frameRuntime";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
 import { FullscreenModal } from "@n-apt/components/react-flow/flows/FullscreenModal";
@@ -285,7 +287,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   useEffect(() => {
     const id = setInterval(() => {
       const sourceRef =
-        sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+        sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
       const current = Array.isArray(sourceRef.current)
         ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
         : sourceRef.current;
@@ -300,7 +302,8 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   }, [sourceMode]);
 
   useEffect(() => {
-    const sourceRef = sourceMode === "file" ? filePlaybackDataRef : liveDataRef;
+    const sourceRef =
+      sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
     const current = Array.isArray(sourceRef.current)
       ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
       : sourceRef.current;

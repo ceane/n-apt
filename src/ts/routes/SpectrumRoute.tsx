@@ -24,6 +24,7 @@ import {
   InitializingText,
 } from "@n-apt/components/Layout";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { liveFrameRuntime } from "@n-apt/visualization/frameRuntime";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
 import {
@@ -56,6 +57,15 @@ import {
   setTxPowerDbm,
   setDeviceKind,
   setFrequencyRange,
+  setActiveSignalArea,
+  setStitchStatus,
+  resetWaterfallCleared,
+  setVizZoom as setVizZoomAction,
+  setVizZoomFloor as setVizZoomFloorAction,
+  setVizPan as setVizPanAction,
+  setVizZoomFloorPan,
+  setFftDbLimits,
+  selectSourceTransportSnapshot,
 } from "@n-apt/redux";
 import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
@@ -81,7 +91,7 @@ import {
 } from "@n-apt/hooks/liveSourceLifecycle";
 import {
   getMockTxPreviewRequestKey,
-  resolveMockTxMonitorSampleRateHz,
+  resolveMockTxMonitorSampleRateForView,
 } from "./spectrum/mockTxPreview";
 import {
   FAST_SPECTRUM_FALLBACK_HEIGHT,
@@ -177,19 +187,22 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const txIfftSize = useAppSelector((state) => state.spectrum.txIfftSize);
+  const txHopType = useAppSelector(
+    (state) => state.spectrum.txHopType || "range",
+  );
+  const txHopEnabled = useAppSelector(
+    (state) => state.spectrum.txHopEnabled || false,
+  );
+  const txHopChannels = useAppSelector(
+    (state) => state.spectrum.txHopChannels || [],
+  );
+  const websocketChannels = useAppSelector((state) => state.websocket.channels);
   const showTxSlider = useAppSelector(
     (state) => state.spectrum.showTxSlider ?? true,
   );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const sourceStatuses = useAppSelector(
-    (state) => state.websocket.sourceStatuses,
-  );
-  const sourceTransport = useAppSelector(
-    (state) => state.websocket.sourceTransport,
-  );
-  const sourceFrameReadiness = useAppSelector(
-    (state) => state.websocket.sourceFrameReadiness,
-  );
+  const { sourceStatuses, sourceTransport, sourceFrameReadiness } =
+    useAppSelector(selectSourceTransportSnapshot);
   const getTxSliderDefaults = useCallback(
     (range: FrequencyRange) => {
       const visibleMinHz = Number.isFinite(range.min) ? range.min : 0;
@@ -235,7 +248,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       deviceProfile,
       maxSampleRateHz,
       sendFrequencyRange,
-      dataRef,
       captureStatus,
       sdrLimitMarkers,
       sources,
@@ -246,6 +258,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     toggleVisualizerPause,
   } = useSpectrumStore();
   const storeDispatch = dispatch as React.Dispatch<any>;
+  const dataRef = liveFrameRuntime.ref;
   const selectedSourceKind = selectedSource?.kind?.toLowerCase?.() ?? "";
   const selectedSourceObjectId = selectedSource?.id ?? "";
   const streamingSource = useMemo(
@@ -454,18 +467,25 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [onLoadingStateChange],
   );
 
-  const [vizZoom, setVizZoom] = [
-    state.vizZoom,
-    (zoom: number) => dispatch({ type: "SET_VIZ_ZOOM", zoom }),
-  ] as const;
-  const [vizZoomFloor, setVizZoomFloor] = [
-    state.vizZoomFloor,
-    (zoomFloor: number) => dispatch({ type: "SET_VIZ_ZOOM_FLOOR", zoomFloor }),
-  ] as const;
-  const [vizPanOffset, setVizPanOffset] = [
-    state.vizPanOffset,
-    (pan: number) => dispatch({ type: "SET_VIZ_PAN", pan }),
-  ] as const;
+  const vizZoom = useAppSelector((reduxState) => reduxState.spectrum.vizZoom);
+  const vizZoomFloor = useAppSelector(
+    (reduxState) => reduxState.spectrum.vizZoomFloor,
+  );
+  const vizPanOffset = useAppSelector(
+    (reduxState) => reduxState.spectrum.vizPanOffset,
+  );
+  const setVizZoom = useCallback(
+    (zoom: number) => reduxDispatch(setVizZoomAction(zoom)),
+    [reduxDispatch],
+  );
+  const setVizZoomFloor = useCallback(
+    (zoomFloor: number) => reduxDispatch(setVizZoomFloorAction(zoomFloor)),
+    [reduxDispatch],
+  );
+  const setVizPanOffset = useCallback(
+    (pan: number) => reduxDispatch(setVizPanAction(pan)),
+    [reduxDispatch],
+  );
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
@@ -845,7 +865,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     fftFrameRate: state.fftFrameRate,
     vizPanOffset: state.vizPanOffset,
     vizZoom: state.vizZoom,
-    dispatch,
     sendFrequencyRange,
     fftCanvasRef,
   });
@@ -912,7 +931,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           : range,
       );
       reduxDispatch(setFrequencyRange(clampedRange));
-      dispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
       sendFrequencyRange(clampedRange);
     },
     [
@@ -1197,7 +1215,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
             // Auto zoom stability: track floor pan so Refocus can restore this position
             if (state.autoZoomStability && state.vizZoomFloor > 1) {
-              dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan: newPan });
+              reduxDispatch(setVizZoomFloorPan(newPan));
             }
           } else {
             // Unzoomed live mode: change hardware VFO
@@ -1242,8 +1260,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     dispatch,
   ]);
 
+  const mockTxViewSampleRateHz = state.frequencyRange
+    ? state.frequencyRange.max - state.frequencyRange.min
+    : null;
   const mockTxMonitorSampleRateHz = isSelectedMockTxSource
-    ? resolveMockTxMonitorSampleRateHz(
+    ? resolveMockTxMonitorSampleRateForView(
+        mockTxViewSampleRateHz,
         state.sampleRateHz,
         sampleRateHzEffective,
         selectedSourceDerived.sdrSettings?.min_receive_sample_rate,
@@ -1467,20 +1489,172 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txSignal,
   ]);
 
+  const channelsList = useMemo(() => {
+    const defaultChannels = [
+      { label: "A", min: 18_000, max: 4_390_000 },
+      { label: "B", min: 24_100_000, max: 30_370_000 },
+      { label: "C", min: 4_750_000, max: 23_000_000 },
+    ];
+    if (websocketChannels && websocketChannels.length > 0) {
+      return websocketChannels.map((ch) => ({
+        label: ch.label,
+        min: ch.min_hz,
+        max: ch.max_hz,
+      }));
+    }
+    return defaultChannels;
+  }, [websocketChannels]);
+
+  const effectiveRxSampleRate =
+    sampleRateHzEffective ?? maxSampleRateHz ?? 3_200_000;
+  const autoHopRequired = useMemo(() => {
+    if (txHopType === "channels") {
+      return txHopChannels.length > 1;
+    }
+    return (
+      typeof effectiveRxSampleRate === "number" &&
+      txSampleRateHz > effectiveRxSampleRate
+    );
+  }, [txHopType, txHopChannels.length, effectiveRxSampleRate, txSampleRateHz]);
+
+  const isHopActive = txHopEnabled || autoHopRequired;
+
+  const hopTargets = useMemo(() => {
+    if (!isHopActive) return [];
+    if (txHopType === "channels") {
+      const selected = (txHopChannels || []).map((l) => l.toUpperCase());
+      const targets: Array<{
+        centerFrequencyHz: number;
+        bandwidthHz: number;
+        min: number;
+        max: number;
+        label: string;
+      }> = [];
+      for (const label of selected) {
+        const ch = channelsList.find((c) => c.label.toUpperCase() === label);
+        if (ch) {
+          const bw = Math.max(1, ch.max - ch.min);
+          const center = Math.round((ch.min + ch.max) / 2);
+          targets.push({
+            centerFrequencyHz: center,
+            bandwidthHz: bw,
+            min: ch.min,
+            max: ch.max,
+            label: ch.label,
+          });
+        }
+      }
+      return targets;
+    } else {
+      const hwRate = Math.max(1_000_000, effectiveRxSampleRate || 3_200_000);
+      if (txSampleRateHz <= hwRate) {
+        return [
+          {
+            centerFrequencyHz: txCenterFrequencyHz,
+            bandwidthHz: txSampleRateHz,
+            min: txCenterFrequencyHz - txSampleRateHz / 2,
+            max: txCenterFrequencyHz + txSampleRateHz / 2,
+            label: "range",
+          },
+        ];
+      }
+      const numSegments = Math.ceil(txSampleRateHz / hwRate);
+      const startHz = txCenterFrequencyHz - txSampleRateHz / 2;
+      const targets: Array<{
+        centerFrequencyHz: number;
+        bandwidthHz: number;
+        min: number;
+        max: number;
+        label: string;
+      }> = [];
+      for (let i = 0; i < numSegments; i++) {
+        const segMin = Math.round(startHz + hwRate * i);
+        const segMax = Math.round(startHz + hwRate * (i + 1));
+        const segCenter = Math.round((segMin + segMax) / 2);
+        targets.push({
+          centerFrequencyHz: segCenter,
+          bandwidthHz: hwRate,
+          min: segMin,
+          max: segMax,
+          label: `segment_${i + 1}`,
+        });
+      }
+      return targets;
+    }
+  }, [
+    isHopActive,
+    txHopType,
+    txHopChannels,
+    channelsList,
+    effectiveRxSampleRate,
+    txSampleRateHz,
+    txCenterFrequencyHz,
+  ]);
+
+  const [hopPreviewIndex, setHopPreviewIndex] = useState(0);
+
+  useEffect(() => {
+    if (
+      !isHopActive ||
+      hopTargets.length <= 1 ||
+      isSelectedMockTxTransmitting
+    ) {
+      setHopPreviewIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setHopPreviewIndex((prev) => (prev + 1) % hopTargets.length);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isHopActive, hopTargets.length, isSelectedMockTxTransmitting]);
+
+  const activeHopTarget = useMemo(() => {
+    if (isHopActive && hopTargets.length > 1) {
+      return hopTargets[hopPreviewIndex % hopTargets.length];
+    }
+    return null;
+  }, [isHopActive, hopTargets, hopPreviewIndex]);
+
+  useEffect(() => {
+    if (isHopActive && activeHopTarget) {
+      const range = { min: activeHopTarget.min, max: activeHopTarget.max };
+      reduxDispatch(setFrequencyRange(range));
+      reduxDispatch(setTxCenterFrequencyHz(activeHopTarget.centerFrequencyHz));
+      reduxDispatch(setTxSampleRateHz(activeHopTarget.bandwidthHz));
+      reduxDispatch(setFrequencyRange(range));
+      dispatch({
+        type: "SET_SAMPLE_RATE",
+        sampleRateHz: activeHopTarget.bandwidthHz,
+      });
+      setMockMonitorCenterHz(activeHopTarget.centerFrequencyHz);
+      if (activeHopTarget.label && activeHopTarget.label !== "range") {
+        reduxDispatch(setActiveSignalArea(activeHopTarget.label));
+        reduxDispatch(setActiveSignalArea(activeHopTarget.label));
+      }
+    }
+  }, [isHopActive, activeHopTarget, reduxDispatch, dispatch]);
+
   const lastMockTxPreviewRequestKeyRef = useRef<string | null>(null);
   const mockTxPreviewRequestKey = useMemo(() => {
-    const viewSampleRateHz = state.frequencyRange
-      ? state.frequencyRange.max - state.frequencyRange.min
-      : undefined;
+    const reqCenter = activeHopTarget?.centerFrequencyHz ?? txCenterFrequencyHz;
+    const reqViewCenter =
+      activeHopTarget?.centerFrequencyHz ?? mockMonitorCenterHz;
+    const reqBandwidth = activeHopTarget?.bandwidthHz ?? txSampleRateHz;
+    const viewSampleRateHz = activeHopTarget
+      ? activeHopTarget.bandwidthHz
+      : state.frequencyRange
+        ? state.frequencyRange.max - state.frequencyRange.min
+        : undefined;
     return (
       getMockTxPreviewRequestKey({
         sourceId: selectedSourceId,
-        centerFrequencyHz: txCenterFrequencyHz,
-        sampleRateHz: txSampleRateHz,
+        centerFrequencyHz: reqCenter,
+        sampleRateHz: reqBandwidth,
         signal: txSignal,
         powerDbm: txPowerDbm,
         ifftSize: txIfftSize,
-      }) + `|viewCenter:${mockMonitorCenterHz}|viewSpan:${viewSampleRateHz}`
+      }) +
+      `|viewCenter:${reqViewCenter}|viewSpan:${viewSampleRateHz}|hop:${hopPreviewIndex}`
     );
   }, [
     selectedSourceId,
@@ -1491,6 +1665,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txSignal,
     mockMonitorCenterHz,
     state.frequencyRange,
+    activeHopTarget,
+    hopPreviewIndex,
   ]);
 
   useEffect(() => {
@@ -1509,6 +1685,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
     lastMockTxPreviewRequestKeyRef.current = mockTxPreviewRequestKey;
     dataRef.current = null;
+
+    const reqCenter = activeHopTarget?.centerFrequencyHz ?? txCenterFrequencyHz;
+    const reqViewCenter =
+      activeHopTarget?.centerFrequencyHz ?? mockMonitorCenterHz;
+    const reqBandwidth = activeHopTarget?.bandwidthHz ?? txSampleRateHz;
+    const reqSampleRate = activeHopTarget
+      ? activeHopTarget.bandwidthHz
+      : state.frequencyRange
+        ? state.frequencyRange.max - state.frequencyRange.min
+        : undefined;
+
     // During handoff, request through the source-owned Tx IQ socket. The
     // control socket is still serving the old active source and must not be
     // nudged for a frame that belongs to it. Once committed, retain the
@@ -1521,12 +1708,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       reduxDispatch(
         requestNextLiveFrame({
           txSettings: {
-            centerFrequencyHz: txCenterFrequencyHz,
-            viewCenterHz: mockMonitorCenterHz,
-            bandwidthHz: txSampleRateHz,
-            sampleRateHz: state.frequencyRange
-              ? state.frequencyRange.max - state.frequencyRange.min
-              : undefined,
+            centerFrequencyHz: reqCenter,
+            viewCenterHz: reqViewCenter,
+            bandwidthHz: reqBandwidth,
+            sampleRateHz: reqSampleRate,
             powerDbm: txPowerDbm,
             txSignal,
             txIfftSize,
@@ -1549,6 +1734,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txPowerDbm,
     txSampleRateHz,
     txSignal,
+    activeHopTarget,
+    state.frequencyRange,
   ]);
 
   // Keep the last painted frame available during handoff. FFTCanvas rejects
@@ -1857,32 +2044,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={(pan) =>
-                  dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
+                  reduxDispatch(setVizZoomFloorPan(pan))
                 }
                 onVizPanChange={handleVizPanChange}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
                 onFftDbLimitsChange={(min, max) =>
-                  dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
+                  reduxDispatch(setFftDbLimits({ min, max }))
                 }
                 onSnapshot={() => {}}
                 snapshotGridPreference={state.snapshotGridPreference}
                 showSpikeOverlay={state.showSpikeOverlay}
-                heterodyningVerifyRequestId={state.heterodyningVerifyRequestId}
-                heterodyningHighlightedBins={state.heterodyningHighlightedBins}
-                onHeterodyningAnalyzed={(result) =>
-                  dispatch({
-                    type: "SET_HETERODYNING_RESULT",
-                    detected: result.detected,
-                    confidence: result.confidence,
-                    statusText: result.statusText,
-                    highlightedBins: result.highlightedBins,
-                  })
-                }
                 fftFrameRate={state.fftFrameRate}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={() =>
-                  dispatch({ type: "RESET_WATERFALL_CLEARED" })
+                  reduxDispatch(resetWaterfallCleared())
                 }
                 awaitingDeviceData={false}
                 visualizerMachine={fftVisualizerMachine}
@@ -1946,18 +2122,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
               onVizZoomChange={setVizZoom}
               onVizZoomFloorChange={setVizZoomFloor}
               onVizZoomFloorPanChange={(pan) =>
-                dispatch({ type: "SET_VIZ_ZOOM_FLOOR_PAN", pan })
+                reduxDispatch(setVizZoomFloorPan(pan))
               }
               onVizPanChange={handleVizPanChange}
               onStitchStatus={(status) =>
-                storeDispatch({ type: "SET_STITCH_STATUS", status })
-              }
-              onStitchProgress={(progress) =>
-                storeDispatch({ type: "SET_STITCH_PROGRESS", progress })
+                reduxDispatch(setStitchStatus(status))
               }
               onFrequencyRangeChange={handleFrequencyRangeChange}
               onFftDbLimitsChange={(min, max) =>
-                dispatch({ type: "SET_FFT_DB_LIMITS", min, max })
+                reduxDispatch(setFftDbLimits({ min, max }))
               }
               snapshotGridPreference={state.snapshotGridPreference}
             />

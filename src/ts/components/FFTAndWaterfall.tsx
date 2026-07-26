@@ -11,8 +11,8 @@ import styled from "styled-components";
 import FFTCanvas, {
   type FFTCanvasHandle,
   type FFTCanvasProps,
-  type FFTCanvasWaterfallBindings,
 } from "@n-apt/components/FFTCanvas";
+import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
 import { VisualizerSliders } from "@n-apt/components/VisualizerSliders";
 import { useAppDispatch, useAppSelector, spectrumActions } from "@n-apt/redux";
@@ -78,17 +78,11 @@ const SlidersRail = styled.div`
 `;
 
 const isTxCapableSource = (
-  source?: { capability?: string | null; kind?: string | null } | null,
+  source?: { capability?: string | null } | null,
 ) => {
   if (!source) return false;
   const capability = source.capability?.toLowerCase?.() ?? "";
-  const kind = source.kind?.toLowerCase?.() ?? "";
-  return (
-    capability === "tx" ||
-    capability === "tx_rx" ||
-    kind === "hackrf_one" ||
-    kind === "mock_tx"
-  );
+  return capability === "tx" || capability === "tx_rx";
 };
 
 const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
@@ -415,7 +409,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
             setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
             headerActionContent={props.waterfallHeaderActionContent}
-            heterodyningHighlightedBins={props.heterodyningHighlightedBins}
             awaitingDeviceData={sharedAwaitingDeviceData}
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"

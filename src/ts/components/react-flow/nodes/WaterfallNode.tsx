@@ -7,9 +7,9 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import {
-  liveDataRef,
-  liveDataBySourceRef,
-} from "@n-apt/redux/middleware/websocketMiddleware";
+  fileFrameRuntime,
+  liveSourceFrameRuntime,
+} from "@n-apt/visualization/frameRuntime";
 import { FIFOWaterfall } from "@n-apt/components/FIFOWaterfall";
 import { useAppSelector } from "@n-apt/redux";
 import { useWasmSimdMath } from "@n-apt/hooks/useWasmSimdMath";
@@ -17,7 +17,6 @@ import { formatFrequency } from "@n-apt/utils/frequency";
 import { Slider } from "@n-apt/components/ui/Slider";
 import { resampleNearestInto } from "@n-apt/utils/resampleNearest";
 import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import { isFilePlaybackPaused } from "@n-apt/hooks/liveSourceLifecycle";
 import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
@@ -246,11 +245,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     );
     return Boolean(
       source &&
-        isTxStandbyPreviewSource({
-          sourceRole: data.sourceRole,
-          capability: source.capability,
-          status: source.status,
-        }),
+      isTxStandbyPreviewSource({
+        sourceRole: data.sourceRole,
+        capability: source.capability,
+        status: source.status,
+      }),
     );
   });
   const txCenterFrequencyHz = useAppSelector(
@@ -283,8 +282,8 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const getCurrentFrame = useCallback(() => {
     const sourceRef =
       sourceMode === "file"
-        ? filePlaybackDataRef
-        : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
+        ? fileFrameRuntime.ref
+        : liveSourceFrameRuntime.getRef(roleSourceId);
     return Array.isArray(sourceRef.current)
       ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
       : sourceRef.current;

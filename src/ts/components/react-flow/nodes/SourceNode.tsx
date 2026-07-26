@@ -6,6 +6,7 @@ import {
   selectActiveSource,
   selectWebSocketSources,
   selectSelectedFiles,
+  selectSourceMode,
 } from "@n-apt/redux/selectors/performanceSelectors";
 import { useAppSelector } from "@n-apt/redux";
 import { useAppDispatch } from "@n-apt/redux";
@@ -95,7 +96,7 @@ const RoleSelect = styled.select`
   font: inherit;
 `;
 
-  interface SourceNodeProps {
+interface SourceNodeProps {
   data: {
     sourceNode: boolean;
     label: string;
@@ -107,31 +108,30 @@ const RoleSelect = styled.select`
 
 export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
-  const {
-    wsConnection,
-    deviceName: spectrumDeviceName,
-    state: liveState,
-  } = useSpectrumStore();
+  const { wsConnection, deviceName: spectrumDeviceName } = useSpectrumStore();
   const activeSource = useAppSelector(selectActiveSource);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const sources = useAppSelector(selectWebSocketSources);
   const selectedFiles = useAppSelector(selectSelectedFiles);
+  const sourceMode = useAppSelector(selectSourceMode);
   const bindingGroup =
     data.sourceBindingGroup ?? data.sourceAssignmentGroup ?? "default";
   const isAssignmentNode = Boolean(
     data.sourceBindingGroup || data.sourceAssignmentGroup || data.txSuiteSource,
   );
   const rxSourceId = useAppSelector(
-    (state) => state.sourceRouting.bindings[sourceBindingKey(bindingGroup, "rx")] ?? null,
+    (state) =>
+      state.sourceRouting.bindings[sourceBindingKey(bindingGroup, "rx")] ??
+      null,
   );
   const txSourceId = useAppSelector(
-    (state) => state.sourceRouting.bindings[sourceBindingKey(bindingGroup, "tx")] ?? null,
+    (state) =>
+      state.sourceRouting.bindings[sourceBindingKey(bindingGroup, "tx")] ??
+      null,
   );
 
-  const sourceMode = liveState?.sourceMode ?? "live";
-  const liveSelectedFiles = liveState?.selectedFiles ?? selectedFiles;
   const primaryFileName =
-    liveSelectedFiles.length > 0 ? liveSelectedFiles[0].name : "Select a file...";
+    selectedFiles.length > 0 ? selectedFiles[0].name : "Select a file...";
 
   const options = [
     ...sources.map((source) => ({
@@ -151,14 +151,17 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
     const hasRx = options.some((option) => option.id === rxSourceId);
     const hasTx = options.some((option) => option.id === txSourceId);
     const rxCandidate =
-      options.find((option) => option.capability === "rx" || option.capability === "tx_rx") ??
-      options[0];
+      options.find(
+        (option) => option.capability === "rx" || option.capability === "tx_rx",
+      ) ?? options[0];
     const txCandidate =
       options.find(
         (option) =>
           option.id !== (hasRx ? rxSourceId : rxCandidate.id) &&
           (option.capability === "tx" || option.capability === "tx_rx"),
-      ) ?? options[1] ?? options[0];
+      ) ??
+      options[1] ??
+      options[0];
     if (!hasRx || !hasTx) {
       dispatch(
         setSourceBinding({
@@ -177,7 +180,14 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
         );
       }
     }
-  }, [bindingGroup, dispatch, isAssignmentNode, options, rxSourceId, txSourceId]);
+  }, [
+    bindingGroup,
+    dispatch,
+    isAssignmentNode,
+    options,
+    rxSourceId,
+    txSourceId,
+  ]);
 
   const displayTitle = sourceMode === "file" ? "File" : "Source";
   const deviceName =
@@ -192,7 +202,9 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
     return (
       <SourceContainer>
         <SourceHeader>
-          <IconContainer><IconEmoji>📡</IconEmoji></IconContainer>
+          <IconContainer>
+            <IconEmoji>📡</IconEmoji>
+          </IconContainer>
           <TextContainer>
             <TitleText>Sources</TitleText>
             <SubtitleText>Assign Rx and Tx roles</SubtitleText>
@@ -205,10 +217,20 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
               aria-label="Rx source"
               value={rxSourceId ?? ""}
               onChange={(event) =>
-                dispatch(setSourceBinding({ group: bindingGroup, role: "rx", sourceId: event.target.value }))
+                dispatch(
+                  setSourceBinding({
+                    group: bindingGroup,
+                    role: "rx",
+                    sourceId: event.target.value,
+                  }),
+                )
               }
             >
-              {options.map((option) => <option key={`rx-${option.id}`} value={option.id}>{option.label}</option>)}
+              {options.map((option) => (
+                <option key={`rx-${option.id}`} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
             </RoleSelect>
           </RoleRow>
           <RoleRow>
@@ -217,10 +239,20 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
               aria-label="Tx source"
               value={txSourceId ?? ""}
               onChange={(event) =>
-                dispatch(setSourceBinding({ group: bindingGroup, role: "tx", sourceId: event.target.value }))
+                dispatch(
+                  setSourceBinding({
+                    group: bindingGroup,
+                    role: "tx",
+                    sourceId: event.target.value,
+                  }),
+                )
               }
             >
-              {options.map((option) => <option key={`tx-${option.id}`} value={option.id}>{option.label}</option>)}
+              {options.map((option) => (
+                <option key={`tx-${option.id}`} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
             </RoleSelect>
           </RoleRow>
         </RoleAssignments>

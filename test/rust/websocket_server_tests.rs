@@ -81,7 +81,7 @@ fn broadcast_device_status_includes_websocket_payload_fields() {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
   shared.recovery_attempts.store(1, Ordering::Relaxed);
@@ -187,7 +187,7 @@ fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
 
@@ -999,7 +999,7 @@ fn stale_hackrf_snapshot_reconciles_to_mock_when_usb_is_gone() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
 

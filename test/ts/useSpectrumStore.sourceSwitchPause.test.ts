@@ -12,6 +12,7 @@ import {
   resolveEffectiveSourcePaused,
   resolveStreamingSourceForDisplay,
   resolveSelectedSourceIdForInventory,
+  resolveInventorySelectionIntent,
   shouldClearPendingSourceSwitch,
 } from "@n-apt/hooks/useSpectrumStore";
 
@@ -50,6 +51,44 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         ] as any,
       }),
     ).toBe("rtl-1");
+  });
+
+  it("marks an auto-selected hardware source as a switch intent when the backend is still on Mock APT", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          {
+            id: "hackrf-one",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            status: "connected",
+          },
+        ] as any,
+      }),
+    ).toBe("hackrf-one");
+  });
+
+  it("reasserts the selected hardware source after reconnect fallback", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "hackrf-one",
+        activeSourceId: "mock-apt",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          {
+            id: "hackrf-one",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            status: "connected",
+          },
+        ] as any,
+      }),
+    ).toBe("hackrf-one");
   });
 
   it("preserves a pending Mock Tx selection while source inventory is transiently empty", () => {

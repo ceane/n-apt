@@ -7,6 +7,7 @@ import {
   setTxPowerDbm, setTxVgaGain, setTxSafetyEnabled, setTxSafetyLimit,
   setTxHopType, setTxHopStartFrequencyHz, setTxHopEndFrequencyHz,
   setTxHopChannels, setTxHopRateHz, setTxHopEnabled, setHackrfAmpEnabled,
+  setFrequencyRange,
 } from "@n-apt/redux";
 import { TxSettingsSection } from "@n-apt/components/sidebar/TxSettingsSection";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
@@ -101,9 +102,25 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
         ampEnabled={tx.hackrfAmpEnabled}
         signalOptions={signalOptions}
         onSignalChange={(value) => dispatch(setTxSignal(value))}
-        onBandwidthChange={(value) => dispatch(setTxSampleRateHz(value))}
+        onBandwidthChange={(value) => {
+          dispatch(setTxSampleRateHz(value));
+          if (Number.isFinite(tx.txCenterFrequencyHz) && value > 0) {
+            const min = Math.max(0, tx.txCenterFrequencyHz - value / 2);
+            const max = tx.txCenterFrequencyHz + value / 2;
+            dispatch(setFrequencyRange({ min, max }));
+          }
+        }}
         onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
-        onCenterFrequencyChange={(value) => dispatch(setTxCenterFrequencyHz(value))}
+        onCenterFrequencyChange={(value) => {
+          dispatch(setTxCenterFrequencyHz(value));
+          const bw =
+            typeof tx.txSampleRateHz === "number" && tx.txSampleRateHz > 0
+              ? tx.txSampleRateHz
+              : 2_400_000;
+          const min = Math.max(0, value - bw / 2);
+          const max = value + bw / 2;
+          dispatch(setFrequencyRange({ min, max }));
+        }}
         onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
         onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
         onAmpEnabledChange={(value) => dispatch(setHackrfAmpEnabled(value))}

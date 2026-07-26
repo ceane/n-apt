@@ -316,6 +316,39 @@ const spectrumSlice = createSlice({
       state.lastKnownRanges[action.payload.area] = action.payload.range;
     },
 
+    tuneToChannels: (
+      state,
+      action: PayloadAction<{
+        channels: Array<{ label: string; min: number; max: number }>;
+        selectedLabels?: string[];
+      }>,
+    ) => {
+      const { channels, selectedLabels } = action.payload;
+      if (!channels || channels.length === 0) return;
+
+      const primary = channels[0];
+      const primaryMin = primary.min;
+      const primaryMax = primary.max;
+      const primaryBw = Math.max(1, primaryMax - primaryMin);
+      const primaryCenter = Math.round((primaryMin + primaryMax) / 2);
+      const primaryLabel = primary.label.toUpperCase();
+      const lowerLabels = (selectedLabels ?? channels.map((ch) => ch.label)).map(
+        (l) => l.toLowerCase(),
+      );
+
+      state.activeSignalArea = primaryLabel;
+      state.frequencyRange = { min: primaryMin, max: primaryMax };
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+        state.lastKnownRanges = {};
+      }
+      state.lastKnownRanges[primaryLabel] = { min: primaryMin, max: primaryMax };
+
+      state.txCenterFrequencyHz = primaryCenter;
+      state.txSampleRateHz = primaryBw;
+      state.sampleRateHz = primaryBw;
+      state.txHopChannels = lowerLabels;
+    },
+
     mergeLastKnownRanges: (
       state,
       action: PayloadAction<Record<string, FrequencyRange>>,
@@ -736,6 +769,7 @@ export const {
   setActiveSignalArea,
   setFrequencyRange,
   setSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setTemporalResolution,
   setPowerScale,

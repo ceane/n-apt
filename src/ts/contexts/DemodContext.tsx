@@ -21,7 +21,7 @@ import {
 import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
 import { useAudioDemodAPT } from "@n-apt/hooks/useAudioDemodAPT";
 import { useNAPTAudioDemod } from "@n-apt/hooks/useNAPTAudioDemod";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { liveFrameRuntime } from "@n-apt/visualization/frameRuntime";
 import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
@@ -170,9 +170,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const id = window.setInterval(() => {
-      const liveFrame = Array.isArray(liveDataRef.current)
-        ? (liveDataRef.current[liveDataRef.current.length - 1] ?? null)
-        : liveDataRef.current;
+      const liveFrame = Array.isArray(liveFrameRuntime.ref.current)
+        ? (liveFrameRuntime.ref.current[
+            liveFrameRuntime.ref.current.length - 1
+          ] ?? null)
+        : liveFrameRuntime.ref.current;
 
       const next =
         liveFrame?.center_frequency_hz && liveFrame?.sample_rate
@@ -306,7 +308,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     bufferSize: 4096,
   });
 
-  // Throttled IQ demod processing — polls liveDataRef instead of subscribing
+  // Throttled IQ demod processing — polls the frame runtime instead of subscribing
   // to dataFrameCounter to avoid re-rendering the entire DemodProvider tree on every frame.
   // 30fps is more than sufficient for audio buffer processing.
   useEffect(() => {
@@ -320,16 +322,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!demodState.isListening || !demodState.centerFreqHz) return;
 
     const id = setInterval(() => {
-      const queue = Array.isArray(liveDataRef.current)
-        ? liveDataRef.current
-        : liveDataRef.current
-          ? [liveDataRef.current]
+      const queue = Array.isArray(liveFrameRuntime.ref.current)
+        ? liveFrameRuntime.ref.current
+        : liveFrameRuntime.ref.current
+          ? [liveFrameRuntime.ref.current]
           : [];
       if (queue.length === 0) return;
 
       // Drain the queue
       const batch = [...queue];
-      liveDataRef.current = [];
+      liveFrameRuntime.ref.current = [];
 
       for (const current of batch) {
         if (!current || !current.iq_data) continue;

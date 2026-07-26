@@ -8,6 +8,11 @@ import {
   stitchWholeChannelWaveform,
   getAntiAliasingParams,
 } from "@n-apt/utils/antiAliasing";
+import {
+  setDiagnosticRunning,
+  setDiagnosticStatus,
+  useAppDispatch,
+} from "@n-apt/redux";
 
 const Container = styled.div`
   display: flex;
@@ -323,7 +328,8 @@ const SegmentedSlider: React.FC<{
 
 export const AntiAliasingDiagnostics: React.FC = () => {
   const theme = useTheme() as AppStyledTheme;
-  const { state, dispatch } = useSpectrumStore();
+  const { state } = useSpectrumStore();
+  const reduxDispatch = useAppDispatch();
   const [result, setResult] = useState<any>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [frontendStitchedFrame, setFrontendStitchedFrame] =
@@ -345,11 +351,8 @@ export const AntiAliasingDiagnostics: React.FC = () => {
     if (isRequestingRef.current) return;
     isRequestingRef.current = true;
 
-    dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: true });
-    dispatch({
-      type: "SET_DIAGNOSTIC_STATUS",
-      status: "Capturing 10 frames...",
-    });
+    reduxDispatch(setDiagnosticRunning(true));
+    reduxDispatch(setDiagnosticStatus("Capturing 10 frames..."));
 
     const range = state.frequencyRange;
     const center_hz = range
@@ -433,14 +436,11 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         getFrame,
       });
       setFrameIndex(0);
-      dispatch({ type: "SET_DIAGNOSTIC_STATUS", status: "Capture complete" });
+      reduxDispatch(setDiagnosticStatus("Capture complete"));
     } catch (e: any) {
-      dispatch({
-        type: "SET_DIAGNOSTIC_STATUS",
-        status: `Error: ${e.message}`,
-      });
+      reduxDispatch(setDiagnosticStatus(`Error: ${e.message}`));
     } finally {
-      dispatch({ type: "SET_DIAGNOSTIC_RUNNING", running: false });
+      reduxDispatch(setDiagnosticRunning(false));
       isRequestingRef.current = false;
     }
   };

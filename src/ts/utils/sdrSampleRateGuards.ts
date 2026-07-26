@@ -151,6 +151,25 @@ export const isRtlSdrDevice = ({
   );
 };
 
+export const isHackrfDevice = ({
+  deviceKind,
+  backend,
+  deviceName,
+  sourceId,
+}: DeviceIdentity & { sourceId?: string | null }): boolean => {
+  const kind = normalize(deviceKind);
+  const backendName = normalize(backend);
+  const name = normalize(deviceName);
+  const id = normalize(sourceId);
+
+  return (
+    kind.includes("hackrf") ||
+    backendName.includes("hackrf") ||
+    name.includes("hackrf") ||
+    id.includes("hackrf")
+  );
+};
+
 export const canUseWholeChannelSnapshot = ({
   requestedWhole,
   deviceKind,

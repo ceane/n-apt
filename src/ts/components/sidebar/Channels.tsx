@@ -4,6 +4,7 @@ import { ChevronsLeftRightEllipsis } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setSignalAreaAndRange } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
 import { Collapsible, Tooltip } from "@n-apt/components/ui";
@@ -15,6 +16,7 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
+import { useChannelTuner } from "@n-apt/hooks/useChannelManagement";
 
 /** Matches sidebar `Section`: participates in parent subgrid so nested `ReduxFrequencyRangeSlider` subgrid works. */
 const ChannelsSection = styled.div`
@@ -323,12 +325,13 @@ export const Channels: React.FC<ChannelsProps> = ({
   const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
     state,
-    dispatch: storeDispatch,
     effectiveFrames,
     sampleRateHzEffective: sampleRateHz,
     selectedSourceDerived,
     wsConnection,
   } = useSpectrumStore();
+  const spectrumTransport = useSpectrumTransport();
+  const { tuneChannels } = useChannelTuner();
   const isRtlSdr = isRtlSdrDevice({
     deviceKind:
       websocketDeviceProfile?.kind ??
@@ -617,8 +620,8 @@ export const Channels: React.FC<ChannelsProps> = ({
                       isWholeChannelMode || sampleRateCoversChannel;
                     const rememberedRange = shouldUseWholeChannelRange
                       ? null
-                      : (state.lastKnownRanges[label] ??
-                        state.lastKnownRanges[label.toLowerCase()]);
+                      : (state.lastKnownRanges?.[label] ??
+                        state.lastKnownRanges?.[label.toLowerCase()]);
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
                       max: shouldUseWholeChannelRange
@@ -643,18 +646,11 @@ export const Channels: React.FC<ChannelsProps> = ({
                                 : hardwareSpectrumBounds,
                             ),
                           );
-                    reduxDispatch(
-                      setSignalAreaAndRange({
-                        area: label,
-                        range: clampedRange,
-                      }),
+                    tuneChannels(
+                      [{ label, min: minFreq, max: maxFreq }],
+                      undefined,
+                      clampedRange,
                     );
-                    storeDispatch({
-                      type: "SET_SIGNAL_AREA_AND_RANGE",
-                      area: label,
-                      range: clampedRange,
-                    });
-                    wsConnection.sendFrequencyRange(clampedRange);
                   }}
                 />
               );
@@ -726,23 +722,13 @@ export const Channels: React.FC<ChannelsProps> = ({
   }
 
   const handleTune = (frame: any) => {
-    const useWholeChannelRange = shouldUseWholeChannelRange(frame);
-    const range = {
-      min: frame.min_hz,
-      max: useWholeChannelRange
-        ? frame.max_hz
-        : channelSampleRateHz
-        ? Math.min(frame.max_hz, frame.min_hz + channelSampleRateHz)
-        : frame.max_hz,
-    };
-
-    storeDispatch({
-      type: "SET_SIGNAL_AREA_AND_RANGE",
-      area: frame.label,
-      range,
-    });
-
-    wsConnection.sendFrequencyRange(range);
+    tuneChannels([
+      {
+        label: frame.label,
+        min: frame.min_hz,
+        max: frame.max_hz,
+      },
+    ]);
     setIsManualMode(false);
   };
 
@@ -758,13 +744,9 @@ export const Channels: React.FC<ChannelsProps> = ({
       max: freqHz + windowSizeHz / 2,
     };
 
-    storeDispatch({
-      type: "SET_SIGNAL_AREA_AND_RANGE",
-      area: "manual",
-      range,
-    });
+    reduxDispatch(setSignalAreaAndRange({ area: "manual", range }));
 
-    wsConnection.sendFrequencyRange(range);
+    spectrumTransport.sendFrequencyRange(range);
     setIsManualMode(true);
   };
 

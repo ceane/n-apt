@@ -25,7 +25,7 @@ async fn test_device_freeze_detection() {
     kind: "Mock APT".to_string(),
     is_rtl_sdr: false,
     supports_approx_dbm: false,
-    supports_raw_iq_stream: false,
+    iq_format: None,
   };
   shared_state.update_device_status(
     false,
@@ -72,7 +72,7 @@ async fn test_mock_mode_fallback() {
     kind: "RTL-SDR".to_string(),
     is_rtl_sdr: true,
     supports_approx_dbm: true,
-    supports_raw_iq_stream: true,
+    iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
   };
   shared_state.update_device_status(
     true,
@@ -85,7 +85,7 @@ async fn test_mock_mode_fallback() {
     kind: "Mock APT".to_string(),
     is_rtl_sdr: false,
     supports_approx_dbm: false,
-    supports_raw_iq_stream: false,
+    iq_format: None,
   };
   shared_state.update_device_status(
     false,

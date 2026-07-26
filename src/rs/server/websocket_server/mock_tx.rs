@@ -5,9 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const MOCK_TX_DISPLAY_NAME: &str = "Mock Tx SDR";
 pub static MOCK_TX_MONITOR_SAMPLE_CURSOR: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(test)]
 const MOCK_TX_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
-#[cfg(test)]
 const MOCK_TX_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
 const MOCK_TX_I_DITHER_KEY: u64 = 0x544d_4f4e_4951_4949;
 const MOCK_TX_Q_DITHER_KEY: u64 = 0x544d_4f4e_4951_5151;
@@ -44,30 +42,17 @@ fn mock_tx_monitor_output_noise(
       * MOCK_TX_QUANTIZATION_SUPPORT_AMPLITUDE
 }
 
-fn wifi_5g_motion_gain(
-  signal_name: &str,
-  _frame_seed: u64,
-  sample_index: u64,
-  _sample_rate_hz: f64,
-) -> f64 {
+fn wifi_5g_motion_gain(signal_name: &str, frame_seed: u64) -> f64 {
   if signal_name != "wifi" && signal_name != "5g" {
     return 1.0;
   }
 
-  #[cfg(test)]
-  {
-    let frame_noise = mock_tx_noise_unit(_frame_seed, MOCK_TX_FRAME_NOISE_KEY);
-    let sample_noise =
-      mock_tx_noise_unit(sample_index ^ _frame_seed, MOCK_TX_SAMPLE_NOISE_KEY);
-    return (1.0 + 0.14 * frame_noise + 0.06 * sample_noise).clamp(0.75, 1.25);
-  }
-  #[cfg(not(test))]
-  {
-    let t_sec = sample_index as f64 / _sample_rate_hz;
-    let slow_wobble = (t_sec * 2.0 * std::f64::consts::PI * 15.0).sin();
-    let fast_wobble = (t_sec * 2.0 * std::f64::consts::PI * 137.0).sin();
-    (1.0 + 0.08 * slow_wobble + 0.04 * fast_wobble).clamp(0.75, 1.25)
-  }
+  // Keep the gain constant across one monitor FFT window. Per-sample gain
+  // modulation smears the OFDM flat top, especially for large FFT sizes.
+  let frame_noise = mock_tx_noise_unit(frame_seed, MOCK_TX_FRAME_NOISE_KEY);
+  // Keep the requested signal level as the floor while still making the
+  // monitor trace breathe between cycles.
+  (1.0 + 0.14 * ((frame_noise + 1.0) * 0.5)).clamp(1.0, 1.14)
 }
 
 fn mock_tx_ofdm_symbol_rotation(symbol_index: u64) -> (f64, f64) {
@@ -365,14 +350,20 @@ pub fn synthesize_mock_tx_monitor_iq(
     )
   };
   let noise_floor_rms = mock_tx_monitor_noise_floor_rms(power_model);
-  let render_ifft_size = tx_ifft_size.min(fft_size).max(256);
+  // A monitor frame is measured by the browser at `fft_size`. Bound the
+  // generated IFFT block to that frame so a longer configured Tx IFFT cannot
+  // put the visible power into samples the browser will discard.
+  let render_ifft_size = tx_ifft_size.min(fft_size).clamp(256, 262_144);
   let start_sample =
     MOCK_TX_MONITOR_SAMPLE_CURSOR.fetch_add(fft_size as u64, Ordering::Relaxed);
 
   let frame_seed = start_sample / fft_size.max(1) as u64;
+  let frame_motion_gain = wifi_5g_motion_gain(&motion_signal_key, frame_seed);
 
   #[cfg(test)]
-  let phase_seed = if is_ofdm || signal_key == "d" || signal_key == "d_sharp" {
+  let phase_seed = if is_ofdm && render_ifft_size > 2_048 {
+    42
+  } else if signal_key == "d" || signal_key == "d_sharp" {
     frame_seed
   } else {
     0
@@ -398,7 +389,6 @@ pub fn synthesize_mock_tx_monitor_iq(
     cache.prepare(&current_params);
     cache.snapshot_samples()
   };
-
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
   let mut signal_iq = Vec::with_capacity(fft_size);
 
@@ -414,26 +404,27 @@ pub fn synthesize_mock_tx_monitor_iq(
     }
 
     let (sin_p, cos_p) = phase_accumulator.sin_cos();
+    let sample_motion_gain = if is_ofdm && render_ifft_size <= 2_048 {
+      1.0 + 0.06 * mock_tx_noise_unit(t ^ frame_seed, MOCK_TX_SAMPLE_NOISE_KEY)
+    } else {
+      1.0
+    };
 
     // Loop baseband block sample and mix to carrier frequency offset
     let block_sample = block[(t as usize) % render_ifft_size];
-    let motion_gain =
-      wifi_5g_motion_gain(&motion_signal_key, frame_seed, t, sample_rate_hz);
     let (symbol_sin, symbol_cos) = if is_ofdm {
       mock_tx_ofdm_symbol_rotation(t / render_ifft_size.max(1) as u64)
     } else {
       (0.0, 1.0)
     };
-    let symbol_re = block_sample.re as f64 * symbol_cos
-      - block_sample.im as f64 * symbol_sin;
-    let symbol_im = block_sample.re as f64 * symbol_sin
-      + block_sample.im as f64 * symbol_cos;
-    let i_sig = (symbol_re * cos_p - symbol_im * sin_p)
-      * target_rms
-      * motion_gain;
-    let q_sig = (symbol_re * sin_p + symbol_im * cos_p)
-      * target_rms
-      * motion_gain;
+    let symbol_re =
+      block_sample.re as f64 * symbol_cos - block_sample.im as f64 * symbol_sin;
+    let symbol_im =
+      block_sample.re as f64 * symbol_sin + block_sample.im as f64 * symbol_cos;
+    let i_sig =
+      (symbol_re * cos_p - symbol_im * sin_p) * target_rms * sample_motion_gain;
+    let q_sig =
+      (symbol_re * sin_p + symbol_im * cos_p) * target_rms * sample_motion_gain;
 
     signal_iq.push(Complex::new(i_sig, q_sig));
   }
@@ -504,6 +495,24 @@ pub fn synthesize_mock_tx_monitor_iq(
         for sample in signal_iq.iter_mut() {
           *sample = *sample * scale;
         }
+      }
+    }
+  }
+
+  // Animate the displayed signal once per monitor frame, after normalization,
+  // so the level changes without changing the spectral envelope.
+  if frame_motion_gain != 1.0 {
+    for sample in signal_iq.iter_mut() {
+      *sample = *sample * frame_motion_gain;
+    }
+
+    let max_sample = signal_iq
+      .iter()
+      .fold(0.0_f64, |m, s| m.max(s.re.abs().max(s.im.abs())));
+    if max_sample > 0.99 {
+      let scale = 0.99 / max_sample;
+      for sample in signal_iq.iter_mut() {
+        *sample = *sample * scale;
       }
     }
   }
@@ -1098,6 +1107,40 @@ mod tests {
       power_error <= 3.0,
       "Zero-padded frontend FFT size ({frontend_ifft_size}) peak power ({peak_power:.1} dBm) deviates from target ({power_dbm} dBm) by {power_error:.1} dB",
     );
+  }
+
+  #[test]
+  fn tx_monitor_power_matches_across_frontend_fft_and_tx_ifft_sizes() {
+    let cases = [
+      (2_048, 2_048, 3_200_000.0),
+      (8_192, 2_048, 3_200_000.0),
+      (65_536, 2_048, 6_270_000.0),
+      (65_536, 262_144, 6_270_000.0),
+      (262_144, 65_536, 6_270_000.0),
+    ];
+
+    for (frontend_fft_size, tx_ifft_size, view_sample_rate_hz) in cases {
+      let frame = synthesize_test_frame_with_fft_and_view_and_ifft(
+        frontend_fft_size,
+        "d",
+        view_sample_rate_hz,
+        1_500_000.0,
+        tx_ifft_size,
+        -18.0,
+      );
+      assert_eq!(
+        frame.len(),
+        frontend_fft_size * 2,
+        "Tx monitor payload must contain exactly the frontend FFT's I/Q samples"
+      );
+      let spectrum = spectrum_dbm(&frame, view_sample_rate_hz);
+      let peak_dbm = max_dbm_between(&spectrum, -750_000.0, 750_000.0);
+
+      assert!(
+        (peak_dbm + 18.0).abs() <= 3.0,
+        "Tx power changed for frontend FFT={frontend_fft_size} and Tx IFFT={tx_ifft_size}: peak={peak_dbm:.2} dBm"
+      );
+    }
   }
 
   #[test]
@@ -1815,6 +1858,71 @@ mod tests {
     assert!(
       max_in_band_delta >= 1.0,
       "mock tx monitor should change visible in-band FFT magnitudes, max delta was {max_in_band_delta:.3} dB"
+    );
+  }
+
+  #[test]
+  fn tx_monitor_large_ifft_changes_frame_level_without_deforming_flat_top() {
+    let _lock = MOCK_TX_TEST_LOCK.lock().unwrap();
+    let model = TxIqPowerModel::default();
+    MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
+    let mut phase_accumulator = 0.0;
+
+    let first = synthesize_mock_tx_monitor_iq(
+      65_536,
+      137_100_000.0,
+      6_270_000,
+      137_100_000.0,
+      3_200_000.0,
+      "wifi",
+      262_144,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+    let second = synthesize_mock_tx_monitor_iq(
+      65_536,
+      137_100_000.0,
+      6_270_000,
+      137_100_000.0,
+      3_200_000.0,
+      "wifi",
+      262_144,
+      -18.0,
+      &model,
+      &mut phase_accumulator,
+    );
+
+    let first_spectrum = spectrum_dbm(&first, 6_270_000.0);
+    let second_spectrum = spectrum_dbm(&second, 6_270_000.0);
+    let inner_bins = |spectrum: &[SpectrumBin]| {
+      spectrum
+        .iter()
+        .filter(|bin| bin.rel_hz.abs() <= 1_000_000.0)
+        .map(|bin| bin.dbm)
+        .collect::<Vec<_>>()
+    };
+    let first_inner = inner_bins(&first_spectrum);
+    let second_inner = inner_bins(&second_spectrum);
+    let first_level = percentile_dbm(&first_inner, 0.5);
+    let second_level = percentile_dbm(&second_inner, 0.5);
+    let first_shape = first_inner
+      .iter()
+      .zip(second_inner.iter())
+      .map(|(first, second)| (first - first_level) - (second - second_level))
+      .fold(0.0_f64, |max, delta| max.max(delta.abs()));
+
+    assert_ne!(
+      first_level, second_level,
+      "large-IFFT Tx amplitude should move between monitor cycles"
+    );
+    assert!(
+      (first_level - second_level).abs() >= 0.25,
+      "large-IFFT Tx amplitude change was too small: first={first_level:.2} dBm, second={second_level:.2} dBm"
+    );
+    assert!(
+      first_shape <= 1.0,
+      "large-IFFT Tx flat top changed shape by {first_shape:.2} dB instead of moving as one frame-level envelope"
     );
   }
 

@@ -1,6 +1,7 @@
 import {
   canUseWholeChannelSnapshot,
   clampRtlSdrFrequencyRangeToHardwareWindow,
+  isHackrfDevice,
   resolveRenderableFrequencyRange,
   resolveCaptureAcquisitionMode,
   resolveCanonicalDisplaySampleRateHz,
@@ -224,5 +225,19 @@ describe("sdrSampleRateGuards", () => {
       min: 900_000,
       max: 4_100_000,
     });
+  });
+});
+
+describe("isHackrfDevice", () => {
+  it("identifies HackRF One from deviceKind, backend, deviceName, or sourceId", () => {
+    expect(isHackrfDevice({ deviceKind: "hackrf_one" })).toBe(true);
+    expect(isHackrfDevice({ backend: "hackrf" })).toBe(true);
+    expect(isHackrfDevice({ deviceName: "HackRF One SDR" })).toBe(true);
+    expect(isHackrfDevice({ sourceId: "hackrf-one-0" })).toBe(true);
+  });
+
+  it("returns false for non-HackRF devices", () => {
+    expect(isHackrfDevice({ deviceKind: "rtl-sdr" })).toBe(false);
+    expect(isHackrfDevice({ backend: "mock_apt" })).toBe(false);
   });
 });

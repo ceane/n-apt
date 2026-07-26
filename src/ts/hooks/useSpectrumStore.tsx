@@ -31,6 +31,7 @@ import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 import {
   selectActiveSourceDerivedState,
   selectActiveSource,
+  selectSourceSelectionLifecycle,
   deriveSourceDerivedState,
 } from "@n-apt/redux/selectors/performanceSelectors";
 import {
@@ -55,6 +56,9 @@ import {
   setClumpParams as setWaterfallClumpParams,
   setActiveClumpIndex as setWaterfallActiveClumpIndex,
   resetDrawParams as resetWaterfallDrawParams,
+  setSelectedSourceId as setReduxSelectedSourceId,
+  setSelectionIntentSourceId as setReduxSelectionIntentSourceId,
+  setPendingSourceSwitchId as setReduxPendingSourceSwitchId,
   websocketActions,
 } from "@n-apt/redux";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -105,6 +109,7 @@ import {
   shouldPinTxSuiteToRxSource,
 } from "@n-apt/utils/txSuiteSourceControl";
 import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
+import { createSourceSwitchCoordinator } from "@n-apt/hooks/sourceSwitchCoordinator";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -158,7 +163,6 @@ export const resolveSelectedSourceIdForInventory = ({
   }
   if (sources.length === 0) return "";
   const active = sources.find((source) => source.id === activeSourceId);
-  if (active) return active.id;
   const selected = sources.find((source) => source.id === selectedSourceId);
   const hardwareSources = sources.filter((source) => !isMockSourceInfo(source));
   const targetHardware =
@@ -169,6 +173,22 @@ export const resolveSelectedSourceIdForInventory = ({
         source.status === "streaming" ||
         source.status === "connected",
     );
+
+  // The backend may keep Mock APT active while a real device is being
+  // enumerated or recovered. Prefer the usable hardware in that transient
+  // state so the UI can issue the source switch instead of settling on the
+  // fallback forever.
+  if (
+    active &&
+    isMockSourceInfo(active) &&
+    targetHardware &&
+    (!selected ||
+      isMockSourceInfo(selected) ||
+      (!isMockSourceInfo(selected) && selected.id === targetHardware.id))
+  ) {
+    return targetHardware.id;
+  }
+  if (active) return active.id;
 
   if (targetHardware && (!selected || isMockSourceInfo(selected))) {
     return targetHardware.id;
@@ -184,6 +204,38 @@ export const resolveSelectedSourceIdForInventory = ({
   return (
     sources.find((source) => source.id === activeSourceId)?.id ?? sources[0].id
   );
+};
+
+/**
+ * Preserve an explicit inventory choice as a source-switch intent when the
+ * server is still presenting a fallback source (for example Mock APT after a
+ * HackRF reconnect). Without this intent the selection effect correctly
+ * treats the ID as passive UI state and never sends select_source.
+ */
+export const resolveInventorySelectionIntent = ({
+  selectedSourceId,
+  activeSourceId,
+  pendingSourceSwitchId = null,
+  selectionIntentSourceId = null,
+  sources,
+}: {
+  selectedSourceId: string;
+  activeSourceId: string;
+  pendingSourceSwitchId?: string | null;
+  selectionIntentSourceId?: string | null;
+  sources: SourceInfo[];
+}): string | null => {
+  const nextSourceId = resolveSelectedSourceIdForInventory({
+    selectedSourceId,
+    activeSourceId,
+    pendingSourceSwitchId,
+    selectionIntentSourceId,
+    sources,
+  });
+  if (nextSourceId && nextSourceId !== activeSourceId) {
+    return nextSourceId;
+  }
+  return selectionIntentSourceId;
 };
 
 export const shouldClearPendingSourceSwitch = ({
@@ -221,7 +273,9 @@ export const resolveStreamingSourceForDisplay = ({
 const resolveDeviceActiveMode = (
   source: SourceInfo | null | undefined,
 ): DeviceActiveMode => {
-  return source?.status === "transmitting" ? "tx" : "rx";
+  return source?.status === "transmitting" || source?.status === "standby"
+    ? "tx"
+    : "rx";
 };
 
 const isTxCapableSourceInfo = (
@@ -229,13 +283,7 @@ const isTxCapableSourceInfo = (
 ): boolean => {
   if (!source) return false;
   const capability = source.capability?.toLowerCase?.() ?? "";
-  const id = source.id?.toLowerCase?.() ?? "";
-  return (
-    capability === "tx" ||
-    capability === "tx_rx" ||
-    id.includes("hackrf_one") ||
-    isMockTxSource({ id: source.id, kind: source.kind })
-  );
+  return capability === "tx" || capability === "tx_rx";
 };
 
 /**
@@ -248,11 +296,7 @@ export const shouldRequestPausedPreview = (
 ): boolean => {
   if (!source) return false;
   if (source.status === "transmitting") return false;
-  if (isMockTxSource({ id: source.id, kind: source.kind })) return true;
-  const isMockRxSource =
-    source.id === "mock-apt" ||
-    source.kind?.toLowerCase?.().startsWith("mock_apt") === true;
-  return isMockRxSource && source.supports_raw_iq_stream === true;
+  return source.iq_format != null;
 };
 
 export const buildPausedPreviewSignature = ({
@@ -349,6 +393,7 @@ const isRecoverableLiveSourceStatus = (
     "disconnected",
     "stale",
     "error",
+    "standby",
     "transmitting",
   ].includes(normalized);
 };
@@ -546,12 +591,6 @@ export type SpectrumState = {
   sampleRateHz: number;
   minReceiveSampleRateHz: number;
   sample_size: number;
-  heterodyningVerifyRequestId: number;
-  heterodyningStatusText: string;
-  heterodyningVerifyDisabled: boolean;
-  heterodyningDetected: boolean;
-  heterodyningConfidence: number | null;
-  heterodyningHighlightedBins: Array<{ start: number; end: number }>;
   lastKnownRanges: Record<string, { min: number; max: number }>;
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
@@ -697,15 +736,6 @@ export type SpectrumAction =
   | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
   | { type: "SET_MIN_RECEIVE_SAMPLE_RATE"; minReceiveSampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
-  | { type: "REQUEST_HETERODYNING_VERIFY" }
-  | { type: "SET_HETERODYNING_VERIFY_DISABLED"; disabled: boolean }
-  | {
-      type: "SET_HETERODYNING_RESULT";
-      detected: boolean;
-      confidence: number | null;
-      statusText: string;
-      highlightedBins: Array<{ start: number; end: number }>;
-    }
   | { type: "RESET_ZOOM_AND_DB" }
   | { type: "RESET_DRAW_PARAMS" }
   | { type: "RESET_LIVE_CONTROLS"; fftSize?: number; fftFrameRate?: number }
@@ -785,12 +815,6 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   sampleRateHz: 3_200_000,
   minReceiveSampleRateHz: 3_200_000,
   sample_size: 3_200_000,
-  heterodyningVerifyRequestId: 0,
-  heterodyningStatusText: "Idle",
-  heterodyningVerifyDisabled: false,
-  heterodyningDetected: false,
-  heterodyningConfidence: null,
-  heterodyningHighlightedBins: [],
   lastKnownRanges: {},
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -944,6 +968,24 @@ export const selectLiveSampleRateForSync = ({
 
   return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
+
+type SignalDisplaySettings = {
+  sampleRateHz: number | null;
+  fftSize: number | null;
+  frameRate: number | null;
+};
+
+export const shouldSendSignalDisplaySettings = ({
+  previous,
+  next,
+}: {
+  previous: SignalDisplaySettings | null;
+  next: SignalDisplaySettings;
+}): boolean =>
+  previous === null ||
+  previous.sampleRateHz !== next.sampleRateHz ||
+  previous.fftSize !== next.fftSize ||
+  previous.frameRate !== next.frameRate;
 
 export const resolveEffectiveLiveSampleRateHz = ({
   localSampleRateHz,
@@ -1174,36 +1216,6 @@ export function spectrumReducer(
             ? action.settings.sampleRateHz
             : state.sample_size,
       };
-    case "REQUEST_HETERODYNING_VERIFY":
-      return {
-        ...state,
-        heterodyningVerifyRequestId: state.heterodyningVerifyRequestId + 1,
-        heterodyningStatusText: "Scanning…",
-        heterodyningConfidence: null,
-        heterodyningDetected: false,
-        heterodyningHighlightedBins: [],
-      };
-    case "SET_HETERODYNING_VERIFY_DISABLED":
-      return {
-        ...state,
-        heterodyningVerifyDisabled: action.disabled,
-        ...(action.disabled
-          ? {
-              heterodyningStatusText: "Unavailable",
-              heterodyningConfidence: null,
-              heterodyningDetected: false,
-              heterodyningHighlightedBins: [],
-            }
-          : {}),
-      };
-    case "SET_HETERODYNING_RESULT":
-      return {
-        ...state,
-        heterodyningDetected: action.detected,
-        heterodyningConfidence: action.confidence,
-        heterodyningStatusText: action.statusText,
-        heterodyningHighlightedBins: action.highlightedBins,
-      };
     case "RESET_ZOOM_AND_DB": {
       const isDbm = state.powerScale === "dBm";
       return {
@@ -1410,6 +1422,11 @@ export const useSpectrumStore = () => {
   return context;
 };
 
+export const useOptionalSpectrumStore =
+  (): SpectrumStoreContextValue | null => {
+    return useContext(SpectrumStoreContext);
+  };
+
 interface SpectrumProviderProps {
   children: React.ReactNode;
   mockValue?: SpectrumStoreContextValue;
@@ -1454,9 +1471,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
     const txSuiteSource = useAppSelector((s) =>
       txSuiteSourceId
-        ? (s.websocket.sources ?? []).find(
+        ? ((s.websocket.sources ?? []).find(
             (source) => source.id === txSuiteSourceId,
-          ) ?? null
+          ) ?? null)
         : null,
     );
     const deviceState = activeSourceDerived.deviceState;
@@ -1467,27 +1484,33 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const sampleRateHz = activeSourceDerived.sampleRateHz;
     const sdrSettings = activeSourceDerived.sdrSettings;
     const activeSourceId = activeSource?.id ?? "";
-    const [selectedSourceId, setSelectedSourceIdState] = useState<string>(
-      () => {
-        const stored = loadSelectedSourceId();
-        return stored || activeSourceId || websocketSources[0]?.id || "";
-      },
-    );
-    const selectionIntentSourceIdRef = useRef<string | null>(null);
+    const { selectedSourceId, selectionIntentSourceId, pendingSourceSwitchId } =
+      useAppSelector(selectSourceSelectionLifecycle);
     const setSelectedSourceId = useCallback<
       React.Dispatch<React.SetStateAction<string>>
-    >((nextSourceId) => {
-      if (typeof nextSourceId === "function") {
-        setSelectedSourceIdState((currentSourceId) => {
-          const resolvedSourceId = nextSourceId(currentSourceId);
-          selectionIntentSourceIdRef.current = resolvedSourceId;
-          return resolvedSourceId;
-        });
-        return;
+    >(
+      (nextSourceId) => {
+        if (typeof nextSourceId === "function") {
+          const resolvedSourceId = nextSourceId(selectedSourceId);
+          reduxDispatch(setReduxSelectionIntentSourceId(resolvedSourceId));
+          reduxDispatch(setReduxSelectedSourceId(resolvedSourceId));
+          return;
+        }
+        reduxDispatch(setReduxSelectionIntentSourceId(nextSourceId));
+        reduxDispatch(setReduxSelectedSourceId(nextSourceId));
+      },
+      [reduxDispatch, selectedSourceId],
+    );
+
+    useEffect(() => {
+      if (selectedSourceId) return;
+      const stored = loadSelectedSourceId();
+      const initialSourceId =
+        stored || activeSourceId || websocketSources[0]?.id;
+      if (initialSourceId) {
+        reduxDispatch(setReduxSelectedSourceId(initialSourceId));
       }
-      selectionIntentSourceIdRef.current = nextSourceId;
-      setSelectedSourceIdState(nextSourceId);
-    }, []);
+    }, [activeSourceId, reduxDispatch, selectedSourceId, websocketSources]);
 
     useEffect(() => {
       const hasBoundRxTransport =
@@ -1533,8 +1556,21 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
     const deferredFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
-    const pendingSourceSwitchRef = useRef<string | null>(null);
-    const sourceSwitchTimeoutRef = useRef<number | null>(null);
+    const sourceSwitchCoordinatorRef = useRef<ReturnType<
+      typeof createSourceSwitchCoordinator
+    > | null>(null);
+    if (sourceSwitchCoordinatorRef.current === null) {
+      sourceSwitchCoordinatorRef.current = createSourceSwitchCoordinator({
+        onRequest: (sourceId) => {
+          liveDataRef.current = [];
+          reduxDispatch(sendSelectSourceThunk(sourceId));
+          reduxDispatch(setReduxPendingSourceSwitchId(sourceId));
+        },
+        onTimeout: () => {
+          reduxDispatch(setReduxPendingSourceSwitchId(null));
+        },
+      });
+    }
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const previousSelectedSourceIdRef = useRef<string | null>(null);
@@ -1606,14 +1642,34 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const nextSourceId = resolveSelectedSourceIdForInventory({
         selectedSourceId,
         activeSourceId,
-        pendingSourceSwitchId: pendingSourceSwitchRef.current,
-        selectionIntentSourceId: selectionIntentSourceIdRef.current,
+        pendingSourceSwitchId,
+        selectionIntentSourceId,
         sources: websocketSources,
       });
-      if (nextSourceId !== selectedSourceId) {
-        setSelectedSourceIdState(nextSourceId);
+      const nextSelectionIntent = resolveInventorySelectionIntent({
+        selectedSourceId,
+        activeSourceId,
+        pendingSourceSwitchId,
+        selectionIntentSourceId,
+        sources: websocketSources,
+      });
+      if (
+        nextSelectionIntent === nextSourceId &&
+        selectionIntentSourceId !== nextSelectionIntent
+      ) {
+        reduxDispatch(setReduxSelectionIntentSourceId(nextSelectionIntent));
       }
-    }, [activeSourceId, selectedSourceId, websocketSources]);
+      if (nextSourceId !== selectedSourceId) {
+        reduxDispatch(setReduxSelectedSourceId(nextSourceId));
+      }
+    }, [
+      activeSourceId,
+      pendingSourceSwitchId,
+      reduxDispatch,
+      selectedSourceId,
+      selectionIntentSourceId,
+      websocketSources,
+    ]);
 
     useEffect(() => {
       if (!selectedSourceId || !selectedSourceViewKey) {
@@ -1685,42 +1741,33 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           sourceMode: state.sourceMode,
           selectedSourceId,
           activeSourceId,
-          selectionIntentSourceId: selectionIntentSourceIdRef.current,
+          selectionIntentSourceId,
           availableSourceIds,
         })
       ) {
         if (
           shouldClearPendingSourceSwitch({
-            pendingSourceSwitchId: pendingSourceSwitchRef.current,
+            pendingSourceSwitchId,
             selectedSourceId,
             activeSourceId,
           })
         ) {
-          pendingSourceSwitchRef.current = null;
+          reduxDispatch(setReduxPendingSourceSwitchId(null));
         }
         return;
       }
 
-      if (pendingSourceSwitchRef.current === selectedSourceId) {
+      if (pendingSourceSwitchId === selectedSourceId) {
         return;
       }
 
-      liveDataRef.current = [];
-      reduxDispatch(sendSelectSourceThunk(selectedSourceId));
-      pendingSourceSwitchRef.current = selectedSourceId;
-      if (sourceSwitchTimeoutRef.current !== null) {
-        window.clearTimeout(sourceSwitchTimeoutRef.current);
-      }
-      sourceSwitchTimeoutRef.current = window.setTimeout(() => {
-        if (pendingSourceSwitchRef.current === selectedSourceId) {
-          pendingSourceSwitchRef.current = null;
-        }
-        sourceSwitchTimeoutRef.current = null;
-      }, 3_000);
+      sourceSwitchCoordinatorRef.current?.request(selectedSourceId);
     }, [
       activeSourceId,
       isConnected,
       reduxDispatch,
+      pendingSourceSwitchId,
+      selectionIntentSourceId,
       selectedSource,
       selectedSourceId,
       state.sourceMode,
@@ -1728,25 +1775,25 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     useEffect(() => {
-      const pendingSourceId = pendingSourceSwitchRef.current;
+      const pendingSourceId = pendingSourceSwitchId;
       if (!pendingSourceId || pendingSourceId !== activeSourceId) {
         return;
       }
-      pendingSourceSwitchRef.current = null;
-      if (selectionIntentSourceIdRef.current === activeSourceId) {
-        selectionIntentSourceIdRef.current = null;
+      sourceSwitchCoordinatorRef.current?.confirm(pendingSourceId);
+      reduxDispatch(setReduxPendingSourceSwitchId(null));
+      if (selectionIntentSourceId === activeSourceId) {
+        reduxDispatch(setReduxSelectionIntentSourceId(null));
       }
-      if (sourceSwitchTimeoutRef.current !== null) {
-        window.clearTimeout(sourceSwitchTimeoutRef.current);
-        sourceSwitchTimeoutRef.current = null;
-      }
-    }, [activeSourceId]);
+    }, [
+      activeSourceId,
+      pendingSourceSwitchId,
+      reduxDispatch,
+      selectionIntentSourceId,
+    ]);
 
     useEffect(
       () => () => {
-        if (sourceSwitchTimeoutRef.current !== null) {
-          window.clearTimeout(sourceSwitchTimeoutRef.current);
-        }
+        sourceSwitchCoordinatorRef.current?.dispose();
       },
       [],
     );
@@ -2513,24 +2560,41 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       state.vizZoom,
     ]);
 
-    const lastSentFrameRateRef = useRef<number | null>(null);
+    const lastSentSignalDisplaySettingsRef =
+      useRef<SignalDisplaySettings | null>(null);
+    useEffect(() => {
+      lastSentSignalDisplaySettingsRef.current = null;
+    }, [activeSourceId, isConnected]);
+
     useEffect(() => {
       if (!isConnected || state.detectedFrameRate == null || !activeSourceId)
         return;
-      if (lastSentFrameRateRef.current === state.detectedFrameRate) return;
+      const nextSettings: SignalDisplaySettings = {
+        sampleRateHz: state.sampleRateHz ?? null,
+        fftSize: state.fftSize ?? null,
+        frameRate: Math.round(state.detectedFrameRate),
+      };
+      if (
+        !shouldSendSignalDisplaySettings({
+          previous: lastSentSignalDisplaySettingsRef.current,
+          next: nextSettings,
+        })
+      ) {
+        return;
+      }
       reduxDispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "signal_display_settings",
           data: {
             source_id: activeSourceId,
-            sample_rate: state.sampleRateHz,
+            sample_rate: nextSettings.sampleRateHz,
             fft_size: state.fftSize,
-            frame_rate: Math.round(state.detectedFrameRate),
+            frame_rate: nextSettings.frameRate,
           },
         },
       });
-      lastSentFrameRateRef.current = state.detectedFrameRate;
+      lastSentSignalDisplaySettingsRef.current = nextSettings;
     }, [
       isConnected,
       reduxDispatch,
@@ -2560,7 +2624,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const controlSource = txSuiteSource ?? activeSource;
       if (!isConnected || !controlSourceId) return;
 
-      const currentStatus = sourceStatuses?.[controlSourceId] ?? controlSource?.status;
+      const currentStatus =
+        sourceStatuses?.[controlSourceId] ?? controlSource?.status;
       if (currentStatus !== "transmitting") {
         lastSentTxSettingsRef.current = null;
         if (txSettingsThrottleTimeoutRef.current !== null) {
@@ -3130,8 +3195,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             ? manualVisualizerPaused
             : false);
         const nextPaused = !currentPaused;
-
-
 
         if (nextPaused) {
           manualPausedSourceIdsRef.current.add(pauseTargetSourceId);

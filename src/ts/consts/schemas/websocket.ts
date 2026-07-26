@@ -15,6 +15,7 @@ export type DeviceState =
   | "disconnected"
   | "stale"
   | "error"
+  | "standby"
   | "transmitting"
   | "streaming"
   | null;
@@ -180,6 +181,15 @@ export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
 
 export type LiveFrameData = IqRawFrame;
 
+export type IqElementType = "u8";
+export type IqLayout = "interleaved_iq";
+
+export interface IqFormat {
+  element_type: IqElementType;
+  layout: IqLayout;
+  typed_array: "Uint8Array";
+}
+
 export type CaptureFileType = ".napt" | ".wav" | ".iq";
 
 export type CaptureDurationMode = "timed" | "manual";
@@ -225,7 +235,7 @@ export interface DeviceProfile {
   kind: string;
   is_rtl_sdr: boolean;
   supports_approx_dbm: boolean;
-  supports_raw_iq_stream: boolean;
+  iq_format?: IqFormat;
 }
 
 export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
@@ -240,6 +250,7 @@ export type SourceStatus =
   | "disconnected"
   | "stale"
   | "error"
+  | "standby"
   | "transmitting"
   | "streaming"
   | null;
@@ -278,7 +289,7 @@ export interface SourceInfo {
   loading_attempt: number;
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
-  supports_raw_iq_stream: boolean;
+  iq_format?: IqFormat;
   stream_key?: string;
   stream_key_kind?: "serial" | "source_id";
   /** Additive raw-I/Q wire versions supported by this source. */

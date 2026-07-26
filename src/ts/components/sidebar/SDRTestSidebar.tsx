@@ -7,6 +7,15 @@ import {
   useSpectrumStore,
   LIVE_CONTROL_DEFAULTS,
 } from "@n-apt/hooks/useSpectrumStore";
+import {
+  setPowerScale,
+  resetLiveControls as resetLiveControlsAction,
+  setSourceMode,
+  setStitchSourceSettings,
+  setTemporalResolution,
+  triggerDiagnostic,
+  useAppDispatch,
+} from "@n-apt/redux";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import SignalComposition from "@n-apt/components/SignalComposition";
@@ -63,6 +72,7 @@ const MultiFrameButton = styled(PauseButton)`
 `;
 
 export const SDRTestSidebar: React.FC = () => {
+  const reduxDispatch = useAppDispatch();
   const {
     state,
     dispatch,
@@ -132,11 +142,12 @@ export const SDRTestSidebar: React.FC = () => {
       Math.min(maxFrameRate, state.fftFrameRate),
     );
 
-    dispatch({
-      type: "RESET_LIVE_CONTROLS",
-      fftSize: recommendedFftSize,
-      fftFrameRate: recommendedFrameRate,
-    });
+    reduxDispatch(
+      resetLiveControlsAction({
+        fftSize: recommendedFftSize,
+        fftFrameRate: recommendedFrameRate,
+      }),
+    );
 
     sendSettings({
       fftSize: recommendedFftSize,
@@ -148,7 +159,7 @@ export const SDRTestSidebar: React.FC = () => {
       tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
       rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
     });
-  }, [dispatch, maxFrameRate, sendSettings, state.fftFrameRate, state.fftSize]);
+  }, [maxFrameRate, reduxDispatch, sendSettings, state.fftFrameRate]);
 
   return (
     <SidebarContent>
@@ -159,10 +170,7 @@ export const SDRTestSidebar: React.FC = () => {
           backend={backend}
           deviceName={deviceName}
           onSourceModeChange={(mode) =>
-            dispatch({
-              type: "SET_SOURCE_MODE",
-              mode,
-            })
+            reduxDispatch(setSourceMode(mode))
           }
         />
       </Section>
@@ -182,7 +190,7 @@ export const SDRTestSidebar: React.FC = () => {
             extraActions={
               <MultiFrameButton
                 $paused={false}
-                onClick={() => dispatch({ type: "TRIGGER_DIAGNOSTIC" })}
+                onClick={() => reduxDispatch(triggerDiagnostic())}
                 disabled={state.isDiagnosticRunning}
                 style={{
                   display: "flex",
@@ -251,10 +259,10 @@ export const SDRTestSidebar: React.FC = () => {
             onSampleRateChange={() => {}}
             onFftWindowChange={setFftWindow}
             onTemporalResolutionChange={(resolution) =>
-              dispatch({ type: "SET_TEMPORAL_RESOLUTION", resolution })
+              reduxDispatch(setTemporalResolution(resolution))
             }
             onPowerScaleChange={(powerScale) =>
-              dispatch({ type: "SET_POWER_SCALE", powerScale })
+              reduxDispatch(setPowerScale(powerScale))
             }
             scheduleCoupledAdjustment={scheduleCoupledAdjustment}
           />
@@ -279,7 +287,7 @@ export const SDRTestSidebar: React.FC = () => {
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}
             onStitchSourceSettingsChange={(settings) =>
-              dispatch({ type: "SET_STITCH_SOURCE_SETTINGS", settings })
+              reduxDispatch(setStitchSourceSettings(settings))
             }
             onAgcModeChange={(tuner, rtl) => {
               setTunerAGC(tuner);

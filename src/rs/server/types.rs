@@ -664,7 +664,25 @@ pub struct DeviceProfile {
   pub kind: String,
   pub is_rtl_sdr: bool,
   pub supports_approx_dbm: bool,
-  pub supports_raw_iq_stream: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub iq_format: Option<IqFormat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IqFormat {
+  pub element_type: String,
+  pub layout: String,
+  pub typed_array: String,
+}
+
+impl Default for IqFormat {
+  fn default() -> Self {
+    Self {
+      element_type: "u8".to_string(),
+      layout: "interleaved_iq".to_string(),
+      typed_array: "Uint8Array".to_string(),
+    }
+  }
 }
 
 /// Structured signal pattern for consistent waterfall visualization

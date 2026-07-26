@@ -2,7 +2,9 @@ import React, { useMemo } from "react";
 import styled from "styled-components";
 import { Minus, Plus, Waves } from "lucide-react";
 import { Slider } from "@n-apt/components/ui";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setClumpParams } from "@n-apt/redux";
+import { selectActiveDrawParams } from "@n-apt/redux/selectors/performanceSelectors";
 
 interface BeatNodeProps {
   data: {
@@ -117,18 +119,21 @@ const SNAP_RANGES = [
 ];
 
 export const BeatNode: React.FC<BeatNodeProps> = ({ data }) => {
-  const { state, dispatch } = useSpectrumStore();
-  const activeParams =
-    state.drawParams[state.activeClumpIndex] || state.drawParams[0];
+  const dispatch = useAppDispatch();
+  const activeClumpIndex = useAppSelector(
+    (state) => state.waterfall.activeClumpIndex,
+  );
+  const activeParams = useAppSelector(selectActiveDrawParams);
 
   const beats = useMemo(() => activeParams.beats ?? [], [activeParams.beats]);
 
   const updateParams = (nextBeats: typeof beats) => {
-    dispatch({
-      type: "SET_CLUMP_PARAMS",
-      index: state.activeClumpIndex,
-      params: { ...activeParams, beats: nextBeats },
-    });
+    dispatch(
+      setClumpParams({
+        index: activeClumpIndex,
+        params: { ...activeParams, beats: nextBeats },
+      }),
+    );
   };
 
   const addBeat = () => {

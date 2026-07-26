@@ -7,7 +7,7 @@ export interface WaterfallBufferPoolState {
   returnBufferToPool: (buffer: Uint8ClampedArray) => void;
 }
 
-export const useWaterfallBufferPool = (): WaterfallBufferPoolState => {
+export const useWaterfallBuffers = (): WaterfallBufferPoolState => {
   const waterfallBufferRef = useRef<Uint8ClampedArray | null>(null);
   const waterfallDataWidthRef = useRef<number | null>(null);
   const bufferPoolRef = useRef<Uint8ClampedArray[]>([]);
@@ -40,3 +40,6 @@ export const useWaterfallBufferPool = (): WaterfallBufferPoolState => {
     returnBufferToPool,
   };
 };
+
+/** @deprecated Use useWaterfallBuffers. */
+export const useWaterfallBufferPool = useWaterfallBuffers;

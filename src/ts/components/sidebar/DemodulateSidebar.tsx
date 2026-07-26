@@ -22,8 +22,12 @@ import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationM
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
 import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { liveFrameRuntime } from "@n-apt/visualization/frameRuntime";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+import {
+  selectSelectedFiles,
+  selectSourceMode,
+} from "@n-apt/redux/selectors/performanceSelectors";
 
 export const getDemodFileSelectionActions = (
   files: { id: string; name: string }[],
@@ -106,11 +110,11 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     selectedSourceId,
     setSelectedSourceId,
     sources,
-    state: liveState,
-    dispatch: storeDispatch,
     wsConnection,
   } = useSpectrumStore();
   const tx = useAppSelector((state) => state.spectrum);
+  const sourceMode = useAppSelector(selectSourceMode);
+  const selectedFiles = useAppSelector(selectSelectedFiles);
 
   const handleToggleTransmit = useCallback(
     (id: string) => {
@@ -146,7 +150,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     [setFlow],
   );
 
-  const { sourceMode, selectedFiles } = liveState;
   const isTxSuiteFlow = nodes.some(
     (node) => node.data?.sourceBindingGroup === "tx-suite",
   );
@@ -173,8 +176,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       capability: source.capability?.toLowerCase?.() ?? "",
     }));
     const rx =
-      available.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
-      available[0];
+      available.find(
+        (source) => source.capability === "rx" || source.capability === "tx_rx",
+      ) ?? available[0];
     const tx =
       available.find(
         (source) =>
@@ -182,7 +186,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           (source.capability === "tx" || source.capability === "tx_rx"),
       ) ?? available[1];
     const fileIds = selectedFiles.map((file) => `file:${file.name}`);
-    const fallbackIds = available.length > 0 ? available : fileIds.map((id) => ({ id, capability: "rx" }));
+    const fallbackIds =
+      available.length > 0
+        ? available
+        : fileIds.map((id) => ({ id, capability: "rx" }));
     const fallbackRx = rx ?? fallbackIds[0];
     const fallbackTx = tx ?? fallbackIds[1] ?? fallbackIds[0];
     if (!fallbackRx) return;
@@ -207,8 +214,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           capability: source!.capability?.toLowerCase?.() ?? "",
         }));
       const rx =
-        selected.find((source) => source.capability === "rx" || source.capability === "tx_rx") ??
-        selected[0];
+        selected.find(
+          (source) =>
+            source.capability === "rx" || source.capability === "tx_rx",
+        ) ?? selected[0];
       const tx =
         selected.find(
           (source) =>
@@ -292,7 +301,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
               ? () => handleToggleTransmit(source.id)
               : isLiveConnected
                 ? () => toggleVisualizerPause(source.id)
-              : undefined,
+                : undefined,
           },
         };
       }),
@@ -306,7 +315,6 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
 
   const handleSourceModeChange = (mode: SourceMode) => {
     dispatch(setSourceMode(mode));
-    storeDispatch({ type: "SET_SOURCE_MODE", mode });
   };
 
   const handleSelectedDeviceChange = useCallback(
@@ -345,20 +353,14 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (status.includes("processing") || status.includes("loading")) {
       dispatch(triggerStitch());
-      storeDispatch({ type: "TRIGGER_STITCH" });
       return;
     }
     dispatch(setStitchPaused(!isStitchPaused));
-    storeDispatch({
-      type: "SET_STITCH_PAUSED",
-      paused: !isStitchPaused,
-    });
   }, [
     dispatch,
     isStitchPaused,
     selectedFiles.length,
     sourceMode,
-    storeDispatch,
     stitchStatus,
   ]);
 
@@ -374,11 +376,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       dispatch(setSourceMode("file"));
       dispatch(setSelectedFiles(registeredFiles));
       dispatch(triggerStitch());
-      storeDispatch({ type: "SET_SOURCE_MODE", mode: "file" });
-      storeDispatch({ type: "SET_SELECTED_FILES", files: registeredFiles });
-      storeDispatch({ type: "TRIGGER_STITCH" });
     },
-    [dispatch, storeDispatch],
+    [dispatch],
   );
 
   useEffect(() => {
@@ -497,25 +496,18 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     if (sourceMode === "file") {
       wasLivePausedBeforeFileModeRef.current = liveIsPaused;
       dispatch(setStitchPaused(true));
-      storeDispatch({ type: "SET_STITCH_PAUSED", paused: true });
-      liveDataRef.current = null;
+      liveFrameRuntime.clear();
       if (!manualVisualizerPaused) {
         toggleVisualizerPause();
       }
       return;
     }
 
-    liveDataRef.current = null;
+    liveFrameRuntime.clear();
     if (wasLivePausedBeforeFileModeRef.current) {
       toggleVisualizerPause();
     }
-  }, [
-    dispatch,
-    manualVisualizerPaused,
-    sourceMode,
-    storeDispatch,
-    toggleVisualizerPause,
-  ]);
+  }, [dispatch, manualVisualizerPaused, sourceMode, toggleVisualizerPause]);
 
   return (
     <SidebarContent>
@@ -548,13 +540,11 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           selectedFiles={selectedFiles}
           onSelectedFilesChange={(files: any) => {
             dispatch(setSelectedFiles(files));
-            storeDispatch({ type: "SET_SELECTED_FILES", files });
           }}
           stitchStatus={stitchStatus}
           isStitchPaused={isStitchPaused}
           onClear={() => {
             dispatch(setSelectedFiles([]));
-            storeDispatch({ type: "SET_SELECTED_FILES", files: [] });
           }}
           selectedPrimaryFile={selectedPrimaryFile}
           naptMetadata={loadedFileMetadata ?? null}

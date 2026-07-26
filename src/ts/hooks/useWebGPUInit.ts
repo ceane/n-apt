@@ -190,7 +190,7 @@ export interface WebGPUInitOptions {
   gpuBufferPoolRef: React.MutableRefObject<GPUBuffer[]>;
 }
 
-export function useWebGPUInit({
+export function useWebGPULifecycle({
   spectrumGpuCanvasRef: _spectrumGpuCanvasRef,
   waterfallGpuCanvasRef: _waterfallGpuCanvasRef,
   resampleWgsl,
@@ -467,3 +467,6 @@ export function useWebGPUInit({
     bufferManager,
   };
 }
+
+/** @deprecated Use useWebGPULifecycle. */
+export const useWebGPUInit = useWebGPULifecycle;

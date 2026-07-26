@@ -49,6 +49,16 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 // Standby remains request-only through should_hold_mock_tx_standby_stream.
 const TX_MONITOR_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 
+/// The monitor payload is consumed by the browser's configured FFT. The Tx
+/// IFFT size controls waveform construction, but must not determine how many
+/// samples the frontend measures.
+pub(crate) fn resolve_mock_tx_monitor_fft_size(
+  frontend_fft_size: usize,
+  _tx_ifft_size: usize,
+) -> usize {
+  frontend_fft_size.clamp(256, 262_144)
+}
+
 fn spawn_mock_tx_monitor_stream(
   shared_state: Arc<SharedState>,
   spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
@@ -324,6 +334,14 @@ mod tests {
     assert!(!should_hold_mock_tx_standby_stream(
       "mock-apt", false, false
     ));
+  }
+
+  #[test]
+  fn mock_tx_monitor_uses_frontend_fft_size_not_tx_ifft_size() {
+    assert_eq!(
+      resolve_mock_tx_monitor_fft_size(65_536, 262_144),
+      65_536
+    );
   }
 
   #[test]
@@ -1826,12 +1844,10 @@ impl WebSocketServer {
                 } else {
                   sample_rate
                 };
-                let monitor_fft_size = if tx_ifft_size > 0 {
-                  tx_ifft_size
-                } else {
-                  current_fft_size
-                }
-                .clamp(256, 262_144);
+                let monitor_fft_size = resolve_mock_tx_monitor_fft_size(
+                  current_fft_size,
+                  tx_ifft_size,
+                );
                 let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
                   monitor_fft_size,
                   center_frequency as f64,

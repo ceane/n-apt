@@ -19,11 +19,30 @@ import {
   getRecommendedFftSizeForIqPowerDbmJS,
 } from "@n-apt/utils/safetyWasm";
 
+import { useChannelTuner } from "@n-apt/hooks/useChannelManagement";
+
 const MAX_TX_IFFT_BIN_WIDTH_HZ = 10_000;
 
 function getMinimumTxIfftSize(bandwidthHz: number): number {
   if (!Number.isFinite(bandwidthHz) || bandwidthHz <= 0) return 1;
   return Math.max(1, Math.ceil(bandwidthHz / MAX_TX_IFFT_BIN_WIDTH_HZ));
+}
+
+export function getTxFrequencyRangeForBandwidth(
+  centerFrequencyHz: number,
+  bandwidthHz: number,
+): { min: number; max: number } | null {
+  if (
+    !Number.isFinite(centerFrequencyHz) ||
+    !Number.isFinite(bandwidthHz) ||
+    bandwidthHz <= 0
+  ) {
+    return null;
+  }
+  return {
+    min: Math.max(0, centerFrequencyHz - bandwidthHz / 2),
+    max: centerFrequencyHz + bandwidthHz / 2,
+  };
 }
 
 const Section = styled.div`
@@ -394,9 +413,76 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
       widthBandwidthHz > effectiveRxSampleRateHz);
   const effectiveHopEnabled = hopEnabled || autoHopRequired;
 
+  const { tuneChannels } = useChannelTuner();
+
   const handleChannelsChange = (nextLabels: string[]) => {
-    onHopChannelsChange(nextLabels.map((l) => l.toLowerCase()));
+    const lowercaseLabels = nextLabels.map((l) => l.toLowerCase());
+    onHopChannelsChange(lowercaseLabels);
+
+    const uppercaseLabels = lowercaseLabels.map((l) => l.toUpperCase());
+    const selectedChannels = uppercaseLabels
+      .map((l) => channelsList.find((ch) => ch.label.toUpperCase() === l))
+      .filter((ch): ch is { label: string; min: number; max: number } => !!ch);
+
+    if (selectedChannels.length > 0) {
+      tuneChannels(selectedChannels, lowercaseLabels);
+      const primary = selectedChannels[0];
+      const primaryBw = Math.max(1, primary.max - primary.min);
+      const primaryCenter = Math.round((primary.min + primary.max) / 2);
+
+      handleBandwidthChange(primaryBw);
+      if (Number.isFinite(primaryCenter) && primaryCenter > 0) {
+        onCenterFrequencyChange(primaryCenter);
+      }
+    }
   };
+
+  const handleHopTypeSelect = (nextType: "range" | "channels") => {
+    onHopTypeChange(nextType);
+    if (nextType === "channels" && channelsList.length > 0) {
+      const firstChannel = channelsList[0];
+      const firstLabel = firstChannel.label.toLowerCase();
+      onHopChannelsChange([firstLabel]);
+      tuneChannels([firstChannel], [firstLabel]);
+      const bw = Math.max(0, firstChannel.max - firstChannel.min);
+      const centerFreq = Math.round((firstChannel.min + firstChannel.max) / 2);
+      if (bw > 0) {
+        handleBandwidthChange(bw);
+      }
+      if (Number.isFinite(centerFreq) && centerFreq > 0) {
+        onCenterFrequencyChange(centerFreq);
+      }
+    }
+  };
+
+  React.useEffect(() => {
+    if (
+      hopType === "channels" &&
+      (!hopChannels || hopChannels.length === 0) &&
+      channelsList.length > 0
+    ) {
+      const firstChannel = channelsList[0];
+      const firstLabel = firstChannel.label.toLowerCase();
+      onHopChannelsChange([firstLabel]);
+      tuneChannels([firstChannel], [firstLabel]);
+      const bw = Math.max(0, firstChannel.max - firstChannel.min);
+      const centerFreq = Math.round((firstChannel.min + firstChannel.max) / 2);
+      if (bw > 0) {
+        handleBandwidthChange(bw);
+      }
+      if (Number.isFinite(centerFreq) && centerFreq > 0) {
+        onCenterFrequencyChange(centerFreq);
+      }
+    }
+  }, [
+    hopType,
+    hopChannels,
+    channelsList,
+    onHopChannelsChange,
+    handleBandwidthChange,
+    onCenterFrequencyChange,
+    tuneChannels,
+  ]);
 
   React.useEffect(() => {
     if (document.activeElement !== powerInputRef.current) {
@@ -777,7 +863,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
               <Select
                 value={hopType}
                 onChange={(e) =>
-                  onHopTypeChange(e.target.value as "range" | "channels")
+                  handleHopTypeSelect(e.target.value as "range" | "channels")
                 }
                 style={{ width: "auto", minWidth: "120px" }}
               >

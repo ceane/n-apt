@@ -41,7 +41,30 @@ fn is_mock_tx_device_label(device: &str) -> bool {
     || normalized == "mock tx sdr"
 }
 
-fn apply_mock_tx_preview_settings(message: &WebSocketMessage) {
+fn is_tx_preview_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
+  snapshot["sources"]
+    .as_array()
+    .and_then(|sources| sources.iter().find(|source| source["id"] == source_id))
+    .and_then(|source| source["capability"].as_str())
+    .is_some_and(|capability| capability == "tx" || capability == "tx_rx")
+}
+
+fn is_mock_tx_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
+  if source_id == MOCK_TX_SOURCE_ID || source_id == "mock_tx" {
+    return true;
+  }
+  snapshot["sources"]
+    .as_array()
+    .and_then(|sources| sources.iter().find(|source| source["id"] == source_id))
+    .map(|source| {
+      let kind = source["kind"].as_str().unwrap_or("");
+      let label = source["name"].as_str().unwrap_or("");
+      kind == "mock_tx" || is_mock_tx_device_label(label)
+    })
+    .unwrap_or(false)
+}
+
+fn apply_tx_preview_settings(message: &WebSocketMessage) {
   let previous_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
 
   if let Some(center_frequency) = message.center_frequency {
@@ -95,18 +118,19 @@ fn apply_mock_tx_preview_settings(message: &WebSocketMessage) {
 /// Tx Suite still needs a standby preview while a separate Rx source remains
 /// active, so the source-I/Q socket answers an explicit preview request with
 /// a frame that never enters the active Rx broadcast path.
-pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> SpectrumData {
+pub(crate) fn build_tx_preview_frame(
+  shared: &SharedState,
+  source_id: &str,
+) -> SpectrumData {
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
-  // A monitor preview does not need the full acquisition FFT length. The
-  // browser can still zero-pad to the configured viewer FFT size, while this
-  // keeps standby/Tx monitoring work bounded.
+  // A monitor preview must match the configured viewer FFT size. Keeping the
+  // payload at that size prevents the browser from truncating a longer Tx
+  // IFFT frame before measuring its power.
   let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
-  let fft_size = if tx_ifft_size > 0 {
-    tx_ifft_size
-  } else {
-    sdr_settings.fft.default_size
-  }
-  .clamp(256, 262_144);
+  let fft_size = super::websocket_server::resolve_mock_tx_monitor_fft_size(
+    sdr_settings.fft.default_size,
+    tx_ifft_size,
+  );
   let sample_rate = {
     let requested =
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
@@ -151,7 +175,7 @@ pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> Spect
     message_type: "spectrum".to_string(),
     waveform: Vec::new(),
     is_mock_apt: false,
-    source_id: MOCK_TX_SOURCE_ID.to_string(),
+    source_id: source_id.to_string(),
     stream_epoch,
     sequence,
     center_frequency_hz: Some(view_center_hz.round().max(1.0) as u32),
@@ -162,6 +186,10 @@ pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> Spect
     power_scale: Some(PowerScale::DBm),
     iq_data: raw_iq,
   }
+}
+
+pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> SpectrumData {
+  build_tx_preview_frame(shared, MOCK_TX_SOURCE_ID)
 }
 
 fn is_tx_mode_active_mode(active_mode: Option<&str>) -> bool {
@@ -266,19 +294,19 @@ pub async fn source_iq_ws_upgrade_handler(
       .into_response();
   };
   let source_snapshot = build_source_info_snapshot(&state.shared);
-  let supports_raw_iq_stream = source_snapshot["sources"]
+  let has_iq_format = source_snapshot["sources"]
     .as_array()
     .and_then(|sources| {
       sources
         .iter()
         .find(|source| source["id"].as_str() == Some(source_id.as_str()))
     })
-    .and_then(|source| source["supports_raw_iq_stream"].as_bool())
-    .unwrap_or(false);
-  if !supports_raw_iq_stream {
+    .and_then(|source| source.get("iq_format"))
+    .is_some_and(serde_json::Value::is_object);
+  if !has_iq_format {
     return (
       StatusCode::BAD_REQUEST,
-      "Source does not support raw I/Q stream",
+      "Source does not advertise a supported I/Q format",
     )
       .into_response();
   }
@@ -745,10 +773,27 @@ pub(crate) async fn handle_source_iq_connection(
         match client_msg {
           Some(Ok(Message::Close(_))) | None => break,
           Some(Ok(Message::Text(text))) => {
-            if source_id == MOCK_TX_SOURCE_ID {
-              if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
-                if message.message_type == "request_next_frame" {
-                  apply_mock_tx_preview_settings(&message);
+            if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
+              if message.message_type == "request_next_frame" {
+                let snapshot = build_source_info_snapshot(&shared);
+                let is_tx_source = is_tx_preview_source(&snapshot, &source_id);
+                if is_tx_source {
+                  apply_tx_preview_settings(&message);
+                }
+                if is_tx_source && source_id != MOCK_TX_SOURCE_ID {
+                  let frame = build_tx_preview_frame(&shared, &source_id);
+                  if send_encrypted_iq_frame(
+                    &mut ws_sender,
+                    &enc_key,
+                    &frame,
+                    iq_protocol,
+                  )
+                  .await
+                  .is_err()
+                  {
+                    break;
+                  }
+                } else if source_id == MOCK_TX_SOURCE_ID {
                   shared.mark_paused_frame_requested(&source_id);
                 }
               }
@@ -989,7 +1034,7 @@ pub fn handle_message(
           source_id, active_source
         );
       } else {
-        apply_mock_tx_preview_settings(&message);
+        apply_tx_preview_settings(&message);
         shared.mark_paused_frame_requested(&source_id);
         let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
       }
@@ -1685,12 +1730,14 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    build_mock_tx_standby_preview_frame, encode_encrypted_iq_frame,
+    build_mock_tx_standby_preview_frame, build_tx_preview_frame,
+    encode_encrypted_iq_frame,
     drain_latest_source_iq_frame, handle_message, live_tune_is_out_of_bounds,
     is_frame_after_paused_request,
     resolve_live_center_frequency, should_send_source_iq_frame,
     source_iq_frame_matches_source, source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, take_source_owned_paused_frame_request,
+    is_tx_preview_source,
     IqStreamProtocol,
   };
   use crate::server::shared_state::SharedState;
@@ -1706,6 +1753,31 @@ mod tests {
   use std::time::Duration;
   use tokio::sync::broadcast;
   use validator::Validate;
+
+  #[test]
+  fn tx_preview_accepts_hardware_tx_capabilities() {
+    let snapshot = serde_json::json!({
+      "sources": [
+        {"id": "hackrf-1", "capability": "tx_rx"},
+        {"id": "rtl-1", "capability": "rx"}
+      ]
+    });
+
+    assert!(is_tx_preview_source(&snapshot, "hackrf-1"));
+    assert!(!is_tx_preview_source(&snapshot, "rtl-1"));
+  }
+
+  #[test]
+  #[serial]
+  fn hardware_tx_preview_frame_is_source_owned_without_transmitting() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    let shared = test_shared_state();
+    let frame = build_tx_preview_frame(&shared, "hackrf-1");
+
+    assert_eq!(frame.source_id, "hackrf-1");
+    assert!(!crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed));
+    assert!(!frame.iq_data.is_empty());
+  }
 
   fn test_shared_state() -> Arc<SharedState> {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
@@ -2078,7 +2150,7 @@ mod tests {
       .iter()
       .find(|source| source["id"].as_str() == Some("mock-tx"))
       .expect("mock Tx source");
-    assert_eq!(mock_tx["status"], "connected");
+    assert_eq!(mock_tx["status"], "standby");
   }
 
   #[test]
@@ -2473,7 +2545,7 @@ mod tests {
         kind: "rtl-sdr".to_string(),
         is_rtl_sdr: true,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: Some(crate::server::types::IqFormat::default()),
       },
     );
     shared.update_device_usb_strings(
@@ -2526,7 +2598,7 @@ mod tests {
         kind: "rtl-sdr".to_string(),
         is_rtl_sdr: true,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: Some(crate::server::types::IqFormat::default()),
       },
     );
     shared.update_device_usb_strings(
@@ -2553,7 +2625,7 @@ mod tests {
         kind: "rtl-sdr".to_string(),
         is_rtl_sdr: true,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: Some(crate::server::types::IqFormat::default()),
       },
     );
     shared.update_device_usb_strings(

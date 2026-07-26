@@ -16,9 +16,11 @@ import { useNodeConnections, useStore } from "@xyflow/react";
 import FFTCanvas, { type FFTCanvasHandle } from "@n-apt/components/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
-import { liveDataRef, liveDataBySourceRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import {
+  fileFrameRuntime,
+  liveSourceFrameRuntime,
+} from "@n-apt/visualization/frameRuntime";
 import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import {
   isFilePlaybackPaused,
   shouldRestorePausedFrameSnapshot,
@@ -188,18 +190,28 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     (state) => state.websocket.activeSourceId,
   );
   const roleSourceId = useAppSelector((state) => {
-    const assignedSourceId = data.sourceRole && data.sourceBindingGroup
-      ? state.sourceRouting.bindings[
-          sourceBindingKey(data.sourceBindingGroup, data.sourceRole)
-        ]
-      : null;
+    const assignedSourceId =
+      data.sourceRole && data.sourceBindingGroup
+        ? state.sourceRouting.bindings[
+            sourceBindingKey(data.sourceBindingGroup, data.sourceRole)
+          ]
+        : null;
     if (assignedSourceId) return assignedSourceId;
     if (!data.sourceRole) return state.websocket.activeSourceId;
     const candidates = state.websocket.sources ?? [];
     if (data.sourceRole === "tx") {
-      return candidates.find((source) => source.capability === "tx" || source.capability === "tx_rx")?.id ?? state.websocket.activeSourceId;
+      return (
+        candidates.find(
+          (source) =>
+            source.capability === "tx" || source.capability === "tx_rx",
+        )?.id ?? state.websocket.activeSourceId
+      );
     }
-    return candidates.find((source) => source.capability === "rx" || source.capability === "tx_rx")?.id ?? state.websocket.activeSourceId;
+    return (
+      candidates.find(
+        (source) => source.capability === "rx" || source.capability === "tx_rx",
+      )?.id ?? state.websocket.activeSourceId
+    );
   });
   const isTxStandbyPreview = useAppSelector((state) => {
     if (!roleSourceId) return false;
@@ -208,11 +220,11 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     );
     return Boolean(
       source &&
-        isTxStandbyPreviewSource({
-          sourceRole: data.sourceRole,
-          capability: source.capability,
-          status: source.status,
-        }),
+      isTxStandbyPreviewSource({
+        sourceRole: data.sourceRole,
+        capability: source.capability,
+        status: source.status,
+      }),
     );
   });
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
@@ -242,8 +254,8 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
   });
   const initialSourceRef =
     sourceMode === "file"
-      ? filePlaybackDataRef
-      : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
+      ? fileFrameRuntime.ref
+      : liveSourceFrameRuntime.getRef(roleSourceId);
   const initialFrame = Array.isArray(initialSourceRef.current)
     ? (initialSourceRef.current[initialSourceRef.current.length - 1] ?? null)
     : initialSourceRef.current;
@@ -318,9 +330,10 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
   );
 
   useEffect(() => {
-    const sourceRef = sourceMode === "file"
-      ? filePlaybackDataRef
-      : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
+    const sourceRef =
+      sourceMode === "file"
+        ? fileFrameRuntime.ref
+        : liveSourceFrameRuntime.getRef(roleSourceId);
     const liveFrame = Array.isArray(sourceRef.current)
       ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
       : sourceRef.current;
@@ -385,8 +398,8 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     const id = setInterval(() => {
       const sourceRef =
         sourceMode === "file"
-          ? filePlaybackDataRef
-          : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? liveDataRef);
+          ? fileFrameRuntime.ref
+          : liveSourceFrameRuntime.getRef(roleSourceId);
       const liveFrame = Array.isArray(sourceRef.current)
         ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
         : sourceRef.current;
@@ -460,9 +473,10 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     txViewerSampleRateHz,
   ]); // Keep frame range aligned with the current source metadata
 
-  const renderDataRef = sourceMode === "file"
-    ? filePlaybackDataRef
-    : (liveDataBySourceRef?.current?.[roleSourceId ?? ""] ?? dataRef);
+  const renderDataRef =
+    sourceMode === "file"
+      ? fileFrameRuntime.ref
+      : liveSourceFrameRuntime.getRef(roleSourceId);
   const isPaused =
     isTxStandbyPreview || isFilePlaybackPaused({ sourceMode, isStitchPaused });
   const canvasSessionKey = getSourcePresentationSessionKey({
@@ -569,8 +583,7 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
         stream_epoch: sourceFrame.stream_epoch,
         sequence: sourceFrame.sequence,
         spectrum,
-        centerFrequencyHz:
-          sourceFrame.center_frequency_hz ?? currentCenterHz,
+        centerFrequencyHz: sourceFrame.center_frequency_hz ?? currentCenterHz,
         sampleRateHz:
           sourceFrame.sample_rate ??
           (data.sourceRole === "tx" ? txViewerSampleRateHz : hardwareSpanHz),

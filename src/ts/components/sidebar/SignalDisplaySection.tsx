@@ -16,7 +16,10 @@ import { formatFrequency } from "@n-apt/utils/frequency";
 import { getTemporalResolutionLabel } from "@n-apt/utils/temporalResolution";
 import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import { computeMaxFrameRate } from "@n-apt/utils/signals";
-import { showsApproxDbmToggle } from "@n-apt/utils/deviceCapabilities";
+import {
+  isMockBackend,
+  showsApproxDbmToggle,
+} from "@n-apt/utils/deviceCapabilities";
 
 const Section = styled.div`
   display: grid;
@@ -224,11 +227,15 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     deviceProfile,
     backend,
   });
+  const isMockSource =
+    isMockBackend(backend) ||
+    deviceProfile?.kind?.toLowerCase().includes("mock") === true;
   const isRtlSdrDevice =
-    deviceProfile?.kind === "rtl_sdr" ||
-    backend === "rtl_sdr" ||
-    backend === "rtl-sdr" ||
-    backend === "rtlsdr";
+    !isMockSource &&
+    (deviceProfile?.kind === "rtl_sdr" ||
+      backend === "rtl_sdr" ||
+      backend === "rtl-sdr" ||
+      backend === "rtlsdr");
 
   const manualFftOptions = React.useMemo(
     () =>

@@ -318,7 +318,7 @@ const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
   return new Float32Array(source);
 };
 
-export function useWasmSimdMath(
+export function useSpectrumMath(
   options: SpectrumMathOptions,
 ): WasmSimdMathHandle {
   const { fftSize, enableSimd, fallbackToScalar } = options;
@@ -1003,3 +1003,6 @@ export function useWasmSimdMath(
     isWasmLoaded,
   };
 }
+
+/** @deprecated Use useSpectrumMath. */
+export const useWasmSimdMath = useSpectrumMath;

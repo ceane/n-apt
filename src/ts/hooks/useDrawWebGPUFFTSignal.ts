@@ -278,6 +278,8 @@ export interface WebGPUFFTSignalOptions {
   onSpikeCount?: (count: number) => void;
   onSpikeAnalysis?: (analysis: SpikeAnalysis) => void;
   reservedBottomPx?: number;
+  isStandby?: boolean;
+  isDotted?: boolean;
 }
 
 export function useDrawWebGPUFFTSignal() {
@@ -879,6 +881,8 @@ export function useDrawWebGPUFFTSignal() {
         onSpikeCount,
         onSpikeAnalysis,
         reservedBottomPx = 0,
+        isStandby = false,
+        isDotted = false,
       } = options;
 
       onSpikeCountRef.current = onSpikeCount;
@@ -1375,10 +1379,11 @@ export function useDrawWebGPUFFTSignal() {
         state.uniformValues[5] = fftMax;
         state.uniformValues[6] = displayWidth;
         state.uniformValues[7] = srcLen; // Source waveform length for spike index→x mapping
+        const useDottedLine = isStandby || isDotted;
         state.uniformValues[8] = lineR;
         state.uniformValues[9] = lineG;
         state.uniformValues[10] = lineB;
-        state.uniformValues[11] = lineA;
+        state.uniformValues[11] = useDottedLine ? (lineA > 0 ? -lineA : -1.0) : lineA;
         state.uniformValues[12] = fillR;
         state.uniformValues[13] = fillG;
         state.uniformValues[14] = fillB;

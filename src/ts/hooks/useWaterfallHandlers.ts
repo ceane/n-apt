@@ -16,8 +16,6 @@ export interface WaterfallHandlersState {
     height: number;
     writeRow: number;
   } | null>;
-  heterodyningHistoryRef: React.MutableRefObject<Float32Array[]>;
-  lastHeterodyningRequestIdRef: React.MutableRefObject<number>;
   pendingWaterfallRestoreRef: React.MutableRefObject<PendingWaterfallRestore | null>;
   restoredWaterfallRef: React.MutableRefObject<boolean>;
 
@@ -55,7 +53,6 @@ export interface WaterfallHandlersProps {
   isPaused: boolean;
   isWaterfallCleared?: boolean;
   onResetWaterfallCleared?: () => void;
-  heterodyningVerifyRequestId?: number;
   canvasState: CanvasState;
   visualizationState: VisualizationState;
   webgpuEnabled: boolean;
@@ -68,7 +65,6 @@ export const useWaterfallHandlers = ({
   isPaused: _isPaused,
   isWaterfallCleared = false,
   onResetWaterfallCleared,
-  heterodyningVerifyRequestId: _heterodyningVerifyRequestId = 0,
   canvasState,
   visualizationState,
   webgpuEnabled: _webgpuEnabled,
@@ -92,8 +88,6 @@ export const useWaterfallHandlers = ({
     height: number;
     writeRow: number;
   } | null>(null);
-  const heterodyningHistoryRef = useRef<Float32Array[]>([]);
-  const lastHeterodyningRequestIdRef = useRef(0);
   const pendingWaterfallRestoreRef = useRef<PendingWaterfallRestore | null>(
     null,
   );
@@ -148,7 +142,6 @@ export const useWaterfallHandlers = ({
     pausedWaterfallRowRef.current = null;
     pendingWaterfallRestoreRef.current = null;
     restoredWaterfallRef.current = false;
-    heterodyningHistoryRef.current = [];
   }, []);
 
   // Clear waterfall effect
@@ -166,8 +159,6 @@ export const useWaterfallHandlers = ({
     pausedWaterfallRowRef,
     waterfallTextureSnapshotRef,
     waterfallTextureMetaRef,
-    heterodyningHistoryRef,
-    lastHeterodyningRequestIdRef,
     pendingWaterfallRestoreRef,
     restoredWaterfallRef,
 

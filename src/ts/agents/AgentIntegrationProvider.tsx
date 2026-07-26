@@ -11,9 +11,12 @@ import {
 import { useMapLocations } from "@n-apt/hooks/useMapLocations";
 import { useModel3D } from "@n-apt/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/hooks/useHotspotEditor";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useAppDispatch } from "@n-apt/redux";
-import { setSourceMode } from "@n-apt/redux";
+import {
+  setActiveSignalArea,
+  setFrequencyRange,
+  setSourceMode,
+} from "@n-apt/redux";
 import {
   sendRestartDevice,
   sendCaptureCommand,
@@ -31,7 +34,6 @@ export const AgentIntegrationProvider: React.FC<
   const mapLocations = useMapLocations();
   const model3D = useModel3D();
   const hotspotEditor = useHotspotEditor();
-  const spectrumStore = useSpectrumStore();
 
   const [agentStatus, setAgentStatus] = useState<
     "detecting" | "enabled" | "disabled"
@@ -51,15 +53,14 @@ export const AgentIntegrationProvider: React.FC<
       const spectrumProps = {
         onSourceModeChange: (mode: any) => {
           dispatch(setSourceMode(mode));
-          spectrumStore.dispatch({ type: "SET_SOURCE_MODE", mode });
         },
         onRestartDevice: () => dispatch(sendRestartDevice()),
         onCaptureCommand: (req: any) => dispatch(sendCaptureCommand(req)),
         onSignalAreaChange: (area: any) => {
-          spectrumStore.dispatch({ type: "SET_SIGNAL_AREA", area });
+          dispatch(setActiveSignalArea(area));
         },
         onFrequencyRangeChange: (range: any) => {
-          spectrumStore.dispatch({ type: "SET_FREQUENCY_RANGE", range });
+          dispatch(setFrequencyRange(range));
         },
       };
 
@@ -89,7 +90,7 @@ export const AgentIntegrationProvider: React.FC<
     };
 
     initialize();
-  }, [pathname, dispatch, mapLocations, model3D, hotspotEditor, spectrumStore]);
+  }, [pathname, dispatch, mapLocations, model3D, hotspotEditor]);
 
   // Get WebMCP tools for current route
   const { isRegistered, availableTools } = useWebMCP();

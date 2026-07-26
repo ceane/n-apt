@@ -12,37 +12,11 @@ const Section = styled.div`
   width: 100%;
 `;
 
-const HeterodyningContainer = styled.div`
-  display: grid;
-  grid-auto-flow: column;
-  justify-content: start;
-  align-items: center;
-  gap: 12px;
-  font-size: ${({ theme }) => theme.typography.bodySize};
-  color: ${(props) => props.theme.textPrimary};
-  font-weight: 500;
-`;
-
-const VerifyButton = styled.button`
-  font-size: ${({ theme }) => theme.typography.codeSize};
-  padding: 6px 12px;
-  min-width: 80px;
-  background-color: ${(props) => props.theme.surface};
-  border: 1px solid ${(props) => props.theme.borderHover};
-  border-radius: 6px;
-  color: ${(props) => props.theme.primary};
-  cursor: pointer;
-  font-family: ${(props) => props.theme.typography.mono};
-`;
-
 interface SignalFeaturesSectionProps {
   sourceMode: "live" | "file";
   deviceState: string;
   isConnected: boolean;
   selectedFilesCount: number;
-  heterodyningStatusText: string;
-  heterodyningVerifyDisabled: boolean;
-  onVerifyHeterodyning: () => void;
 }
 
 const ClassifyButton = styled.button<{ $disabled?: boolean }>`
@@ -78,9 +52,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
   deviceState,
   isConnected,
   selectedFilesCount,
-  heterodyningStatusText,
-  heterodyningVerifyDisabled,
-  onVerifyHeterodyning,
 }) => {
   const isFileSource = sourceMode === "file";
 
@@ -130,19 +101,6 @@ export const SignalFeaturesSection: React.FC<SignalFeaturesSectionProps> = ({
                 Classify?
               </ClassifyButton>
             </StatusActionRow>
-          </Row>
-
-          <Row label="Heterodyned?">
-            <HeterodyningContainer>
-              {heterodyningStatusText}
-              <VerifyButton
-                type="button"
-                disabled={heterodyningVerifyDisabled}
-                onClick={onVerifyHeterodyning}
-              >
-                Verify
-              </VerifyButton>
-            </HeterodyningContainer>
           </Row>
         </>
       </Collapsible>

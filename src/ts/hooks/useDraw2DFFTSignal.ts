@@ -20,8 +20,10 @@ import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
 export type LiveCanvasStatusRow = {
   sampleRateLabel: string;
+  bandwidthLabel?: string;
   txModeLabel?: string;
   fftSizeLabel: string;
+  ifftSizeLabel?: string;
   fftWindowLabel: string;
   timingLabel: string;
 };
@@ -112,24 +114,40 @@ export function drawLiveCanvasStatusRow(
   ctx.font = "11px 'JetBrains Mono', monospace";
   ctx.textBaseline = "middle";
 
-  const sampleRateText = `⌞ ${status.sampleRateLabel} ⌟`;
-  ctx.textAlign = "center";
-  ctx.fillText(sampleRateText, centerX, rowTop + 18);
+  const isTxStats = Boolean(status.txModeLabel && status.bandwidthLabel && status.ifftSizeLabel);
+  ctx.textAlign = isTxStats ? "center" : "center";
+  ctx.fillText(
+    isTxStats
+      ? `⌞ ${status.bandwidthLabel} ⌟`
+      : `⌞ ${status.sampleRateLabel} ⌟`,
+    centerX,
+    rowTop + 18,
+  );
   if (status.txModeLabel) {
-    const sampleRateLeftX = centerX - ctx.measureText(sampleRateText).width / 2;
+    const bandwidthLeftX = centerX - ctx.measureText(status.bandwidthLabel ?? "").width / 2;
     const txLabelX = leftX + 4;
-    const txLabelMaxWidth = Math.max(0, sampleRateLeftX - txLabelX - 18);
+    const txLabelMaxWidth = Math.max(0, bandwidthLeftX - txLabelX - 18);
     if (txLabelMaxWidth > 20) {
       ctx.textAlign = "left";
       ctx.fillText(status.txModeLabel, txLabelX, rowTop + 18, txLabelMaxWidth);
     }
   }
-  ctx.textAlign = "left";
-  ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
-  ctx.textAlign = "center";
-  ctx.fillText(status.fftWindowLabel, centerX, rowTop + 40);
-  ctx.textAlign = "right";
-  ctx.fillText(status.timingLabel, rightX - 4, rowTop + 40);
+  if (isTxStats) {
+    ctx.textAlign = "left";
+    ctx.fillText(status.timingLabel, leftX + 4, rowTop + 40);
+    ctx.textAlign = "center";
+    ctx.fillText(status.ifftSizeLabel ?? "", centerX, rowTop + 40);
+    ctx.textAlign = "right";
+    ctx.fillText(status.fftSizeLabel, rightX - 4, rowTop + 40);
+    ctx.fillText(status.sampleRateLabel, rightX - 4, rowTop + 18);
+  } else {
+    ctx.textAlign = "left";
+    ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
+    ctx.textAlign = "center";
+    ctx.fillText(status.fftWindowLabel, centerX, rowTop + 40);
+    ctx.textAlign = "right";
+    ctx.fillText(status.timingLabel, rightX - 4, rowTop + 40);
+  }
   ctx.restore();
 
   return status;
@@ -216,6 +234,8 @@ export interface Draw2DFFTSignalOptions {
   textColor?: string;
   backgroundColor?: string;
   reservedBottomPx?: number;
+  isStandby?: boolean;
+  isDotted?: boolean;
   txSlider?: {
     visible: boolean;
     visibleMinHz: number;
@@ -568,6 +588,8 @@ export function useDraw2DFFTSignal() {
       displayMode: "fft" | "iq" = "fft",
       nodePreview = false,
       reservedBottomPx = 0,
+      isStandby = false,
+      isDotted = false,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const waveformArray = toFloat32Waveform(waveform);
@@ -617,6 +639,12 @@ export function useDraw2DFFTSignal() {
       ctx.lineWidth = Math.max(1, (width < 700 ? 0.75 : 1.5) / dpr);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
+      const useDottedLine = isStandby || isDotted;
+      if (useDottedLine) {
+        ctx.setLineDash([2, 5]); // 1-2px dots spaced 5px apart for requested preview frame
+      } else {
+        ctx.setLineDash([]);
+      }
       ctx.beginPath();
       for (let i = 0; i < dataWidth; i++) {
         const x = idxToX(i);
@@ -625,6 +653,9 @@ export function useDraw2DFFTSignal() {
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
+      if (useDottedLine) {
+        ctx.setLineDash([]);
+      }
     },
     [],
   );
@@ -915,6 +946,8 @@ export function useDraw2DFFTSignal() {
         backgroundColor,
         reservedBottomPx,
         txSlider,
+        isStandby = false,
+        isDotted = false,
       } = options;
 
       const ctx = canvas.getContext("2d");
@@ -982,6 +1015,8 @@ export function useDraw2DFFTSignal() {
             displayMode,
             nodePreview,
             bottomReservedPx,
+            isStandby,
+            isDotted,
           );
         } else {
           // Full quality mode: complete spectrum rendering
@@ -1017,6 +1052,8 @@ export function useDraw2DFFTSignal() {
             displayMode,
             nodePreview,
             bottomReservedPx,
+            isStandby,
+            isDotted,
           );
         }
 

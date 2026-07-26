@@ -239,11 +239,11 @@ describe("WebSocket Validation System", () => {
       ).toBe(true);
     });
 
-    test("should validate mock tx atomic connected status with retry metadata", () => {
+    test("should validate mock tx atomic standby status with retry metadata", () => {
       const message = {
         type: "status",
         source_id: "mock-tx",
-        status: "connected",
+        status: "standby",
         loading_attempt: 0,
         loading_attempt_max: 2,
       };

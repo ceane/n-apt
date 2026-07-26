@@ -589,7 +589,6 @@ describe("Redux WebSocket Migration", () => {
             kind: "mock_tx",
             is_rtl_sdr: false,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
           },
           sources: [
             {
@@ -601,7 +600,6 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 0,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
               sdr: {
                 max_sample_rate: 2_400_000,
                 sample_rate_options: [2_400_000],
@@ -679,7 +677,6 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 0,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
               sdr: {
                 max_sample_rate: 2_400_000,
                 sample_rate_options: [2_400_000],
@@ -722,7 +719,6 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 0,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
               sdr: {
                 max_sample_rate: 20_000_000,
                 sample_rate_options: [2_400_000, 10_000_000],
@@ -1648,10 +1644,10 @@ describe("Redux WebSocket Migration", () => {
       });
 
       expect(middlewareStore.getState().websocket.sources[0].status).toBe(
-        "connected",
+        "standby",
       );
       expect(middlewareStore.getState().websocket.deviceState).toBe(
-        "connected",
+        "standby",
       );
     });
 

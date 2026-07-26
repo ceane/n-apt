@@ -3,12 +3,27 @@ export { store, useAppDispatch, useAppSelector } from "./store";
 export type { RootState, AppDispatch } from "./store";
 
 export {
+  selectActiveSourceId,
+  selectConnectionSnapshot,
+  selectSdrControls,
+  selectSourceInventory,
+  selectSpectrumControls,
+} from "./selectors/spectrumSelectors";
+
+export {
   setSourceBinding,
   setSourceBindings,
   clearSourceBindings,
   setSourceSelectionMode,
   sourceBindingKey,
 } from "./slices/sourceRoutingSlice";
+
+export {
+  setSelectedSourceId,
+  setSelectionIntentSourceId,
+  setPendingSourceSwitchId,
+  clearSelectedSourceId,
+} from "./slices/sourceSelectionSlice";
 
 // Export slice actions
 export {
@@ -79,6 +94,7 @@ import {
   setFrequencyRange,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
   setVizZoomFloor,
@@ -142,6 +158,7 @@ export {
   setFrequencyRange,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
   setVizZoomFloor,
@@ -205,6 +222,7 @@ export const spectrumActions = {
   setFrequencyRange,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
   setVizZoomFloor,
@@ -400,11 +418,17 @@ export {
   selectHasPasskeys,
   selectFrequencyRange,
   selectActiveSignalArea,
+  selectAnalysisViewState,
   selectPowerScale,
   selectFftSettings,
   selectVisualizationSettings,
   selectSdrSettings,
   selectDrawParams,
+  selectDrawSignalState,
+  selectSourceMode,
+  selectSelectedSourceId,
+  selectSourceSelectionLifecycle,
+  selectSourceTransportSnapshot,
   selectActiveDrawParams,
   selectTrainingCaptureState,
   selectStitchState,

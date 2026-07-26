@@ -20,6 +20,7 @@ import {
   shouldAccumulateFullChannelWaveform,
   shouldPublishProcessedSpectrumFrame,
   invertSpectrumVertically,
+  formatTxIfftSizeLabel,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router-dom";
@@ -156,6 +157,11 @@ describe("FFTCanvas Component", () => {
 
   it("caps backing resolution at device pixel density", () => {
     expect(getCanvasPixelRatio(2, 2)).toBe(2);
+  });
+
+  it("falls back when the TX IFFT size is not available yet", () => {
+    expect(formatTxIfftSizeLabel(undefined, 262144)).toBe("262,144");
+    expect(formatTxIfftSizeLabel(null, 262144)).toBe("262,144");
   });
 
   it("uses only the selection overlay for FFT node range selection", () => {
@@ -1142,7 +1148,6 @@ describe("FFTCanvas Component", () => {
                   kind: "mock_tx",
                   is_rtl_sdr: false,
                   supports_approx_dbm: true,
-                  supports_raw_iq_stream: true,
                 }}
                 deviceBackend="mock_tx"
                 deviceName="Mock Tx SDR"

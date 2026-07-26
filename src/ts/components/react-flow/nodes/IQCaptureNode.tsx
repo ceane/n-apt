@@ -8,7 +8,6 @@ import {
   sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { useGeolocation } from "@n-apt/hooks/useGeolocation";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { MIN_CAPTURE_BANDWIDTH_HZ } from "@n-apt/utils/frequency";
@@ -80,8 +79,8 @@ export const IQCaptureNode = memo(
     );
     const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
 
-    // Get effective frames (channels) from the spectrum store
-    const { effectiveFrames } = useSpectrumStore();
+    // Channel metadata is Redux-owned; raw frame payloads remain imperative.
+    const effectiveFrames = useAppSelector((state) => state.websocket.channels);
 
     // Find if we are connected to a ChannelNode
     const isConnectedToChannelNode = useMemo(() => {
@@ -128,7 +127,7 @@ export const IQCaptureNode = memo(
       // stale when the active source (for example Mock APT) changes.
       const onscreenMin = Math.max(
         0,
-        Math.round(spectrumRange?.min ?? (demodCenterFreqHz ?? 0)),
+        Math.round(spectrumRange?.min ?? demodCenterFreqHz ?? 0),
       );
       const onscreenMax = Math.round(
         spectrumRange?.max ??

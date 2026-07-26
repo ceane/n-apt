@@ -2,7 +2,14 @@ import React from "react";
 import styled from "styled-components";
 import { Slider, Row, Button } from "@n-apt/components/ui";
 import { DecryptionFallback } from "@n-apt/components/ui/DecryptionFallback";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import {
+  resetDrawParams,
+  setActiveClumpIndex,
+  setDrawParams,
+  useAppDispatch,
+  useAppSelector,
+} from "@n-apt/redux";
+import { selectDrawSignalState } from "@n-apt/redux/selectors/performanceSelectors";
 
 const SettingSelect = styled.select`
   background-color: transparent;
@@ -158,14 +165,16 @@ interface DrawParams {
 }
 
 export const DrawSignalOptionsSidebar: React.FC = () => {
-  const { state, dispatch } = useSpectrumStore();
-  const { drawParams, activeClumpIndex, globalNoiseFloor } = state;
+  const dispatch = useAppDispatch();
+  const { drawParams, activeClumpIndex, globalNoiseFloor } = useAppSelector(
+    selectDrawSignalState,
+  );
   const activeParams = drawParams[activeClumpIndex] || drawParams[0];
 
   const handleParamChange = (key: keyof DrawParams, value: any) => {
     const newParams = [...drawParams];
     newParams[activeClumpIndex] = { ...activeParams, [key]: value };
-    dispatch({ type: "SET_DRAW_PARAMS", params: newParams });
+    dispatch(setDrawParams(newParams));
   };
 
   const handleClumpCountChange = (count: number) => {
@@ -180,9 +189,9 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
     } else {
       newParams = drawParams.slice(0, count);
     }
-    dispatch({ type: "SET_DRAW_PARAMS", params: newParams });
+    dispatch(setDrawParams(newParams));
     if (activeClumpIndex >= count) {
-      dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: count - 1 });
+      dispatch(setActiveClumpIndex(count - 1));
     }
   };
 
@@ -208,7 +217,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
       >
         <MockNAPTMath />
       </React.Suspense>
-      <ResetButton onClick={() => dispatch({ type: "RESET_DRAW_PARAMS" })}>
+      <ResetButton onClick={() => dispatch(resetDrawParams())}>
         Reset Defaults
       </ResetButton>
       <BeatsHeader>
@@ -261,9 +270,7 @@ export const DrawSignalOptionsSidebar: React.FC = () => {
           <ClumpTab
             key={i}
             $active={activeClumpIndex === i}
-            onClick={() =>
-              dispatch({ type: "SET_ACTIVE_CLUMP_INDEX", index: i })
-            }
+            onClick={() => dispatch(setActiveClumpIndex(i))}
           >
             Clump {i + 1}
           </ClumpTab>

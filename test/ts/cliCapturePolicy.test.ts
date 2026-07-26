@@ -17,7 +17,11 @@ const source = (overrides: Record<string, unknown> = {}) => ({
   loading_attempt: 0,
   loading_attempt_max: 3,
   supports_approx_dbm: true,
-  supports_raw_iq_stream: true,
+  iq_format: {
+    element_type: "u8" as const,
+    layout: "interleaved_iq" as const,
+    typed_array: "Uint8Array" as const,
+  },
   sdr: {
     max_sample_rate: 3200000,
     sample_rate_options: [2400000, 3200000],
@@ -49,7 +53,7 @@ describe("CLI capture policy", () => {
     ).toThrow(/multiple/i);
   });
 
-  test("falls back to Mock APT when no physical device is connected", () => {
+  test("selects the only connected source regardless of source identity", () => {
     const selected = resolveRequestedDevice({
       requested: "auto",
       sources: [
@@ -96,11 +100,16 @@ describe("CLI capture policy", () => {
     ).toThrow(/always encrypted/i);
   });
 
-  test("defaults an RTL-SDR capture to 46.9 dB and 1 PPM", () => {
+  test("uses backend-provided receive settings when available", () => {
     expect(resolveNaptReceiveDefaults(source())).toEqual({
       gainDb: 46.9,
       ppm: 1,
     });
+    expect(
+      resolveNaptReceiveDefaults(
+        source({ sdr: { settings: { gain: 12, ppm: 3 } } }),
+      ),
+    ).toEqual({ gainDb: 12, ppm: 3 });
   });
 
   test("confirms backend gain and PPM before capture", () => {

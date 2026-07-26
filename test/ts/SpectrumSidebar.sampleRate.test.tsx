@@ -72,6 +72,7 @@ jest.mock("@n-apt/components/ui/PromptProvider", () => ({
 }));
 
 jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+  useOptionalSpectrumStore: () => null,
   LIVE_CONTROL_DEFAULTS: {
     ppm: 0,
     tunerAGC: false,
@@ -255,12 +256,6 @@ const initMockState = () => {
     sampleRateHz: 5_200_000,
     minReceiveSampleRateHz: 3_200_000,
     sample_size: 0,
-    heterodyningVerifyRequestId: 0,
-    heterodyningStatusText: "",
-    heterodyningVerifyDisabled: false,
-    heterodyningDetected: false,
-    heterodyningConfidence: null,
-    heterodyningHighlightedBins: [],
     lastKnownRanges: {
       C: { min: 24_720_000, max: 29_920_000 },
     },
@@ -397,6 +392,91 @@ describe("SpectrumSidebar sample rate behavior", () => {
       snapshots.compareDocumentPosition(notes) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("does not render Tx settings for a TX-capable source while it is receiving", () => {
+    const hackrfSource = {
+      id: "hackrf-rx",
+      name: "HackRF One",
+      kind: "hackrf_one",
+      capability: "tx_rx",
+      status: "connected",
+      serial_number: "hackrf-rx",
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: true,
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [2_400_000, 5_200_000, 20_000_000],
+        fft_display: { markers: [] },
+        settings: {
+          center_frequency: 137_100_000,
+          sample_rate: 5_200_000,
+        },
+      },
+    };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: hackrfSource.id,
+      selectedSource: hackrfSource,
+      sources: [hackrfSource],
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: [hackrfSource],
+    };
+
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.queryByText("Tx Bandwidth")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tx Safety")).not.toBeInTheDocument();
+  });
+
+  it("renders Tx settings while a TX source is on standby", () => {
+    const standbySource = {
+      id: "mock-tx",
+      name: "Mock Tx SDR",
+      kind: "mock_tx",
+      capability: "tx",
+      status: "standby",
+      serial_number: "mock-tx",
+      supports_approx_dbm: false,
+      supports_raw_iq_stream: true,
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [2_400_000, 5_200_000, 20_000_000],
+        fft_display: { markers: [] },
+        settings: {
+          center_frequency: 137_100_000,
+          sample_rate: 5_200_000,
+        },
+      },
+    };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: standbySource.id,
+      selectedSource: standbySource,
+      sources: [standbySource],
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: [standbySource],
+    };
+
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByText("Tx Bandwidth")).toBeInTheDocument();
   });
 
   it("loads Mock APT in Whole Channel mode and transitions to a new sample rate", async () => {
@@ -1394,5 +1474,115 @@ describe("SpectrumSidebar sample rate behavior", () => {
         serialNumber: "tx-2",
       }),
     );
+  });
+
+  it("preserves Whole Channel option for HackRF One when txHopType is range", async () => {
+    const mockLiveState = {
+      sources: [
+        {
+          id: "hackrf-1",
+          kind: "hackrf_one",
+          backend: "hackrf",
+          deviceName: "HackRF One",
+          status: "connected",
+          sdr: {
+            settings: { sample_rate: 18_250_000 },
+          },
+        },
+      ],
+    };
+
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: mockLiveState.sources,
+      backend: "hackrf",
+      deviceProfile: { kind: "hackrf_one", is_rtl_sdr: false },
+      deviceName: "HackRF One",
+      deviceState: "connected",
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "hackrf-1",
+        activeSourceMode: "live",
+        sources: mockLiveState.sources,
+      } as any),
+    );
+    store.dispatch({
+      type: "spectrum/setTxHopType",
+      payload: "range",
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
+    const sampleRateRow = sampleRateLabel.closest("div")?.parentElement;
+    expect(sampleRateRow).toBeTruthy();
+
+    expect(
+      within(sampleRateRow as HTMLElement).getByRole("option", {
+        name: /Whole Channel/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("automatically transitions HackRF One from initial 3.2MHz fallback to Whole Channel rate on mount", async () => {
+    const mockLiveState = {
+      sources: [
+        {
+          id: "hackrf-1",
+          kind: "hackrf_one",
+          backend: "hackrf",
+          deviceName: "HackRF One",
+          status: "connected",
+          sdr: {
+            settings: { sample_rate: 3_200_000 },
+          },
+        },
+      ],
+    };
+
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: mockLiveState.sources,
+      backend: "hackrf",
+      deviceProfile: { kind: "hackrf_one", is_rtl_sdr: false },
+      deviceName: "HackRF One",
+      deviceState: "connected",
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "hackrf-1",
+        activeSourceMode: "live",
+        sources: mockLiveState.sources,
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(mockWsConnection.sendSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tunerBandwidth: 5_200_000,
+        }),
+      );
+    });
   });
 });

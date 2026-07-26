@@ -6,6 +6,7 @@ import {
   shouldRequestPausedPreview,
   buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
+  shouldSendSignalDisplaySettings,
 } from "@n-apt/hooks/useSpectrumStore";
 
 describe("resolveSourceSwitchDisplaySettings", () => {
@@ -178,5 +179,34 @@ describe("selectLiveSampleRateForSync", () => {
         sampleRateHz: 5_200_000,
       }),
     ).toEqual(expect.objectContaining({ sampleRateHz: 5_200_000 }));
+  });
+});
+
+describe("shouldSendSignalDisplaySettings", () => {
+  it("sends the first settings packet after a source handoff", () => {
+    expect(
+      shouldSendSignalDisplaySettings({
+        previous: null,
+        next: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
+      }),
+    ).toBe(true);
+  });
+
+  it("sends when Whole Channel changes the sample rate without changing frame rate", () => {
+    expect(
+      shouldSendSignalDisplaySettings({
+        previous: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
+        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not resend unchanged display settings", () => {
+    expect(
+      shouldSendSignalDisplaySettings({
+        previous: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+      }),
+    ).toBe(false);
   });
 });

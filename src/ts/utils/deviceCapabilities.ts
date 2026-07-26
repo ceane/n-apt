@@ -96,14 +96,12 @@ export const getMockDeviceProfile = (
       // whole-channel selection; it is not constrained by RTL-SDR hardware.
       is_rtl_sdr: false,
       supports_approx_dbm: false,
-      supports_raw_iq_stream: false,
     };
   }
   return {
     kind: "mock_tx",
     is_rtl_sdr: false,
     supports_approx_dbm: true,
-    supports_raw_iq_stream: true,
   };
 };
 

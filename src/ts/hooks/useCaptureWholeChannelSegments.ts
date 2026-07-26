@@ -1,7 +1,14 @@
 import { useCallback } from "react";
 import type { SnapshotData } from "@n-apt/components/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/components";
-import { useAppDispatch, setSnapshotProgress } from "@n-apt/redux";
+import {
+  clearWaterfall,
+  setFrequencyRange,
+  setSnapshotProgress,
+  setVizPan,
+  setVizZoom,
+  useAppDispatch,
+} from "@n-apt/redux";
 import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
 import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 
@@ -75,7 +82,6 @@ interface UseCaptureWholeChannelSegmentsOptions {
   fftFrameRate: number;
   vizPanOffset: number;
   vizZoom: number;
-  dispatch: (action: any) => void;
   sendFrequencyRange: (range: FrequencyRange) => void;
   fftCanvasRef: React.RefObject<FFTCanvasHandle | null>;
 }
@@ -97,7 +103,6 @@ export const useCaptureWholeChannelSegments = ({
   fftFrameRate,
   vizPanOffset,
   vizZoom,
-  dispatch,
   sendFrequencyRange,
   fftCanvasRef,
 }: UseCaptureWholeChannelSegmentsOptions) => {
@@ -185,11 +190,11 @@ export const useCaptureWholeChannelSegments = ({
           }),
         );
 
-        dispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+        reduxDispatch(setFrequencyRange(nextRange));
         sendFrequencyRange(nextRange);
-        dispatch({ type: "SET_VIZ_ZOOM", zoom: 1 });
-        dispatch({ type: "SET_VIZ_PAN", pan: 0 });
-        dispatch({ type: "CLEAR_WATERFALL" });
+        reduxDispatch(setVizZoom(1));
+        reduxDispatch(setVizPan(0));
+        reduxDispatch(clearWaterfall());
 
         await raf();
         await sleep(settleMs);
@@ -220,16 +225,15 @@ export const useCaptureWholeChannelSegments = ({
         if (actualMax >= channelRange.max - 1) break;
       }
     } finally {
-      dispatch({ type: "SET_FREQUENCY_RANGE", range: originalRange });
+      reduxDispatch(setFrequencyRange(originalRange));
       sendFrequencyRange(originalRange);
-      dispatch({ type: "SET_VIZ_ZOOM", zoom: originalZoom });
-      dispatch({ type: "SET_VIZ_PAN", pan: originalPan });
+      reduxDispatch(setVizZoom(originalZoom));
+      reduxDispatch(setVizPan(originalPan));
       await raf();
     }
 
     return segments;
   }, [
-    dispatch,
     deviceKind,
     backend,
     deviceName,

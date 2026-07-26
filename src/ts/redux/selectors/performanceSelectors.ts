@@ -68,6 +68,45 @@ export const selectVisualizationSettings = createSelector(
   }),
 );
 
+/** Low-frequency inputs used to label and position analysis views. */
+export const selectAnalysisViewState = createSelector(
+  [selectSpectrumState],
+  (spectrum) => ({
+    activeSignalArea: spectrum.activeSignalArea,
+    frequencyRange: spectrum.frequencyRange,
+    lastKnownRanges: spectrum.lastKnownRanges,
+    vizZoom: spectrum.vizZoom,
+    vizPanOffset: spectrum.vizPanOffset,
+  }),
+);
+
+export const selectSourceMode = createSelector(
+  [selectWaterfallState],
+  (waterfall) => waterfall.sourceMode,
+);
+
+export const selectSelectedSourceId = (state: RootState) =>
+  state.sourceSelection.selectedSourceId;
+const selectSourceSelectionState = (state: RootState) => state.sourceSelection;
+export const selectSourceSelectionLifecycle = createSelector(
+  [selectSourceSelectionState],
+  (selection) => ({
+    selectedSourceId: selection.selectedSourceId,
+    selectionIntentSourceId: selection.selectionIntentSourceId,
+    pendingSourceSwitchId: selection.pendingSourceSwitchId,
+  }),
+);
+
+/** Backend-confirmed source transport state used by the live visualizer. */
+export const selectSourceTransportSnapshot = createSelector(
+  [selectWebSocketState],
+  (websocket) => ({
+    sourceStatuses: websocket.sourceStatuses,
+    sourceTransport: websocket.sourceTransport,
+    sourceFrameReadiness: websocket.sourceFrameReadiness,
+  }),
+);
+
 export const selectSdrSettings = createSelector(
   [selectSpectrumState],
   (spectrum) => ({
@@ -83,6 +122,16 @@ export const selectSdrSettings = createSelector(
 export const selectDrawParams = createSelector(
   [selectWaterfallState],
   (waterfall) => waterfall.drawParams,
+);
+
+/** Inputs consumed by the draw-signal renderer, owned by the waterfall slice. */
+export const selectDrawSignalState = createSelector(
+  [selectWaterfallState],
+  (waterfall) => ({
+    drawParams: waterfall.drawParams,
+    activeClumpIndex: waterfall.activeClumpIndex,
+    globalNoiseFloor: waterfall.globalNoiseFloor,
+  }),
 );
 
 export const selectActiveDrawParams = createSelector(
@@ -143,7 +192,8 @@ export const selectDeviceState = createSelector(
 );
 
 const EMPTY_SOURCE_LIST: SourceInfo[] = [];
-const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> = [];
+const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> =
+  [];
 
 export const selectWebSocketSources = createSelector(
   [selectWebSocketState],
@@ -225,7 +275,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       kind: getDeviceKindFromSource(source),
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
-      supports_raw_iq_stream: source.supports_raw_iq_stream,
+      iq_format: source.iq_format,
     },
     deviceInfo: source.name,
     backend: source.kind,
@@ -335,8 +385,8 @@ export const selectThemeObject = createSelector(
   },
 );
 
-// selectHighFrequencyData: live frame data is now in liveDataRef (middleware module ref),
-// not in Redux state. Import liveDataRef from websocketMiddleware directly instead.
+// selectHighFrequencyData: live frame data now lives in the frame runtime,
+// not in Redux state. Consumers should use the runtime boundary directly.
 // This selector is kept as a no-op stub for backward compatibility only.
 export const selectHighFrequencyData = (_state: any) => null;
 
@@ -357,7 +407,7 @@ export const selectDeviceCapabilities = createSelector(
   [selectActiveSourceDerivedState],
   (device) => ({
     supportsApproxDbm: device.deviceProfile?.supports_approx_dbm || false,
-    supportsRawIqStream: device.deviceProfile?.supports_raw_iq_stream || false,
+    iqFormat: device.deviceProfile?.iq_format ?? null,
     isRtlSdr: device.deviceProfile?.is_rtl_sdr || false,
   }),
 );

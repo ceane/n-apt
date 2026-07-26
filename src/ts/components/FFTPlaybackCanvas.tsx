@@ -17,6 +17,7 @@ import { usePlaybackAnimation } from "@n-apt/hooks/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/hooks/useChannelManagement";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { selectActiveSignalArea } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   bumpSnapshotSectionPulse,
   setActivePlaybackMetadata,
@@ -30,7 +31,7 @@ import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import type { LiveCanvasStatusRow } from "@n-apt/hooks/useDraw2DFFTSignal";
 import { formatFrequency } from "@n-apt/utils/frequency";
 import { formatDuration } from "@n-apt/utils/formatters";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { fileFrameRuntime } from "@n-apt/visualization/frameRuntime";
 import { shouldRestorePausedFrameSnapshot } from "@n-apt/hooks/liveSourceLifecycle";
 
 interface FFTPlaybackCanvasProps {
@@ -39,7 +40,6 @@ interface FFTPlaybackCanvasProps {
   stitchSourceSettings: { gain: number; ppm: number };
   isPaused: boolean;
   onStitchStatus?: (status: string) => void;
-  onStitchProgress?: (progress: any) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   snapshotGridPreference?: boolean;
   fftSize: number;
@@ -217,8 +217,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const stitchStatus = useAppSelector(
       (state) => state.waterfall.stitchStatus,
     );
-    const { state: spectrumState, toggleVisualizerPause } = useSpectrumStore();
-    const { activeSignalArea } = spectrumState;
+    const { toggleVisualizerPause } = useSpectrumStore();
+    const activeSignalArea = useAppSelector(selectActiveSignalArea);
     const [snapshotButtonsLoading, setSnapshotButtonsLoading] = useState(false);
     // ── Custom hooks for separated concerns ──
     const {
@@ -274,7 +274,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
      * React state.  FFTCanvas reads this ref on every rAF, identical to the
      * live-view data path in useWebSocket → dataRef.current.
      */
-    const fftCanvasDataRef = filePlaybackDataRef;
+    const fftCanvasDataRef = fileFrameRuntime.ref;
     const seededPlaybackKeyRef = useRef<string | null>(null);
 
     // Seed the ref during the render that mounts FFTAndWaterfall. Writing the
@@ -328,7 +328,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
     useEffect(() => {
       return () => {
-        filePlaybackDataRef.current = null;
+        fileFrameRuntime.clear();
       };
     }, []);
 
@@ -411,7 +411,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         allChannelsRef.current.length > 0
       ) {
         const firstLabel = allChannelsRef.current[0].label || "Channel 1";
-        dispatch({ type: "SET_SIGNAL_AREA", area: firstLabel });
+        dispatch(setActiveSignalArea(firstLabel));
       }
     }, [hasStitchedData, activeSignalArea, allChannelsRef, dispatch]);
 
@@ -570,7 +570,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       prevFileNamesRef2.current = nameKey;
 
       fftCanvasDataRef.current = null;
-      filePlaybackDataRef.current = null;
+      fileFrameRuntime.clear();
       setChannelCount(0);
       setActiveChannel(0);
       dispatch(clearActivePlaybackMetadata());

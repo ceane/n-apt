@@ -96,7 +96,9 @@ const getMarkersOverlaySignature = ({
     ? [
         canvasStatusRow.sampleRateLabel,
         canvasStatusRow.txModeLabel ?? "",
+        canvasStatusRow.bandwidthLabel ?? "",
         canvasStatusRow.fftSizeLabel,
+        canvasStatusRow.ifftSizeLabel ?? "",
         canvasStatusRow.fftWindowLabel,
         canvasStatusRow.timingLabel,
       ].join(":")
@@ -198,6 +200,8 @@ export interface SpectrumRendererOptions {
   canvasStatusRow?: LiveCanvasStatusRow | null;
   /** Whether the visualizer is in standby mode */
   isStandby?: boolean;
+  /** Whether to render the spectrum line dotted (for preview frames) */
+  isDotted?: boolean;
 
   /** Visual customization: Main signal line color */
   lineColor?: string;
@@ -270,6 +274,7 @@ export function useSpectrumRenderer() {
         overlayOpacity = 1,
         canvasStatusRow,
         isStandby = false,
+        isDotted = false,
 
         lineColor,
         fillColor,
@@ -441,6 +446,8 @@ export function useSpectrumRenderer() {
           fillColor,
           nodePreview,
           reservedBottomPx,
+          isStandby,
+          isDotted,
         });
       } else {
         return false;

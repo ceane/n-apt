@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { useAppDispatch } from "@n-apt/redux";
 import { spectrumActions, useAppSelector } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
 import {
   clampFrequencyRangeToBounds,
@@ -61,7 +62,8 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   scanCurrentFreq,
 }) => {
   const dispatch = useAppDispatch();
-  const { state, dispatch: storeDispatch, wsConnection } = useSpectrumStore();
+  const { state } = useSpectrumStore();
+  const spectrumTransport = useSpectrumTransport();
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
@@ -266,7 +268,6 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
         if (Math.abs(desiredPan) <= maxPan + 0.001) {
           dispatch(spectrumActions.setVizPan(desiredPan));
-          storeDispatch({ type: "SET_VIZ_PAN", pan: desiredPan });
           return;
         }
 
@@ -284,8 +285,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
         const newRange = clampedHardwareRange;
         dispatch(spectrumActions.setFrequencyRange(newRange));
-        storeDispatch({ type: "SET_FREQUENCY_RANGE", range: newRange });
-        wsConnection.sendFrequencyRange(newRange);
+        spectrumTransport.sendFrequencyRange(newRange);
 
         const remainingPan = Math.max(
           -maxPan,
@@ -295,7 +295,6 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
           ),
         );
         dispatch(spectrumActions.setVizPan(remainingPan));
-        storeDispatch({ type: "SET_VIZ_PAN", pan: remainingPan });
         return;
       }
 
@@ -306,12 +305,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
           })
         : clampToChannelAndHardware(range);
       dispatch(spectrumActions.setFrequencyRange(clampedRange));
-      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: clampedRange });
-      wsConnection.sendFrequencyRange(clampedRange);
+      spectrumTransport.sendFrequencyRange(clampedRange);
     },
     [
-      storeDispatch,
-      wsConnection,
+      spectrumTransport,
       vizZoom,
       isCurrentActive,
       frequencyRange,

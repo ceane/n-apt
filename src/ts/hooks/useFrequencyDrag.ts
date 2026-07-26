@@ -92,7 +92,7 @@ export interface FrequencyDragOptions {
   txSliderLocked?: boolean;
 }
 
-export function useFrequencyDrag({
+export function useSpectrumInteraction({
   disabled = false,
   selectionMode = "zoom",
   spectrumGpuCanvasRef,
@@ -2508,6 +2508,9 @@ export function useFrequencyDrag({
     txSliderLocked,
   ]);
 }
+
+/** @deprecated Use useSpectrumInteraction. */
+export const useFrequencyDrag = useSpectrumInteraction;
 
 function normalizeSelectionRange(
   a: number,

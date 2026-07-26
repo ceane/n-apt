@@ -12,6 +12,8 @@ import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useDrawMockNAPTSignal } from "@n-apt/hooks/useDrawMockNAPTSignal";
 import { useWebGPUInit } from "@n-apt/hooks/useWebGPUInit";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
+import { useAppSelector } from "@n-apt/redux";
+import { selectDrawSignalState } from "@n-apt/redux/selectors/performanceSelectors";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { FFT_CANVAS_BG } from "@n-apt/consts";
 import { PolarRadioWaveWebGPU } from "@n-apt/components/3D/PolarRadioWaveWebGPU";
@@ -254,8 +256,10 @@ const PolarCanvasWrap = styled.div`
 `;
 
 export const DrawSignalRoute: React.FC = () => {
-  const { state, sampleRateHzEffective } = useSpectrumStore();
-  const { drawParams } = state;
+  const { sampleRateHzEffective } = useSpectrumStore();
+  const { drawParams, activeClumpIndex, globalNoiseFloor } = useAppSelector(
+    selectDrawSignalState,
+  );
   const { generateMockNAPTData, mathLoaded } = useDrawMockNAPTSignal();
   const { drawSpectrum, cleanup } = useSpectrumRenderer();
   const { pageIndex, setPageIndex, pageCount } = useDrawSignalPagination();
@@ -288,8 +292,8 @@ export const DrawSignalRoute: React.FC = () => {
 
   // Generate data based on params
   const data = useMemo(() => {
-    return generateMockNAPTData(drawParams, state.globalNoiseFloor);
-  }, [drawParams, state.globalNoiseFloor, generateMockNAPTData, mathLoaded]);
+    return generateMockNAPTData(drawParams, globalNoiseFloor);
+  }, [drawParams, globalNoiseFloor, generateMockNAPTData, mathLoaded]);
 
   const waveformArray = useMemo(() => data.map((p) => p.x), [data]);
   const floatWaveform = useMemo(
@@ -477,28 +481,26 @@ export const DrawSignalRoute: React.FC = () => {
                   Clumps: <InfoValue>{drawParams.length}</InfoValue>
                 </InfoItem>
                 <InfoItem>
-                  Active: <InfoValue>#{state.activeClumpIndex + 1}</InfoValue>
+                  Active: <InfoValue>#{activeClumpIndex + 1}</InfoValue>
                 </InfoItem>
                 <InfoItem>
                   Spike Count:{" "}
                   <InfoValue>
-                    {drawParams[state.activeClumpIndex]?.spikeCount ?? 0}
+                    {drawParams[activeClumpIndex]?.spikeCount ?? 0}
                   </InfoValue>
                 </InfoItem>
                 <InfoItem>
                   Spike Width:{" "}
                   <InfoValue>
-                    {(
-                      drawParams[state.activeClumpIndex]?.spikeWidth ?? 0
-                    ).toFixed(2)}
+                    {(drawParams[activeClumpIndex]?.spikeWidth ?? 0).toFixed(2)}
                   </InfoValue>
                 </InfoItem>
                 <InfoItem>
                   Envelope:{" "}
                   <InfoValue>
-                    {(
-                      drawParams[state.activeClumpIndex]?.envelopeWidth ?? 0
-                    ).toFixed(1)}
+                    {(drawParams[activeClumpIndex]?.envelopeWidth ?? 0).toFixed(
+                      1,
+                    )}
                   </InfoValue>
                 </InfoItem>
               </InfoBox>
@@ -534,8 +536,7 @@ export const DrawSignalRoute: React.FC = () => {
                         <pointLight position={[20, 20, 20]} />
                         <RadiationLobe3D
                           frequency={
-                            drawParams[state.activeClumpIndex]?.centerOffset ||
-                            1.5
+                            drawParams[activeClumpIndex]?.centerOffset || 1.5
                           }
                           aperture={0.04}
                           height={5}
@@ -550,13 +551,12 @@ export const DrawSignalRoute: React.FC = () => {
                       <PolarRadioWaveWebGPU
                         aperture={40}
                         beamWidth={
-                          (drawParams[state.activeClumpIndex]?.spikeWidth ??
-                            0.1) * 200
+                          (drawParams[activeClumpIndex]?.spikeWidth ?? 0.1) *
+                          200
                         }
                         rotation={0}
                         frequency={
-                          drawParams[state.activeClumpIndex]?.centerOffset ??
-                          1.5
+                          drawParams[activeClumpIndex]?.centerOffset ?? 1.5
                         }
                       />
                     </PolarPane>

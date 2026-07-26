@@ -58,7 +58,6 @@ export function resolveCliCaptureFftSize(args: readonly string[]): number {
  * by the N-APT signal profile. Other devices retain backend-resolved values.
  */
 export function resolveNaptReceiveDefaults(source: {
-  kind: string;
   sdr?: {
     settings?: {
       gain?: number | { tuner_gain?: number };
@@ -66,7 +65,6 @@ export function resolveNaptReceiveDefaults(source: {
     };
   };
 }): NaptReceiveDefaults {
-  const isRtlSdr = ["rtl-sdr", "rtl_sdr"].includes(source.kind);
   const configuredGain = source.sdr?.settings?.gain;
   const gainDb =
     typeof configuredGain === "number"
@@ -74,8 +72,8 @@ export function resolveNaptReceiveDefaults(source: {
       : configuredGain?.tuner_gain;
 
   return {
-    gainDb: isRtlSdr ? 46.9 : (gainDb ?? 46.9),
-    ppm: isRtlSdr ? 1 : (source.sdr?.settings?.ppm ?? 1),
+    gainDb: gainDb ?? 46.9,
+    ppm: source.sdr?.settings?.ppm ?? 1,
   };
 }
 
@@ -101,21 +99,14 @@ export function hasNaptReceiveDefaults(
   );
 }
 
-const isMock = (source: CaptureSource) =>
-  source.capability === "mock" ||
-  source.id === "mock-apt" ||
-  source.kind.includes("mock");
-
-const isConnectedPhysical = (source: CaptureSource) =>
-  (source.status === "connected" || source.status === "streaming") &&
-  !isMock(source);
+const isConnected = (source: CaptureSource) =>
+  source.status === "connected" || source.status === "streaming";
 
 /**
  * Selects a stable backend source ID for a CLI operation.
  *
- * `auto` selects the only connected physical device, falls back to Mock APT
- * when no physical device is connected, and rejects ambiguity when multiple
- * physical devices are available. Explicit IDs must be connected.
+ * `auto` selects the only connected source and rejects ambiguity. Explicit
+ * IDs are still used for routing, but source identity does not affect policy.
  */
 export function resolveRequestedDevice({
   requested,
@@ -124,12 +115,7 @@ export function resolveRequestedDevice({
   requested: string;
   sources: CaptureSource[];
 }): CaptureSource {
-  const physical = sources.filter(isConnectedPhysical);
-  const mock = sources.find(
-    (source) =>
-      isMock(source) &&
-      (source.status === "connected" || source.status === "streaming"),
-  );
+  const connected = sources.filter(isConnected);
 
   if (requested !== "auto") {
     const selected = sources.find((source) => source.id === requested);
@@ -142,20 +128,14 @@ export function resolveRequestedDevice({
     return selected;
   }
 
-  if (physical.length > 1) {
+  if (connected.length > 1) {
     throw new Error(
-      "Multiple physical devices are available; specify --device",
+      "Multiple sources are available; specify --device",
     );
   }
-  return (
-    physical[0] ??
-    mock ??
-    (() => {
-      throw new Error(
-        "No connected physical device or Mock APT source is available",
-      );
-    })()
-  );
+  return connected[0] ?? (() => {
+    throw new Error("No connected source is available");
+  })();
 }
 
 /**

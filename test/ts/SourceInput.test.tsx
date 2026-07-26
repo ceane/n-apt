@@ -13,6 +13,87 @@ describe("source selection state", () => {
 });
 
 describe("SourceInput", () => {
+  it("offers a HackRF Rx preview action in the compact source pill", () => {
+    const onPreviewDeviceTx = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          compactActiveOnly
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming" },
+            },
+          ]}
+          onPreviewDeviceTx={onPreviewDeviceTx}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Tx" }));
+
+    expect(onPreviewDeviceTx).toHaveBeenCalledWith("hackrf-1");
+  });
+
+  it("recognizes HackRF records that only identify the hardware by name", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          compactActiveOnly
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="radio-1"
+          devices={[
+            {
+              id: "radio-1",
+              name: "HackRF One",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming" },
+            },
+          ]}
+          onPreviewDeviceTx={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: "Preview Tx" })).toBeInTheDocument();
+  });
+
+  it("shows Tx Preview mode as active after Rx is paused for preview", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[{
+            id: "hackrf-1",
+            name: "HackRF One",
+            capability: "tx_rx",
+            duplex_mode: "Half-duplex",
+            status: { label: "tx_preview", paused: true },
+          }]}
+          onPreviewDeviceTx={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByRole("button", { name: "Tx Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume Rx [Space]" })).toBeInTheDocument();
+  });
+
   it("supports capped multi-source selection without switching the active source", () => {
     const onSelectedDevicesChange = jest.fn();
     const rendered = render(

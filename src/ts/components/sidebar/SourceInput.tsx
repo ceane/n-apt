@@ -2,7 +2,6 @@ import React, { useRef, useCallback, type DragEvent } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
-import { isMockDevice } from "@n-apt/utils/deviceCapabilities";
 
 const SourceInputWrapper = styled.div`
   display: grid;
@@ -358,6 +357,7 @@ interface SourceInputProps {
   onSelectedDevicesChange?: (ids: string[]) => void;
   onToggleDeviceRxPause?: (id: string) => void;
   onToggleDeviceTxMode?: (id: string) => void;
+  onPreviewDeviceTx?: (id: string) => void;
   deviceTxActionsEnabled?: boolean;
 }
 
@@ -382,6 +382,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   onSelectedDevicesChange,
   onToggleDeviceRxPause,
   onToggleDeviceTxMode,
+  onPreviewDeviceTx,
   deviceTxActionsEnabled = true,
 }) => {
   const fileSelectionActive = sourceMode === "file";
@@ -483,35 +484,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability?.toLowerCase().includes("tx") ? "Tx" : "Rx";
   };
   const sourceDevicesRaw = devices ?? [];
-  const isMockDeviceLocal = (device: (typeof sourceDevicesRaw)[number]) =>
-    isMockDevice({
-      capability: device.capability,
-      id: device.id,
-      name: device.name,
-      backend: device.backend,
-    });
-  const isDeviceConnected = (device: (typeof sourceDevicesRaw)[number]) => {
+  const sourceDevices = sourceDevicesRaw;
+  const isDeviceConnected = (device: (typeof sourceDevices)[number]) => {
     const label = device.status?.label?.toLowerCase?.() ?? "";
-    return (
-      label !== "disconnected" &&
-      label !== "offline" &&
-      label !== "stale" &&
-      label !== "error"
-    );
+    return !["disconnected", "offline", "stale", "error"].includes(label);
   };
-  const hasConnectedHardwareSource = sourceDevicesRaw.some(
-    (device) => !isMockDeviceLocal(device) && isDeviceConnected(device),
-  );
-  const sourceDevices = hasConnectedHardwareSource
-    ? sourceDevicesRaw.filter(
-        (device) =>
-          !isMockDeviceLocal(device) ||
-          device.status?.label?.toLowerCase?.() === "transmitting",
-      )
-    : sourceDevicesRaw;
   const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
-    device.backend?.toLowerCase().includes("hackrf") === true ||
-    device.name.toLowerCase().includes("hackrf") === true;
+    device.duplex_mode?.toLowerCase?.() === "half-duplex";
   const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
     device.status?.paused === false;
@@ -639,10 +618,22 @@ export const SourceInput: React.FC<SourceInputProps> = ({
               device.capability?.toLowerCase().includes("tx") ?? false;
             const isHalfDuplex = isHalfDuplexDevice(device);
             const isTransmittingDevice = device.id === transmittingDeviceId;
-            const actionLabel = isTxCapable
-              ? isTransmittingDevice
+            const isTxPreviewingDevice =
+              device.status?.label?.toLowerCase() === "tx_preview";
+            const isTxPreview =
+              !isTransmittingDevice &&
+              !isTxPreviewingDevice &&
+              isTxCapable &&
+              !!onPreviewDeviceTx;
+            const txActionLabel = isTxPreview
+              ? "Preview Tx"
+              : isTxPreviewingDevice
+                ? "Tx Preview"
+              : isTransmittingDevice
                 ? "Stop Tx"
-                : "Start Tx"
+                : "Start Tx";
+            const actionLabel = isTxCapable
+              ? txActionLabel
               : (device.status?.actionLabel ??
                 (device.status?.paused === false ? "Pause" : "Resume"));
             const showDeviceSpaceHint =
@@ -786,14 +777,19 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   onToggleDeviceTxMode ? (
                     <TxModeActionButton
                       type="button"
-                      aria-label={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
-                      $active={isSelectedDevice}
+                      aria-label={txActionLabel}
+                      $active={isSelectedDevice || isTxPreviewingDevice}
                       $danger={isTransmittingDevice}
-                      $muted={!isTransmittingDevice}
+                      $muted={!isTransmittingDevice && !isTxPreviewingDevice}
                       $opacity={fileModeOpacity}
+                      onClick={(event) => {
+                        if (!isTxPreview) return;
+                        event.stopPropagation();
+                        onPreviewDeviceTx?.(device.id);
+                      }}
                       onDoubleClick={(event) => {
                         event.stopPropagation();
-                        onToggleDeviceTxMode(device.id);
+                        if (!isTxPreview) onToggleDeviceTxMode(device.id);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -809,10 +805,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                           onToggleDeviceTxMode(device.id);
                         }
                       }}
-                      title={isTransmittingDevice ? "Stop Tx" : "Start Tx"}
+                      title={txActionLabel}
                     >
                       <ActionLabel>
-                        {isTransmittingDevice ? "Stop Tx" : "Start Tx"}
+                        {txActionLabel}
                       </ActionLabel>
                     </TxModeActionButton>
                   ) : null}

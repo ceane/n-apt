@@ -427,8 +427,8 @@ export const useWebSocket = (
                 typeof parsedData.device_profile.is_rtl_sdr === "boolean" &&
                 typeof parsedData.device_profile.supports_approx_dbm ===
                   "boolean" &&
-                typeof parsedData.device_profile.supports_raw_iq_stream ===
-                  "boolean"
+                (parsedData.device_profile.iq_format === undefined ||
+                  typeof parsedData.device_profile.iq_format === "object")
               ) {
                 updates.deviceProfile =
                   parsedData.device_profile as DeviceProfile;
