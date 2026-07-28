@@ -34,7 +34,9 @@ const StatusIcon = styled.div<{ $status: "locked" | "unlocked" | "error" }>`
   }
 `;
 
-export const VaultStatus: React.FC = () => {
+export const VaultStatus: React.FC<{ compact?: boolean }> = ({
+  compact = false,
+}) => {
   const auth = useAuthentication();
   const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
   const isUnlocked = auth.isAuthenticated && !!auth.aesKey && !cryptoCorrupted;
@@ -66,15 +68,15 @@ export const VaultStatus: React.FC = () => {
   }
 
   return (
-    <Container>
+    <Container style={compact ? { justifyContent: "flex-start", marginRight: 0 } : undefined}>
       <Tooltip title={label} content={content} />
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? "5px" : "8px" }}>
         <StatusIcon $status={status} title={label}>
-          <Icon size={18} />
+          <Icon size={compact ? 14 : 18} />
         </StatusIcon>
         <span
           style={{
-            fontSize: "10px",
+            fontSize: compact ? "9px" : "10px",
             fontWeight: "bold",
             color:
               status === "unlocked"

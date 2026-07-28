@@ -22,6 +22,7 @@ import {
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
+import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
 
 type FFTAndWaterfallProps = FFTCanvasProps & {
   waterfallHeaderActionContent?: ReactNode;
@@ -77,14 +78,6 @@ const SlidersRail = styled.div`
   align-items: center;
 `;
 
-const isTxCapableSource = (
-  source?: { capability?: string | null } | null,
-) => {
-  if (!source) return false;
-  const capability = source.capability?.toLowerCase?.() ?? "";
-  return capability === "tx" || capability === "tx_rx";
-};
-
 const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
   (props, ref) => {
     const dispatch = useAppDispatch();
@@ -123,7 +116,15 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         (source) => source.id === reduxState.websocket.activeSourceId,
       ),
     );
-    const canShowTxSlider = isTxCapableSource(activeSource);
+    const txSuiteSourceId = useAppSelector(
+      (reduxState) =>
+        reduxState.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
+    );
+    const sourceModeManagement = resolveSourceModeManagement({
+      source: activeSource,
+      txBindingSourceId: txSuiteSourceId,
+    });
+    const canShowTxSlider = sourceModeManagement.shouldShowTxControls;
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -155,7 +156,8 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         ((currentFrame as any).waveform?.length ?? 0) > 0)
     );
     const hasLiveFrame =
-      hasRenderableFrame || (props.isPaused && hasIncomingData);
+      hasRenderableFrame ||
+      ((props.isPaused || props.isStandby) && hasIncomingData);
     const placeholderErrorReason = useMemo(() => {
       if (props.placeholderErrorReason) {
         return props.placeholderErrorReason;
@@ -195,13 +197,19 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const isGlobalLoading = !!(
       awaitingDeviceData ||
       placeholderErrorReason ||
-      props.placeholderState ||
-      (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
+      (props.placeholderState && props.placeholderState.kind !== "top-bar") ||
+      (sourceMode === "live" &&
+        !props.isPaused &&
+        !props.isStandby &&
+        !hasLiveFrame)
     );
 
     const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
       ? awaitingDeviceData ||
-        (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
+        (sourceMode === "live" &&
+          !props.isPaused &&
+          !props.isStandby &&
+          !hasLiveFrame)
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
@@ -223,6 +231,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       placeholderErrorReason,
       props.placeholderSourceLabel,
       props.placeholderState,
+      props.isStandby,
       sharedAwaitingDeviceData,
     ]);
 
@@ -278,13 +287,19 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const zoom = props.vizZoom ?? 1;
     const zoomFloor = props.vizZoomFloor ?? 1;
     const pan = props.vizPanOffset ?? 0;
+    const resetFrequencyRangeRef = useRef({ ...props.frequencyRange });
+    useEffect(() => {
+      if (zoom <= 1.0001) {
+        resetFrequencyRangeRef.current = { ...props.frequencyRange };
+      }
+    }, [zoom, props.frequencyRange.min, props.frequencyRange.max]);
     const powerScale = props.powerScale ?? "dB";
     const dbMin = props.fftMin ?? (powerScale === "dBm" ? -100 : -120);
     const dbMax = props.fftMax ?? (powerScale === "dBm" ? 30 : 0);
     const effectiveTxSlider = useMemo(() => {
-      if (props.txSlider) return props.txSlider;
       if (!showTxSlider) return undefined;
       if (!canShowTxSlider) return undefined;
+      if (props.txSlider) return props.txSlider;
       const range = props.frequencyRange;
       if (
         !range ||
@@ -385,6 +400,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               {...props}
               isStandby={props.isStandby}
               txSlider={effectiveTxSlider}
+              txSliderAllowed={canShowTxSlider}
               interactionDisabled={isGlobalLoading}
               awaitingDeviceData={sharedAwaitingDeviceData}
               placeholderSourceLabel={props.placeholderSourceLabel}
@@ -424,7 +440,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           />
         </Left>
         <SlidersRail>
-          <VisualizerSliders
+            <VisualizerSliders
             zoom={zoom}
             dbMax={dbMax}
             dbMin={dbMin}
@@ -456,6 +472,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               dispatch(spectrumActions.setShowTxSlider(enabled))
             }
             onResetZoomDb={() => {
+              props.onFrequencyRangeChange?.(resetFrequencyRangeRef.current);
               props.onVizZoomFloorChange?.(1);
               props.onVizPanChange?.(0);
               props.onVizZoomChange?.(1);

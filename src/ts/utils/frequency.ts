@@ -64,6 +64,21 @@ export const getCenteredFrequencyHz = (
   bandwidthHz: number,
 ): number => centerHz - bandwidthHz / 2;
 
+export const resolveCenteredFrequencyHz = (
+  centerHz: number,
+  fallbackCenterHz: number,
+): number =>
+  Number.isFinite(centerHz)
+    ? centerHz
+    : Number.isFinite(fallbackCenterHz)
+      ? fallbackCenterHz
+      : 0;
+
+export const resolveMockTxMonitorCenterHz = (
+  txCenterHz: number,
+  fallbackCenterHz: number,
+): number => resolveCenteredFrequencyHz(txCenterHz, fallbackCenterHz);
+
 export const buildCenteredFrequencyRange = (
   centerHz: number,
   spanHz: number,
@@ -133,8 +148,8 @@ export const clampCenteredFrequencyRangeToZeroHz = (
   }
 
   const adjustedCenter = Math.max(rawCenter, halfBandwidth);
-  const min = adjustedCenter - halfBandwidth;
-  const max = adjustedCenter + halfBandwidth;
+  const min = getCenteredFrequencyHz(adjustedCenter, safeBandwidth);
+  const max = min + safeBandwidth;
 
   return {
     min: Math.round(Math.max(0, min)),

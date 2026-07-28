@@ -20,6 +20,7 @@ import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
 import { isFilePlaybackPaused } from "@n-apt/hooks/liveSourceLifecycle";
 import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { sourceSpectrumRuntime } from "@n-apt/visualization/sourceVisualizationRuntime";
@@ -259,7 +260,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     (state) => state.spectrum.txViewerSampleRateHz,
   );
   const selectedFiles = useAppSelector(
-    (state) => state.waterfall?.selectedFiles ?? [],
+    (state) => selectArrayOrEmpty(state.waterfall?.selectedFiles),
   );
   const stitchStatus = useAppSelector(
     (state) => state.waterfall?.stitchStatus ?? "",

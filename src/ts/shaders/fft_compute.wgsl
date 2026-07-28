@@ -337,7 +337,8 @@ fn fft_bin_frequency_hz(idx: u32) -> f32 {
 fn generic_true_dbm(sample: Complex) -> f32 {
   let power = max(rtl_sdr_complex_power(sample), 1e-20);
   let normalized_power = power / max(params.normalization, 1e-20);
-  return 10.0 * log10(max(normalized_power, 1e-20));
+  return 10.0 * log10(max(normalized_power, 1e-20))
+    + params.base_calibration_db;
 }
 
 fn interpolate_rtl_sdr_gain_offset(gain_db: f32) -> f32 {

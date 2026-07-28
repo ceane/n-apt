@@ -30,8 +30,7 @@ const payloadForm = (iq: Uint8Array): Form => {
   let magnitudeSum = 0;
   let adjacentVariation = 0;
   for (let index = 0; index + 1 < iq.length; index += 2) {
-    magnitudeSum +=
-      Math.abs(iq[index] - 128) + Math.abs(iq[index + 1] - 128);
+    magnitudeSum += Math.abs(iq[index] - 128) + Math.abs(iq[index + 1] - 128);
   }
   for (let index = 1; index < iq.length; index += 1) {
     adjacentVariation += Math.abs(iq[index] - iq[index - 1]);
@@ -139,8 +138,9 @@ describe("device swap payload-form integration", () => {
       clearLiveFrame: true,
       advanceResetEpoch: true,
     });
-    expect(shouldResetVisualPresentationForSelection("mock-apt", "mock-tx"))
-      .toBe(true);
+    expect(
+      shouldResetVisualPresentationForSelection("mock-apt", "mock-tx"),
+    ).toBe(true);
 
     expect(
       shouldClearPausedStandbyPresentation({
@@ -172,10 +172,7 @@ describe("device swap payload-form integration", () => {
         ],
       }),
     );
-    pump.enqueue(
-      makeV2Envelope("mock-apt", 11, 1, mockAptPayload),
-      "mock-apt",
-    );
+    pump.enqueue(makeV2Envelope("mock-apt", 11, 1, mockAptPayload), "mock-apt");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const aptFrame = frameFromRef();
@@ -200,17 +197,11 @@ describe("device swap payload-form integration", () => {
 
     // A late old-source frame follows the swap and must never reach the
     // pre-WebGPU presentation ref.
-    pump.enqueue(
-      makeV2Envelope("mock-apt", 11, 2, mockAptPayload),
-      "mock-tx",
-    );
+    pump.enqueue(makeV2Envelope("mock-apt", 11, 2, mockAptPayload), "mock-tx");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(liveDataRef.current).toBeNull();
 
-    pump.enqueue(
-      makeV2Envelope("mock-tx", 12, 1, mockTxPayload),
-      "mock-tx",
-    );
+    pump.enqueue(makeV2Envelope("mock-tx", 12, 1, mockTxPayload), "mock-tx");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const txFrame = frameFromRef();

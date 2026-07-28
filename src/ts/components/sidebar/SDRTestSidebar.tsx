@@ -15,6 +15,7 @@ import {
   setTemporalResolution,
   triggerDiagnostic,
   useAppDispatch,
+  useAppSelector,
 } from "@n-apt/redux";
 
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
@@ -73,10 +74,12 @@ const MultiFrameButton = styled(PauseButton)`
 
 export const SDRTestSidebar: React.FC = () => {
   const reduxDispatch = useAppDispatch();
+  const reduxSpectrumState = useAppSelector((root) => root.spectrum);
+  const waterfallState = useAppSelector((root) => root.waterfall);
+  const state = { ...reduxSpectrumState, ...waterfallState };
   const {
-    state,
-    dispatch,
     effectiveSdrSettings,
+    selectedSource,
     sampleRateHzEffective,
     toggleVisualizerPause,
     cryptoCorrupted,
@@ -98,12 +101,7 @@ export const SDRTestSidebar: React.FC = () => {
   const { showPrompt } = usePrompt();
 
   const maxSampleRate = sampleRateHzEffective ?? maxSampleRateHz ?? 0;
-  const deviceTypeNormalized =
-    deviceProfile?.kind === "rtl-sdr" ? "rtl_sdr" : deviceProfile?.kind;
-  const activeDeviceConfig = deviceTypeNormalized
-    ? effectiveSdrSettings?.devices?.[deviceTypeNormalized]
-    : undefined;
-  const gainLimits = activeDeviceConfig?.gain_limits;
+  const gainLimits = selectedSource?.capabilities?.gain_limits ?? undefined;
 
   const {
     fftSize,

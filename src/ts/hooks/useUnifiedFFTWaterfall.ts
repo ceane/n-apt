@@ -51,6 +51,45 @@ export interface UnifiedProcessingResult {
 const MAX_FFT_SIZE = 262144;
 const MAX_WATERFALL_WIDTH = 16384; // Hardware limit
 
+const shaderWindowPowerNormalization = (
+  fftSize: number,
+  windowType: UnifiedFFTWaterfallOptions["windowType"],
+) => {
+  const size = Math.max(1, fftSize);
+  let energy = 0;
+
+  for (let index = 0; index < size; index++) {
+    const t = size <= 1 ? 0 : index / (size - 1);
+    let coefficient = 1;
+    switch (windowType) {
+      case "hanning":
+        coefficient = 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+        break;
+      case "hamming":
+        coefficient = 0.54 - 0.46 * Math.cos(2 * Math.PI * t);
+        break;
+      case "blackman":
+        coefficient =
+          0.42 -
+          0.5 * Math.cos(2 * Math.PI * t) +
+          0.08 * Math.cos(4 * Math.PI * t);
+        break;
+      case "nuttall":
+        coefficient =
+          0.355768 -
+          0.487396 * Math.cos(2 * Math.PI * t) +
+          0.144232 * Math.cos(4 * Math.PI * t) -
+          0.012604 * Math.cos(6 * Math.PI * t);
+        break;
+      default:
+        break;
+    }
+    energy += coefficient * coefficient;
+  }
+
+  return Math.max(size * energy, 1e-20);
+};
+
 export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
   const {
     device,
@@ -567,8 +606,10 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
 
       let activeNormalization = normalizationFactor;
       if (powerMode === "dbm" && inputMode === "complex_iq") {
-        activeNormalization =
-          (processOptions?.hardwareSampleRateHz || 2_400_000) * fftSize;
+        activeNormalization = shaderWindowPowerNormalization(
+          fftSize,
+          windowType,
+        );
       }
 
       const calibrationOptions = {

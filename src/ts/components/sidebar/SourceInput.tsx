@@ -2,6 +2,9 @@ import React, { useRef, useCallback, type DragEvent } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
+import { isMockDevice } from "@n-apt/utils/deviceCapabilities";
+import { VaultStatus } from "@n-apt/components/ui/VaultStatus";
+import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
 
 const SourceInputWrapper = styled.div`
   display: grid;
@@ -88,6 +91,7 @@ const FilePill = styled.div<{ $active?: boolean }>`
 
 const FilePillMain = styled.div`
   display: grid;
+  align-content: center;
   gap: 2px;
   min-width: 0;
   text-align: left;
@@ -105,6 +109,12 @@ const FilePillMeta = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.04em;
   opacity: 0.65;
+`;
+
+const FilePillSecondaryRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const FileBrowseLink = styled.button`
@@ -334,6 +344,8 @@ interface SourceInputProps {
     backend?: string | null;
     capability?: "rx" | "tx" | "tx_rx" | "mock" | string;
     duplex_mode?: string | null;
+    active_duplex_mode?: string | null;
+    active_duplex_modes?: string[] | null;
     summary?: string;
     status?: {
       color?: string;
@@ -446,6 +458,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const showFileSpaceHint =
     fileSelectionActive &&
     (fileButtonLabel === "Play" || fileButtonLabel === "Pause");
+  const isFileLoading = fileButtonLabel.toLowerCase().includes("process");
 
   const formatCapability = (
     capability?: string | null,
@@ -484,16 +497,47 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return capability?.toLowerCase().includes("tx") ? "Tx" : "Rx";
   };
   const sourceDevicesRaw = devices ?? [];
-  const sourceDevices = sourceDevicesRaw;
-  const isDeviceConnected = (device: (typeof sourceDevices)[number]) => {
+  const isMockDeviceLocal = (device: (typeof sourceDevicesRaw)[number]) =>
+    isMockDevice({
+      capability: device.capability,
+      id: device.id,
+      name: device.name,
+      backend: device.backend,
+    });
+  const isDeviceConnected = (device: (typeof sourceDevicesRaw)[number]) => {
     const label = device.status?.label?.toLowerCase?.() ?? "";
     return !["disconnected", "offline", "stale", "error"].includes(label);
   };
+  const hasConnectedHardwareSource = sourceDevicesRaw.some(
+    (device) => !isMockDeviceLocal(device) && isDeviceConnected(device),
+  );
+  const sourceDevices = hasConnectedHardwareSource
+    ? sourceDevicesRaw.filter(
+        (device) =>
+          !isMockDeviceLocal(device) ||
+          device.status?.label?.toLowerCase?.() === "transmitting",
+      )
+    : sourceDevicesRaw;
   const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex";
   const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
+    resolveSourceModeManagement({
+      source: {
+        ...device,
+        status: device.status?.label,
+        paused: device.status?.paused,
+      },
+    }).isRxMode &&
     device.status?.paused === false;
+  const isTxModeDevice = (device: (typeof sourceDevices)[number]) =>
+    resolveSourceModeManagement({
+      source: {
+        ...device,
+        status: device.status?.label,
+        paused: device.status?.paused,
+      },
+    }).isTxMode;
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
     device.status?.label?.toLowerCase?.() === "transmitting";
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
@@ -623,15 +667,17 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const isTxPreview =
               !isTransmittingDevice &&
               !isTxPreviewingDevice &&
+              !isTxModeDevice(device) &&
+              isHalfDuplex &&
               isTxCapable &&
               !!onPreviewDeviceTx;
             const txActionLabel = isTxPreview
               ? "Preview Tx"
               : isTxPreviewingDevice
-                ? "Tx Preview"
-              : isTransmittingDevice
-                ? "Stop Tx"
-                : "Start Tx";
+                ? "Start Tx"
+                : isTransmittingDevice
+                  ? "Stop Tx"
+                  : "Start Tx";
             const actionLabel = isTxCapable
               ? txActionLabel
               : (device.status?.actionLabel ??
@@ -700,13 +746,15 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       />
                       {device.status.loadingLabel ?? "Loading…"}
                     </DeviceLoadingState>
-                  ) :
-                    isHalfDuplex &&
-                    onToggleDeviceRxPause ? (
+                  ) : isHalfDuplex && onToggleDeviceRxPause ? (
                     <DeviceActionButton
                       type="button"
                       $active={isSelectedDevice}
-                      $muted={isTransmittingDevice}
+                      $muted={
+                        isTransmittingDevice ||
+                        isTxPreviewingDevice ||
+                        isTxModeDevice(device)
+                      }
                       $opacity={fileModeOpacity}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -719,8 +767,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       {isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
-                  ) :
-                    !isHalfDuplex &&
+                  ) : !isHalfDuplex &&
                     device.status?.onAction &&
                     (!isTxCapable || deviceTxActionsEnabled) ? (
                     isTxCapable ? (
@@ -780,36 +827,45 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       aria-label={txActionLabel}
                       $active={isSelectedDevice || isTxPreviewingDevice}
                       $danger={isTransmittingDevice}
-                      $muted={!isTransmittingDevice && !isTxPreviewingDevice}
+                      $muted={
+                        !isTransmittingDevice &&
+                        !isTxPreviewingDevice &&
+                        !isTxModeDevice(device)
+                      }
                       $opacity={fileModeOpacity}
                       onClick={(event) => {
-                        if (!isTxPreview) return;
                         event.stopPropagation();
-                        onPreviewDeviceTx?.(device.id);
-                      }}
-                      onDoubleClick={(event) => {
-                        event.stopPropagation();
-                        if (!isTxPreview) onToggleDeviceTxMode(device.id);
+                        if (isTxPreview) {
+                          onPreviewDeviceTx?.(device.id);
+                        } else {
+                          onToggleDeviceTxMode(device.id);
+                        }
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
                           event.stopPropagation();
-                          onToggleDeviceTxMode(device.id);
+                          if (isTxPreview) {
+                            onPreviewDeviceTx?.(device.id);
+                          } else {
+                            onToggleDeviceTxMode(device.id);
+                          }
                         }
                       }}
                       onKeyUp={(event) => {
                         if (event.key === " " || event.key === "Spacebar") {
                           event.preventDefault();
                           event.stopPropagation();
-                          onToggleDeviceTxMode(device.id);
+                          if (isTxPreview) {
+                            onPreviewDeviceTx?.(device.id);
+                          } else {
+                            onToggleDeviceTxMode(device.id);
+                          }
                         }
                       }}
                       title={txActionLabel}
                     >
-                      <ActionLabel>
-                        {txActionLabel}
-                      </ActionLabel>
+                      <ActionLabel>{txActionLabel}</ActionLabel>
                     </TxModeActionButton>
                   ) : null}
                 </DeviceActions>
@@ -844,15 +900,18 @@ export const SourceInput: React.FC<SourceInputProps> = ({
               <FilePillMain>
                 <FilePillName>File Selection</FilePillName>
                 {fileSelectionActive && selectedFilesCount > 0 ? (
-                  <FileBrowseLink
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    Browse...
-                  </FileBrowseLink>
+                  <FilePillSecondaryRow>
+                    <FileBrowseLink
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                    >
+                      Browse...
+                    </FileBrowseLink>
+                    {!isFileLoading && <VaultStatus compact />}
+                  </FilePillSecondaryRow>
                 ) : (
                   <FilePillMeta>Playback I/Q captures</FilePillMeta>
                 )}

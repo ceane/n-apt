@@ -122,12 +122,14 @@ export const resolveLiveSourcePresentationPolicy = ({
     // A mismatched mutable presentation is cleared independently so the
     // selected source can publish immediately after the handoff commits.
     suppressStaleFrames: sourceHandoff,
-    clearStalePresentation: shouldClearPausedStandbyPresentation({
-      isStandby: standby,
-      selectedSourceId,
-      presentedSourceId: presentedSourceId ?? null,
-      readiness,
-    }),
+    clearStalePresentation:
+      sourceHandoff ||
+      shouldClearPausedStandbyPresentation({
+        isStandby: standby,
+        selectedSourceId,
+        presentedSourceId: presentedSourceId ?? null,
+        readiness,
+      }),
     preserveMatchingPresentation:
       standby && presentedFrameMatchesSelection && selectedFrameReady,
   };
@@ -153,17 +155,25 @@ export const shouldRestorePausedFrameSnapshot = ({
 export const shouldPresentMockTxStandby = ({
   isSelectedMockTxSource,
   isSelectedMockTxTransmitting,
+  isSelectedMockTxPaused = false,
   selectedSourceId,
   transportSourceId,
   transportPhase,
 }: {
   isSelectedMockTxSource: boolean;
   isSelectedMockTxTransmitting: boolean;
+  isSelectedMockTxPaused?: boolean;
   selectedSourceId: string | null | undefined;
   transportSourceId: string | null | undefined;
   transportPhase: SourceTransportPhase;
 }): boolean => {
-  if (!isSelectedMockTxSource || isSelectedMockTxTransmitting) return false;
+  if (
+    !isSelectedMockTxSource ||
+    isSelectedMockTxTransmitting ||
+    isSelectedMockTxPaused
+  ) {
+    return false;
+  }
   const isDepartingMockTx = !!(
     transportSourceId &&
     transportSourceId !== selectedSourceId &&
@@ -183,16 +193,19 @@ export const shouldPresentMockTxStandby = ({
 export const shouldRequestMockTxStandbyPreview = ({
   isSelectedMockTxSource,
   isSelectedMockTxTransmitting,
+  isSelectedMockTxPaused = false,
   isConnected,
   phase,
 }: {
   isSelectedMockTxSource: boolean;
   isSelectedMockTxTransmitting: boolean;
+  isSelectedMockTxPaused?: boolean;
   isConnected: boolean;
   phase: LiveSourceLifecyclePhase;
 }): boolean =>
   isSelectedMockTxSource &&
   !isSelectedMockTxTransmitting &&
+  !isSelectedMockTxPaused &&
   isConnected &&
   phase !== "disconnected" &&
   phase !== "failed";

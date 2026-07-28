@@ -20,6 +20,7 @@ import {
   AuthInfoSchema,
   AuthResultSchema,
   SessionValidationSchema,
+  SourceInfoMessageSchema,
 } from "@n-apt/validation/schemas";
 
 // Validation configuration
@@ -101,11 +102,15 @@ export function validateWebSocketMessage(data: unknown): boolean {
     if (isValidObject(data)) {
       const type = (data as { type?: unknown }).type;
       if (type === "source_info") {
-        const isValid = isValidSourceInfoMessageEnhanced(data);
-        if (!isValid) {
-          logValidationFailure("Source info message", data);
+        const result = SourceInfoMessageSchema.safeParse(data);
+        if (!result.success) {
+          logValidationFailure(
+            "Source info message",
+            data,
+            JSON.stringify(result.error.issues, null, 2),
+          );
         }
-        return isValid;
+        return result.success;
       }
       if (type === "channels") {
         const isValid = isValidChannelsMessageEnhanced(data);

@@ -29,15 +29,11 @@ describe("WebGPU stream reset", () => {
   });
 
   test("commits a pending source reset without a frame for stale source standby", () => {
-    expect(
-      shouldCommitSourcePresentationReset(true, false, true),
-    ).toBe(true);
-    expect(
-      shouldCommitSourcePresentationReset(false, false, true),
-    ).toBe(false);
-    expect(
-      shouldCommitSourcePresentationReset(true, true, false, true),
-    ).toBe(false);
+    expect(shouldCommitSourcePresentationReset(true, false, true)).toBe(true);
+    expect(shouldCommitSourcePresentationReset(false, false, true)).toBe(false);
+    expect(shouldCommitSourcePresentationReset(true, true, false, true)).toBe(
+      false,
+    );
   });
 
   test("clears stale standby ownership but freezes the selected source frame", () => {
@@ -246,7 +242,7 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
-  test("invalidates the old presentation at selection without clearing again on commit", () => {
+  test("clears the old presentation at selection and resets only once", () => {
     const selection = resolveWebGpuStreamTransition(
       {
         sourceId: "mock-apt",
@@ -280,5 +276,29 @@ describe("WebGPU stream reset", () => {
       clearLiveFrame: false,
       advanceResetEpoch: false,
     });
+  });
+});
+
+it("preserves the last Tx frame while stopping into standby", async () => {
+  const { resolveWebGpuStreamTransition } = await import(
+    "../../src/ts/utils/webgpuStreamReset"
+  );
+
+  expect(
+    resolveWebGpuStreamTransition(
+      {
+        sourceId: "mock-tx",
+        selectedSourceId: "mock-tx",
+        status: "transmitting",
+      },
+      {
+        sourceId: "mock-tx",
+        selectedSourceId: "mock-tx",
+        status: "standby",
+      },
+    ),
+  ).toEqual({
+    clearLiveFrame: false,
+    advanceResetEpoch: false,
   });
 });

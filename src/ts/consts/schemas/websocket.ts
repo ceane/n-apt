@@ -44,7 +44,7 @@ export type SDRSettings = {
 
 export type SdrSettingsConfig = {
   sample_rate: number;
-  min_receive_sample_rate?: number;
+  min_receive_sample_rate?: number | null;
   center_frequency: number;
   gain?: {
     tuner_gain: number;
@@ -68,40 +68,6 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
-  fft_sizes?: Array<{
-    base: string;
-    fft_min?: number;
-    fft_max?: number;
-  }>;
-  devices?: Record<
-    string,
-    {
-      sample_rate: number | string | Array<string> | Record<string, any>;
-      fft_display?: {
-        markers?: Array<{
-          kind: string;
-          freq_hz: number;
-          label?: string;
-        }>;
-      };
-      fft_sizes?: Array<{
-        base: string;
-        fft_min?: number;
-        fft_max?: number;
-      }>;
-      gain_limits?: {
-        min?: number;
-        max?: number;
-        step?: number;
-        lna_min?: number;
-        lna_max?: number;
-        lna_step?: number;
-        vga_min?: number;
-        vga_max?: number;
-        vga_step?: number;
-      };
-    }
-  >;
 };
 
 export type AptContentType =
@@ -231,6 +197,20 @@ export type CaptureStatus = {
   duration?: number;
 } | null;
 
+export type TxSafetyResult = {
+  type: "tx_safety";
+  source_id: string;
+  effective_power_dbm: number;
+  maximum_safe_power_dbm: number;
+  minimum_iq_power_floor_dbm: number;
+  recommended_ifft_size: number;
+  effective_ifft_size: number;
+  vga_gain_db?: number;
+  amp_enabled?: boolean;
+  safety_clamped: boolean;
+  validation_errors: string[];
+};
+
 export interface DeviceProfile {
   kind: string;
   is_rtl_sdr: boolean;
@@ -239,6 +219,53 @@ export interface DeviceProfile {
 }
 
 export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
+
+export type SourceCapabilities = {
+  can_receive: boolean;
+  can_transmit: boolean;
+  /** Source can publish a live TX-monitor/preview stream. */
+  supports_tx_monitor?: boolean;
+  /** Configured inventory label, e.g. "Simplex" or "Half-duplex". */
+  duplex_mode?: string | null;
+  active_duplex_mode?: DeviceActiveMode | null;
+  active_duplex_modes?: DeviceActiveMode[] | null;
+  supports_approx_dbm: boolean;
+  iq_format?: IqFormat;
+  supported_controls: string[];
+  sample_rates: number[];
+  max_sample_rate: number;
+  /** Maximum instantaneous render/acquisition span in Hz. */
+  max_instantaneous_sample_rate: number;
+  frequency_range?: FrequencyRange | null;
+  tx_power_dbm?: {
+    min?: number;
+    max?: number;
+  } | null;
+  gain_limits?: {
+    min?: number | null;
+    max?: number | null;
+    step?: number | null;
+    lna_min?: number | null;
+    lna_max?: number | null;
+    lna_step?: number | null;
+    vga_min?: number | null;
+    vga_max?: number | null;
+    vga_step?: number | null;
+  } | null;
+  fft?: {
+    sizes: number[];
+    default_size: number;
+    default_frame_rate: number;
+    max_size: number;
+    max_frame_rate: number;
+    size_to_frame_rate?: Record<string, number>;
+  };
+  display?: {
+    min_db: number;
+    max_db: number;
+    padding: number;
+  };
+};
 
 export type DeviceActiveMode = "rx" | "tx" | "rx_tx";
 export type DeviceDuplexMode = "half_duplex";
@@ -263,19 +290,17 @@ export type SourceSdrSettings = {
   min_receive_sample_rate?: number;
   center_frequency?: number;
   gain?: number | SdrSettingsConfig["gain"];
-  hackrf_lna_gain?: number;
-  hackrf_vga_gain?: number;
-  hackrf_amp_enable?: boolean;
+  hackrf_lna_gain?: number | null;
+  hackrf_vga_gain?: number | null;
+  hackrf_amp_enable?: boolean | null;
   ppm?: number;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
   offset_tuning?: boolean;
   direct_sampling?: number;
-  tuner_bandwidth?: number;
+  tuner_bandwidth?: number | null;
   fft?: SdrSettingsConfig["fft"];
   display?: SdrSettingsConfig["display"];
-  devices?: SdrSettingsConfig["devices"];
-  fft_sizes?: SdrSettingsConfig["fft_sizes"];
 };
 
 export interface SourceInfo {
@@ -284,12 +309,17 @@ export interface SourceInfo {
   kind: string;
   capability: SourceCapability;
   duplex_mode?: string | null;
+  /** Backend-reported hardware mode; view mode remains UI-owned. */
+  active_duplex_mode?: DeviceActiveMode | null;
+  active_duplex_modes?: DeviceActiveMode[] | null;
   status: SourceStatus;
   paused?: boolean;
   loading_attempt: number;
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
   iq_format?: IqFormat;
+  /** Generic capability envelope. Legacy top-level fields remain during migration. */
+  capabilities?: SourceCapabilities;
   stream_key?: string;
   stream_key_kind?: "serial" | "source_id";
   /** Additive raw-I/Q wire versions supported by this source. */
@@ -310,23 +340,6 @@ export interface SourceInfo {
       }>;
     };
     settings: SourceSdrSettings;
-  };
-  mock_tx?: {
-    enabled: boolean;
-    noise_floor_db?: number;
-    signals: Record<
-      string,
-      {
-        label?: string;
-        channel?: string;
-        center_frequency_hz?: number;
-        sample_rate_hz?: number;
-        offset_hz?: number;
-        tone_hz?: number;
-        bandwidth_hz?: number;
-        description?: string;
-      }
-    >;
   };
 }
 
@@ -375,6 +388,7 @@ export interface SignalDisplaySettingsMessage {
 }
 
 export type WebSocketMessage =
+  | TxSafetyResult
   | {
       type: "frequency_range" | "set_frequency_range";
       min_hz: number;
@@ -421,7 +435,11 @@ export type WebSocketMessage =
   | ({ type: "settings" } & SDRSettings)
   | SignalDisplaySettingsMessage
   | { type: "restart_device" }
-  | { type: "select_source"; source_id: string }
+  | {
+      type: "select_source";
+      source_id: string;
+      sample_rate?: number;
+    }
   | {
       type: "training_capture";
       action: "start" | "stop";

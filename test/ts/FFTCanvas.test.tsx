@@ -49,8 +49,8 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
-  useWasmSimdMath: () => ({
+jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
+  const mockUseSpectrumMath = () => ({
     isWasmLoaded: true,
     isSimdAvailable: false,
     resampleSpectrum: jest.fn(),
@@ -68,8 +68,15 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     detectProminentSpikes: jest.fn(() => []),
     resampleSpectrumEnhanced: jest.fn(),
     matchNoiseFloorDb: jest.fn((ref, target) => target),
-  }),
-}));
+  });
+
+  return {
+    useSpectrumMath: mockUseSpectrumMath,
+    // Keep the deprecated hook available for components covered by this
+    // module mock while production code migrates to useSpectrumMath.
+    useWasmSimdMath: mockUseSpectrumMath,
+  };
+});
 
 jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
   useSpectrumRenderer: () => ({
@@ -77,6 +84,59 @@ jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
     cleanup: cleanupSpectrumMock,
   }),
 }));
+
+// Keep these component tests on the deterministic Canvas 2D path. The jsdom
+// WebGPU shim exposes partial device methods, which otherwise leaves the
+// asynchronous GPU startup path pending and prevents the first spectrum draw.
+jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+  useWebGPULifecycle: () => ({
+    webgpuEnabled: false,
+    isInitializingWebGPU: false,
+    webgpuDeviceRef: { current: null },
+    webgpuFormatRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    spikesOverlayRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: false, markers: false } },
+  }),
+  useWebGPUInit: () => ({
+    isInitialized: true,
+    isInitializingWebGPU: false,
+    webgpuEnabled: false,
+    webgpuDeviceRef: { current: null },
+    webgpuFormatRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    spikesOverlayRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: false, markers: false } },
+  }),
+}));
+
+jest.mock("@n-apt/hooks/useFftRenderCoordinator", () => {
+  const React = require("react") as typeof import("react");
+  return {
+    useFftRenderCoordinator: ({
+      onRenderFrame,
+      forceRenderRef,
+    }: {
+      onRenderFrame: (runId: number, force?: boolean) => void;
+      forceRenderRef?: { current: (() => void) | null };
+    }) => {
+      const render = React.useCallback(
+        () => onRenderFrame(0, true),
+        [onRenderFrame],
+      );
+      React.useEffect(() => {
+        if (forceRenderRef) forceRenderRef.current = render;
+        render();
+        return () => {
+          if (forceRenderRef?.current === render) forceRenderRef.current = null;
+        };
+      }, [forceRenderRef, render]);
+      return { forceRender: render };
+    },
+  };
+});
 
 jest.unmock("@n-apt/components/FFTCanvas");
 
@@ -97,11 +157,17 @@ const mockTheme = {
 
 describe("FFTCanvas Component", () => {
   const defaultProps = {
-    dataRef: { current: { waveform: new Float32Array(1024).fill(-50) } },
+    dataRef: {
+      current: {
+        source_id: "source",
+        waveform: new Float32Array(1024).fill(-50),
+      },
+    },
     frequencyRange: { min: 100, max: 110 },
     centerFrequencyHz: 105_000_000,
     activeSignalArea: "test",
     isPaused: false,
+    isDeviceConnected: true,
     snapshotGridPreference: true,
   };
 
@@ -316,7 +382,7 @@ describe("FFTCanvas Component", () => {
     expect(screen.getByText(/FFT Signal Display/i)).toBeInTheDocument();
   });
 
-  it("renders the Tx row from Redux state even when no parent slider prop is passed", async () => {
+  it("renders the Tx row when the active source provides slider state", async () => {
     render(
       <TestWrapper>
         <MemoryRouter>
@@ -324,6 +390,15 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas
               {...defaultProps}
               frequencyRange={{ min: 0, max: 4_372_000 }}
+              txSlider={{
+                visible: true,
+                visibleMinHz: 0,
+                visibleMaxHz: 4_372_000,
+                txCenterHz: 137_100_000,
+                txSampleRateHz: 120_000,
+                onCenterFrequencyChange: jest.fn(),
+                onSampleRateChange: jest.fn(),
+              }}
             />
           </SpectrumProvider>
         </MemoryRouter>
@@ -522,6 +597,7 @@ describe("FFTCanvas Component", () => {
     drawSpectrumMock.mockClear();
 
     const liveFrame = {
+      source_id: "source",
       waveform: new Float32Array(1024).fill(-42),
     };
     const onCanvasLoadingChange = jest.fn();

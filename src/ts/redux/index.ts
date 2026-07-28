@@ -120,6 +120,7 @@ import {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
@@ -141,6 +142,7 @@ import {
   setSampleRate,
   setSdrSettingsBundle,
   setVisualizerPaused,
+  setDetectedFrameRate,
   setDiagnosticStatus,
   setDiagnosticRunning,
   triggerDiagnostic,
@@ -148,9 +150,12 @@ import {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setMinReceiveSampleRate,
   setShowSpikeOverlay,
   setGpuSpikeCount,
   setShowTxSlider,
+  setStitchOption,
+  setStitchOptionValue,
 } from "./slices/spectrumSlice";
 
 // Export spectrum actions as individual
@@ -184,6 +189,7 @@ export {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
@@ -205,6 +211,7 @@ export {
   setSampleRate,
   setSdrSettingsBundle,
   setVisualizerPaused,
+  setDetectedFrameRate,
   setDiagnosticStatus,
   setDiagnosticRunning,
   triggerDiagnostic,
@@ -212,9 +219,12 @@ export {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setMinReceiveSampleRate,
   setShowSpikeOverlay,
   setGpuSpikeCount,
   setShowTxSlider,
+  setStitchOption,
+  setStitchOptionValue,
 } from "./slices/spectrumSlice";
 
 // Export collective action objects for convenience
@@ -248,6 +258,7 @@ export const spectrumActions = {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,

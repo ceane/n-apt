@@ -24,7 +24,11 @@ describe("Debug WebSocket Validation", () => {
           loading_attempt: 0,
           loading_attempt_max: 3,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: {
+            element_type: "u8",
+            layout: "interleaved_iq",
+            typed_array: "Uint8Array",
+          },
           sdr: {
             max_sample_rate: 3200000,
             sample_rate_options: [3200000],

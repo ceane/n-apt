@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
-import type { SDRSettings, SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import type { SDRSettings, SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import {
   useAppDispatch,
@@ -308,8 +308,6 @@ export const useSdrSettings = ({
   );
   const setSampleRate = useCallback(
     (sampleRate: number) => {
-      const isHackrfBasebandEnabled =
-        (stateRef.current.hackrfBasebandBandwidth ?? 0) > 0;
       const currentFftSize = stateRef.current.fftSize;
       const nextFrameRate = getLogicalMaxFrameRate(
         sampleRate,
@@ -317,24 +315,19 @@ export const useSdrSettings = ({
         sdrSettings,
       );
       if (deviceType === "hackrf_one") {
-        const nextHackrfBasebandBandwidth = isHackrfBasebandEnabled
-          ? sampleRate
-          : 0;
+        const nextHackrfBasebandBandwidth =
+          stateRef.current.hackrfBasebandBandwidth === 0 ? 0 : sampleRate;
         dispatch(
           setSdrSettingsBundle({
             sampleRateHz: sampleRate,
-            ...(isHackrfBasebandEnabled
-              ? { hackrfBasebandBandwidth: nextHackrfBasebandBandwidth }
-              : {}),
+            hackrfBasebandBandwidth: nextHackrfBasebandBandwidth,
             fftFrameRate: nextFrameRate,
           }),
         );
         sendCurrentSettings({
           sampleRate,
           frameRate: nextFrameRate,
-          ...(isHackrfBasebandEnabled
-            ? { tunerBandwidth: nextHackrfBasebandBandwidth }
-            : { tunerBandwidth: 0 }),
+          tunerBandwidth: nextHackrfBasebandBandwidth,
         });
       } else {
         dispatch(

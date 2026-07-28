@@ -141,9 +141,12 @@ describe("useCaptureWholeChannelSegments", () => {
     expect(getSnapshotData).toHaveBeenCalledTimes(183);
   });
 
-  it("does not sweep whole-channel segments for RTL-SDR sources", async () => {
+  it("sweeps oversized logical channels using only the sample-rate capability", async () => {
     const sendFrequencyRange = jest.fn();
-    const getSnapshotData = jest.fn();
+    const getSnapshotData = jest.fn(() => ({
+      waveform: new Float32Array([1, 2]),
+      frequencyRange: { min: 18_000, max: 3_218_000 },
+    }));
 
     const fftCanvasRef = {
       current: {
@@ -157,14 +160,14 @@ describe("useCaptureWholeChannelSegments", () => {
           frequencyRange: { min: 18_000, max: 4_390_000 },
           sourceMode: "live",
           sampleRateHzEffective: 3_200_000,
-          deviceKind: "rtl_sdr",
-          backend: "rtl-sdr",
-          deviceName: "RTL-SDR Blog V4",
           activeSignalArea: undefined,
           signalAreaBounds: null,
           fftFrameRate: 12,
           vizPanOffset: 0,
           vizZoom: 1,
+          deviceKind: "rtl_sdr",
+          backend: "rtl-sdr",
+          deviceName: "RTL-SDR Blog V4",
           sendFrequencyRange,
           fftCanvasRef,
         }),
@@ -176,8 +179,8 @@ describe("useCaptureWholeChannelSegments", () => {
       segments = await result.current();
     });
 
-    expect(segments).toEqual([]);
-    expect(sendFrequencyRange).not.toHaveBeenCalled();
-    expect(getSnapshotData).not.toHaveBeenCalled();
+    expect(segments).toHaveLength(2);
+    expect(sendFrequencyRange).toHaveBeenCalled();
+    expect(getSnapshotData).toHaveBeenCalled();
   });
 });

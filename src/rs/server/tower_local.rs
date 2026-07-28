@@ -892,3 +892,4 @@ mod tests {
     assert!(states >= 1);
   }
 }
+// Hot-reload probe 1: harmless source change for watcher verification.

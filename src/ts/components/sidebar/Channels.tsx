@@ -8,8 +8,9 @@ import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import { formatFrequency, formatChannelFreq } from "@n-apt/utils/frequency";
 import ReduxFrequencyRangeSlider from "@n-apt/components/sidebar/ReduxFrequencyRangeSlider";
 import { Collapsible, Tooltip } from "@n-apt/components/ui";
-import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
+import { resolveWholeChannelFrame } from "@n-apt/utils/wholeChannelControl";
 import {
   clampFrequencyRangeToBounds,
   findRangeContainingFrequency,
@@ -283,6 +284,7 @@ interface ChannelsProps {
   rangeSlidersDisabled?: boolean;
   /** When true, hides the Channels section header. Useful for embedding in constrained areas. */
   hideTitle?: boolean;
+  onSampleRateChange?: (rate: number, mode?: "whole" | "manual") => void;
 }
 
 const IQExplainerTooltip = () => (
@@ -304,6 +306,7 @@ export const Channels: React.FC<ChannelsProps> = ({
   onScanStop: _onScanStop,
   rangeSlidersDisabled = false,
   hideTitle = false,
+  onSampleRateChange,
 }) => {
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
@@ -331,7 +334,7 @@ export const Channels: React.FC<ChannelsProps> = ({
     wsConnection,
   } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
-  const { tuneChannels } = useChannelTuner();
+  const { tuneChannels } = useChannelTuner(onSampleRateChange);
   const isRtlSdr = isRtlSdrDevice({
     deviceKind:
       websocketDeviceProfile?.kind ??
@@ -500,15 +503,6 @@ export const Channels: React.FC<ChannelsProps> = ({
         Math.round(channelSampleRateHz) ===
           Math.round(Math.max(0, frame.max_hz - frame.min_hz)),
     );
-  const shouldUseWholeChannelRange = (frame: {
-    min_hz: number;
-    max_hz: number;
-  }) =>
-    supportsWholeChannelDisplay &&
-    typeof channelSampleRateHz === "number" &&
-    Number.isFinite(channelSampleRateHz) &&
-    Math.round(channelSampleRateHz) ===
-      Math.round(Math.max(0, frame.max_hz - frame.min_hz));
   const activeDescription: string = activeFrame?.description ?? "";
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
   const widthHz = activeFrame
@@ -586,11 +580,20 @@ export const Channels: React.FC<ChannelsProps> = ({
               const minFreq = frame.min_hz;
               const maxFreq = frame.max_hz;
               const channelSpan = maxFreq - minFreq;
-              const sliderSampleRateHz =
-                !supportsWholeChannelDisplay &&
-                typeof channelSampleRateHz === "number" &&
-                Number.isFinite(channelSampleRateHz) &&
-                channelSampleRateHz >= channelSpan
+              const wholeChannelFrame = resolveWholeChannelFrame({
+                supportsWholeChannel: supportsWholeChannelDisplay,
+                wholeChannelMode: isWholeChannelMode,
+                sampleRateHz: channelSampleRateHz,
+                channelBounds: { min: minFreq, max: maxFreq },
+              });
+              const frameUsesWholeChannelRange =
+                wholeChannelFrame.isWholeChannel;
+              const sliderSampleRateHz = frameUsesWholeChannelRange
+                ? wholeChannelFrame.sampleRateHz
+                : !supportsWholeChannelDisplay &&
+                    typeof channelSampleRateHz === "number" &&
+                    Number.isFinite(channelSampleRateHz) &&
+                    channelSampleRateHz >= channelSpan
                   ? Math.min(3_200_000, channelSpan)
                   : channelSampleRateHz;
               const isFrameActive =
@@ -606,25 +609,25 @@ export const Channels: React.FC<ChannelsProps> = ({
                   disabled={rangeSlidersDisabled}
                   sampleRateHz={sliderSampleRateHz}
                   isActive={isFrameActive}
-                  isWholeChannelMode={shouldUseWholeChannelRange(frame)}
+                  isWholeChannelMode={frameUsesWholeChannelRange}
                   forceFullWidth={isWholeChannelMode}
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
-                    const sampleRateCoversChannel =
-                      supportsWholeChannelDisplay &&
-                      typeof sliderSampleRateHz === "number" &&
-                      Number.isFinite(sliderSampleRateHz) &&
-                      sliderSampleRateHz >= channelSpan;
-                    const shouldUseWholeChannelRange =
-                      isWholeChannelMode || sampleRateCoversChannel;
-                    const rememberedRange = shouldUseWholeChannelRange
+                    const isTargetWholeChannel = resolveWholeChannelFrame({
+                      supportsWholeChannel: supportsWholeChannelDisplay,
+                      wholeChannelMode: isWholeChannelMode,
+                      sampleRateHz: channelSampleRateHz,
+                      channelBounds: { min: minFreq, max: maxFreq },
+                    }).isWholeChannel;
+
+                    const rememberedRange = isTargetWholeChannel
                       ? null
                       : (state.lastKnownRanges?.[label] ??
                         state.lastKnownRanges?.[label.toLowerCase()]);
                     const nextRange = rememberedRange ?? {
                       min: minFreq,
-                      max: shouldUseWholeChannelRange
+                      max: isTargetWholeChannel
                         ? maxFreq
                         : minFreq +
                           (typeof sliderSampleRateHz === "number"
@@ -650,6 +653,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                       [{ label, min: minFreq, max: maxFreq }],
                       undefined,
                       clampedRange,
+                      isTargetWholeChannel ? channelSpan : undefined,
                     );
                   }}
                 />
@@ -838,7 +842,14 @@ export const Channels: React.FC<ChannelsProps> = ({
                     maxFreq={ch.max_hz}
                     disabled={rangeSlidersDisabled}
                     sampleRateHz={channelSampleRateHz}
-                    isWholeChannelMode={shouldUseWholeChannelRange(ch)}
+                    isWholeChannelMode={
+                      resolveWholeChannelFrame({
+                        supportsWholeChannel: supportsWholeChannelDisplay,
+                        wholeChannelMode: isWholeChannelMode,
+                        sampleRateHz: channelSampleRateHz,
+                        channelBounds: { min: ch.min_hz, max: ch.max_hz },
+                      }).isWholeChannel
+                    }
                     forceFullWidth={isWholeChannelMode}
                     allowWideSampleRateOverscan
                     onActivate={() => handleTune(ch)}

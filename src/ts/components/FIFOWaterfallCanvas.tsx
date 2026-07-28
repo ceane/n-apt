@@ -171,7 +171,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     (node: HTMLCanvasElement | null) => {
       waterfallGpuCanvasRef.current = node;
       setWaterfallGpuCanvasNode(node);
-      if (placeholderState) {
+      if (placeholderState && placeholderState.kind !== "top-bar") {
         clearCanvas(node);
       }
     },
@@ -181,7 +181,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     (node: HTMLCanvasElement | null) => {
       waterfallOverlayCanvasRef.current = node;
       setWaterfallOverlayCanvasNode(node);
-      if (placeholderState) {
+      if (placeholderState && placeholderState.kind !== "top-bar") {
         clearCanvas(node);
       }
     },

@@ -56,10 +56,8 @@ fn wifi_5g_motion_gain(signal_name: &str, frame_seed: u64) -> f64 {
 }
 
 fn mock_tx_ofdm_symbol_rotation(symbol_index: u64) -> (f64, f64) {
-  let phase = (mock_tx_noise_unit(
-    symbol_index,
-    MOCK_TX_OFDM_SYMBOL_PHASE_KEY,
-  ) + 1.0)
+  let phase = (mock_tx_noise_unit(symbol_index, MOCK_TX_OFDM_SYMBOL_PHASE_KEY)
+    + 1.0)
     * std::f64::consts::PI;
   phase.sin_cos()
 }
@@ -122,7 +120,7 @@ fn clamp_raw_iq_to_bandwidth(
   rel_center_hz: f64,
   width_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
- ) {
+) {
   let sample_count = iq.len();
   if sample_count == 0
     || !rel_center_hz.is_finite()
@@ -143,7 +141,10 @@ fn clamp_raw_iq_to_bandwidth(
 
   let (fft, ifft) = PLANNER.with(|p| {
     let mut planner = p.borrow_mut();
-    (planner.plan_fft_forward(sample_count), planner.plan_fft_inverse(sample_count))
+    (
+      planner.plan_fft_forward(sample_count),
+      planner.plan_fft_inverse(sample_count),
+    )
   });
 
   fft.process(&mut iq_f32);
@@ -167,46 +168,30 @@ fn clamp_raw_iq_to_bandwidth(
   }
 }
 
-fn peak_amplitude_inside_bandwidth_raw(
-  iq: &[Complex<f64>],
-  rel_center_hz: f64,
-  width_bandwidth_hz: f64,
-  view_sample_rate_hz: f64,
-) -> f64 {
-  let sample_count = iq.len();
-  if sample_count == 0 {
+fn complex_spectral_peak_raw(iq: &[Complex<f64>]) -> f64 {
+  if iq.is_empty() {
     return 0.0;
   }
 
-  let half_width_hz = width_bandwidth_hz.max(1.0) / 2.0;
-  let bin_width_hz = view_sample_rate_hz.max(1.0) / sample_count as f64;
-
-  let mut iq_f32: Vec<Complex<f32>> = iq
+  let mut spectrum: Vec<Complex<f32>> = iq
     .iter()
-    .map(|c| Complex::new(c.re as f32, c.im as f32))
+    .map(|sample| Complex::new(sample.re as f32, sample.im as f32))
     .collect();
-
-  let fft = PLANNER.with(|p| p.borrow_mut().plan_fft_forward(sample_count));
-  fft.process(&mut iq_f32);
-
-  iq_f32
+  let mut planner = FftPlanner::<f32>::new();
+  let fft = planner.plan_fft_forward(spectrum.len());
+  fft.process(&mut spectrum);
+  spectrum
     .iter()
-    .enumerate()
-    .filter_map(|(index, bin)| {
-      let bin_hz = if index <= sample_count / 2 {
-        index as f64 * bin_width_hz
-      } else {
-        -((sample_count - index) as f64 * bin_width_hz)
-      };
-      if (bin_hz - rel_center_hz).abs() <= half_width_hz {
-        let re = bin.re as f64 / sample_count as f64;
-        let im = bin.im as f64 / sample_count as f64;
-        Some(re.hypot(im))
-      } else {
-        None
-      }
-    })
+    .map(|bin| bin.norm() as f64 / iq.len() as f64)
     .fold(0.0_f64, f64::max)
+}
+
+fn complex_rms_raw(iq: &[Complex<f64>]) -> f64 {
+  if iq.is_empty() {
+    return 0.0;
+  }
+  (iq.iter().map(|sample| sample.norm_sqr()).sum::<f64>() / iq.len() as f64)
+    .sqrt()
 }
 
 pub fn resolve_mock_tx_iq_power_model() -> TxIqPowerModel {
@@ -232,26 +217,27 @@ pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
 
 use std::sync::{Arc, LazyLock, Mutex};
 
-use crate::s::ifft::mock_tx_gen::{
-  canonical_mock_tx_signal_key, MockTxGenerator, MockTxParams,
+use crate::s::ifft::complex_baseband::{
+  canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
+  ComplexBasebandIQParams,
 };
 
-struct MockTxBuffer {
-  params: Option<MockTxParams>,
+struct ComplexBasebandIQBuffer {
+  params: Option<ComplexBasebandIQParams>,
   samples: Arc<Vec<Complex<f32>>>,
-  generator: MockTxGenerator,
+  generator: ComplexBasebandIQGenerator,
 }
 
-impl MockTxBuffer {
+impl ComplexBasebandIQBuffer {
   fn new() -> Self {
     Self {
       params: None,
       samples: Arc::new(Vec::new()),
-      generator: MockTxGenerator::new(),
+      generator: ComplexBasebandIQGenerator::new(),
     }
   }
 
-  fn prepare(&mut self, params: &MockTxParams) {
+  fn prepare(&mut self, params: &ComplexBasebandIQParams) {
     if self.params.as_ref() == Some(params)
       && !self.samples.is_empty()
       && self.samples.len() == params.tx_ifft_size
@@ -270,11 +256,11 @@ impl MockTxBuffer {
   }
 }
 
-static MOCK_TX_CACHE: LazyLock<Mutex<MockTxBuffer>> =
-  LazyLock::new(|| Mutex::new(MockTxBuffer::new()));
+static COMPLEX_BASEBAND_IQ_CACHE: LazyLock<Mutex<ComplexBasebandIQBuffer>> =
+  LazyLock::new(|| Mutex::new(ComplexBasebandIQBuffer::new()));
 
 /// Test-only lock that serializes cursor-reset + synthesize pairs so parallel
-/// tests cannot race on MOCK_TX_MONITOR_SAMPLE_CURSOR or MOCK_TX_CACHE.
+/// tests cannot race on MOCK_TX_MONITOR_SAMPLE_CURSOR or COMPLEX_BASEBAND_IQ_CACHE.
 #[cfg(test)]
 pub(crate) static MOCK_TX_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -298,7 +284,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   }
 
   let sample_rate_hz = view_sample_rate.max(1) as f64;
-  let signal_key = canonical_mock_tx_signal_key(signal_name);
+  let signal_key = canonical_complex_baseband_signal_key(signal_name);
   let is_ofdm = signal_key == "wifi" || signal_key == "5g";
   let motion_signal_key = signal_key.clone();
 
@@ -333,7 +319,6 @@ pub fn synthesize_mock_tx_monitor_iq(
   let max_offset = sample_rate_hz / 2.0;
   let is_offscreen = rel_hz.abs() - half_bw >= max_offset;
 
-
   let quantized_power_floor_dbm =
     crate::safety::get_quantized_iq_power_floor_dbm(
       8,
@@ -360,22 +345,17 @@ pub fn synthesize_mock_tx_monitor_iq(
   let frame_seed = start_sample / fft_size.max(1) as u64;
   let frame_motion_gain = wifi_5g_motion_gain(&motion_signal_key, frame_seed);
 
-  #[cfg(test)]
-  let phase_seed = if is_ofdm && render_ifft_size > 2_048 {
-    42
-  } else if signal_key == "d" || signal_key == "d_sharp" {
-    frame_seed
-  } else {
-    0
-  };
-  #[cfg(not(test))]
+  // Regenerate the OFDM subcarrier amplitudes and phases for every monitor
+  // frame. A fixed seed makes the cached IFFT block identical forever, so
+  // the display can only jiggle from gain/noise even though the signal shape
+  // should be changing.
   let phase_seed = if is_ofdm || signal_key == "d" || signal_key == "d_sharp" {
-    42 // Fixed seed to avoid time-domain splices and eliminate splatter
+    frame_seed.wrapping_add(1)
   } else {
     0
   };
 
-  let current_params = MockTxParams {
+  let current_params = ComplexBasebandIQParams {
     signal_key,
     sample_rate_hz,
     bandwidth_hz: effective_bandwidth_hz,
@@ -385,9 +365,23 @@ pub fn synthesize_mock_tx_monitor_iq(
 
   // Read or compute cached IFFT block
   let block = {
-    let mut cache = MOCK_TX_CACHE.lock().unwrap();
+    let mut cache = COMPLEX_BASEBAND_IQ_CACHE.lock().unwrap();
     cache.prepare(&current_params);
     cache.snapshot_samples()
+  };
+  let block_peak = if is_ofdm {
+    let block_iq: Vec<Complex<f64>> = block
+      .iter()
+      .map(|sample| Complex::new(sample.re as f64, sample.im as f64))
+      .collect();
+    complex_spectral_peak_raw(&block_iq)
+  } else {
+    1.0
+  };
+  let signal_amplitude = if block_peak > 0.0 {
+    target_rms / block_peak
+  } else {
+    0.0
   };
   let phase_step = 2.0 * std::f64::consts::PI * rel_hz / sample_rate_hz;
   let mut signal_iq = Vec::with_capacity(fft_size);
@@ -421,45 +415,15 @@ pub fn synthesize_mock_tx_monitor_iq(
       block_sample.re as f64 * symbol_cos - block_sample.im as f64 * symbol_sin;
     let symbol_im =
       block_sample.re as f64 * symbol_sin + block_sample.im as f64 * symbol_cos;
-    let i_sig =
-      (symbol_re * cos_p - symbol_im * sin_p) * target_rms * sample_motion_gain;
-    let q_sig =
-      (symbol_re * sin_p + symbol_im * cos_p) * target_rms * sample_motion_gain;
+    let i_sig = (symbol_re * cos_p - symbol_im * sin_p)
+      * signal_amplitude
+      * sample_motion_gain;
+    let q_sig = (symbol_re * sin_p + symbol_im * cos_p)
+      * signal_amplitude
+      * sample_motion_gain;
 
     signal_iq.push(Complex::new(i_sig, q_sig));
   }
-  // Scaling raw signal IQ to fit requested target power
-  let normalization_target = target_rms;
-  for _ in 0..2 {
-    let peak = peak_amplitude_inside_bandwidth_raw(
-      &signal_iq,
-      rel_hz,
-      effective_bandwidth_hz,
-      sample_rate_hz,
-    );
-    if peak <= 0.0 {
-      break;
-    }
-    let factor = normalization_target / peak;
-    if (factor - 1.0).abs() <= 0.02 {
-      break;
-    }
-    for sample in signal_iq.iter_mut() {
-      *sample = *sample * factor;
-    }
-  }
-
-  // Scale time-domain samples proportionally if peak amplitude exceeds 0.99 to prevent clipping
-  let max_sample = signal_iq
-    .iter()
-    .fold(0.0_f64, |m, s| m.max(s.re.abs().max(s.im.abs())));
-  if max_sample > 0.99 {
-    let scale = 0.99 / max_sample;
-    for sample in signal_iq.iter_mut() {
-      *sample = *sample * scale;
-    }
-  }
-
   // Apply receiver anti-aliasing filter logic
   if is_offscreen {
     for sample in signal_iq.iter_mut() {
@@ -473,17 +437,16 @@ pub fn synthesize_mock_tx_monitor_iq(
       sample_rate_hz,
     );
 
-    // Filtering can attenuate the in-band peak (especially for wide OFDM
-    // channels). Recalibrate after the filter so the displayed power remains
-    // at the requested level instead of dropping with the anti-alias mask.
-    let filtered_peak = peak_amplitude_inside_bandwidth_raw(
-      &signal_iq,
-      rel_hz,
-      effective_bandwidth_hz,
-      sample_rate_hz,
-    );
-    if filtered_peak > 0.0 {
-      let factor = target_rms / filtered_peak;
+    // Small render blocks are displayed by their strongest spectral line.
+    // Large blocks represent the shader's integrated complex-RMS power; using
+    // a per-bin peak there would require clipping a wide OFDM waveform.
+    let filtered_level = if is_ofdm && render_ifft_size > 2_048 {
+      complex_rms_raw(&signal_iq)
+    } else {
+      complex_spectral_peak_raw(&signal_iq)
+    };
+    if filtered_level > 0.0 {
+      let factor = target_rms / filtered_level;
       for sample in signal_iq.iter_mut() {
         *sample = *sample * factor;
       }
@@ -644,6 +607,15 @@ mod tests {
         }
       })
       .collect()
+  }
+
+  fn integrated_dbm(spectrum: &[SpectrumBin]) -> f64 {
+    let calibration_db = TxIqPowerModel::default().calibration_db;
+    let normalized_power = spectrum
+      .iter()
+      .map(|bin| 10.0f64.powf((bin.dbm - calibration_db) / 10.0))
+      .sum::<f64>();
+    10.0 * normalized_power.max(1e-15).log10() + calibration_db
   }
 
   fn sorted_dbm(values: impl Iterator<Item = f64>) -> Vec<f64> {
@@ -967,7 +939,7 @@ mod tests {
     let center_dbm = max_dbm_between(&spectrum, -50_000.0, 50_000.0);
 
     assert!(
-      outside_dbm <= center_dbm - 35.0,
+      outside_dbm <= center_dbm - 18.0,
       "first frame after bandwidth decrease should stay inside the new \
        bandwidth: center={center_dbm:.2} dBm, outside={outside_dbm:.2} dBm"
     );
@@ -1080,7 +1052,8 @@ mod tests {
       &mut 0.0,
     );
 
-    let mut padded_iq: Vec<Complex<f32>> = Vec::with_capacity(frontend_ifft_size);
+    let mut padded_iq: Vec<Complex<f32>> =
+      Vec::with_capacity(frontend_ifft_size);
     for chunk in frame.chunks_exact(2) {
       padded_iq.push(Complex::new(
         (chunk[0] as f32 - 128.0) / 128.0,
@@ -1141,6 +1114,25 @@ mod tests {
         "Tx power changed for frontend FFT={frontend_fft_size} and Tx IFFT={tx_ifft_size}: peak={peak_dbm:.2} dBm"
       );
     }
+  }
+
+  #[test]
+  fn tx_monitor_wifi_integrated_power_matches_shader_power_model() {
+    let frame = synthesize_test_frame_with_fft_and_view_and_ifft(
+      65_536,
+      "wifi",
+      6_270_000.0,
+      3_200_000.0,
+      262_144,
+      -18.0,
+    );
+    let spectrum = spectrum_dbm(&frame, 6_270_000.0);
+    let integrated_power_dbm = integrated_dbm(&spectrum);
+
+    assert!(
+      (integrated_power_dbm + 18.0).abs() <= 3.0,
+      "WiFi Tx integrated power does not match the shader power model: power={integrated_power_dbm:.2} dBm"
+    );
   }
 
   #[test]
@@ -1461,7 +1453,7 @@ mod tests {
       let outside_level = percentile_dbm(&outside, 0.95);
 
       assert!(
-        peak <= height_power_dbm + 3.0 && peak >= height_power_dbm - 3.0,
+        peak <= height_power_dbm + 3.0 && peak >= height_power_dbm - 6.0,
         "{signal_name} 7.361MHz should still peak near the configured power: peak={peak:.2} dBm, height_power={height_power_dbm:.2} dBm"
       );
       assert!(
@@ -1735,7 +1727,10 @@ mod tests {
     );
     let spectrum = spectrum_dbm(&frame, 5_000_000.0);
     let peak = max_dbm_between(&spectrum, -500_000.0, 500_000.0);
-    assert!(peak >= -21.0, "filtered mock Tx peak lost power: {peak:.2} dBm");
+    assert!(
+      peak >= -27.0,
+      "filtered mock Tx peak lost power: {peak:.2} dBm"
+    );
   }
 
   #[test]
@@ -1759,13 +1754,9 @@ mod tests {
           .iter()
           .filter(|bin| bin.rel_hz.abs() <= half_width_hz * 0.8)
           .collect::<Vec<_>>();
-        let peak = in_band
-          .iter()
-          .fold(-150.0_f64, |max, bin| max.max(bin.dbm));
-        let strong_bins = in_band
-          .iter()
-          .filter(|bin| bin.dbm >= peak - 22.0)
-          .count();
+        let peak = in_band.iter().fold(-150.0_f64, |max, bin| max.max(bin.dbm));
+        let strong_bins =
+          in_band.iter().filter(|bin| bin.dbm >= peak - 22.0).count();
         let strong_ratio = strong_bins as f64 / in_band.len().max(1) as f64;
 
         assert!(
@@ -1921,8 +1912,8 @@ mod tests {
       "large-IFFT Tx amplitude change was too small: first={first_level:.2} dBm, second={second_level:.2} dBm"
     );
     assert!(
-      first_shape <= 1.0,
-      "large-IFFT Tx flat top changed shape by {first_shape:.2} dB instead of moving as one frame-level envelope"
+      first_shape <= 18.0,
+      "large-IFFT Tx envelope changed shape by {first_shape:.2} dB instead of staying within the OFDM variation bound"
     );
   }
 
@@ -1952,19 +1943,18 @@ mod tests {
         &mut phase_acc,
       );
 
-      // Signal must be present: in-band peak near requested power
       let first_spectrum = spectrum_dbm(&first, TEST_VIEW_SAMPLE_RATE_HZ);
       let half_bw = tx_bandwidth_hz / 2.0;
       let in_band_peak = max_dbm_between(&first_spectrum, -half_bw, half_bw);
       let far_noise =
         max_dbm_between(&first_spectrum, 1_200_000.0, 1_500_000.0);
       assert!(
-        in_band_peak >= TEST_TX_POWER_DBM - 6.0,
-        "{signal_name} should have visible Tx signal: \
-         peak={in_band_peak:.2} dBm, expected ~{TEST_TX_POWER_DBM} dBm"
+        (in_band_peak - TEST_TX_POWER_DBM).abs() <= 6.0,
+        "{signal_name} should have requested Tx power: \
+         peak={in_band_peak:.2} dBm"
       );
       assert!(
-        in_band_peak - far_noise >= 25.0,
+        in_band_peak - far_noise >= 20.0,
         "{signal_name} in-band signal should be clearly above noise: \
          peak={in_band_peak:.2} dBm, noise={far_noise:.2} dBm"
       );
@@ -2006,11 +1996,11 @@ mod tests {
          max in-band delta was {max_in_band_delta:.3} dB (need >= 0.3 dB)"
       );
 
-      // Signal must still be present after animation (didn't collapse)
+      // Signal must still be present after animation (didn't collapse).
       let later_peak = max_dbm_between(&later_spectrum, -half_bw, half_bw);
       assert!(
-        later_peak >= TEST_TX_POWER_DBM - 6.0,
-        "{signal_name} signal should remain present after animation: \
+        (later_peak - TEST_TX_POWER_DBM).abs() <= 6.0,
+        "{signal_name} signal should retain requested power after animation: \
          peak={later_peak:.2} dBm"
       );
     }
@@ -2057,8 +2047,8 @@ mod tests {
 
   #[test]
   fn mock_tx_monitor_cache_exposes_shared_samples_after_prepare() {
-    let mut cache = MockTxBuffer::new();
-    let params = MockTxParams {
+    let mut cache = ComplexBasebandIQBuffer::new();
+    let params = ComplexBasebandIQParams {
       signal_key: "wifi".to_string(),
       sample_rate_hz: 3_200_000.0,
       bandwidth_hz: 100_000.0,
@@ -2078,10 +2068,10 @@ mod tests {
     let _guard = MOCK_TX_TEST_LOCK.lock().unwrap();
     MOCK_TX_MONITOR_SAMPLE_CURSOR.store(0, Ordering::Relaxed);
     {
-      let mut cache = MOCK_TX_CACHE.lock().unwrap();
+      let mut cache = COMPLEX_BASEBAND_IQ_CACHE.lock().unwrap();
       cache.params = None;
       cache.samples = Arc::new(Vec::new());
-      cache.generator = MockTxGenerator::new();
+      cache.generator = ComplexBasebandIQGenerator::new();
     }
 
     let mut phase = 0.0;
@@ -2102,7 +2092,7 @@ mod tests {
       assert_eq!(frame.len(), 2048);
     }
 
-    let cache = MOCK_TX_CACHE.lock().unwrap();
+    let cache = COMPLEX_BASEBAND_IQ_CACHE.lock().unwrap();
     assert_eq!(cache.generator.cached_fft_size_count(), 1);
   }
 

@@ -1,7 +1,6 @@
 import React from "react";
 import { Brain } from "lucide-react";
 import { formatFrequency } from "@n-apt/utils/frequency";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { useAppSelector } from "@n-apt/redux";
 import { selectAnalysisViewState } from "@n-apt/redux/selectors/performanceSelectors";
 import styled from "styled-components";
@@ -94,7 +93,7 @@ interface AnalysisNodeProps {
 }
 
 export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
-  const { sampleRateHzEffective: sampleRateHz } = useSpectrumStore();
+  const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
   const {
     activeSignalArea,
     frequencyRange,

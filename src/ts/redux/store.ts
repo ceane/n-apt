@@ -21,10 +21,14 @@ import noteCardsMiddleware from "@n-apt/redux/middleware/noteCardsMiddleware";
 import localStorageMiddleware, {
   loadPersistedSdrSettings,
   loadPersistedTheme,
+  mergePersistedSdrSettings,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 
 const preloadedState = {
-  spectrum: loadPersistedSdrSettings(),
+  spectrum: mergePersistedSdrSettings(
+    spectrumSlice(undefined, { type: "@@INIT" }),
+    loadPersistedSdrSettings(),
+  ),
   theme: loadPersistedTheme() || undefined,
 };
 

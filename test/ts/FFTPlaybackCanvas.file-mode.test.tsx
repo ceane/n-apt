@@ -129,7 +129,6 @@ describe("FFTPlaybackCanvas file mode", () => {
         displayMode="fft"
         powerScale="dB"
         onStitchStatus={jest.fn()}
-        onStitchProgress={jest.fn()}
         onFrequencyRangeChange={jest.fn()}
         onFftDbLimitsChange={jest.fn()}
         snapshotGridPreference
@@ -205,7 +204,6 @@ describe("FFTPlaybackCanvas file mode", () => {
         displayMode="fft"
         powerScale="dB"
         onStitchStatus={jest.fn()}
-        onStitchProgress={jest.fn()}
         onFrequencyRangeChange={jest.fn()}
         onFftDbLimitsChange={jest.fn()}
         snapshotGridPreference

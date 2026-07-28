@@ -1,15 +1,13 @@
 import React, { useCallback } from "react";
 import styled from "styled-components";
-import { useAppDispatch } from "@n-apt/redux";
-import { spectrumActions, useAppSelector } from "@n-apt/redux";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import { useAppDispatch, spectrumActions, useAppSelector } from "@n-apt/redux";
 import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import FrequencyRangeSlider from "@n-apt/components/sidebar/FrequencyRangeSlider";
+import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
-import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 
 // Styled Components
 const Container = styled.div`
@@ -62,25 +60,33 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   scanCurrentFreq,
 }) => {
   const dispatch = useAppDispatch();
-  const { state } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
+  const spectrumStore = useSpectrumStore();
+  const contextActiveSignalArea = spectrumStore.state?.activeSignalArea;
+  const contextFrequencyRange = spectrumStore.state?.frequencyRange;
+  const contextLastKnownRanges = spectrumStore.state?.lastKnownRanges;
+
+  const reduxFrequencyRange = useAppSelector((state) => state.spectrum.frequencyRange);
+  const reduxActiveSignalArea = useAppSelector((state) => state.spectrum.activeSignalArea);
+  const reduxLastKnownRanges = useAppSelector((state) => state.spectrum.lastKnownRanges);
+
+  const frequencyRange = contextFrequencyRange ?? reduxFrequencyRange;
+  const activeSignalArea = contextActiveSignalArea ?? reduxActiveSignalArea;
+  const lastKnownRanges = contextLastKnownRanges ?? reduxLastKnownRanges;
+  const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
+  const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
-  const websocketDeviceProfile = useAppSelector(
-    (reduxState) => reduxState.websocket.deviceProfile,
-  );
-  const websocketBackend = useAppSelector(
-    (reduxState) => reduxState.websocket.backend,
-  );
+  const activeSourceCapabilities = useAppSelector((reduxState) => {
+    const activeSourceId = reduxState.websocket.activeSourceId;
+    return reduxState.websocket.sources?.find(
+      (source) => source.id === activeSourceId,
+    )?.capabilities;
+  });
 
   const areaKey = signalAreaKey ?? label;
 
-  const frequencyRange = state.frequencyRange;
-  const activeSignalArea = state.activeSignalArea;
-  const lastKnownRanges = state.lastKnownRanges;
-  const vizZoom = state.vizZoom;
-  const vizPanOffset = state.vizPanOffset;
   const isCurrentActive =
     isActive ??
     (areaKey.length > 0 &&
@@ -108,7 +114,11 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
   const resolveHardwareWindow = useCallback(
     (range: FrequencyRange | null | undefined): FrequencyRange => {
-      if (safeSpan <= hardwareSpan) {
+      if (
+        safeSpan <= hardwareSpan ||
+        wholeChannelDisplayMode ||
+        forceFullWidth
+      ) {
         return { min: minFreq, max: maxFreq };
       }
       const rangeSpan =
@@ -197,14 +207,10 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
 
   const visibleRange = calculateVisibleRange();
   const channelBounds = { min: minFreq, max: maxFreq };
-  const isRtlSdr = isRtlSdrDevice({
-    deviceKind: websocketDeviceProfile?.kind,
-    backend: websocketBackend,
-    isRtlSdr: websocketDeviceProfile?.is_rtl_sdr,
-  });
-  const hardwareBounds = isRtlSdr
-    ? channelBounds
-    : (hardwareSpectrumBounds ?? channelBounds);
+  const hardwareBounds =
+    activeSourceCapabilities?.frequency_range ??
+    hardwareSpectrumBounds ??
+    channelBounds;
   const clampToChannelAndHardware = useCallback(
     (range: FrequencyRange): FrequencyRange => {
       const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;

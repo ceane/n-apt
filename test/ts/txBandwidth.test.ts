@@ -11,4 +11,11 @@ describe("Bandwidth + Center Tx settings", () => {
   it("does not produce a range for invalid bandwidth", () => {
     expect(getTxFrequencyRangeForBandwidth(10_000_000, 0)).toBeNull();
   });
+
+  it("floors the center at half the bandwidth when the lower edge reaches zero", () => {
+    expect(getTxFrequencyRangeForBandwidth(1_000_000, 20_000_000)).toEqual({
+      min: 0,
+      max: 20_000_000,
+    });
+  });
 });

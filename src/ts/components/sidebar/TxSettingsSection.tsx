@@ -4,7 +4,10 @@ import { Row, ChannelsGrid, Tooltip } from "@n-apt/components/ui";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { Toggle } from "@n-apt/components/ui/Toggle";
 import { useAppSelector } from "@n-apt/redux/store";
-import { formatFrequency } from "@n-apt/utils/frequency";
+import {
+  buildCenteredFrequencyRange,
+  formatFrequency,
+} from "@n-apt/utils/frequency";
 import {
   Radio,
   ShieldAlert,
@@ -39,10 +42,7 @@ export function getTxFrequencyRangeForBandwidth(
   ) {
     return null;
   }
-  return {
-    min: Math.max(0, centerFrequencyHz - bandwidthHz / 2),
-    max: centerFrequencyHz + bandwidthHz / 2,
-  };
+  return buildCenteredFrequencyRange(centerFrequencyHz, bandwidthHz);
 }
 
 const Section = styled.div`
@@ -344,7 +344,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     typeof bandwidthHz === "number" && Number.isFinite(bandwidthHz)
       ? bandwidthHz
       : (sampleRateHz ?? 2_400_000);
-  const maxWidthBandwidthHz = maxBandwidthHz ?? maxSampleRateHz ?? 20_000_000;
+  const maxWidthBandwidthHz = maxBandwidthHz ?? 30_000_000_000;
   const handleBandwidthChange =
     onBandwidthChange ?? onSampleRateChange ?? (() => {});
 
@@ -362,6 +362,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   const vgaGainInputRef = React.useRef<HTMLInputElement>(null);
 
   const websocketChannels = useAppSelector((s) => s.websocket.channels);
+  const backendTxSafety = useAppSelector((s) => s.spectrum.txSafetyResult);
 
   const channelsList = React.useMemo(() => {
     const defaultChannels = [
@@ -407,10 +408,7 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     hopBandwidthHz > 0 &&
     hopBandwidthHz <= effectiveRxSampleRateHz;
   const autoHopRequired =
-    (hopType === "channels" && selectedLabels.length > 1) ||
-    (hopType === "range" &&
-      typeof effectiveRxSampleRateHz === "number" &&
-      widthBandwidthHz > effectiveRxSampleRateHz);
+    hopType === "channels" && selectedLabels.length > 1;
   const effectiveHopEnabled = hopEnabled || autoHopRequired;
 
   const { tuneChannels } = useChannelTuner();
@@ -501,12 +499,15 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   }, [hopRateHz]);
 
   const limitDbm = React.useMemo(() => {
+    if (backendTxSafety && Number.isFinite(backendTxSafety.maximumSafePowerDbm)) {
+      return backendTxSafety.maximumSafePowerDbm;
+    }
     if (safetyLimit === "min") return -70.0;
     return calculateRoomPowerLimitJS(
       centerFrequencyHz,
       safetyLimit === "person" ? 1.0 : 3.0,
     );
-  }, [safetyLimit, centerFrequencyHz]);
+  }, [backendTxSafety, safetyLimit, centerFrequencyHz]);
 
   const safeGains = React.useMemo(() => {
     return getMaxSafeVgaAndAmpJS(limitDbm);
@@ -521,14 +522,19 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     [ifftSize],
   );
   const enforcedIqPowerFloorDbm = React.useMemo(
-    () => Math.ceil(iqPowerFloorDbm),
-    [iqPowerFloorDbm],
+    () =>
+      Math.ceil(
+        backendTxSafety?.minimumIqPowerFloorDbm ?? iqPowerFloorDbm,
+      ),
+    [backendTxSafety?.minimumIqPowerFloorDbm, iqPowerFloorDbm],
   );
   const isBelowIqPowerFloor =
     Number.isFinite(powerDbm) && powerDbm <= enforcedIqPowerFloorDbm;
   const recommendedFftSize = React.useMemo(
-    () => getRecommendedFftSizeForIqPowerDbmJS(powerDbm, 8, 30),
-    [powerDbm],
+    () =>
+      backendTxSafety?.recommendedIfftSize ??
+      getRecommendedFftSizeForIqPowerDbmJS(powerDbm, 8, 30),
+    [backendTxSafety?.recommendedIfftSize, powerDbm],
   );
   const minimumIfftSize = React.useMemo(
     () => getMinimumTxIfftSize(widthBandwidthHz),
@@ -562,11 +568,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     Number.isFinite(widthBandwidthHz) && guardedIfftSize > 0
       ? widthBandwidthHz / guardedIfftSize
       : 0;
-  const applyTxPowerFloor = React.useCallback(
-    (value: number) => Math.max(enforcedIqPowerFloorDbm, value),
-    [enforcedIqPowerFloorDbm],
-  );
-
   const formatReach = (meters: number): string => {
     if (meters >= 1000) {
       return `${(meters / 1000).toFixed(1)}km`;
@@ -576,61 +577,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     }
     return `${meters.toFixed(2)}m`;
   };
-
-  // Enforce safety limits
-  React.useEffect(() => {
-    if (safetyEnabled) {
-      let nextVga = vgaGainDb;
-      let nextAmp = !!ampEnabled;
-      let nextPower = powerDbm;
-      let changed = false;
-
-      if (powerDbm > limitDbm) {
-        nextPower = limitDbm;
-        changed = true;
-      }
-      if (vgaGainDb > safeGains.vga) {
-        nextVga = safeGains.vga;
-        changed = true;
-      }
-      if (ampEnabled && !safeGains.amp) {
-        nextAmp = false;
-        changed = true;
-      }
-
-      if (changed) {
-        if (nextPower !== powerDbm) {
-          onPowerDbmChange(applyTxPowerFloor(nextPower));
-        }
-        if (nextVga !== vgaGainDb) {
-          onVgaGainChange(nextVga);
-        }
-        if (nextAmp !== ampEnabled && onAmpEnabledChange) {
-          onAmpEnabledChange(nextAmp);
-        }
-      }
-    }
-  }, [
-    safetyEnabled,
-    limitDbm,
-    safeGains,
-    vgaGainDb,
-    powerDbm,
-    ampEnabled,
-    onPowerDbmChange,
-    onVgaGainChange,
-    onAmpEnabledChange,
-    applyTxPowerFloor,
-  ]);
-
-  React.useEffect(() => {
-    if (isBelowIqPowerFloor) {
-      onPowerDbmChange(enforcedIqPowerFloorDbm);
-      if (document.activeElement !== powerInputRef.current) {
-        setLocalPower(enforcedIqPowerFloorDbm.toString());
-      }
-    }
-  }, [enforcedIqPowerFloorDbm, isBelowIqPowerFloor, onPowerDbmChange]);
 
   React.useEffect(() => {
     if (
@@ -647,35 +593,15 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     setLocalPower(val);
     const num = Number(val);
     if (Number.isFinite(num) && val !== "" && val !== "-") {
-      let targetPower = num;
-      if (safetyEnabled) {
-        targetPower = Math.min(limitDbm, targetPower);
-      }
-      targetPower = applyTxPowerFloor(targetPower);
-      onPowerDbmChange(targetPower);
-      const res = getMaxSafeVgaAndAmpJS(targetPower);
-      onVgaGainChange(res.vga);
-      if (onAmpEnabledChange) {
-        onAmpEnabledChange(res.amp);
-      }
+      onPowerDbmChange(num);
     }
   };
 
   const handlePowerBlur = () => {
     const num = Number(localPower);
     if (Number.isFinite(num) && localPower !== "" && localPower !== "-") {
-      let targetPower = num;
-      if (safetyEnabled) {
-        targetPower = Math.min(limitDbm, targetPower);
-      }
-      targetPower = applyTxPowerFloor(targetPower);
-      onPowerDbmChange(targetPower);
-      setLocalPower(targetPower.toString());
-      const res = getMaxSafeVgaAndAmpJS(targetPower);
-      onVgaGainChange(res.vga);
-      if (onAmpEnabledChange) {
-        onAmpEnabledChange(res.amp);
-      }
+      onPowerDbmChange(num);
+      setLocalPower(num.toString());
     } else {
       setLocalPower(Number.isFinite(powerDbm) ? powerDbm.toString() : "0");
     }
@@ -686,33 +612,15 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     setLocalVgaGain(val);
     const num = Number(val);
     if (Number.isFinite(num) && val !== "" && val !== "-") {
-      let targetVga = num;
-      if (safetyEnabled) {
-        targetVga = Math.min(safeGains.vga, targetVga);
-      }
-      onVgaGainChange(targetVga);
-      const targetPower =
-        safetyLimit === "min"
-          ? -70.0
-          : getApproxOutputPowerJS(targetVga, !!ampEnabled);
-      onPowerDbmChange(applyTxPowerFloor(targetPower));
+      onVgaGainChange(num);
     }
   };
 
   const handleVgaGainBlur = () => {
     const num = Number(localVgaGain);
     if (Number.isFinite(num) && localVgaGain !== "" && localVgaGain !== "-") {
-      let targetVga = num;
-      if (safetyEnabled) {
-        targetVga = Math.min(safeGains.vga, targetVga);
-      }
-      onVgaGainChange(targetVga);
-      setLocalVgaGain(targetVga.toString());
-      const targetPower =
-        safetyLimit === "min"
-          ? -70.0
-          : getApproxOutputPowerJS(targetVga, !!ampEnabled);
-      onPowerDbmChange(applyTxPowerFloor(targetPower));
+      onVgaGainChange(num);
+      setLocalVgaGain(num.toString());
     } else {
       setLocalVgaGain(Number.isFinite(vgaGainDb) ? vgaGainDb.toString() : "0");
     }
@@ -721,11 +629,6 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
   const handleAmpToggle = (newAmp: boolean) => {
     if (onAmpEnabledChange) {
       onAmpEnabledChange(newAmp);
-      const targetPower =
-        safetyLimit === "min"
-          ? -70.0
-          : getApproxOutputPowerJS(vgaGainDb, newAmp);
-      onPowerDbmChange(applyTxPowerFloor(targetPower));
     }
   };
 
@@ -761,19 +664,9 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     const delta = e.key === "ArrowUp" ? 1 : -1;
     const current = Number(localPower);
     if (Number.isFinite(current)) {
-      let nextPower = current + delta;
-      if (safetyEnabled) {
-        nextPower = Math.min(limitDbm, nextPower);
-      }
-      nextPower = applyTxPowerFloor(Math.max(-70.0, nextPower));
-      nextPower = Math.round(nextPower * 10) / 10;
+      const nextPower = Math.round((current + delta) * 10) / 10;
       onPowerDbmChange(nextPower);
       setLocalPower(nextPower.toString());
-      const res = getMaxSafeVgaAndAmpJS(nextPower);
-      onVgaGainChange(res.vga);
-      if (onAmpEnabledChange) {
-        onAmpEnabledChange(res.amp);
-      }
     }
   };
 
@@ -785,15 +678,9 @@ export const TxSettingsSection: React.FC<TxSettingsSectionProps> = ({
     const current = Number(localVgaGain);
     if (Number.isFinite(current)) {
       let nextVga = current + delta;
-      const maxVga = safetyEnabled ? safeGains.vga : 47;
-      nextVga = Math.max(0, Math.min(maxVga, nextVga));
+      nextVga = Math.max(0, nextVga);
       onVgaGainChange(nextVga);
       setLocalVgaGain(nextVga.toString());
-      const targetPower =
-        safetyLimit === "min"
-          ? -70.0
-          : getApproxOutputPowerJS(nextVga, !!ampEnabled);
-      onPowerDbmChange(applyTxPowerFloor(targetPower));
     }
   };
 

@@ -167,6 +167,7 @@ interface SignalDisplaySectionProps {
   sampleRateOptions: number[];
   sampleRateOptionsOverride?: number[];
   wholeChannelSampleRate?: number | null;
+  isWholeChannelMode?: boolean;
   wholeChannelLabel?: string | null;
   fileCapturedRange: { min: number; max: number } | null;
   fftFrameRate: number;
@@ -181,7 +182,7 @@ interface SignalDisplaySectionProps {
   displayMode?: "fft" | "iq";
   onFftFrameRateChange: (value: number) => void;
   onFftSizeChange: (value: number) => void;
-  onSampleRateChange: (value: number) => void;
+  onSampleRateChange: (value: number, mode?: "whole" | "manual") => void;
   onFftWindowChange: (value: string) => void;
   onTemporalResolutionChange: (value: TemporalResolution) => void;
   onPowerScaleChange: (value: "dB" | "dBm") => void;
@@ -203,6 +204,7 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
   sampleRateOptions,
   sampleRateOptionsOverride,
   wholeChannelSampleRate = null,
+  isWholeChannelMode,
   wholeChannelLabel = null,
   fftFrameRate,
   maxFrameRate,
@@ -249,10 +251,6 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     [fftSize, fftSizeOptions],
   );
 
-  const sampleRateOptionList = React.useMemo(() => {
-    const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
-    return Array.from(rates).sort((a, b) => a - b);
-  }, [sampleRateOptions, sampleRateOptionsOverride]);
   const logicalMaxFrameRate =
     Number.isFinite(sampleRate) && sampleRate > 0 && fftSize > 0
       ? computeMaxFrameRate(sampleRate, fftSize, maxFrameRate)
@@ -272,10 +270,17 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     typeof wholeChannelValue === "number" &&
     Number.isFinite(wholeChannelValue) &&
     wholeChannelValue > 0;
-  const sampleRateSelectValue =
-    showWholeChannelOption && Math.round(sampleRate) === wholeChannelValue
-      ? "whole-channel"
-      : String(sampleRate);
+  const sampleRateOptionList = React.useMemo(() => {
+    const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
+    return Array.from(rates).sort((a, b) => a - b);
+  }, [sampleRateOptions, sampleRateOptionsOverride]);
+  const isWholeChannelSelected =
+    isWholeChannelMode !== undefined
+      ? isWholeChannelMode
+      : showWholeChannelOption && Math.round(sampleRate) === wholeChannelValue;
+  const sampleRateSelectValue = isWholeChannelSelected
+    ? "whole-channel"
+    : String(sampleRate);
   const SampleRateSelect = showWholeChannelOption
     ? WideSettingSelect
     : SettingSelect;
@@ -308,10 +313,10 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     e.target.value === "whole-channel" &&
                     wholeChannelValue !== null
                   ) {
-                    onSampleRateChange(wholeChannelValue);
+                    onSampleRateChange(wholeChannelValue, "whole");
                     return;
                   }
-                  onSampleRateChange(Number(e.target.value));
+                  onSampleRateChange(Number(e.target.value), "manual");
                 }}
               >
                 {showWholeChannelOption && (

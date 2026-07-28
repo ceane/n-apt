@@ -120,6 +120,20 @@ impl WindowFunctions {
       WindowType::Nuttall => fft_size as f32 * 0.355768,
     }
   }
+
+  /// Return N times the window energy, matching the Rx shader's power
+  /// normalization so summing linear FFT bins recovers complex RMS power.
+  pub fn get_window_power_normalization(
+    window_type: WindowType,
+    fft_size: usize,
+  ) -> f32 {
+    let coefficients = Self::get_coeffs(window_type, fft_size);
+    (fft_size as f32)
+      * coefficients
+        .iter()
+        .map(|coefficient| coefficient * coefficient)
+        .sum::<f32>()
+  }
 }
 
 /// Common power spectrum calculation utilities
@@ -133,9 +147,9 @@ impl PowerSpectrum {
     window_type: WindowType,
   ) {
     let n = complex_buffer.len();
-    let window_sum = WindowFunctions::get_window_sum(window_type, n);
-    // Normalize power by coherent power gain (sum of window coefficients squared):
-    let inv_norm = 1.0 / (window_sum * window_sum);
+    let normalization =
+      WindowFunctions::get_window_power_normalization(window_type, n);
+    let inv_norm = 1.0 / normalization.max(1e-12);
 
     // We split complex_buffer into real and imaginary arrays to allow SIMD processing.
     let len = complex_buffer.len().min(output.len());

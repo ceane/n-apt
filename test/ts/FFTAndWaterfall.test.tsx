@@ -135,6 +135,37 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
+  it("removes the entire Tx slider overlay from paused half-duplex Rx", () => {
+    mockedWebsocketState = {
+      activeSourceId: "hackrf-1",
+      sources: [
+        {
+          id: "hackrf-1",
+          kind: "hackrf",
+          capability: "tx_rx",
+          status: "standby",
+        },
+      ],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 24_100_000, max: 30_370_000 }}
+        centerFrequencyHz={27_235_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+        txSlider={{ visible: true } as any}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.txSlider).toBeUndefined();
+    expect(fftProps?.txSliderAllowed).toBe(false);
+  });
+
   it("does not require a live frame before rendering file playback", () => {
     mockedSourceMode = "file";
 
@@ -343,7 +374,7 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
-  it("keeps a visible placeholder on the waterfall when FFT shows a top bar", () => {
+  it("keeps standby top bars non-blocking while both visualizers stay live", () => {
     render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -351,6 +382,7 @@ describe("FFTAndWaterfall", () => {
         centerFrequencyHz={100_500_000}
         activeSignalArea="A"
         isPaused={false}
+        isStandby={true}
         snapshotGridPreference={true}
         placeholderState={{
           kind: "top-bar",
@@ -364,11 +396,15 @@ describe("FFTAndWaterfall", () => {
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
 
     expect(waterfallProps?.placeholderState).toMatchObject({
       kind: "top-bar",
       title: "Start Tx to transmit",
     });
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.interactionDisabled).toBe(false);
   });
 
   it("keeps the last frame available while a live FFT setting is applied", () => {
@@ -693,6 +729,7 @@ describe("FFTAndWaterfall", () => {
     const onVizZoomChange = jest.fn();
     const onVizZoomFloorChange = jest.fn();
     const onVizPanChange = jest.fn();
+    const onFrequencyRangeChange = jest.fn();
     const onFftDbLimitsChange = jest.fn();
 
     render(
@@ -709,6 +746,7 @@ describe("FFTAndWaterfall", () => {
         onVizZoomChange={onVizZoomChange}
         onVizZoomFloorChange={onVizZoomFloorChange}
         onVizPanChange={onVizPanChange}
+        onFrequencyRangeChange={onFrequencyRangeChange}
         onFftDbLimitsChange={onFftDbLimitsChange}
       />,
     );
@@ -720,8 +758,58 @@ describe("FFTAndWaterfall", () => {
     sliderProps.onResetZoomDb();
 
     expect(onVizPanChange).toHaveBeenCalledWith(0);
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({ min: 100, max: 101 });
     expect(onVizZoomChange).toHaveBeenCalledWith(1);
     expect(onVizZoomFloorChange).toHaveBeenCalledWith(1);
     expect(onFftDbLimitsChange).toHaveBeenCalledWith(-120, 0);
+  });
+
+  it("resets to the frequency range last seen before zooming", () => {
+    const onFrequencyRangeChange = jest.fn();
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 200 }}
+        centerFrequencyHz={150}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={1}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 120, max: 220 }}
+        centerFrequencyHz={170}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={1}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+    rerender(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 120, max: 220 }}
+        centerFrequencyHz={170}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={2}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+    sliderProps.onResetZoomDb();
+
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({ min: 120, max: 220 });
   });
 });

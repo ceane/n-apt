@@ -6,6 +6,7 @@ import {
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
 import { computeMaxFrameRate } from "@n-apt/utils/signals";
+import { resolveWholeChannelMode } from "@n-apt/utils/wholeChannelControl";
 
 export type SampleRateMode = "whole" | "manual";
 export type SampleRateAnchorPosition = "start" | "center" | "end";
@@ -163,6 +164,19 @@ export const useLiveSampleRateControl = ({
     ? getWholeChannelSampleRate(activeChannelSampleRate)
     : null;
 
+  const isWholeChannelMode =
+    canUseWholeChannel &&
+    (sampleRateModeRef.current === "whole" ||
+      (sampleRateModeRef.current !== "manual" &&
+        resolveWholeChannelMode({
+          supportsWholeChannel: true,
+          sampleRateHz,
+          activeChannelBounds: {
+            min: 0,
+            max: wholeChannelSampleRate ?? 0,
+          },
+        })));
+
   const applyFrequencyRangeIfChanged = useCallback(
     (range: FrequencyRange) => {
       const normalizedRange = normalizeFrequencyRangeToHz(range);
@@ -177,7 +191,7 @@ export const useLiveSampleRateControl = ({
   );
 
   const handleSampleRateChange = useCallback(
-    (nextSampleRate: number) => {
+    (nextSampleRate: number, requestedMode?: SampleRateMode) => {
       const nextWholeChannelRate = getWholeChannelSampleRate(
         activeChannelSampleRate,
       );
@@ -187,7 +201,9 @@ export const useLiveSampleRateControl = ({
           ? nextWholeChannelRate
           : nextSampleRate;
 
-      if (
+      if (requestedMode) {
+        sampleRateModeRef.current = requestedMode;
+      } else if (
         wholeChannelSampleRate &&
         Math.round(wholeChannelSampleRate) !== Math.round(resolvedSampleRate)
       ) {
@@ -281,6 +297,7 @@ export const useLiveSampleRateControl = ({
 
     if (
       (currentRateIsPreviousWhole ||
+        isWholeChannelMode ||
         (currentRateIsKnownInvalidManual &&
           sampleRateModeRef.current !== "manual") ||
         (currentRateIsStaleSourceCeiling &&
@@ -369,9 +386,13 @@ export const useLiveSampleRateControl = ({
     const currentSpan = rangeSpanHz(frequencyRange);
 
     if (canUseWholeChannel) {
+      const targetRate =
+        isWholeChannelMode && typeof wholeChannelSampleRate === "number"
+          ? wholeChannelSampleRate
+          : sampleRateHz;
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
-        sampleRateHz,
+        sampleRateHz: targetRate,
         channelBounds: activeSignalAreaBounds,
         startingAnchorPosition,
       });
@@ -402,6 +423,7 @@ export const useLiveSampleRateControl = ({
 
   return {
     wholeChannelSampleRate,
+    isWholeChannelMode,
     handleSampleRateChange,
   };
 };

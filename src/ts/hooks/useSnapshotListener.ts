@@ -168,10 +168,6 @@ export const useSnapshotListener = ({
 
       const wholeRequested = canUseWholeChannelSnapshot({
         requestedWhole: !!options.whole,
-        deviceKind: deviceProfile?.kind,
-        backend,
-        deviceName,
-        isRtlSdr: deviceProfile?.is_rtl_sdr,
       });
       const modeLabel = wholeRequested ? "Whole Channel" : "Onscreen";
       const isVideo = options.format === "mp4" || options.format === "webm";

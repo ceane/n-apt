@@ -119,6 +119,27 @@ describe("TxSettingsSection", () => {
     expect(screen.getAllByText("Tx Bandwidth").length).toBeGreaterThan(0);
   });
 
+  it("changes bandwidth with arrow keys without changing the VFO center", () => {
+    const onBandwidthChange = jest.fn();
+    const onCenterFrequencyChange = jest.fn();
+    render(
+      <TestWrapper>
+        <TxSettingsSection
+          {...defaultProps}
+          onBandwidthChange={onBandwidthChange}
+          onCenterFrequencyChange={onCenterFrequencyChange}
+        />
+      </TestWrapper>,
+    );
+
+    const bandwidthRow = screen.getByText("Tx Bandwidth").closest("div")!;
+    const bandwidthInput = within(bandwidthRow).getByRole("textbox");
+    fireEvent.keyDown(bandwidthInput, { key: "ArrowUp" });
+
+    expect(onBandwidthChange).toHaveBeenCalledWith(3_400_000);
+    expect(onCenterFrequencyChange).not.toHaveBeenCalled();
+  });
+
   it("disables hop rate when the Tx bandwidth fills the Rx sample rate", () => {
     render(
       <TestWrapper>
@@ -171,7 +192,7 @@ describe("TxSettingsSection", () => {
     expect(hopRate).toBeEnabled();
   });
 
-  it("automatically enables hopping when bandwidth exceeds the Rx sample rate", () => {
+  it("does not enable hopping when bandwidth exceeds the Rx sample rate", () => {
     render(
       <TestWrapper>
         <TxSettingsSection
@@ -184,8 +205,7 @@ describe("TxSettingsSection", () => {
     );
 
     expect(screen.getAllByText("Range").length).toBeGreaterThan(0);
-    const hopRate = within(screen.getByText("Hop rate").closest("div")!).getByRole("textbox");
-    expect(hopRate).toBeEnabled();
+    expect(screen.queryByText("Hop rate")).not.toBeInTheDocument();
   });
 
   it("keeps Range visible while exposing Hop as a nested option", () => {

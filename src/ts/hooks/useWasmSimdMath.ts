@@ -233,7 +233,7 @@ export function computeIqToDbSpectrumScalar(
   const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
   const scratch = getSpectrumScratch(fftLen);
   const { paddedReal, paddedImag, bitReverse } = scratch;
-  let windowSum = 0;
+  let windowEnergy = 0;
 
   paddedReal.fill(0);
   paddedImag.fill(0);
@@ -242,7 +242,7 @@ export function computeIqToDbSpectrumScalar(
     const inputIndex = i * 2;
     paddedReal[i] = ((input[inputIndex] - 128) / 128) * windowVal;
     paddedImag[i] = ((input[inputIndex + 1] - 128) / 128) * windowVal;
-    windowSum += windowVal;
+    windowEnergy += windowVal * windowVal;
   }
 
   for (let i = 0; i < fftLen; i++) {
@@ -286,7 +286,7 @@ export function computeIqToDbSpectrumScalar(
     }
   }
 
-  const normSq = Math.max(windowSum * windowSum, 1e-12);
+  const normSq = Math.max(numSamples * windowEnergy, 1e-12);
   const result =
     output && output.length === fftLen ? output : new Float32Array(fftLen);
   const half = fftLen / 2;

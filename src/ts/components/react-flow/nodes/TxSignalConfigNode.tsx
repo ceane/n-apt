@@ -12,6 +12,7 @@ import {
   setTxViewerTemporalResolution,
 } from "@n-apt/redux";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import { resolveWholeChannelSampleRate } from "@n-apt/utils/sourceSignalDisplay";
 
 const NodeContent = styled.div`
@@ -63,7 +64,6 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
   data,
 }) => {
   const dispatch = useAppDispatch();
-  const txSignal = useAppSelector((state) => state.spectrum.txSignal);
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );
@@ -95,10 +95,11 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
   const txSource = useAppSelector((state) =>
     (state.websocket.sources ?? []).find((source) => source.id === txSourceId),
   );
-  const channels = useAppSelector((state) => state.websocket.channels ?? []);
+  const channels = useAppSelector((state) =>
+    selectArrayOrEmpty(state.websocket.channels),
+  );
   const wholeChannelSampleRate = resolveWholeChannelSampleRate({
     source: txSource,
-    txSignal,
     activeSignalArea,
     channels,
   });

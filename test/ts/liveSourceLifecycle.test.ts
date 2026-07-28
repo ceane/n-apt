@@ -100,6 +100,28 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(true);
   });
 
+  test("does not present or request Tx standby when Mock Tx is paused in Rx mode", () => {
+    expect(
+      shouldPresentMockTxStandby({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isSelectedMockTxPaused: true,
+        selectedSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isSelectedMockTxPaused: true,
+        isConnected: true,
+        phase: "standby",
+      }),
+    ).toBe(false);
+  });
+
   test("requests a source-owned Mock Tx preview while the device swap is warming", () => {
     expect(
       shouldRequestMockTxStandbyPreview({
@@ -284,6 +306,23 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toMatchObject({
       clearStalePresentation: false,
       preserveMatchingPresentation: true,
+    });
+  });
+
+  test("clears the painted device immediately when a hardware handoff starts", () => {
+    expect(
+      resolveLiveSourcePresentationPolicy({
+        phase: "swapping-device",
+        selectedSourceId: "rtl-sdr-v4",
+        activeSourceId: "hackrf-one",
+        readiness: null,
+        presentedSourceId: "hackrf-one",
+        isStandby: false,
+      }),
+    ).toMatchObject({
+      suppressStaleFrames: true,
+      clearStalePresentation: true,
+      preserveMatchingPresentation: false,
     });
   });
 

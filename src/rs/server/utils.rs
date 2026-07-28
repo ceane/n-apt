@@ -755,7 +755,8 @@ pub fn normalize_rtl_sdr_device_name(raw_name: &str) -> String {
 pub fn device_config_key(device_profile: &super::types::DeviceProfile) -> &str {
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => "rtl_sdr",
-    "hackrf_one" | "mock_tx" => "hackrf_one",
+    "hackrf_one" => "hackrf_one",
+    "mock_tx" => "mock_tx",
     "mock_apt_metal" => "mock_apt",
     "mock_apt" => "mock_apt",
     kind => kind,
@@ -777,6 +778,13 @@ pub fn device_sample_rate_ceiling(
   sdr_settings: &SdrConfig,
 ) -> u32 {
   if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
+    if let Some(configured_max) = sdr_settings
+      .devices
+      .get(device_config_key(device_profile))
+      .and_then(|device_cfg| device_cfg.max_sample_rate)
+    {
+      return configured_max;
+    }
     let configured_channel_ceiling =
       widest_channel_bandwidth(&signals_config().signals.n_apt);
     return if configured_channel_ceiling > 0 {
@@ -964,6 +972,18 @@ mod tests {
   }
 
   #[test]
+  fn test_mock_tx_device_config_key_returns_mock_tx() {
+    let profile = DeviceProfile {
+      kind: "mock_tx".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
+    };
+
+    assert_eq!(device_config_key(&profile), "mock_tx");
+  }
+
+  #[test]
   fn normalizes_generic_rtl2832u_oem_to_rtl_sdr_v4() {
     let profile = DeviceProfile {
       kind: "rtl_sdr".to_string(),
@@ -1049,16 +1069,24 @@ mod tests {
       &settings,
     );
 
-    let expected_channel_rate = load_channels()
-      .iter()
-      .map(|channel| (channel.max_hz - channel.min_hz) as u32)
-      .max()
-      .expect("signals.yaml should define a Mock APT channel");
-
-    assert_eq!(max_sample_rate, expected_channel_rate);
+    assert_eq!(max_sample_rate, 20_000_000);
     assert_eq!(options.first().copied(), Some(3_200_000));
-    assert_eq!(options.last().copied(), Some(expected_channel_rate));
+    assert_eq!(options.last().copied(), Some(20_000_000));
     assert!(options.contains(&3_200_000));
+  }
+
+  #[test]
+  fn signals_yaml_sets_mock_apt_max_sample_rate_to_20_mhz() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let settings = load_sdr_settings();
+    let mock = settings
+      .devices
+      .get("mock_apt")
+      .expect("mock_apt device config");
+
+    assert_eq!(mock.max_sample_rate, Some(20_000_000));
   }
 
   #[test]

@@ -1,7 +1,6 @@
 import React from "react";
 import styled from "styled-components";
 import { SidebarToggleButton } from "./SidebarToggle";
-import { VaultStatus } from "../ui/VaultStatus";
 import nAptLogo from "@n-apt/public/images/icon.svg";
 
 const HeaderContainer = styled.div`
@@ -42,7 +41,6 @@ export const NAPTSidebarHeader: React.FC<NAPTSidebarHeaderProps> = ({
     <HeaderContainer>
       <SidebarToggleButton ref={toggleRef} onClick={onToggleClick} />
       <RightControls>
-        <VaultStatus />
         <NAPTIcon src={nAptLogo} alt="N-APT Logo" />
       </RightControls>
     </HeaderContainer>

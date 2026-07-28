@@ -86,7 +86,7 @@ describe("SignalDisplaySection sample rate selector", () => {
     expect(select).toHaveValue("whole-channel");
 
     fireEvent.change(select, { target: { value: "20000000" } });
-    expect(onSampleRateChange).toHaveBeenLastCalledWith(20_000_000);
+    expect(onSampleRateChange).toHaveBeenLastCalledWith(20_000_000, "manual");
 
     rerender(
       <TestWrapper>

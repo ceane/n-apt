@@ -330,3 +330,4 @@ mod tests {
     assert!(contents.contains("power_dbm=-3"));
   }
 }
+// Hot-reload probe 2: second harmless source change after the quiet window.

@@ -1,7 +1,6 @@
 import React, {
   createContext,
   useContext,
-  useReducer,
   useEffect,
   useRef,
   useState,
@@ -49,6 +48,28 @@ import {
   toggleStitchPause as toggleWaterfallStitchPause,
   triggerStitch as triggerWaterfallStitch,
   setSdrSettingsBundle as setSdrSettingsBundleAction,
+  setFrequencyRange as setFrequencyRangeAction,
+  setActiveSignalArea,
+  setSignalAreaAndRange,
+  setTemporalResolution,
+  setFftFrameRate,
+  setFftWindow,
+  setDisplayMode,
+  setDiagnosticStatus,
+  setDiagnosticRunning,
+  setStitchOption,
+  setStitchOptionValue,
+  setVizZoom,
+  setSampleRate as setSampleRateAction,
+  setMinReceiveSampleRate as setMinReceiveSampleRateAction,
+  setVisualizerPaused as setVisualizerPausedAction,
+  setDetectedFrameRate,
+  setVizZoomFloor as setVizZoomFloorAction,
+  setVizZoomFloorPan as setVizZoomFloorPanAction,
+  setAutoZoomStability as setAutoZoomStabilityAction,
+  setVizPan as setVizPanAction,
+  setFftDbLimits as setFftDbLimitsAction,
+  setPowerScale as setPowerScaleAction,
   resetLiveControls as resetLiveControlsAction,
   resetZoomAndDb as resetZoomAndDbAction,
   setShowSpikeOverlay as setShowSpikeOverlayAction,
@@ -61,11 +82,12 @@ import {
   setPendingSourceSwitchId as setReduxPendingSourceSwitchId,
   websocketActions,
 } from "@n-apt/redux";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
-  normalizePersistedTxSignalKey,
-  normalizePersistedTxViewerSettings,
-} from "@n-apt/redux/middleware/localStorageMiddleware";
+  liveDataBySourceRef,
+  liveDataRef,
+  sourceVisualizationRuntime,
+} from "@n-apt/redux/middleware/websocketMiddleware";
+import { sourceSpectrumRuntime } from "@n-apt/visualization/sourceVisualizationRuntime";
 import {
   connectWebSocket,
   disconnectWebSocket,
@@ -104,6 +126,7 @@ import {
 } from "@n-apt/utils/sdrSampleRateGuards";
 import { resolveSourceFrequencyRangeSync } from "@n-apt/utils/sourceFrequencySync";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
 import {
   resolveTxSuiteControlSourceId,
   shouldPinTxSuiteToRxSource,
@@ -153,15 +176,22 @@ export const resolveSelectedSourceIdForInventory = ({
   selectionIntentSourceId?: string | null;
   sources: SourceInfo[];
 }): string => {
+  const selectedSourceIsInInventory = sources.some(
+    (source) => source.id === selectedSourceId,
+  );
   if (
-    (pendingSourceSwitchId !== null &&
+    selectedSourceIsInInventory &&
+    ((pendingSourceSwitchId !== null &&
       pendingSourceSwitchId === selectedSourceId) ||
-    (selectionIntentSourceId !== null &&
-      selectionIntentSourceId === selectedSourceId)
+      (selectionIntentSourceId !== null &&
+        selectionIntentSourceId === selectedSourceId))
   ) {
     return selectedSourceId;
   }
-  if (sources.length === 0) return "";
+  // Inventory is briefly empty during reconnect/startup. Clearing here races
+  // the persisted-selection hydration effect, producing an endless
+  // selected ID -> "" -> selected ID cycle.
+  if (sources.length === 0) return selectedSourceId;
   const active = sources.find((source) => source.id === activeSourceId);
   const selected = sources.find((source) => source.id === selectedSourceId);
   const hardwareSources = sources.filter((source) => !isMockSourceInfo(source));
@@ -296,6 +326,11 @@ export const shouldRequestPausedPreview = (
 ): boolean => {
   if (!source) return false;
   if (source.status === "transmitting") return false;
+  // A paused Tx-capable device is still paused in Rx unless the sidebar has
+  // explicitly switched it into Tx mode. Do not send the generic paused-Rx
+  // request with Tx settings; Tx standby/preview is owned by SpectrumRoute.
+  if (isTxCapableSourceInfo(source)) return false;
+  if (isMockTxSource({ id: source.id, kind: source.kind })) return true;
   return source.iq_format != null;
 };
 
@@ -371,7 +406,15 @@ export const shouldPauseSourceOnSwitch = (
   source: SourceInfo | null | undefined,
 ): boolean => {
   if (!source) return false;
-  return !isTxCapableSourceInfo(source);
+  if (
+    source.status === "transmitting" ||
+    resolveSourceModeManagement({ source }).isTxMode
+  ) {
+    return false;
+  }
+  return (
+    isHalfDuplexSourceInfo(source) || !isTxCapableSourceInfo(source)
+  );
 };
 
 export const shouldResumePausedRxSourceOnSelection = (
@@ -590,7 +633,6 @@ export type SpectrumState = {
   rtlAGC: boolean;
   sampleRateHz: number;
   minReceiveSampleRateHz: number;
-  sample_size: number;
   lastKnownRanges: Record<string, { min: number; max: number }>;
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
@@ -814,7 +856,6 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   rtlAGC: false,
   sampleRateHz: 3_200_000,
   minReceiveSampleRateHz: 3_200_000,
-  sample_size: 3_200_000,
   lastKnownRanges: {},
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -840,98 +881,6 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
 export { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
 
 const SDR_SETTINGS_KEY = "napt-sdr-settings-v2";
-
-const loadPersistedSdrSettings = (): Partial<SpectrumState> => {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = sessionStorage.getItem(SDR_SETTINGS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if ("powerScale" in parsed) {
-      delete parsed.powerScale;
-    }
-    // Ensure lastKnownRanges is a valid object (not null, undefined, or non-object)
-    if (
-      !parsed.lastKnownRanges ||
-      typeof parsed.lastKnownRanges !== "object" ||
-      Array.isArray(parsed.lastKnownRanges)
-    ) {
-      parsed.lastKnownRanges = {};
-    }
-
-    // The live sample rate must stay in sync with the websocket/backend.
-    // Keeping a persisted value here causes HMR/reload drift.
-    if ("sampleRateHz" in parsed) {
-      delete parsed.sampleRateHz;
-    }
-
-    if (!Number.isFinite(parsed.txSampleRateHz)) {
-      parsed.txSampleRateHz = 2_400_000;
-    }
-
-    if (
-      !Number.isFinite(parsed.txCenterFrequencyHz) ||
-      parsed.txCenterFrequencyHz === 2_204_000 ||
-      parsed.txCenterFrequencyHz === 1_600_000
-    ) {
-      parsed.txCenterFrequencyHz = 137_100_000;
-    }
-
-    if (!Number.isFinite(parsed.txPowerDbm)) {
-      parsed.txPowerDbm = -18;
-    }
-
-    if (!Number.isFinite(parsed.txVgaGain)) {
-      parsed.txVgaGain = 16;
-    }
-
-    normalizePersistedTxViewerSettings(parsed);
-
-    parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
-
-    if (typeof parsed.txSafetyEnabled !== "boolean") {
-      parsed.txSafetyEnabled = false;
-    }
-
-    if (typeof parsed.txSafetyLimit !== "string") {
-      parsed.txSafetyLimit = "room";
-    }
-
-    if (typeof parsed.txHopType !== "string") {
-      parsed.txHopType = "range";
-    }
-
-    if (!Number.isFinite(parsed.txHopStartFrequencyHz)) {
-      parsed.txHopStartFrequencyHz = 10_000_000;
-    }
-
-    if (!Number.isFinite(parsed.txHopEndFrequencyHz)) {
-      parsed.txHopEndFrequencyHz = 20_000_000;
-    }
-
-    if (!Array.isArray(parsed.txHopChannels)) {
-      parsed.txHopChannels = ["a"];
-    }
-
-    if (!Number.isFinite(parsed.txHopRateHz)) {
-      parsed.txHopRateHz = 10;
-    }
-
-    if (typeof parsed.txHopEnabled !== "boolean") {
-      parsed.txHopEnabled = false;
-    }
-
-    // Older persisted spectrum state can contain gain=0 as a placeholder.
-    // That should not override the live default restored from the backend.
-    if (parsed.gain === 0) {
-      delete parsed.gain;
-    }
-
-    return parsed;
-  } catch {
-    return {};
-  }
-};
 
 export const selectLiveSampleRateForSync = ({
   isConnected,
@@ -987,6 +936,21 @@ export const shouldSendSignalDisplaySettings = ({
   previous.fftSize !== next.fftSize ||
   previous.frameRate !== next.frameRate;
 
+export const shouldSyncSdrSettingsCache = (
+  current: Record<string, unknown> | null | undefined,
+  next: Record<string, unknown> | null | undefined,
+): boolean => {
+  if (current === next) return false;
+  if (!current || !next) return current !== next;
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+  return (
+    currentKeys.length !== nextKeys.length ||
+    currentKeys.some((key) => current[key] !== next[key])
+  );
+};
+
+
 export const resolveEffectiveLiveSampleRateHz = ({
   localSampleRateHz,
   websocketSampleRateHz,
@@ -1032,7 +996,7 @@ export const resolveEffectiveLiveSampleRateHz = ({
   return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
 
-export function spectrumReducer(
+function spectrumReducer(
   state: SpectrumState,
   action: SpectrumAction,
 ): SpectrumState {
@@ -1200,7 +1164,6 @@ export function spectrumReducer(
       return {
         ...state,
         sampleRateHz: action.sampleRateHz,
-        sample_size: action.sampleRateHz,
       };
     case "SET_MIN_RECEIVE_SAMPLE_RATE":
       return {
@@ -1211,10 +1174,6 @@ export function spectrumReducer(
       return {
         ...state,
         ...action.settings,
-        sample_size:
-          typeof action.settings.sampleRateHz === "number"
-            ? action.settings.sampleRateHz
-            : state.sample_size,
       };
     case "RESET_ZOOM_AND_DB": {
       const isDbm = state.powerScale === "dBm";
@@ -1434,10 +1393,6 @@ interface SpectrumProviderProps {
 
 const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
   ({ children }) => {
-    const [state, dispatch] = useReducer(spectrumReducer, {
-      ...INITIAL_SPECTRUM_STATE,
-      ...loadPersistedSdrSettings(),
-    });
     const fftVisualizerMachineRef = useRef<FFTVisualizerMachine | null>(null);
     if (!fftVisualizerMachineRef.current) {
       fftVisualizerMachineRef.current = createFFTVisualizerMachine();
@@ -1445,6 +1400,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const fftVisualizerMachine = fftVisualizerMachineRef.current;
     const location = useLocation();
     const reduxDispatch = useAppDispatch();
+    const waterfallState = useAppSelector((s) => s.waterfall);
+    const reduxSpectrumState = useAppSelector((s) => s.spectrum);
+    const state = useMemo(
+      () =>
+        ({
+          ...INITIAL_SPECTRUM_STATE,
+          ...reduxSpectrumState,
+          ...waterfallState,
+        }) as SpectrumState,
+      [reduxSpectrumState, waterfallState],
+    );
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
     const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
@@ -1505,8 +1471,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       if (selectedSourceId) return;
       const stored = loadSelectedSourceId();
+      const hardwareSources = websocketSources.filter(
+        (source) => !isMockSourceInfo(source),
+      );
+      const soleHardwareSourceId =
+        hardwareSources.length === 1 ? hardwareSources[0]?.id : null;
       const initialSourceId =
-        stored || activeSourceId || websocketSources[0]?.id;
+        soleHardwareSourceId || stored || activeSourceId || websocketSources[0]?.id;
       if (initialSourceId) {
         reduxDispatch(setReduxSelectedSourceId(initialSourceId));
       }
@@ -1563,6 +1534,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       sourceSwitchCoordinatorRef.current = createSourceSwitchCoordinator({
         onRequest: (sourceId) => {
           liveDataRef.current = [];
+          // The selected source owns a persistent frame slot for fast
+          // rendering. Invalidate that slot at the handoff boundary so a
+          // previous-session frame cannot appear before this switch commits.
+          sourceVisualizationRuntime.reset(sourceId);
+          sourceSpectrumRuntime.reset(sourceId);
+          liveDataBySourceRef.current[sourceId] =
+            sourceVisualizationRuntime.getSourceRef(sourceId);
           reduxDispatch(sendSelectSourceThunk(sourceId));
           reduxDispatch(setReduxPendingSourceSwitchId(sourceId));
         },
@@ -1630,13 +1608,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [streamingSource],
     );
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
+    const websocketSdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
-    const waterfallState = useAppSelector((s) => s.waterfall);
     // liveDataRef is written directly by the middleware — never goes through Redux.
     const dataRef = liveDataRef;
 
-    const reduxSpectrumState = useAppSelector((s) => s.spectrum);
 
     useEffect(() => {
       const nextSourceId = resolveSelectedSourceIdForInventory({
@@ -1712,10 +1689,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             // source view has reached React state.
             deferredFrequencyRangeSyncSourceIdRef.current = selectedSourceId;
           }
-          dispatch({
-            type: "SET_SDR_SETTINGS_BUNDLE",
-            settings: restoredState,
-          });
           reduxDispatch(setSdrSettingsBundleAction(restoredState));
         }
         selectedSourceViewKeyRef.current = selectedSourceViewKey;
@@ -1724,7 +1697,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       saveSelectedSourceId(selectedSourceId);
     }, [
       activeSourceId,
-      dispatch,
       reduxDispatch,
       selectedSourceId,
       selectedSourceViewKey,
@@ -1817,6 +1789,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const mergedState = useMemo(
       () => ({
         ...applyWaterfallStateOverrides(state, waterfallState),
+        ...reduxSpectrumState,
         fftSize: reduxSpectrumState.fftSize,
         fftWindow: reduxSpectrumState.fftWindow,
         fftFrameRate: reduxSpectrumState.fftFrameRate,
@@ -1826,6 +1799,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         rtlAGC: reduxSpectrumState.rtlAGC,
         sampleRateHz: reduxSpectrumState.sampleRateHz,
         minReceiveSampleRateHz: reduxSpectrumState.minReceiveSampleRateHz,
+        detectedFrameRate: reduxSpectrumState.detectedFrameRate,
       }),
       [state, waterfallState, reduxSpectrumState],
     );
@@ -1836,12 +1810,73 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           case "SET_SOURCE_MODE":
             reduxDispatch(setWaterfallSourceMode(action.mode));
             return;
+          case "SET_SIGNAL_AREA":
+            reduxDispatch(setActiveSignalArea(action.area));
+            return;
+          case "SET_FREQUENCY_RANGE":
+            reduxDispatch(setFrequencyRangeAction(action.range));
+            return;
+          case "SET_SIGNAL_AREA_AND_RANGE":
+            reduxDispatch(
+              setSignalAreaAndRange({ area: action.area, range: action.range }),
+            );
+            return;
+          case "SET_TEMPORAL_RESOLUTION":
+            reduxDispatch(setTemporalResolution(action.resolution));
+            return;
+          case "SET_POWER_SCALE":
+            reduxDispatch(setPowerScaleAction(action.powerScale));
+            return;
+          case "SET_FFT_FRAME_RATE":
+            reduxDispatch(setFftFrameRate(action.fftFrameRate));
+            return;
+          case "SET_SAMPLE_RATE":
+            reduxDispatch(setSampleRateAction(action.sampleRateHz));
+            return;
+          case "SET_MIN_RECEIVE_SAMPLE_RATE":
+            reduxDispatch(
+              setMinReceiveSampleRateAction(action.minReceiveSampleRateHz),
+            );
+            return;
+          case "SET_VISUALIZER_PAUSED":
+            reduxDispatch(setVisualizerPausedAction(action.paused));
+            return;
+          case "SET_VIZ_ZOOM":
+            reduxDispatch(setVizZoom(action.zoom));
+            return;
+          case "SET_FFT_WINDOW":
+            reduxDispatch(setFftWindow(action.fftWindow));
+            return;
+          case "SET_DISPLAY_MODE":
+            reduxDispatch(setDisplayMode(action.displayMode));
+            return;
+          case "SET_DIAGNOSTIC_STATUS":
+            reduxDispatch(setDiagnosticStatus(action.status));
+            return;
+          case "SET_DIAGNOSTIC_RUNNING":
+            reduxDispatch(setDiagnosticRunning(action.running));
+            return;
+          case "SET_STITCH_OPTION":
+            reduxDispatch(
+              setStitchOption({
+                option: action.option,
+                enabled: action.enabled,
+              } as never),
+            );
+            return;
+          case "SET_STITCH_OPTION_VALUE":
+            reduxDispatch(
+              setStitchOptionValue({
+                option: action.option,
+                value: action.value,
+              } as never),
+            );
+            return;
           case "SET_SELECTED_FILES":
             reduxDispatch(setWaterfallSelectedFiles(action.files));
             return;
           case "SET_SNAPSHOT_GRID":
             reduxDispatch(setWaterfallSnapshotGrid(action.preference));
-            dispatch(action);
             return;
           case "SET_GLOBAL_NOISE_FLOOR":
             reduxDispatch(setWaterfallGlobalNoiseFloor(action.noise));
@@ -1872,7 +1907,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             return;
           case "SET_SDR_SETTINGS_BUNDLE":
             reduxDispatch(setSdrSettingsBundleAction(action.settings as any));
-            dispatch(action);
             return;
           case "RESET_LIVE_CONTROLS":
             reduxDispatch(
@@ -1881,21 +1915,32 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
                 fftFrameRate: action.fftFrameRate,
               }),
             );
-            dispatch(action);
             return;
           case "RESET_ZOOM_AND_DB":
             reduxDispatch(resetZoomAndDbAction());
-            dispatch(action);
             return;
           case "SET_VIZ_ZOOM_FLOOR":
-            dispatch(action);
+            reduxDispatch(setVizZoomFloorAction(action.zoomFloor));
+            return;
+          case "SET_VIZ_ZOOM_FLOOR_PAN":
+            reduxDispatch(setVizZoomFloorPanAction(action.pan));
+            return;
+          case "SET_AUTO_ZOOM_STABILITY":
+            reduxDispatch(setAutoZoomStabilityAction(action.enabled));
+            return;
+          case "SET_VIZ_PAN":
+            reduxDispatch(setVizPanAction(action.pan));
+            return;
+          case "SET_FFT_DB_LIMITS":
+            reduxDispatch(
+              setFftDbLimitsAction({ min: action.min, max: action.max }),
+            );
             return;
           case "TRAINING_STOP":
             reduxDispatch(resetTrainingCapture());
             return;
           case "SET_DRAW_PARAMS":
             reduxDispatch(setWaterfallDrawParams(action.params));
-            dispatch(action);
             return;
           case "SET_CLUMP_PARAMS":
             reduxDispatch(
@@ -1904,22 +1949,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
                 params: action.params,
               }),
             );
-            dispatch(action);
             return;
           case "SET_ACTIVE_CLUMP_INDEX":
             reduxDispatch(setWaterfallActiveClumpIndex(action.index));
-            dispatch(action);
             return;
           case "RESET_DRAW_PARAMS":
             reduxDispatch(resetWaterfallDrawParams());
-            dispatch(action);
             return;
           case "SET_SHOW_SPIKE_OVERLAY":
             reduxDispatch(setShowSpikeOverlayAction(action.enabled));
-            dispatch(action);
+            return;
+          case "SET_DETECTED_FRAME_RATE":
+            reduxDispatch(setDetectedFrameRate(action.detectedFrameRate));
             return;
           default:
-            dispatch(action);
+            // Legacy actions without a Redux owner are intentionally ignored;
+            // active consumers must use the explicit Redux action surface.
+            return;
         }
       },
       [reduxDispatch],
@@ -2208,10 +2254,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           return;
         }
         setManualVisualizerPaused(nextPaused);
-        storeDispatch({
-          type: "SET_VISUALIZER_PAUSED",
-          paused: nextPaused,
-        });
+        reduxDispatch(setVisualizerPausedAction(nextPaused));
       },
       [effectiveWebsocketSources, manualVisualizerPaused, storeDispatch],
     );
@@ -2414,7 +2457,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         fftSize: state.fftSize,
         fftWindow: state.fftWindow,
         fftFrameRate: state.fftFrameRate,
-        detectedFrameRate: state.detectedFrameRate,
+        detectedFrameRate: reduxSpectrumState.detectedFrameRate,
         gain: state.gain,
         ppm: state.ppm,
         tunerAGC: state.tunerAGC,
@@ -2429,7 +2472,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         displayTemporalResolution: state.displayTemporalResolution,
         snapshotGridPreference: mergedState.snapshotGridPreference,
         sampleRateHz: state.sampleRateHz,
-        sample_size: state.sample_size,
       };
       sessionStorage.setItem(
         SDR_SETTINGS_KEY,
@@ -2439,7 +2481,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       state.fftSize,
       state.fftWindow,
       state.fftFrameRate,
-      state.detectedFrameRate,
+      reduxSpectrumState.detectedFrameRate,
       state.gain,
       state.ppm,
       state.tunerAGC,
@@ -2455,7 +2497,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       state.powerScale,
       mergedState.snapshotGridPreference,
       state.sampleRateHz,
-      state.sample_size,
     ]);
 
     const lastSentPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
@@ -2567,12 +2608,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [activeSourceId, isConnected]);
 
     useEffect(() => {
-      if (!isConnected || state.detectedFrameRate == null || !activeSourceId)
+      if (!isConnected || reduxSpectrumState.detectedFrameRate == null || !activeSourceId)
         return;
       const nextSettings: SignalDisplaySettings = {
         sampleRateHz: state.sampleRateHz ?? null,
         fftSize: state.fftSize ?? null,
-        frameRate: Math.round(state.detectedFrameRate),
+        frameRate: Math.round(reduxSpectrumState.detectedFrameRate),
       };
       if (
         !shouldSendSignalDisplaySettings({
@@ -2598,7 +2639,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [
       isConnected,
       reduxDispatch,
-      state.detectedFrameRate,
+      reduxSpectrumState.detectedFrameRate,
       state.sampleRateHz,
       state.fftSize,
       activeSourceId,
@@ -2722,9 +2763,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         !deviceProfile.supports_approx_dbm &&
         state.powerScale === "dBm"
       ) {
-        storeDispatch({ type: "SET_POWER_SCALE", powerScale: "dB" });
+        reduxDispatch(setPowerScaleAction("dB"));
       }
-    }, [deviceProfile, state.powerScale, storeDispatch]);
+    }, [deviceProfile, state.powerScale, reduxDispatch]);
 
     useEffect(() => {
       if (!isConnected) {
@@ -2769,12 +2810,14 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       } catch {
         /* ignore */
       }
-      reduxDispatch(
-        websocketActions.updateDeviceState({
-          sdrSettings: sdrSettings as any,
-        }),
-      );
-    }, [isConnected, sdrSettings, reduxDispatch]);
+      if (shouldSyncSdrSettingsCache(websocketSdrSettings, sdrSettings)) {
+        reduxDispatch(
+          websocketActions.updateDeviceState({
+            sdrSettings: sdrSettings as any,
+          }),
+        );
+      }
+    }, [isConnected, sdrSettings, websocketSdrSettings, reduxDispatch]);
 
     const hydratedBackendSampleRateRef = useRef(false);
 
@@ -2810,7 +2853,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         (!hasValidLocalRate || !hydratedBackendSampleRateRef.current);
 
       if (shouldHydrateRate && rate !== state.sampleRateHz) {
-        storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+        reduxDispatch(setSampleRateAction(rate));
       }
       if (typeof rate === "number" && rate > 0) {
         hydratedBackendSampleRateRef.current = true;
@@ -2824,10 +2867,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         minReceiveRate > 0 &&
         minReceiveRate !== state.minReceiveSampleRateHz
       ) {
-        storeDispatch({
-          type: "SET_MIN_RECEIVE_SAMPLE_RATE",
-          minReceiveSampleRateHz: minReceiveRate,
-        });
+        reduxDispatch(setMinReceiveSampleRateAction(minReceiveRate));
       }
     }, [
       sdrSettings?.sample_rate,
@@ -2841,7 +2881,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       deviceName,
       state.sampleRateHz,
       state.minReceiveSampleRateHz,
-      storeDispatch,
+      reduxDispatch,
     ]);
 
     const effectiveFrames: SpectrumFrame[] = !isConnected
@@ -2964,7 +3004,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
 
-      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+      reduxDispatch(setFrequencyRangeAction(nextRange));
       wsConnection.sendFrequencyRange(nextRange);
       lastSentFrequencyRangeRef.current = nextRange;
     }, [
@@ -2976,7 +3016,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       deviceState,
       isConnected,
       mergedState.frequencyRange,
-      storeDispatch,
+      reduxDispatch,
       wsConnection.sendFrequencyRange,
     ]);
 
@@ -3024,7 +3064,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       )
         return;
 
-      storeDispatch({ type: "SET_FREQUENCY_RANGE", range: nextRange });
+      reduxDispatch(setFrequencyRangeAction(nextRange));
       wsConnection.sendFrequencyRange(nextRange);
       lastSentFrequencyRangeRef.current = nextRange;
     }, [
@@ -3039,7 +3079,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSourceId,
       deviceState,
       wsConnection.sendFrequencyRange,
-      storeDispatch,
+      reduxDispatch,
       clampLiveFrequencyRange,
     ]);
 
@@ -3067,9 +3107,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sampleRateHzEffective ?? 0,
         sdrSettings,
       );
-      storeDispatch({
-        type: "SET_SDR_SETTINGS_BUNDLE",
-        settings: {
+      reduxDispatch(setSdrSettingsBundleAction({
           ...derived,
           fftSize:
             typeof mergedState.fftSize === "number" && mergedState.fftSize > 0
@@ -3080,13 +3118,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             mergedState.fftFrameRate > 0
               ? mergedState.fftFrameRate
               : derived.fftFrameRate,
-        },
-      });
+      }));
     }, [
       isConnected,
       sdrSettings,
       sampleRateHzEffective,
-      storeDispatch,
+      reduxDispatch,
       mergedState.fftSize,
       mergedState.fftFrameRate,
     ]);
@@ -3121,7 +3158,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
       if (!currentRange || !range || !syncPlan.rangeToSend) return;
       if (range.min !== currentRange.min || range.max !== currentRange.max) {
-        storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
+        reduxDispatch(setFrequencyRangeAction(range));
       }
       wsConnection.sendFrequencyRange(syncPlan.rangeToSend);
       lastSentFrequencyRangeRef.current = syncPlan.rangeToSend;
@@ -3132,20 +3169,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSourceId,
       mergedState.frequencyRange,
       clampLiveFrequencyRange,
-      storeDispatch,
+      reduxDispatch,
       wsConnection.sendFrequencyRange,
     ]);
 
     useEffect(() => {
       if (!isVisualizerRoute) return;
-      if (state.detectedFrameRate != null) return;
+      if (reduxSpectrumState.detectedFrameRate != null) return;
 
       const persistedFrameRate = getPersistedNumber(VISUALIZER_FRAME_RATE_KEY);
       if (persistedFrameRate != null) {
-        storeDispatch({
-          type: "SET_DETECTED_FRAME_RATE",
-          detectedFrameRate: persistedFrameRate,
-        });
+        reduxDispatch(setDetectedFrameRate(persistedFrameRate));
         return;
       }
 
@@ -3154,10 +3188,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         if (cancelled || frameRate == null) return;
 
         const rounded = Math.round(frameRate);
-        storeDispatch({
-          type: "SET_DETECTED_FRAME_RATE",
-          detectedFrameRate: rounded,
-        });
+        reduxDispatch(setDetectedFrameRate(rounded));
         try {
           sessionStorage.setItem(VISUALIZER_FRAME_RATE_KEY, String(rounded));
         } catch {
@@ -3168,13 +3199,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       return () => {
         cancelled = true;
       };
-    }, [isVisualizerRoute, state.detectedFrameRate, storeDispatch]);
+    }, [isVisualizerRoute, reduxSpectrumState.detectedFrameRate, reduxDispatch]);
 
     const toggleVisualizerPause = useCallback(
       (sourceId?: string) => {
         if (mergedState.sourceMode === "file") {
           const nextPaused = !mergedState.isStitchPaused;
-          storeDispatch({ type: "SET_STITCH_PAUSED", paused: nextPaused });
+          reduxDispatch(setWaterfallStitchPaused(nextPaused));
           return;
         }
 
@@ -3210,10 +3241,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
         if (pauseTargetSourceId === selectedSourceId) {
           setManualVisualizerPaused(nextPaused);
-          storeDispatch({
-            type: "SET_VISUALIZER_PAUSED",
-            paused: nextPaused,
-          });
+          reduxDispatch(setVisualizerPausedAction(nextPaused));
         }
 
         wsConnection.sendPauseCommand(nextPaused, pauseTargetSourceId);
@@ -3225,7 +3253,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         mergedState.sourceMode,
         selectedSource,
         selectedSourceId,
-        storeDispatch,
+        reduxDispatch,
         effectiveWebsocketSources,
         wsConnection,
       ],

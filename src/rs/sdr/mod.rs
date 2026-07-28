@@ -67,6 +67,10 @@ pub trait SdrDevice: Send {
   /// Read IQ samples from the device
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
 
+  fn transmit_iq(&mut self, _samples: Option<&[u8]>) -> Result<()> {
+    Err(anyhow::anyhow!("This SDR does not support transmission"))
+  }
+
   /// Return an owned IQ sample buffer to devices that can reuse it.
   fn recycle_read_buffer(&mut self, _buffer: Vec<u8>) {}
 

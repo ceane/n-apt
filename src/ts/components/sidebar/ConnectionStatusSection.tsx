@@ -3,7 +3,7 @@ import styled from "styled-components";
 import type {
   DeviceState,
   DeviceLoadingReason,
-} from "@n-apt/hooks/useWebSocket";
+} from "@n-apt/consts/schemas/websocket";
 import { CheckCircle2, Loader2, Pause, Play } from "lucide-react";
 
 const ConnectionStatusContainer = styled.div`
@@ -498,22 +498,22 @@ export const ConnectionStatusSection: React.FC<
             (deviceState === "loading" && deviceLoadingReason === "restart" ? (
               <LoadingState
                 role="status"
-                aria-label={
-                  isHackRfBackend ? "Waiting for Rx" : "Restarting device"
-                }
+                aria-label="Restarting device"
               >
                 <Loader2
                   size={16}
                   className="animate-spin"
                   aria-hidden="true"
                 />
-                {isHackRfBackend ? "Waiting for Rx…" : "Restarting…"}
+                Restarting…
               </LoadingState>
             ) : deviceState === "loading" ? (
               <LoadingState
                 role="status"
                 aria-label={
-                  isHackRfBackend ? "Waiting for Rx" : "Loading device"
+                  isHackRfBackend
+                    ? "Rx active, waiting for first frame"
+                    : "Loading device"
                 }
               >
                 <Loader2
@@ -521,7 +521,9 @@ export const ConnectionStatusSection: React.FC<
                   className="animate-spin"
                   aria-hidden="true"
                 />
-                {isHackRfBackend ? "Waiting for Rx…" : "Loading…"}
+                {isHackRfBackend
+                  ? "Rx active · waiting for first frame…"
+                  : "Loading…"}
               </LoadingState>
             ) : staleStateLabel ? (
               <WarningButton

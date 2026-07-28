@@ -643,6 +643,45 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
   });
 
+  it("publishes TX drag geometry at most once per animation frame", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    const onGeometryChange = jest.fn();
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        txSliderEnabled: true,
+        txSliderRef: {
+          current: {
+            visible: true,
+            visibleMinHz: 100,
+            visibleMaxHz: 110,
+            txCenterHz: 105,
+            txSampleRateHz: 2,
+            onGeometryChange,
+          },
+        },
+      }),
+    );
+
+    triggerPointerDown(500, 580);
+    triggerPointerMove(510, 580);
+    triggerPointerMove(520, 580);
+    triggerPointerMove(530, 580);
+
+    expect(onGeometryChange).not.toHaveBeenCalled();
+    expect(animationFrames).toHaveLength(1);
+
+    act(() => animationFrames.shift()?.(0));
+    expect(onGeometryChange).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the TX slider body grab offset on pointer down", () => {
     renderHook(() =>
       useFrequencyDrag({

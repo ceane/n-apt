@@ -10,9 +10,12 @@ export interface ChannelDescriptor {
   label: string;
   min: number;
   max: number;
+  targetSampleRate?: number;
 }
 
-export const useChannelTuner = () => {
+export const useChannelTuner = (
+  onSampleRateChange?: (rate: number, mode?: "whole" | "manual") => void,
+) => {
   const reduxDispatch = useAppDispatch();
   const spectrumStore = useOptionalSpectrumStore();
 
@@ -21,6 +24,7 @@ export const useChannelTuner = () => {
       channels: ChannelDescriptor[],
       selectedLabels?: string[],
       rangeOverride?: { min: number; max: number },
+      sampleRateOverride?: number,
     ) => {
       if (!channels || channels.length === 0) return;
 
@@ -38,17 +42,20 @@ export const useChannelTuner = () => {
         }),
       );
 
-      if (spectrumStore) {
-        spectrumStore.dispatch({
-          type: "SET_SIGNAL_AREA_AND_RANGE",
-          area: primaryLabel,
-          range,
-        });
+      const targetSampleRate = sampleRateOverride ?? primary.targetSampleRate;
+      if (
+        typeof targetSampleRate === "number" &&
+        Number.isFinite(targetSampleRate) &&
+        targetSampleRate > 0
+      ) {
+        onSampleRateChange?.(targetSampleRate, "whole");
+      }
 
+      if (spectrumStore) {
         spectrumStore.wsConnection?.sendFrequencyRange?.(range);
       }
     },
-    [reduxDispatch, spectrumStore],
+    [reduxDispatch, spectrumStore, onSampleRateChange],
   );
 
   return { tuneChannels };
@@ -111,7 +118,12 @@ export const useChannelManagement = ({
       });
 
       if (freqRange) {
-        tuneChannels([{ label: channelLabel, min: freqRange[0], max: freqRange[1] }]);
+        tuneChannels(
+          [{ label: channelLabel, min: freqRange[0], max: freqRange[1] }],
+          undefined,
+          undefined,
+          derivedCaptureRateHz,
+        );
         return;
       }
 

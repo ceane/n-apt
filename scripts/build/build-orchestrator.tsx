@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Static, Text, useAnimation, useApp, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
+import net from 'node:net';
 import os from 'node:os';
 import chalk from 'chalk';
 import notifier from 'node-notifier';
@@ -19,15 +20,37 @@ import {
 } from './buildStatus';
 import {
   createRustHotReloadGate,
-  buildRustBackendStopCommand,
   isProcessSpinnerActive,
+  getRustHotReloadProcessLabel,
+  getRustHotReloadRuntimeLabel,
   runRustHotReloadValidation,
 } from '@n-apt/utils/rustHotReloadGate';
+import { acquireBuildOrchestratorLock } from './buildOrchestratorLock';
+import { writeBackendTarget } from './backend-handoff-proxy';
+import { isRustSourceChange } from './rustWatchFilter';
+import { getCompletedStepLabel } from './buildStepLabels';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isMainModule = import.meta.url === `file://${process.argv[1]}`;
 const hasInteractiveTty = Boolean(isMainModule && process.stdin.isTTY && process.stdout.isTTY);
+const backendProxyPort = 8765;
+const backendInitialPort = 8766;
+const backendTargetFile = path.resolve('.n-apt-backend-target.json');
+
+const findAvailableTcpPort = async (startingPort: number): Promise<number> => {
+  for (let port = startingPort; port <= 65535; port += 1) {
+    const available = await new Promise<boolean>((resolve) => {
+      const probe = net.createServer();
+      probe.once('error', () => resolve(false));
+      probe.listen(port, '127.0.0.1', () => {
+        probe.close(() => resolve(true));
+      });
+    });
+    if (available) return port;
+  }
+  throw new Error('No available local TCP port for Rust backend handoff');
+};
 
 dotenv.config({ path: '.env.local', quiet: true });
 dotenv.config({ quiet: true });
@@ -118,22 +141,10 @@ const terminateLaunchedChildren = () => {
 };
 
 const terminateKnownDevProcesses = () => {
+  // The singleton lock makes this orchestrator the owner of its children.
+  // Do not use broad process-name matching here: during takeover, the old
+  // orchestrator can still be shutting down while the new one is starting.
   terminateLaunchedChildren();
-  try {
-    if (process.platform === 'win32') {
-      spawnSync('taskkill /F /IM n-apt-backend.exe', { shell: true });
-      return;
-    }
-
-    spawnSync('pkill', ['-TERM', '-f', 'target/dev-fast/n-apt-backend']);
-    spawnSync('pkill', ['-TERM', '-f', 'n-apt-backend']);
-    spawnSync('pkill', ['-TERM', '-f', 'cargo run --profile dev-fast --bin n-apt-backend']);
-    spawnSync('pkill', ['-TERM', '-f', 'node_modules/.bin/vite dev --host']);
-    spawnSync('pkill', ['-TERM', '-f', 'vite dev --host']);
-    spawnSync('pkill', ['-TERM', '-f', 'redis-server.*n-apt']);
-  } catch {
-    // Best-effort process cleanup for dev shutdown.
-  }
 };
 
 // Types
@@ -155,6 +166,8 @@ interface BuildState {
   vitePid?: number;
   rustPid?: number;
   redisPid?: number;
+  proxyPid?: number;
+  rustCandidatePid?: number;
   warningCount: number;
   errorDetails: string[];
   warningDetails: string[];
@@ -167,6 +180,7 @@ type BackgroundCommand =
       executable: string;
       args: string[];
       label?: string;
+      env?: NodeJS.ProcessEnv;
     };
 
 const describeBackgroundCommand = (command: BackgroundCommand) =>
@@ -222,6 +236,7 @@ const isWsl = process.platform === 'linux' && (
 );
 const isNativeWindows = isWindows && !isWsl;
 const strictStartupValidation = process.env.NAPT_DEV_STRICT_STARTUP === '1';
+const hotReloadRunsCargoCheck = process.env.NAPT_DEV_RUST_HOT_RELOAD_CHECK === '1';
 const backgroundStartGraceMs = Number.parseInt(process.env.NAPT_DEV_BACKGROUND_GRACE_MS || '500', 10);
 const stepSettleDelayMs = Number.parseInt(process.env.NAPT_DEV_STEP_DELAY_MS || '100', 10);
 
@@ -265,15 +280,18 @@ const StaticHeader = () => (
 );
 
 // Process Step Component
-const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
+const ProcessStep = ({ process, isActive, showOutput, onToggleOutput, hotReloadLabel }: {
   process: ProcessStatus;
   isActive: boolean;
   showOutput?: boolean;
   onToggleOutput?: () => void;
+  hotReloadLabel?: string;
 }) => {
-  const spinner = useSpinnerFrame(isProcessSpinnerActive(process.status));
+  const isHotReloading = Boolean(hotReloadLabel);
+  const spinner = useSpinnerFrame(isHotReloading || isProcessSpinnerActive(process.status));
 
   const getStatusIcon = () => {
+    if (isHotReloading) return spinner;
     switch (process.status) {
       case 'pending': return '○';
       case 'running': return spinner;
@@ -285,6 +303,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
   };
 
   const getStatusText = () => {
+    if (hotReloadLabel) return hotReloadLabel;
     switch (process.status) {
       case 'pending': return process.name;
       case 'running': return `${process.name}...`;
@@ -296,6 +315,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
   };
 
   const getStatusColor = () => {
+    if (isHotReloading) return 'blue';
     switch (process.status) {
       case 'pending': return 'gray';
       case 'running': return 'blue';
@@ -313,6 +333,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
           : undefined;
 
   const isLongRunning = process.name.toLowerCase().includes('rust');
+  const showProcessSuffix = !hotReloadLabel;
 
   return (
     <Box flexDirection="column" marginBottom={0}>
@@ -321,12 +342,12 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput }: {
           <Text color={getStatusColor()}>{getStatusIcon()}</Text>
         </Box>
         <Text color={getStatusColor()}>
-          {process.label ?? getStatusText()}
+          {hotReloadLabel ?? process.label ?? getStatusText()}
         </Text>
         <Text>
-          {process.name === 'Swapping Redis Database' ? (
+          {process.name === 'Swapping Redis Database' && showProcessSuffix ? (
             <Text color={accentColors.redis}> Redis.</Text>
-          ) : processSuffixes[process.name] && (
+          ) : processSuffixes[process.name] && showProcessSuffix && !hotReloadLabel && !process.label?.startsWith('[HOT-RELOAD]') && !process.label?.startsWith('Restarting Rust') && !process.label?.startsWith('✓ Updated') && (
             <Text color={processSuffixes[process.name].color}>{processSuffixes[process.name].text}</Text>
           )}
           {process.message && process.name !== 'N-APT Encrypted Modules' && (
@@ -367,6 +388,11 @@ const BuildOrchestrator = () => {
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
   const buildStartedRef = useRef(false);
   const intentionalRustKillRef = useRef(false);
+  const rustPidRef = useRef<number | undefined>(undefined);
+  const rustCandidatePidRef = useRef<number | undefined>(undefined);
+  const backendPortRef = useRef(backendInitialPort);
+  const [rustHotReloadPhase, setRustHotReloadPhase] = useState<'idle' | 'rebuilding' | 'restarting'>('idle');
+  const [rustHotReloadCount, setRustHotReloadCount] = useState(0);
   const hotReloadCancelledRef = useRef(false);
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
@@ -696,7 +722,7 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus]);
 
-  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid'): Promise<boolean> => {
+  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid'): Promise<boolean> => {
     const displayCommand = describeBackgroundCommand(command);
     const isRustBackendBinary =
       pidKey === 'rustPid' &&
@@ -715,7 +741,8 @@ const BuildOrchestrator = () => {
           shell: shouldUseShell,
           stdio: 'pipe',
           detached: true,
-          cwd: './' // Run from project root
+          cwd: './', // Run from project root
+          env: typeof command === 'string' ? process.env : { ...process.env, ...command.env },
         }));
         let resolved = false;
         let crashReported = false;
@@ -824,6 +851,8 @@ const BuildOrchestrator = () => {
             addLog(chalk.green(`${description} started (PID: ${child.pid})`));
             // Store the PID
             setBuildState(prev => ({ ...prev, [pidKey]: child.pid }));
+            if (pidKey === 'rustPid') rustPidRef.current = child.pid;
+            if (pidKey === 'rustCandidatePid') rustCandidatePidRef.current = child.pid;
             // Guard against undefined ref
             if (activeChildrenRef.current) {
               activeChildrenRef.current.push(child);
@@ -920,10 +949,38 @@ const BuildOrchestrator = () => {
           return false;
         }
 
+        const backendPort = await findAvailableTcpPort(backendInitialPort);
+        backendPortRef.current = backendPort;
+        writeBackendTarget(backendTargetFile, { host: '127.0.0.1', port: backendPort });
+
+        const proxyStartResult = await startBackgroundProcess(
+          {
+            executable: process.execPath,
+            args: [
+              '--import',
+              'tsx',
+              path.resolve('scripts/build/backend-handoff-proxy.ts'),
+              '--port',
+              String(backendProxyPort),
+              '--target-file',
+              backendTargetFile,
+            ],
+          },
+          'Backend handoff proxy',
+          'proxyPid',
+        );
+        if (!proxyStartResult) return false;
+
         addLog(chalk.blue('Starting Rust backend in background...'));
-        const startCommand = isNativeWindows
-          ? 'target\\dev-fast\\n-apt-backend.exe'
-          : './target/dev-fast/n-apt-backend';
+        const startCommand: BackgroundCommand = {
+          executable: isNativeWindows
+            ? path.resolve('target/dev-fast/n-apt-backend.exe')
+            : path.resolve('target/dev-fast/n-apt-backend'),
+          args: [],
+          env: {
+            WEBSOCKETS_URL: `http://127.0.0.1:${backendPort}`,
+          },
+        };
         const startResult = await startBackgroundProcess(
           startCommand,
           'Rust backend',
@@ -1255,20 +1312,21 @@ exit 1
 
       if (success) {
         if (step.index === 4) {
-          const { message, label } = getTowerCountLabel(stepLabel);
+          const { message } = getTowerCountLabel(stepLabel);
+          const label = getCompletedStepLabel(step.description);
           updateProcessStatus(step.index, 'success', message, label);
         } else if (step.index === 7) {
           updateProcessStatus(
             step.index,
             'success',
             metalBackendStatusRef.current ?? undefined,
-            'Rust backend running...',
+            getCompletedStepLabel(step.description),
           );
         } else if (step.index === 6 && commandOutput.includes(encryptedModulesStatus.warning)) {
           updateProcessStatus(step.index, 'warning', encryptedModulesStatus.warning, stepLabel);
           appendWarningDetail('N-APT Encrypted Modules not available');
         } else {
-          updateProcessStatus(step.index, 'success', undefined, stepLabel);
+          updateProcessStatus(step.index, 'success', undefined, getCompletedStepLabel(step.description));
         }
       } else {
         setBuildState(prev => ({
@@ -1356,6 +1414,10 @@ exit 1
     deviceState: liveDeviceState,
   });
   const statusLabel = deviceAwareRuntimeSummary.label;
+  const displayStatusLabel = getRustHotReloadRuntimeLabel(
+    rustHotReloadCount,
+    statusLabel,
+  );
   const statusColor = deviceAwareRuntimeSummary.color;
   const vitePidText = buildState.vitePid ?? '—';
   const rustPidText = buildState.rustPid ?? '—';
@@ -1455,8 +1517,9 @@ exit 1
 
   // Watcher for Rust source files (Hot Reloading)
   useEffect(() => {
-    const canWatch = buildState.vitePid && buildState.redisPid;
+    const canWatch = buildState.vitePid && buildState.redisPid && buildState.rustPid;
     if (!canWatch) return;
+    hotReloadCancelledRef.current = false;
 
     let watcher: fs.FSWatcher | null = null;
     let rebuildTimeout: NodeJS.Timeout | null = null;
@@ -1505,66 +1568,98 @@ exit 1
         return false;
       }
 
-      addLog(chalk.green('[Watcher] Rebuild successful. Restarting Rust backend process...'));
-      
-      if (buildState.rustPid) {
-        try {
-          intentionalRustKillRef.current = true;
-          process.kill(buildState.rustPid, 'SIGTERM');
-        } catch {
-          try {
-            process.kill(-buildState.rustPid, 'SIGTERM');
-          } catch {}
-        }
-      }
+      const oldPid = rustPidRef.current ?? buildState.rustPid;
+      const oldPort = backendPortRef.current;
+      const newPort = await findAvailableTcpPort(oldPort + 1);
+      const candidateCommand: BackgroundCommand = {
+        executable: isNativeWindows
+          ? path.resolve('target/dev-fast/n-apt-backend.exe')
+          : path.resolve('target/dev-fast/n-apt-backend'),
+        args: [],
+        env: {
+          WEBSOCKETS_URL: `http://127.0.0.1:${newPort}`,
+        },
+      };
 
-      if (buildState.rustPid) {
-        const stopCommand = buildRustBackendStopCommand(buildState.rustPid);
-        const stopResult = spawnSync(stopCommand, {
-          shell: true,
-          cwd: './',
-          stdio: 'ignore',
-        });
+      addLog(chalk.green(`[Watcher] Starting replacement Rust backend on ${newPort}...`));
+      const candidateStarted = await startBackgroundProcess(
+        candidateCommand,
+        'Replacement Rust backend',
+        'rustCandidatePid',
+      );
+      const candidatePid = rustCandidatePidRef.current;
+      if (!candidateStarted || !candidatePid) return false;
 
-        if (stopResult.status !== 0) {
-          addLog(chalk.yellow(`[Watcher] Rust backend stop command exited with code ${stopResult.status ?? 'unknown'}`));
-        }
-      }
-
-      const waitForBackendToStop = async (timeoutMs = 8000) => {
+      const waitForBackendReady = async (timeoutMs = 15000) => {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
           try {
-            const response = await fetch('http://localhost:8765/status', {
+            const response = await fetch(`http://127.0.0.1:${newPort}/status`, {
               method: 'GET',
               cache: 'no-store',
             });
-            if (!response.ok) {
-              return true;
-            }
-          } catch {
-            return true;
-          }
+            if (response.ok) return true;
+          } catch {}
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
         return false;
       };
 
-      const backendStopped = await waitForBackendToStop();
-      if (!backendStopped) {
-        addLog(chalk.yellow('[Watcher] Rust backend still appears bound to 8765; proceeding with restart anyway.'));
+      if (!(await waitForBackendReady())) {
+        addLog(chalk.yellow('[Watcher] Replacement Rust backend did not become ready; keeping the old backend.'));
+        try {
+          process.kill(-candidatePid, 'SIGTERM');
+        } catch {
+          try { process.kill(candidatePid, 'SIGTERM'); } catch {}
+        }
+        return false;
       }
 
-      const startCommand = isNativeWindows
-        ? 'target\\dev-fast\\n-apt-backend.exe'
-        : './target/dev-fast/n-apt-backend';
-      const startResult = await startBackgroundProcess(
-        startCommand,
-        'Rust backend',
-        'rustPid'
-      );
+      if (hotReloadCancelledRef.current || shutdownRequestedRef.current) return false;
 
-      return startResult;
+      writeBackendTarget(backendTargetFile, { host: '127.0.0.1', port: newPort });
+      backendPortRef.current = newPort;
+      rustPidRef.current = candidatePid;
+      rustCandidatePidRef.current = undefined;
+      setBuildState(prev => ({
+        ...prev,
+        rustPid: candidatePid,
+        rustCandidatePid: undefined,
+      }));
+      addLog(chalk.green('[Watcher] Replacement Rust backend is ready; switched proxy target.'));
+
+      // Give new connections a short window to land on the replacement before
+      // asking the old process to shut down. Existing sockets remain attached
+      // to the old process until it closes them.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      if (oldPid) {
+        try {
+          intentionalRustKillRef.current = true;
+          process.kill(-oldPid, 'SIGTERM');
+        } catch {
+          try { process.kill(oldPid, 'SIGTERM'); } catch {}
+        }
+
+        const deadline = Date.now() + 5000;
+        let exited = false;
+        while (Date.now() < deadline) {
+          try {
+            process.kill(oldPid, 0);
+          } catch {
+            exited = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (!exited) {
+          addLog(chalk.yellow('[Watcher] Old Rust backend did not exit gracefully; forcing shutdown.'));
+          try { process.kill(-oldPid, 'SIGKILL'); } catch {}
+          try { process.kill(oldPid, 'SIGKILL'); } catch {}
+        }
+      }
+
+      return true;
     };
 
     const triggerRebuild = async () => {
@@ -1590,7 +1685,8 @@ exit 1
       } catch {}
 
       addLog(chalk.yellow('\n[Watcher] Rust source changes settled. Validating backend...'));
-      updateProcessStatus(7, 'running', undefined, 'Validating Rust backend...');
+      updateProcessStatus(7, 'success', undefined, undefined);
+      setRustHotReloadPhase('rebuilding');
 
       pruneIncrementalCache(addLog);
 
@@ -1598,11 +1694,16 @@ exit 1
       const buildCommand = `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
 
       const validationResult = await runRustHotReloadValidation({
-        cargoCheck: () => executeForegroundCommand(
-          checkCommand,
-          'Checking Rust backend',
-          7
-        ),
+        cargoCheck: () => hotReloadRunsCargoCheck
+          ? executeForegroundCommand(
+            checkCommand,
+            'Checking Rust backend',
+            7,
+          )
+          : Promise.resolve({
+            success: true,
+            output: 'Skipping separate cargo check; cargo build will validate Rust backend compilation.',
+          }),
         cargoBuild: async () => {
           const binPath = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : 'target/dev-fast/n-apt-backend';
           try {
@@ -1621,7 +1722,19 @@ exit 1
         restart: restartRustBackend,
         log: addLog,
         updateStatus: (status, message, label) => {
-          updateProcessStatus(7, status, message, label);
+          if (status === 'running') {
+            const hotReloadLabel = getRustHotReloadProcessLabel(status, message ?? label);
+            setRustHotReloadPhase(hotReloadLabel?.startsWith('Restarting') ? 'restarting' : 'rebuilding');
+            return;
+          }
+
+          if (status === 'success') {
+            setRustHotReloadCount((count) => count + 1);
+            setRustHotReloadPhase('idle');
+            return;
+          }
+
+          setRustHotReloadPhase('idle');
         },
         isCancelled: () => hotReloadCancelledRef.current || shutdownRequestedRef.current,
       });
@@ -1651,13 +1764,9 @@ exit 1
 
     try {
       watcher = fs.watch(srcRsPath, { recursive: true }, (eventType, filename) => {
-        if (!filename) return;
-        const ext = path.extname(filename);
-        const basename = path.basename(filename);
-        if (ext === '.rs' || basename === 'Cargo.toml') {
-          hotReloadGate.recordChange(filename);
-          scheduleRebuild();
-        }
+        if (!isRustSourceChange(srcRsPath, filename)) return;
+        hotReloadGate.recordChange(filename.toString());
+        scheduleRebuild();
       });
       addLog(chalk.blue('[Watcher] Watching Rust source files for changes...'));
     } catch (err: any) {
@@ -1669,7 +1778,7 @@ exit 1
       if (watcher) watcher.close();
       if (rebuildTimeout) clearInterval(rebuildTimeout);
     };
-  }, [buildState.vitePid, buildState.redisPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
+  }, [buildState.vitePid, buildState.redisPid, buildState.rustPid, updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog]);
 
   useEffect(() => {
     const shouldStayAttached =
@@ -1702,6 +1811,11 @@ exit 1
             isActive={index === buildState.currentStep && buildState.isBuilding}
             showOutput={expandedOutputStep === index}
             onToggleOutput={() => toggleOutput(index)}
+            hotReloadLabel={index === 7 && rustHotReloadPhase !== 'idle'
+              ? rustHotReloadPhase === 'restarting'
+                ? 'Restarting Rust backend...'
+                : '[HOT-RELOAD] Rebuilding Rust backend...'
+              : undefined}
           />
         ))}
       </Box>
@@ -1746,7 +1860,7 @@ exit 1
                 <NaptLogo />
               </Box>
               <Box flexDirection="column" flexGrow={1}>
-                <Text color={statusColor} bold>{statusLabel}</Text>
+                <Text color={statusColor} bold>{displayStatusLabel}</Text>
                 <Text>
                   <Text color={accentColors.vite}>{vitePidText}</Text>{' '}
                   <Text color="white">Vite PID</Text> ::{' '}
@@ -2115,6 +2229,10 @@ async function runNonTtyBuild() {
 
 // Main execution
 if (isMainModule) {
+  const orchestratorLockPath = path.resolve('.n-apt-build-orchestrator.lock');
+  const releaseOrchestratorLock = acquireBuildOrchestratorLock(orchestratorLockPath);
+  process.once('exit', releaseOrchestratorLock);
+
   if (!hasInteractiveTty) {
     runNonTtyBuild().catch((err) => {
       console.error('Non-TTY Build Error:', err);
@@ -2127,6 +2245,7 @@ if (isMainModule) {
 
   const cleanup = () => {
     clearInterval(keepAlive);
+    releaseOrchestratorLock();
   };
 
   const handleProcessSignal = (exitCode: number) => {
@@ -2157,7 +2276,10 @@ if (isMainModule) {
   });
 
   render(<BuildOrchestrator />, {
-    incrementalRendering: true,
+    // The active step can grow/shrink as compiler output arrives. Ink's
+    // incremental renderer can leave the previous row behind in that case,
+    // making the Rust step and progress indicator appear twice.
+    incrementalRendering: false,
     maxFps: 10,
   });
   }

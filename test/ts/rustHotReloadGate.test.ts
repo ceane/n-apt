@@ -186,4 +186,20 @@ describe("Rust hot reload gate", () => {
     expect(buildRustBackendStopCommand(38510, "darwin")).not.toContain("pkill");
     expect(buildRustBackendStopCommand(38510, "win32")).not.toContain("pkill");
   });
+
+  it("formats hot-reload process and runtime labels separately", () => {
+    const {
+      getRustHotReloadProcessLabel,
+      getRustHotReloadRuntimeLabel,
+    } = require("../../src/ts/utils/rustHotReloadGate");
+
+    expect(getRustHotReloadProcessLabel("running", "Checking Rust backend..."))
+      .toBe("[HOT-RELOAD] Rebuilding Rust backend...");
+    expect(getRustHotReloadProcessLabel("running", "Restarting Rust backend..."))
+      .toBe("Restarting Rust backend...");
+    expect(getRustHotReloadRuntimeLabel(2, "Running"))
+      .toBe("✓ Updated (+2)");
+    expect(getRustHotReloadRuntimeLabel(0, "Running"))
+      .toBe("Running");
+  });
 });

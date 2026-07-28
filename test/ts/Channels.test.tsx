@@ -72,8 +72,18 @@ describe("Channels", () => {
                 },
                 effectiveFrames: [
                   { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
-                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
-                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                  {
+                    id: "b",
+                    label: "B",
+                    min_hz: 24_100_000,
+                    max_hz: 30_370_000,
+                  },
+                  {
+                    id: "c",
+                    label: "C",
+                    min_hz: 4_750_000,
+                    max_hz: 23_000_000,
+                  },
                 ],
                 sampleRateHzEffective: 4_372_000,
                 wsConnection: { sendFrequencyRange: jest.fn() },
@@ -113,7 +123,12 @@ describe("Channels", () => {
                 dispatch,
                 effectiveFrames: [
                   { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
-                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+                  {
+                    id: "b",
+                    label: "B",
+                    min_hz: 24_100_000,
+                    max_hz: 30_370_000,
+                  },
                 ],
                 sampleRateHzEffective: 6_270_000,
                 wsConnection: { sendFrequencyRange },
@@ -189,6 +204,7 @@ describe("Channels", () => {
 
   it("sends a clamped integer-Hz range when activating a channel", () => {
     const store = createTestStore();
+    jest.spyOn(store, "dispatch");
     store.dispatch(
       setHardwareInfo({
         range: { min: 0, max: 30_000_000_000 },
@@ -240,10 +256,12 @@ describe("Channels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "C" }));
 
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "SET_SIGNAL_AREA_AND_RANGE",
-      area: "C",
-      range: { min: 25_137_826, max: 28_337_826 },
+    expect(store.dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSignalAreaAndRange",
+      payload: {
+        area: "C",
+        range: { min: 25_137_826, max: 28_337_826 },
+      },
     });
     expect(sendFrequencyRange).toHaveBeenCalledWith({
       min: 25_137_826,
@@ -253,6 +271,7 @@ describe("Channels", () => {
 
   it("ignores stale remembered ranges when the selected sample rate covers the channel", () => {
     const store = createTestStore();
+    jest.spyOn(store, "dispatch");
     store.dispatch(
       setHardwareInfo({
         range: { min: 0, max: 30_000_000_000 },
@@ -304,10 +323,12 @@ describe("Channels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "C" }));
 
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "SET_SIGNAL_AREA_AND_RANGE",
-      area: "C",
-      range: { min: 4_750_000, max: 23_000_000 },
+    expect(store.dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSignalAreaAndRange",
+      payload: {
+        area: "C",
+        range: { min: 4_750_000, max: 23_000_000 },
+      },
     });
     expect(sendFrequencyRange).toHaveBeenCalledWith({
       min: 4_750_000,
@@ -375,6 +396,10 @@ describe("Channels", () => {
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-force-full-width",
       "true",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-sample-rate-hz",
+      "18250000",
     );
   });
 
@@ -446,7 +471,7 @@ describe("Channels", () => {
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-sample-rate-hz",
-      "6270000",
+      "18250000",
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-visible-min",
@@ -454,7 +479,7 @@ describe("Channels", () => {
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-visible-max",
-      "11020000",
+      "23000000",
     );
   });
 

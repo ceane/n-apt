@@ -1,6 +1,6 @@
 import { ThemeProvider } from "styled-components";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
-import type { CaptureStatus } from "@n-apt/hooks/useWebSocket";
+import type { CaptureStatus } from "@n-apt/consts/schemas/websocket";
 
 const theme = {
   primary: "#00d4ff",

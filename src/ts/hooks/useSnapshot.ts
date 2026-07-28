@@ -38,7 +38,6 @@ import {
   formatFrequency,
   formatFrequencyHighRes,
 } from "@n-apt/utils/frequency";
-import { isRtlSdrDevice } from "@n-apt/utils/sdrSampleRateGuards";
 import {
   buildFrequencyAxisTheme,
   composeCanvasWithFrequencyAxis,
@@ -501,14 +500,15 @@ export function buildSnapshotStatsLines({
     Number.isFinite(renderedSpanHz) &&
     renderedSpanHz >= activeChannelSpanHz - 1;
   const wholeBySampleRate =
+    !/rtl[- ]?sdr/i.test(deviceName ?? "") &&
     Number.isFinite(hardwareSampleRateHz ?? Number.NaN) &&
     Number.isFinite(renderedSpanHz) &&
     renderedSpanHz >= (hardwareSampleRateHz ?? 0) - 1;
-  const allowInferredWholeChannel = !isRtlSdrDevice({ deviceName });
   const isWholeChannel =
     modeLabel === "Whole Channel" ||
     whole ||
-    (allowInferredWholeChannel && (wholeBySpan || wholeBySampleRate));
+    wholeBySpan ||
+    wholeBySampleRate;
 
   const channelLabel =
     formatVisibleChannels(range, signalAreaBounds) ??

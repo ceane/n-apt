@@ -12,9 +12,6 @@ type SourceSignalDisplayLike = {
       sample_rate?: number;
     };
   };
-  mock_tx?: {
-    signals?: Record<string, { channel?: string }>;
-  };
 };
 
 const validSampleRate = (value?: number | null): number | null =>
@@ -90,21 +87,15 @@ const validSpan = (channel?: ChannelLike | null): number | null => {
 export const resolveWholeChannelSampleRate = ({
   source,
   activeSignalArea,
-  txSignal,
   channels,
 }: {
   source?: SourceSignalDisplayLike | null;
   activeSignalArea?: string | null;
-  txSignal?: string | null;
   channels?: readonly ChannelLike[];
 }): number | null => {
   if (!source || !Array.isArray(channels)) return null;
 
-  const configuredChannel =
-    source.kind === "mock_tx" && txSignal
-      ? source.mock_tx?.signals?.[txSignal]?.channel
-      : null;
-  const requestedLabel = configuredChannel ?? activeSignalArea;
+  const requestedLabel = activeSignalArea;
   if (!requestedLabel) return null;
 
   const normalizedLabel = requestedLabel.toLowerCase();

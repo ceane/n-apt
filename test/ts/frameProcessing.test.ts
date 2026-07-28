@@ -1,7 +1,9 @@
 import {
   accumulateFullChannelWaveform,
   prepareSpectrumRenderData,
+  resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
+  shouldPresentSpectrumFrameForRange,
   updateTemporalWaveform,
 } from "@n-apt/components/fft/frameProcessing";
 
@@ -129,5 +131,49 @@ describe("prepareSpectrumRenderData", () => {
     expect(Array.from(result.spectrumWaveform)).toEqual([-11, -12]);
     expect(result.visualRange).toEqual({ min: 2, max: 8 });
     expect(result.clampedPan).toBe(0.25);
+  });
+});
+
+describe("resolveFrameTemporalWindow", () => {
+  it("bypasses temporal history for explicitly requested next frames", () => {
+    expect(
+      resolveFrameTemporalWindow({
+        configuredWindow: 8,
+        isRequestedNextFrame: true,
+      }),
+    ).toBe(1);
+  });
+
+  it("preserves temporal history for continuous stream frames", () => {
+    expect(
+      resolveFrameTemporalWindow({
+        configuredWindow: 8,
+        isRequestedNextFrame: false,
+      }),
+    ).toBe(8);
+  });
+});
+
+describe("shouldPresentSpectrumFrameForRange", () => {
+  it("holds the previous complete canvas until the requested backend frame matches", () => {
+    expect(
+      shouldPresentSpectrumFrameForRange({
+        frameCenterHz: 2_204_000,
+        frameSampleRateHz: 4_372_000,
+        requestedRange: { min: 1_000_000, max: 5_372_000 },
+        requiresExactRange: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("presents a complete backend frame matching the requested range", () => {
+    expect(
+      shouldPresentSpectrumFrameForRange({
+        frameCenterHz: 3_186_000,
+        frameSampleRateHz: 4_372_000,
+        requestedRange: { min: 1_000_000, max: 5_372_000 },
+        requiresExactRange: true,
+      }),
+    ).toBe(true);
   });
 });

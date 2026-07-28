@@ -15,7 +15,7 @@ use super::types::{PowerScale, SpectrumData};
 use crate::sdr::processor::SdrProcessor;
 
 pub mod broadcasting;
-pub mod mock_tx;
+pub mod complex_baseband;
 mod source_lifecycle;
 pub mod sources;
 pub mod tx_suite;
@@ -35,7 +35,7 @@ pub use broadcasting::{
   broadcast_source_status_for_id, build_channels_snapshot,
   reconcile_stale_device_snapshot,
 };
-pub use mock_tx::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
+pub use complex_baseband::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
 pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
@@ -48,6 +48,22 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 // so it can match a 60 Hz Rx view without accumulating stale monitor frames.
 // Standby remains request-only through should_hold_mock_tx_standby_stream.
 const TX_MONITOR_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+
+fn sync_shared_sample_rate(shared_state: &SharedState, processor: &SdrProcessor) {
+  let sample_rate = processor.get_sample_rate();
+  if sample_rate == 0 {
+    return;
+  }
+  let device_kind = shared_state.device_profile.lock().unwrap().kind.clone();
+  let mut settings = shared_state.sdr_settings.lock().unwrap();
+  settings.sample_rate = sample_rate;
+  settings.fft = crate::server::utils::resolve_fft_config(
+    &device_kind,
+    sample_rate,
+    Some(settings.fft.default_size),
+    Some(&settings),
+  );
+}
 
 /// The monitor payload is consumed by the browser's configured FFT. The Tx
 /// IFFT size controls waveform construction, but must not determine how many
@@ -376,7 +392,7 @@ mod tests {
   #[serial]
   async fn active_mock_tx_monitor_emits_fresh_iq_for_each_tick() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let _mock_tx_test_guard = mock_tx::MOCK_TX_TEST_LOCK.lock().unwrap();
+    let _mock_tx_test_guard = complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
     let shared = SharedState::new("redis://127.0.0.1:6379");
     let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
@@ -843,7 +859,10 @@ impl WebSocketServer {
               },
             );
           }
-          crate::server::types::SdrCommand::SetActiveSource { source_id } => {
+          crate::server::types::SdrCommand::SetActiveSource {
+            source_id,
+            sample_rate,
+          } => {
             info!("Dequeued source switch command: requested={}", source_id);
             let mut processor = sdr_processor.lock().await;
             let current_source_id = active_source_id(&shared_state);
@@ -858,6 +877,18 @@ impl WebSocketServer {
             }
 
             info!("Switching active source to {}", source_id);
+            let previous_source_is_transmitting =
+              crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
+                || (current_source_id == "mock-tx"
+                  && shared_state
+                    .mock_tx_transmitting
+                    .load(Ordering::Relaxed));
+            if !previous_source_is_transmitting {
+              // Keep source pause state per device. The previous RX source
+              // must not remain logically active after a handoff; a source
+              // that is actively transmitting is the deliberate exception.
+              shared_state.set_source_pause_state(&current_source_id, true);
+            }
             let was_warm = warm_devices.contains_key(&source_id);
             let is_mock = source_id.starts_with("mock");
             let selection_phase = source_phase_on_select(was_warm, is_mock);
@@ -889,15 +920,20 @@ impl WebSocketServer {
 
             match next_device {
               Ok(new_device) => {
-                let mut swap_result =
-                  processor.swap_device_keep_warm(new_device);
+                let mut swap_result = processor
+                  .swap_device_keep_warm_with_sample_rate(new_device, sample_rate);
                 if swap_result.is_err() && was_warm {
                   warn!(
                     "Warm SDR source {} did not resume; reopening once",
                     source_id
                   );
                   swap_result = open_device_for_source_id(&source_id)
-                    .and_then(|device| processor.swap_device_keep_warm(device));
+                    .and_then(|device| {
+                      processor.swap_device_keep_warm_with_sample_rate(
+                        device,
+                        sample_rate,
+                      )
+                    });
                 }
 
                 match swap_result {
@@ -926,7 +962,8 @@ impl WebSocketServer {
                     );
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
-                  Ok(previous_device) => {
+                  Ok(mut previous_device) => {
+                    sync_shared_sample_rate(&shared_state, &processor);
                     // Re-apply the last known center frequency if we have one, so we don't start at default and jump
                     let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
                     if last_freq > 0 {
@@ -936,6 +973,14 @@ impl WebSocketServer {
                     }
 
                     if should_cache_swapped_source(&current_source_id) {
+                      if !previous_source_is_transmitting {
+                        if let Err(e) = previous_device.enter_standby() {
+                          warn!(
+                            "Failed to pause previous source {} before caching: {}",
+                            current_source_id, e
+                          );
+                        }
+                      }
                       warm_devices
                         .insert(current_source_id.clone(), previous_device);
                     }
@@ -1052,7 +1097,8 @@ impl WebSocketServer {
                   );
                   shared_state.set_device_backend_error(processor.get_error());
                   broadcast_device_status(&shared_state, &_broadcast_tx);
-                 } else {
+                } else {
+                  sync_shared_sample_rate(&shared_state, &processor);
                   // Re-apply the last known center frequency
                   let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
                   if last_freq > 0 {
@@ -1388,7 +1434,7 @@ impl WebSocketServer {
             if let Some(tx_signal) = tx_signal.as_deref() {
               *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
             }
-            let effective_power_dbm = mock_tx::resolve_effective_tx_power_dbm(
+            let effective_power_dbm = complex_baseband::resolve_effective_tx_power_dbm(
               power_dbm,
               vga_gain_db,
               amp_enabled,
@@ -1443,6 +1489,35 @@ impl WebSocketServer {
                   ..Default::default()
                 },
               );
+            }
+
+            if active_kind == "hackrf_one" {
+              let mut processor = sdr_processor.lock().await;
+              if enabled {
+                let center_hz = center_frequency_hz.unwrap_or(0) as f64;
+                let sample_rate = sample_rate_hz.unwrap_or(2_000_000).min(u32::MAX as u64) as u32;
+                if let Some(center_frequency_hz) = center_frequency_hz {
+                  processor.set_center_frequency(center_frequency_hz.min(u32::MAX as u64) as u32)?;
+                }
+                if sample_rate_hz.is_some() {
+                  processor.set_sample_rate(sample_rate)?;
+                }
+                let iq = complex_baseband::synthesize_mock_tx_monitor_iq(
+                  tx_ifft_size.unwrap_or(262_144).clamp(256, 262_144),
+                  center_hz,
+                  sample_rate,
+                  center_hz,
+                  bandwidth_hz.unwrap_or(sample_rate as f64),
+                  tx_signal.as_deref().unwrap_or("wifi"),
+                  tx_ifft_size.unwrap_or(262_144),
+                  power_dbm.unwrap_or(-18.0),
+                  &complex_baseband::resolve_mock_tx_iq_power_model(),
+                  &mut *shared_state.mock_tx_phase_accumulator.lock().unwrap(),
+                );
+                processor.transmit_iq(Some(&iq))?;
+              } else {
+                processor.transmit_iq(None)?;
+              }
             }
 
             let mut status_changed = was_transmitting != enabled;
@@ -1598,13 +1673,18 @@ impl WebSocketServer {
             take_warm_source_for_active(&mut warm_devices, &active_source)
           {
             let source_id = active_source.clone();
-            match processor.swap_device_keep_warm(warm_device) {
+            let restored_sample_rate = shared_state.sdr_settings.lock().unwrap().sample_rate;
+            match processor.swap_device_keep_warm_with_sample_rate(
+              warm_device,
+              Some(restored_sample_rate),
+            ) {
               Ok(previous_mock) => {
                 drop(previous_mock);
                 info!(
                   "Restored warm SDR source {} instead of reopening USB",
                   source_id
                 );
+                sync_shared_sample_rate(&shared_state, &processor);
                 shared_state.update_device_status(
                   true,
                   processor.get_device_info(),
@@ -1824,7 +1904,7 @@ impl WebSocketServer {
                 let tx_bandwidth_hz =
                   *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
                 let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
-                let tx_iq_power_model = mock_tx::resolve_mock_tx_iq_power_model();
+                let tx_iq_power_model = complex_baseband::resolve_mock_tx_iq_power_model();
                 let tx_view_center_hz = *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap();
                 // Use TX_MONITOR_VIEW_CENTER_HZ as the view center.
                 // apply_mock_tx_preview_settings writes the frontend's display
@@ -1848,7 +1928,7 @@ impl WebSocketServer {
                   current_fft_size,
                   tx_ifft_size,
                 );
-                let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
+                let raw_iq = complex_baseband::synthesize_mock_tx_monitor_iq(
                   monitor_fft_size,
                   center_frequency as f64,
                   monitor_sample_rate,
@@ -2046,6 +2126,7 @@ impl WebSocketServer {
                     swap_e
                   );
                 } else {
+                  sync_shared_sample_rate(&shared_state, &processor);
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),
@@ -2132,6 +2213,7 @@ impl WebSocketServer {
                           swap_e
                         );
                       } else {
+                        sync_shared_sample_rate(&shared_state, &processor);
                         shared_state.update_device_status(
                           false,
                           processor.get_device_info(),
@@ -2314,6 +2396,7 @@ impl WebSocketServer {
                 if let Err(swap_e) = processor.swap_device(mock_device) {
                   error!("Failed to swap to mock on read error: {}", swap_e);
                 } else {
+                  sync_shared_sample_rate(&shared_state, &processor);
                   shared_state.update_device_status(
                     false,
                     processor.get_device_info(),

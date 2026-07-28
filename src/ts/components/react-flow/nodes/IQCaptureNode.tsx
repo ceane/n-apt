@@ -11,7 +11,7 @@ import { useGeolocation } from "@n-apt/hooks/useGeolocation";
 import { FrequencyInput } from "@n-apt/components/ui/FrequencyInput";
 import { IQCaptureControlsSection } from "@n-apt/components/sidebar/IQCaptureControlsSection";
 import { MIN_CAPTURE_BANDWIDTH_HZ } from "@n-apt/utils/frequency";
-import type { CaptureFileType } from "@n-apt/hooks/useWebSocket";
+import type { CaptureFileType } from "@n-apt/consts/schemas/websocket";
 
 // Redefining types as needed, or use the ones from @xyflow/react
 interface IQCaptureNodeData {

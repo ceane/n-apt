@@ -28,7 +28,7 @@ struct RenderingScratch {
   window_type: Option<WindowType>,
   window_len: usize,
   window_coeffs: Vec<f32>,
-  window_sum: f32,
+  window_energy: f32,
 }
 
 impl RenderingScratch {
@@ -40,7 +40,7 @@ impl RenderingScratch {
       window_type: None,
       window_len: 0,
       window_coeffs: Vec::new(),
-      window_sum: 0.0,
+      window_energy: 0.0,
     }
   }
 
@@ -140,12 +140,16 @@ impl RenderingProcessor {
     {
       scratch.window_coeffs =
         WindowFunctions::get_coeffs(normalized_window, num_samples);
-      scratch.window_sum =
-        WindowFunctions::get_window_sum(normalized_window, num_samples);
+      scratch.window_energy = scratch
+        .window_coeffs
+        .iter()
+        .map(|coefficient| coefficient * coefficient)
+        .sum();
       scratch.window_type = Some(normalized_window);
       scratch.window_len = num_samples;
     }
-    let inv_norm = 1.0 / (scratch.window_sum * scratch.window_sum).max(1e-12);
+    let inv_norm = 1.0
+      / (num_samples as f32 * scratch.window_energy).max(1e-12);
 
     scratch
       .buffer

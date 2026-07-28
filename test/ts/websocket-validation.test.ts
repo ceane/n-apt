@@ -176,7 +176,20 @@ describe("WebSocket Validation System", () => {
             loading_attempt: 0,
             loading_attempt_max: 3,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+            capabilities: {
+              can_receive: true,
+              can_transmit: false,
+              duplex_mode: "Simplex",
+              supports_approx_dbm: true,
+              supported_controls: ["gain", "ppm", "sample_rate", "frequency"],
+              sample_rates: [3200000],
+              max_sample_rate: 3200000,
+              max_instantaneous_sample_rate: 3200000,
+              frequency_range: null,
+              tx_power_dbm: null,
+              gain_limits: null,
+            },
             sdr: {
               max_sample_rate: 3200000,
               sample_rate_options: [3200000],
@@ -184,11 +197,15 @@ describe("WebSocket Validation System", () => {
               settings: {
                 sample_rate: 3200000,
                 center_frequency: 1600000,
-                gain: {
+                  gain: {
                   tuner_gain: 49.6,
                   rtl_agc: false,
                   tuner_agc: false,
                 },
+                hackrf_lna_gain: null,
+                hackrf_vga_gain: null,
+                hackrf_amp_enable: null,
+                tuner_bandwidth: null,
                 fft: {
                   default_size: 2048,
                   default_frame_rate: 30,
@@ -505,7 +522,7 @@ describe("WebSocket Validation System", () => {
           loading_attempt: 0,
           loading_attempt_max: 3,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           sdr: {
             max_sample_rate: 3200000,
             sample_rate_options: [3200000],
@@ -578,7 +595,7 @@ describe("WebSocket Validation System", () => {
             loading_attempt: 0,
             loading_attempt_max: 3,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
             sdr: {
               max_sample_rate: 10000000,
               sample_rate_options: [10000000],

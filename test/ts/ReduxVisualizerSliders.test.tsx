@@ -52,6 +52,7 @@ describe("ReduxVisualizerSliders", () => {
             capability: "tx_rx",
             kind: "hackrf_one",
             name: "HackRF One",
+            active_duplex_mode: "tx",
           },
         ],
         sourceStatuses: {},

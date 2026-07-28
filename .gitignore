@@ -67,6 +67,10 @@ redis/backups
 
 # Local rebuild metadata
 .rebuild_status.json
+.n-apt-build-orchestrator.lock
+.n-apt-backend-handoff-proxy.lock
+.n-apt-backend-target.json
+.n-apt-backend-target.json.tmp
 
 # Rust-specific files
 *.pdb

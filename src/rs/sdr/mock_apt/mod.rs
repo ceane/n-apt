@@ -15,8 +15,8 @@
 //! parameters are unchanged. That cache is not the main Mock APT I/Q source.
 
 use crate::s::fft::types::RawSamples;
-use crate::s::ifft::mock_tx_gen::{
-  canonical_mock_tx_signal_key, MockTxGenerator, MockTxParams,
+use crate::s::ifft::complex_baseband::{
+  canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator, ComplexBasebandIQParams,
 };
 use std::sync::{Arc, LazyLock, Mutex};
 
@@ -24,22 +24,22 @@ use std::sync::{Arc, LazyLock, Mutex};
 ///
 /// This cache exists only for transmit overlay generation. The main Mock APT
 /// receive path still recomputes the requested frame on every read.
-struct MockTxBuffer {
-  params: Option<MockTxParams>,
+struct ComplexBasebandIQBuffer {
+  params: Option<ComplexBasebandIQParams>,
   samples: Arc<Vec<Complex<f32>>>,
-  generator: MockTxGenerator,
+  generator: ComplexBasebandIQGenerator,
 }
 
-impl MockTxBuffer {
+impl ComplexBasebandIQBuffer {
   fn new() -> Self {
     Self {
       params: None,
       samples: Arc::new(Vec::new()),
-      generator: MockTxGenerator::new(),
+      generator: ComplexBasebandIQGenerator::new(),
     }
   }
 
-  fn prepare(&mut self, params: &MockTxParams) {
+  fn prepare(&mut self, params: &ComplexBasebandIQParams) {
     if self.params.as_ref() == Some(params)
       && !self.samples.is_empty()
       && self.samples.len() == params.tx_ifft_size
@@ -58,8 +58,8 @@ impl MockTxBuffer {
   }
 }
 
-static MOCK_TX_CACHE: LazyLock<Mutex<MockTxBuffer>> =
-  LazyLock::new(|| Mutex::new(MockTxBuffer::new()));
+static COMPLEX_BASEBAND_IQ_CACHE: LazyLock<Mutex<ComplexBasebandIQBuffer>> =
+  LazyLock::new(|| Mutex::new(ComplexBasebandIQBuffer::new()));
 
 use std::cell::RefCell;
 
@@ -269,7 +269,7 @@ fn clamp_window_to_range(
 fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
   let settings = crate::server::utils::load_mock_tx_settings();
   let mock_apt_settings = crate::server::utils::load_mock_apt_settings();
-  let signal_key = canonical_mock_tx_signal_key(signal_name);
+  let signal_key = canonical_complex_baseband_signal_key(signal_name);
   let preset = settings
     .signals
     .get(&signal_key)
@@ -1316,7 +1316,7 @@ impl MockAptDevice {
       let before_tx_q = self.q_accumulator[..fft_size].to_vec();
       let active_tx_overlay_center_hz: f64;
       let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
-      let tx_signal = canonical_mock_tx_signal_key(&tx_signal);
+      let tx_signal = canonical_complex_baseband_signal_key(&tx_signal);
       let tx_preset = resolve_mock_tx_preset(&tx_signal);
       let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
       // Mock APT is a verification receiver for Mock Tx, so render the Tx
@@ -1406,7 +1406,7 @@ impl MockAptDevice {
               tx_preset.bandwidth_hz
             };
             let is_ofdm = tx_signal == "wifi" || tx_signal == "5g";
-            let current_params = MockTxParams {
+            let current_params = ComplexBasebandIQParams {
               signal_key: tx_signal.clone(),
               sample_rate_hz: sample_rate,
               bandwidth_hz: bw,
@@ -1414,7 +1414,7 @@ impl MockAptDevice {
               phase_seed: if is_ofdm { self.frame_log_counter } else { 0 },
             };
             let block = {
-              let mut cache = MOCK_TX_CACHE.lock().unwrap();
+              let mut cache = COMPLEX_BASEBAND_IQ_CACHE.lock().unwrap();
               cache.prepare(&current_params);
               cache.snapshot_samples()
             };
@@ -1783,8 +1783,8 @@ mod tests {
 
   #[test]
   fn mock_tx_overlay_cache_reuses_plans_when_phase_changes() {
-    let mut cache = MockTxBuffer::new();
-    let mut params = MockTxParams {
+    let mut cache = ComplexBasebandIQBuffer::new();
+    let mut params = ComplexBasebandIQParams {
       signal_key: "wifi".to_string(),
       sample_rate_hz: 3_200_000.0,
       bandwidth_hz: 100_000.0,

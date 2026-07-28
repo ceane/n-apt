@@ -1,11 +1,20 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState } from "@n-apt/redux/store";
-import { SDRSettings, CaptureRequest } from "@n-apt/consts/schemas/websocket";
+import {
+  SDRSettings,
+  CaptureRequest,
+  SourceInfo,
+  SpectrumFrame,
+} from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/utils/frequency";
+import {
+  isHackrfDevice,
+  isRtlSdrDevice,
+} from "@n-apt/utils/sdrSampleRateGuards";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -31,6 +40,61 @@ const buildTunedFrequencyPayload = (
 const optionalIntegerHz = (value: unknown): number | undefined => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
+};
+
+export const resolveWholeChannelSampleRateForSourceSwitch = ({
+  source,
+  channels,
+  activeSignalArea,
+}: {
+  source: Pick<SourceInfo, "kind" | "name" | "sdr"> | null | undefined;
+  channels: SpectrumFrame[];
+  activeSignalArea?: string | null;
+}): number | null => {
+  if (
+    !source ||
+    isRtlSdrDevice({
+      deviceKind: source.kind,
+      backend: source.kind,
+      deviceName: source.name,
+    })
+  ) {
+    return null;
+  }
+
+  const requestedArea = activeSignalArea?.trim().toLowerCase();
+  const channel =
+    channels.find(
+      (candidate) =>
+        requestedArea && candidate.label?.trim().toLowerCase() === requestedArea,
+    ) ?? channels[0];
+  if (
+    !channel ||
+    !Number.isFinite(channel.min_hz) ||
+    !Number.isFinite(channel.max_hz)
+  ) {
+    return null;
+  }
+
+  const channelSpan = Math.abs(channel.max_hz - channel.min_hz);
+  if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
+
+  const configuredMaximum = source.sdr?.max_sample_rate;
+  const sourceMaximum =
+    typeof configuredMaximum === "number" &&
+    Number.isFinite(configuredMaximum) &&
+    configuredMaximum > 0
+      ? configuredMaximum
+      : channelSpan;
+  const maximum = isHackrfDevice({
+    deviceKind: source.kind,
+    backend: source.kind,
+    deviceName: source.name,
+  })
+    ? Math.max(sourceMaximum, 20_000_000)
+    : sourceMaximum;
+
+  return Math.round(Math.min(channelSpan, maximum));
 };
 
 // Connect to WebSocket
@@ -344,11 +408,36 @@ export const sendSelectSource = createAsyncThunk(
   async (sourceId: string, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      const frontendSampleRate = state.spectrum?.sampleRateHz;
+      const targetSource = state.websocket.sources?.find(
+        (source) => source.id === sourceId,
+      );
+      const targetIsHackRf =
+        targetSource?.kind === "hackrf_one" ||
+        sourceId.toLowerCase().includes("hackrf");
+      const wholeChannelSampleRate = resolveWholeChannelSampleRateForSourceSwitch({
+        source: targetSource,
+        channels: state.websocket.channels ?? [],
+        activeSignalArea: state.spectrum?.activeSignalArea,
+      });
+      const requestedSampleRate =
+        wholeChannelSampleRate ??
+        (targetIsHackRf &&
+        typeof frontendSampleRate === "number" &&
+        Number.isFinite(frontendSampleRate) &&
+        frontendSampleRate > 0
+          ? Math.floor(frontendSampleRate)
+          : null);
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "select_source",
-          data: { source_id: sourceId },
+          data: {
+            source_id: sourceId,
+            ...(requestedSampleRate !== null
+              ? { sample_rate: requestedSampleRate }
+              : {}),
+          },
         },
       });
     }
@@ -480,13 +569,18 @@ export const sendScanCommand = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // The backend scan protocol only accepts non-negative absolute
+      // frequencies. VFO panning can briefly produce a negative visual
+      // lower bound near 0 Hz, so sanitize only the wire payload here.
+      const safeMinFreq = Math.max(0, Math.min(minFreq, maxFreq));
+      const safeMaxFreq = Math.max(safeMinFreq, maxFreq);
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "scan",
           job_id: jobId,
-          min_freq: minFreq,
-          max_freq: maxFreq,
+          min_freq: safeMinFreq,
+          max_freq: safeMaxFreq,
           options,
         },
       });

@@ -89,3 +89,4 @@ mod tests {
     assert!(can_enter_tx_mode(&device, true));
   }
 }
+// Hot-reload verification edit 2.

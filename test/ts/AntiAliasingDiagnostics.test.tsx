@@ -1,5 +1,6 @@
 import * as React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Provider } from "react-redux";
 import "@testing-library/jest-dom";
 import { AntiAliasingDiagnostics } from "@n-apt/routes/AntiAliasingDiagnostics";
 import {
@@ -9,6 +10,9 @@ import {
 import { ThemeProvider } from "styled-components";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
+import { TestWrapper } from "./testUtils";
+import { createTestStore } from "./testUtils";
+import { triggerDiagnostic } from "@n-apt/redux";
 
 // Mock canvas
 import "jest-canvas-mock";
@@ -115,11 +119,13 @@ describe("AntiAliasingDiagnostics", () => {
 
   const renderComponent = (mockValue = defaultMockValue) => {
     return render(
-      <ThemeProvider theme={defaultTheme}>
+      <TestWrapper preloadedState={{ spectrum: mockValue.state }}>
+        <ThemeProvider theme={defaultTheme}>
         <SpectrumProvider mockValue={mockValue}>
           <AntiAliasingDiagnostics />
         </SpectrumProvider>
-      </ThemeProvider>,
+        </ThemeProvider>
+      </TestWrapper>,
     );
   };
 
@@ -173,9 +179,6 @@ describe("AntiAliasingDiagnostics", () => {
       arrayBuffer: async () => buffer,
     });
 
-    const { rerender } = renderComponent();
-
-    // Simulate trigger
     const triggeredMockValue = {
       ...defaultMockValue,
       state: {
@@ -184,13 +187,19 @@ describe("AntiAliasingDiagnostics", () => {
       },
     };
 
-    rerender(
-      <ThemeProvider theme={defaultTheme}>
-        <SpectrumProvider mockValue={triggeredMockValue}>
-          <AntiAliasingDiagnostics />
-        </SpectrumProvider>
-      </ThemeProvider>,
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={defaultTheme}>
+          <SpectrumProvider mockValue={triggeredMockValue}>
+            <AntiAliasingDiagnostics />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
     );
+    act(() => {
+      store.dispatch(triggerDiagnostic());
+    });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -199,20 +208,8 @@ describe("AntiAliasingDiagnostics", () => {
       );
     });
 
-    expect(mockDispatch).toHaveBeenCalledWith({
-      type: "SET_DIAGNOSTIC_RUNNING",
-      running: true,
-    });
-    expect(mockDispatch).toHaveBeenCalledWith({
-      type: "SET_DIAGNOSTIC_STATUS",
-      status: "Capturing 10 frames...",
-    });
-
     await waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledWith({
-        type: "SET_DIAGNOSTIC_STATUS",
-        status: "Capture complete",
-      });
+      expect(screen.getByText("Capture complete")).toBeInTheDocument();
     });
   });
 
@@ -222,8 +219,6 @@ describe("AntiAliasingDiagnostics", () => {
       text: async () => "Internal Server Error",
     });
 
-    const { rerender } = renderComponent();
-
     const triggeredMockValue = {
       ...defaultMockValue,
       state: {
@@ -232,19 +227,22 @@ describe("AntiAliasingDiagnostics", () => {
       },
     };
 
-    rerender(
-      <ThemeProvider theme={defaultTheme}>
-        <SpectrumProvider mockValue={triggeredMockValue}>
-          <AntiAliasingDiagnostics />
-        </SpectrumProvider>
-      </ThemeProvider>,
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={defaultTheme}>
+          <SpectrumProvider mockValue={triggeredMockValue}>
+            <AntiAliasingDiagnostics />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
     );
+    act(() => {
+      store.dispatch(triggerDiagnostic());
+    });
 
     await waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledWith({
-        type: "SET_DIAGNOSTIC_STATUS",
-        status: "Error: Internal Server Error",
-      });
+      expect(screen.getByText("Error: Internal Server Error")).toBeInTheDocument();
     });
   });
 });

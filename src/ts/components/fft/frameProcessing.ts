@@ -6,6 +6,45 @@ import {
 
 export const FULL_CHANNEL_BINS = 4096;
 
+export function resolveFrameTemporalWindow({
+  configuredWindow,
+  isRequestedNextFrame,
+}: {
+  configuredWindow: number;
+  isRequestedNextFrame: boolean;
+}): number {
+  return isRequestedNextFrame ? 1 : configuredWindow;
+}
+
+export function shouldPresentSpectrumFrameForRange({
+  frameCenterHz,
+  frameSampleRateHz,
+  requestedRange,
+  requiresExactRange,
+}: {
+  frameCenterHz?: number | null;
+  frameSampleRateHz?: number | null;
+  requestedRange: { min: number; max: number };
+  requiresExactRange: boolean;
+}): boolean {
+  if (!requiresExactRange) return true;
+  if (
+    typeof frameCenterHz !== "number" ||
+    !Number.isFinite(frameCenterHz) ||
+    typeof frameSampleRateHz !== "number" ||
+    !Number.isFinite(frameSampleRateHz) ||
+    frameSampleRateHz <= 0
+  ) {
+    return false;
+  }
+  const requestedCenterHz = (requestedRange.min + requestedRange.max) / 2;
+  const requestedSampleRateHz = requestedRange.max - requestedRange.min;
+  return (
+    Math.abs(frameCenterHz - requestedCenterHz) <= 1 &&
+    Math.abs(frameSampleRateHz - requestedSampleRateHz) <= 1
+  );
+}
+
 export function invertSpectrumVertically(
   waveform: Float32Array,
   dbMin: number,

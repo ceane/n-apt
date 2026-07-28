@@ -197,3 +197,4 @@ mod tests {
     assert_eq!(payload["stream_epoch"], 7);
   }
 }
+// Hot-reload verification edit 1.

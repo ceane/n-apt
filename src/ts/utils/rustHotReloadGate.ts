@@ -34,6 +34,23 @@ export function isProcessSpinnerActive(status: string): boolean {
   return status === "running";
 }
 
+export function getRustHotReloadProcessLabel(
+  status: string,
+  message?: string,
+): string | undefined {
+  if (status !== "running") return undefined;
+  return message?.includes("Restarting")
+    ? "Restarting Rust backend..."
+    : "[HOT-RELOAD] Rebuilding Rust backend...";
+}
+
+export function getRustHotReloadRuntimeLabel(
+  updateCount: number,
+  fallback: string,
+): string {
+  return updateCount > 0 ? `✓ Updated (+${updateCount})` : fallback;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

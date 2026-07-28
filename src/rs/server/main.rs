@@ -272,6 +272,10 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::cli_snapshot_frame_handler),
       )
       .route(
+        "/api/debug/mock-tx-power-frame",
+        get(http_endpoints::mock_tx_power_frame_handler),
+      )
+      .route(
         "/api/towers/bounds",
         get(http_endpoints::towers_bounds_handler),
       )

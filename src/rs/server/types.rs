@@ -117,6 +117,7 @@ pub enum SdrCommand {
   RestartDevice,
   SetActiveSource {
     source_id: String,
+    sample_rate: Option<u32>,
   },
   StartTraining {
     label: String,
@@ -947,6 +948,8 @@ impl Default for TxIqPowerModel {
 pub struct SdrDeviceConfig {
   #[serde(default)]
   pub duplex_mode: Option<String>,
+  #[serde(default)]
+  pub max_sample_rate: Option<u32>,
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
   pub fft_display: Option<SdrFftDisplayConfig>,

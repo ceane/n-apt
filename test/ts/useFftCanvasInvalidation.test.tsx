@@ -1,9 +1,14 @@
 import { renderHook } from "@testing-library/react";
-import { useFftCanvasInvalidation } from "@n-apt/hooks/useFftCanvasInvalidation";
+import {
+  useFftCanvasInvalidation,
+  type FftCanvasInvalidationOptions,
+} from "@n-apt/hooks/useFftCanvasInvalidation";
 
 const ref = <T,>(current: T) => ({ current });
 
-function createOptions(overrides = {}) {
+function createOptions(
+  overrides: Partial<FftCanvasInvalidationOptions> = {},
+): FftCanvasInvalidationOptions {
   return {
     displayTemporalResolution: "reduced",
     previousTemporalResolutionRef: ref("reduced"),

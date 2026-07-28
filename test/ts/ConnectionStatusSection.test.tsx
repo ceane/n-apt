@@ -65,9 +65,11 @@ describe("ConnectionStatusSection file mode", () => {
     );
 
     expect(
-      screen.getByRole("status", { name: /waiting for rx/i }),
+      screen.getByRole("status", { name: /rx active.*first frame/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Waiting for Rx…")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx active · waiting for first frame…"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /pause|resume/i }),
     ).not.toBeInTheDocument();

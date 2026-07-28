@@ -21,6 +21,9 @@ import {
   normalizeFrequencyRangeMessageData,
   resolveIncomingChannelsFrequencyRange,
   isSourceModePaused,
+  shouldOpenSourceIqSocket,
+  resolveTxPreviewSourceId,
+  buildTxPreviewRequestPayload,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -29,7 +32,9 @@ import {
   sendCenterFrequency,
   sendCaptureCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
-import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import spectrumSlice, {
+  setTxGeometry,
+} from "@n-apt/redux/slices/spectrumSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
 import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
@@ -91,6 +96,53 @@ Object.assign(global.WebSocket, {
 });
 
 describe("Redux WebSocket Migration", () => {
+  it("builds Tx preview requests with independent Tx and VFO centers", () => {
+    expect(
+      buildTxPreviewRequestPayload({
+        spectrum: {
+          txCenterFrequencyHz: 2_204_000,
+          txSampleRateHz: 1_000_000,
+          txPowerDbm: 9,
+          txSignal: "wifi",
+          txIfftSize: 65_536,
+          frequencyRange: { min: 1_000_000, max: 5_000_000 },
+        },
+      }),
+    ).toEqual({
+      type: "request_next_frame",
+      centerFrequencyHz: 2_204_000,
+      viewCenterHz: 3_000_000,
+      bandwidthHz: 1_000_000,
+      sample_rate: 4_000_000,
+      powerDbm: 9,
+      txSignal: "wifi",
+      txIfftSize: 65_536,
+    });
+  });
+
+  it("does not fall back to Tx preview for a paused half-duplex Rx source", () => {
+    expect(
+      resolveTxPreviewSourceId({
+        activeSourceId: "hackrf-1",
+        sourceRouting: { bindings: { "tx-suite:tx": null } },
+        sources: [
+          {
+            id: "hackrf-1",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            duplex_mode: "half_duplex",
+            status: "standby",
+            paused: true,
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("opens the Mock Tx source-IQ socket while its source is on standby", () => {
+    expect(shouldOpenSourceIqSocket("standby")).toBe(true);
+  });
+
   let store: ReturnType<typeof configureStore>;
 
   it("preserves the user frequency range when a source switch republishes channels", () => {
@@ -507,7 +559,7 @@ describe("Redux WebSocket Migration", () => {
               kind: "mock_tx",
               capability: "tx",
               status: "connected",
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "mock-tx",
             },
           ],
@@ -528,6 +580,38 @@ describe("Redux WebSocket Migration", () => {
       expect(controlSocket.send).not.toHaveBeenCalledWith(
         expect.stringContaining('"type":"request_next_frame"'),
       );
+
+      sourceSocket.send.mockClear();
+      jest.useFakeTimers();
+      try {
+        middlewareStore.dispatch(
+          setTxGeometry({
+            centerFrequencyHz: 2_000_000,
+            sampleRateHz: 1_000_000,
+          }),
+        );
+        middlewareStore.dispatch(
+          setTxGeometry({
+            centerFrequencyHz: 2_100_000,
+            sampleRateHz: 1_100_000,
+          }),
+        );
+        middlewareStore.dispatch(
+          setTxGeometry({
+            centerFrequencyHz: 2_200_000,
+            sampleRateHz: 1_200_000,
+          }),
+        );
+
+        expect(sourceSocket.send).not.toHaveBeenCalled();
+        jest.runOnlyPendingTimers();
+        expect(sourceSocket.send).toHaveBeenCalledTimes(1);
+        expect(sourceSocket.send).toHaveBeenCalledWith(
+          expect.stringContaining('"centerFrequencyHz":2200000'),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
 
       // Verify the preview frame requested on open enters liveDataRef even when isPaused is false
       const previewFrame = {
@@ -807,7 +891,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "mock-apt",
               stream_key_kind: "source_id",
               serial_number: "mock-apt",
@@ -883,7 +967,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -968,7 +1052,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1063,7 +1147,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1157,7 +1241,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1216,7 +1300,7 @@ describe("Redux WebSocket Migration", () => {
         loading_attempt: 0,
         loading_attempt_max: 2,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         stream_key: id,
         stream_key_kind: "source_id",
         sdr: {
@@ -1340,7 +1424,7 @@ describe("Redux WebSocket Migration", () => {
         loading_attempt: status === "loading" ? 1 : 0,
         loading_attempt_max: 2,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         stream_key: streamKey,
         stream_key_kind: "source_id",
         serial_number: streamKey,
@@ -1491,7 +1575,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "hackrf-test-serial",
               stream_key_kind: "serial",
               serial_number: "hackrf-test-serial",
@@ -1590,7 +1674,6 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: false,
-              supports_raw_iq_stream: false,
               stream_key: "mock-tx",
               stream_key_kind: "source_id",
               serial_number: "mock-tx",
@@ -1700,7 +1783,6 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: false,
-              supports_raw_iq_stream: false,
               stream_key: "mock-tx",
               stream_key_kind: "source_id",
               serial_number: "mock-tx",
@@ -1800,7 +1882,7 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              supports_raw_iq_stream: true,
+              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "mock-apt",
               stream_key_kind: "source_id",
               serial_number: "mock-apt",

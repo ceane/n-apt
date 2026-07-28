@@ -15,16 +15,10 @@ import {
 import {
   setActiveSignalArea,
   setFrequencyRange,
+  setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
-import {
-  isMockDevice,
-  isMockBackend,
-  isMockTxSource,
-  isMockAptDevice,
-  isMockTxIdentity,
-} from "@n-apt/utils/deviceCapabilities";
 import {
   type DeviceState,
   type SourceInfo,
@@ -46,6 +40,9 @@ import {
   SourceVisualizationRuntime,
   sourceSpectrumRuntime,
 } from "@n-apt/visualization/sourceVisualizationRuntime";
+import { isMockTxSource } from "@n-apt/utils/deviceCapabilities";
+import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
+import { filterLiveFramesForSource } from "@n-apt/utils/liveSourcePresentation";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -122,35 +119,6 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   return false;
 };
 
-const getDeviceKindFromSource = (source: SourceInfo): string => {
-  const kind = source.kind?.toLowerCase?.() ?? "";
-  const capability = source.capability?.toLowerCase?.() ?? "";
-  if (
-    kind === "hackrf_one" ||
-    kind === "mock_tx" ||
-    kind === "tx_rx" ||
-    kind === "tx" ||
-    kind === "mock_apt"
-  ) {
-    return kind;
-  }
-  if (isMockAptDevice({ id: source.id, kind: source.kind })) {
-    return "mock_apt";
-  }
-  if (
-    isMockTxSource({ id: source.id, kind: source.kind }) ||
-    isMockDevice({
-      capability: source.capability,
-      id: source.id,
-      kind: source.kind,
-    })
-  ) {
-    return "mock_tx";
-  }
-  if (capability.includes("tx")) return "tx";
-  return source.kind;
-};
-
 const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const sourceStatus = source.status ?? "disconnected";
   const sourceGain = source.sdr.settings.gain;
@@ -163,8 +131,10 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
     deviceInfo: source.name,
     deviceName: source.name,
     deviceProfile: {
-      kind: getDeviceKindFromSource(source),
-      is_rtl_sdr: source.capability === "rx",
+      // Kept for compatibility with older consumers; behavior is driven by
+      // the generic source capabilities below.
+      kind: source.kind,
+      is_rtl_sdr: false,
       supports_approx_dbm: source.supports_approx_dbm,
       iq_format: source.iq_format,
     },
@@ -215,10 +185,6 @@ const isTxModeActiveMode = (value: unknown): boolean => {
   return normalized === "tx" || normalized === "rx_tx";
 };
 
-const isMockTxIdentityLocal = (value: unknown): boolean => {
-  return isMockTxIdentity(value);
-};
-
 const sourceMatchesTxRequest = (
   source: SourceInfo,
   data: Record<string, unknown>,
@@ -240,11 +206,7 @@ const sourceMatchesTxRequest = (
     return true;
   }
 
-  return (
-    (isMockTxIdentityLocal(data.serialNumber) ||
-      isMockTxIdentityLocal(data.txDevice)) &&
-    isMockTxSource({ id: source.id, kind: source.kind })
-  );
+  return false;
 };
 
 const applyOptimisticTransmitStatus = (
@@ -263,9 +225,8 @@ const applyOptimisticTransmitStatus = (
     currentSources.find((source) => sourceMatchesTxRequest(source, data)) ??
     currentSources.find(
       (source) =>
-        source.capability === "tx" ||
-        source.capability === "tx_rx" ||
-        isMockTxSource({ id: source.id, kind: source.kind }),
+      source.capability === "tx" ||
+        source.capability === "tx_rx",
     );
   if (!targetSource) {
     return;
@@ -273,7 +234,8 @@ const applyOptimisticTransmitStatus = (
 
   const nextStatus: SourceInfo["status"] = enabled
     ? "transmitting"
-    : isMockTxSource({ id: targetSource.id, kind: targetSource.kind })
+    : targetSource.capabilities?.supports_tx_monitor === true ||
+        resolveSourceModeManagement({ source: targetSource }).isTxMode
       ? "standby"
       : "connected";
   const nextSources = currentSources.map((source) => {
@@ -355,6 +317,11 @@ let lastTxPreviewRequestBySocket = new WeakMap<
   WebSocket,
   { signature: string; sentAt: number }
 >();
+let txPreviewRequestAnimationFrame: number | null = null;
+let pendingTxPreviewRequest: {
+  dispatch: Dispatch;
+  getState: () => any;
+} | null = null;
 
 // Batching for high-frequency data
 let dataBatchFrame: number | null = null;
@@ -505,6 +472,11 @@ export const resetWebSocketMiddlewareState = (): void => {
   controlIqFramePump?.reset();
   controlIqFramePump = null;
   resetPausedFrameRequestGate();
+  pendingTxPreviewRequest = null;
+  if (txPreviewRequestAnimationFrame !== null) {
+    cancelAnimationFrame(txPreviewRequestAnimationFrame);
+    txPreviewRequestAnimationFrame = null;
+  }
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -570,12 +542,19 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const activeSource = (state.websocket.sources ?? []).find(
       (source: SourceInfo) => source.id === activeSourceId,
     );
-    const isActiveMockTxTransmitting =
-      activeSourceId === "mock-tx" &&
+    const isActiveMockTxMonitor = isMockTxSource({
+      id: activeSource?.id ?? activeSourceId,
+      kind: activeSource?.kind,
+    });
+    const isActiveTxMonitorTransmitting =
+      (activeSource?.capabilities?.supports_tx_monitor === true ||
+        isActiveMockTxMonitor) &&
       (activeSource?.status === "transmitting" ||
         state.websocket.sourceStatuses?.[activeSourceId] === "transmitting");
-    const isActiveMockTxStandby =
-      activeSourceId === "mock-tx" && !isActiveMockTxTransmitting;
+    const isActiveTxMonitorStandby =
+      (activeSource?.capabilities?.supports_tx_monitor === true ||
+        isActiveMockTxMonitor) &&
+      !isActiveTxMonitorTransmitting;
     const frames = Array.isArray(pendingDataUpdate)
       ? pendingDataUpdate
       : [pendingDataUpdate];
@@ -593,24 +572,24 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
     // before the backend commits activeSourceId.
     const presentationSourceId = requestedSourceId ?? activeSourceId;
-    const presentationFrames = presentationSourceId
-      ? frames.filter(
-          (frame) =>
-            frame?.source_id === presentationSourceId ||
-            (requestedSourceId === null && !frame?.source_id),
-        )
-      : frames;
+    const presentationFrames = filterLiveFramesForSource(
+      frames,
+      presentationSourceId,
+      // Mock Tx preview frames can still arrive through the legacy control
+      // path without a source tag; hardware handoffs must remain strict.
+      isActiveMockTxMonitor && requestedSourceId === null,
+    );
     if (
       presentationFrames.length > 0 &&
-      ((!isPaused && !isActiveMockTxStandby) ||
+      ((!isPaused && !isActiveTxMonitorStandby) ||
         allowNextPausedFrame ||
-        isActiveMockTxTransmitting) &&
+        isActiveTxMonitorTransmitting) &&
       !isFileSource
     ) {
       if (
-        (isPaused || isActiveMockTxStandby) &&
+        (isPaused || isActiveTxMonitorStandby) &&
         allowNextPausedFrame &&
-        !isActiveMockTxTransmitting
+        !isActiveTxMonitorTransmitting
       ) {
         liveDataRef.current = collapsePausedFrameBatch(presentationFrames);
       } else {
@@ -962,15 +941,6 @@ const sameAesKeyReference = (
   next: CryptoKey | null,
 ): boolean => current === next;
 
-const isMockDeviceStatus = (parsedData: Record<string, unknown>): boolean => {
-  return (
-    isMockBackend(parsedData.backend) ||
-    isMockBackend(parsedData.device) ||
-    isMockBackend(parsedData.device_info) ||
-    isMockBackend(parsedData.device_name)
-  );
-};
-
 const cleanupSocket = () => {
   requestedSourceId = null;
   if (wsInstance.reconnectTimeout) {
@@ -1018,39 +988,46 @@ const cleanupSourceIqSocket = () => {
   sourceIqWsInstance.sourceId = null;
 };
 
-/** Request a source-owned Tx preview using the Tx viewer's own display span. */
-const sendSecondaryTxPreviewRequest = (
-  ws: WebSocket,
-  getState: () => any,
-) => {
-  if (ws.readyState !== WebSocket.OPEN) return;
-  const state = getState();
+export const buildTxPreviewRequestPayload = (state: any) => {
   const txSettings = state.spectrum;
-  const frequencyRange = state.spectrum?.frequencyRange;
-  const viewSpanHz =
+  const frequencyRange = txSettings?.frequencyRange;
+  const hasValidViewRange =
     frequencyRange &&
     typeof frequencyRange.max === "number" &&
     typeof frequencyRange.min === "number" &&
-    frequencyRange.max > frequencyRange.min
-      ? frequencyRange.max - frequencyRange.min
-      : undefined;
+    frequencyRange.max > frequencyRange.min;
+  const viewSpanHz = hasValidViewRange
+    ? frequencyRange.max - frequencyRange.min
+    : undefined;
+  const viewCenterHz = hasValidViewRange
+    ? (frequencyRange.min + frequencyRange.max) / 2
+    : txSettings.txCenterFrequencyHz;
   const viewerSampleRateHz =
     viewSpanHz && viewSpanHz > 0
       ? viewSpanHz
       : typeof txSettings.txViewerSampleRateHz === "number" &&
-        txSettings.txViewerSampleRateHz > 0
-      ? txSettings.txViewerSampleRateHz
-      : txSettings.txSampleRateHz;
-  const payload = {
+          txSettings.txViewerSampleRateHz > 0
+        ? txSettings.txViewerSampleRateHz
+        : txSettings.txSampleRateHz;
+  return {
     type: "request_next_frame",
     centerFrequencyHz: txSettings.txCenterFrequencyHz,
-    viewCenterHz: txSettings.txCenterFrequencyHz,
+    viewCenterHz,
     bandwidthHz: txSettings.txSampleRateHz,
     sample_rate: viewerSampleRateHz,
     powerDbm: txSettings.txPowerDbm,
     txSignal: txSettings.txSignal,
     txIfftSize: txSettings.txIfftSize,
   };
+};
+
+/** Request a source-owned Tx preview using the Tx viewer's own display span. */
+const sendSecondaryTxPreviewRequest = (
+  ws: WebSocket,
+  getState: () => any,
+) => {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  const payload = buildTxPreviewRequestPayload(getState());
   const signature = JSON.stringify(payload);
   const previous = lastTxPreviewRequestBySocket.get(ws);
   const now = Date.now();
@@ -1062,7 +1039,7 @@ const sendSecondaryTxPreviewRequest = (
   ws.send(JSON.stringify(payload));
 };
 
-const getTxPreviewSourceId = (state: any): string | null => {
+export const resolveTxPreviewSourceId = (state: any): string | null => {
   const boundSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
   if (typeof boundSourceId === "string" && boundSourceId.length > 0) {
     return boundSourceId;
@@ -1070,26 +1047,22 @@ const getTxPreviewSourceId = (state: any): string | null => {
   const activeSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === state.activeSourceId,
   );
-  if (
-    activeSource &&
-    (activeSource.capability === "tx" || activeSource.capability === "tx_rx")
-  ) {
-    return activeSource.id;
-  }
-  return (
-    (state.sources ?? []).find(
-      (source: SourceInfo) =>
-        source.capability === "tx" || source.capability === "tx_rx",
-    )?.id ?? null
-  );
+  if (!activeSource) return null;
+  const mode = resolveSourceModeManagement({ source: activeSource });
+  return mode.shouldRequestTxPreview ? activeSource.id : null;
 };
 
-const clearTxPreviewFrames = (getState: () => any) => {
+const clearTxPreviewFrames = (
+  getState: () => any,
+  sourceIdOverride?: string | null,
+) => {
   const state = getState().websocket;
-  const txSourceId = getTxPreviewSourceId({
-    ...state,
-    sourceRouting: getState().sourceRouting,
-  });
+  const txSourceId =
+    sourceIdOverride ??
+    resolveTxPreviewSourceId({
+      ...state,
+      sourceRouting: getState().sourceRouting,
+    });
   if (!txSourceId) return;
 
   sourceVisualizationRuntime.reset(txSourceId);
@@ -1107,24 +1080,19 @@ const clearTxPreviewFrames = (getState: () => any) => {
 
 const sendTxPreviewRequestToOpenSockets = (getState: () => any) => {
   const state = getState().websocket;
-  const txSourceId = getTxPreviewSourceId({
+  const txSourceId = resolveTxPreviewSourceId({
     ...state,
     sourceRouting: getState().sourceRouting,
   });
   if (!txSourceId) return;
-  clearTxPreviewFrames(getState);
   const activeSourceId = state.activeSourceId;
   const activeTxSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === activeSourceId && source.id === txSourceId,
   );
-  const isPaused =
-    state.isPaused ||
-    (activeSourceId ? state.pausedSources?.[activeSourceId] : false);
   if (
     activeTxSource &&
     activeTxSource.status !== "transmitting" &&
     state.sourceStatuses?.[activeTxSource.id] !== "transmitting" &&
-    isPaused &&
     sourceIqWsInstance.ws?.readyState === WebSocket.OPEN
   ) {
     sendSecondaryTxPreviewRequest(sourceIqWsInstance.ws, getState);
@@ -1137,10 +1105,37 @@ const sendTxPreviewRequestToOpenSockets = (getState: () => any) => {
   }
 };
 
+const scheduleTxPreviewRequest = (
+  dispatch: Dispatch,
+  getState: () => any,
+) => {
+  pendingTxPreviewRequest = { dispatch, getState };
+  if (txPreviewRequestAnimationFrame !== null) return;
+  txPreviewRequestAnimationFrame = requestAnimationFrame(() => {
+    txPreviewRequestAnimationFrame = null;
+    const pending = pendingTxPreviewRequest;
+    pendingTxPreviewRequest = null;
+    if (!pending) return;
+    syncSecondaryTxSourceIqSocket(pending.dispatch, pending.getState);
+    sendTxPreviewRequestToOpenSockets(pending.getState);
+  });
+};
+
+const TX_PREVIEW_GEOMETRY_ACTIONS = new Set([
+  "spectrum/setTxGeometry",
+  "spectrum/setTxCenterFrequencyHz",
+  "spectrum/setTxSampleRateHz",
+  "spectrum/setTxSignal",
+  "spectrum/setTxPowerDbm",
+  "spectrum/setTxIfftSize",
+  "spectrum/setTxViewerSampleRateHz",
+  "spectrum/setFrequencyRange",
+  "sourceRouting/setSourceBinding",
+  "sourceRouting/setSourceBindings",
+]);
+
 const shouldRefreshTxPreview = (type: string): boolean =>
-  type.startsWith("spectrum/setTx") ||
-  type === "sourceRouting/setSourceBinding" ||
-  type === "sourceRouting/setSourceBindings";
+  TX_PREVIEW_GEOMETRY_ACTIONS.has(type);
 
 const syncSecondaryTxSourceIqSocket = (
   dispatch: Dispatch,
@@ -1160,13 +1155,7 @@ const syncSecondaryTxSourceIqSocket = (
             source.id !== activeSourceId &&
             source.iq_format,
         )
-      : null) ??
-    (state.sources ?? []).find(
-      (source: SourceInfo) =>
-        source.id !== activeSourceId &&
-        source.iq_format &&
-        (source.capability === "tx" || source.capability === "tx_rx"),
-    );
+      : null);
 
   for (const [sourceId, socket] of secondarySourceIqSockets) {
     if (!txSource || sourceId !== txSource.id) {
@@ -1238,7 +1227,10 @@ export const shouldAcceptSourceIqSocketMessage = ({
  * sockets.
  */
 export const shouldOpenSourceIqSocket = (status: unknown): boolean =>
-  status === "connected" || status === "streaming" || status === "transmitting";
+  status === "connected" ||
+  status === "streaming" ||
+  status === "transmitting" ||
+  status === "standby";
 
 /** Publishes only transport boundary changes; raw frame traffic never enters Redux. */
 const publishSourceTransport = (
@@ -1405,6 +1397,24 @@ const processMessage = (
   // Validate the message first (skip binary data for performance)
   if (!processWebSocketMessageWithValidation(dispatch, getState, parsedData)) {
     console.warn("WebSocket message failed validation:", parsedData);
+    return;
+  }
+
+  if (parsedData?.type === "tx_safety") {
+    dispatch(
+      setTxSafetyResult({
+        sourceId: parsedData.source_id,
+        effectivePowerDbm: parsedData.effective_power_dbm,
+        maximumSafePowerDbm: parsedData.maximum_safe_power_dbm,
+        minimumIqPowerFloorDbm: parsedData.minimum_iq_power_floor_dbm,
+        recommendedIfftSize: parsedData.recommended_ifft_size,
+        effectiveIfftSize: parsedData.effective_ifft_size,
+        vgaGainDb: parsedData.vga_gain_db,
+        ampEnabled: parsedData.amp_enabled,
+        safetyClamped: parsedData.safety_clamped,
+        validationErrors: parsedData.validation_errors,
+      }),
+    );
     return;
   }
 
@@ -2272,6 +2282,32 @@ const createWebSocketMiddleware =
         }
 
         if (type === "select_source") {
+          const previousActiveSourceId = getState().websocket.activeSourceId;
+          const previousActiveSource = (
+            getState().websocket.sources ?? []
+          ).find((source: SourceInfo) => source.id === previousActiveSourceId);
+          const previousSourceIsTransmitting =
+            previousActiveSource?.status === "transmitting" ||
+            getState().websocket.sourceStatuses?.[previousActiveSourceId] ===
+              "transmitting";
+          // Fence the old receiver immediately. The backend also enforces this
+          // during the device swap, but sending the per-source pause first
+          // keeps the source card and any already-open stream consistent while
+          // that blocking handoff is in flight.
+          if (
+            previousActiveSourceId &&
+            previousActiveSourceId !== normalizedData?.source_id &&
+            !previousSourceIsTransmitting &&
+            wsInstance.ws?.readyState === WebSocket.OPEN
+          ) {
+            wsInstance.ws.send(
+              JSON.stringify({
+                type: "pause",
+                paused: true,
+                source_id: previousActiveSourceId,
+              }),
+            );
+          }
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
           if (requestedSourceId) {
@@ -2375,17 +2411,27 @@ const createWebSocketMiddleware =
 
       case "txSuite/requestPreview": {
         const result = next(action);
-        syncSecondaryTxSourceIqSocket(dispatch, getState);
-        sendTxPreviewRequestToOpenSockets(getState);
+        scheduleTxPreviewRequest(dispatch, getState);
         return result;
       }
 
       default:
         {
+          const isSourceBindingAction =
+            action.type === "sourceRouting/setSourceBinding" ||
+            action.type === "sourceRouting/setSourceBindings";
+          const previousTxBinding = isSourceBindingAction
+            ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
+            : null;
           const result = next(action);
+          const nextTxBinding = isSourceBindingAction
+            ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
+            : null;
+          if (previousTxBinding && !nextTxBinding) {
+            clearTxPreviewFrames(getState, previousTxBinding);
+          }
           if (shouldRefreshTxPreview(action.type)) {
-            syncSecondaryTxSourceIqSocket(dispatch, getState);
-            sendTxPreviewRequestToOpenSockets(getState);
+            scheduleTxPreviewRequest(dispatch, getState);
           }
           return result;
         }

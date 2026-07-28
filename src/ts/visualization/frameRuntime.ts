@@ -1,6 +1,7 @@
 import {
   liveDataBySourceRef,
   liveDataRef,
+  sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 
@@ -30,7 +31,7 @@ export const createSourceFrameRuntime = <T>(
   sourceRefs: { current: Record<string, { current: T | null }> },
 ): SourceFrameRuntime<T> => ({
   getRef: (sourceId) =>
-    (sourceId ? sourceRefs.current[sourceId] : undefined) ?? fallbackRef,
+    (sourceId ? sourceRefs?.current?.[sourceId] : undefined) ?? fallbackRef,
 });
 
 export const liveFrameRuntime = createFrameRuntime(liveDataRef);
@@ -39,3 +40,41 @@ export const liveSourceFrameRuntime = createSourceFrameRuntime(
   liveDataRef,
   liveDataBySourceRef,
 );
+
+type LiveFrameRef = { current: any };
+const sourceFrameProxyRefs: Record<string, LiveFrameRef> = {};
+
+/** Return the presentation slot owned by a selected live source. */
+export const getLiveFrameRefForSource = (sourceId?: string | null) => {
+  if (!sourceId) return liveDataRef;
+
+  const existingProxy = sourceFrameProxyRefs[sourceId];
+  if (existingProxy) return existingProxy;
+
+  let fallbackRef: LiveFrameRef = { current: null };
+  const proxy = {} as LiveFrameRef;
+  const resolveSourceRef = (): LiveFrameRef => {
+    const mappedRef = liveDataBySourceRef.current[sourceId];
+    if (mappedRef && mappedRef !== proxy) return mappedRef;
+
+    const runtimeRef = sourceVisualizationRuntime?.getSourceRef?.(sourceId);
+    if (runtimeRef) {
+      liveDataBySourceRef.current[sourceId] = runtimeRef;
+      fallbackRef = runtimeRef;
+      return runtimeRef;
+    }
+    return fallbackRef;
+  };
+
+  Object.defineProperty(proxy, "current", {
+    configurable: true,
+    enumerable: true,
+    get: () => resolveSourceRef().current,
+    set: (value) => {
+      resolveSourceRef().current = value;
+    },
+  });
+  sourceFrameProxyRefs[sourceId] = proxy;
+  resolveSourceRef();
+  return proxy;
+};

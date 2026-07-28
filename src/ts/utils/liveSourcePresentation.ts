@@ -75,6 +75,28 @@ export const getLatestLiveFrame = (
   return value ?? null;
 };
 
+/**
+ * Keep a batched live update owned by the source currently being presented.
+ *
+ * Frames are delivered asynchronously, so a batch can contain the last frame
+ * from the old device and the first frame from the new device. Once the
+ * protocol provides source identity, an untagged frame is not safe to render
+ * during that handoff and must be discarded as well.
+ */
+export const filterLiveFramesForSource = <T extends { source_id?: string }>(
+  frames: T[],
+  sourceId: string | null | undefined,
+  allowUntagged = false,
+): T[] => {
+  const normalizedSourceId = normalizeSourceIdentity(sourceId);
+  if (!normalizedSourceId) return frames;
+  return frames.filter(
+    (frame) =>
+      normalizeSourceIdentity(frame.source_id) === normalizedSourceId ||
+      (allowUntagged && !normalizeSourceIdentity(frame.source_id)),
+  );
+};
+
 /** True when a frame contains samples that either live canvas can present. */
 export const hasRenderableFramePayload = (
   frame: RenderableLiveFrame | null | undefined,

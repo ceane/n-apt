@@ -19,6 +19,7 @@ import {
   setTxSampleRateHz,
   setTxIfftSize,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setTxPowerDbm,
   setTxVgaGain,
   setTxSafetyEnabled,
@@ -69,6 +70,7 @@ import {
   sendCaptureCommand,
   sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
+import { requestNextLiveFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   deriveStateFromConfig,
   useSdrSettings,
@@ -114,8 +116,15 @@ import {
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
-import { parseFrequency } from "@n-apt/utils/frequency";
+import {
+  parseFrequency,
+} from "@n-apt/utils/frequency";
 import { resolveSampleRateSpec, SampleRateSpec } from "@n-apt/utils/signals";
+import {
+  resolveSourceModeManagement,
+  resolveSourceModeTransition,
+  resolveTxStopTransition,
+} from "@n-apt/utils/sourceModeManagement";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -518,7 +527,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
   const lastSampleRateRef = useRef<number | null>(null);
-  const mockManualSampleRateRef = useRef(false);
+  const initializedSampleRateKeyRef = useRef<string | null>(null);
   const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
   const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
@@ -527,6 +536,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
   const [txPreviewSourceId, setTxPreviewSourceId] = useState<string | null>(
     null,
+  );
+  const txSuiteSourceId = useAppSelector(
+    (state) => state.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
   );
 
   // Get state from Redux
@@ -612,10 +624,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [txHopType, txHopChannels, channelPool]);
 
   const activeSignalAreaBounds = useMemo(() => {
-    const activeCh =
-      selectedTxHopChannels.find(
-        (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
-      ) ?? selectedTxHopChannels[0];
+    const activeCh = selectedTxHopChannels.find(
+      (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
+    );
     if (activeCh) {
       return { min: activeCh.min, max: activeCh.max };
     }
@@ -634,12 +645,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         max: activeFrameForArea.max_hz,
       };
     }
-    const poolCh =
-      channelPool.find(
-        (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
-      ) ?? channelPool[0];
+    const poolCh = channelPool.find(
+      (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
+    );
     if (poolCh) {
       return { min: poolCh.min, max: poolCh.max };
+    }
+    const fallbackCh = selectedTxHopChannels[0] ?? channelPool[0];
+    if (fallbackCh) {
+      return { min: fallbackCh.min, max: fallbackCh.max };
     }
     return null;
   }, [
@@ -651,10 +665,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   const activeChannelSampleRate = useMemo(() => {
-    const activeCh =
-      selectedTxHopChannels.find(
-        (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
-      ) ?? selectedTxHopChannels[0];
+    const activeCh = selectedTxHopChannels.find(
+      (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
+    );
     if (activeCh) {
       return Math.max(0, activeCh.max - activeCh.min);
     }
@@ -670,12 +683,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ) {
       return activeFrameForArea.max_hz - activeFrameForArea.min_hz;
     }
-    const poolCh =
-      channelPool.find(
-        (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
-      ) ?? channelPool[0];
+    const poolCh = channelPool.find(
+      (ch) => ch.label.toUpperCase() === activeSignalArea?.toUpperCase(),
+    );
     if (poolCh) {
       return Math.max(0, poolCh.max - poolCh.min);
+    }
+    const fallbackCh = selectedTxHopChannels[0] ?? channelPool[0];
+    if (fallbackCh) {
+      return Math.max(0, fallbackCh.max - fallbackCh.min);
     }
     return null;
   }, [
@@ -733,7 +749,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const deviceTypeNormalized =
     deviceTypeToUse === "rtl-sdr" ? "rtl_sdr" : deviceTypeToUse;
   const activeDeviceConfig = deviceTypeNormalized
-    ? liveSdrSettingsToUse?.devices?.[deviceTypeNormalized]
+    ? (liveSdrSettingsToUse as any)?.devices?.[deviceTypeNormalized]
     : undefined;
   const gainLimits = activeDeviceConfig?.gain_limits;
   const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
@@ -833,12 +849,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       ? liveSampleRateOptions
       : (mockResolved?.options ?? [3_200_000])
     : liveSampleRateOptions;
-  const supportsWholeChannelSampleRate =
-    sourceMode === "live" && !isRtlSdr && (isHackrfOne || isMockLiveSource);
+  const supportsWholeChannelSampleRate = sourceMode === "live" && !isRtlSdr;
   const wholeChannelViewport = activeSignalAreaBounds
     ? resolveWholeChannelViewport({
         channelBounds: activeSignalAreaBounds,
-        maxSampleRateHz: maxSampleRateHz ?? activeChannelSampleRate ?? 0,
+        maxSampleRateHz:
+          isMockLiveSource || isHackrfOne
+            ? Math.max(maxSampleRateHz ?? 0, 20_000_000)
+            : (maxSampleRateHz ?? activeChannelSampleRate ?? 0),
       })
     : null;
   const liveWholeChannelSampleRate = wholeChannelViewport
@@ -1012,13 +1030,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const setSampleRateForVisualizer = useCallback(
     (rate: number) => {
+      storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
       dispatch(setSampleRateAction(rate));
+      setSampleRate(rate);
     },
-    [dispatch],
+    [dispatch, storeDispatch, setSampleRate],
   );
 
   const {
     wholeChannelSampleRate: hackrfWholeChannelSampleRate,
+    isWholeChannelMode,
     handleSampleRateChange,
   } = useLiveSampleRateControl({
     sourceMode,
@@ -1035,13 +1056,72 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxFrameRateLimit: maxFrameRate,
     setSampleRate: setSampleRateForVisualizer,
     setFftFrameRate,
-    applyFrequencyRange: (range) => {
-      dispatch(setFrequencyRange(range));
-      spectrumTransport.sendFrequencyRange(range);
-    },
+    applyFrequencyRange: useCallback(
+      (range) => {
+        dispatch(setFrequencyRange(range));
+        spectrumTransport.sendFrequencyRange(range);
+      },
+      [dispatch, spectrumTransport],
+    ),
   });
+  const sampleRateSourceKey =
+    selectedSource?.id ||
+    selectedSourceId ||
+    liveDeviceNameToUse ||
+    liveBackend ||
+    null;
+  const sampleRateInitializationKey =
+    sampleRateSourceKey &&
+    typeof liveWholeChannelSampleRate === "number" &&
+    Number.isFinite(liveWholeChannelSampleRate)
+      ? `${sampleRateSourceKey}:${activeSignalArea ?? ""}:${Math.round(liveWholeChannelSampleRate)}`
+      : null;
+
+  useEffect(() => {
+    if (
+      sourceMode !== "live" ||
+      !supportsWholeChannelSampleRate ||
+      !sampleRateInitializationKey ||
+      initializedSampleRateKeyRef.current === sampleRateInitializationKey ||
+      typeof liveWholeChannelSampleRate !== "number" ||
+      !Number.isFinite(liveWholeChannelSampleRate) ||
+      liveWholeChannelSampleRate <= 0
+    ) {
+      return;
+    }
+
+    initializedSampleRateKeyRef.current = sampleRateInitializationKey;
+    const currentRate =
+      typeof sampleRateHzLocal === "number" &&
+      Number.isFinite(sampleRateHzLocal)
+        ? Math.round(sampleRateHzLocal)
+        : null;
+    const configuredFloor =
+      liveSdrSettingsToUse?.min_receive_sample_rate ??
+      liveSdrSettingsToUse?.sample_rate ??
+      3_200_000;
+    const isWholeChannelStartupRate =
+      currentRate === 2_000_000 ||
+      currentRate === Math.round(configuredFloor) ||
+      isWholeChannelMode;
+
+    if (isWholeChannelStartupRate) {
+      handleSampleRateChange(liveWholeChannelSampleRate, "whole");
+    }
+  }, [
+    handleSampleRateChange,
+    liveWholeChannelSampleRate,
+    liveSdrSettingsToUse?.min_receive_sample_rate,
+    liveSdrSettingsToUse?.sample_rate,
+    sampleRateHzLocal,
+    sampleRateInitializationKey,
+    sourceMode,
+    supportsWholeChannelSampleRate,
+    isWholeChannelMode,
+  ]);
+
   const handleSignalDisplaySampleRateChange = useCallback(
-    (nextSampleRate: number) => {
+    (nextSampleRate: number, mode?: "whole" | "manual") => {
       const roundedNext = Math.round(nextSampleRate);
       const roundedWholeChannel =
         typeof hackrfWholeChannelSampleRate === "number" &&
@@ -1086,52 +1166,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         }
       }
 
-      if (isMockLiveSource) {
-        mockManualSampleRateRef.current =
-          roundedWholeChannel === null || roundedNext !== roundedWholeChannel;
-      }
-
-      handleSampleRateChange(nextSampleRate);
+      handleSampleRateChange(nextSampleRate, mode);
     },
     [
       dispatch,
       handleSampleRateChange,
       hackrfWholeChannelSampleRate,
-      isMockLiveSource,
       liveFramesToUse,
       liveState.sampleRateHz,
     ],
   );
-
-  useEffect(() => {
-    if (
-      sourceMode !== "live" ||
-      (!isMockLiveSource && !isHackrfOne) ||
-      mockManualSampleRateRef.current ||
-      typeof hackrfWholeChannelSampleRate !== "number" ||
-      !Number.isFinite(hackrfWholeChannelSampleRate) ||
-      hackrfWholeChannelSampleRate <= 0
-    ) {
-      return;
-    }
-
-    const roundedSampleRate =
-      typeof sampleRateHzLocal === "number" &&
-      Number.isFinite(sampleRateHzLocal)
-        ? Math.round(sampleRateHzLocal)
-        : null;
-    const roundedWholeChannelRate = Math.round(hackrfWholeChannelSampleRate);
-    if (roundedSampleRate === roundedWholeChannelRate) return;
-
-    handleSampleRateChange(hackrfWholeChannelSampleRate);
-  }, [
-    handleSampleRateChange,
-    hackrfWholeChannelSampleRate,
-    isHackrfOne,
-    isMockLiveSource,
-    sampleRateHzLocal,
-    sourceMode,
-  ]);
 
   const hackrfBasebandCurrentSampleRate =
     isHackrfOne && sourceMode === "live" ? (sampleRateHzLocal ?? null) : null;
@@ -1329,30 +1373,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [sourcesToUse, selectedSource]);
 
   const isTxModeGlobal = useMemo(() => {
-    const isTxOnlySource = (source: typeof selectedSource) => {
-      if (!source) return false;
-      const capability = source.capability?.toLowerCase?.() ?? "";
-      return (
-        capability === "tx" ||
-        isMockTxSource({ id: source.id, kind: source.kind })
-      );
-    };
-
-    if (
-      selectedSource &&
-      (selectedSource.status === "transmitting" ||
-        selectedSource.status === "standby" ||
-        isTxOnlySource(selectedSource))
-    ) {
-      return true;
-    }
-    return sourcesToUse.some(
-      (source) =>
-        source.status === "transmitting" ||
-        source.status === "standby" ||
-        isTxOnlySource(source),
-    );
-  }, [sourcesToUse, selectedSource]);
+    return resolveSourceModeManagement({
+      source: selectedSource,
+      txBindingSourceId: txSuiteSourceId,
+      txPreviewSourceId,
+    }).isTxMode;
+  }, [selectedSource, txPreviewSourceId, txSuiteSourceId]);
 
   const selectedBackendKind =
     liveDeviceProfileForDisplay?.kind?.toLowerCase?.() ??
@@ -1544,8 +1570,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       dispatch(setTxSignal(value));
       const preset = txSignalPresets[value.toLowerCase()];
       if (!preset) return;
-      dispatch(setTxCenterFrequencyHz(preset.centerFrequencyHz));
-      dispatch(setTxSampleRateHz(preset.bandwidthHz));
+      dispatch(
+        setTxGeometry({
+          centerFrequencyHz: preset.centerFrequencyHz,
+          sampleRateHz: preset.bandwidthHz,
+        }),
+      );
     },
     [dispatch, txSignalPresets],
   );
@@ -1709,6 +1739,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             : source.kind === "mock_tx" || source.id === "mock-tx"
               ? "Simplex"
               : null),
+        active_duplex_mode: source.active_duplex_mode,
+        active_duplex_modes: source.active_duplex_modes,
         summary: source.serial_number
           ? `SN ${source.serial_number}`
           : source.manufacturer
@@ -1730,7 +1762,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           loadingLabel:
             source.status === "loading"
               ? source.kind === "hackrf_one"
-                ? "Waiting for Rx…"
+                ? "Rx active · waiting for first frame…"
                 : `Loading ${source.name}…`
               : undefined,
           actionLabel,
@@ -2519,14 +2551,68 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             setLivePreviewStage(1);
           }}
           onToggleDeviceRxPause={(id) => {
+            const source = sourcesToUse.find((entry) => entry.id === id);
+            const mode = resolveSourceModeManagement({
+              source,
+              txBindingSourceId: txSuiteSourceId,
+              txPreviewSourceId,
+            });
+            const transition = mode.isTxMode
+              ? resolveSourceModeTransition({
+                  sourceId: id,
+                  duplexMode: mode.duplexMode,
+                  fromMode: "tx",
+                  toMode: "rx",
+                })
+              : null;
             setTxPreviewSourceId(null);
+            dispatch(
+              setSourceBinding({
+                group: "tx-suite",
+                role: "tx",
+                sourceId: null,
+              }),
+            );
             toggleLiveVisualizerPause(id);
+            if (transition?.actions.includes("request_rx_frame")) {
+              // The first Rx frame replaces the Tx standby preview after the
+              // mode handoff; do not let the old Tx I/Q remain on canvas.
+              dispatch(requestNextLiveFrame());
+            }
           }}
           onToggleDeviceTxMode={(id) => {
-            setTxPreviewSourceId(null);
             const current =
               sourceDevices.find((entry) => entry.id === id)?.status?.label ===
               "transmitting";
+            const source = sourcesToUse.find((entry) => entry.id === id);
+            const mode = resolveSourceModeManagement({
+              source,
+              txBindingSourceId: txSuiteSourceId,
+              txPreviewSourceId,
+            });
+            const stopTransition =
+              current && mode.isTxMode && mode.duplexMode !== "simplex"
+                ? resolveTxStopTransition({
+                    sourceId: id,
+                    duplexMode: mode.duplexMode,
+                  })
+                : null;
+            setTxPreviewSourceId(null);
+            if (
+              stopTransition &&
+              stopTransition.actions.includes("enter_tx_standby") &&
+              txSuiteSourceId !== id
+            ) {
+              // Preserve the Tx source/view while the backend changes the
+              // activity state from transmitting to standby.
+              dispatch(
+                setSourceBinding({
+                  group: "tx-suite",
+                  role: "tx",
+                  sourceId: id,
+                }),
+              );
+            }
             handleToggleTransmitMode(id, !current);
           }}
           onPreviewDeviceTx={(id) => {
@@ -2567,6 +2653,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fileMode={false}
             limitMarkers={limitMarkers}
             rangeSlidersDisabled={visualizerLoading}
+            onSampleRateChange={handleSignalDisplaySampleRateChange}
           />
 
           <IQCaptureControlsSection
@@ -2708,7 +2795,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               <TxSettingsSection
                 signal={txSignal}
                 bandwidthHz={txSampleRateHz}
-                maxBandwidthHz={maxSampleRateHz}
                 fftSize={fftSize}
                 ifftSize={txIfftSize}
                 ifftSizeOptions={fftSizeOptions}
@@ -2720,22 +2806,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 signalOptions={signalOptions}
                 onBandwidthChange={(value) => {
                   dispatch(setTxSampleRateHz(value));
-                  if (Number.isFinite(txCenterFrequencyHz) && value > 0) {
-                    const min = Math.max(0, txCenterFrequencyHz - value / 2);
-                    const max = txCenterFrequencyHz + value / 2;
-                    dispatch(setFrequencyRange({ min, max }));
-                  }
                 }}
                 onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
                 onCenterFrequencyChange={(value) => {
                   dispatch(setTxCenterFrequencyHz(value));
-                  const bw =
-                    typeof txSampleRateHz === "number" && txSampleRateHz > 0
-                      ? txSampleRateHz
-                      : 2_400_000;
-                  const min = Math.max(0, value - bw / 2);
-                  const max = value + bw / 2;
-                  dispatch(setFrequencyRange({ min, max }));
                 }}
                 onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
                 onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}
@@ -2793,7 +2867,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           <SignalDisplaySection
             sourceMode={sourceMode}
             maxSampleRate={maxSampleRate}
-            minReceiveSampleRate={liveSdrSettingsToUse?.min_receive_sample_rate}
+            minReceiveSampleRate={
+              liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined
+            }
             sampleRate={
               sampleRateHzLocal ??
               liveSdrSettingsToUse?.sample_rate ??
@@ -2801,6 +2877,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }
             sampleRateOptions={signalDisplaySampleRateOptions}
             wholeChannelSampleRate={hackrfWholeChannelSampleRate}
+            isWholeChannelMode={isWholeChannelMode}
             fileCapturedRange={fileCapturedRange}
             fftFrameRate={fftFrameRate}
             maxFrameRate={maxFrameRate}

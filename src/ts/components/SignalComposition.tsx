@@ -9,7 +9,13 @@ import {
   MoveHorizontal,
   Percent,
 } from "lucide-react";
-import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
+import {
+  setStitchOption,
+  setStitchOptionValue,
+  useAppDispatch,
+  useAppSelector,
+} from "@n-apt/redux";
+import type { StitchOptions } from "@n-apt/redux/slices/spectrumSlice";
 import { type AppStyledTheme } from "@n-apt/components/ui/Theme";
 import { SidebarSectionTitle } from "./ui/Collapsible";
 import { Tooltip } from "./ui/Tooltip";
@@ -68,7 +74,8 @@ const Select = styled.select`
 
 const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
   const theme = useTheme() as AppStyledTheme;
-  const { state, dispatch } = useSpectrumStore();
+  const dispatch = useAppDispatch();
+  const stitchOptions = useAppSelector((root) => root.spectrum.stitchOptions);
 
   const Container = styled.div`
     ${sidebar
@@ -111,12 +118,10 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
     gap: ${sidebar ? "8px" : "12px"};
   `;
 
-  const toggleOption = (option: keyof typeof state.stitchOptions) => {
-    dispatch({
-      type: "SET_STITCH_OPTION",
-      option,
-      enabled: !state.stitchOptions[option],
-    });
+  const toggleOption = (option: keyof StitchOptions) => {
+    dispatch(
+      setStitchOption({ option, enabled: !stitchOptions[option] as never }),
+    );
   };
 
   return (
@@ -158,13 +163,14 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
           </span>
         </div>
         <Select
-          value={state.stitchOptions.acquisitionMode}
+          value={stitchOptions.acquisitionMode}
           onChange={(e) =>
-            dispatch({
-              type: "SET_STITCH_OPTION_VALUE",
-              option: "acquisitionMode",
-              value: e.target.value as any,
-            })
+            dispatch(
+              setStitchOptionValue({
+                option: "acquisitionMode",
+                value: e.target.value as "stepwise" | "interleaved",
+              }),
+            )
           }
         >
           <option value="interleaved">Interleaved (TDMS)</option>
@@ -174,7 +180,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
 
       <OptionsGrid>
         <OptionToggle
-          $active={state.stitchOptions.phaseCorrection}
+          $active={stitchOptions.phaseCorrection}
           onClick={() => toggleOption("phaseCorrection")}
         >
           <TrainTrack size={14} />
@@ -186,7 +192,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.fmDeviationCorrection}
+          $active={stitchOptions.fmDeviationCorrection}
           onClick={() => toggleOption("fmDeviationCorrection")}
         >
           <Radius size={14} />
@@ -198,7 +204,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.antiAliasing}
+          $active={stitchOptions.antiAliasing}
           onClick={() => toggleOption("antiAliasing")}
         >
           <Waves size={14} />
@@ -210,7 +216,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.noiseFloorMatching}
+          $active={stitchOptions.noiseFloorMatching}
           onClick={() => toggleOption("noiseFloorMatching")}
         >
           <Combine size={14} />
@@ -222,7 +228,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.crossfading}
+          $active={stitchOptions.crossfading}
           onClick={() => toggleOption("crossfading")}
         >
           <MoveHorizontal size={14} />
@@ -234,7 +240,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.chineseRemainderSynthesis}
+          $active={stitchOptions.chineseRemainderSynthesis}
           onClick={() => toggleOption("chineseRemainderSynthesis")}
         >
           <Percent size={14} />
@@ -246,7 +252,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.jsAntiAliasing}
+          $active={stitchOptions.jsAntiAliasing}
           onClick={() => toggleOption("jsAntiAliasing")}
         >
           <Waves size={14} />
@@ -258,7 +264,7 @@ const SignalComposition: React.FC<SignalCompositionProps> = ({ sidebar }) => {
         </OptionToggle>
 
         <OptionToggle
-          $active={state.stitchOptions.jsNoiseFloorMatching}
+          $active={stitchOptions.jsNoiseFloorMatching}
           onClick={() => toggleOption("jsNoiseFloorMatching")}
         >
           <Combine size={14} />

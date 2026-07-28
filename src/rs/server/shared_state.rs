@@ -559,3 +559,4 @@ mod tests {
     let _ = unsafe_local_user_password();
   }
 }
+// Hot-reload handoff probe 2.

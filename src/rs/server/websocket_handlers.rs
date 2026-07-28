@@ -19,15 +19,15 @@ use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
   active_source_id, broadcast_device_status, broadcast_signal_display_settings,
-  build_channels_snapshot, build_source_info_snapshot, mock_tx,
+  build_channels_snapshot, build_source_info_snapshot, complex_baseband,
   resolve_stream_key_source_id,
 };
-use crate::s::ifft::mock_tx_gen::canonical_mock_tx_signal_key;
+use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
-  let canonical = canonical_mock_tx_signal_key(signal_name.unwrap_or("wifi"));
+  let canonical = canonical_complex_baseband_signal_key(signal_name.unwrap_or("wifi"));
   match canonical.as_str() {
     "d" | "d_sharp" | "wifi" | "5g" | "tone" | "noise" | "custom" => canonical,
     _ => "wifi".to_string(),
@@ -47,21 +47,6 @@ fn is_tx_preview_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
     .and_then(|sources| sources.iter().find(|source| source["id"] == source_id))
     .and_then(|source| source["capability"].as_str())
     .is_some_and(|capability| capability == "tx" || capability == "tx_rx")
-}
-
-fn is_mock_tx_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
-  if source_id == MOCK_TX_SOURCE_ID || source_id == "mock_tx" {
-    return true;
-  }
-  snapshot["sources"]
-    .as_array()
-    .and_then(|sources| sources.iter().find(|source| source["id"] == source_id))
-    .map(|source| {
-      let kind = source["kind"].as_str().unwrap_or("");
-      let label = source["name"].as_str().unwrap_or("");
-      kind == "mock_tx" || is_mock_tx_device_label(label)
-    })
-    .unwrap_or(false)
 }
 
 fn apply_tx_preview_settings(message: &WebSocketMessage) {
@@ -152,8 +137,8 @@ pub(crate) fn build_tx_preview_frame(
   let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
   let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
   let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
-  let power_model = mock_tx::resolve_mock_tx_iq_power_model();
-  let raw_iq = mock_tx::synthesize_mock_tx_monitor_iq(
+  let power_model = complex_baseband::resolve_mock_tx_iq_power_model();
+  let raw_iq = complex_baseband::synthesize_mock_tx_monitor_iq(
     fft_size,
     view_center_hz,
     sample_rate,
@@ -188,7 +173,9 @@ pub(crate) fn build_tx_preview_frame(
   }
 }
 
-pub(crate) fn build_mock_tx_standby_preview_frame(shared: &SharedState) -> SpectrumData {
+pub(crate) fn build_mock_tx_standby_preview_frame(
+  shared: &SharedState,
+) -> SpectrumData {
   build_tx_preview_frame(shared, MOCK_TX_SOURCE_ID)
 }
 
@@ -541,14 +528,12 @@ fn drain_latest_source_iq_frame(
     match spectrum_rx.try_recv() {
       Ok(candidate) => {
         let matches_source = match iq_protocol {
-          IqStreamProtocol::V2 => source_iq_v2_frame_matches_source(
-            source_id,
-            &candidate.source_id,
-          ),
-          IqStreamProtocol::V1 => source_iq_frame_matches_source(
-            source_id,
-            candidate.is_mock_apt,
-          ),
+          IqStreamProtocol::V2 => {
+            source_iq_v2_frame_matches_source(source_id, &candidate.source_id)
+          }
+          IqStreamProtocol::V1 => {
+            source_iq_frame_matches_source(source_id, candidate.is_mock_apt)
+          }
         };
         if matches_source {
           latest = candidate;
@@ -794,7 +779,22 @@ pub(crate) async fn handle_source_iq_connection(
                     break;
                   }
                 } else if source_id == MOCK_TX_SOURCE_ID {
-                  shared.mark_paused_frame_requested(&source_id);
+                  // Mock Tx standby deliberately does not run through the
+                  // general SDR loop. A source-I/Q request must therefore
+                  // synthesize and return its preview here; merely arming a
+                  // paused-frame token leaves the monitor with no producer.
+                  let frame = build_mock_tx_standby_preview_frame(&shared);
+                  if send_encrypted_iq_frame(
+                    &mut ws_sender,
+                    &enc_key,
+                    &frame,
+                    iq_protocol,
+                  )
+                  .await
+                  .is_err()
+                  {
+                    break;
+                  }
                 }
               }
             }
@@ -1048,8 +1048,7 @@ pub fn handle_message(
         shared.set_source_pause_state(&source_id, paused);
         if source_id == active_source_id(shared) {
           shared.is_paused.store(paused, Ordering::SeqCst);
-          shared
-            .clear_paused_frame_request();
+          shared.clear_paused_frame_request();
         }
         broadcast_device_status(&shared, &broadcast_tx);
       }
@@ -1531,6 +1530,35 @@ pub fn handle_message(
           );
         }
       }
+
+      // Publish the backend's normalized TX result. The frontend treats this
+      // as authoritative state; it does not need the private calibration
+      // model or device-specific safety tables to render the result.
+      let effective_ifft_size = message
+        .tx_ifft_size
+        .unwrap_or_else(|| *crate::safety::TX_IFFT_SIZE.lock().unwrap());
+      let tx_safety = serde_json::json!({
+        "type": "tx_safety",
+        "source_id": active_source_id(shared),
+        "effective_power_dbm": tx_power,
+        "maximum_safe_power_dbm": max_tx_power,
+        "minimum_iq_power_floor_dbm": crate::safety::get_quantized_iq_power_floor_dbm(
+          8,
+          effective_ifft_size as u32,
+          30.0,
+        ),
+        "recommended_ifft_size": crate::safety::get_recommended_fft_size_for_iq_power_dbm(
+          tx_power,
+          8,
+          30.0,
+        ),
+        "effective_ifft_size": effective_ifft_size,
+        "vga_gain_db": sdr_settings.gain.hackrf_vga_gain,
+        "amp_enabled": sdr_settings.gain.hackrf_amp_enable,
+        "safety_clamped": safety_enabled,
+        "validation_errors": Vec::<String>::new(),
+      });
+      let _ = broadcast_tx.send(tx_safety.to_string());
     }
     "restart_device" => {
       info!("Client requested device restart");
@@ -1544,12 +1572,35 @@ pub fn handle_message(
           source_id = "mock-apt".to_string();
         }
         info!("Client requested source switch: {}", source_id);
+        let requested_sample_rate = message.sample_rate.and_then(|rate| {
+          let rounded_rate = rate.round() as u32;
+          if rate.is_finite() && (1_000_000..=20_000_000).contains(&rounded_rate) {
+            Some(rounded_rate)
+          } else {
+            warn!("Ignoring invalid source-switch sample_rate from client: {}", rate);
+            None
+          }
+        });
+        if let Some(sample_rate) = requested_sample_rate {
+          // The frontend's selected rate must be visible before the blocking
+          // swap command runs. The processor reads shared settings while it
+          // opens the target, so queue this command and publish the requested
+          // value before SetActiveSource.
+          let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
+            super::types::SdrProcessorSettings {
+              sample_rate: Some(sample_rate),
+              ..Default::default()
+            },
+          ));
+          shared.sdr_settings.lock().unwrap().sample_rate = sample_rate;
+        }
         // Fence the old stream before queueing the blocking swap command.
         // This closes the refresh/device-switch window in which the frame
         // loop could otherwise publish a Mock APT frame to a Mock Tx client.
         shared.request_source_switch(&source_id);
         match cmd_tx.send(super::types::SdrCommand::SetActiveSource {
           source_id: source_id.clone(),
+          sample_rate: requested_sample_rate,
         }) {
           Ok(()) => {
             info!("Queued source switch: {}", source_id);
@@ -1731,21 +1782,20 @@ pub fn handle_message(
 mod tests {
   use super::{
     build_mock_tx_standby_preview_frame, build_tx_preview_frame,
-    encode_encrypted_iq_frame,
-    drain_latest_source_iq_frame, handle_message, live_tune_is_out_of_bounds,
-    is_frame_after_paused_request,
-    resolve_live_center_frequency, should_send_source_iq_frame,
-    source_iq_frame_matches_source, source_iq_subscription_matches_active_source,
+    drain_latest_source_iq_frame, encode_encrypted_iq_frame, handle_message,
+    is_frame_after_paused_request, is_tx_preview_source,
+    live_tune_is_out_of_bounds, resolve_live_center_frequency,
+    should_send_source_iq_frame, source_iq_frame_matches_source,
+    source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, take_source_owned_paused_frame_request,
-    is_tx_preview_source,
     IqStreamProtocol,
   };
+  use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
   use crate::server::websocket_server::active_source_id;
-  use crate::sdr::processor::SdrProcessor;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
   use std::sync::mpsc;
@@ -1803,7 +1853,8 @@ mod tests {
     for pair in iq.chunks_exact(2) {
       let i = i16::from(pair[0]) - 128;
       let q = i16::from(pair[1]) - 128;
-      magnitude_sum += u64::from(i.unsigned_abs()) + u64::from(q.unsigned_abs());
+      magnitude_sum +=
+        u64::from(i.unsigned_abs()) + u64::from(q.unsigned_abs());
     }
     for window in iq.windows(2) {
       adjacent_delta_sum += u64::from(window[0].abs_diff(window[1]));
@@ -1984,19 +2035,54 @@ mod tests {
 
     let cmd = cmd_rx.recv().expect("expected SetActiveSource command");
     match cmd {
-      SdrCommand::SetActiveSource { source_id } => {
+      SdrCommand::SetActiveSource {
+        source_id,
+        sample_rate,
+      } => {
         assert_eq!(source_id, "rtl-sdr-1");
+        assert_eq!(sample_rate, None);
       }
       other => panic!("unexpected command: {:?}", other),
     }
-    assert_eq!(
-      shared.pending_source_switch().as_deref(),
-      Some("rtl-sdr-1")
-    );
+    assert_eq!(shared.pending_source_switch().as_deref(), Some("rtl-sdr-1"));
     assert!(
       broadcast_rx.try_recv().is_err(),
       "queue acknowledgement must not mark a warm source loading"
     );
+  }
+
+  #[test]
+  #[serial]
+  fn forwards_frontend_sample_rate_before_selecting_source() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"select_source",
+        "source_id":"hackrf-1",
+        "sample_rate":18250000
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    match cmd_rx.recv().expect("expected frontend rate command first") {
+      SdrCommand::ApplySettings(settings) => {
+        assert_eq!(settings.sample_rate, Some(18_250_000));
+      }
+      other => panic!("expected ApplySettings before source switch, got {:?}", other),
+    }
+    match cmd_rx.recv().expect("expected source switch command") {
+      SdrCommand::SetActiveSource {
+        source_id,
+        sample_rate,
+      } => {
+        assert_eq!(source_id, "hackrf-1");
+        assert_eq!(sample_rate, Some(18_250_000));
+      }
+      other => panic!("unexpected command: {:?}", other),
+    }
   }
 
   #[test]
@@ -2282,7 +2368,8 @@ mod tests {
   #[serial]
   fn device_swap_changes_payload_form_independent_of_source_identifier() {
     let shared = test_shared_state();
-    let mut mock_apt = SdrProcessor::new_mock_apt().expect("mock apt processor");
+    let mut mock_apt =
+      SdrProcessor::new_mock_apt().expect("mock apt processor");
     mock_apt
       .initialize()
       .expect("mock apt device should initialize");
@@ -2291,7 +2378,8 @@ mod tests {
       .expect("mock apt should produce a frame");
     let apt_form = payload_form(&mock_apt.frame.last_frame_raw_iq);
 
-    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(2_400_000, Ordering::Relaxed);
+    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
+      .store(2_400_000, Ordering::Relaxed);
     *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = 137_100_000.0;
     *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 137_100_000.0;
     *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = 2_400_000.0;
@@ -2299,7 +2387,10 @@ mod tests {
     let tx_frame = build_mock_tx_standby_preview_frame(&shared);
     let tx_form = payload_form(&tx_frame.iq_data);
 
-    assert_ne!(apt_form, tx_form, "source swap must change the I/Q payload form");
+    assert_ne!(
+      apt_form, tx_form,
+      "source swap must change the I/Q payload form"
+    );
   }
 
   #[test]

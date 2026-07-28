@@ -9,7 +9,7 @@ import {
 } from "@n-apt/hooks/useSdrSettings";
 import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
 import { AuthProvider } from "@n-apt/hooks/useAuthentication";
-import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
+import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 import spectrumSlice, {
@@ -49,20 +49,6 @@ const mockSdrSettings = {
 };
 let mockSendSettings: ReturnType<typeof testApi.fn>;
 let mockOnSettingsChange: ReturnType<typeof testApi.fn>;
-
-testApi.mock("@n-apt/hooks/useWebSocket", () => ({
-  useWebSocket: (url: any, key: any, enabled: any) => ({
-    isConnected: enabled,
-    deviceState: "connected",
-    sdrSettings: mockSdrSettings,
-    spectrumFrames: [],
-    dataRef: { current: null },
-    sendSettings: mockSendSettings,
-    sendGetAutoFftOptions: testApi.fn(),
-    sendPauseCommand: testApi.fn(),
-    sendFrequencyRange: testApi.fn(),
-  }),
-}));
 
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;

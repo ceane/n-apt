@@ -9,7 +9,10 @@ import {
   setTxHopChannels, setTxHopRateHz, setTxHopEnabled, setHackrfAmpEnabled,
   setFrequencyRange,
 } from "@n-apt/redux";
-import { TxSettingsSection } from "@n-apt/components/sidebar/TxSettingsSection";
+import {
+  getTxFrequencyRangeForBandwidth,
+  TxSettingsSection,
+} from "@n-apt/components/sidebar/TxSettingsSection";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 
@@ -92,7 +95,6 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
       <TxSettingsSection
         signal={tx.txSignal}
         bandwidthHz={tx.txSampleRateHz}
-        maxBandwidthHz={20_000_000}
         fftSize={tx.fftSize}
         ifftSize={tx.txIfftSize}
         ifftSizeOptions={tx.fftSizeOptions}
@@ -117,9 +119,14 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
             typeof tx.txSampleRateHz === "number" && tx.txSampleRateHz > 0
               ? tx.txSampleRateHz
               : 2_400_000;
-          const min = Math.max(0, value - bw / 2);
-          const max = value + bw / 2;
-          dispatch(setFrequencyRange({ min, max }));
+          dispatch(
+            setFrequencyRange(
+              getTxFrequencyRangeForBandwidth(value, bw) ?? {
+                min: 0,
+                max: bw,
+              },
+            ),
+          );
         }}
         onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
         onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}

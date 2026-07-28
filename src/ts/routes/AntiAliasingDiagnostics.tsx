@@ -12,6 +12,7 @@ import {
   setDiagnosticRunning,
   setDiagnosticStatus,
   useAppDispatch,
+  useAppSelector,
 } from "@n-apt/redux";
 
 const Container = styled.div`
@@ -330,6 +331,15 @@ export const AntiAliasingDiagnostics: React.FC = () => {
   const theme = useTheme() as AppStyledTheme;
   const { state } = useSpectrumStore();
   const reduxDispatch = useAppDispatch();
+  const diagnosticTrigger = useAppSelector(
+    (reduxState) => reduxState.spectrum.diagnosticTrigger,
+  );
+  const diagnosticStatus = useAppSelector(
+    (reduxState) => reduxState.spectrum.diagnosticStatus,
+  );
+  const diagnosticRunning = useAppSelector(
+    (reduxState) => reduxState.spectrum.isDiagnosticRunning,
+  );
   const [result, setResult] = useState<any>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [frontendStitchedFrame, setFrontendStitchedFrame] =
@@ -341,11 +351,11 @@ export const AntiAliasingDiagnostics: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrubberRef = useRef<HTMLDivElement>(null);
-  const lastTriggerRef = useRef(state.diagnosticTrigger);
+  const lastTriggerRef = useRef(0);
 
   const { sessionToken } = useAuthentication();
   const isRequestingRef = useRef(false);
-  const isCaptureBusy = state.isDiagnosticRunning;
+  const isCaptureBusy = diagnosticRunning;
 
   const runDiagnostic = async () => {
     if (isRequestingRef.current) return;
@@ -446,11 +456,11 @@ export const AntiAliasingDiagnostics: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state.diagnosticTrigger > lastTriggerRef.current) {
-      lastTriggerRef.current = state.diagnosticTrigger;
+    if (diagnosticTrigger > lastTriggerRef.current) {
+      lastTriggerRef.current = diagnosticTrigger;
       runDiagnostic();
     }
-  }, [state.diagnosticTrigger]);
+  }, [diagnosticTrigger]);
 
   // Handle global wheel event for frame scrubbing
   useEffect(() => {
@@ -550,6 +560,12 @@ export const AntiAliasingDiagnostics: React.FC = () => {
         </p>
       </header>
 
+      {!isCaptureBusy && diagnosticStatus !== "Ready" && (
+        <BusyText role="status" style={{ marginBottom: theme.spacing.md }}>
+          {diagnosticStatus}
+        </BusyText>
+      )}
+
       {result && (
         <MetadataRow style={{ justifyContent: "center", padding: "24px" }}>
           <MetadataItem style={{ alignItems: "center" }}>
@@ -569,7 +585,7 @@ export const AntiAliasingDiagnostics: React.FC = () => {
                 Collecting 10 frames from the server and preparing the response.
                 The previous capture stays visible until the new one arrives.
               </BusyText>
-              <BusyText>{state.diagnosticStatus}</BusyText>
+              <BusyText>{diagnosticStatus}</BusyText>
             </BusyPanel>
           </BusyOverlay>
         )}

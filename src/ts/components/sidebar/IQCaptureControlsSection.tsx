@@ -7,7 +7,7 @@ import type {
   CaptureStatus,
   CaptureFileType,
   DeviceState,
-} from "@n-apt/hooks/useWebSocket";
+} from "@n-apt/consts/schemas/websocket";
 import {
   addNotification,
   updateNotification,

@@ -223,10 +223,10 @@ export const resolveWebGpuStreamTransition = (
     next.selectedSourceId != null &&
     next.sourceId === next.selectedSourceId;
   return {
-    // Selection owns presentation. Clear immediately even when Mock Tx is an
-    // overlay and the backend deliberately keeps the previous RX source active.
-    // When that transport later commits to the already-selected source, avoid a
-    // second clear that would discard the first valid replacement frame.
+    // Source selection is an ownership boundary. Clear the old frame and GPU
+    // surfaces immediately so markers/status for the target source can never
+    // be drawn over another device's spectrum. The later active-source commit
+    // does not reset again because the selection identity is unchanged.
     clearLiveFrame:
       selectedSourceChanged ||
       (activeSourceChanged && !activeSourceCommittedToSelection) ||

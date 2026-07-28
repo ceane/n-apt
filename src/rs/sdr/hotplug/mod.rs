@@ -24,6 +24,22 @@ use crate::server::websocket_server::{
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
 
+fn sync_shared_sample_rate(shared_state: &SharedState, processor: &SdrProcessor) {
+  let sample_rate = processor.get_sample_rate();
+  if sample_rate == 0 {
+    return;
+  }
+  let device_kind = shared_state.device_profile.lock().unwrap().kind.clone();
+  let mut settings = shared_state.sdr_settings.lock().unwrap();
+  settings.sample_rate = sample_rate;
+  settings.fft = crate::server::utils::resolve_fft_config(
+    &device_kind,
+    sample_rate,
+    Some(settings.fft.default_size),
+    Some(&settings),
+  );
+}
+
 #[derive(Debug)]
 pub struct HotplugState {
   pub last_poll: Instant,
@@ -169,6 +185,22 @@ pub fn supported_usb_device_count() -> Result<u32> {
 
 fn supported_usb_device_present() -> bool {
   matches!(supported_usb_device_count(), Ok(count) if count > 0)
+}
+
+/// Multiple supported receivers may be connected at once. Recovery must be
+/// scoped to the device owned by the processor, not to the global USB count.
+fn active_device_present(device_type: &str) -> bool {
+  let normalized = device_type.to_ascii_lowercase();
+  scan_supported_usb_device_snapshots()
+    .map(|devices| {
+      devices.iter().any(|device| {
+        let detected = device.device_type.to_ascii_lowercase();
+        detected == normalized
+          || (normalized.contains("rtl") && detected.contains("rtl"))
+          || (normalized.contains("hackrf") && detected.contains("hackrf"))
+      })
+    })
+    .unwrap_or(false)
 }
 
 #[cfg(all(test, has_hackrf))]
@@ -430,14 +462,26 @@ async fn attach_real_device(
   broadcast_device_status(shared_state, broadcast_tx);
 
   let mut last_err = None;
-  let mut new_device = None;
+  let mut attached = false;
   for attempt in 1..=5 {
     match SdrDeviceFactory::create_device() {
       Ok(device)
         if !device.device_type().to_ascii_lowercase().contains("mock") =>
       {
-        new_device = Some(device);
-        break;
+        match processor.swap_device(device) {
+          Ok(()) => {
+            attached = true;
+            break;
+          }
+          Err(e) => {
+            last_err = Some(e);
+            warn!(
+              "Supported device initialize attempt {} of 5 failed during attach; retrying",
+              attempt
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+          }
+        }
       }
       Ok(_) => {
         last_err =
@@ -459,18 +503,14 @@ async fn attach_real_device(
     }
   }
 
-  let new_device = match new_device {
-    Some(device) => device,
-    None => {
+  if !attached {
       let err =
         last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
       shared_state.set_device_state("disconnected", None);
       broadcast_device_status(shared_state, broadcast_tx);
       return Err(err);
-    }
-  };
+  }
 
-  processor.swap_device(new_device)?;
   shared_state.update_device_status(
     true,
     processor.get_device_info(),
@@ -505,6 +545,7 @@ async fn disconnect_to_mock(
   broadcast_device_status(shared_state, broadcast_tx);
   let mock_device = SdrDeviceFactory::create_mock_device();
   processor.swap_device(mock_device)?;
+  sync_shared_sample_rate(shared_state, processor);
   shared_state.update_device_status(
     false,
     processor.get_device_info(),
@@ -584,8 +625,8 @@ pub async fn handle_real_hardware_health(
       && !processor.is_rx_active();
 
   if streak < DISCONNECT_FAILURE_THRESHOLD && !rtl_reader_inactive {
-    let supported_device_present = supported_usb_device_present();
-    if !supported_device_present {
+    let active_device_is_present = active_device_present(processor.device_type());
+    if !active_device_is_present {
       warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
       let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
@@ -603,6 +644,7 @@ pub async fn handle_real_hardware_health(
           e
         );
       } else {
+        sync_shared_sample_rate(shared_state, processor);
         shared_state.update_device_status(
           false,
           processor.get_device_info(),
@@ -650,8 +692,8 @@ pub async fn handle_real_hardware_health(
       tokio::time::sleep(state.exhausted_recovery_cooldown).await;
     }
   } else {
-    let supported_device_present = supported_usb_device_present();
-    if !supported_device_present {
+    let active_device_is_present = active_device_present(processor.device_type());
+    if !active_device_is_present {
       warn!("Supported device confirmed unplugged. Falling back to mock.");
       let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
@@ -669,6 +711,7 @@ pub async fn handle_real_hardware_health(
           e
         );
       } else {
+        sync_shared_sample_rate(shared_state, processor);
         shared_state.update_device_status(
           false,
           processor.get_device_info(),
@@ -686,7 +729,7 @@ pub async fn handle_real_hardware_health(
       }
     } else if should_hold_recovery_for_usb_present_device(
       processor.device_type(),
-      supported_device_present,
+      active_device_is_present,
     ) {
       warn!(
         "Supported device still on USB but unhealthy. Attempting full restart..."

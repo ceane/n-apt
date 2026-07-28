@@ -49,10 +49,31 @@ describe("shouldRequestPausedPreview", () => {
         id: "mock-apt",
         kind: "mock_apt",
         capability: "rx",
-        supports_raw_iq_stream: true,
+        iq_format: {
+          element_type: "u8",
+          layout: "interleaved_iq",
+          typed_array: "Uint8Array",
+        },
         status: "connected",
       } as any),
     ).toBe(true);
+  });
+
+  it("does not request a Tx-settings preview when a half-duplex source is paused in Rx", () => {
+    expect(
+      shouldRequestPausedPreview({
+        id: "hackrf-one",
+        kind: "hackrf",
+        capability: "tx_rx",
+        duplex_mode: "half_duplex",
+        iq_format: {
+          element_type: "u8",
+          layout: "interleaved_iq",
+          typed_array: "Uint8Array",
+        },
+        status: "streaming",
+      } as any),
+    ).toBe(false);
   });
 });
 

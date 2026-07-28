@@ -102,6 +102,35 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe("mock-tx");
   });
 
+  it("preserves the selected source while inventory is transiently empty", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "hackrf-one",
+        activeSourceId: "",
+        sources: [],
+      }),
+    ).toBe("hackrf-one");
+  });
+
+  it("auto-selects HackRF after a stale Mock selection disappears from inventory", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-apt",
+        sources: [
+          {
+            id: "hackrf-one",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            status: "connected",
+          },
+        ] as any,
+      }),
+    ).toBe("hackrf-one");
+  });
+
   it("preserves an explicit Mock Tx selection before the switch request is dispatched", () => {
     expect(
       resolveSelectedSourceIdForInventory({
@@ -250,6 +279,24 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         name: "Mock Tx SDR",
         capability: "tx_rx",
         status: "connected",
+      } as any),
+    ).toBe(false);
+    expect(
+      shouldPauseSourceOnSwitch({
+        id: "hackrf-one",
+        name: "HackRF One",
+        capability: "tx_rx",
+        duplex_mode: "Half-Duplex",
+        status: "connected",
+      } as any),
+    ).toBe(true);
+    expect(
+      shouldPauseSourceOnSwitch({
+        id: "hackrf-one",
+        name: "HackRF One",
+        capability: "tx_rx",
+        duplex_mode: "Half-Duplex",
+        status: "transmitting",
       } as any),
     ).toBe(false);
   });

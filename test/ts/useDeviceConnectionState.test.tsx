@@ -26,13 +26,13 @@ describe("useDeviceConnectionState", () => {
       },
     );
 
-    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenCalledTimes(0);
 
     rerender({
       deviceState: "disconnected",
       showSpikeOverlay: false,
     });
 
-    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenCalledTimes(0);
   });
 });

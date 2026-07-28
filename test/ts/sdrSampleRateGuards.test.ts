@@ -80,7 +80,7 @@ describe("resolveDisplaySampleRateHz", () => {
 });
 
 describe("sdrSampleRateGuards", () => {
-  it("blocks whole-channel snapshots for RTL-SDR even when stale UI state asks for them", () => {
+  it("allows whole-channel snapshots as a source-independent acquisition intent", () => {
     expect(
       canUseWholeChannelSnapshot({
         requestedWhole: true,
@@ -88,10 +88,10 @@ describe("sdrSampleRateGuards", () => {
         backend: "rtl-sdr",
         deviceName: "RTL-SDR Blog V4",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("downgrades RTL-SDR whole_sample capture requests wider than the hardware sample rate", () => {
+  it("keeps onscreen Whole Channel intent when the backend may split oversized captures", () => {
     expect(
       resolveCaptureAcquisitionMode({
         requestedMode: "whole_sample",
@@ -101,7 +101,7 @@ describe("sdrSampleRateGuards", () => {
         deviceKind: "rtl_sdr",
         backend: "rtl-sdr",
       }),
-    ).toBe("stepwise");
+    ).toBe("whole_sample");
   });
 
   it("allows exact current-window whole_sample captures at the RTL-SDR sample rate", () => {
@@ -187,16 +187,13 @@ describe("sdrSampleRateGuards", () => {
     });
   });
 
-  it("falls back mock TX render windows to the RF carrier and at least 3.2MHz", () => {
+  it("keeps a render window within the generic sample-rate capability", () => {
     expect(
       resolveRenderableFrequencyRange({
         requestedRange: { min: 0, max: 1_000_000 },
         deviceKind: "mock_tx",
       }),
-    ).toEqual({
-      min: 135_500_000,
-      max: 138_700_000,
-    });
+    ).toEqual({ min: 0, max: 1_000_000 });
   });
 
   it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {

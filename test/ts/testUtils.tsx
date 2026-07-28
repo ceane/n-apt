@@ -21,7 +21,7 @@ const defaultTheme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-export function createTestStore() {
+export function createTestStore(preloadedState?: any) {
   return configureStore({
     reducer: {
       auth: authSlice,
@@ -33,15 +33,22 @@ export function createTestStore() {
       snapshot: snapshotSlice,
       demod: demodSlice,
     },
-    middleware: (getDefaultMiddleware) =>
+    middleware: (getDefaultMiddleware: any) =>
       getDefaultMiddleware({
         serializableCheck: false,
       }),
-  });
+    preloadedState,
+  } as any);
 }
 
-export function TestWrapper({ children }: { children: React.ReactNode }) {
-  const store = createTestStore();
+export function TestWrapper({
+  children,
+  preloadedState,
+}: {
+  children: React.ReactNode;
+  preloadedState?: any;
+}) {
+  const store = createTestStore(preloadedState);
 
   return (
     <Provider store={store}>

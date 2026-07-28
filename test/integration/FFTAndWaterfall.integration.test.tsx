@@ -126,7 +126,7 @@ describe("FFTAndWaterfall Integration", () => {
 
   test("processes mock binary data and triggers rendering", async () => {
     const mockNaptData = getMockNaptBuffer();
-    // Simulate the data structure useWebSocket would produce after decryption
+    // Simulate the data structure the transport would produce after decryption
     mockDataRef.current = {
       type: "spectrum",
       center_frequency_hz: 101000000,

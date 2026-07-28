@@ -1056,7 +1056,16 @@ mod tests {
       SdrDevice::cleanup(&mut *device).is_err(),
       "cleanup must not report the USB handle reusable while the reader is pending"
     );
-    thread::sleep(Duration::from_millis(30));
+    let deadline = std::time::Instant::now() + Duration::from_millis(500);
+    while device
+      .reader_stop_pending
+      .as_ref()
+      .map(|done| !done.load(Ordering::Acquire))
+      .unwrap_or(false)
+      && std::time::Instant::now() < deadline
+    {
+      thread::yield_now();
+    }
     assert!(SdrDevice::cleanup(&mut *device).is_ok());
   }
 }

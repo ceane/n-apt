@@ -1,6 +1,7 @@
 import * as presentation from "../../src/ts/utils/liveSourcePresentation";
 
 const isTxStandbyPreviewSource = presentation.isTxStandbyPreviewSource;
+const filterLiveFramesForSource = presentation.filterLiveFramesForSource;
 
 const resolveFrameReadiness = (
   presentation as typeof presentation & {
@@ -121,6 +122,26 @@ describe("resolveFrameReadiness", () => {
         handoffStartedFrameCounter: 10,
       }),
     ).toBe(false);
+  });
+});
+
+describe("live frame source handoff", () => {
+  it("drops delayed frames from the previous device in a mixed batch", () => {
+    const hackrfFrame = { source_id: "hackrf-one", sequence: 41 };
+    const rtlFrame = { source_id: "rtl-sdr-v4", sequence: 1 };
+
+    expect(
+      filterLiveFramesForSource?.([hackrfFrame, rtlFrame], "rtl-sdr-v4"),
+    ).toEqual([rtlFrame]);
+  });
+
+  it("does not treat an untagged frame as belonging to the new device", () => {
+    expect(
+      filterLiveFramesForSource?.(
+        [{ sequence: 41 }, { source_id: "rtl-sdr-v4", sequence: 1 }],
+        "rtl-sdr-v4",
+      ),
+    ).toEqual([{ source_id: "rtl-sdr-v4", sequence: 1 }]);
   });
 });
 

@@ -14,7 +14,7 @@ pub enum SourceSelection {
   #[cfg(has_hackrf)]
   HackRf(i32),
 }
-use super::mock_tx::MOCK_TX_DISPLAY_NAME;
+use super::complex_baseband::MOCK_TX_DISPLAY_NAME;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::device::HackRfDevice;
 #[cfg(has_hackrf)]
@@ -352,6 +352,56 @@ fn build_source_payload(
     .devices
     .get(device_config_key(&device_profile))
     .and_then(|device_cfg| device_cfg.duplex_mode.as_deref());
+  let source_capability = source_capability_for_kind_and_duplex(kind, duplex_mode);
+  let can_receive = matches!(source_capability, "rx" | "tx_rx" | "mock");
+  let can_transmit = matches!(source_capability, "tx" | "tx_rx");
+  let supported_controls = [
+    ("gain", can_receive),
+    ("ppm", can_receive),
+    ("sample_rate", can_receive || can_transmit),
+    ("frequency", can_receive || can_transmit),
+    ("tx_power_dbm", can_transmit),
+  ]
+  .into_iter()
+  .filter_map(|(control, supported)| supported.then_some(control))
+  .collect::<Vec<_>>();
+  let gain_limits = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.gain_limits.clone());
+  let tx_power_dbm = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.tx_power_mapping.as_ref())
+    .and_then(|mapping| {
+      let points = mapping.amp_off.iter().chain(mapping.amp_on.iter());
+      let mut min = f64::INFINITY;
+      let mut max = f64::NEG_INFINITY;
+      for point in points {
+        min = min.min(point.dbm);
+        max = max.max(point.dbm);
+      }
+      (min.is_finite() && max.is_finite()).then_some(serde_json::json!({
+        "min": min,
+        "max": max,
+      }))
+    });
+  let frequency_range = shared
+    .available_spectrum
+    .map(|(min, max)| serde_json::json!({ "min": min, "max": max }));
+  let mut fft_sizes = sdr_settings
+    .fft
+    .size_to_frame_rate
+    .keys()
+    .copied()
+    .collect::<Vec<_>>();
+  if !fft_sizes.contains(&sdr_settings.fft.default_size) {
+    fft_sizes.push(sdr_settings.fft.default_size);
+  }
+  if !fft_sizes.contains(&sdr_settings.fft.max_size) {
+    fft_sizes.push(sdr_settings.fft.max_size);
+  }
+  fft_sizes.sort_unstable();
 
   serde_json::json!({
     "id": source_id,
@@ -366,6 +416,30 @@ fn build_source_payload(
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
     "iq_format": device_profile.iq_format,
+    "capabilities": {
+      "can_receive": can_receive,
+      "can_transmit": can_transmit,
+      "supports_tx_monitor": kind == "mock_tx" || kind == "mock-tx",
+      "duplex_mode": duplex_mode,
+      "supports_approx_dbm": device_profile.supports_approx_dbm,
+      "iq_format": device_profile.iq_format,
+      "supported_controls": supported_controls,
+      "sample_rates": sample_rate_options,
+      "max_sample_rate": max_sample_rate,
+      "max_instantaneous_sample_rate": max_sample_rate,
+      "gain_limits": gain_limits,
+      "tx_power_dbm": tx_power_dbm,
+      "frequency_range": frequency_range,
+      "fft": {
+        "sizes": fft_sizes,
+        "default_size": sdr_settings.fft.default_size,
+        "default_frame_rate": sdr_settings.fft.default_frame_rate,
+        "max_size": sdr_settings.fft.max_size,
+        "max_frame_rate": sdr_settings.fft.max_frame_rate,
+        "size_to_frame_rate": sdr_settings.fft.size_to_frame_rate,
+      },
+      "display": sdr_settings.display,
+    },
     "iq_stream_protocols": [1, 2],
     "stream_epoch": shared.current_stream_epoch(),
     "serial_number": serial_number,
@@ -378,8 +452,6 @@ fn build_source_payload(
       "settings": {
         "fft": sdr_settings.fft,
         "display": sdr_settings.display,
-        "devices": sdr_settings.devices,
-        "fft_sizes": sdr_settings.fft_sizes,
         "fft_size": sdr_settings.fft.default_size,
         "fft_window": "Rectangular",
         "frame_rate": sdr_settings.fft.default_frame_rate,
@@ -545,7 +617,7 @@ fn build_mock_tx_source_payload(
   }
   let paused = shared.is_source_paused("mock-tx");
 
-  let mut payload = build_source_payload(
+  let payload = build_source_payload(
     shared,
     "mock-tx".to_string(),
     MOCK_TX_DISPLAY_NAME.to_string(),
@@ -569,14 +641,6 @@ fn build_mock_tx_source_payload(
     paused,
     active_source_id == "mock-tx",
   );
-
-  if let Some(obj) = payload.as_object_mut() {
-    obj.insert(
-      "mock_tx".to_string(),
-      serde_json::to_value(&mock_tx_settings)
-        .unwrap_or(serde_json::Value::Null),
-    );
-  }
 
   Some(payload)
 }
@@ -809,6 +873,18 @@ mod stable_source_order_tests {
     assert!(active["stream_epoch"]
       .as_u64()
       .is_some_and(|epoch| epoch > 0));
+    assert!(active["capabilities"]["can_receive"].is_boolean());
+    assert!(active["capabilities"]["can_transmit"].is_boolean());
+    assert!(active["capabilities"]["supported_controls"].is_array());
+    assert!(active["capabilities"]["fft"]["sizes"].is_array());
+    assert!(active["capabilities"]["display"].is_object());
+    assert!(active["sdr"]["settings"].get("devices").is_none());
+    assert!(active["sdr"]["settings"].get("fft_sizes").is_none());
+    assert!(active.get("mock_tx").is_none());
+    assert_eq!(
+      active["capabilities"]["max_instantaneous_sample_rate"],
+      active["sdr"]["max_sample_rate"]
+    );
   }
 
   #[test]

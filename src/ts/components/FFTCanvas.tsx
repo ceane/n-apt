@@ -21,6 +21,7 @@ import {
 import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
 import { usePausedSpectrumRecovery } from "@n-apt/hooks/usePausedSpectrumRecovery";
+import { useFftCanvasInvalidation } from "@n-apt/hooks/useFftCanvasInvalidation";
 import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
 import { RESAMPLE_WGSL } from "@n-apt/shaders";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
@@ -64,7 +65,9 @@ import {
   accumulateFullChannelWaveform,
   FULL_CHANNEL_BINS,
   prepareSpectrumRenderData,
+  resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
+  shouldPresentSpectrumFrameForRange,
   updateTemporalWaveform,
 } from "@n-apt/components/fft/frameProcessing";
 export { invertSpectrumVertically } from "@n-apt/components/fft/frameProcessing";
@@ -1147,6 +1150,8 @@ export interface FFTCanvasProps {
     signalLabel?: string;
     powerDbm?: number;
   };
+  /** Explicitly suppresses the canvas-owned Tx slider fallback in Rx mode. */
+  txSliderAllowed?: boolean;
   /** Optional explicit labels for the bottom FFT status band. */
   canvasStatusRow?: LiveCanvasStatusRow | null;
   /** Optional action content rendered beside the FFT section title */
@@ -1390,6 +1395,7 @@ const FFTCanvas = memo(
       showSpikeOverlay = false,
       headerActionContent,
       txSlider,
+      txSliderAllowed = true,
       canvasStatusRow,
       placeholderSourceLabel,
       placeholderPaneLabel = "FFT",
@@ -1567,6 +1573,7 @@ const FFTCanvas = memo(
       };
     }, []);
     const effectiveTxSlider = useMemo(() => {
+      if (!txSliderAllowed) return null;
       if (txSlider?.visible) return txSlider;
       if (!reduxShowTxSlider || !canTransmit) return null;
       if (
@@ -1616,6 +1623,7 @@ const FFTCanvas = memo(
       isTransmittingGlobal,
       scheduleTxSliderDispatch,
       txSlider,
+      txSliderAllowed,
     ]);
 
     const autoZoomStabilityRef = useRef(autoZoomStability);
@@ -3225,10 +3233,13 @@ const FFTCanvas = memo(
             // GPU processing path that races the visible renderer, causing
             // flashing and color shifts during dBm/dB-range transitions.
 
-            const temporalWindow = getTemporalResolutionWindow(
-              displayTemporalResolution,
-              fftFrameRate,
-            );
+            const temporalWindow = resolveFrameTemporalWindow({
+              configuredWindow: getTemporalResolutionWindow(
+                displayTemporalResolution,
+                fftFrameRate,
+              ),
+              isRequestedNextFrame: isStandby || isPaused,
+            });
             const temporalUpdate = updateTemporalWaveform(waveform, temporalWindow, {
               framePool: temporalFramePoolRef.current,
               activeFrames: activeTemporalFramesRef.current,
@@ -3288,10 +3299,13 @@ const FFTCanvas = memo(
             getLiveFrameSignature(currentFrame);
           lastRenderedPowerScaleRef.current = powerScale;
 
-          const temporalWindow = getTemporalResolutionWindow(
-            displayTemporalResolution,
-            fftFrameRate,
-          );
+          const temporalWindow = resolveFrameTemporalWindow({
+            configuredWindow: getTemporalResolutionWindow(
+              displayTemporalResolution,
+              fftFrameRate,
+            ),
+            isRequestedNextFrame: isStandby || isPaused,
+          });
           const temporalUpdate = updateTemporalWaveform(
             processedWaveform,
             temporalWindow,
@@ -3388,7 +3402,14 @@ const FFTCanvas = memo(
         if (
           currentWaveform &&
           currentWaveform.length > 0 &&
-          frequencyRangeRef.current
+          frequencyRangeRef.current &&
+          (!hasPresentedSpectrumFrameRef.current ||
+            shouldPresentSpectrumFrameForRange({
+              frameCenterHz: currentFrame?.center_frequency_hz,
+              frameSampleRateHz: currentFrame?.sample_rate,
+              requestedRange: frequencyRangeRef.current,
+              requiresExactRange: isStandby || isPaused,
+            }))
         ) {
           const preparedSpectrum = prepareSpectrumRenderData({
             waveform: currentWaveform,
@@ -3754,19 +3775,6 @@ const FFTCanvas = memo(
                 );
               }
 
-              if (isStandby && !hasRenderableFrame && !hasRenderedSpectrumFrame) {
-                // Standby is intentionally not a spectrum view when no frame
-                // is available. If a standby preview frame has been rendered,
-                // present the spectrum line without drawing the guide line over it.
-                ctx.save();
-                ctx.strokeStyle = "rgba(245, 158, 11, 0.9)";
-                ctx.lineWidth = nodePreview ? 1 : 2;
-                ctx.beginPath();
-                ctx.moveTo(0, logicalH * 0.52);
-                ctx.lineTo(logicalW, logicalH * 0.52);
-                ctx.stroke();
-                ctx.restore();
-              }
             }
           }
 
@@ -4196,115 +4204,39 @@ const FFTCanvas = memo(
       forceRenderRef,
     });
 
-    // Effect: Cleanup placeholder. Most cleanup is handled by useFFTAnimation and other hooks.
-    // Intentionally minimal - actual resources are managed by child hooks and their own cleanup.
-    useEffect(() => {
-      return () => {};
-    }, []);
-
-    // Effect: Temporal resolution changes alter accumulation cadence and need the
-    // temporal/waterfall restore path. FFT window changes are handled separately
-    // below so they only invalidate spectrum processing, not waterfall state.
-    useEffect(() => {
-      if (displayTemporalResolution === previousTemporalResolutionRef.current) {
-        return;
-      }
-
-      previousTemporalResolutionRef.current = displayTemporalResolution;
-
-      const hasPendingWaterfallRestore = !!pendingWaterfallRestoreRef.current;
-      invalidateSpectrumProcessingCaches();
-      if (!isPaused || !hasPendingWaterfallRestore) {
-        pausedWaterfallRowRef.current = null;
-        restoredWaterfallRef.current = false;
-      }
-
-      const currentWaveform = waveformFloatRef.current;
-      if (currentWaveform && currentWaveform.length > 0) {
-        renderWaveformRef.current = new Float32Array(currentWaveform);
-      } else if (
-        isPaused &&
-        (dataRef.current?.iq_data ||
-          (dataRef.current as any)?.waveform ||
-          (dataRef.current as any)?.data)
-      ) {
-        // Trigger a re-process of paused I/Q data
-        lastProcessedDataRef.current = null;
-        lastProcessedFrameSignatureRef.current = null;
-      }
-
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [
+    useFftCanvasInvalidation({
       displayTemporalResolution,
-      forceRender,
+      previousTemporalResolutionRef,
+      pendingWaterfallRestoreRef,
+      pausedWaterfallRowRef,
+      restoredWaterfallRef,
+      waveformFloatRef,
+      renderWaveformRef,
+      dataRef,
+      lastProcessedDataRef,
+      lastProcessedFrameSignatureRef,
+      fftWindow,
+      previousFftWindowRef,
       invalidateSpectrumProcessingCaches,
       isPaused,
-      dataRef,
-    ]);
-
-    // Effect: FFT window changes must reprocess the current frame immediately.
-    // Do not clear waterfall rows/textures here; a new processed row will flow
-    // through the normal render path without visually resetting the history.
-    useEffect(() => {
-      const currentFftWindow = fftWindow ?? "Rectangular";
-      if (previousFftWindowRef.current === currentFftWindow) {
-        return;
-      }
-
-      invalidateSpectrumProcessingCaches();
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [fftWindow, forceRender, invalidateSpectrumProcessingCaches]);
-
-    // Effect: Trigger render when awaitingDeviceData changes (shows/hides loading placeholder)
-    useEffect(() => {
-      forceRender();
-    }, [awaitingDeviceData, forceRender]);
-
-    // Effect: Toggle spike detection overlay. The spike hook owns persistence.
-    useEffect(() => {
-      overlayDirtyRef.current.spikes = true;
-      if (!showSpikeOverlay) {
-        stableSpikeFloorDbmRef.current = null;
-        stableSpikeClassifierRef.current = null;
-        stableSpikeDecisionRef.current = false;
-      }
-      forceRender();
-    }, [showSpikeOverlay, forceRender, overlayDirtyRef]);
-
-    // Selection updates can happen without new FFT data, so force the overlay
-    // to repaint immediately when the live span range changes.
-    useEffect(() => {
-      overlayDirtyRef.current.markers = true;
-      forceRender();
-    }, [selectionRange, forceRender, overlayDirtyRef]);
-
-    // A warm source switch can retain the previous spectrum frame by design,
-    // but its device limits must never carry across with it. Destroy only the
-    // marker texture and repaint; the waveform remains visible until the new
-    // source produces its first I/Q frame.
-    useEffect(() => {
-      markersOverlayRendererRef.current?.destroy();
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      clearOverlayCanvas(spectrumOverlayCanvasNode);
-      forceRender();
-    }, [
-      clearOverlayCanvas,
+      forceRender,
+      awaitingDeviceData,
+      showSpikeOverlay,
+      stableSpikeFloorDbmRef,
+      stableSpikeClassifierRef,
+      stableSpikeDecisionRef,
+      selectionRange,
+      overlayDirtyRef,
       deviceBackend,
       deviceName,
-      deviceProfile?.is_rtl_sdr,
-      deviceProfile?.kind,
-      forceRender,
+      deviceProfileKind: deviceProfile?.kind,
+      deviceIsRtlSdr: deviceProfile?.is_rtl_sdr,
       hardwareSampleRateHz,
       limitMarkers,
       markersOverlayRendererRef,
-      overlayDirtyRef,
-      spectrumOverlayCanvasNode,
-    ]);
+      clearOverlayCanvas,
+      spectrumOverlayCanvas: spectrumOverlayCanvasNode,
+    });
 
     const { ensurePausedFrame } = usePauseLogic({
       isPaused,
@@ -4882,16 +4814,6 @@ const FFTCanvas = memo(
         forceRender();
       }
     }, [expectedSourceId, forceRender]);
-
-    // Effect: When FFT Window or Temporal Resolution changes, re-process the frame
-    // to apply the new windowing function or averaging window.
-    useEffect(() => {
-      lastProcessedDataRef.current = null;
-      lastProcessedFrameSignatureRef.current = null;
-      if (isPaused) {
-        forceRender();
-      }
-    }, [fftWindow, displayTemporalResolution, isPaused, forceRender]);
 
     // Effect: When FFT size changes, drop the cached processed frame so the
     // next render recomputes at the newly selected resolution.

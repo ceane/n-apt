@@ -47,7 +47,7 @@ interface CanvasPlaceholderProps {
   state: CanvasPlaceholderState;
 }
 
-const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
+const PlaceholderOverlay = styled.div<{ $idle?: boolean; $topBar?: boolean }>`
   position: absolute;
   inset: 0;
   z-index: 1000;
@@ -56,8 +56,10 @@ const PlaceholderOverlay = styled.div<{ $idle?: boolean }>`
   justify-content: center;
   padding: 16px;
   pointer-events: none;
-  background: ${({ $idle }) =>
-    $idle
+  background: ${({ $idle, $topBar }) =>
+    $topBar
+      ? "transparent"
+      : $idle
       ? "linear-gradient(180deg, rgba(12, 15, 20, 0.36), rgba(5, 7, 10, 0.54))"
       : "radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 55%), linear-gradient(180deg, rgba(8, 11, 18, 0.86), rgba(3, 5, 10, 0.96))"};
 `;
@@ -175,6 +177,7 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
     return (
       <PlaceholderOverlay
         $idle
+        $topBar={isTopBar}
         role="status"
         aria-live="polite"
         style={

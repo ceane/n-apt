@@ -1,4 +1,4 @@
-import type { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 
 /**
  * Calculates the center frequency from a frequency range

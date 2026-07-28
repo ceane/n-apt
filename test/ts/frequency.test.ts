@@ -5,6 +5,8 @@ import {
   getBandwidthStartHz,
   buildCenteredFrequencyRange,
   getCenteredFrequencyHz,
+  resolveCenteredFrequencyHz,
+  resolveMockTxMonitorCenterHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
   formatFrequency,
@@ -15,6 +17,16 @@ import {
 } from "@n-apt/utils/frequency";
 
 describe("Frequency Utilities", () => {
+  test("prefers the VFO center when the visible range is asymmetric", () => {
+    expect(resolveCenteredFrequencyHz(1_600_000, 2_022_000)).toBe(1_600_000);
+    expect(resolveCenteredFrequencyHz(Number.NaN, 1_600_000)).toBe(1_600_000);
+  });
+
+  test("keeps the Mock Tx view centered on the VFO while tuning", () => {
+    expect(resolveMockTxMonitorCenterHz(2_022_000, 1_600_000)).toBe(2_022_000);
+    expect(resolveMockTxMonitorCenterHz(Number.NaN, 1_600_000)).toBe(1_600_000);
+  });
+
   describe("formatFrequency", () => {
     test("should format frequencies in kHz", () => {
       expect(formatFrequency(500000)).toBe("500kHz");

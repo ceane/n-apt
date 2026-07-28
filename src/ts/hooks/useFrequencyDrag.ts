@@ -27,6 +27,12 @@ export type CanvasTxSliderState = {
   powerDbm?: number;
   onCenterFrequencyChange?: (valueHz: number, isDragging?: boolean) => void;
   onSampleRateChange?: (valueHz: number) => void;
+  onGeometryChange?: (
+    centerFrequencyHz: number,
+    sampleRateHz: number,
+    isDragging?: boolean,
+  ) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   onOptionsRequest?: () => void;
 };
 
@@ -49,7 +55,7 @@ export interface FrequencyDragOptions {
   activeSignalArea: string;
   signalAreaBounds?: Record<string, { min: number; max: number }>;
   hardwareSpectrumBounds?: FrequencyRange | null;
-  onFrequencyRangeChange?: (range: FrequencyRange) => void;
+  onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   /** Currently active demodulation selection range */
   selectionRange?: FrequencyRange;
   /** Callback for selection range changes (dragging the box) */
@@ -142,6 +148,50 @@ export function useSpectrumInteraction({
   const isTxSliderDraggingRef = useRef(false);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const txSliderBodyDragOffsetHzRef = useRef(0);
+  const pendingTxGeometryRef = useRef<{
+    centerFrequencyHz: number;
+    sampleRateHz: number;
+  } | null>(null);
+  const txGeometryAnimationFrameRef = useRef<number | null>(null);
+  const publishPendingTxGeometry = useCallback(
+    (isDragging: boolean) => {
+      if (txGeometryAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(txGeometryAnimationFrameRef.current);
+        txGeometryAnimationFrameRef.current = null;
+      }
+      const pending = pendingTxGeometryRef.current;
+      pendingTxGeometryRef.current = null;
+      if (!pending) return;
+      txSliderRef?.current?.onGeometryChange?.(
+        pending.centerFrequencyHz,
+        pending.sampleRateHz,
+        isDragging,
+      );
+    },
+    [txSliderRef],
+  );
+  const scheduleTxGeometryPublish = useCallback(
+    (centerFrequencyHz: number, sampleRateHz: number) => {
+      pendingTxGeometryRef.current = {
+        centerFrequencyHz,
+        sampleRateHz,
+      };
+      if (txGeometryAnimationFrameRef.current !== null) return;
+      txGeometryAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        txGeometryAnimationFrameRef.current = null;
+        publishPendingTxGeometry(true);
+      });
+    },
+    [publishPendingTxGeometry],
+  );
+  useEffect(
+    () => () => {
+      if (txGeometryAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(txGeometryAnimationFrameRef.current);
+      }
+    },
+    [],
+  );
   const dragStartXRef = useRef(0);
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -357,21 +407,6 @@ export function useSpectrumInteraction({
     return visualRange.min + frac * (visualRange.max - visualRange.min);
   };
 
-  const clampTxBandCenterHz = (centerHz: number, bandwidthHz: number) => {
-    const minHz = Math.max(0, hardwareSpectrumBounds?.min ?? 0);
-    const maxHz =
-      hardwareSpectrumBounds && Number.isFinite(hardwareSpectrumBounds.max)
-        ? hardwareSpectrumBounds.max
-        : Number.POSITIVE_INFINITY;
-    const halfBandwidth =
-      Number.isFinite(bandwidthHz) && bandwidthHz > 0 ? bandwidthHz / 2 : 0;
-    const minCenter = minHz + halfBandwidth;
-    const maxCenter = Number.isFinite(maxHz)
-      ? Math.max(minCenter, maxHz - halfBandwidth)
-      : Number.POSITIVE_INFINITY;
-    return Math.max(minCenter, Math.min(maxCenter, centerHz));
-  };
-
   const updateTxSliderFromPointer = (clientX: number) => {
     const slider = txSliderRef?.current;
     const canvasRect = canvasDragRectRef.current;
@@ -469,15 +504,16 @@ export function useSpectrumInteraction({
       minBandwidth,
       Math.min(maxBandwidth, nextMax - nextMin),
     );
-    let nextCenter =
-      handle === "body"
-        ? (nextMin + nextMax) / 2
-        : clampTxBandCenterHz((nextMin + nextMax) / 2, nextBandwidth);
+    const nextCenter = (nextMin + nextMax) / 2;
 
     slider.txSampleRateHz = nextBandwidth;
     slider.txCenterHz = nextCenter;
-    slider.onSampleRateChange?.(nextBandwidth);
-    slider.onCenterFrequencyChange?.(nextCenter, true);
+    if (slider.onGeometryChange) {
+      scheduleTxGeometryPublish(nextCenter, nextBandwidth);
+    } else {
+      slider.onCenterFrequencyChange?.(nextCenter, true);
+      slider.onSampleRateChange?.(nextBandwidth);
+    }
     onDragRepaint?.();
   };
 
@@ -1856,6 +1892,7 @@ export function useSpectrumInteraction({
       stopSelectionEdgePan();
 
       if (isTxSliderDraggingRef.current) {
+        publishPendingTxGeometry(false);
         isTxSliderDraggingRef.current = false;
         txSliderHandleRef.current = null;
         txSliderBodyDragOffsetHzRef.current = 0;

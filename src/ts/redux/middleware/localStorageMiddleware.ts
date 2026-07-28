@@ -248,6 +248,16 @@ export const loadPersistedTheme = () => {
   }
 };
 
+export const mergePersistedSdrSettings = <
+  T extends object,
+>(
+  defaults: T,
+  persisted: Partial<T> | null | undefined,
+): T => ({
+  ...defaults,
+  ...(persisted ?? {}),
+});
+
 export const loadPersistedSdrSettings = () => {
   const stored = safeGetItem(STORAGE_KEYS.SDR_SETTINGS);
   if (!stored) return {};
@@ -278,11 +288,7 @@ export const loadPersistedSdrSettings = () => {
       parsed.txSampleRateHz = 2_400_000;
     }
 
-    if (
-      !Number.isFinite(parsed.txCenterFrequencyHz) ||
-      parsed.txCenterFrequencyHz === 2_204_000 ||
-      parsed.txCenterFrequencyHz === 1_600_000
-    ) {
+    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
       parsed.txCenterFrequencyHz = 137_100_000;
     }
 

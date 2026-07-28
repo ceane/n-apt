@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { Lock } from "lucide-react";
-import { FrequencyRange } from "@n-apt/hooks/useWebSocket";
+import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/consts/sdr";
 import {
   STEP_SIZE,

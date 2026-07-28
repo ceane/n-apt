@@ -80,11 +80,19 @@ signals:
               label: "RTL-SDR v4 upper limit rate"
       mock_apt:
         duplex_mode: Simplex
+        max_sample_rate: !frequency 20MHz
         sample_rate: !floor...!channel
         gain_limits:
           min: 0.0
           max: 49.6
           step: 0.1
+      mock_tx:
+        duplex_mode: Simplex
+        sample_rate: !frequency 2.4MHz
+        gain_limits:
+          min: 0.0
+          max: 47.0
+          step: 1.0
       hackrf_one:
         duplex_mode: Half-duplex
         sample_rate: !clamp

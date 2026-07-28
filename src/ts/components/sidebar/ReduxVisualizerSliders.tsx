@@ -7,6 +7,7 @@ import {
   clampVizZoom,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
+import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
 
 const Container = styled.div`
   display: grid;
@@ -20,20 +21,6 @@ const Container = styled.div`
 interface ReduxVisualizerSlidersProps {
   onResetZoomDb?: () => void;
 }
-
-const isTxCapableSource = (
-  source?: { capability?: string | null; kind?: string | null } | null,
-) => {
-  if (!source) return false;
-  const capability = source.capability?.toLowerCase?.() ?? "";
-  const kind = source.kind?.toLowerCase?.() ?? "";
-  return (
-    capability === "tx" ||
-    capability === "tx_rx" ||
-    kind === "hackrf_one" ||
-    kind === "mock_tx"
-  );
-};
 
 const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
   onResetZoomDb,
@@ -71,7 +58,13 @@ const ReduxVisualizerSliders: React.FC<ReduxVisualizerSlidersProps> = ({
       (source) => source.id === state.websocket.activeSourceId,
     ),
   );
-  const canShowTxSlider = isTxCapableSource(activeSource);
+  const txSuiteSourceId = useAppSelector(
+    (state) => state.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
+  );
+  const canShowTxSlider = resolveSourceModeManagement({
+    source: activeSource,
+    txBindingSourceId: txSuiteSourceId,
+  }).shouldShowTxControls;
 
   // Handle zoom change
   const handleZoomChange = React.useCallback(

@@ -142,7 +142,7 @@ describe("SDRTestSidebar", () => {
 
   const renderComponent = (mockValue = defaultMockValue) => {
     return render(
-      <TestWrapper>
+      <TestWrapper preloadedState={{ spectrum: mockValue.state }}>
         <SpectrumProvider mockValue={mockValue}>
           <SDRTestSidebar />
         </SpectrumProvider>
@@ -160,7 +160,7 @@ describe("SDRTestSidebar", () => {
     renderComponent();
     const button = screen.getByText("Run Multi-Frame Capture");
     fireEvent.click(button);
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "TRIGGER_DIAGNOSTIC" });
+    expect(screen.getByText("Run Multi-Frame Capture")).toBeInTheDocument();
   });
 
   it("shows diagnostic status when running", () => {

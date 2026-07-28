@@ -8,7 +8,7 @@ export const applyWaterfallStateOverrides = (
   ...state,
   sourceMode: waterfall.sourceMode,
   selectedFiles: waterfall.selectedFiles,
-  // Removed: snapshotGridPreference conflicts with local state
+  snapshotGridPreference: waterfall.snapshotGridPreference,
   drawParams: waterfall.drawParams,
   activeClumpIndex: waterfall.activeClumpIndex,
   globalNoiseFloor: waterfall.globalNoiseFloor,

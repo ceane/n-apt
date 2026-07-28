@@ -71,7 +71,6 @@ export const resolveDisplaySampleRateHz = ({
   configuredSampleRateHz,
   derivedSampleRateHz,
   maxSampleRateHz,
-  ...identity
 }: DisplaySampleRateInput): number | null => {
   const frameRate =
     typeof frameSampleRateHz === "number" &&
@@ -91,15 +90,11 @@ export const resolveDisplaySampleRateHz = ({
     derivedSampleRateHz > 0
       ? derivedSampleRateHz
       : null;
-  return isRtlSdrDevice(identity)
-    ? resolveSourceSampleRateHz({
-        candidates: [frameRate, configured, derived],
-        maxSampleRateHz,
-      })
-    : resolveSourceSampleRateHz({
-        candidates: [derived, configured],
-        maxSampleRateHz,
-      });
+  return resolveSourceSampleRateHz({
+    // Effective frame metadata is the render authority for every source.
+    candidates: [frameRate, configured, derived],
+    maxSampleRateHz,
+  });
 };
 
 /**
@@ -119,14 +114,10 @@ export const resolveCanonicalDisplaySampleRateHz = ({
     activeSampleRateHz > 0
       ? activeSampleRateHz
       : null;
-  const keepFrameFirstOrdering = isRtlSdrDevice(input);
-
   return resolveDisplaySampleRateHz({
     ...input,
     derivedSampleRateHz:
-      !keepFrameFirstOrdering && activeRate !== null
-        ? activeRate
-        : input.derivedSampleRateHz,
+      activeRate ?? input.derivedSampleRateHz,
     configuredSampleRateHz: activeRate ?? input.configuredSampleRateHz ?? null,
   });
 };
@@ -172,13 +163,10 @@ export const isHackrfDevice = ({
 
 export const canUseWholeChannelSnapshot = ({
   requestedWhole,
-  deviceKind,
-  backend,
-  deviceName,
-  isRtlSdr,
 }: DeviceIdentity & { requestedWhole: boolean }): boolean => {
-  if (!requestedWhole) return false;
-  return !isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr });
+  // Whole Channel is a presentation/acquisition intent. The backend is
+  // responsible for splitting an oversized request into safe hops.
+  return requestedWhole;
 };
 
 export const resolveCaptureAcquisitionMode = ({
@@ -186,10 +174,6 @@ export const resolveCaptureAcquisitionMode = ({
   isOnscreenActive,
   onscreenSpanHz,
   hardwareSampleRateHz,
-  deviceKind,
-  backend,
-  deviceName,
-  isRtlSdr,
 }: DeviceIdentity & {
   requestedMode: CaptureAcquisitionMode;
   isOnscreenActive: boolean;
@@ -203,18 +187,6 @@ export const resolveCaptureAcquisitionMode = ({
   const onscreenSpan =
     Number.isFinite(onscreenSpanHz) && onscreenSpanHz > 0 ? onscreenSpanHz : 0;
 
-  // Onscreen uses the live Whole Channel sample-rate selection. It must not
-  // fall back to a sweep mode when that rate differs from a stale frame or
-  // from the current visual window width.
-  if (
-    isOnscreenActive &&
-    requestedMode === "whole_sample" &&
-    hardwareRate > 0 &&
-    onscreenSpan > hardwareRate + SAMPLE_RATE_TOLERANCE_HZ &&
-    isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })
-  ) {
-    return "stepwise";
-  }
   if (isOnscreenActive) {
     return "whole_sample";
   }
@@ -225,11 +197,7 @@ export const resolveCaptureAcquisitionMode = ({
 
   const widerThanHardware =
     onscreenSpan > hardwareRate + SAMPLE_RATE_TOLERANCE_HZ;
-  if (
-    requestedMode === "whole_sample" &&
-    widerThanHardware &&
-    isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })
-  ) {
+  if (requestedMode === "whole_sample" && widerThanHardware) {
     return "stepwise";
   }
 
@@ -248,39 +216,12 @@ export const resolveRenderableFrequencyRange = ({
   centerFrequencyHz: _centerFrequencyHz,
   hardwareSampleRateHz,
   preferRequestedRange,
-  deviceKind,
-  backend,
-  deviceName,
-  isRtlSdr,
 }: DeviceIdentity & {
   requestedRange: { min: number; max: number };
   centerFrequencyHz?: number | null;
   hardwareSampleRateHz?: number | null;
   preferRequestedRange?: boolean;
 }): { min: number; max: number } => {
-  const kind = normalize(deviceKind);
-  if (kind === "mock-tx" || kind === "mock_tx") {
-    const center =
-      typeof _centerFrequencyHz === "number" &&
-      Number.isFinite(_centerFrequencyHz)
-        ? _centerFrequencyHz
-        : 137_100_000;
-    const rate =
-      typeof hardwareSampleRateHz === "number" &&
-      Number.isFinite(hardwareSampleRateHz) &&
-      hardwareSampleRateHz > 0
-        ? Math.max(hardwareSampleRateHz, 3_200_000)
-        : 3_200_000;
-    return {
-      min: center - rate / 2,
-      max: center + rate / 2,
-    };
-  }
-
-  if (!isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })) {
-    return requestedRange;
-  }
-
   const requestedSpan = requestedRange.max - requestedRange.min;
   if (
     Number.isFinite(requestedSpan) &&
@@ -304,29 +245,19 @@ export const resolveRenderableFrequencyRange = ({
     return requestedRange;
   }
 
-  return {
-    min: requestedRange.min,
-    max: requestedRange.min + sampleRate,
-  };
+  return { min: requestedRange.min, max: requestedRange.min + sampleRate };
 };
 
-export const clampRtlSdrFrequencyRangeToHardwareWindow = ({
+export const clampFrequencyRangeToHardwareWindow = ({
   range,
   channelBounds,
   hardwareSampleRateHz,
-  deviceKind,
-  backend,
-  deviceName,
-  isRtlSdr,
-}: DeviceIdentity & {
+}: {
   range: { min: number; max: number };
   channelBounds?: { min: number; max: number } | null;
   hardwareSampleRateHz?: number | null;
 }): { min: number; max: number } => {
-  if (
-    !channelBounds ||
-    !isRtlSdrDevice({ deviceKind, backend, deviceName, isRtlSdr })
-  ) {
+  if (!channelBounds) {
     return range;
   }
 
@@ -360,3 +291,19 @@ export const clampRtlSdrFrequencyRangeToHardwareWindow = ({
     max: min + hardwareSpan,
   };
 };
+
+/** @deprecated Use clampFrequencyRangeToHardwareWindow. */
+export const clampRtlSdrFrequencyRangeToHardwareWindow = ({
+  range,
+  channelBounds,
+  hardwareSampleRateHz,
+}: DeviceIdentity & {
+  range: { min: number; max: number };
+  channelBounds?: { min: number; max: number } | null;
+  hardwareSampleRateHz?: number | null;
+}): { min: number; max: number } =>
+  clampFrequencyRangeToHardwareWindow({
+    range,
+    channelBounds,
+    hardwareSampleRateHz,
+  });

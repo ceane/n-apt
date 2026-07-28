@@ -214,15 +214,15 @@ const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
 );
 
 export interface GainLimits {
-  min?: number;
-  max?: number;
-  step?: number;
-  lna_min?: number;
-  lna_max?: number;
-  lna_step?: number;
-  vga_min?: number;
-  vga_max?: number;
-  vga_step?: number;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  lna_min?: number | null;
+  lna_max?: number | null;
+  lna_step?: number | null;
+  vga_min?: number | null;
+  vga_max?: number | null;
+  vga_step?: number | null;
 }
 
 interface SourceSettingsSectionProps {

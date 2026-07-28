@@ -10,7 +10,7 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
-import { Provider } from "react-redux";
+import { Provider, useSelector } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
 import { SpectrumSidebar } from "../../src/ts/components/sidebar/SpectrumSidebar";
@@ -106,6 +106,7 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
     selectedSourceId: mockLiveState.selectedSourceId ?? "",
     setSelectedSourceId: jest.fn(),
     selectedSource: mockLiveState.selectedSource ?? null,
+    selectedSourceDerived: mockLiveState.selectedSourceDerived,
     sources: mockLiveState.sources ?? [],
   }),
 }));
@@ -255,7 +256,6 @@ const initMockState = () => {
     rtlAGC: false,
     sampleRateHz: 5_200_000,
     minReceiveSampleRateHz: 3_200_000,
-    sample_size: 0,
     lastKnownRanges: {
       C: { min: 24_720_000, max: 29_920_000 },
     },
@@ -352,6 +352,10 @@ const initMockState = () => {
       mockLiveState = { ...mockLiveState, vizPanOffset: action.pan };
       return;
     }
+    if (action?.type === "SET_SAMPLE_RATE") {
+      mockLiveState = { ...mockLiveState, sampleRateHz: action.sampleRateHz };
+      return;
+    }
     if (action?.type === "SET_FFT_FRAME_RATE") {
       mockLiveState = { ...mockLiveState, fftFrameRate: action.fftFrameRate };
     }
@@ -403,7 +407,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       status: "connected",
       serial_number: "hackrf-rx",
       supports_approx_dbm: false,
-      supports_raw_iq_stream: true,
+      iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       sdr: {
         max_sample_rate: 20_000_000,
         sample_rate_options: [2_400_000, 5_200_000, 20_000_000],
@@ -446,7 +450,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       status: "standby",
       serial_number: "mock-tx",
       supports_approx_dbm: false,
-      supports_raw_iq_stream: true,
+      iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       sdr: {
         max_sample_rate: 20_000_000,
         sample_rate_options: [2_400_000, 5_200_000, 20_000_000],
@@ -484,9 +488,24 @@ describe("SpectrumSidebar sample rate behavior", () => {
       ...mockLiveState,
       activeSignalArea: "A",
       frequencyRange: { min: 18_000, max: 3_218_000 },
-      sampleRateHz: 4_372_000,
+      sampleRateHz: 3_200_000,
     };
-    mockEffectiveFrames = [];
+    mockEffectiveFrames = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        description: "Mock APT channel A",
+      },
+      {
+        id: "b",
+        label: "B",
+        min_hz: 24_100_000,
+        max_hz: 30_370_000,
+        description: "Mock APT channel B",
+      }
+    ];
     mockSignalAreaBounds = null;
     mockWsConnection = {
       ...mockWsConnection,
@@ -494,7 +513,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       deviceName: "Mock APT SDR",
       deviceProfile: { kind: "mock_apt" },
       sampleRateOptions: [3_200_000, 18_250_000],
-      sampleRateHz: 4_372_000,
+      sampleRateHz: 3_200_000,
       maxSampleRateHz: 18_250_000,
     };
 
@@ -505,6 +524,13 @@ describe("SpectrumSidebar sample rate behavior", () => {
         min_hz: 18_000,
         max_hz: 4_390_000,
         description: "Mock APT channel A",
+      },
+      {
+        id: "b",
+        label: "B",
+        min_hz: 24_100_000,
+        max_hz: 30_370_000,
+        description: "Mock APT channel B",
       },
     ];
     const store = createStore();
@@ -523,13 +549,13 @@ describe("SpectrumSidebar sample rate behavior", () => {
             loading_attempt: 0,
             loading_attempt_max: 2,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
             sdr: {
               max_sample_rate: 18_250_000,
               sample_rate_options: [3_200_000, 18_250_000],
               fft_display: { markers: [] },
               settings: {
-                sample_rate: 4_372_000,
+                sample_rate: 3_200_000,
                 min_receive_sample_rate: 3_200_000,
                 center_frequency: 1_600_000,
                 fft: {
@@ -585,6 +611,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
         max: 4_390_000,
       }),
     );
+    await waitFor(() =>
+      expect(mockWsConnection.sendSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ sampleRate: 4_372_000 }),
+      ),
+    );
 
     const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
       "combobox",
@@ -598,10 +629,14 @@ describe("SpectrumSidebar sample rate behavior", () => {
     await waitFor(() => expect(sampleRateSelect).toHaveValue("3200000"));
     expect(mockLiveState.sampleRateHz).toBe(3_200_000);
     const settingsCalls = mockWsConnection.sendSettings.mock.calls as Array<
-      [{ sampleRate?: number }]
+      [{ sampleRate?: number; tunerBandwidth?: number }]
     >;
     expect(
-      settingsCalls.some(([settings]) => settings?.sampleRate === 3_200_000),
+      settingsCalls.some(
+        ([settings]) =>
+          settings?.sampleRate === 3_200_000 ||
+          settings?.tunerBandwidth === 3_200_000,
+      ),
     ).toBe(true);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
       min: 18_000,
@@ -627,7 +662,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
             loading_attempt: 0,
             loading_attempt_max: 2,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
             sdr: {
               max_sample_rate: 3_200_000,
               sample_rate_options: [3_200_000],
@@ -708,7 +743,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
           loading_attempt: 0,
           loading_attempt_max: 2,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           paused: false,
           sdr: {
             max_sample_rate: 3_200_000,
@@ -737,7 +772,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
           loading_attempt: 0,
           loading_attempt_max: 2,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           paused: false,
           sdr: {
             max_sample_rate: 20_000_000,
@@ -869,7 +904,6 @@ describe("SpectrumSidebar sample rate behavior", () => {
       status: "connected",
       serial_number: "mock-tx",
       supports_approx_dbm: false,
-      supports_raw_iq_stream: false,
       sdr: {
         max_sample_rate: 20_000_000,
         sample_rate_options: [5_200_000, 10_000_000, 20_000_000],
@@ -948,7 +982,6 @@ describe("SpectrumSidebar sample rate behavior", () => {
         status: "transmitting",
         serial_number: "mock-tx",
         supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
         sdr: {
           max_sample_rate: 20_000_000,
           sample_rate_options: [5_200_000, 10_000_000, 20_000_000],
@@ -1036,7 +1069,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
         status: "streaming",
         serial_number: "mock-apt",
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         sdr: {
           max_sample_rate: 3_200_000,
           sample_rate_options: [3_200_000],
@@ -1056,7 +1089,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
         status: "transmitting",
         serial_number: "mock-tx",
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         sdr: {
           max_sample_rate: 20_000_000,
           sample_rate_options: [2_400_000, 3_200_000, 5_200_000],
@@ -1131,7 +1164,42 @@ describe("SpectrumSidebar sample rate behavior", () => {
     }
   });
 
-  it.skip("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
+  it("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
+    mockLiveState = {
+      ...mockLiveState,
+      activeSignalArea: "A",
+      frequencyRange: { min: 18_000, max: 5_218_000 },
+      sampleRateHz: 5_200_000,
+      lastKnownRanges: { A: { min: 18_000, max: 5_218_000 } },
+      selectedSourceDerived: {
+        backend: "hackrf_one",
+        deviceName: "HackRF One",
+        deviceProfile: { kind: "hackrf_one" },
+        deviceState: "connected",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [
+          2_400_000,
+          5_200_000,
+          12_800_000,
+          20_000_000,
+        ],
+        sampleRateHz: 5_200_000,
+        sdrSettings: null,
+      },
+    };
+    mockEffectiveFrames = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        description: "HackRF test channel",
+      },
+    ];
+    mockSignalAreaBounds = {
+      A: { min: 18_000, max: 4_390_000 },
+      a: { min: 18_000, max: 4_390_000 },
+    };
     const store = createStore();
     store.dispatch(setConnected());
     store.dispatch(
@@ -1167,8 +1235,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
       </Provider>,
     );
 
-    const sampleRateLabel = await screen.findByText("Sample Rate");
-    const sampleRateRow = sampleRateLabel.closest("div")?.parentElement;
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate")).find(
+      (label) =>
+        label.closest("div")?.parentElement?.querySelector("select") !== null,
+    );
+    const sampleRateRow = sampleRateLabel?.closest("div")?.parentElement;
     expect(sampleRateRow).toBeTruthy();
     const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
       "combobox",
@@ -1180,7 +1251,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     expect(
       within(sampleRateRow as HTMLElement).getByRole("option", {
-        name: /Whole Channel \(5\.2MHz\)/,
+        name: /Whole Channel \(4\.372MHz\)/,
       }),
     ).toBeInTheDocument();
 
@@ -1189,29 +1260,24 @@ describe("SpectrumSidebar sample rate behavior", () => {
     mockWsConnection.sendFrequencyRange.mockClear();
 
     fireEvent.change(sampleRateSelect, { target: { value: "12800000" } });
-    await waitFor(() => expect(sampleRateSelect).toHaveValue("12800000"));
-
+    await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(12_800_000));
     expect(mockLiveState.sampleRateHz).toBe(12_800_000);
-    expect(mockWsConnection.sendSettings).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sampleRate: 12_800_000 }),
-    );
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
-      min: 20_920_000,
-      max: 33_720_000,
+      min: 18_000,
+      max: 12_818_000,
     });
 
     fireEvent.change(sampleRateSelect, { target: { value: "20000000" } });
-    await waitFor(() => expect(sampleRateSelect).toHaveValue("20000000"));
+    await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(20_000_000));
     expect(mockLiveState.sampleRateHz).toBe(20_000_000);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
-      min: 17_320_000,
-      max: 37_320_000,
+      min: 18_000,
+      max: 20_018_000,
     });
 
     fireEvent.change(sampleRateSelect, { target: { value: "12800000" } });
-    await waitFor(() => expect(sampleRateSelect).toHaveValue("12800000"));
+    await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(12_800_000));
     expect(mockLiveState.sampleRateHz).toBe(12_800_000);
-    expect(sampleRateSelect).not.toHaveDisplayValue("Whole Channel (5.2MHz)");
   });
 
   it("asserts active device details, sample rates, and fft sizes for mock_apt", async () => {
@@ -1283,7 +1349,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
             loading_attempt: 0,
             loading_attempt_max: 2,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
             sdr: {
               max_sample_rate: 18_250_000,
               sample_rate_options: [3_200_000, 18_250_000],
@@ -1535,7 +1601,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
   });
 
   it("automatically transitions HackRF One from initial 3.2MHz fallback to Whole Channel rate on mount", async () => {
-    const mockLiveState = {
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: "hackrf-1",
+      sourceMode: "live",
+      sampleRateHz: 3_200_000,
       sources: [
         {
           id: "hackrf-1",
@@ -1543,7 +1613,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
           backend: "hackrf",
           deviceName: "HackRF One",
           status: "connected",
+          maxSampleRateHz: 20_000_000,
+          sampleRateOptions: [2_400_000, 5_200_000, 20_000_000],
           sdr: {
+            max_sample_rate: 20_000_000,
+            sample_rate_options: [2_400_000, 5_200_000, 20_000_000],
             settings: { sample_rate: 3_200_000 },
           },
         },
@@ -1552,12 +1626,20 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     mockWsConnection = {
       ...mockWsConnection,
+      sendSettings: jest.fn(),
       sources: mockLiveState.sources,
+      sampleRateOptions: [2_400_000, 5_200_000, 20_000_000],
       backend: "hackrf",
       deviceProfile: { kind: "hackrf_one", is_rtl_sdr: false },
       deviceName: "HackRF One",
       deviceState: "connected",
     };
+
+    mockStoreDispatch = jest.fn((action: any) => {
+      if (action?.type === "SET_SAMPLE_RATE") {
+        mockLiveState = { ...mockLiveState, sampleRateHz: action.sampleRateHz };
+      }
+    });
 
     const store = createStore();
     store.dispatch(setConnected());
@@ -1577,12 +1659,42 @@ describe("SpectrumSidebar sample rate behavior", () => {
       </Provider>,
     );
 
-    await waitFor(() => {
-      expect(mockWsConnection.sendSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tunerBandwidth: 5_200_000,
-        }),
-      );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
     });
+
+    await waitFor(
+      () => {
+        const calls = mockWsConnection.sendSettings.mock.calls as Array<
+          [{ sampleRate?: number; tunerBandwidth?: number }]
+        >;
+        expect(
+          calls.some(
+            ([settings]) =>
+              settings?.sampleRate === 5_200_000 ||
+              settings?.tunerBandwidth === 5_200_000,
+          ),
+        ).toBe(true);
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("does not display Tx Settings when Mock APT SDR (Rx mode) is selected", () => {
+    mockWsConnection.sources = [
+      { id: "mock-apt", name: "Mock APT SDR", capability: "rx", status: "connected" },
+      { id: "mock-tx", name: "Mock Tx SDR", capability: "tx", status: "standby" },
+    ];
+    mockWsConnection.activeSourceId = "mock-apt";
+
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumSidebar />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.queryByText("Tx Settings")).not.toBeInTheDocument();
   });
 });

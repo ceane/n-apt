@@ -104,7 +104,15 @@ describe("N-APT classifier", () => {
     expect(FFT_HOOK_SOURCE).toContain(
       "state.naptClassifyReadbackBuffer,\n            0,\n            132,",
     );
-    expect(FFT_CANVAS_SOURCE).toMatch(
+    expect(FFT_CANVAS_SOURCE).toContain(
+      'import { presentSpikeAnalysis } from "@n-apt/components/fft/spikeAnalysisPresentation";',
+    );
+    expect(
+      readFileSync(
+        join(process.cwd(), "src/ts/components/fft/spikeAnalysisPresentation.ts"),
+        "utf8",
+      ),
+    ).toMatch(
       /captureQualityScore:\s*Math\.max\(\s*0,\s*Math\.min\(\s*1,\s*1\s*-\s*sincPenaltyScore\s*\)\s*,?\s*\)/,
     );
   });

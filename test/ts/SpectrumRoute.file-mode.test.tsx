@@ -15,6 +15,7 @@ import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
 import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
 import notificationsSlice from "../../src/ts/redux/slices/notificationsSlice";
+import sourceRoutingSlice from "../../src/ts/redux/slices/sourceRoutingSlice";
 import {
   setDeviceKind,
   setTxCenterFrequencyHz,
@@ -142,8 +143,16 @@ const createStore = (preloadedState?: any) =>
       notifications: notificationsSlice,
       demod: demodSlice,
       snapshot: snapshotSlice,
+      sourceRouting: sourceRoutingSlice,
     } as any,
-    preloadedState,
+    preloadedState: {
+      ...preloadedState,
+      sourceRouting: {
+        ...sourceRoutingSlice(undefined, { type: "@@INIT" as any }),
+        bindings: { "tx-suite:tx": "mock-tx" },
+        ...(preloadedState?.sourceRouting ?? {}),
+      },
+    },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({ serializableCheck: false }),
   });
@@ -252,7 +261,12 @@ describe("SpectrumRoute file mode", () => {
       sources: [],
     } as any;
 
-    const store = createStore();
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
+      },
+    });
 
     const { rerender } = render(
       <Provider store={store}>
@@ -387,6 +401,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: Number.NaN,
       },
@@ -491,7 +506,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: "Mock APT SDR",
         backend: "mock_apt",
@@ -735,7 +750,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "hackrf_one",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: "HackRF One",
         backend: "hackrf_one",
@@ -865,7 +880,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -893,7 +908,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [3_200_000],
@@ -924,7 +939,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -932,6 +947,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
       },
       websocket: {
@@ -1028,7 +1044,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -1056,7 +1072,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [3_200_000],
@@ -1087,7 +1103,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -1095,6 +1111,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: 137_100_000,
         txSampleRateHz: 2_400_000,
@@ -1132,6 +1149,7 @@ describe("SpectrumRoute file mode", () => {
     expect(visualizerProps.dataRef.current).toBe(liveMockTxFrame);
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
+      isTransmitting: true,
       visibleMinHz: 135_500_000,
       visibleMaxHz: 138_700_000,
       txCenterHz: 137_100_000,
@@ -1201,7 +1219,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -1229,7 +1247,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [4_372_000],
@@ -1260,7 +1278,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -1268,6 +1286,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: 137_100_000,
         txSampleRateHz: 2_400_000,
@@ -1558,7 +1577,7 @@ describe("SpectrumRoute file mode", () => {
             kind: "mock_apt",
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           },
           deviceInfo: null,
           backend: "mock_apt",
@@ -1586,7 +1605,7 @@ describe("SpectrumRoute file mode", () => {
             kind: "mock_apt",
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           },
           maxSampleRateHz: 4_372_000,
           sampleRateOptions: [4_372_000],
@@ -1617,7 +1636,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         sources: [mockAptSource, mockTxSource],
       } as any;
@@ -1737,7 +1756,6 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
         },
         deviceInfo: null,
         backend: "mock_apt",
@@ -1765,7 +1783,6 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
         },
         maxSampleRateHz: 3_200_000,
         sampleRateOptions: [3_200_000],
@@ -1796,7 +1813,6 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_apt",
         is_rtl_sdr: false,
         supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
       },
       sources: [],
     } as any;

@@ -1,6 +1,11 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { RootState } from "../store";
 
+const EMPTY_TX_HOP_CHANNELS: string[] = [];
+
+export const selectTxHopChannels = (state: RootState): string[] =>
+  state.spectrum.txHopChannels || EMPTY_TX_HOP_CHANNELS;
+
 const selectFftSize = (state: RootState) => state.spectrum.fftSize;
 const selectFftWindow = (state: RootState) => state.spectrum.fftWindow;
 const selectFftFrameRate = (state: RootState) => state.spectrum.fftFrameRate;

@@ -272,7 +272,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     /**
      * Hot-path data ref — written directly by the animation loop, never via
      * React state.  FFTCanvas reads this ref on every rAF, identical to the
-     * live-view data path in useWebSocket → dataRef.current.
+     * live-view data path in the WebSocket runtime → dataRef.current.
      */
     const fftCanvasDataRef = fileFrameRuntime.ref;
     const seededPlaybackKeyRef = useRef<string | null>(null);

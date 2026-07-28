@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct MockTxParams {
+pub struct ComplexBasebandIQParams {
   pub signal_key: String,
   pub sample_rate_hz: f64,
   pub bandwidth_hz: f64,
@@ -13,7 +13,7 @@ pub struct MockTxParams {
   pub phase_seed: u64,
 }
 
-pub fn canonical_mock_tx_signal_key(signal_name: &str) -> String {
+pub fn canonical_complex_baseband_signal_key(signal_name: &str) -> String {
   let normalized = signal_name
     .trim()
     .to_ascii_lowercase()
@@ -38,42 +38,44 @@ fn subcarrier_phase_hash(bin: u64, seed: u64) -> f64 {
 }
 
 #[derive(Clone)]
-struct MockTxPlanPair {
+struct ComplexBasebandIQPlanPair {
   inverse: Arc<dyn Fft<f32>>,
   forward: Arc<dyn Fft<f32>>,
 }
 
-pub struct MockTxGenerator {
+pub struct ComplexBasebandIQGenerator {
   planner: FftPlanner<f32>,
-  plans: HashMap<usize, MockTxPlanPair>,
+  plans: HashMap<usize, ComplexBasebandIQPlanPair>,
   projected: Vec<Complex<f32>>,
   desired_magnitudes: Vec<f32>,
+  #[cfg(test)]
   test_block: Vec<Complex<f32>>,
 }
 
-impl Default for MockTxGenerator {
+impl Default for ComplexBasebandIQGenerator {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl MockTxGenerator {
+impl ComplexBasebandIQGenerator {
   pub fn new() -> Self {
     Self {
       planner: FftPlanner::new(),
       plans: HashMap::new(),
       projected: Vec::new(),
       desired_magnitudes: Vec::new(),
+      #[cfg(test)]
       test_block: Vec::new(),
     }
   }
 
-  fn plans_for_size(&mut self, size: usize) -> MockTxPlanPair {
+  fn plans_for_size(&mut self, size: usize) -> ComplexBasebandIQPlanPair {
     if let Some(plans) = self.plans.get(&size) {
       return plans.clone();
     }
 
-    let plans = MockTxPlanPair {
+    let plans = ComplexBasebandIQPlanPair {
       inverse: self.planner.plan_fft_inverse(size),
       forward: self.planner.plan_fft_forward(size),
     };
@@ -83,7 +85,7 @@ impl MockTxGenerator {
 
   pub fn generate_into(
     &mut self,
-    params: &MockTxParams,
+    params: &ComplexBasebandIQParams,
     output: &mut Vec<Complex<f32>>,
   ) {
     let plans = self.plans_for_size(params.tx_ifft_size);
@@ -153,7 +155,10 @@ impl MockTxGenerator {
       // visible shoulder is not mistaken for a square-edged block.
       let passband_edge = if key == "5g" { 0.62 } else { 0.58 };
       let rolloff_width = if key == "5g" { 0.38 } else { 0.40 };
-      let passband_jitter_db: f64 = if key == "5g" { 0.75 } else { 0.9 };
+      // Real OFDM channels are not perfectly flat: independently varying
+      // subcarrier occupancy and phase keeps the mock from looking like a
+      // periodically repeated, vibrating line while preserving its envelope.
+      let passband_jitter_db: f64 = if key == "5g" { 1.8 } else { 1.5 };
 
       for k in 0..num_bins {
         let centered = k as isize - half_bins as isize;
@@ -192,7 +197,8 @@ impl MockTxGenerator {
           let base_phase =
             std::f64::consts::PI * (centered as f64).powi(2) / num_bins as f64;
           let phase = if params.phase_seed != 0 {
-            base_phase + 0.15 * subcarrier_phase_hash(k as u64, params.phase_seed)
+            base_phase
+              + 0.15 * subcarrier_phase_hash(k as u64, params.phase_seed)
           } else {
             base_phase
           };
@@ -221,6 +227,10 @@ impl MockTxGenerator {
       for _ in 0..12 {
         self.projected.copy_from_slice(spectrum);
         fft.process(&mut self.projected);
+        let inverse_scale = 1.0 / params.tx_ifft_size as f32;
+        for sample in &mut self.projected {
+          *sample *= inverse_scale;
+        }
         for sample in &mut self.projected {
           let mag = (sample.re * sample.re + sample.im * sample.im).sqrt();
           if mag > clip_threshold {
@@ -254,27 +264,36 @@ impl MockTxGenerator {
     }
 
     // Transform to time domain
+    // D-family signals are sparse harmonic spectra. The monitor's visible
+    // height contract is their strongest spectral line, whereas OFDM uses
+    // integrated complex RMS power. Preserve that distinction here so a
+    // narrow D signal is not rendered several dB below its requested level.
+    let d_family_peak = if key == "d" || key == "d_sharp" {
+      spectrum
+        .iter()
+        .map(|bin| bin.norm() as f64)
+        .fold(0.0_f64, f64::max)
+    } else {
+      0.0
+    };
     fft.process(spectrum);
-
-    // Normalize so the receiver-side FFT peak bin (|X[k]|/N) equals 1.0.
-    self
-      .test_block
-      .resize(params.tx_ifft_size, Complex::new(0.0_f32, 0.0_f32));
-    self.test_block.copy_from_slice(spectrum);
-    forward_fft.process(&mut self.test_block);
-
-    let mut max_fft_mag = 0.0_f32;
-    for s in &self.test_block {
-      let mag = (s.re * s.re + s.im * s.im).sqrt();
-      if mag > max_fft_mag {
-        max_fft_mag = mag;
-      }
-    }
-    if max_fft_mag > 0.0 {
-      let scale = (params.tx_ifft_size as f32) / max_fft_mag;
-      for s in spectrum.iter_mut() {
-        s.re *= scale;
-        s.im *= scale;
+    let complex_rms = (spectrum
+      .iter()
+      .map(|sample| sample.norm_sqr() as f64)
+      .sum::<f64>()
+      / params.tx_ifft_size as f64)
+      .sqrt() as f32;
+    let normalization = if d_family_peak > 0.0 {
+      1.0 / d_family_peak
+    } else if complex_rms > 0.0 {
+      1.0 / complex_rms as f64
+    } else {
+      0.0
+    };
+    if normalization > 0.0 {
+      let scale = normalization as f32;
+      for sample in spectrum.iter_mut() {
+        *sample *= scale;
       }
     }
   }
@@ -294,10 +313,10 @@ impl MockTxGenerator {
   }
 }
 
-pub fn generate_mock_tx_samples_ifft(
-  params: &MockTxParams,
+pub fn generate_complex_baseband_iq(
+  params: &ComplexBasebandIQParams,
 ) -> Vec<Complex<f32>> {
-  let mut generator = MockTxGenerator::new();
+  let mut generator = ComplexBasebandIQGenerator::new();
   let mut output = Vec::new();
   generator.generate_into(params, &mut output);
   output
@@ -305,21 +324,24 @@ pub fn generate_mock_tx_samples_ifft(
 
 #[cfg(test)]
 mod tests {
-  use super::{canonical_mock_tx_signal_key, MockTxGenerator, MockTxParams};
+  use super::{
+    canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
+    ComplexBasebandIQParams,
+  };
 
   #[test]
-  fn canonical_mock_tx_signal_key_normalizes_supported_keys() {
-    assert_eq!(canonical_mock_tx_signal_key("wifi"), "wifi");
-    assert_eq!(canonical_mock_tx_signal_key("D Sharp"), "d_sharp");
-    assert_eq!(canonical_mock_tx_signal_key("5g"), "5g");
-    assert_eq!(canonical_mock_tx_signal_key("  "), "wifi");
+  fn canonical_complex_baseband_signal_key_normalizes_supported_keys() {
+    assert_eq!(canonical_complex_baseband_signal_key("wifi"), "wifi");
+    assert_eq!(canonical_complex_baseband_signal_key("D Sharp"), "d_sharp");
+    assert_eq!(canonical_complex_baseband_signal_key("5g"), "5g");
+    assert_eq!(canonical_complex_baseband_signal_key("  "), "wifi");
   }
 
   #[test]
   fn generator_reuses_plans_and_output_storage_for_same_ifft_size() {
-    let mut generator = MockTxGenerator::new();
+    let mut generator = ComplexBasebandIQGenerator::new();
     let mut output = Vec::new();
-    let mut params = MockTxParams {
+    let mut params = ComplexBasebandIQParams {
       signal_key: "wifi".to_string(),
       sample_rate_hz: 3_200_000.0,
       bandwidth_hz: 100_000.0,
@@ -336,5 +358,76 @@ mod tests {
     assert_eq!(output.capacity(), first_capacity);
     assert_eq!(generator.cached_fft_size_count(), 1);
     assert!(generator.scratch_capacity() >= 1024);
+  }
+
+  #[test]
+  fn ofdm_signals_have_visible_in_band_spectral_variance() {
+    let params = ComplexBasebandIQParams {
+      signal_key: "wifi".to_string(),
+      sample_rate_hz: 3_200_000.0,
+      bandwidth_hz: 2_400_000.0,
+      tx_ifft_size: 2048,
+      phase_seed: 42,
+    };
+    let mut samples = super::generate_complex_baseband_iq(&params);
+    let mut planner = rustfft::FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(samples.len());
+    fft.process(&mut samples);
+
+    let half_band_bins = (params.bandwidth_hz
+      / 2.0
+      / (params.sample_rate_hz / params.tx_ifft_size as f64))
+      as usize;
+    let magnitudes_db: Vec<f32> = samples
+      .iter()
+      .enumerate()
+      .filter_map(|(index, sample)| {
+        let centered = if index <= samples.len() / 2 {
+          index as isize
+        } else {
+          index as isize - samples.len() as isize
+        };
+        if centered.unsigned_abs() <= half_band_bins / 2 {
+          Some(20.0 * sample.norm().max(1.0e-9).log10())
+        } else {
+          None
+        }
+      })
+      .collect();
+    let mean = magnitudes_db.iter().sum::<f32>() / magnitudes_db.len() as f32;
+    let variance = magnitudes_db
+      .iter()
+      .map(|magnitude| (magnitude - mean).powi(2))
+      .sum::<f32>()
+      / magnitudes_db.len() as f32;
+
+    assert!(
+      variance.sqrt() > 0.8,
+      "OFDM occupied bins should have visible variation, got {:.3} dB",
+      variance.sqrt()
+    );
+  }
+
+  #[test]
+  fn ofdm_ifft_block_has_unit_complex_rms_for_tx_power_scaling() {
+    let params = ComplexBasebandIQParams {
+      signal_key: "wifi".to_string(),
+      sample_rate_hz: 6_270_000.0,
+      bandwidth_hz: 3_200_000.0,
+      tx_ifft_size: 65_536,
+      phase_seed: 42,
+    };
+    let samples = super::generate_complex_baseband_iq(&params);
+    let complex_rms = (samples
+      .iter()
+      .map(|sample| sample.norm_sqr() as f64)
+      .sum::<f64>()
+      / samples.len() as f64)
+      .sqrt();
+
+    assert!(
+      (complex_rms - 1.0).abs() <= 0.05,
+      "IFFT block must have unit complex RMS before Tx power scaling: rms={complex_rms:.3}"
+    );
   }
 }

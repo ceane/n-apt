@@ -15,6 +15,7 @@ import { useSpectrumTransport } from "@n-apt/hooks/useSpectrumTransport";
 import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
 import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import {
   resolveSourceDisplaySampleRate,
   resolveSourceDisplaySignalArea,
@@ -84,21 +85,24 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
       (source) => source.id === sourceId,
     );
   });
-  const channels = useAppSelector((state) => state.websocket.channels ?? []);
+  const channels = useAppSelector((state) =>
+    selectArrayOrEmpty(state.websocket.channels),
+  );
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
   const reduxActiveSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );
-  const {
-    state: liveSpectrumState,
-    dispatch: spectrumStoreDispatch,
-    wsConnection,
-    sampleRateHzEffective,
-  } = useSpectrumStore();
+  const reduxFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const reduxSampleRateHz = useAppSelector(
+    (state) => state.spectrum.sampleRateHz,
+  );
+  const { wsConnection } = useSpectrumStore();
   const activeSignalArea = resolveSourceDisplaySignalArea({
-    liveSignalArea: liveSpectrumState.activeSignalArea,
+    liveSignalArea: reduxActiveSignalArea,
     reduxSignalArea: reduxActiveSignalArea,
   });
   const { sdrSettings, backend, deviceProfile, sampleRateOptions } =
@@ -109,13 +113,13 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     roleSourceId: roleSource?.id,
     activeSourceId,
     localSampleRateHz: spectrum.sampleRateHz,
-    liveSampleRateHz: sampleRateHzEffective,
+    liveSampleRateHz: reduxSampleRateHz,
     sourceSampleRateHz: roleSource?.sdr.settings?.sample_rate,
     fallbackSampleRateHz: spectrum.sampleRateHz,
   });
   const sourceSampleRateValue = sourceSampleRate ?? 3_200_000;
   const sourceMaxSampleRate =
-    roleSource?.sdr.max_sample_rate ?? sampleRateHzEffective ?? 3_200_000;
+    roleSource?.sdr.max_sample_rate ?? reduxSampleRateHz ?? 3_200_000;
   const sourceSampleRateOptions =
     roleSource?.sdr.sample_rate_options ?? sampleRateOptions;
   const wholeChannelSampleRate = resolveWholeChannelSampleRate({
@@ -143,7 +147,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const settings = useSdrSettings({
     maxSampleRate: sourceMaxSampleRate,
     currentSampleRateHz: sourceSampleRateValue,
-    minReceiveSampleRate: sourceSdrSettings?.min_receive_sample_rate,
+    minReceiveSampleRate: sourceSdrSettings?.min_receive_sample_rate ?? undefined,
     sampleRateOptions: sourceSampleRateOptions,
     sdrSettings: sourceSdrSettings,
     deviceType: roleSource?.kind ?? deviceProfile?.kind,
@@ -152,11 +156,10 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   });
   const applyFrequencyRange = React.useCallback(
     (range: { min: number; max: number }) => {
-      spectrumStoreDispatch({ type: "SET_FREQUENCY_RANGE", range });
       dispatch(setFrequencyRange(range));
       spectrumTransport.sendFrequencyRange(range);
     },
-    [dispatch, spectrumStoreDispatch, wsConnection],
+    [dispatch, spectrumTransport, wsConnection],
   );
   const { handleSampleRateChange } = useLiveSampleRateControl({
     sourceMode: "live",
@@ -168,7 +171,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     activeChannelSampleRate: wholeChannelSampleRate,
     maxSampleRateHz: sourceMaxSampleRate,
     activeSignalAreaBounds,
-    frequencyRange: liveSpectrumState.frequencyRange ?? spectrum.frequencyRange,
+    frequencyRange: reduxFrequencyRange ?? spectrum.frequencyRange,
     sampleRateHz: sourceSampleRateValue,
     fftSize: spectrum.fftSize,
     maxFrameRateLimit: settings.maxFrameRate,
@@ -189,7 +192,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         variant="default"
         sourceMode="live"
         maxSampleRate={sourceMaxSampleRate}
-        minReceiveSampleRate={sourceSdrSettings?.min_receive_sample_rate}
+        minReceiveSampleRate={sourceSdrSettings?.min_receive_sample_rate ?? undefined}
         sampleRate={sourceSampleRateValue}
         sampleRateOptions={settings.sampleRateOptions}
         wholeChannelSampleRate={wholeChannelSampleRate}
@@ -228,7 +231,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         hackrfVgaGain={settings.hackrfVgaGain}
         hackrfAmpEnabled={settings.hackrfAmpEnabled}
         hackrfBasebandBandwidth={settings.hackrfBasebandBandwidth}
-        hackrfCurrentSampleRate={sampleRateHzEffective || spectrum.sampleRateHz}
+        hackrfCurrentSampleRate={reduxSampleRateHz || spectrum.sampleRateHz}
         tunerAGC={settings.tunerAGC}
         rtlAGC={settings.rtlAGC}
         stitchSourceSettings={{ gain: settings.gain, ppm: settings.ppm }}

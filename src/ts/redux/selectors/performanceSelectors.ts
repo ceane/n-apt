@@ -86,14 +86,14 @@ export const selectSourceMode = createSelector(
 );
 
 export const selectSelectedSourceId = (state: RootState) =>
-  state.sourceSelection.selectedSourceId;
-const selectSourceSelectionState = (state: RootState) => state.sourceSelection;
+  state?.sourceSelection?.selectedSourceId ?? null;
+const selectSourceSelectionState = (state: RootState) => state?.sourceSelection;
 export const selectSourceSelectionLifecycle = createSelector(
   [selectSourceSelectionState],
   (selection) => ({
-    selectedSourceId: selection.selectedSourceId,
-    selectionIntentSourceId: selection.selectionIntentSourceId,
-    pendingSourceSwitchId: selection.pendingSourceSwitchId,
+    selectedSourceId: selection?.selectedSourceId ?? null,
+    selectionIntentSourceId: selection?.selectionIntentSourceId ?? null,
+    pendingSourceSwitchId: selection?.pendingSourceSwitchId ?? null,
   }),
 );
 
