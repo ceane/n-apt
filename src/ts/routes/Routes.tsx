@@ -87,6 +87,12 @@ const CellularTriangulationTargetingDemoRoute = lazy(() =>
     default: m.CellularTriangulationTargetingDemoRoute,
   })),
 );
+const QuestionnaireRoute = lazy(() =>
+  import("@n-apt/legal-app/routes/QuestionnaireRoute"),
+);
+const XArchiveFormatterRoute = lazy(() =>
+  import("@n-apt/legal-app/routes/TranscriptFixerRoute"),
+);
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
 import { LearnSignalsProvider } from "@n-apt/contexts/LearnSignalsContext";
@@ -104,6 +110,7 @@ import {
   useAppSelector,
 } from "@n-apt/redux";
 import { selectSourceMode } from "@n-apt/redux/selectors/performanceSelectors";
+import { NsaProgramToolsShell } from "@n-apt/legal-app/NsaProgramToolsShell";
 
 const SpectrumRouteWithSidebar: React.FC<{
   activeTab: "visualizer" | "analysis" | "draw";
@@ -452,6 +459,26 @@ const AppRoutesInner: React.FC = () => {
             >
               <CellularTriangulationTargetingDemoRoute />
             </Suspense>
+          }
+        />
+        <Route
+          path="/questionnaire"
+          element={
+            <NsaProgramToolsShell>
+              <Suspense fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}>
+                <QuestionnaireRoute />
+              </Suspense>
+            </NsaProgramToolsShell>
+          }
+        />
+        <Route
+          path="/x-archive-formatter"
+          element={
+            <NsaProgramToolsShell>
+              <Suspense fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}>
+                <XArchiveFormatterRoute />
+              </Suspense>
+            </NsaProgramToolsShell>
           }
         />
       </Routes>
