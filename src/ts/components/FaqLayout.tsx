@@ -1,7 +1,8 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import styled from "styled-components";
-import nAptLogo from "@n-apt/public/images/icon.svg";
+import { Logo } from "@n-apt/components/ui/Logo";
+import { AppBackButton } from "@n-apt/components/ui/AppBackButton";
 
 const Page = styled.main`
   min-height: 100dvh;
@@ -61,24 +62,6 @@ const LogoLink = styled(Link)`
   width: fit-content;
   margin-bottom: 8px;
   text-decoration: none;
-`;
-
-const Logo = styled.img`
-  width: 48px;
-  height: 48px;
-  display: block;
-
-  @media (prefers-color-scheme: dark) {
-    filter: invert(0.9);
-  }
-`;
-
-const BrandTitle = styled.span`
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 14px;
-  font-weight: 700;
-  color: ${(props) => props.theme.textPrimary};
-  letter-spacing: 0.05em;
 `;
 
 const NavGroup = styled.div`
@@ -145,22 +128,6 @@ const SectionLink = styled.a`
   }
 `;
 
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  color: ${(props) => props.theme.textMuted};
-  text-decoration: none;
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  transition: color 0.15s ease;
-
-  &:hover {
-    color: ${(props) => props.theme.primary};
-  }
-`;
-
 const ContentArea = styled.article`
   width: 100%;
   min-width: 0;
@@ -188,6 +155,7 @@ export const FaqLayout: React.FC<FaqLayoutProps> = ({
   const isFftIfft =
     location.pathname === "/faq/fft-ifft" ||
     location.pathname === "/fft-ifft";
+  const isFaqHome = location.pathname === "/faq";
 
   return (
     <Page>
@@ -196,12 +164,14 @@ export const FaqLayout: React.FC<FaqLayoutProps> = ({
           <Sidebar aria-label="FAQ navigation">
             <SidebarTop>
               <LogoLink to="/" aria-label="N-APT home">
-                <Logo src={nAptLogo} alt="N-APT" />
-                <BrandTitle>N-APT FAQ</BrandTitle>
+                <Logo size={48} alt="N-APT" />
               </LogoLink>
 
               <NavGroup>
                 <NavGroupTitle>FAQ Pages</NavGroupTitle>
+                <PageLink to="/faq" $active={isFaqHome}>
+                  Lingo and Learn
+                </PageLink>
                 <PageLink to="/faq/iq-captures" $active={isIqCaptures}>
                   I/Q Capture
                 </PageLink>
@@ -224,7 +194,7 @@ export const FaqLayout: React.FC<FaqLayoutProps> = ({
               )}
             </SidebarTop>
 
-            <BackLink to="/">← Back to N-APT</BackLink>
+            <AppBackButton variant="sidebar" />
           </Sidebar>
 
           <ContentArea>{children}</ContentArea>

@@ -139,7 +139,9 @@ const SettingSelect = styled.select`
   }
 `;
 
-export const ThemeSection: React.FC = () => {
+export const ThemeSection: React.FC<{ hideHeader?: boolean }> = ({
+  hideHeader = false,
+}) => {
   const appMode = useAppSelector((s) => s.theme.appMode);
   const accentColor = useAppSelector((s) => s.theme.accentColor);
   const fftColor = useAppSelector((s) => s.theme.fftColor);
@@ -173,6 +175,7 @@ export const ThemeSection: React.FC = () => {
         icon={<SwatchBook size={14} />}
         label="Theme"
         defaultOpen={isOpen}
+        hideHeader={hideHeader}
       >
         <Row label={<IconLabel icon={Palette} text="App Theme" />}>
           <SettingSelect
