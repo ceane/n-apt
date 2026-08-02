@@ -131,8 +131,11 @@ export interface CollapsibleProps {
   icon?: React.ReactNode;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  open?: boolean;
+  sectionId?: string;
   onOpenChange?: (isOpen: boolean) => void;
   titlePulseToken?: number;
+  hideHeader?: boolean;
 }
 
 export const Collapsible: React.FC<CollapsibleProps> = ({
@@ -141,10 +144,19 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   icon,
   children,
   defaultOpen = false,
+  open,
+  sectionId,
   onOpenChange,
   titlePulseToken,
+  hideHeader = false,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
+
+  React.useEffect(() => {
+    if (open !== undefined) {
+      setIsOpen(open);
+    }
+  }, [open]);
 
   const handleToggle = React.useCallback(() => {
     setIsOpen((prev) => {
@@ -154,9 +166,18 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
     });
   }, [onOpenChange]);
 
+  if (hideHeader) {
+    return <>{children}</>;
+  }
+
   return (
     <>
-      <CollapsibleTitleContainer type="button" onClick={handleToggle}>
+      <CollapsibleTitleContainer
+        type="button"
+        onClick={handleToggle}
+        aria-expanded={isOpen}
+        data-sidebar-section={sectionId}
+      >
         {title ? (
           <CollapsibleTitleContent
             $pulseToken={titlePulseToken}
