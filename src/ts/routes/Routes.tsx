@@ -77,9 +77,24 @@ const IQCapturesRoute = lazy(() =>
     default: m.IQCapturesRoute,
   })),
 );
+const GetStartedRoute = lazy(() =>
+  import("@n-apt/routes/GetStartedRoute").then((m) => ({
+    default: m.GetStartedRoute,
+  })),
+);
+const SettingsRoute = lazy(() =>
+  import("@n-apt/routes/SettingsRoute").then((m) => ({
+    default: m.SettingsRoute,
+  })),
+);
 const FFTIFFTRoute = lazy(() =>
   import("@n-apt/routes/FFTIFFTRoute").then((m) => ({
     default: m.FFTIFFTRoute,
+  })),
+);
+const FAQOverviewRoute = lazy(() =>
+  import("@n-apt/routes/FAQOverviewRoute").then((m) => ({
+    default: m.FAQOverviewRoute,
   })),
 );
 const CellularTriangulationTargetingDemoRoute = lazy(() =>
@@ -262,7 +277,27 @@ const AppRoutesInner: React.FC = () => {
           path="/visualizer"
           element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
         />
+        <Route
+          path="/get-started"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <GetStartedRoute />
+            </Suspense>
+          }
+        />
         <Route path="/demodulate" element={<DemodRouteWithSidebar />} />
+        <Route
+          path="/settings"
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <SettingsRoute />
+            </Suspense>
+          }
+        />
         <Route
           path="/draw-signal"
           element={
@@ -421,7 +456,13 @@ const AppRoutesInner: React.FC = () => {
         />
         <Route
           path="/faq"
-          element={<Navigate to="/faq/iq-captures" replace />}
+          element={
+            <Suspense
+              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
+            >
+              <FAQOverviewRoute />
+            </Suspense>
+          }
         />
         <Route
           path="/faq/iq-captures"
