@@ -83,6 +83,8 @@ export interface WebSocketState {
     | "connected"
     | "reconnecting"
     | "error";
+  /** True after at least one successful control-plane open in this page life. */
+  hasConnectedOnce: boolean;
   reconnectAttempts: number;
   maxReconnectAttempts: number;
 
@@ -145,6 +147,7 @@ export interface WebSocketState {
 const initialState: WebSocketState = {
   isConnected: false,
   connectionStatus: "disconnected",
+  hasConnectedOnce: false,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
 
@@ -195,14 +198,24 @@ const websocketSlice = createSlice({
     setConnected: (state) => {
       state.isConnected = true;
       state.connectionStatus = "connected";
+      state.hasConnectedOnce = true;
       state.reconnectAttempts = 0;
       state.error = null;
       state.cryptoCorrupted = false;
     },
 
+    softDisconnect: (state) => {
+      state.isConnected = false;
+      state.connectionStatus = "disconnected";
+      // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
+      // Hard reset remains available via setDisconnected/reset.
+    },
+
     setDisconnected: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      // Keep hasConnectedOnce so a killed backend can show Server Down instead
+      // of the first-boot Loading FFT path.
       state.deviceState = null;
       state.deviceLoadingReason = null;
       state.activeSourceId = null;
@@ -325,6 +338,7 @@ const websocketSlice = createSlice({
 export const {
   setConnecting,
   setConnected,
+  softDisconnect,
   setDisconnected,
   setReconnecting,
   setError,

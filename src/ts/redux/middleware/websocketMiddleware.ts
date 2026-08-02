@@ -2,6 +2,7 @@ import { Middleware, Dispatch } from "@reduxjs/toolkit";
 import {
   setConnecting,
   setConnected,
+  softDisconnect,
   setDisconnected,
   setReconnecting,
   setError,
@@ -2139,7 +2140,7 @@ const createWebSocketMiddleware =
 
             ws.onclose = () => {
               if (wsInstance.disposed) return;
-              dispatch(setDisconnected());
+              dispatch(softDisconnect());
 
               // Exponential backoff reconnection
               if (

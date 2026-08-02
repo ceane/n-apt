@@ -2661,6 +2661,40 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("WebSocket disconnect handling", () => {
+    it("soft disconnect keeps source inventory while marking the control plane down", () => {
+      const store = configureStore({
+        reducer: { websocket: websocketSlice },
+        middleware: (gDM) => gDM({ serializableCheck: false }).concat(websocketMiddleware),
+      });
+
+      store.dispatch(
+        updateDeviceState({
+          isConnected: true,
+          connectionStatus: "connected",
+          hasConnectedOnce: true,
+          activeSourceId: "mock-apt",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              capability: "mock",
+              status: "receiving",
+            } as any,
+          ],
+          sourceStatuses: { "mock-apt": "receiving" },
+        }),
+      );
+
+      store.dispatch({ type: "websocket/softDisconnect" });
+
+      const state = store.getState().websocket;
+      expect(state.isConnected).toBe(false);
+      expect(state.connectionStatus).toBe("disconnected");
+      expect(state.hasConnectedOnce).toBe(true);
+      expect(state.activeSourceId).toBe("mock-apt");
+      expect(state.sources).toHaveLength(1);
+    });
+
     it("does not queue Tx or preview frame requests while disconnected", () => {
       const middlewareStore = configureStore({
         reducer: {
