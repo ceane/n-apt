@@ -183,6 +183,35 @@ export const shouldPresentMockTxStandby = ({
 };
 
 /**
+ * A standby request is visible after the selected source owns the stream. On
+ * initial device discovery the source status can arrive before the active
+ * stream id, so an empty active id is also a valid initial ownership state.
+ * A different non-empty active id still blocks the presentation during a
+ * source handoff. Keeping this commit boundary shared by the route,
+ * lifecycle, and canvas prevents a standby bar from racing ahead of the
+ * frame transition.
+ */
+export const isCommittedStandbyPresentation = ({
+  requested,
+  selectedSourceId,
+  activeSourceId,
+  presentedSourceId,
+  isTransmitting,
+}: {
+  requested: boolean;
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+  presentedSourceId?: string | null;
+  isTransmitting: boolean;
+}): boolean =>
+  requested &&
+  !isTransmitting &&
+  !!selectedSourceId &&
+  (!activeSourceId ||
+    selectedSourceId === activeSourceId ||
+    selectedSourceId === presentedSourceId);
+
+/**
  * Allows a source-owned Mock Tx preview to be requested during handoff.
  *
  * The preview socket is independently scoped to Mock Tx, so waiting for the
@@ -236,8 +265,9 @@ export const isCurrentSourceFrameReady = ({
   }
   return (
     readiness.streamEpoch === null ||
-    (typeof expectedStreamEpoch === "number" &&
-      readiness.streamEpoch === expectedStreamEpoch)
+    expectedStreamEpoch === null ||
+    typeof expectedStreamEpoch === "undefined" ||
+    readiness.streamEpoch === expectedStreamEpoch
   );
 };
 
@@ -265,7 +295,40 @@ export type LiveSourceLifecycleTrace = {
   transportPhase: SourceTransportPhase;
 };
 
-const RECOVERY_STATUSES = new Set(["loading", "loose", "stale"]);
+const RECOVERY_STATUSES = new Set(["loading", "stale"]);
+
+/**
+ * Distinguish first-boot / reconnect warm-up from a killed backend.
+ *
+ * Bare `!isConnected` is wrong: the control socket starts disconnected and
+ * passes through `connecting` before any frame can arrive. Server Down is only
+ * valid after a live session existed, or on a hard socket error.
+ */
+export const isControlPlaneUnavailable = ({
+  isConnected,
+  connectionStatus = null,
+  hasConnectedOnce = false,
+  sourceHandoffPending = false,
+  transportPhase = null,
+}: {
+  isConnected: boolean;
+  connectionStatus?: string | null;
+  hasConnectedOnce?: boolean;
+  sourceHandoffPending?: boolean;
+  transportPhase?: string | null;
+}): boolean => {
+  if (isConnected || connectionStatus === "connected") return false;
+  if (
+    connectionStatus === "connecting" ||
+    connectionStatus === "reconnecting"
+  ) {
+    return false;
+  }
+  // Device switches and transport warm-up are not backend death.
+  if (sourceHandoffPending || transportPhase === "warming") return false;
+  if (connectionStatus === "error") return true;
+  return hasConnectedOnce === true;
+};
 
 /**
  * Resolves selection, socket warm-up, backend commit, first-frame readiness,
@@ -285,6 +348,10 @@ export const resolveLiveSourceLifecycle = ({
   handoffPlaceholder = null,
   standbyPlaceholder = null,
   isLive = true,
+  isConnected = true,
+  connectionStatus = null,
+  hasConnectedOnce = false,
+  sourceHandoffPending,
   isStandby = false,
   readinessSequence = null,
   readiness = null,
@@ -301,6 +368,10 @@ export const resolveLiveSourceLifecycle = ({
   handoffPlaceholder?: CanvasPlaceholderState | null;
   standbyPlaceholder?: CanvasPlaceholderState | null;
   isLive?: boolean;
+  isConnected?: boolean;
+  connectionStatus?: string | null;
+  hasConnectedOnce?: boolean;
+  sourceHandoffPending?: boolean;
   isStandby?: boolean;
   readinessSequence?: number | null;
   readiness?: SourceFrameReadiness | null;
@@ -327,6 +398,28 @@ export const resolveLiveSourceLifecycle = ({
   });
 
   if (!isLive) return result("idle", null);
+  // Only after a live session is lost. First-boot `disconnected`/`connecting`
+  // must keep warming/loading so Mock APT can receive its first frames.
+  const handoffPending =
+    sourceHandoffPending ??
+    (!!selectedSourceId && selectedSourceId !== activeSourceId);
+  if (
+    isControlPlaneUnavailable({
+      isConnected,
+      connectionStatus,
+      hasConnectedOnce,
+      sourceHandoffPending: handoffPending,
+      transportPhase,
+    })
+  ) {
+    return result("failed", {
+      kind: "error",
+      sourceLabel: selectedSourceId ?? undefined,
+      reason: "Server down",
+      message:
+        "The server was disconnected due to being manually exited or an error.",
+    });
+  }
   if (transportPhase === "failed" && transportSourceId === selectedSourceId) {
     return result("failed", {
       kind: "error",
@@ -462,8 +555,12 @@ export const useLiveSourceLifecycle = (
     () => resolveLiveSourceLifecycle(input),
     [
       input.activeSourceId,
+      input.connectionStatus,
       input.deviceStatus,
+      input.hasConnectedOnce,
+      input.sourceHandoffPending,
       input.hasValidFrame,
+      input.isConnected,
       input.isLive,
       input.isStandby,
       input.readiness,

@@ -22,13 +22,43 @@ import {
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
 } from "@n-apt/utils/visualizationZoom";
-import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
+import {
+  isSourceStreamAvailable,
+  resolveSourceModeManagement,
+} from "@n-apt/utils/sourceModeManagement";
+import { isControlPlaneUnavailable } from "@n-apt/hooks/liveSourceLifecycle";
 
 type FFTAndWaterfallProps = FFTCanvasProps & {
   waterfallHeaderActionContent?: ReactNode;
   onLoadingStateChange?: (isLoading: boolean) => void;
   loadingPlaceholderDelayMs?: number;
 };
+
+export const shouldShowLiveServerDownPlaceholder = ({
+  isConnected,
+  connectionStatus = null,
+  hasConnectedOnce = false,
+  sourceStreamReady: _sourceStreamReady,
+  sourceHandoffPending = false,
+  sourceTransportPhase = null,
+}: {
+  isConnected: boolean;
+  connectionStatus?: string | null;
+  hasConnectedOnce?: boolean;
+  sourceStreamReady?: boolean;
+  sourceHandoffPending?: boolean;
+  sourceTransportPhase?: string | null;
+}): boolean =>
+  // First-boot disconnected/connecting must stay on Loading FFT. After a live
+  // session existed, a dropped control socket is Server Down even if a stale
+  // source status or transport phase still looks ready.
+  isControlPlaneUnavailable({
+    isConnected,
+    connectionStatus,
+    hasConnectedOnce,
+    sourceHandoffPending,
+    transportPhase: sourceTransportPhase,
+  });
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
   switch (signal) {
@@ -43,6 +73,31 @@ const resolveTxSignalDisplayLabel = (signal: string) => {
     default:
       return signal.toUpperCase();
   }
+};
+
+type VisualizerConnectionState =
+  | "file"
+  | "ready"
+  | "warming"
+  | "down"
+  | "unavailable";
+
+const resolveVisualizerConnectionState = ({
+  sourceMode,
+  sourceStreamReady,
+  placeholderErrorReason,
+  sourceTransportPhase,
+}: {
+  sourceMode: string;
+  sourceStreamReady: boolean;
+  placeholderErrorReason: string | null;
+  sourceTransportPhase?: string | null;
+}): VisualizerConnectionState => {
+  if (sourceMode === "file") return "file";
+  if (placeholderErrorReason === "Server down") return "down";
+  if (sourceStreamReady) return "ready";
+  if (sourceTransportPhase === "warming") return "warming";
+  return "unavailable";
 };
 
 const Container = styled.div`
@@ -116,19 +171,29 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         (source) => source.id === reduxState.websocket.activeSourceId,
       ),
     );
+    const wsState = useAppSelector((reduxState) => reduxState.websocket);
+    const activeSourceStatus = activeSource
+      ? (wsState.sourceStatuses?.[activeSource.id] ?? activeSource.status)
+      : null;
     const txSuiteSourceId = useAppSelector(
       (reduxState) =>
         reduxState.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
     );
     const sourceModeManagement = resolveSourceModeManagement({
-      source: activeSource,
+      source: activeSource
+        ? { ...activeSource, status: activeSourceStatus }
+        : activeSource,
       txBindingSourceId: txSuiteSourceId,
     });
-    const canShowTxSlider = sourceModeManagement.shouldShowTxControls;
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
-    const wsState = useAppSelector((reduxState) => reduxState.websocket);
+    const canShowTxSlider =
+      sourceMode !== "file" &&
+      (props.txSlider?.visible === true ||
+        sourceModeManagement.shouldShowTxControls ||
+        activeSourceStatus === "standby" ||
+        activeSourceStatus === "transmitting");
 
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
@@ -155,15 +220,34 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         ((currentFrame as any).data?.length ?? 0) > 0 ||
         ((currentFrame as any).waveform?.length ?? 0) > 0)
     );
+    const sourceStreamReady =
+      isSourceStreamAvailable(activeSourceStatus) ||
+      wsState.sourceTransport?.phase === "ready" ||
+      hasIncomingData;
     const hasLiveFrame =
       hasRenderableFrame ||
-      ((props.isPaused || props.isStandby) && hasIncomingData);
+      // A source/mode slot can already contain the cached target frame while
+      // the canvas is waiting for its first repaint after a handoff. Treat it
+      // as live so the shared loading state does not erase that presentation.
+      (hasIncomingData &&
+        (props.presentationPolicy?.suppressStaleFrames === true ||
+          props.presentationPolicy?.preserveMatchingPresentation === true));
     const placeholderErrorReason = useMemo(() => {
       if (props.placeholderErrorReason) {
         return props.placeholderErrorReason;
       }
       if (sourceMode === "live") {
-        if (!wsState.isConnected) {
+        if (
+          shouldShowLiveServerDownPlaceholder({
+            isConnected: wsState.isConnected,
+            connectionStatus: wsState.connectionStatus,
+            hasConnectedOnce: wsState.hasConnectedOnce === true,
+            sourceStreamReady,
+            sourceHandoffPending:
+              props.presentationPolicy?.suppressStaleFrames === true,
+            sourceTransportPhase: wsState.sourceTransport?.phase,
+          })
+        ) {
           return "Server down";
         }
         if (wsState.cryptoCorrupted) {
@@ -175,15 +259,25 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       props.placeholderErrorReason,
       sourceMode,
       wsState.isConnected,
+      wsState.connectionStatus,
+      wsState.hasConnectedOnce,
       wsState.cryptoCorrupted,
+      sourceStreamReady,
+      props.presentationPolicy?.suppressStaleFrames,
+      wsState.sourceTransport?.phase,
     ]);
 
     const awaitingDeviceData = useMemo(() => {
       if (sourceMode === "live") {
-        if (wsState.deviceState === "loading") {
+        if (
+          wsState.deviceState === "loading" ||
+          wsState.deviceState === "initializing"
+        ) {
           return wsState.deviceLoadingReason === "restart"
             ? "Restarting device..."
-            : "Loading device...";
+            : wsState.deviceState === "initializing"
+              ? "Initializing device..."
+              : "Loading device...";
         }
       }
       return props.awaitingDeviceData || false;
@@ -205,11 +299,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
 
     const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
-      ? awaitingDeviceData ||
-        (sourceMode === "live" &&
-          !props.isPaused &&
-          !props.isStandby &&
-          !hasLiveFrame)
+      ? placeholderErrorReason
+        ? false
+        : awaitingDeviceData ||
+          (sourceMode === "live" &&
+            !props.isPaused &&
+            !props.isStandby &&
+            !hasLiveFrame)
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
@@ -234,6 +330,26 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       props.isStandby,
       sharedAwaitingDeviceData,
     ]);
+
+    const visualizerConnectionState = resolveVisualizerConnectionState({
+      sourceMode,
+      sourceStreamReady,
+      placeholderErrorReason,
+      sourceTransportPhase: wsState.sourceTransport?.phase,
+    });
+    const visualizerFrameState = hasRenderableFrame
+      ? "rendered"
+      : hasIncomingData
+        ? "received"
+        : props.isStandby
+          ? "standby"
+          : "awaiting";
+    const visualizerMode =
+      sourceMode === "file"
+        ? "file"
+        : sourceModeManagement.isTxMode
+          ? "tx"
+          : "rx";
 
     useEffect(() => {
       if (loadingPlaceholderTimeoutRef.current) {
@@ -392,7 +508,20 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
 
     return (
-      <Container>
+      <Container
+        data-testid="fft-waterfall"
+        data-stream-source-id={
+          sourceModeManagement.sourceId ?? props.expectedSourceId ?? ""
+        }
+        data-stream-mode={visualizerMode}
+        data-stream-connection-state={visualizerConnectionState}
+        data-stream-frame-state={visualizerFrameState}
+        data-stream-frame-sequence={
+          currentFrame && typeof currentFrame.sequence === "number"
+            ? String(currentFrame.sequence)
+            : ""
+        }
+      >
         <Left>
           <SpectrumStage>
             <FFTCanvas
@@ -419,7 +548,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             />
             {props.overlayContent ? props.overlayContent : null}
           </SpectrumStage>
-          <FIFOWaterfallCanvas
+            <FIFOWaterfallCanvas
             isPaused={props.isPaused}
             isStandby={props.isStandby}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
@@ -429,10 +558,17 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
-            placeholderState={
-              sharedPlaceholderState?.kind === "loading" &&
-              !shouldShowLoadingPlaceholder
-                ? undefined
+              placeholderState={
+                props.isPaused && !sharedPlaceholderState
+                  ? {
+                      kind: "top-bar",
+                      kicker: "Paused",
+                      title: "",
+                      sourceLabel: props.placeholderSourceLabel,
+                    }
+                  : sharedPlaceholderState?.kind === "loading" &&
+                  !shouldShowLoadingPlaceholder
+                  ? undefined
                 : sharedPlaceholderState?.kind === "loading"
                   ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }
                   : sharedPlaceholderState

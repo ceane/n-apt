@@ -1,6 +1,8 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
+import FFTAndWaterfall, {
+  shouldShowLiveServerDownPlaceholder,
+} from "@n-apt/components/FFTAndWaterfall";
 
 const fftCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fft-canvas" />
@@ -101,6 +103,43 @@ describe("FFTAndWaterfall", () => {
     waterfallCanvasMock.mockClear();
   });
 
+  it("reports server down only after a connected session is lost", () => {
+    expect(
+      shouldShowLiveServerDownPlaceholder({
+        isConnected: false,
+        connectionStatus: "connecting",
+        hasConnectedOnce: false,
+        sourceStreamReady: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowLiveServerDownPlaceholder({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: false,
+        sourceStreamReady: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowLiveServerDownPlaceholder({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        sourceStreamReady: false,
+        sourceHandoffPending: true,
+        sourceTransportPhase: "warming",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowLiveServerDownPlaceholder({
+        isConnected: true,
+        connectionStatus: "connected",
+        hasConnectedOnce: true,
+        sourceStreamReady: false,
+      }),
+    ).toBe(false);
+  });
+
   it("renders FFTCanvas plus dedicated waterfall and sliders chrome", () => {
     render(
       <FFTAndWaterfall
@@ -135,7 +174,37 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
-  it("removes the entire Tx slider overlay from paused half-duplex Rx", () => {
+  it("treats a cached target frame as live during a source handoff", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{
+          current: {
+            source_id: "mock-apt",
+            data_type: "iq_raw",
+            iq_data: new Uint8Array([1, 2, 3, 4]),
+          },
+        }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: true,
+          clearStalePresentation: true,
+          preserveMatchingPresentation: false,
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.interactionDisabled).toBe(false);
+    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.placeholderState).toBeNull();
+  });
+
+  it("keeps the Tx slider available for half-duplex Tx standby", () => {
     mockedWebsocketState = {
       activeSourceId: "hackrf-1",
       sources: [
@@ -162,8 +231,39 @@ describe("FFTAndWaterfall", () => {
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
-    expect(fftProps?.txSlider).toBeUndefined();
-    expect(fftProps?.txSliderAllowed).toBe(false);
+    expect(fftProps?.txSlider).toMatchObject({ visible: true });
+    expect(fftProps?.txSliderAllowed).toBe(true);
+  });
+
+  it("keeps a route-authorized Tx slider visible while active transport catches up", () => {
+    mockedWebsocketState = {
+      activeSourceId: "rtl-1",
+      sources: [
+        {
+          id: "rtl-1",
+          kind: "rtl_sdr",
+          capability: "rx_only",
+          status: "receiving",
+        },
+      ],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 24_100_000, max: 30_370_000 }}
+        centerFrequencyHz={27_235_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        txSlider={{ visible: true } as any}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.txSlider).toMatchObject({ visible: true });
+    expect(fftProps?.txSliderAllowed).toBe(true);
   });
 
   it("does not require a live frame before rendering file playback", () => {
@@ -189,6 +289,32 @@ describe("FFTAndWaterfall", () => {
 
     expect(fftProps?.awaitingDeviceData).toBe(false);
     expect(waterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("never mounts the Tx slider control in file processing mode", () => {
+    mockedSourceMode = "file";
+    mockedWebsocketState = {
+      activeSourceId: "mock-tx",
+      sources: [{ id: "mock-tx", capability: "tx", kind: "mock_tx" }],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(sliderProps?.canShowTxSlider).toBe(false);
   });
 
   it("clears waterfall loading as soon as FFT reports a rendered frame", () => {
@@ -619,6 +745,8 @@ describe("FFTAndWaterfall", () => {
     };
     mockedWebsocketState = {
       isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
       activeSourceId: "mock-apt",
       sources: [
         {
@@ -649,12 +777,74 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBe("Server down");
     expect(fftProps?.placeholderState).toBeNull();
+    expect(fftProps?.awaitingDeviceData).toBe(false);
     const waterfallProps =
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(waterfallProps?.placeholderErrorReason).toBe("Server down");
     expect(waterfallProps?.placeholderState).toBeNull();
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("reports server down even when a stale receiving status remains after kill", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+        },
+      ],
+      sourceStatuses: { "mock-apt": "receiving" },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBe("Server down");
+    expect(fftProps?.placeholderState).toBeNull();
+  });
+
+  it("does not flash Server Down while the first websocket connect is in flight", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "connecting",
+      hasConnectedOnce: false,
+      activeSourceId: null,
+      sources: [],
+      sourceStatuses: {},
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {

@@ -1,14 +1,17 @@
 import {
   attachLiveSourceLifecyclePlaceholder,
   buildLiveSourceLifecycleTrace,
+  isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   resolveLiveSourcePresentationPolicy,
   resolveLiveSourceLifecycle,
   resolvePausedFramePresentation,
   shouldClearPausedStandbyPresentation,
   shouldRequestMockTxStandbyPreview,
+  isCommittedStandbyPresentation,
   shouldPresentMockTxStandby,
 } from "../../src/ts/hooks/liveSourceLifecycle";
+import { resolveFrameReadiness } from "../../src/ts/utils/liveSourcePresentation";
 
 const handoffPlaceholder = {
   kind: "loading" as const,
@@ -122,6 +125,64 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(false);
   });
 
+  test("commits standby only when the selected source owns the active stream", () => {
+    const rapidToggleStates = [
+      { requested: true, activeSourceId: "mock-apt" },
+      { requested: false, activeSourceId: "mock-tx" },
+      { requested: true, activeSourceId: "mock-tx" },
+      { requested: false, activeSourceId: "mock-tx" },
+    ];
+
+    expect(
+      rapidToggleStates.map(({ requested, activeSourceId }) =>
+        isCommittedStandbyPresentation({
+          requested,
+          selectedSourceId: "mock-tx",
+          activeSourceId,
+          isTransmitting: false,
+        }),
+      ),
+    ).toEqual([false, false, true, false]);
+
+    expect(
+      isCommittedStandbyPresentation({
+        requested: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        presentedSourceId: "mock-tx",
+        isTransmitting: false,
+      }),
+    ).toBe(true);
+    expect(
+      isCommittedStandbyPresentation({
+        requested: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        presentedSourceId: "mock-apt",
+        isTransmitting: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("commits initial standby while the active source id is still warming", () => {
+    expect(
+      isCommittedStandbyPresentation({
+        requested: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: null,
+        isTransmitting: false,
+      }),
+    ).toBe(true);
+    expect(
+      isCommittedStandbyPresentation({
+        requested: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        isTransmitting: false,
+      }),
+    ).toBe(false);
+  });
+
   test("requests a source-owned Mock Tx preview while the device swap is warming", () => {
     expect(
       shouldRequestMockTxStandbyPreview({
@@ -168,6 +229,32 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(false);
   });
 
+  test("accepts manager-owned readiness when no legacy source epoch is supplied", () => {
+    expect(
+      isCurrentSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: null,
+        readiness: { sourceId: "mock-apt", streamEpoch: 29, sequence: 8132 },
+      }),
+    ).toBe(true);
+    expect(
+      resolveFrameReadiness({
+        frame: {
+          source_id: "mock-apt",
+          protocol_version: 2,
+          stream_epoch: 29,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: null,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(true);
+  });
+
   test("models transport warm-up, device commit, and first-frame readiness explicitly", () => {
     expect(
       resolveLiveSourceLifecycle({
@@ -204,6 +291,108 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffPlaceholder,
       }).phase,
     ).toBe("awaiting-frame");
+  });
+
+  test("keeps Loading FFT during the first connect instead of flashing Server Down", () => {
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        transportSourceId: "mock-apt",
+        transportPhase: "warming",
+        hasValidFrame: false,
+        deviceStatus: "loading",
+        isConnected: false,
+        connectionStatus: "connecting",
+        hasConnectedOnce: false,
+        handoffPlaceholder,
+      }),
+    ).toMatchObject({
+      phase: "recovering",
+    });
+
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-apt",
+        activeSourceId: null,
+        transportSourceId: null,
+        transportPhase: "idle",
+        hasValidFrame: false,
+        deviceStatus: null,
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: false,
+        handoffPlaceholder,
+      }).phase,
+    ).toBe("warming-transport");
+  });
+
+  test("never reports Server Down during a healthy source handoff", () => {
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        sourceHandoffPending: true,
+        transportPhase: "warming",
+      }),
+    ).toBe(false);
+
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        transportSourceId: "mock-tx",
+        transportPhase: "warming",
+        hasValidFrame: false,
+        deviceStatus: "connected",
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        handoffPlaceholder,
+      }).phase,
+    ).toBe("warming-transport");
+  });
+
+  test("still reports Server Down after a live session is lost with no handoff", () => {
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        sourceHandoffPending: false,
+        transportPhase: "idle",
+      }),
+    ).toBe(true);
+  });
+
+  test("shows Server Down only after a live control session is lost", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-apt",
+      activeSourceId: "mock-apt",
+      transportSourceId: "mock-apt",
+      transportPhase: "ready",
+      hasValidFrame: false,
+      deviceStatus: "receiving",
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      handoffPlaceholder,
+    });
+
+    expect(lifecycle.phase).toBe("failed");
+    expect(lifecycle.placeholder).toMatchObject({
+      kind: "error",
+      reason: "Server down",
+    });
+    expect(
+      attachLiveSourceLifecyclePlaceholder(lifecycle, {
+        handoffPlaceholder,
+      }).placeholder,
+    ).toMatchObject({
+      kind: "error",
+      reason: "Server down",
+    });
   });
 
   test("presents Mock Tx standby during its mock-to-mock handoff", () => {
@@ -334,7 +523,7 @@ describe("resolveLiveSourceLifecycle", () => {
         transportSourceId: "rtl-sdr-v4",
         transportPhase: "ready",
         hasValidFrame: false,
-        deviceStatus: "loose",
+        deviceStatus: "stale",
         devicePlaceholder: {
           kind: "loading",
           paneLabel: "device",
