@@ -8,6 +8,7 @@ import { AuthenticationRoute as AuthRoute } from "@n-apt/routes/AuthenticationRo
 import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
 import { PromptProvider } from "@n-apt/components/ui/PromptProvider";
 import { ReduxNotifications } from "@n-apt/components/ui/ReduxNotifications";
+import { PostAuthLandingRedirect } from "@n-apt/components/PostAuthLandingRedirect";
 import { useRustRebuildStatus } from "@n-apt/hooks/useRustRebuildStatus";
 import "katex/dist/katex.min.css";
 
@@ -44,12 +45,17 @@ export const App: React.FC = () => {
         <ReduxThemeProvider>
           <AuthProvider>
             <SpectrumProvider>
-              <AuthRoute>
-                <PromptProvider>
-                  <AppRoutes />
-                  <ReduxNotifications />
-                </PromptProvider>
-              </AuthRoute>
+              {/* Wraps the auth-gated content so it observes the full auth
+                  lifecycle and can block the app from painting while a
+                  post-login redirect is pending. */}
+              <PostAuthLandingRedirect>
+                <AuthRoute>
+                  <PromptProvider>
+                    <AppRoutes />
+                    <ReduxNotifications />
+                  </PromptProvider>
+                </AuthRoute>
+              </PostAuthLandingRedirect>
             </SpectrumProvider>
           </AuthProvider>
         </ReduxThemeProvider>

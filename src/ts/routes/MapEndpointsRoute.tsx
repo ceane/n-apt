@@ -260,6 +260,7 @@ export const MapEndpointsRoute: React.FC = () => {
     isLoaded,
     loadError,
     previewLocation,
+    refreshCurrentLocation,
   } = useMapLocations();
   const { segments, setNearestEndpoints, setMapBounds } = useMapRoutePaths();
   const {
@@ -278,6 +279,12 @@ export const MapEndpointsRoute: React.FC = () => {
   const [mcc, setMcc] = useState<string>("");
   const [mnc, setMnc] = useState<string>("");
   const boundsDebounceRef = useRef<number | null>(null);
+
+  // The map page is the one place that legitimately wants the user's current
+  // location, so request it here (on demand) rather than on every app load.
+  useEffect(() => {
+    refreshCurrentLocation();
+  }, [refreshCurrentLocation]);
 
   const techFilter = useMemo(() => selectedTech.join(","), [selectedTech]);
   const routeMatches = useRouteSegmentDistances(towers, segments);

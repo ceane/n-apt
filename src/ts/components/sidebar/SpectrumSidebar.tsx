@@ -116,6 +116,7 @@ import {
 import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { Collapsible } from "@n-apt/components/ui/Collapsible";
 import { fileRegistry } from "@n-apt/utils/fileRegistry";
+import { getSettingsDefaults } from "@n-apt/utils/settingsDefaults";
 import {
   parseFrequency,
 } from "@n-apt/utils/frequency";
@@ -1256,28 +1257,47 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   // Capture UI state
+  const settingsDefaults = getSettingsDefaults();
   const [activeCaptureAreas, setActiveCaptureAreas] = useState<string[]>([
-    "Onscreen",
+    ...settingsDefaults.capture.activeCaptureAreas,
   ]);
   const [acquisitionMode, setAcquisitionMode] = useState<
     "stepwise" | "interleaved" | "whole_sample"
-  >("stepwise");
+  >(settingsDefaults.capture.acquisitionMode);
   const [captureDurationMode, setCaptureDurationMode] = useState<
     "timed" | "manual"
-  >("timed");
-  const [captureDurationS, setCaptureDurationS] = useState(1);
+  >(settingsDefaults.capture.captureDurationMode);
+  const [captureDurationS, setCaptureDurationS] = useState(
+    settingsDefaults.capture.captureDurationS,
+  );
   const [captureFileTypeState, setCaptureFileTypeState] =
-    useState<CaptureFileType>(".napt");
-  const [captureEncrypted, setCaptureEncrypted] = useState(true);
-  const [capturePlayback, setCapturePlayback] = useState(false);
-  const [captureGeolocation, setCaptureGeolocation] = useState(false);
+    useState<CaptureFileType>(settingsDefaults.capture.captureFileType);
+  const [captureEncrypted, setCaptureEncrypted] = useState(
+    settingsDefaults.capture.captureEncrypted,
+  );
+  const [capturePlayback, setCapturePlayback] = useState(
+    settingsDefaults.capture.capturePlayback,
+  );
+  const [captureGeolocation, setCaptureGeolocation] = useState(
+    settingsDefaults.capture.captureGeolocation,
+  );
 
   // Snapshot UI state
-  const [snapshotWhole, setSnapshotWhole] = useState(false);
-  const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(false);
-  const [snapshotShowStats, setSnapshotShowStats] = useState(true);
-  const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(false);
-  const [snapshotUseThemeColors, setSnapshotUseThemeColors] = useState(false);
+  const [snapshotWhole, setSnapshotWhole] = useState(
+    settingsDefaults.snapshot.snapshotWhole,
+  );
+  const [snapshotShowWaterfall, setSnapshotShowWaterfall] = useState(
+    settingsDefaults.snapshot.snapshotShowWaterfall,
+  );
+  const [snapshotShowStats, setSnapshotShowStats] = useState(
+    settingsDefaults.snapshot.snapshotShowStats,
+  );
+  const [snapshotShowGeolocation, setSnapshotShowGeolocation] = useState(
+    settingsDefaults.snapshot.snapshotShowGeolocation,
+  );
+  const [snapshotUseThemeColors, setSnapshotUseThemeColors] = useState(
+    settingsDefaults.snapshot.snapshotUseThemeColors,
+  );
   const [snapshotGeolocationError, setSnapshotGeolocationError] = useState<
     string | null
   >(null);
@@ -1292,9 +1312,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
   const [snapshotFormat, setSnapshotFormat] = useState<
     "png" | "svg" | SnapshotVideoFormat | "animated-svg"
-  >("png");
+  >(settingsDefaults.snapshot.snapshotFormat);
   const [snapshotAspectRatio, setSnapshotAspectRatio] =
-    useState<SnapshotAspectRatio>("default");
+    useState<SnapshotAspectRatio>(settingsDefaults.snapshot.snapshotAspectRatio);
   const txSignal = useAppSelector((state) => state.spectrum.txSignal || "wifi");
   const txSampleRateHz = useAppSelector(
     (state) => state.spectrum.txSampleRateHz,

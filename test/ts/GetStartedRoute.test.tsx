@@ -29,7 +29,7 @@ describe("GetStartedRoute", () => {
     expect(screen.getByText("Use app")).toBeInTheDocument();
     expect(screen.getByText("View signals via SDRs")).toBeInTheDocument();
     expect(screen.getByText("Lingo and Learn")).toBeInTheDocument();
-    expect(screen.getByText("See hardware")).toBeInTheDocument();
+    expect(screen.getByText("See hardware gallery")).toBeInTheDocument();
     expect(screen.getByText("Learn more about signals")).toBeInTheDocument();
     expect(screen.getByText("Terms and Conditions")).toBeInTheDocument();
     expect(screen.getByText("Privacy Policy")).toBeInTheDocument();
@@ -58,7 +58,7 @@ describe("GetStartedRoute", () => {
       screen.getByRole("link", { name: /Lingo and Learn/i }),
     ).toHaveAttribute("href", "/faq");
     expect(
-      screen.getByRole("link", { name: /See hardware/i }),
+      screen.getByRole("link", { name: /See hardware gallery/i }),
     ).toHaveAttribute("href", "/3d-model-gallery");
     expect(
       screen.getByRole("link", { name: /Learn more about signals/i }),

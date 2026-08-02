@@ -87,31 +87,47 @@ const startingPoints: StartingPoint[] = [
 const Page = styled.main`
   box-sizing: border-box;
   width: 100%;
-  height: 100%;
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: clamp(32px, 6vw, 80px) clamp(20px, 5vw, 72px);
+  padding: clamp(20px, 3vmin, 44px) clamp(20px, 5vmin, 64px);
   background: ${(props) => props.theme.background};
   color: ${(props) => props.theme.textPrimary};
+
+  /* Regular landscape aspect ratios: guarantee a comfortable fit. */
+  @media (min-aspect-ratio: 4/3) and (max-aspect-ratio: 21/9) {
+    padding-top: clamp(18px, 2.5vmin, 32px);
+    padding-bottom: clamp(18px, 2.5vmin, 32px);
+  }
 `;
 
 const Content = styled.div`
   display: flex;
   width: min(100%, 1160px);
-  min-height: calc(100dvh - 2 * clamp(32px, 6vw, 80px));
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: clamp(28px, 4vw, 52px);
-  margin: 0 auto;
+  gap: clamp(16px, 2.5vmin, 28px);
+  margin: auto;
+
+  /* Distinct rhythm around the title: room above it (after the logo) and
+     extra room below it, before the cards. */
+  > *:first-child {
+    margin-bottom: clamp(8px, 1.5vmin, 16px);
+  }
+
+  > h1 {
+    margin-top: clamp(4px, 1vmin, 12px);
+    margin-bottom: clamp(14px, 3vmin, 32px);
+  }
 `;
 
 const Title = styled.h1`
   margin: 0;
   color: ${(props) => props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.sans};
-  font-size: clamp(2.5rem, 6vw, 5.25rem);
+  font-size: clamp(1.75rem, 5.5vmin, 3.25rem);
   font-weight: 500;
   letter-spacing: -0.06em;
   line-height: 0.95;
@@ -122,7 +138,8 @@ const CardGrid = styled.section`
   display: grid;
   width: 100%;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-auto-rows: 1fr;
+  gap: clamp(14px, 2vmin, 20px);
 
   @media (max-width: 900px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -135,13 +152,14 @@ const CardGrid = styled.section`
 
 const Card = styled.article`
   display: flex;
-  min-height: 250px;
+  flex: 1;
+  min-height: clamp(180px, 26vmin, 240px);
   flex-direction: column;
-  gap: 24px;
+  gap: clamp(12px, 2vmin, 18px);
   box-sizing: border-box;
-  padding: 20px;
+  padding: clamp(16px, 2.2vmin, 22px);
   border: 1px solid ${(props) => props.theme.border};
-  border-radius: 18px;
+  border-radius: clamp(12px, 1.8vmin, 18px);
   background: ${(props) => props.theme.surface};
   transition:
     border-color 0.18s ease,
@@ -155,7 +173,8 @@ const Card = styled.article`
 `;
 
 const CardLink = styled(Link)`
-  display: block;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   color: inherit;
   text-decoration: none;
@@ -165,7 +184,7 @@ const CardLinkBody = styled(Link)`
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 24px;
+  gap: clamp(12px, 2vmin, 18px);
   min-width: 0;
   color: inherit;
   text-decoration: none;
@@ -173,7 +192,7 @@ const CardLinkBody = styled(Link)`
 
 const CardFooter = styled.div`
   margin-top: auto;
-  padding-top: 12px;
+  padding-top: clamp(8px, 1.5vmin, 12px);
   border-top: 1px solid ${(props) => props.theme.border};
 
   [role="switch"] {
@@ -195,12 +214,12 @@ const CardFooter = styled.div`
 
 const IconFrame = styled.div`
   display: flex;
-  width: 48px;
-  height: 48px;
+  width: clamp(36px, 6vmin, 48px);
+  height: clamp(36px, 6vmin, 48px);
   align-items: center;
   justify-content: center;
   border: 1px solid ${(props) => props.theme.border};
-  border-radius: 12px;
+  border-radius: clamp(8px, 1.5vmin, 12px);
   color: ${(props) => props.theme.primary};
   background: ${(props) => props.theme.background};
 `;
@@ -209,14 +228,14 @@ const CardBody = styled.div`
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: clamp(6px, 1.5vmin, 10px);
 `;
 
 const CardTitle = styled.h2`
   margin: 0;
   color: ${(props) => props.theme.textPrimary};
   font-family: ${(props) => props.theme.typography.sans};
-  font-size: 1.15rem;
+  font-size: clamp(0.95rem, 2.2vmin, 1.15rem);
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -226,7 +245,7 @@ const CardDescription = styled.p`
   margin: 0;
   color: ${(props) => props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.sans};
-  font-size: 0.9rem;
+  font-size: clamp(0.78rem, 1.8vmin, 0.9rem);
   line-height: 1.45;
 `;
 
@@ -298,7 +317,7 @@ export const GetStartedRoute: React.FC = () => {
   return (
     <Page>
       <Content>
-        <Logo size="clamp(88px, 11vw, 144px)" alt="N-APT" />
+        <Logo size="clamp(64px, 11vmin, 112px)" alt="N-APT" />
         <Title>Let&apos;s get started.</Title>
         <CardGrid aria-label="Ways to get started">
           {startingPoints.map(

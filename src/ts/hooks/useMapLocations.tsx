@@ -28,6 +28,7 @@ interface MapLocationsContextType {
   setPreviewLocation: (loc: MapLocation | null) => void;
   isLoaded: boolean;
   loadError: Error | undefined;
+  refreshCurrentLocation: () => void;
 }
 
 const MapLocationsContext = createContext<MapLocationsContextType | undefined>(
@@ -76,31 +77,34 @@ export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [locations]);
 
-  // Initialize/Update "Current Location"
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const current: MapLocation = {
-            id: "current",
-            name: "Current Location",
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            zoom: 15,
-            color: "#5eead4",
-          };
-          setCurrentLocation(current);
-
-          setLocations((prev) => {
-            const filtered = prev.filter((l) => l.id !== "current");
-            return [current, ...filtered];
-          });
-        },
-        (err) => {
-          console.warn("Geolocation failed:", err);
-        },
-      );
+  // Lazily fetch the browser's current location. Only called on demand
+  // (e.g. from the map page), never automatically on app load, so the
+  // geolocation permission prompt only appears when the user asks for it.
+  const refreshCurrentLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      return;
     }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const current: MapLocation = {
+          id: "current",
+          name: "Current Location",
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          zoom: 15,
+          color: "#5eead4",
+        };
+        setCurrentLocation(current);
+
+        setLocations((prev) => {
+          const filtered = prev.filter((l) => l.id !== "current");
+          return [current, ...filtered];
+        });
+      },
+      (err) => {
+        console.warn("Geolocation failed:", err);
+      },
+    );
   }, []);
 
   const addLocation = useCallback((name: string, lat: number, lng: number) => {
@@ -154,6 +158,7 @@ export const MapLocationsProvider: React.FC<{ children: React.ReactNode }> = ({
         setPreviewLocation,
         isLoaded,
         loadError,
+        refreshCurrentLocation,
       }}
     >
       {children}

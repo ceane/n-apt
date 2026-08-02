@@ -30,6 +30,7 @@ import { getLiveFrameRefForSource } from "@n-apt/visualization/frameRuntime";
 import { buildSdrLimitMarkers } from "@n-apt/utils/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/utils/sourcePersistence";
 import { isMockTxSource } from "@n-apt/utils/deviceCapabilities";
+import { getSettingsDefaults } from "@n-apt/utils/settingsDefaults";
 import {
   getVisualizerLifecycleKey,
   resolveWebGpuStreamTransition,
@@ -183,7 +184,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
-  const [showStatsSpectrum, setShowStatsSpectrum] = useState(false);
+  const [showStatsSpectrum, setShowStatsSpectrum] = useState(
+    () => getSettingsDefaults().snapshot.fastSnapshotShowStats,
+  );
   const [showStatsWaterfall, setShowStatsWaterfall] = useState(false);
   const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
     useState(false);
