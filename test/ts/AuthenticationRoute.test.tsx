@@ -46,6 +46,12 @@ describe("AuthenticationRoute", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses darken blending for the light-mode logo", () => {
+    renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
+
+    expect(document.head.textContent).toContain("mix-blend-mode:darken");
+  });
+
   it("should show the files and SDR hardware row beneath the auth controls", () => {
     renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
 
