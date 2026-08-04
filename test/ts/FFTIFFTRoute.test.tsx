@@ -1,8 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "styled-components";
 import "@testing-library/jest-dom";
-import { FFTIFFTRoute } from "@n-apt/routes/FFTIFFTRoute";
+import { FFTIFFTContent } from "@n-apt/components/faq/FFTIFFTContent";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
 
 const theme = buildAppTheme({
@@ -13,13 +12,11 @@ const theme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-describe("FFTIFFTRoute", () => {
-  it("renders FFT & IFFT explanation content and sidebar links", () => {
+describe("FFTIFFTContent", () => {
+  it("renders FFT & IFFT explanation content", () => {
     render(
       <ThemeProvider theme={theme}>
-        <MemoryRouter initialEntries={["/faq/fft-ifft"]}>
-          <FFTIFFTRoute />
-        </MemoryRouter>
+        <FFTIFFTContent />
       </ThemeProvider>,
     );
 
@@ -38,8 +35,5 @@ describe("FFTIFFTRoute", () => {
     expect(
       screen.getByRole("heading", { name: /^How N-APT uses FFT & IFFT$/i }),
     ).toBeInTheDocument();
-
-    expect(screen.getByRole("link", { name: "I/Q Capture" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "FFT & IFFT" })).toBeInTheDocument();
   });
 });

@@ -101,20 +101,24 @@ export const resolveFramePresentation = ({
     !!placeholderErrorReason || (!isDeviceConnected && !hasRenderableFrame);
   const currentExplicitPlaceholderState = explicitPlaceholderState;
   const hasExplicitPlaceholder = !!currentExplicitPlaceholderState;
+  const hasBlockingExplicitPlaceholder =
+    !!currentExplicitPlaceholderState &&
+    currentExplicitPlaceholderState.kind !== "top-bar" &&
+    currentExplicitPlaceholderState.kind !== "overlay-only";
   const preservePresentationDuringGap =
     shouldPreservePresentationDuringFrameGap({
       hasPresentedFrame: hasPresentedSpectrumFrame,
       hasCurrentFrame: !!currentFrame,
       isDeviceConnected,
-      hasExplicitPlaceholder,
+      // Standby top-bar must not force a black gap under STANDBY chrome.
+      hasExplicitPlaceholder: hasBlockingExplicitPlaceholder,
       hasPlaceholderError: !!placeholderErrorReason,
     });
   const isExplicitStandbyPlaceholder =
     currentExplicitPlaceholderState?.kind === "idle";
   const explicitPlaceholderBlocksFrame = !!(
-    hasExplicitPlaceholder &&
+    hasBlockingExplicitPlaceholder &&
     !isExplicitStandbyPlaceholder &&
-    currentExplicitPlaceholderState?.kind !== "top-bar" &&
     !hasCurrentSourceFrame
   );
   const blockingPlaceholderKind: BlockingPlaceholderKind =
@@ -143,11 +147,8 @@ export const resolveFramePresentation = ({
     isExplicitStandbyPlaceholder,
     explicitPlaceholderBlocksFrame,
     blockingPlaceholderKind,
-    shouldClearStaleStandby:
-      presentationPolicy?.clearStalePresentation ??
-      (isStandby &&
-        currentExplicitPlaceholderState?.kind === "top-bar" &&
-        expectedSourceId != null &&
-        lastPresentedSourceId !== expectedSourceId),
+    // Never clear the painted graph without a replacement frame. Black FFT /
+    // waterfall under standby or Start Tx is worse than a brief stale graph.
+    shouldClearStaleStandby: false,
   };
 };

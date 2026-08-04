@@ -5,6 +5,7 @@ import React, {
   forwardRef,
   useCallback,
   useState,
+  memo,
   type ReactNode,
 } from "react";
 import styled from "styled-components";
@@ -24,6 +25,8 @@ import {
   setPlaybackChannels,
   clearActivePlaybackMetadata,
   setActiveSignalArea,
+  setSelectedFiles,
+  triggerStitch,
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/utils/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/utils/playbackSeedFrame";
@@ -33,6 +36,7 @@ import { formatFrequency } from "@n-apt/utils/frequency";
 import { formatDuration } from "@n-apt/utils/formatters";
 import { fileFrameRuntime } from "@n-apt/visualization/frameRuntime";
 import { shouldRestorePausedFrameSnapshot } from "@n-apt/hooks/liveSourceLifecycle";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -214,12 +218,58 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     forwardedRef,
   ) => {
     const dispatch = useAppDispatch();
+
+    const handleCanvasDrop = useCallback(
+      (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const files = Array.from(event.dataTransfer.files).filter((file) =>
+          [".napt", ".iq", ".wav"].some((extension) =>
+            file.name.toLowerCase().endsWith(extension),
+          ),
+        );
+        if (files.length > 0) {
+          dispatch(
+            setSelectedFiles(
+              files.map((file) => ({
+                id: fileRegistry.register(file),
+                name: file.name,
+              })),
+            ),
+          );
+          dispatch(triggerStitch());
+        }
+      },
+      [dispatch],
+    );
+
+    useEffect(() => {
+      // Keep dropped local files from becoming browser navigations when the
+      // drop lands on the visualization instead of the sidebar picker.
+      const preventExternalFileNavigation = (event: DragEvent) => {
+        if (event.dataTransfer?.types?.includes("Files")) {
+          event.preventDefault();
+        }
+      };
+      window.addEventListener("dragover", preventExternalFileNavigation);
+      window.addEventListener("drop", preventExternalFileNavigation);
+      return () => {
+        window.removeEventListener("dragover", preventExternalFileNavigation);
+        window.removeEventListener("drop", preventExternalFileNavigation);
+      };
+    }, []);
+
     const stitchStatus = useAppSelector(
       (state) => state.waterfall.stitchStatus,
     );
     const { toggleVisualizerPause } = useSpectrumStore();
     const activeSignalArea = useAppSelector(selectActiveSignalArea);
     const [snapshotButtonsLoading, setSnapshotButtonsLoading] = useState(false);
+    const isPausedRef = useRef(isPaused);
+    isPausedRef.current = isPaused;
+    const animateFrameRef = useRef<
+      ((timestamp: number, forceFrame?: boolean) => void) | null
+    >(null);
     // ── Custom hooks for separated concerns ──
     const {
       hasStitchedData,
@@ -252,6 +302,14 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         }));
         dispatch(setPlaybackChannels(metadataOnly));
       },
+      onProcessedDataChange: (processed) => {
+        if (processed && isPausedRef.current) {
+          animateFrameRef.current?.(performance.now(), true);
+          if (forwardedRef && "current" in forwardedRef) {
+            forwardedRef.current?.triggerSnapshotRender();
+          }
+        }
+      },
     });
 
     const { handleSnapshot: takeSnapshot } = useSnapshot(
@@ -264,8 +322,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const freqMapRef = useRef<Map<string, number>>(new Map());
     const selectedFilesRef = useRef(selectedFiles);
     selectedFilesRef.current = selectedFiles;
-    const isPausedRef = useRef(isPaused);
-    isPausedRef.current = isPaused;
     const stitchSourceSettingsRef = useRef(stitchSourceSettings);
     stitchSourceSettingsRef.current = stitchSourceSettings;
 
@@ -300,6 +356,16 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       seededPlaybackKeyRef.current = playbackSeedKey;
     }
 
+    useEffect(() => {
+      if (!hasStitchedData) return;
+      const renderId = window.setTimeout(() => {
+        if (forwardedRef && "current" in forwardedRef) {
+          forwardedRef.current?.triggerSnapshotRender();
+        }
+      }, 0);
+      return () => window.clearTimeout(renderId);
+    }, [forwardedRef, hasStitchedData, playbackSeedKey]);
+
     // ── Memoized callbacks for hook stability ──
     const handleFrameEmitted = useCallback(() => {
       // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
@@ -325,6 +391,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       displayMode,
       onFrameEmitted: handleFrameEmitted,
     });
+    animateFrameRef.current = animateFrame;
 
     useEffect(() => {
       return () => {
@@ -351,9 +418,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
       const activeRange =
         Array.isArray(ch.frequency_range) &&
-        ch.frequency_range.length === 2 &&
-        Number.isFinite(ch.frequency_range[0]) &&
-        Number.isFinite(ch.frequency_range[1])
+          ch.frequency_range.length === 2 &&
+          Number.isFinite(ch.frequency_range[0]) &&
+          Number.isFinite(ch.frequency_range[1])
           ? ch.frequency_range
           : undefined;
 
@@ -528,7 +595,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         firstMetadata?.source_device ?? firstMetadata?.hardware ?? "File";
       const durationLabel =
         typeof firstMetadata?.duration_s === "number" &&
-        Number.isFinite(firstMetadata.duration_s)
+          Number.isFinite(firstMetadata.duration_s)
           ? formatDuration(firstMetadata.duration_s)
           : "N/A";
 
@@ -651,7 +718,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     }, [dispatch]);
 
     return (
-      <StitcherContainer>
+      <StitcherContainer
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={handleCanvasDrop}
+      >
         {hasStitchedData ? (
           <VisualizationContainer>
             <FFTAndWaterfall
@@ -718,7 +788,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               <HelpText>
                 {selectedFiles.length > 0
                   ? "Click Stitch/Process to visualize"
-                  : "Drop .wav or .napt files here"}
+                  : "Drop .napt, .iq, or .wav files here"}
               </HelpText>
             )}
           </EmptyContainer>
@@ -728,4 +798,4 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
   },
 );
 
-export default FFTPlaybackCanvas;
+export default memo(FFTPlaybackCanvas);

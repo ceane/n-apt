@@ -22,6 +22,11 @@ use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
 
+fn should_retire_device_synchronously(device_type: &str) -> bool {
+  let device_type = device_type.to_ascii_lowercase();
+  device_type.contains("rtl") || device_type.contains("hackrf")
+}
+
 fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {
 }
 
@@ -572,46 +577,48 @@ impl SdrProcessor {
     // Reloading signals.yaml here reverts a Whole Channel session to the
     // configured floor before the replacement device can produce a frame.
     let runtime_sample_rate = self.device.get_sample_rate();
-    let mut previous_device = std::mem::replace(&mut self.device, device);
 
-    // Reset tracked state to force re-application to new hardware
-    self.current_gain_db = -1.0;
-    self.current_ppm = u32::MAX;
-
-    // RTL-SDR's async reader owns a live libusb transfer until its thread has
-    // actually returned.  Retire that device synchronously so a fast
-    // unplug/replug cannot open the replacement while the old interface is
-    // still claimed.  Other device implementations retain the historical
-    // bounded, background retirement because some firmware can block in
-    // standby for seconds.
-    let retire_synchronously = previous_device
-      .device_type()
-      .to_ascii_lowercase()
-      .contains("rtl");
+    // USB SDRs must prove that their current reader has stopped before the
+    // processor is replaced. Keep the old device in `self.device` while
+    // waiting; replacing it first would drop a still-active libusb handle if
+    // standby ultimately failed, which can abort inside libusb's mutex code.
+    let retire_synchronously =
+      should_retire_device_synchronously(self.device.device_type());
     if retire_synchronously {
       let deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(2);
       loop {
-        match previous_device.enter_standby() {
-          Ok(()) => {
-            drop(previous_device);
-            break;
-          }
+        match self.device.enter_standby() {
+          Ok(()) => break,
           Err(e) if std::time::Instant::now() < deadline => {
             log::debug!(
-              "RTL-SDR is still stopping before swap; retrying standby: {}",
+              "USB SDR is still stopping before swap; retrying standby: {}",
               e
             );
             std::thread::sleep(std::time::Duration::from_millis(10));
           }
           Err(e) => {
             return Err(anyhow::anyhow!(
-              "RTL-SDR did not finish stopping before swap: {}",
+              "USB SDR did not finish stopping before swap: {}",
               e
             ));
           }
         }
       }
+    }
+
+    let mut previous_device = std::mem::replace(&mut self.device, device);
+
+    // Reset tracked state to force re-application to new hardware
+    self.current_gain_db = -1.0;
+    self.current_ppm = u32::MAX;
+
+    // USB SDRs own live libusb transfers until their RX paths have returned.
+    // Retire them synchronously so a fast unplug/replug cannot open the
+    // replacement while the old interface is still claimed. Other device
+    // implementations retain the historical background retirement.
+    if retire_synchronously {
+      drop(previous_device);
     } else {
       // Perform standby and cleanup of the old device in a background thread
       std::thread::spawn(move || {
@@ -879,16 +886,27 @@ impl SdrProcessor {
         );
         if self.capture_last_frame_signature.as_ref() != Some(&signature) {
           let mut patch = serde_json::Map::new();
-          patch.insert("center_frequency_hz".into(), serde_json::json!(signature.0));
+          patch.insert(
+            "center_frequency_hz".into(),
+            serde_json::json!(signature.0),
+          );
           patch.insert("sample_rate_hz".into(), serde_json::json!(signature.1));
-          patch.insert("fft_size".into(), serde_json::json!(self.capture_fft_size));
+          patch.insert(
+            "fft_size".into(),
+            serde_json::json!(self.capture_fft_size),
+          );
           patch.insert("fft_window".into(), serde_json::json!(signature.2));
           patch.insert("gain".into(), serde_json::json!(self.capture_gain));
-          self.capture_frame_updates.push(crate::server::iq_format::FrameUpdate {
-            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
-            timestamp_us: self.capture_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
-            patch: serde_json::Value::Object(patch),
-          });
+          self.capture_frame_updates.push(
+            crate::server::iq_format::FrameUpdate {
+              sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
+              timestamp_us: self
+                .capture_start
+                .map(|s| s.elapsed().as_micros() as u64)
+                .unwrap_or(0),
+              patch: serde_json::Value::Object(patch),
+            },
+          );
           self.capture_last_frame_signature = Some(signature);
         }
         self.capture_channels[ch_idx]
@@ -1960,6 +1978,8 @@ mod hackrf_settings_tests {
     sample_rate: u32,
     max_sample_rate: u32,
     center_frequency: u32,
+    kind: Option<&'static str>,
+    standby_error: bool,
   }
 
   impl RecordingDevice {
@@ -1970,7 +1990,7 @@ mod hackrf_settings_tests {
 
   impl SdrDevice for RecordingDevice {
     fn device_type(&self) -> &'static str {
-      "hackrf_one"
+      self.kind.unwrap_or("hackrf_one")
     }
 
     fn get_device_info(&self) -> String {
@@ -1983,6 +2003,9 @@ mod hackrf_settings_tests {
 
     fn enter_standby(&mut self) -> Result<()> {
       self.record("standby");
+      if self.standby_error {
+        return Err(anyhow::anyhow!("reader is still stopping"));
+      }
       Ok(())
     }
 
@@ -2302,6 +2325,29 @@ mod hackrf_settings_tests {
       .expect("apply settings");
 
     assert_eq!(processor.display_frame_rate, 12);
+  }
+
+  #[test]
+  fn usb_sdrs_are_retired_synchronously_before_replacement_opens() {
+    assert!(should_retire_device_synchronously("rtl-sdr"));
+    assert!(should_retire_device_synchronously("hackrf_one"));
+    assert!(!should_retire_device_synchronously("mock_apt"));
+  }
+
+  #[test]
+  fn failed_usb_standby_keeps_the_current_device_for_retry() {
+    let current = RecordingDevice {
+      kind: Some("rtl-sdr"),
+      standby_error: true,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(current)).expect("processor");
+
+    let result = processor.swap_device(Box::new(RecordingDevice::default()));
+
+    assert!(result.is_err());
+    assert_eq!(processor.device_type(), "rtl-sdr");
   }
 
   #[test]

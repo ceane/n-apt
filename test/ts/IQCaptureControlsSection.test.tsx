@@ -59,6 +59,84 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.getByText("Capture")).toBeInTheDocument();
   });
 
+  it("shows the overall capture span inside selected range dividers, not beside Ranges", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          availableCaptureAreas={[{ label: "Area A", min: 10, max: 4_390_010 }]}
+          captureRange={{
+            min: 10,
+            max: 4_390_010,
+            segments: [{ label: "Area A", min: 10, max: 4_390_010 }],
+          }}
+          activeCaptureAreas={["Area A"]}
+        />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.getByText("4.39MHz")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Hardware sample rate")).not.toBeInTheDocument();
+  });
+
+  it("estimates timed raw IQ data from the selected capture span", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.queryByText(/Estimated data:/)).not.toBeInTheDocument();
+
+    expect(defaultProps.onActiveCaptureAreasChange).not.toHaveBeenCalled();
+
+    rerender(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          activeCaptureAreas={["Area A"]}
+          captureRange={{
+            min: 0,
+            max: 3_200_000,
+            segments: [{ label: "Area A", min: 0, max: 3_200_000 }],
+          }}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Estimated data: 30.52 MB")).toBeInTheDocument();
+  });
+
+  it("shows each selected channel's own span in its divider", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          availableCaptureAreas={[
+            { label: "Area A", min: 10, max: 4_390_010 },
+            { label: "Area B", min: 24_100_000, max: 30_370_000 },
+          ]}
+          captureRange={{
+            min: 10,
+            max: 30_370_000,
+            segments: [
+              { label: "Area A", min: 10, max: 4_390_010 },
+              { label: "Area B", min: 24_100_000, max: 30_370_000 },
+            ],
+          }}
+          activeCaptureAreas={["Area A", "Area B"]}
+        />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.getByText("4.39MHz")).toBeInTheDocument();
+    expect(screen.getByText("6.27MHz")).toBeInTheDocument();
+    expect(screen.queryAllByText("30.37MHz")).toHaveLength(1);
+  });
+
   it("offers capture formats in .napt, .iq, .wav order", () => {
     render(
       <TestWrapper>

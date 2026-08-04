@@ -55,7 +55,8 @@ pub async fn cli_snapshot_frame_handler(
     }
     Ok(())
   };
-  let result = tokio::time::timeout(std::time::Duration::from_secs(4), collection).await;
+  let result =
+    tokio::time::timeout(std::time::Duration::from_secs(4), collection).await;
   if !frames.is_empty() {
     return Json(frames).into_response();
   }
@@ -63,11 +64,13 @@ pub async fn cli_snapshot_frame_handler(
     Ok(Err(error)) => (
       StatusCode::SERVICE_UNAVAILABLE,
       format!("Signal frames unavailable: {error}"),
-    ).into_response(),
+    )
+      .into_response(),
     _ => (
       StatusCode::GATEWAY_TIMEOUT,
       "Timed out waiting for signal frames",
-    ).into_response(),
+    )
+      .into_response(),
   }
 }
 
@@ -91,10 +94,7 @@ pub async fn mock_tx_power_frame_handler(
   Query(query): Query<MockTxPowerFrameQuery>,
 ) -> impl IntoResponse {
   let fft_size = query.fft_size.unwrap_or(2048).clamp(256, 262_144);
-  let tx_ifft_size = query
-    .tx_ifft_size
-    .unwrap_or(2048)
-    .clamp(256, 262_144);
+  let tx_ifft_size = query.tx_ifft_size.unwrap_or(2048).clamp(256, 262_144);
   let sample_rate_hz = query.sample_rate_hz.unwrap_or(3_200_000).max(1);
   let bandwidth_hz = query
     .bandwidth_hz
@@ -102,26 +102,25 @@ pub async fn mock_tx_power_frame_handler(
     .clamp(1.0, sample_rate_hz as f64);
   let power_dbm = query.power_dbm.unwrap_or(-18.0);
   if !power_dbm.is_finite() {
-    return (
-      StatusCode::BAD_REQUEST,
-      "power_dbm must be finite",
-    )
+    return (StatusCode::BAD_REQUEST, "power_dbm must be finite")
       .into_response();
   }
 
-  let model = super::websocket_server::complex_baseband::resolve_mock_tx_iq_power_model();
-  let raw_iq = super::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq(
-    fft_size,
-    137_100_000.0,
-    sample_rate_hz,
-    137_100_000.0,
-    bandwidth_hz,
-    query.signal.as_deref().unwrap_or("wifi"),
-    tx_ifft_size,
-    power_dbm,
-    &model,
-    &mut *state.shared.mock_tx_phase_accumulator.lock().unwrap(),
-  );
+  let model =
+    super::websocket_server::complex_baseband::resolve_mock_tx_iq_power_model();
+  let raw_iq =
+    super::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq(
+      fft_size,
+      137_100_000.0,
+      sample_rate_hz,
+      137_100_000.0,
+      bandwidth_hz,
+      query.signal.as_deref().unwrap_or("wifi"),
+      tx_ifft_size,
+      power_dbm,
+      &model,
+      &mut *state.shared.mock_tx_phase_accumulator.lock().unwrap(),
+    );
 
   let mut response = raw_iq.into_response();
   response.headers_mut().insert(
@@ -129,7 +128,9 @@ pub async fn mock_tx_power_frame_handler(
     HeaderValue::from_static("application/octet-stream"),
   );
   if let Ok(value) = HeaderValue::from_str(&model.calibration_db.to_string()) {
-    response.headers_mut().insert("x-mock-tx-calibration-db", value);
+    response
+      .headers_mut()
+      .insert("x-mock-tx-calibration-db", value);
   }
   response
 }

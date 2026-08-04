@@ -17,12 +17,44 @@ import {
 
 const LIVE_STATUS_ROW_HEIGHT = 56;
 
+export type AnimationFrameRequest = (callback: () => void) => number;
+
+/** Keep pointer-driven updates latest-value-only until the next paint. */
+export const createAnimationFrameCoalescer = <T,>(
+  publish: (value: T) => void,
+  requestFrame: AnimationFrameRequest,
+) => {
+  let pending: T | undefined;
+  let frame: number | null = null;
+
+  const flush = () => {
+    frame = null;
+    const value = pending;
+    pending = undefined;
+    if (value !== undefined) publish(value);
+  };
+
+  return {
+    schedule(value: T) {
+      pending = value;
+      if (frame === null) frame = requestFrame(flush);
+    },
+    flush,
+    cancel() {
+      pending = undefined;
+      frame = null;
+    },
+  };
+};
+
 export type CanvasTxSliderState = {
   visible: boolean;
   visibleMinHz: number;
   visibleMaxHz: number;
   txCenterHz: number;
   txSampleRateHz: number;
+  /** Standby preview uses the band body as an independent VFO control. */
+  isPreviewVfo?: boolean;
   isTransmitting?: boolean;
   powerDbm?: number;
   onCenterFrequencyChange?: (valueHz: number, isDragging?: boolean) => void;
@@ -88,6 +120,8 @@ export interface FrequencyDragOptions {
   liveDragSelectionRef?: React.MutableRefObject<FrequencyRange | null>;
   /** Callback triggered on every drag step to force overlay repaint without React re-render */
   onDragRepaint?: () => void;
+  /** Callback triggered when the mutable Tx slider geometry changes. */
+  onTxSliderRepaint?: () => void;
   tooltipSpanRef?: React.RefObject<HTMLSpanElement | null>;
   powerLineDbRef?: React.MutableRefObject<number | null>;
   onPowerLineDbChange?: (db: number | null) => void;
@@ -132,6 +166,7 @@ export function useSpectrumInteraction({
   maxBandwidthHz,
   liveDragSelectionRef,
   onDragRepaint,
+  onTxSliderRepaint,
   tooltipSpanRef,
   powerLineDbRef,
   onPowerLineDbChange,
@@ -423,6 +458,22 @@ export function useSpectrumInteraction({
     if (!Number.isFinite(visibleSpan) || visibleSpan <= 0) return;
 
     const currentBandwidth = Math.max(1, slider.txSampleRateHz);
+    if (slider.isPreviewVfo && handle === "body") {
+      const pointerHz = getTxSliderFrequencyForX(
+        clientX - canvasRect.left,
+        canvasRect,
+        false,
+      );
+      if (pointerHz === null) return;
+
+      const nextCenter = pointerHz - txSliderBodyDragOffsetHzRef.current;
+      slider.txCenterHz = nextCenter;
+      slider.txSampleRateHz = currentBandwidth;
+      scheduleTxGeometryPublish(nextCenter, currentBandwidth);
+      onTxSliderRepaint?.();
+      onDragRepaint?.();
+      return;
+    }
     const currentMin = slider.txCenterHz - currentBandwidth / 2;
     const currentMax = slider.txCenterHz + currentBandwidth / 2;
     const minBandwidth = Math.min(25_000, Math.max(1, visibleSpan * 0.01));
@@ -514,6 +565,7 @@ export function useSpectrumInteraction({
       slider.onCenterFrequencyChange?.(nextCenter, true);
       slider.onSampleRateChange?.(nextBandwidth);
     }
+    onTxSliderRepaint?.();
     onDragRepaint?.();
   };
 
@@ -566,6 +618,7 @@ export function useSpectrumInteraction({
 
     slider.txCenterHz = nextCenter;
     slider.onCenterFrequencyChange?.(nextCenter, true);
+    onTxSliderRepaint?.();
     onDragRepaint?.();
   };
 
@@ -580,6 +633,7 @@ export function useSpectrumInteraction({
     );
     slider.txSampleRateHz = nextBandwidth;
     slider.onSampleRateChange?.(nextBandwidth);
+    onTxSliderRepaint?.();
     onDragRepaint?.();
   };
 
@@ -1183,6 +1237,7 @@ export function useSpectrumInteraction({
           );
           slider.txSampleRateHz = newBandwidth;
           slider.onSampleRateChange?.(newBandwidth);
+          onTxSliderRepaint?.();
           onDragRepaint?.();
         }
         return;
@@ -1657,7 +1712,7 @@ export function useSpectrumInteraction({
           );
           const hitRadius = 14;
 
-          if (isCompactBandwidth) {
+          if (slider.isPreviewVfo || isCompactBandwidth) {
             txSliderHandleRef.current = "body";
           } else {
             const hitLeft = Math.abs(canvasX - leftHandleX) <= hitRadius;
@@ -1698,11 +1753,13 @@ export function useSpectrumInteraction({
               txSliderBodyDragOffsetHzRef.current =
                 pointerHz === null
                   ? 0
-                  : getPointerOffsetWithinBandHz(
-                      pointerHz,
-                      slider.txCenterHz -
-                        Math.max(1, slider.txSampleRateHz) / 2,
-                    );
+                  : slider.isPreviewVfo
+                    ? pointerHz - slider.txCenterHz
+                    : getPointerOffsetWithinBandHz(
+                        pointerHz,
+                        slider.txCenterHz -
+                          Math.max(1, slider.txSampleRateHz) / 2,
+                      );
             } else {
               txSliderBodyDragOffsetHzRef.current = 0;
             }
@@ -2180,6 +2237,50 @@ export function useSpectrumInteraction({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && zoomboxStateRef?.current) {
+        zoomboxStateRef.current = null;
+        if (selectionBoxRef.current) {
+          selectionBoxRef.current.style.display = "none";
+        }
+        onDragRepaint?.();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (zoomboxStateRef?.current) {
+        const step = 10;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === "ArrowLeft") dx = -step;
+        if (e.key === "ArrowRight") dx = step;
+        if (e.key === "ArrowUp") dy = -step;
+        if (e.key === "ArrowDown") dy = step;
+        if (dx || dy) {
+          const container = getContainer();
+          const bounds = container?.getBoundingClientRect();
+          const width = bounds?.width ?? 0;
+          const height = bounds?.height ?? 0;
+          const box = zoomboxStateRef.current;
+          const boxWidth = Math.abs(box.currentX - box.startX);
+          const boxHeight = Math.abs(box.currentY - box.startY);
+          const minX = Math.min(box.startX, box.currentX);
+          const minY = Math.min(box.startY, box.currentY);
+          const nextMinX = Math.max(0, Math.min(width - boxWidth, minX + dx));
+          const nextMinY = Math.max(0, Math.min(height - boxHeight, minY + dy));
+          const xOffset = nextMinX - minX;
+          const yOffset = nextMinY - minY;
+          zoomboxStateRef.current = {
+            startX: box.startX + xOffset,
+            startY: box.startY + yOffset,
+            currentX: box.currentX + xOffset,
+            currentY: box.currentY + yOffset,
+          };
+          onDragRepaint?.();
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       if (selectionMode !== "range" || disabled || !onSelectionChange) return;
       if ((vizZoomRef?.current ?? 1) > 1) return;
       const emitSelectionChange = latestOnSelectionChangeRef.current;
@@ -2489,7 +2590,7 @@ export function useSpectrumInteraction({
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
       stopSelectionEdgePan();
@@ -2513,7 +2614,7 @@ export function useSpectrumInteraction({
       }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [
     disabled,

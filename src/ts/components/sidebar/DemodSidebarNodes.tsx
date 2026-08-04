@@ -24,6 +24,7 @@ import {
   FileBox,
   FileSignal,
   SatelliteDish,
+  Brush,
 } from "lucide-react";
 
 const NodePaletteContainer = styled.div`
@@ -145,6 +146,20 @@ const availableNodes: NodeType[] = [
       label: "Waterfall",
       description: "Frequency spectrum waterfall",
       waterfallOptions: true,
+    },
+  },
+  {
+    id: "waterfall-analysis",
+    type: "custom",
+    label: "Waterfall Analysis",
+    description: "Tune and inspect a waterfall signal window",
+    icon: <Brush size={16} />,
+    position: { x: 650, y: 350 },
+    data: {
+      label: "Waterfall Analysis",
+      description: "Tune and inspect a waterfall signal window",
+      waterfallOptions: true,
+      analysisOptions: true,
     },
   },
   {

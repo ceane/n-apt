@@ -3,6 +3,8 @@ import {
   resolveSourceSwitchDisplaySettings,
   resolveEffectiveLiveSampleRateHz,
   normalizePersistedSourceViewState,
+  shouldPersistSelectedSourceView,
+  resolveLeavingSourceViewSnapshot,
   shouldRequestPausedPreview,
   buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
@@ -33,14 +35,14 @@ describe("shouldRequestPausedPreview", () => {
     ).toBe(false);
   });
 
-  it("keeps paused previews for Mock Tx standby", () => {
+  it("leaves Mock Tx standby previews to SpectrumRoute", () => {
     expect(
       shouldRequestPausedPreview({
         id: "mock-tx",
         kind: "mock_tx",
         status: "connected",
       } as any),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("requests a one-shot frame for a paused Rx source with raw I/Q", () => {
@@ -74,6 +76,59 @@ describe("shouldRequestPausedPreview", () => {
         status: "streaming",
       } as any),
     ).toBe(false);
+  });
+});
+
+describe("shouldPersistSelectedSourceView", () => {
+  it("does not persist pending selection state into the next source key", () => {
+    expect(
+      shouldPersistSelectedSourceView({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        sourceMode: "live",
+      }),
+    ).toBe(false);
+  });
+
+  it("persists once the selected source is the active stream", () => {
+    expect(
+      shouldPersistSelectedSourceView({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        sourceMode: "live",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("resolveLeavingSourceViewSnapshot", () => {
+  it("freezes the leaving source view before Mock Tx can rewrite shared geometry", () => {
+    const snapshot = resolveLeavingSourceViewSnapshot({
+      previousSelectedSourceId: "mock-apt",
+      nextSelectedSourceId: "mock-tx",
+      previousSourceViewKey: "napt-spectrum-view-v1:mock-apt",
+      state: {
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+        sampleRateHz: 4_372_000,
+      } as any,
+    });
+
+    expect(snapshot?.key).toBe("napt-spectrum-view-v1:mock-apt");
+    expect(snapshot?.view.frequencyRange).toEqual({
+      min: 18_000,
+      max: 4_390_000,
+    });
+  });
+
+  it("does nothing when the selection has not changed", () => {
+    expect(
+      resolveLeavingSourceViewSnapshot({
+        previousSelectedSourceId: "mock-apt",
+        nextSelectedSourceId: "mock-apt",
+        previousSourceViewKey: "napt-spectrum-view-v1:mock-apt",
+        state: { frequencyRange: { min: 18_000, max: 4_390_000 } } as any,
+      }),
+    ).toBeNull();
   });
 });
 

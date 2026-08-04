@@ -181,11 +181,13 @@ export const SourceCapabilitiesSchema = z.object({
 
 export const SourceStatusSchema = z.enum([
   "connected",
+  "initializing",
   "loading",
-  "loose",
   "disconnected",
   "stale",
   "error",
+  "receiving",
+  "paused",
   "standby",
   "transmitting",
   "streaming",
@@ -413,11 +415,10 @@ export const WebSocketMessageSchema = z.union([
     paused: z.boolean(),
     source_id: z.string(),
     duplex_mode: DeviceDuplexModeSchema.optional(),
-    active_mode: DeviceActiveModeSchema.optional(),
   }),
   z.object({
-    type: z.literal("tx_mode"),
-    active_mode: DeviceActiveModeSchema,
+    type: z.literal("status"),
+    status: z.enum(["standby", "transmitting"]),
     txDevice: z.string().optional(),
     serialNumber: z.string().optional(),
     centerFrequencyHz: z.number().optional(),

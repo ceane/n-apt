@@ -7,6 +7,7 @@ interface EditableCenterFrequencyProps {
   onCenterFrequencyChange: (centerFrequencyHz: number) => void;
   onClose: () => void;
   className?: string;
+  placement?: "top" | "bottom";
 }
 
 const logEditableCenterFrequencyEvent = (
@@ -16,10 +17,10 @@ const logEditableCenterFrequencyEvent = (
   console.debug("[EditableCenterFrequency]", eventName, details);
 };
 
-const Shell = styled.div`
+const Shell = styled.div<{ $placement: "top" | "bottom" }>`
   position: absolute;
   left: 50%;
-  bottom: 10px;
+  ${({ $placement }) => ($placement === "top" ? "top: 10px;" : "bottom: 10px;")}
   transform: translateX(-50%);
   z-index: 140;
   width: min(58vw, 300px);
@@ -117,7 +118,13 @@ const EditorHint = styled.div`
 
 export const EditableCenterFrequency: React.FC<
   EditableCenterFrequencyProps
-> = ({ centerFrequencyHz, onCenterFrequencyChange, onClose, className }) => {
+> = ({
+  centerFrequencyHz,
+  onCenterFrequencyChange,
+  onClose,
+  className,
+  placement = "bottom",
+}) => {
   const shellRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -149,7 +156,7 @@ export const EditableCenterFrequency: React.FC<
   };
 
   return (
-    <Shell ref={shellRef} className={className}>
+    <Shell ref={shellRef} className={className} $placement={placement}>
       <Card>
         <EditorTitle>Center Frequency / Onscreen Canvas</EditorTitle>
         <Bar>

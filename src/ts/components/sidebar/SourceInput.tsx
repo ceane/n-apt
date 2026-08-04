@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, type DragEvent } from "react";
+import React, { useRef, useCallback, useEffect, type DragEvent } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
@@ -141,7 +141,13 @@ const FileBrowseLink = styled.button`
 `;
 
 const HiddenFileInput = styled.input`
-  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 `;
 
 const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
@@ -266,6 +272,13 @@ const DeviceActionButton = styled.button<{
       $danger ? theme.danger : theme.primary};
     color: ${({ theme, $danger }) => ($danger ? theme.danger : theme.primary)};
   }
+
+  &:disabled {
+    cursor: not-allowed;
+    transform: none;
+    opacity: 0.35;
+    pointer-events: none;
+  }
 `;
 
 const DeviceActions = styled.div`
@@ -334,6 +347,8 @@ interface SourceInputProps {
   fileActionLabel?: string;
   fileActionTitle?: string;
   selectedFilesCount?: number;
+  autoBrowseRequested?: boolean;
+  onAutoBrowseHandled?: () => void;
   onFileAction?: () => void;
   onFilesSelected?: (files: File[]) => void;
   onSourceModeChange: (mode: SourceMode) => void;
@@ -371,6 +386,8 @@ interface SourceInputProps {
   onToggleDeviceTxMode?: (id: string) => void;
   onPreviewDeviceTx?: (id: string) => void;
   deviceTxActionsEnabled?: boolean;
+  txBindingSourceId?: string | null;
+  txPreviewSourceId?: string | null;
 }
 
 export const SourceInput: React.FC<SourceInputProps> = ({
@@ -381,6 +398,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   fileActionLabel,
   fileActionTitle,
   selectedFilesCount = 0,
+  autoBrowseRequested = false,
+  onAutoBrowseHandled,
   onFileAction,
   onFilesSelected,
   onSourceModeChange,
@@ -396,6 +415,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   onToggleDeviceTxMode,
   onPreviewDeviceTx,
   deviceTxActionsEnabled = true,
+  txBindingSourceId,
+  txPreviewSourceId,
 }) => {
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -411,6 +432,12 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     },
     [onFilesSelected],
   );
+
+  useEffect(() => {
+    if (!autoBrowseRequested || sourceMode !== "file") return;
+    fileInputRef.current?.click();
+    onAutoBrowseHandled?.();
+  }, [autoBrowseRequested, onAutoBrowseHandled, sourceMode]);
 
   const onDragEnter = useCallback((event: DragEvent) => {
     event.preventDefault();
@@ -476,7 +503,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     if (!status) return null;
     if (status === "transmitting")
       return isMock ? "Transmitting (Mock Tx)" : "Transmitting (Tx)";
-    if (status === "streaming") return "Streaming";
+    if (status === "connected" || status === "streaming") return "Connected";
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
@@ -520,26 +547,57 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     : sourceDevicesRaw;
   const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex";
+  const getStatusLabel = (status: unknown): string => {
+    if (typeof status === "string") return status;
+    if (
+      status &&
+      typeof status === "object" &&
+      "label" in status &&
+      typeof (status as any).label === "string"
+    ) {
+      return (status as any).label;
+    }
+    return "";
+  };
+  const isRxActiveStatus = (device: (typeof sourceDevices)[number]) =>
+    ["receiving", "connected", "streaming"].includes(
+      getStatusLabel(device.status).toLowerCase(),
+    );
+
   const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
     resolveSourceModeManagement({
       source: {
         ...device,
-        status: device.status?.label,
+        status: getStatusLabel(device.status),
         paused: device.status?.paused,
       },
+      txBindingSourceId,
+      txPreviewSourceId,
     }).isRxMode &&
-    device.status?.paused === false;
+    isRxActiveStatus(device);
+  const isStreamingDevice = (device: (typeof sourceDevices)[number]) =>
+    resolveSourceModeManagement({
+      source: {
+        ...device,
+        status: getStatusLabel(device.status),
+        paused: device.status?.paused,
+      },
+      txBindingSourceId,
+      txPreviewSourceId,
+    }).isRxMode && isRxActiveStatus(device);
   const isTxModeDevice = (device: (typeof sourceDevices)[number]) =>
     resolveSourceModeManagement({
       source: {
         ...device,
-        status: device.status?.label,
+        status: getStatusLabel(device.status),
         paused: device.status?.paused,
       },
+      txBindingSourceId,
+      txPreviewSourceId,
     }).isTxMode;
   const isTransmittingDevice = (device: (typeof sourceDevices)[number]) =>
-    device.status?.label?.toLowerCase?.() === "transmitting";
+    getStatusLabel(device.status).toLowerCase() === "transmitting";
   const transmittingDevice = sourceDevices.find(isTransmittingDevice) ?? null;
   React.useEffect(() => {
     if (!transmittingDevice) {
@@ -584,6 +642,24 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         : [...selectedDeviceIds.slice(1), deviceId];
     onSelectedDevicesChange?.(nextIds);
   };
+
+  // While the source pills are dimmed in file-selection mode, switching to a
+  // live source requires a double-click. The first click only arms the switch;
+  // a second click within the window performs it. When the pills are at full
+  // transparency (out of file mode), a single click switches as before.
+  const handleDevicePillClick = (deviceId: string) => {
+    if (!sourcePillsDimmed) {
+      handleDeviceSelection(deviceId);
+      return;
+    }
+    const now = Date.now();
+    const previous = lastPillClickRef.current;
+    lastPillClickRef.current = { id: deviceId, at: now };
+    if (previous && previous.id === deviceId && now - previous.at <= 500) {
+      lastPillClickRef.current = null;
+      handleDeviceSelection(deviceId);
+    }
+  };
   const spaceBoundDevice =
     sourceDevices.find((device) => device.id === spaceBoundDeviceId) ?? null;
   const connectedDevice =
@@ -623,12 +699,21 @@ export const SourceInput: React.FC<SourceInputProps> = ({
           ? 0.5
           : 1
       : 1;
+  // When the source pills are dimmed (file selection mode), their action
+  // buttons are locked out so they can't be triggered accidentally. They are
+  // only re-enabled once the source is at full transparency (out of file mode).
+  const sourcePillsDimmed =
+    sourceMode === "file" && fileModeOpacity < 1 && !transmittingDeviceId;
+  // In file mode, switching to a live source is an explicit double-click on
+  // the source pill. A single click while dimmed is ignored so it doesn't yank
+  // the user out of the file-selection flow by accident.
+  const lastPillClickRef = useRef<{ id: string; at: number } | null>(null);
   return (
     <SourceInputWrapper>
       <HiddenFileInput
         ref={fileInputRef}
         type="file"
-        accept=".napt,.wav,.c64"
+        accept=".napt,.iq,.wav"
         multiple
         onChange={(event) => {
           const files = event.target.files
@@ -663,7 +748,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const isHalfDuplex = isHalfDuplexDevice(device);
             const isTransmittingDevice = device.id === transmittingDeviceId;
             const isTxPreviewingDevice =
-              device.status?.label?.toLowerCase() === "tx_preview";
+              device.status?.label?.toLowerCase() === "standby" &&
+              device.status?.paused === true;
             const isTxPreview =
               !isTransmittingDevice &&
               !isTxPreviewingDevice &&
@@ -693,11 +779,11 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 tabIndex={0}
                 $selected={isSelectedDevice}
                 $opacity={fileModeOpacity}
-                onClick={() => handleDeviceSelection(device.id)}
+                onClick={() => handleDevicePillClick(device.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    handleDeviceSelection(device.id);
+                    handleDevicePillClick(device.id);
                   }
                 }}
                 title={`Switch to ${device.name}`}
@@ -725,7 +811,11 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       device.duplex_mode,
                       device.status?.label,
                     )}{" "}
-                    · Connected
+                    ·{" "}
+                    {formatStatusLabel(
+                      getStatusLabel(device.status),
+                      isMockDeviceLocal(device),
+                    ) ?? "Connected"}
                     {device.duplex_mode
                       ? ` · ${formatDuplexMode(device.duplex_mode)}`
                       : ""}
@@ -756,6 +846,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         isTxModeDevice(device)
                       }
                       $opacity={fileModeOpacity}
+                      disabled={sourcePillsDimmed}
                       onClick={(event) => {
                         event.stopPropagation();
                         onToggleDeviceRxPause(device.id);
@@ -777,6 +868,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         $active={isSelectedDevice}
                         $danger={isTransmittingDevice}
                         $opacity={fileModeOpacity}
+                        disabled={sourcePillsDimmed}
                         onClick={(event) => {
                           event.stopPropagation();
                           device.status?.onAction?.();
@@ -806,6 +898,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         $active={isSelectedDevice}
                         $danger={isTransmittingDevice}
                         $opacity={fileModeOpacity}
+                        disabled={sourcePillsDimmed}
                         onClick={(event) => {
                           event.stopPropagation();
                           device.status?.onAction?.();
@@ -833,6 +926,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         !isTxModeDevice(device)
                       }
                       $opacity={fileModeOpacity}
+                      disabled={sourcePillsDimmed}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (isTxPreview) {

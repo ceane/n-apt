@@ -385,6 +385,8 @@ export const ConnectionStatusSection: React.FC<
       : deviceState === "disconnected"
         ? "Disconnected"
         : null;
+  const isInitializing = deviceState === "initializing";
+  const isLoading = deviceState === "loading" || isInitializing;
   return (
     <>
       <ConnectionStatusContainer>
@@ -394,7 +396,7 @@ export const ConnectionStatusSection: React.FC<
               isConnected &&
               (deviceState === "connected" || deviceState === "streaming")
             }
-            $loading={deviceState === "loading"}
+            $loading={isLoading}
             $color={
               cryptoCorrupted
                 ? deviceState === "connected" || deviceState === "streaming"
@@ -412,7 +414,9 @@ export const ConnectionStatusSection: React.FC<
                 ? "CRYPTO CORRUPTED"
                 : !isConnected
                   ? "Disconnected"
-                  : deviceState === "loading"
+                  : isInitializing
+                    ? "Initializing device..."
+                    : deviceState === "loading"
                     ? deviceLoadingReason === "restart"
                       ? "Restarting device..."
                       : "Loading device..."
@@ -507,11 +511,13 @@ export const ConnectionStatusSection: React.FC<
                 />
                 Restarting…
               </LoadingState>
-            ) : deviceState === "loading" ? (
+            ) : isLoading ? (
               <LoadingState
                 role="status"
                 aria-label={
-                  isHackRfBackend
+                  isInitializing
+                    ? "Initializing device"
+                    : isHackRfBackend
                     ? "Rx active, waiting for first frame"
                     : "Loading device"
                 }
@@ -521,7 +527,9 @@ export const ConnectionStatusSection: React.FC<
                   className="animate-spin"
                   aria-hidden="true"
                 />
-                {isHackRfBackend
+                {isInitializing
+                  ? "Initializing…"
+                  : isHackRfBackend
                   ? "Rx active · waiting for first frame…"
                   : "Loading…"}
               </LoadingState>

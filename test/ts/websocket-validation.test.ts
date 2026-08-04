@@ -30,20 +30,35 @@ describe("WebSocket Validation System", () => {
         paused: false,
         source_id: "mock-apt",
         duplex_mode: "half_duplex",
-        active_mode: "rx",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
     });
 
-    test("should validate tx_mode messages using active_mode", () => {
+    test("should validate transmit status messages", () => {
+      expect(
+        validateWebSocketMessage({
+          type: "status",
+          status: "transmitting",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
+
+      expect(
+        validateWebSocketMessage({
+          type: "status",
+          status: "standby",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
+
       expect(
         validateWebSocketMessage({
           type: "tx_mode",
           active_mode: "rx_tx",
           txDevice: "Mock Tx SDR",
         }),
-      ).toBe(true);
+      ).toBe(false);
     });
 
     test("should reject invalid WebSocket messages", () => {
@@ -267,6 +282,16 @@ describe("WebSocket Validation System", () => {
 
       expect(isValidSourceStatusMessage(message)).toBe(true);
       expect(validateWebSocketMessage(message)).toBe(true);
+    });
+
+    test("should validate initializing hardware status", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "initializing",
+        }),
+      ).toBe(true);
     });
   });
 

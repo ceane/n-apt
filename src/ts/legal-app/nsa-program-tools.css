@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Prevent Tailwind Oxide from auto-scanning the whole repo (incl. target/). */
+@import "tailwindcss" source(none);
+@source "./**/*.{js,ts,jsx,tsx}";
 
 :root {
   color: #e5eefb;

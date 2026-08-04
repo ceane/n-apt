@@ -592,6 +592,57 @@ describe("useSdrSettings", () => {
     );
   });
 
+  it("does not let stale backend bandwidth clobber the local Baseband setting", async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 4_372_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 4_372_000,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <HookHarness
+          deviceType="hackrf_one"
+          currentSampleRateHz={4_372_000}
+          sdrSettings={{
+            ...mockSdrSettings,
+            sample_rate: 4_372_000,
+            gain: {
+              ...mockSdrSettings.gain,
+              tuner_bandwidth: 3_200_000,
+            },
+          }}
+          spectrumStateOverride={store.getState().spectrum as any}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(
+        4_372_000,
+      );
+    });
+  });
+
   it("routes HackRF LNA, VGA, and AMP changes through the live settings payload", () => {
     const store = configureStore({
       reducer: {

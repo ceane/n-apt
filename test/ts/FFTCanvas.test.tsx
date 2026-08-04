@@ -178,6 +178,33 @@ describe("FFTCanvas Component", () => {
     expect(shouldClearBlockingPlaceholder(2, 0)).toBe(false);
   });
 
+  it("keeps header snapshot actions enabled while paused", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                isPaused={true}
+                headerActionContent={<button type="button">Fast Snapshot</button>}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Fast Snapshot" })).toBeVisible();
+    });
+
+    expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Fast Snapshot" }).parentElement,
+    ).toHaveAttribute("data-disabled", "false");
+  });
+
   it("publishes a newly ingested paused frame to source-bound consumers", () => {
     expect(
       shouldPublishProcessedSpectrumFrame({
@@ -363,6 +390,23 @@ describe("FFTCanvas Component", () => {
     // After 2D cleanup, waterfall is handled separately - only FFT display renders here
   });
 
+  it("does not add standby text to the FFT header", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas {...defaultProps} isStandby={true} />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("FFT Signal Display (Standby)")).not.toBeInTheDocument();
+  });
+
   it("should render FFT canvas element", async () => {
     render(
       <TestWrapper>
@@ -536,7 +580,7 @@ describe("FFTCanvas Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a server down placeholder when the device disconnects", async () => {
+  it("shows a server down placeholder when the control plane reports Server down", async () => {
     render(
       <TestWrapper>
         <MemoryRouter>
@@ -546,6 +590,7 @@ describe("FFTCanvas Component", () => {
                 {...defaultProps}
                 dataRef={{ current: { waveform: null } }}
                 isDeviceConnected={false}
+                placeholderErrorReason="Server down"
                 placeholderSourceLabel="Live SDR"
               />
             </ThemeProvider>
@@ -560,6 +605,28 @@ describe("FFTCanvas Component", () => {
         "The server was disconnected due to being manually exited or an error.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("keeps Loading FFT when presentation is not ready during a healthy handoff", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: { waveform: null } }}
+                isDeviceConnected={false}
+                placeholderSourceLabel="Mock APT SDR"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByText(/Loading/i)).toBeInTheDocument();
+    expect(screen.queryByText("Server Down")).not.toBeInTheDocument();
   });
 
   it("shows a disconnected placeholder when the websocket is still connected", async () => {

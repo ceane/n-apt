@@ -146,7 +146,7 @@ pub(super) fn prewarm_inactive_sources(
       continue;
     }
 
-    match open_device_for_source_id(&source_id) {
+    match open_device_for_source_id(shared_state, &source_id) {
       Ok(mut device) => match initialize_warm_source(device.as_mut()) {
         Ok(()) => {
           info!("Pre-warmed inactive SDR source {}", source_id);

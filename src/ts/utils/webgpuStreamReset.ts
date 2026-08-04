@@ -35,12 +35,21 @@ export const shouldAcceptWebGpuStreamFrame = ({
 };
 
 /**
+ * Loading overlays must sit on top of the last painted graph. Wiping WebGPU
+ * when Loading appears creates a black flash for one or more frames before the
+ * replacement Mock Tx / handoff preview paints.
+ */
+export const shouldClearWebGpuForPlaceholder = (
+  kind: string | null | undefined,
+): boolean =>
+  kind === "error" || kind === "disconnected";
+
+/**
  * Resolves when a deferred source-boundary GPU reset may be committed.
  *
- * Normal handoffs retain the painted frame until the replacement is ready.
- * Source standby is different: no replacement is expected to render beneath
- * its top bar, so retaining the previous source would misrepresent ownership.
- * A matching standby snapshot is explicitly preserved across a mode-only reset.
+ * Handoffs and standby must retain the painted frame until a replacement is
+ * ready. Clearing without a replacement produces an unacceptable black canvas
+ * under the standby top bar / Start Tx transition.
  */
 export const shouldCommitSourcePresentationReset = (
   resetPending: boolean,
@@ -73,6 +82,28 @@ export const shouldClearStandbySourcePresentation = ({
   expectedSourceId !== null &&
   presentedSourceId !== expectedSourceId;
 
+/**
+ * A same-source standby/transmit toggle keeps the same TX presentation.
+ * Preserve its temporal waterfall history; only a foreign frame or a source
+ * boundary should clear the visualizer.
+ */
+export const shouldPreserveWaterfallOnTxStandby = ({
+  previousIsStandby,
+  nextIsStandby,
+  expectedSourceId,
+  presentedSourceId,
+}: {
+  previousIsStandby: boolean;
+  nextIsStandby: boolean;
+  expectedSourceId: string | null | undefined;
+  presentedSourceId: string | null | undefined;
+}): boolean =>
+  previousIsStandby !== nextIsStandby &&
+  !!expectedSourceId &&
+  // A briefly cleared transport ref must not wipe the canvas on Start Tx /
+  // Stop Tx. Only a foreign painted owner forces a reset.
+  (presentedSourceId == null || expectedSourceId === presentedSourceId);
+
 export const shouldPreservePresentationDuringFrameGap = ({
   hasPresentedFrame,
   hasCurrentFrame,
@@ -83,6 +114,7 @@ export const shouldPreservePresentationDuringFrameGap = ({
   hasPresentedFrame: boolean;
   hasCurrentFrame: boolean;
   isDeviceConnected: boolean;
+  /** Full-canvas blockers only. Standby top-bar must not force a black gap. */
   hasExplicitPlaceholder: boolean;
   hasPlaceholderError: boolean;
 }): boolean =>
@@ -131,6 +163,8 @@ export const isMockSource = (sourceId: string | null): boolean => {
   );
 };
 
+import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
+
 /**
  * A reset must replace the canvas subtree, not only clear its current GPU
  * texture. Browser/WebGPU implementations may retain a presented texture
@@ -143,8 +177,13 @@ export const getWebGpuStreamResetKey = ({
   sourceId: string | null;
   epoch: number;
 }): string => {
-  // Use the actual sourceId directly instead of normalizing to prevent identical keys
-  // for different mock devices that would cause stuck GPU frames
+  // Delegate canvas key generation to presentationController when available
+  if (sourceId) {
+    const controllerKey = presentationController.getCanvasKey();
+    if (controllerKey && !controllerKey.startsWith("no-source")) {
+      return `${controllerKey}:${epoch}`;
+    }
+  }
   return `${sourceId ?? "no-source"}:${epoch}`;
 };
 
@@ -203,7 +242,8 @@ export const shouldResetVisualPresentationForSelection = (
 /**
  * Resolve the minimal presentation reset for a source lifecycle transition.
  * Source selection retains the currently painted canvas until the target's
- * first frame replaces it. Same-source reconnects still clear immediately.
+ * first frame replaces it — never flash black on Mock APT → Mock Tx or
+ * Start Tx. Same-source reconnects still clear immediately.
  */
 export const resolveWebGpuStreamTransition = (
   previous: WebGpuStreamIdentity | null,
@@ -213,25 +253,12 @@ export const resolveWebGpuStreamTransition = (
     return { clearLiveFrame: false, advanceResetEpoch: false };
   }
   const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
-  const selectedSourceChanged = shouldResetVisualPresentationForSelection(
-    previous.selectedSourceId,
-    next.selectedSourceId,
-  );
-  const activeSourceChanged = previous.sourceId !== next.sourceId;
-  const activeSourceCommittedToSelection =
-    activeSourceChanged &&
-    next.selectedSourceId != null &&
-    next.sourceId === next.selectedSourceId;
+
   return {
-    // Source selection is an ownership boundary. Clear the old frame and GPU
-    // surfaces immediately so markers/status for the target source can never
-    // be drawn over another device's spectrum. The later active-source commit
-    // does not reset again because the selection identity is unchanged.
-    clearLiveFrame:
-      selectedSourceChanged ||
-      (activeSourceChanged && !activeSourceCommittedToSelection) ||
-      reconnectBoundary,
-    advanceResetEpoch: selectedSourceChanged || reconnectBoundary,
+    // Selection / active-source handoffs keep the last painted graph until a
+    // replacement frame arrives. Only hard reconnects clear immediately.
+    clearLiveFrame: reconnectBoundary,
+    advanceResetEpoch: reconnectBoundary,
   };
 };
 

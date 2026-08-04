@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type React from "react";
 
 const STICKY_HEADER_CLEARANCE_PX = 12;
@@ -29,13 +29,35 @@ export const useSettingsSectionScrollSpy = ({
   );
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sectionIdsRef = useRef(sectionIds);
+  // Re-render (and re-run the observer effect) when the container element
+  // becomes available. The container may be mounted lazily after this hook
+  // runs (e.g. a lazy route populating a ref owned by the shell), so watching
+  // the ref identity alone would never re-connect the observer.
+  const [container, setContainer] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     sectionIdsRef.current = sectionIds;
   }, [sectionIds]);
 
+  // Pick up the container whenever this component re-renders (fast path).
+  useLayoutEffect(() => {
+    setContainer(containerRef.current);
+  });
+
+  // While the container is still null, poll for it so a lazily mounted route
+  // that populates the ref is detected even though this component (e.g. the
+  // app shell) never re-renders when that route resolves.
   useEffect(() => {
-    const container = containerRef.current;
+    if (container) return;
+    const pollId = window.setInterval(() => {
+      if (containerRef.current) {
+        setContainer(containerRef.current);
+      }
+    }, 100);
+    return () => window.clearInterval(pollId);
+  }, [container, containerRef]);
+
+  useEffect(() => {
     if (!container || typeof IntersectionObserver === "undefined") return;
 
     const visibleSections = new Map<string, number>();
@@ -72,18 +94,34 @@ export const useSettingsSectionScrollSpy = ({
       },
     );
 
-    for (const id of sectionIdsRef.current) {
-      const element = container.querySelector<HTMLElement>(
-        `[data-settings-section="${id}"]`,
-      );
-      if (element) observerRef.current.observe(element);
-    }
+    const observeSections = () => {
+      for (const id of sectionIdsRef.current) {
+        const element = container.querySelector<HTMLElement>(
+          `[data-settings-section="${id}"]`,
+        );
+        if (element) observerRef.current?.observe(element);
+      }
+    };
+
+    // Observe any sections already in the DOM, then re-observe on a microtask
+    // in case a lazy route mounted them just after this effect ran. Also watch
+    // for the container gaining the sections later (e.g. the settings route
+    // mounting after the shell).
+    observeSections();
+    const retry = window.setTimeout(observeSections, 0);
+    const mutationObserver =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => observeSections())
+        : null;
+    mutationObserver?.observe(container, { childList: true, subtree: true });
 
     return () => {
+      window.clearTimeout(retry);
+      mutationObserver?.disconnect();
       observerRef.current?.disconnect();
       observerRef.current = null;
     };
-  }, [containerRef]);
+  }, [container]);
 
   const scrollToSection = useCallback(
     (sectionId: string) => {

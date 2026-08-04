@@ -43,7 +43,7 @@ export const getMetadataPlaceholderCopy = ({
   metadataError: string | null;
 }): string | null => {
   if (sourceMode !== "file" || selectedFilesCount === 0) {
-    return "No file selected";
+    return "No file currently selected";
   }
   if (metadataError) return "File processing error";
   if (!metadataLoaded) return "Processing file";

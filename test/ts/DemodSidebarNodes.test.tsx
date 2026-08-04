@@ -55,4 +55,19 @@ describe("DemodSidebarNodes", () => {
       screen.getByText("Configure a transmit signal for controlled demod tests"),
     ).toBeInTheDocument();
   });
+
+  it("offers a Waterfall Analysis node", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <DemodSidebarNodes />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    expect(screen.getByText("Waterfall Analysis")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tune and inspect a waterfall signal window"),
+    ).toBeInTheDocument();
+  });
 });

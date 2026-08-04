@@ -160,6 +160,10 @@ export const createIqFramePump = ({
                 source_id: metadata.source_id,
                 stream_epoch: metadata.stream_epoch!,
                 sequence: metadata.sequence!,
+                frame_status: metadata.frame_status,
+                ...(metadata.frame_status === "standby"
+                  ? { is_tx_preview: true }
+                  : {}),
               }
             : {
                 ...framePayload,

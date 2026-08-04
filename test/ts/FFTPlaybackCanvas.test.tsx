@@ -70,9 +70,9 @@ describe("FFTPlaybackCanvas Component", () => {
   it("should show file selection prompt when no files selected", () => {
     render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />);
     expect(
-      screen.getByText("Drop .wav or .napt files here"),
+      screen.getByText("Drop .napt, .iq, or .wav files here"),
     ).toBeInTheDocument();
-    expect(screen.getByText("No files selected")).toBeInTheDocument();
+    expect(screen.getByText("No files selected (.napt, .iq, .wav)")).toBeInTheDocument();
   });
 
   it("should display selected files", () => {
@@ -88,7 +88,7 @@ describe("FFTPlaybackCanvas Component", () => {
 
     // Component shows drop zone when no files
     expect(
-      screen.getByText("Drop .wav or .napt files here"),
+      screen.getByText("Drop .napt, .iq, or .wav files here"),
     ).toBeInTheDocument();
 
     unmount();

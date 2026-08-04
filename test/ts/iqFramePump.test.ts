@@ -17,27 +17,57 @@ const createIqFramePump = (
   }
 ).createIqFramePump;
 
-const v2Envelope = (sequence: number, epoch = 3, sourceId = "rtl-sdr-v4") => {
+const v2Envelope = (
+  sequence: number,
+  epoch = 3,
+  sourceId = "rtl-sdr-v4",
+  frameStatus = 0,
+) => {
   const sourceBytes = new TextEncoder().encode(sourceId);
-  const headerLength = 52 + sourceBytes.length;
+  const headerLength = 56 + sourceBytes.length;
   const bytes = new Uint8Array(headerLength + 1);
   bytes.set(new TextEncoder().encode("NAPT"));
   const view = new DataView(bytes.buffer);
   view.setUint8(4, 2);
   view.setUint16(6, headerLength, true);
   view.setUint16(8, sourceBytes.length, true);
-  view.setBigUint64(12, BigInt(epoch), true);
-  view.setBigUint64(20, BigInt(sequence), true);
-  view.setBigUint64(28, BigInt(sequence), true);
-  view.setBigUint64(36, 137_100_000n, true);
-  view.setUint32(44, 1, true);
-  view.setUint32(48, 2_400_000, true);
-  bytes.set(sourceBytes, 52);
+  view.setUint8(10, frameStatus);
+  view.setBigUint64(16, BigInt(epoch), true);
+  view.setBigUint64(24, BigInt(sequence), true);
+  view.setBigUint64(32, BigInt(sequence), true);
+  view.setBigUint64(40, 137_100_000n, true);
+  view.setUint32(48, 1, true);
+  view.setUint32(52, 2_400_000, true);
+  bytes.set(sourceBytes, 56);
   bytes[headerLength] = sequence;
   return bytes.buffer;
 };
 
 describe("ordered I/Q frame pump", () => {
+  it("preserves the v2 standby payload status as Tx preview metadata", async () => {
+    const published: Array<{
+      frame_status?: string;
+      is_tx_preview?: boolean;
+    }> = [];
+    const pump = createIqFramePump?.({
+      decrypt: async (payload: Uint8Array) => payload,
+      publish: (frame: { frame_status?: string; is_tx_preview?: boolean }) =>
+        published.push(frame),
+      getLifecycle: () => ({ sourceId: "hackrf-one", streamEpoch: 3 }),
+    });
+
+    pump?.enqueue(v2Envelope(1, 3, "hackrf-one", 1), "hackrf-one");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(published).toHaveLength(1);
+    expect(published[0]).toEqual(
+      expect.objectContaining({
+        frame_status: "standby",
+        is_tx_preview: true,
+      }),
+    );
+  });
+
   it("publishes sequential frames in order and records sequence gaps", async () => {
     const published: number[] = [];
     const pump = createIqFramePump?.({

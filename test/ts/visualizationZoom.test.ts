@@ -1,7 +1,24 @@
 import {
+  clampVizZoom,
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
+  getZoomedViewForCenterFrequency,
 } from "../../src/ts/utils/visualizationZoom";
+
+it("allows the VisualizerSliders zoom maximum to reach 1,125x", () => {
+  expect(clampVizZoom(1125)).toBe(1125);
+});
+
+it("zooms the viewport to show a center frequency inside the hardware bounds", () => {
+  expect(
+    getZoomedViewForCenterFrequency({
+      hardwareRange: { min: 0, max: 100 },
+      currentZoom: 1,
+      currentPan: 0,
+      requestedCenterHz: 75,
+    }),
+  ).toEqual({ zoom: 2, pan: 25 });
+});
 
 describe("getStableVizPanForZoomChange", () => {
   it("keeps pan stable when zooming from the center", () => {

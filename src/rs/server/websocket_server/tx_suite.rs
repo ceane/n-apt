@@ -30,7 +30,7 @@ pub struct TxSuitePair {
   pub tx_source_id: String,
   pub rx_active: bool,
   pub tx_active: bool,
-  pub tx_mode: &'static str,
+  pub tx_status: &'static str,
 }
 
 /// Resolve the safest default Tx Suite pairing.
@@ -51,7 +51,7 @@ pub fn resolve_tx_suite_pair(
       tx_source_id: tx.source_id.clone(),
       rx_active: true,
       tx_active: false,
-      tx_mode: "standby",
+      tx_status: "standby",
     });
   }
 
@@ -61,7 +61,7 @@ pub fn resolve_tx_suite_pair(
       tx_source_id: rx.source_id.clone(),
       rx_active: true,
       tx_active: false,
-      tx_mode: "standby",
+      tx_status: "standby",
     });
   }
 

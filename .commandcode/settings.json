@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(npx jest test/ts/settingsDefaults.test.ts test/ts/useSettingsSectionScrollSpy.test.ts test/ts/SettingsRoute.test.tsx test/ts/SidebarRoutesNav.test.tsx --runInBand 2 >& 1)",
+      "Shell(npx jest test/ts/bypassStartPage.test.ts --runInBand 2 >& 1)",
+      "Shell(npx jest test/ts/GetStartedRoute.test.tsx --runInBand 2 >& 1)",
+      "Shell(npx tsc --noEmit --ignoreDeprecations 6.0 2 >& 1)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

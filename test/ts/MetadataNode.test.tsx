@@ -9,7 +9,7 @@ describe("getMetadataPlaceholderCopy", () => {
         metadataLoaded: false,
         metadataError: null,
       }),
-    ).toBe("No file selected");
+    ).toBe("No file currently selected");
   });
 
   it("shows processing while metadata is being loaded", () => {

@@ -98,3 +98,37 @@ export const resolveMockTxMonitorSampleRateForView = (
   ...sourceCandidates: Array<number | null | undefined>
 ): number =>
   resolveMockTxMonitorSampleRateHz(viewSampleRateHz, ...sourceCandidates);
+
+/**
+ * Clear Mock Tx preview dedupe when the handoff fence advances without a
+ * frame. Early publishes can land before the Tx stream subscribes; each
+ * unique fence should get one more request_next_frame.
+ */
+export const shouldClearMockTxPreviewRequestDedupe = ({
+  isMockTxMonitorActive,
+  selectedSourceId,
+  activeSourceId,
+  hasRenderableFrame,
+  lifecyclePhase = null,
+  transportPhase = null,
+  previousFence = null,
+}: {
+  isMockTxMonitorActive: boolean;
+  selectedSourceId?: string | null;
+  activeSourceId?: string | null;
+  hasRenderableFrame: boolean;
+  lifecyclePhase?: string | null;
+  transportPhase?: string | null;
+  previousFence?: string | null;
+}): boolean => {
+  if (
+    !isMockTxMonitorActive ||
+    hasRenderableFrame ||
+    typeof selectedSourceId !== "string" ||
+    selectedSourceId.length === 0
+  ) {
+    return false;
+  }
+  const fence = `${selectedSourceId}|${activeSourceId ?? ""}|${lifecyclePhase ?? ""}|${transportPhase ?? ""}`;
+  return fence !== previousFence;
+};

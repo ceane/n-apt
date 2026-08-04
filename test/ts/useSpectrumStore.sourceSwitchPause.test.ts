@@ -14,9 +14,19 @@ import {
   resolveSelectedSourceIdForInventory,
   resolveInventorySelectionIntent,
   shouldClearPendingSourceSwitch,
+  resolveNextVisualizerPauseState,
 } from "@n-apt/hooks/useSpectrumStore";
 
 describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
+  it("does not invert a stale pause flag when the Rx handoff explicitly resumes", () => {
+    expect(
+      resolveNextVisualizerPauseState({
+        currentPaused: false,
+        requestedPaused: false,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the confirmed streaming source's metadata during a pending selection", () => {
     const hackrf = {
       id: "hackrf-one",
@@ -391,6 +401,23 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe(true);
   });
 
+  it("does not auto-resume a half-duplex source that is Tx-bound or in standby", () => {
+    expect(
+      shouldResumePausedRxSourceOnSelection(
+        {
+          id: "hackrf-one",
+          name: "HackRF One",
+          capability: "tx_rx",
+          duplex_mode: "half-duplex",
+          status: "standby",
+          paused: true,
+        } as any,
+        false,
+        "hackrf-one",
+      ),
+    ).toBe(false);
+  });
+
   it("resumes a recovered HackRF source when the outage was temporary and the user did not pause it", () => {
     expect(
       shouldAutoResumeVisualizerOnDeviceRecovery(
@@ -457,6 +484,19 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         selectedSourceId: "mock-tx",
         activeSourceId: "mock-apt",
         selectionIntentSourceId: "mock-tx",
+        availableSourceIds: ["mock-apt", "mock-tx"],
+      }),
+    ).toBe(true);
+  });
+
+  it("reasserts the selected source after a disconnect wipe without intent", () => {
+    expect(
+      shouldSendSelectSource({
+        isConnected: true,
+        sourceMode: "live",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "",
+        selectionIntentSourceId: null,
         availableSourceIds: ["mock-apt", "mock-tx"],
       }),
     ).toBe(true);

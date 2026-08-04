@@ -10,7 +10,54 @@ export interface ZoomRetuneResult {
 export const clampVizZoom = (zoom: number, zoomFloor = 1) => {
   const safeFloor = Number.isFinite(zoomFloor) && zoomFloor > 0 ? zoomFloor : 1;
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  return clamp(safeZoom, safeFloor, 1000);
+  return clamp(safeZoom, safeFloor, 1125);
+};
+
+export const getZoomedViewForCenterFrequency = ({
+  hardwareRange,
+  currentZoom,
+  currentPan,
+  requestedCenterHz,
+  maxZoom = 1125,
+}: {
+  hardwareRange: { min: number; max: number };
+  currentZoom: number;
+  currentPan: number;
+  requestedCenterHz: number;
+  maxZoom?: number;
+}): { zoom: number; pan: number } => {
+  const fullSpan = hardwareRange.max - hardwareRange.min;
+  if (
+    !Number.isFinite(fullSpan) ||
+    fullSpan <= 0 ||
+    !Number.isFinite(requestedCenterHz)
+  ) {
+    return { zoom: currentZoom, pan: currentPan };
+  }
+
+  const targetCenter = clamp(
+    requestedCenterHz,
+    hardwareRange.min,
+    hardwareRange.max,
+  );
+  const distanceToEdge = Math.min(
+    targetCenter - hardwareRange.min,
+    hardwareRange.max - targetCenter,
+  );
+  const maxCenteredSpan = Math.max(0, distanceToEdge * 2);
+  const requiredZoom =
+    maxCenteredSpan > 0 ? fullSpan / maxCenteredSpan : maxZoom;
+  const zoom = Math.min(
+    maxZoom,
+    Math.max(1, currentZoom, requiredZoom),
+  );
+  const visibleSpan = fullSpan / zoom;
+  const maxPan = Math.max(0, fullSpan / 2 - visibleSpan / 2);
+  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
+  return {
+    zoom,
+    pan: clamp(targetCenter - hardwareCenter, -maxPan, maxPan),
+  };
 };
 
 export const getStableVizPanForZoomChange = ({

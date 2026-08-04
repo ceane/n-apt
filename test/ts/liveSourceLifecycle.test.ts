@@ -3,6 +3,7 @@ import {
   buildLiveSourceLifecycleTrace,
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
+  resolveLiveSourceLifecycleErrorReason,
   resolveLiveSourcePresentationPolicy,
   resolveLiveSourceLifecycle,
   resolvePausedFramePresentation,
@@ -183,13 +184,29 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(false);
   });
 
-  test("requests a source-owned Mock Tx preview while the device swap is warming", () => {
+  test("requests a Mock Tx standby preview immediately during handoff and cold start", () => {
     expect(
       shouldRequestMockTxStandbyPreview({
         isSelectedMockTxSource: true,
         isSelectedMockTxTransmitting: false,
         isConnected: true,
         phase: "warming-transport",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isConnected: true,
+        phase: "standby",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestMockTxStandbyPreview({
+        isSelectedMockTxSource: true,
+        isSelectedMockTxTransmitting: false,
+        isConnected: true,
+        phase: "awaiting-frame",
       }),
     ).toBe(true);
     expect(
@@ -327,11 +344,33 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe("warming-transport");
   });
 
-  test("never reports Server Down during a healthy source handoff", () => {
+  test("attaches a Loading placeholder for Mock Tx → Mock APT awaiting-frame", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-apt",
+      activeSourceId: "mock-apt",
+      transportSourceId: "mock-apt",
+      transportPhase: "warming",
+      hasValidFrame: false,
+      deviceStatus: "connected",
+      isConnected: true,
+      connectionStatus: "connected",
+      hasConnectedOnce: true,
+    });
+    expect(lifecycle.phase).toBe("awaiting-frame");
+
+    const presented = attachLiveSourceLifecyclePlaceholder(lifecycle, {});
+    expect(presented.placeholder).toMatchObject({
+      kind: "loading",
+      message: "Waiting for the first frame to arrive.",
+    });
+    expect(resolveLiveSourceLifecycleErrorReason(presented)).toBeNull();
+  });
+
+  test("never reports Server Down during a healthy connected source handoff", () => {
     expect(
       isControlPlaneUnavailable({
-        isConnected: false,
-        connectionStatus: "disconnected",
+        isConnected: true,
+        connectionStatus: "connected",
         hasConnectedOnce: true,
         sourceHandoffPending: true,
         transportPhase: "warming",
@@ -346,12 +385,63 @@ describe("resolveLiveSourceLifecycle", () => {
         transportPhase: "warming",
         hasValidFrame: false,
         deviceStatus: "connected",
-        isConnected: false,
-        connectionStatus: "disconnected",
+        isConnected: true,
+        connectionStatus: "connected",
         hasConnectedOnce: true,
         handoffPlaceholder,
       }).phase,
     ).toBe("warming-transport");
+  });
+
+  test("does not treat sticky stream/source errors as Server Down while the control socket is open", () => {
+    // File → Mock Tx can poison connectionStatus via stream subscribe / stream_error
+    // without closing the control plane. Mock APT must not inherit Server Down.
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: true,
+        connectionStatus: "error",
+        hasConnectedOnce: true,
+        sourceHandoffPending: true,
+        transportPhase: "warming",
+      }),
+    ).toBe(false);
+
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        transportSourceId: "mock-apt",
+        transportPhase: "warming",
+        hasValidFrame: false,
+        deviceStatus: "connected",
+        isConnected: true,
+        connectionStatus: "error",
+        hasConnectedOnce: true,
+        handoffPlaceholder,
+      }).phase,
+    ).toBe("warming-transport");
+  });
+
+  test("still reports Server Down for a hard control-plane error after disconnect", () => {
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "error",
+        hasConnectedOnce: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps Server Down when disconnected even if stale warming metadata remains", () => {
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        sourceHandoffPending: true,
+        transportPhase: "warming",
+      }),
+    ).toBe(true);
   });
 
   test("still reports Server Down after a live session is lost with no handoff", () => {
@@ -364,6 +454,46 @@ describe("resolveLiveSourceLifecycle", () => {
         transportPhase: "idle",
       }),
     ).toBe(true);
+  });
+
+  test("keeps Server Down during reconnect polling after a live session", () => {
+    // Middleware softDisconnect → Server Down, then backoff setReconnecting /
+    // setConnecting. Those attempts must not flash Loading while the backend
+    // is still dead.
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "reconnecting",
+        hasConnectedOnce: true,
+        sourceHandoffPending: false,
+        transportPhase: "idle",
+      }),
+    ).toBe(true);
+
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "connecting",
+        hasConnectedOnce: true,
+        sourceHandoffPending: false,
+        transportPhase: "idle",
+      }),
+    ).toBe(true);
+
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        transportSourceId: "mock-apt",
+        transportPhase: "ready",
+        hasValidFrame: false,
+        deviceStatus: "receiving",
+        isConnected: false,
+        connectionStatus: "reconnecting",
+        hasConnectedOnce: true,
+        handoffPlaceholder,
+      }).phase,
+    ).toBe("failed");
   });
 
   test("shows Server Down only after a live control session is lost", () => {
@@ -395,7 +525,7 @@ describe("resolveLiveSourceLifecycle", () => {
     });
   });
 
-  test("presents Mock Tx standby during its mock-to-mock handoff", () => {
+  test("uses Loading during Mock Tx handoff instead of a black canvas under standby", () => {
     const lifecycle = resolveLiveSourceLifecycle({
       selectedSourceId: "mock-tx",
       activeSourceId: "mock-apt",
@@ -403,6 +533,7 @@ describe("resolveLiveSourceLifecycle", () => {
       transportPhase: "warming",
       hasValidFrame: false,
       deviceStatus: "connected",
+      isStandby: true,
       handoffPlaceholder,
     });
     const standbyPlaceholder = {
@@ -410,6 +541,8 @@ describe("resolveLiveSourceLifecycle", () => {
       title: "Start Tx to transmit",
     };
 
+    // Handoff owns Loading. Standby top-bar alone must not win (black FFT).
+    expect(lifecycle.phase).toBe("warming-transport");
     expect(
       attachLiveSourceLifecyclePlaceholder(lifecycle, {
         handoffPlaceholder,
@@ -417,7 +550,30 @@ describe("resolveLiveSourceLifecycle", () => {
       }),
     ).toMatchObject({
       phase: "warming-transport",
-      placeholder: standbyPlaceholder,
+      placeholder: handoffPlaceholder,
+    });
+  });
+
+  test("keeps Loading for committed Mock Tx standby until a preview frame exists", () => {
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+        hasValidFrame: false,
+        deviceStatus: "standby",
+        isStandby: true,
+        isConnected: true,
+        connectionStatus: "connected",
+        hasConnectedOnce: true,
+      }),
+    ).toMatchObject({
+      phase: "awaiting-frame",
+      placeholder: {
+        kind: "loading",
+        message: "Waiting for the first frame to arrive.",
+      },
     });
   });
 

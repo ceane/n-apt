@@ -4,13 +4,14 @@
 //! for the N-APT SDR application.
 
 pub mod http_endpoints;
+pub mod iq_format;
 pub mod main;
 pub mod shared_state;
+pub mod stream_manager;
 pub mod tower_local;
 pub mod tx_log;
 pub mod types;
 pub mod utils;
-pub mod iq_format;
 pub mod websocket_handlers;
 pub mod websocket_server;
 

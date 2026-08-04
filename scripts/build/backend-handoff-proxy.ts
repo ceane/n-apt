@@ -1,13 +1,22 @@
 import fs from "node:fs";
 import http from "node:http";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-// @ts-ignore ws is installed directly but this script is also executed through tsx.
-import { WebSocket, WebSocketServer } from "ws";
+
+// Force the Node entrypoint. Jest's jsdom environment otherwise resolves the
+// package "browser" stub, which exports an empty object.
+const nodeRequire = createRequire(path.join(process.cwd(), "package.json"));
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const wsTypes = { WebSocket, WebSocketServer } as {
+const wsModule = nodeRequire(
+  path.join(process.cwd(), "node_modules/ws/index.js"),
+) as {
   WebSocket: any;
   WebSocketServer: any;
+};
+const wsTypes = {
+  WebSocket: wsModule.WebSocket,
+  WebSocketServer: wsModule.WebSocketServer,
 };
 
 export type BackendTarget = { host: string; port: number };
@@ -38,10 +47,31 @@ export function createBackendHandoffProxy(options: {
 }): http.Server {
   let target = readBackendTarget(options.targetFile);
   const targetDirectory = path.dirname(options.targetFile);
+  const proxiedSockets = new Set<any>();
+
+  const closeProxiedSockets = () => {
+    for (const socket of proxiedSockets) {
+      try {
+        socket.close();
+      } catch {
+        // Best-effort cutover; sockets may already be closing.
+      }
+    }
+    proxiedSockets.clear();
+  };
+
   const targetWatcher = fs.watch(targetDirectory, (_event, filename) => {
     if (filename !== path.basename(options.targetFile)) return;
     try {
-      target = readBackendTarget(options.targetFile);
+      const nextTarget = readBackendTarget(options.targetFile);
+      const targetChanged =
+        nextTarget.host !== target.host || nextTarget.port !== target.port;
+      target = nextTarget;
+      if (targetChanged) {
+        // Existing websockets stay pinned to the old upstream; force clients to
+        // reconnect so they attach to the replacement backend immediately.
+        closeProxiedSockets();
+      }
     } catch {
       // Atomic replacement can briefly make the file unavailable.
     }
@@ -69,7 +99,6 @@ export function createBackendHandoffProxy(options: {
   const websocketServer = wsTypes.WebSocketServer
     ? new wsTypes.WebSocketServer({ noServer: true })
     : null;
-  const proxiedSockets = new Set<any>();
   server.on("upgrade", (request, socket, head) => {
     if (!websocketServer) {
       socket.destroy();
@@ -105,10 +134,7 @@ export function createBackendHandoffProxy(options: {
   const originalClose = server.close.bind(server);
   server.close = ((callback?: (error?: Error) => void) => {
     targetWatcher.close();
-    for (const socket of proxiedSockets) {
-      try { socket.close(); } catch {}
-    }
-    proxiedSockets.clear();
+    closeProxiedSockets();
     websocketServer?.close();
     return originalClose(callback);
   }) as typeof server.close;

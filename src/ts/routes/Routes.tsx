@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
@@ -12,6 +12,7 @@ import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";
 import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
+import { SettingsSidebar } from "@n-apt/components/sidebar/SettingsSidebar";
 
 // Lazy load route components
 const SpectrumRoute = lazy(() =>
@@ -72,11 +73,6 @@ const LearnSignalsRoute = lazy(() =>
     default: m.LearnSignalsRoute,
   })),
 );
-const IQCapturesRoute = lazy(() =>
-  import("@n-apt/routes/IQCapturesRoute").then((m) => ({
-    default: m.IQCapturesRoute,
-  })),
-);
 const GetStartedRoute = lazy(() =>
   import("@n-apt/routes/GetStartedRoute").then((m) => ({
     default: m.GetStartedRoute,
@@ -87,26 +83,16 @@ const SettingsRoute = lazy(() =>
     default: m.SettingsRoute,
   })),
 );
-const FFTIFFTRoute = lazy(() =>
-  import("@n-apt/routes/FFTIFFTRoute").then((m) => ({
-    default: m.FFTIFFTRoute,
-  })),
-);
-const FAQOverviewRoute = lazy(() =>
-  import("@n-apt/routes/FAQOverviewRoute").then((m) => ({
-    default: m.FAQOverviewRoute,
-  })),
-);
 const CellularTriangulationTargetingDemoRoute = lazy(() =>
   import("@n-apt/tracked-interactive/Route").then((m) => ({
     default: m.CellularTriangulationTargetingDemoRoute,
   })),
 );
-const QuestionnaireRoute = lazy(() =>
-  import("@n-apt/legal-app/routes/QuestionnaireRoute"),
+const QuestionnaireRoute = lazy(
+  () => import("@n-apt/legal-app/routes/QuestionnaireRoute"),
 );
-const XArchiveFormatterRoute = lazy(() =>
-  import("@n-apt/legal-app/routes/TranscriptFixerRoute"),
+const XArchiveFormatterRoute = lazy(
+  () => import("@n-apt/legal-app/routes/TranscriptFixerRoute"),
 );
 
 import { Model3DProvider } from "@n-apt/hooks/useModel3D";
@@ -126,97 +112,16 @@ import {
 } from "@n-apt/redux";
 import { selectSourceMode } from "@n-apt/redux/selectors/performanceSelectors";
 import { NsaProgramToolsShell } from "@n-apt/legal-app/NsaProgramToolsShell";
+import { useSettingsSectionScrollSpy } from "@n-apt/hooks/useSettingsSectionScrollSpy";
 
-const SpectrumRouteWithSidebar: React.FC<{
-  activeTab: "visualizer" | "analysis" | "draw";
-}> = ({ activeTab }) => {
-  const dispatch = useAppDispatch();
-  const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
-  const [visualizerLoading, setVisualizerLoading] = useState(false);
+const SETTINGS_SECTIONS = [
+  { id: "theme", label: "Theme" },
+  { id: "sdr", label: "SDR Settings" },
+  { id: "login", label: "Login" },
+  { id: "iq-capture", label: "I/Q Capture Settings" },
+  { id: "snapshot", label: "Snapshot & Fast Snapshot" },
+];
 
-  const handleCreateNoteCard = useCallback(() => {
-    const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
-    const snapshot = fftCanvasRef.current?.getCompositeSnapshot() ?? null;
-    dispatch(setNoteCardsCollapsed(false));
-    void dispatch(
-      createNoteCardFromSpectrum({
-        snapshot,
-        stats: snapshotData
-          ? {
-              centerFrequencyHz: snapshotData.centerFrequencyHz,
-              frequencyRange: snapshotData.frequencyRange,
-            }
-          : undefined,
-      }),
-    );
-  }, [dispatch]);
-
-  return (
-    <MainLayout
-      sidebar={
-        <SpectrumSidebar
-          onCreateNoteCard={handleCreateNoteCard}
-          visualizerLoading={visualizerLoading}
-        />
-      }
-    >
-      <Suspense
-        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-      >
-        <SpectrumRoute
-          activeTab={activeTab}
-          fftCanvasRef={fftCanvasRef}
-          onLoadingStateChange={setVisualizerLoading}
-        />
-      </Suspense>
-    </MainLayout>
-  );
-};
-
-// Create a wrapper component to manage scanner state
-const DemodRouteWithSidebar: React.FC = () => {
-  const {
-    windowSizeHz,
-    setWindowSizeHz,
-    stepSizeHz,
-    setStepSizeHz,
-    audioThreshold,
-    setAudioThreshold,
-    scanner,
-    currentFreq,
-    scanRange,
-    startScan,
-    stopScan,
-  } = useDemod();
-
-  return (
-    <MainLayout
-      sidebar={
-        <DemodulateSidebar
-          windowSizeHz={windowSizeHz}
-          stepSizeHz={stepSizeHz}
-          audioThreshold={audioThreshold}
-          onWindowSizeChange={setWindowSizeHz}
-          onStepSizeChange={setStepSizeHz}
-          onAudioThresholdChange={setAudioThreshold}
-          isScanning={scanner.isScanning}
-          scanProgress={scanner.scanProgress}
-          scanCurrentFreq={currentFreq}
-          scanRange={scanRange}
-          detectedRegions={scanner.detectedRegions.length}
-          onScanStart={startScan}
-          onScanStop={stopScan}
-        />
-      }
-    >
-      <Suspense
-        fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-      >
-        <DemodRoute />
-      </Suspense>
-    </MainLayout>
-  );
-};
 const TestRouteSidebar: React.FC = () => <div data-testid="route-sidebar" />;
 
 const RouteLoadingFallback = styled.div`
@@ -224,7 +129,8 @@ const RouteLoadingFallback = styled.div`
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: 100vh;
+  height: 100%;
+  min-height: 60vh;
   text-align: center;
 `;
 
@@ -260,255 +166,215 @@ const GlobalSpacePauseHandler: React.FC = () => {
   return null;
 };
 
-const AppRoutesInner: React.FC = () => {
+// ── Shared layout shell ─────────────────────────────────────────────────────
+// One persistent MainLayout wraps every routed page. The sidebar is switched
+// by the current path (never unmounted wholesale), so navigating between
+// routes keeps the sidebar in place and only the content area swaps. The
+// Suspense fallback also lives inside the content area so a lazy route chunk
+// shows "Loading…" in the section only — not a full-app flash.
+// Only mounted on demod routes, so useDemod (and the scanner work it pulls
+// in) never runs for unrelated pages. Its context may also be mocked away in
+// tests, so it must not be called from the always-mounted shell.
+const DemodSidebarAdapter: React.FC = () => {
+  const {
+    windowSizeHz,
+    setWindowSizeHz,
+    stepSizeHz,
+    setStepSizeHz,
+    audioThreshold,
+    setAudioThreshold,
+    scanner,
+    currentFreq,
+    scanRange,
+    startScan,
+    stopScan,
+  } = useDemod();
+
   return (
-    <>
-      <GlobalSpacePauseHandler />
+    <DemodulateSidebar
+      windowSizeHz={windowSizeHz}
+      stepSizeHz={stepSizeHz}
+      audioThreshold={audioThreshold}
+      onWindowSizeChange={setWindowSizeHz}
+      onStepSizeChange={setStepSizeHz}
+      onAudioThresholdChange={setAudioThreshold}
+      isScanning={scanner.isScanning}
+      scanProgress={scanner.scanProgress}
+      scanCurrentFreq={currentFreq}
+      scanRange={scanRange}
+      detectedRegions={scanner.detectedRegions.length}
+      onScanStart={startScan}
+      onScanStop={stopScan}
+    />
+  );
+};
+
+const AppShellLayout: React.FC = () => {
+  const location = useLocation();
+  const dispatch = useAppDispatch();
+  const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
+  const [visualizerLoading, setVisualizerLoading] = useState(false);
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const { activeSectionId, scrollToSection } = useSettingsSectionScrollSpy({
+    containerRef: pageRef,
+    sectionIds: SETTINGS_SECTIONS.map((s) => s.id),
+  });
+
+  const path = location.pathname;
+  const isSpectrum = ["/", "/auth", "/visualizer"].includes(path);
+  const isDemod = path === "/demodulate" || path === "/demod";
+  const isSettings = path === "/settings";
+  const is3DModel = path === "/3d-model";
+  const isMap = path === "/map-endpoints";
+  const isAntiAliasing = path === "/diagnostics/anti-aliasing";
+  const isDrawSignal = path === "/draw-signal";
+
+  const handleCreateNoteCard = useCallback(() => {
+    const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
+    const snapshot = fftCanvasRef.current?.getCompositeSnapshot() ?? null;
+    dispatch(setNoteCardsCollapsed(false));
+    void dispatch(
+      createNoteCardFromSpectrum({
+        snapshot,
+        stats: snapshotData
+          ? {
+              centerFrequencyHz: snapshotData.centerFrequencyHz,
+              frequencyRange: snapshotData.frequencyRange,
+            }
+          : undefined,
+      }),
+    );
+  }, [dispatch]);
+
+  let sidebar: React.ReactNode = null;
+  if (isSpectrum) {
+    sidebar = (
+      <SpectrumSidebar
+        onCreateNoteCard={handleCreateNoteCard}
+        visualizerLoading={visualizerLoading}
+      />
+    );
+  } else if (isDemod) {
+    sidebar = <DemodSidebarAdapter />;
+  } else if (isSettings) {
+    sidebar = (
+      <SettingsSidebar
+        sections={SETTINGS_SECTIONS}
+        activeSectionId={activeSectionId}
+        onSectionClick={scrollToSection}
+      />
+    );
+  } else if (is3DModel) {
+    sidebar =
+      process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />;
+  } else if (isMap) {
+    sidebar = <MapEndpointsSidebar />;
+  } else if (isAntiAliasing) {
+    sidebar = <SDRTestSidebar />;
+  } else if (isDrawSignal) {
+    sidebar = <DrawSignalSidebar />;
+  }
+
+  const content = (
+    <Suspense fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}>
       <Routes>
         <Route
           path="/"
-          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
+          element={
+            <SpectrumRoute
+              activeTab="visualizer"
+              fftCanvasRef={fftCanvasRef}
+              onLoadingStateChange={setVisualizerLoading}
+            />
+          }
         />
         <Route
           path="/auth"
-          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
+          element={
+            <SpectrumRoute
+              activeTab="visualizer"
+              fftCanvasRef={fftCanvasRef}
+              onLoadingStateChange={setVisualizerLoading}
+            />
+          }
         />
         <Route
           path="/visualizer"
-          element={<SpectrumRouteWithSidebar activeTab="visualizer" />}
-        />
-        <Route
-          path="/get-started"
           element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <GetStartedRoute />
-            </Suspense>
+            <SpectrumRoute
+              activeTab="visualizer"
+              fftCanvasRef={fftCanvasRef}
+              onLoadingStateChange={setVisualizerLoading}
+            />
           }
         />
-        <Route path="/demodulate" element={<DemodRouteWithSidebar />} />
+        <Route path="/get-started" element={<GetStartedRoute />} />
+        <Route path="/demodulate" element={<DemodRoute />} />
+        <Route path="/demod" element={<DemodRoute />} />
         <Route
           path="/settings"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <SettingsRoute />
-            </Suspense>
-          }
+          element={<SettingsRoute containerRef={pageRef} />}
         />
-        <Route
-          path="/draw-signal"
-          element={
-            <DrawSignalPaginationProvider>
-              <MainLayout sidebar={<DrawSignalSidebar />}>
-                <Suspense
-                  fallback={
-                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
-                  }
-                >
-                  <DrawSignalRoute />
-                </Suspense>
-              </MainLayout>
-            </DrawSignalPaginationProvider>
-          }
-        />
-        <Route
-          path="/3d-model"
-          element={
-            <MainLayout
-              sidebar={
-                process.env.NODE_ENV === "test" ? (
-                  <TestRouteSidebar />
-                ) : (
-                  <Model3DSidebar />
-                )
-              }
-            >
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-              >
-                <Model3DRoute />
-              </Suspense>
-            </MainLayout>
-          }
-        />
-        <Route
-          path="/map-endpoints"
-          element={
-            <MapRoutePathsProvider>
-              <MainLayout sidebar={<MapEndpointsSidebar />}>
-                <Suspense
-                  fallback={
-                    <RouteLoadingFallback>Loading…</RouteLoadingFallback>
-                  }
-                >
-                  <MapEndpointsRoute />
-                </Suspense>
-              </MainLayout>
-            </MapRoutePathsProvider>
-          }
-        />
+        <Route path="/draw-signal" element={<DrawSignalRoute />} />
+        <Route path="/3d-model" element={<Model3DRoute />} />
+        <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
         <Route
           path="/diagnostics/anti-aliasing"
-          element={
-            <MainLayout sidebar={<SDRTestSidebar />}>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-              >
-                <AntiAliasingDiagnostics />
-              </Suspense>
-            </MainLayout>
-          }
+          element={<AntiAliasingDiagnostics />}
         />
-        <Route
-          path="/3d-model-gallery"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <Model3DGalleryRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/pretext-demo"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <PretextDemoRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/vfo-grid-demo"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <VFOGridDemoRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/transformers"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <TransformersRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/terms"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <LegalDocumentRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/privacy"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <LegalDocumentRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/license"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <LegalDocumentRoute />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/responsible-use"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <LegalDocumentRoute />
-            </Suspense>
-          }
-        />
+        <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
+        <Route path="/pretext-demo" element={<PretextDemoRoute />} />
+        <Route path="/vfo-grid-demo" element={<VFOGridDemoRoute />} />
+        <Route path="/transformers" element={<TransformersRoute />} />
+        <Route path="/terms" element={<LegalDocumentRoute />} />
+        <Route path="/privacy" element={<LegalDocumentRoute />} />
+        <Route path="/license" element={<LegalDocumentRoute />} />
+        <Route path="/responsible-use" element={<LegalDocumentRoute />} />
         <Route
           path="/learn-signals"
           element={
             <LearnSignalsProvider>
-              <Suspense
-                fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-              >
-                <LearnSignalsRoute />
-              </Suspense>
+              <LearnSignalsRoute />
+            </LearnSignalsProvider>
+          }
+        />
+        <Route
+          path="/learn-signals/:sectionSlug"
+          element={
+            <LearnSignalsProvider>
+              <LearnSignalsRoute />
             </LearnSignalsProvider>
           }
         />
         <Route
           path="/faq"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <FAQOverviewRoute />
-            </Suspense>
-          }
+          element={<Navigate to="/learn-signals" replace />}
         />
         <Route
           path="/faq/iq-captures"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <IQCapturesRoute />
-            </Suspense>
-          }
+          element={<Navigate to="/learn-signals/iq-captures" replace />}
         />
         <Route
           path="/iq-captures"
-          element={<Navigate to="/faq/iq-captures" replace />}
+          element={<Navigate to="/learn-signals/iq-captures" replace />}
         />
         <Route
           path="/faq/fft-ifft"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <FFTIFFTRoute />
-            </Suspense>
-          }
+          element={<Navigate to="/learn-signals/fft-ifft" replace />}
         />
         <Route
           path="/fft-ifft"
-          element={<Navigate to="/faq/fft-ifft" replace />}
+          element={<Navigate to="/learn-signals/fft-ifft" replace />}
         />
         <Route
           path="/game"
-          element={
-            <Suspense
-              fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}
-            >
-              <CellularTriangulationTargetingDemoRoute />
-            </Suspense>
-          }
+          element={<CellularTriangulationTargetingDemoRoute />}
         />
         <Route
           path="/questionnaire"
           element={
             <NsaProgramToolsShell>
-              <Suspense fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}>
-                <QuestionnaireRoute />
-              </Suspense>
+              <QuestionnaireRoute />
             </NsaProgramToolsShell>
           }
         />
@@ -516,13 +382,26 @@ const AppRoutesInner: React.FC = () => {
           path="/x-archive-formatter"
           element={
             <NsaProgramToolsShell>
-              <Suspense fallback={<RouteLoadingFallback>Loading…</RouteLoadingFallback>}>
-                <XArchiveFormatterRoute />
-              </Suspense>
+              <XArchiveFormatterRoute />
             </NsaProgramToolsShell>
           }
         />
       </Routes>
+    </Suspense>
+  );
+
+  if (sidebar === null) {
+    return content;
+  }
+
+  return <MainLayout sidebar={sidebar}>{content}</MainLayout>;
+};
+
+const AppRoutesInner: React.FC = () => {
+  return (
+    <>
+      <GlobalSpacePauseHandler />
+      <AppShellLayout />
     </>
   );
 };
@@ -534,7 +413,11 @@ export const AppRoutes: React.FC = () => {
         <Model3DProvider>
           <HotspotEditorProvider>
             <MapLocationsProvider>
-              <AppRoutesInner />
+              <MapRoutePathsProvider>
+                <DrawSignalPaginationProvider>
+                  <AppRoutesInner />
+                </DrawSignalPaginationProvider>
+              </MapRoutePathsProvider>
             </MapLocationsProvider>
           </HotspotEditorProvider>
         </Model3DProvider>

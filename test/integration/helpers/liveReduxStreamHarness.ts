@@ -482,7 +482,7 @@ export const createLiveReduxStreamHarness = async (
         () => store.getState(),
         (state) =>
           state.spectrum?.fftSize === fftSize ||
-          state.websocket.sdrSettings?.fftSize === fftSize ||
+          state.websocket.sdrSettings?.fft_size === fftSize ||
           state.websocket.sources.some(
             (source) =>
               source.id === state.websocket.activeSourceId &&

@@ -1,11 +1,7 @@
 use super::sources::{
   active_source_id, build_device_profile, build_source_info_snapshot,
 };
-#[cfg(not(test))]
-use crate::sdr::hotplug::supported_usb_device_count;
 use crate::server::shared_state::SharedState;
-#[cfg(not(test))]
-use log::warn;
 use std::sync::atomic::Ordering;
 use tokio::sync::broadcast;
 
@@ -118,19 +114,13 @@ pub fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
     return false;
   }
 
-  #[cfg(test)]
-  let supported_device_present = false;
-  #[cfg(not(test))]
-  let supported_device_present = match supported_usb_device_count() {
-    Ok(count) => count > 0,
-    Err(e) => {
-      warn!(
-        "USB reconciliation probe failed, keeping current status: {}",
-        e
-      );
-      return false;
-    }
-  };
+  if !shared.usb_inventory_known.load(Ordering::Acquire) {
+    return false;
+  }
+  let supported_device_present = shared
+    .supported_usb_device_count
+    .load(Ordering::Relaxed)
+    > 0;
 
   if supported_device_present {
     return false;

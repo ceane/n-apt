@@ -62,6 +62,7 @@ pub struct AppState {
   pub webauthn: Webauthn,
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
+  pub stream_manager: super::stream_manager::StreamingSourceModeManager,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
   pub sdr_processor:
     Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
@@ -356,6 +357,10 @@ impl websocket_server::WebSocketServer {
         "/ws/source/{stream_key}/iq",
         get(websocket_handlers::source_iq_ws_upgrade_handler),
       )
+      .route(
+        "/ws/streams",
+        get(websocket_handlers::stream_ws_upgrade_handler),
+      )
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 
@@ -413,6 +418,7 @@ impl websocket_server::WebSocketServer {
       webauthn: webauthn_result,
       broadcast_tx,
       spectrum_tx,
+      stream_manager: websocket_server.get_stream_manager(),
       cmd_tx,
       sdr_processor: websocket_server.get_sdr_processor(),
     });

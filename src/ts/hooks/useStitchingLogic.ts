@@ -76,6 +76,15 @@ export const useStitchingLogic = ({
         .join("|"),
     [selectedFiles],
   );
+  const selectedFileIdentityKey = useMemo(
+    () =>
+      selectedFiles
+        .map((file) => `${file.id}:${file.name}`)
+        .sort()
+        .join("|"),
+    [selectedFiles],
+  );
+  const lastAutoStitchKeyRef = useRef<string | null>(null);
   const lastProcessedFilesRef = useRef<string[]>(
     selectedFileNamesKey ? selectedFileNamesKey.split("|") : [],
   );
@@ -331,6 +340,14 @@ export const useStitchingLogic = ({
       stitchFiles();
     }
   }, [stitchTrigger, stitchFiles]);
+
+  useEffect(() => {
+    if (!selectedFileIdentityKey) return;
+    if (lastAutoStitchKeyRef.current === selectedFileIdentityKey) return;
+
+    lastAutoStitchKeyRef.current = selectedFileIdentityKey;
+    void stitchFiles();
+  }, [selectedFileIdentityKey, stitchFiles]);
 
   return {
     hasStitchedData,

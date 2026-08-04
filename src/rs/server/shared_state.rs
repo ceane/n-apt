@@ -5,6 +5,7 @@ use std::sync::atomic::{
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::sync::Notify;
 
 use super::types::{
   CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
@@ -27,12 +28,22 @@ pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 5;
 /// before giving up and falling back to mock.
 pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HackRfInventoryDevice {
+  pub serial_number: String,
+  pub index: usize,
+}
+
 /// Shared state visible to the async runtime (lock-free where possible)
 pub struct SharedState {
   /// Latest spectrum data produced by the I/O thread
   pub latest_spectrum: Mutex<Option<(Vec<f32>, bool)>>,
   /// Whether the device is connected (set once at init, updated on fallback)
   pub device_connected: AtomicBool,
+  /// Count from the latest successful hardware-monitor inventory refresh.
+  pub supported_usb_device_count: AtomicU32,
+  /// Whether the hardware monitor has completed at least one inventory refresh.
+  pub usb_inventory_known: AtomicBool,
   /// Client count
   pub client_count: AtomicUsize,
   /// Number of authenticated clients (streaming only starts when > 0)
@@ -60,6 +71,8 @@ pub struct SharedState {
   pub pending_center_freq: AtomicU32,
   /// Whether there is a pending frequency change
   pub pending_center_freq_dirty: AtomicBool,
+  /// Wakes the frame loop as soon as a new retune request arrives.
+  pub pending_center_freq_notify: Notify,
   /// Shutdown signal — I/O thread checks this each iteration
   pub shutdown: AtomicBool,
   /// Device info string (set once at init)
@@ -82,7 +95,8 @@ pub struct SharedState {
   pub device_loading: Mutex<bool>,
   /// When device_loading is true, why: "connect" | "restart" (optional)
   pub device_loading_reason: Mutex<Option<String>>,
-  /// Canonical device state: "connected", "loading", "loose", "disconnected", "stale"
+  /// Canonical device state: "connected", "initializing", "loading",
+  /// "disconnected", "stale", or "error".
   /// This is the single source of truth for the frontend.
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
@@ -127,6 +141,9 @@ pub struct SharedState {
   pub mock_tx_phase_accumulator: Mutex<f64>,
   /// Last broadcast status payload, used to suppress duplicate snapshots.
   pub last_broadcast_status: Mutex<Option<String>>,
+  /// HackRF inventory populated by the hardware monitor. Source/status
+  /// snapshots must read this cache rather than enumerate the native library.
+  pub hackrf_inventory: Mutex<Vec<HackRfInventoryDevice>>,
 }
 
 impl SharedState {
@@ -140,6 +157,8 @@ impl SharedState {
     Arc::new(SharedState {
       latest_spectrum: Mutex::new(None),
       device_connected: AtomicBool::new(false),
+      supported_usb_device_count: AtomicU32::new(0),
+      usb_inventory_known: AtomicBool::new(false),
       client_count: AtomicUsize::new(0),
       authenticated_count: AtomicUsize::new(0),
       is_paused: AtomicBool::new(false),
@@ -153,6 +172,7 @@ impl SharedState {
       source_pause_states: Mutex::new(HashMap::new()),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
+      pending_center_freq_notify: Notify::new(),
       shutdown: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
       device_serial: Mutex::new(String::new()),
@@ -181,6 +201,7 @@ impl SharedState {
       last_successful_read: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
+      hackrf_inventory: Mutex::new(Vec::new()),
       mock_tx_transmitting: AtomicBool::new(false),
       tx_safety_enabled: AtomicBool::new(false),
       tx_safety_limit: Mutex::new("room".to_string()),
@@ -192,6 +213,18 @@ impl SharedState {
       tx_hop_rate_hz: Mutex::new(1.0),
       mock_tx_phase_accumulator: Mutex::new(0.0),
     })
+  }
+
+  /// Publish the newest center-frequency request without taking the processor
+  /// mutex. The frame loop consumes the latest value before its next read.
+  pub fn request_center_frequency(&self, center_frequency_hz: u32) {
+    self
+      .pending_center_freq
+      .store(center_frequency_hz, Ordering::Release);
+    self
+      .pending_center_freq_dirty
+      .store(true, Ordering::Release);
+    self.pending_center_freq_notify.notify_one();
   }
 
   /// Return the current source-scoped I/Q lifecycle generation.
@@ -374,19 +407,23 @@ impl SharedState {
   pub fn set_device_state(&self, state: &str, loading_reason: Option<&str>) {
     let entered_loading = {
       let mut current = self.device_state.lock().unwrap();
-      let entered = state == "loading" && current.as_str() != "loading";
+      let entered = matches!(state, "loading" | "initializing")
+        && current.as_str() != state;
       *current = state.to_string();
       entered
     };
     if entered_loading {
       self.begin_stream_epoch();
     }
-    let is_loading = state == "loading";
+    let is_loading = matches!(state, "loading" | "initializing");
     *self.device_loading.lock().unwrap() = is_loading;
     *self.device_loading_reason.lock().unwrap() =
       loading_reason.map(|s| s.to_string());
     self.device_connected.store(
-      state == "connected" || state == "loading" || state == "transmitting",
+      state == "connected"
+        || state == "initializing"
+        || state == "loading"
+        || state == "transmitting",
       Ordering::Relaxed,
     );
     *self.last_broadcast_status.lock().unwrap() = None;

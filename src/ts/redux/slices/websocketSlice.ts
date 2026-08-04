@@ -250,6 +250,11 @@ const websocketSlice = createSlice({
       state.connectionStatus = "error";
     },
 
+    /** Stream/source operational failure — keep the control plane connected. */
+    setOperationalError: (state, action: PayloadAction<string>) => {
+      state.error = action.payload;
+    },
+
     reset: (state) => {
       Object.assign(state, initialState);
     },
@@ -342,6 +347,7 @@ export const {
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   reset,
   updateDeviceState,
   setServerPaused,

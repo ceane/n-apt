@@ -15,7 +15,7 @@ function createMockStore(isConnected: boolean) {
 }
 
 describe("requestNextPausedFrame thunk", () => {
-  it("dispatches a one-frame request when connected", async () => {
+  it("requests one standby preview frame when connected", async () => {
     const store = createMockStore(true);
 
     await requestNextPausedFrame()(
@@ -26,17 +26,15 @@ describe("requestNextPausedFrame thunk", () => {
 
     expect(store.getActions()).toContainEqual({
       type: "websocket/sendMessage",
-      payload: {
-        type: "request_next_frame",
-        data: {},
-      },
+      payload: { type: "request_next_frame", data: {} },
     });
   });
 
-  it("includes Tx preview settings in paused frame requests", async () => {
+  it("includes Tx preview settings in the one-shot request without opening a live Tx stream", async () => {
     const store = createMockStore(true);
 
     await requestNextPausedFrame({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         bandwidthHz: 1_400_000,
@@ -51,6 +49,7 @@ describe("requestNextPausedFrame thunk", () => {
       payload: {
         type: "request_next_frame",
         data: {
+          source_id: "mock-tx",
           centerFrequencyHz: 137_100_000,
           bandwidthHz: 1_400_000,
           powerDbm: -18,
@@ -59,6 +58,11 @@ describe("requestNextPausedFrame thunk", () => {
         },
       },
     });
+    expect(
+      store
+        .getActions()
+        .some((action) => action?.type === "websocket/refreshStream"),
+    ).toBe(false);
   });
 
   it("does not dispatch when disconnected", async () => {

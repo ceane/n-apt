@@ -141,8 +141,8 @@ export const resolveFrameReadiness = ({
   if (frame?.protocol_version === 2) {
     return (
       owner === selected &&
-      typeof expectedStreamEpoch === "number" &&
-      frame.stream_epoch === expectedStreamEpoch
+      (typeof expectedStreamEpoch !== "number" ||
+        frame.stream_epoch === expectedStreamEpoch)
     );
   }
 
@@ -218,7 +218,6 @@ export const resolveLiveDevicePlaceholderState = ({
 }): CanvasPlaceholderState | null => {
   if (
     deviceState !== "loading" &&
-    deviceState !== "loose" &&
     deviceState !== "stale" &&
     deviceState !== "disconnected" &&
     deviceState !== "error"
@@ -264,13 +263,11 @@ export const resolveLiveDevicePlaceholderState = ({
       : 0;
 
   const message =
-    deviceState === "loose"
-      ? "USB briefly dropped; waiting for the device to settle."
-      : deviceState === "stale"
-        ? "The device is still visible but has not produced a fresh frame yet."
-        : normalizedAttempt > 0
-          ? `Attempting to restart the device... (${normalizedAttempt}/${normalizedAttemptMax || "?"})`
-          : "The device is restarting; this can take 20-30 seconds for HackRF One.";
+    deviceState === "stale"
+      ? "The device is still visible but has not produced a fresh frame yet."
+      : normalizedAttempt > 0
+        ? `Attempting to restart the device... (${normalizedAttempt}/${normalizedAttemptMax || "?"})`
+        : "The device is restarting; this can take 20-30 seconds for HackRF One.";
 
   return {
     kind: "loading",

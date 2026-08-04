@@ -8,6 +8,7 @@ const fftAndWaterfallMock = jest.fn((_props: any) => (
   <div data-testid="fft-and-waterfall" />
 ));
 const observedInitialFrames: unknown[] = [];
+const triggerSnapshotRenderMock = jest.fn();
 
 jest.mock("@n-apt/components", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
@@ -18,7 +19,7 @@ jest.mock("@n-apt/components", () => ({
       getWaterfallCanvas: () => null,
       getSpectrumOverlayCanvas: () => null,
       getWaterfallOverlayCanvas: () => null,
-      triggerSnapshotRender: jest.fn(),
+      triggerSnapshotRender: triggerSnapshotRenderMock,
       getSnapshotData: () => null,
       getCompositeSnapshot: () => null,
     }));
@@ -109,6 +110,9 @@ jest.mock("@n-apt/redux", () => ({
 
 describe("FFTPlaybackCanvas file mode", () => {
   beforeEach(() => {
+    triggerSnapshotRenderMock.mockClear();
+  });
+  beforeEach(() => {
     fftAndWaterfallMock.mockClear();
     observedInitialFrames.length = 0;
     filePlaybackDataRef.current = null;
@@ -191,6 +195,25 @@ describe("FFTPlaybackCanvas file mode", () => {
     expect(filePlaybackDataRef.current).toEqual({
       waveform: new Float32Array([-90, -40, -70]),
     });
+  });
+
+  it("requests a render after the seeded first frame is mounted", async () => {
+    const canvasRef = React.createRef<any>();
+    render(
+      <FFTPlaybackCanvas
+        ref={canvasRef}
+        selectedFiles={[{ id: "file-1", name: "capture.napt" }]}
+        stitchTrigger={1}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={true}
+        fftSize={2048}
+        displayMode="fft"
+        powerScale="dB"
+        onStitchStatus={jest.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(triggerSnapshotRenderMock).toHaveBeenCalled());
   });
 
   it("passes file playback metadata into the FFT status row", async () => {

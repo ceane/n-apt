@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Box,
-  BookOpen,
   FileSignal,
   FileText,
   LayoutGrid,
@@ -14,7 +13,9 @@ import {
 } from "lucide-react";
 import { Logo } from "@n-apt/components/ui/Logo";
 import { Toggle } from "@n-apt/components/ui/Toggle";
-import { useAppSelector } from "@n-apt/redux";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setSourceMode, setSelectedFiles } from "@n-apt/redux";
+import { fileRegistry } from "@n-apt/utils/fileRegistry";
 import { selectWebSocketSources } from "@n-apt/redux/selectors/performanceSelectors";
 import { isMockDevice } from "@n-apt/utils/deviceCapabilities";
 import {
@@ -22,19 +23,23 @@ import {
   setBypassStartPage,
 } from "@n-apt/utils/bypassStartPage";
 
+const FILE_ACCEPT_TYPES = ".napt,.iq,.wav";
+
 interface StartingPoint {
   title: string;
   description: string;
   Icon: LucideIcon;
   href: string;
   showConnectedSources?: boolean;
+  showFileTypes?: boolean;
   showBypassToggle?: boolean;
+  opensFileDialog?: boolean;
 }
 
 const startingPoints: StartingPoint[] = [
   {
     title: "Take an I/Q Capture",
-    description: "Record a slice of the radio spectrum for later analysis.",
+    description: "Record a slice of the visible radio spectrum in real-time for later analysis (SDR required).",
     Icon: FileSignal,
     href: "/?sidebarSection=iq-capture",
   },
@@ -53,14 +58,17 @@ const startingPoints: StartingPoint[] = [
     showConnectedSources: true,
   },
   {
-    title: "Lingo and Learn",
-    description: "Browse the FAQ to learn radio and signal-processing terms.",
-    Icon: BookOpen,
-    href: "/faq",
+    title: "Playback I/Q Captures",
+    description: "Upload files to replay or analyze I/Q captures.",
+    Icon: FileSignal,
+    href: "/?source=fileSelection",
+    showFileTypes: true,
+    opensFileDialog: true,
   },
   {
     title: "See hardware gallery",
-    description: "Browse 3D models and gallery views of related hardware like SDRs and antennas.",
+    description:
+      "Browse 3D models and gallery views of related hardware like SDRs and antennas.",
     Icon: Box,
     href: "/3d-model-gallery",
   },
@@ -212,6 +220,15 @@ const CardFooter = styled.div`
   }
 `;
 
+const CardMeta = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: clamp(8px, 1.5vmin, 12px);
+  border-top: 1px solid ${(props) => props.theme.border};
+`;
+
 const IconFrame = styled.div`
   display: flex;
   width: clamp(36px, 6vmin, 48px);
@@ -261,7 +278,6 @@ const SourcePills = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: auto;
 `;
 
 const SourcePill = styled.span`
@@ -297,10 +313,23 @@ const SourceDot = styled.span`
   box-shadow: 0 0 8px ${(props) => props.theme.success};
 `;
 
+const HiddenFileInput = styled.input`
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+`;
+
 export const GetStartedRoute: React.FC = () => {
   const [bypassStartPage, setBypassStartPageEnabled] = useState(() =>
     getBypassStartPage(),
   );
+  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  const playbackFileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = useAppSelector((state) => state.websocket.isConnected);
   const sources = useAppSelector(selectWebSocketSources);
   const sourceNames = isConnected
@@ -314,11 +343,39 @@ export const GetStartedRoute: React.FC = () => {
       )
     : [];
 
+  const handlePlaybackCardClick = (
+    event: React.MouseEvent | React.KeyboardEvent,
+    href: string,
+  ) => {
+    event.preventDefault();
+    playbackFileInputRef.current?.click();
+    navigate(href);
+  };
+
   return (
     <Page>
       <Content>
         <Logo size="clamp(64px, 11vmin, 112px)" alt="N-APT" />
         <Title>Let&apos;s get started.</Title>
+        <HiddenFileInput
+          ref={playbackFileInputRef}
+          type="file"
+          accept={FILE_ACCEPT_TYPES}
+          multiple
+          onChange={(event) => {
+            const files = event.target.files
+              ? Array.from(event.target.files)
+              : [];
+            if (files.length === 0) return;
+            const registeredFiles = files.map((file) => ({
+              id: fileRegistry.register(file),
+              name: file.name,
+            }));
+            dispatch(setSourceMode("file"));
+            dispatch(setSelectedFiles(registeredFiles));
+            event.target.value = "";
+          }}
+        />
         <CardGrid aria-label="Ways to get started">
           {startingPoints.map(
             ({
@@ -327,7 +384,9 @@ export const GetStartedRoute: React.FC = () => {
               Icon,
               href,
               showConnectedSources,
+              showFileTypes,
               showBypassToggle,
+              opensFileDialog,
             }) =>
               showBypassToggle ? (
                 <Card key={title}>
@@ -359,6 +418,37 @@ export const GetStartedRoute: React.FC = () => {
                     </Toggle>
                   </CardFooter>
                 </Card>
+              ) : opensFileDialog ? (
+                <Card
+                  key={title}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => handlePlaybackCardClick(event, href)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handlePlaybackCardClick(event, href);
+                    }
+                  }}
+                >
+                  <IconFrame aria-hidden="true">
+                    <Icon size={23} strokeWidth={1.7} />
+                  </IconFrame>
+                  <CardBody>
+                    <CardTitle>{title}</CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                  </CardBody>
+                  {showFileTypes && (
+                    <CardMeta>
+                      <SourceLabel>Accepts</SourceLabel>
+                      <SourcePills aria-label="Accepted capture file types">
+                        {[".napt", ".iq", ".wav"].map((fileType) => (
+                          <SourcePill key={fileType}>{fileType}</SourcePill>
+                        ))}
+                      </SourcePills>
+                    </CardMeta>
+                  )}
+                </Card>
               ) : (
                 <CardLink key={title} to={href}>
                   <Card>
@@ -368,26 +458,26 @@ export const GetStartedRoute: React.FC = () => {
                     <CardBody>
                       <CardTitle>{title}</CardTitle>
                       <CardDescription>{description}</CardDescription>
-                      {showConnectedSources && (
-                        <div>
-                          <SourceLabel>Connected sources</SourceLabel>
-                          <SourcePills aria-label="Connected SDR sources">
-                            {sourceNames.length > 0 ? (
-                              sourceNames.map((sourceName) => (
-                                <SourcePill key={sourceName}>
-                                  <SourceDot aria-hidden="true" />
-                                  {sourceName}
-                                </SourcePill>
-                              ))
-                            ) : (
-                              <EmptySourceState>
-                                No SDRs connected
-                              </EmptySourceState>
-                            )}
-                          </SourcePills>
-                        </div>
-                      )}
                     </CardBody>
+                    {showConnectedSources && (
+                      <CardMeta>
+                        <SourceLabel>Connected sources</SourceLabel>
+                        <SourcePills aria-label="Connected SDR sources">
+                          {sourceNames.length > 0 ? (
+                            sourceNames.map((sourceName) => (
+                              <SourcePill key={sourceName}>
+                                <SourceDot aria-hidden="true" />
+                                {sourceName}
+                              </SourcePill>
+                            ))
+                          ) : (
+                            <EmptySourceState>
+                              No SDRs connected
+                            </EmptySourceState>
+                          )}
+                        </SourcePills>
+                      </CardMeta>
+                    )}
                   </Card>
                 </CardLink>
               ),

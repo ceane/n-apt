@@ -101,6 +101,40 @@ describe("useSettingsSectionScrollSpy", () => {
     expect(result.current.activeSectionId).toBe("login");
   });
 
+  it("reconnects the observer when the container mounts after the hook", () => {
+    // Simulates the shell mounting first (containerRef.current is null) and a
+    // lazy route populating the container afterwards — the previous behavior
+    // created the observer once with a null root and never re-ran.
+    jest.useFakeTimers();
+    try {
+      const containerRef = createRef<HTMLDivElement>();
+      (containerRef as any).current = null;
+
+      renderHook(() =>
+        useSettingsSectionScrollSpy({
+          containerRef,
+          sectionIds: SECTION_IDS,
+        }),
+      );
+
+      expect(MockIntersectionObserver.instances).toHaveLength(0);
+
+      const container = buildContainer();
+      (containerRef as any).current = container;
+
+      act(() => {
+        jest.advanceTimersByTime(200);
+      });
+
+      const observers = MockIntersectionObserver.instances;
+      const observer = observers[observers.length - 1];
+      expect(observer.observed).toHaveLength(SECTION_IDS.length);
+      expect(observer.observed.map((el) => el.id)).toEqual(SECTION_IDS);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("scrollToSection smooth-scrolls to the section and sets it active", () => {
     const containerRef = createRef<HTMLDivElement>();
     const container = buildContainer();

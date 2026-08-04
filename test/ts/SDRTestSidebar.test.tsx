@@ -117,7 +117,7 @@ describe("SDRTestSidebar", () => {
       sendTrainingCommand: jest.fn(),
       sendGetAutoFftOptions: jest.fn(),
       sendPowerScaleCommand: jest.fn(),
-      sendTransmitMode: jest.fn(),
+      sendTransmitStatus: jest.fn(),
     },
     toggleVisualizerPause: jest.fn(),
     cryptoCorrupted: false,

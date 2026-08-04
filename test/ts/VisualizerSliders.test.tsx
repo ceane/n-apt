@@ -40,6 +40,26 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("-100dB")).toBeInTheDocument();
   });
 
+  test("adjusts dB sliders by 1 dB and supports inline editing", () => {
+    const onMin = jest.fn();
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} onDbMinChange={onMin} />
+      </TestWrapper>,
+    );
+
+    const minSlider = screen.getByTestId("slider-Min");
+    fireEvent.mouseEnter(minSlider);
+    fireEvent.keyDown(minSlider, { key: "ArrowUp" });
+    expect(onMin).toHaveBeenCalledWith(-99);
+
+    fireEvent.doubleClick(minSlider);
+    const input = screen.getByRole("spinbutton", { name: "Min value" });
+    fireEvent.change(input, { target: { value: "-25" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onMin).toHaveBeenLastCalledWith(-25);
+  });
+
   test("uses dBm units when powerScale is dBm", () => {
     render(
       <TestWrapper>
@@ -258,6 +278,35 @@ describe("VisualizerSliders", () => {
       expect(onZoom).toHaveBeenCalled();
       expect(onZoom.mock.calls[0][0]).toBeGreaterThan(1);
     }
+  });
+
+  test("allows the zoom slider to reach the 1,125x maximum", () => {
+    const onZoom = jest.fn();
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} onZoomChange={onZoom} />
+      </TestWrapper>,
+    );
+
+    const zoomText = screen.getByText(/1(\.0)?x/);
+    const track = zoomText.parentElement;
+    expect(track).not.toBeNull();
+    if (!track) return;
+
+    jest.spyOn(track, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      width: 40,
+      height: 100,
+      bottom: 100,
+      right: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect);
+
+    fireEvent.mouseDown(track, { clientX: 20, clientY: 0 });
+    expect(onZoom).toHaveBeenCalledWith(1125);
   });
 
   test("zoom floor action toggles between lock and refocus", () => {

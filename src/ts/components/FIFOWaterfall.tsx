@@ -10,6 +10,7 @@ import {
   type FifoWaterfall2DRenderer,
 } from "@n-apt/utils/rendering/fifoWaterfall2d";
 import { acquireSharedWebGpuDevice } from "@n-apt/visualization/webgpuDevicePool";
+import type { ColormapData } from "@n-apt/consts/colormaps";
 
 interface FrequencyRange {
   min: number;
@@ -51,6 +52,14 @@ interface FIFOWaterfallProps {
   placeholderErrorReason?: string | null;
   placeholderState?: CanvasPlaceholderState | null;
   forceCanvas2D?: boolean;
+  /** Accretive zoom expects callers to crop each incoming row. Immutable zoom
+   * retains full-width history and changes the sampling window at draw time. */
+  waterfallHistoryFill?: "accretive" | "immutable";
+  historyZoom?: number;
+  /** Normalized pan offset relative to the complete immutable history width. */
+  historyPan?: number;
+  colormap?: ColormapData;
+  colormapName?: string;
 }
 
 const WaterfallViewport = styled.div`
@@ -147,6 +156,7 @@ const addWaterfallFrame = (
   _steps: number,
   minDb: number,
   maxDb: number,
+  lut: Uint8ClampedArray = GRADIENT_LUT,
 ) => {
   // Shift all rows down by 1 using a single native memmove instead of
   // the previous O(width × height) nested loop with 4 assignments per pixel.
@@ -164,9 +174,9 @@ const addWaterfallFrame = (
     const normalized = (dbValue - minDb) / dbRange;
     const lutIdx =
       Math.max(0, Math.min(lutMax, Math.round(normalized * lutMax))) * 4;
-    const r = GRADIENT_LUT[lutIdx];
-    const g = GRADIENT_LUT[lutIdx + 1];
-    const b = GRADIENT_LUT[lutIdx + 2];
+    const r = lut[lutIdx];
+    const g = lut[lutIdx + 1];
+    const b = lut[lutIdx + 2];
     const idx = x * 4;
     buffer[idx] = r;
     buffer[idx + 1] = g;
@@ -197,13 +207,18 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     performScalarResampling,
     fftMin = FFT_MIN_DB,
     fftMax = FFT_MAX_DB,
-    isDeviceConnected = true,
+    isDeviceConnected: _isDeviceConnected = true,
     awaitingDeviceData = false,
     placeholderSourceLabel,
     placeholderPaneLabel = "Waterfall",
     placeholderErrorReason = null,
     placeholderState: explicitPlaceholderState = null,
     forceCanvas2D = false,
+    waterfallHistoryFill = "accretive",
+    historyZoom = 1,
+    historyPan = 0,
+    colormap,
+    colormapName = "fifo-default",
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -212,6 +227,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       null,
     );
     const lastWaveformRef = useRef<Float32Array | null>(null);
+    const lastAppendedWaveformRef = useRef<Float32Array | null>(null);
     const hasDrawnWaveformRef = useRef(false);
     const liveDrawRef = useRef<((waveform: Float32Array) => void) | null>(null);
     const hasFeedFrameRef = useRef(Boolean(waveformFeed?.getCurrent()?.length));
@@ -247,6 +263,18 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       width: width,
       height: height,
     });
+    const colormapLut = useMemo(() => {
+      if (!colormap?.length) return GRADIENT_LUT;
+      const lut = new Uint8ClampedArray(GRADIENT_LUT_SIZE * 4);
+      for (let i = 0; i < GRADIENT_LUT_SIZE; i++) {
+        const color = colormap[Math.min(colormap.length - 1, Math.round((i / 255) * (colormap.length - 1)))];
+        lut[i * 4] = color[0];
+        lut[i * 4 + 1] = color[1];
+        lut[i * 4 + 2] = color[2];
+        lut[i * 4 + 3] = 255;
+      }
+      return lut;
+    }, [colormap]);
 
     useEffect(() => {
       let cancelled = false;
@@ -278,15 +306,10 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     }, [forceCanvas2D]);
 
     const placeholderState = useMemo<CanvasPlaceholderState | null>(() => {
+      // Placeholder authority lives in liveSourceLifecycle (via route props).
+      // This waterfall only renders the supplied state / error reason.
       if (explicitPlaceholderState) return explicitPlaceholderState;
       const hasWaveform = !!(waveform && waveform.length > 0) || hasFeedFrame;
-      if (!isDeviceConnected) {
-        return {
-          kind: "error",
-          sourceLabel: placeholderSourceLabel,
-          reason: "Server down",
-        };
-      }
 
       if (placeholderErrorReason) {
         return {
@@ -296,7 +319,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         };
       }
 
-      if ((awaitingDeviceData || !hasWaveform) && !placeholderErrorReason) {
+      if (awaitingDeviceData || !hasWaveform) {
         return {
           kind: "loading",
           sourceLabel: placeholderSourceLabel,
@@ -309,7 +332,6 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       awaitingDeviceData,
       placeholderErrorReason,
       explicitPlaceholderState,
-      isDeviceConnected,
       placeholderPaneLabel,
       placeholderSourceLabel,
       waveform,
@@ -378,6 +400,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         fillWaterfallBuffer(localBufferRef.current, renderWidth, renderHeight);
         bufferDimsRef.current = { width: renderWidth, height: renderHeight };
         lastWaveformRef.current = null;
+        lastAppendedWaveformRef.current = null;
         hasDrawnWaveformRef.current = false;
         onWaterfallBufferChange?.(localBufferRef.current);
       }
@@ -445,6 +468,10 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
       const drawFrame = (renderWaveform: Float32Array) => {
         const freezeAfterPreview = isPaused && hasDrawnWaveformRef.current;
+        const immutableZoomRedraw =
+          waterfallHistoryFill === "immutable" &&
+          lastAppendedWaveformRef.current === renderWaveform;
+        const freezeFrame = freezeAfterPreview || immutableZoomRedraw;
         if (hasWebGPU && gpuDevice && gpuFormat) {
           const rendered = drawWebGPUFIFOWaterfall({
             canvas,
@@ -454,13 +481,17 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             fftMin,
             fftMax,
             driftAmount: retuneSmear * dpr,
-            freeze: freezeAfterPreview,
+            freeze: freezeFrame,
             wfSmooth: true,
-            colormap: gradientStops,
-            colormapName: "fifo-default",
+            colormap: colormap ?? gradientStops,
+            colormapName,
             plotMargin: ZERO_PLOT_MARGIN,
             backgroundColor:
               canvas.style.backgroundColor || WATERFALL_CANVAS_BG,
+            historyZoom:
+              waterfallHistoryFill === "immutable" ? historyZoom : 1,
+            historyPan:
+              waterfallHistoryFill === "immutable" ? historyPan : 0,
           });
           if (!rendered) {
             setRendererError(getLastError());
@@ -470,11 +501,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             setRendererMode("2d");
           } else {
             hasDrawnWaveformRef.current = true;
+            if (!freezeFrame) {
+              lastAppendedWaveformRef.current = renderWaveform;
+            }
           }
           return;
         }
 
-        if (!freezeAfterPreview) {
+        if (!freezeFrame) {
           // A paused standby target consumes one requested preview row, then
           // freezes it. Active targets continue adding every delivered row.
           if (
@@ -498,16 +532,27 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             1,
             fftMin,
             fftMax,
+            colormapLut,
           );
 
           hasDrawnWaveformRef.current = true;
+          lastAppendedWaveformRef.current = renderWaveform;
           onWaterfallBufferChange?.(buffer);
         }
 
         // Draw the waterfall via Canvas2D fallback
         const ctx = getCanvas2DContext(canvas);
         if (ctx) {
-          canvas2DRenderer.draw(ctx, renderWidth, renderHeight, buffer);
+          canvas2DRenderer.draw(
+            ctx,
+            renderWidth,
+            renderHeight,
+            buffer,
+            0,
+            0,
+            waterfallHistoryFill === "immutable" ? historyZoom : 1,
+            waterfallHistoryFill === "immutable" ? historyPan : 0,
+          );
         }
       };
 
@@ -530,6 +575,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       performScalarResampling,
       fftMin,
       fftMax,
+      colormap,
+      colormapName,
+      colormapLut,
       getCanvas2DContext,
       onWaterfallBufferChange,
       awaitingDeviceData,
@@ -539,6 +587,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       drawWebGPUFIFOWaterfall,
       cleanupWebGPUFIFOWaterfall,
       getLastError,
+      waterfallHistoryFill,
+      historyZoom,
+      historyPan,
     ]);
 
     useEffect(() => {

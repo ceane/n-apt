@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import styled from "styled-components";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import {
@@ -6,8 +6,7 @@ import {
   type SettingsSidebarSection,
 } from "@n-apt/components/sidebar/SettingsSidebar";
 import { ThemeSection } from "@n-apt/components/sidebar/ThemeSection";
-import { Row, Toggle, Checkbox, Button } from "@n-apt/components/ui";
-import { Collapsible } from "@n-apt/components/ui/Collapsible";
+import { Row, Toggle } from "@n-apt/components/ui";
 import { useSettingsSectionScrollSpy } from "@n-apt/hooks/useSettingsSectionScrollSpy";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
@@ -724,7 +723,7 @@ const FOOTER_LINK_CARDS: LinkCardItem[] = [
     title: "Lingo and Learn",
     description: "Browse the FAQ to learn radio and signal-processing terms.",
     Icon: Languages,
-    to: "/faq",
+    to: "/learn-signals",
   },
   {
     title: "View on GitHub",
@@ -799,41 +798,67 @@ const SettingsFooter: React.FC = () => {
   );
 };
 
-export const SettingsRoute: React.FC = () => {
+interface SettingsRouteProps {
+  /**
+   * When provided, the shared app shell owns the MainLayout + SettingsSidebar
+   * (so it persists across navigation) and SettingsRoute renders only its
+   * page content, scrolling inside this container. When omitted, SettingsRoute
+   * renders its own self-contained layout (used in isolation/tests).
+   */
+  containerRef?: React.RefObject<HTMLDivElement | null>;
+}
+
+const SettingsContent: React.FC<{
+  pageRef: React.RefObject<HTMLDivElement | null>;
+}> = ({ pageRef }) => (
+  <PageContent ref={pageRef}>
+    <PageInner>
+      <PageTitle>Settings</PageTitle>
+      <PageSubtitle>
+        App-wide preferences. I/Q Capture and Snapshot defaults are applied on
+        the visualizer page.
+      </PageSubtitle>
+      <ThemeSettingsSection />
+      <SdrSettingsSection />
+      <LoginSettingsSection />
+      <IqCaptureSettingsSection />
+      <SnapshotSettingsSection />
+      <SettingsFooter />
+    </PageInner>
+  </PageContent>
+);
+
+export const SettingsRoute: React.FC<SettingsRouteProps> = ({
+  containerRef,
+}) => {
+  // Standalone mode (no shell container provided): render the layout +
+  // sidebar ourselves so the page works in isolation and in tests.
+  if (containerRef === undefined) {
+    return <SettingsRouteStandalone />;
+  }
+
+  return <SettingsContent pageRef={containerRef} />;
+};
+
+/** Self-contained settings page: own MainLayout + sidebar + section scroll-spy. */
+const SettingsRouteStandalone: React.FC = () => {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const { activeSectionId, scrollToSection } = useSettingsSectionScrollSpy({
     containerRef: pageRef,
     sectionIds: SETTINGS_SECTIONS.map((s) => s.id),
   });
 
-  const sidebar = useMemo(
-    () => (
-      <SettingsSidebar
-        sections={SETTINGS_SECTIONS}
-        activeSectionId={activeSectionId}
-        onSectionClick={scrollToSection}
-      />
-    ),
-    [activeSectionId, scrollToSection],
-  );
-
   return (
-    <MainLayout sidebar={sidebar}>
-      <PageContent ref={pageRef}>
-        <PageInner>
-          <PageTitle>Settings</PageTitle>
-          <PageSubtitle>
-            App-wide preferences. I/Q Capture and Snapshot defaults are applied
-            on the visualizer page.
-          </PageSubtitle>
-          <ThemeSettingsSection />
-          <SdrSettingsSection />
-          <LoginSettingsSection />
-          <IqCaptureSettingsSection />
-          <SnapshotSettingsSection />
-          <SettingsFooter />
-        </PageInner>
-      </PageContent>
+    <MainLayout
+      sidebar={
+        <SettingsSidebar
+          sections={SETTINGS_SECTIONS}
+          activeSectionId={activeSectionId}
+          onSectionClick={scrollToSection}
+        />
+      }
+    >
+      <SettingsContent pageRef={pageRef} />
     </MainLayout>
   );
 };

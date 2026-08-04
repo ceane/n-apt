@@ -148,7 +148,7 @@ pub enum SdrCommand {
   SetPowerScale {
     scale: PowerScale,
   },
-  SetTransmitMode {
+  SetTransmitStatus {
     enabled: bool,
     device: String,
     serial_number: String,
@@ -401,8 +401,8 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "activeMode")]
-  pub active_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub status: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "duplexMode")]
   pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
@@ -650,6 +650,9 @@ pub struct SpectrumData {
   /// Power scale mode (dB or dBm)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub power_scale: Option<PowerScale>,
+  /// Flag indicating whether this frame is a Tx preview frame
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub is_tx_preview: Option<bool>,
   /// Raw I/Q data bytes (for dBm mode when data_type is "iq_raw")
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub iq_data: Vec<u8>,

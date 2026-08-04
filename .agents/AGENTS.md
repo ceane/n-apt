@@ -16,6 +16,7 @@ feature notes and implementation summaries in `.agents/`.
 - Do not add unrequested design changes or features.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
+- Do not preserve backwards compatibility.
 - Keep changes scoped, avoid scratch files, and keep the workspace clean.
 
 ## Mock APT SDR Rules
@@ -29,16 +30,15 @@ feature notes and implementation summaries in `.agents/`.
 
 ## I/Q Captures and Privacy
 
-- Never add I/Q capture data to Git. This includes `.napt`, `.wav`, `.iq`, and
-  related extensions such as `.iq.u8` and `.c64`. Keep captures local or in
+- Never add I/Q capture data to Git. This includes `.napt, .iq, .wav`, and
+  related extensions such as `.c64`. Keep captures local or in
   external storage; version only metadata, manifests, and synthetic fixtures.
 - Treat every I/Q capture as potentially sensitive: it may reveal information
   about the recording environment, and some signals may contain exceptionally
-  sensitive or otherwise unparalleled information.
+  sensitive or otherwise private information.
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
   copying and exposure, and never share, upload, or commit them without the
   user's explicit authorization.
-
 ## Temporary and Test Files
 
 - Do not create unnecessary temporary or test files.
@@ -87,6 +87,7 @@ build merely to validate a local edit.
 ### TypeScript and React
 
 - Use strict TypeScript; prefer `unknown` over `any`.
+- In tests, import `act` from `@testing-library/react`; do not use `react-dom/test-utils`.
 - Use `camelCase` for variables/functions, `PascalCase` for types/components,
   and `UPPER_SNAKE_CASE` for constants.
 - Keep hook dependency arrays correct and use `useCallback` when passing stable
@@ -108,7 +109,7 @@ build merely to validate a local edit.
 - The main app runs on port 5173. The markdown preview runs on port 5174.
 - The login password is `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`; do not
   print or commit secrets.
-- Rust logs are in `/tmp/rust_log.txt`; Tx logs are in `/tmp/n-apt/tx_log.txt`.
+- Rust logs, both output and errors, are in `/tmp/rust_log.txt`; Tx logs are in `/tmp/n-apt/tx_log.txt`.
 
 ## Repository Conventions
 

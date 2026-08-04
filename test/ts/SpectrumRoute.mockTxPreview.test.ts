@@ -2,7 +2,10 @@ import {
   getMockTxPreviewRequestKey,
   resolveLiveDevicePlaceholderState,
 } from "../../src/ts/routes/SpectrumRoute";
-import { resolveMockTxMonitorSampleRateForView } from "../../src/ts/routes/spectrum/mockTxPreview";
+import {
+  resolveMockTxMonitorSampleRateForView,
+  shouldClearMockTxPreviewRequestDedupe,
+} from "../../src/ts/routes/spectrum/mockTxPreview";
 
 describe("getMockTxPreviewRequestKey", () => {
   it("changes when TX preview bandwidth changes", () => {
@@ -26,8 +29,52 @@ describe("getMockTxPreviewRequestKey", () => {
   });
 });
 
+describe("shouldClearMockTxPreviewRequestDedupe", () => {
+  it("retries when the cold-start handoff fence advances without a frame", () => {
+    expect(
+      shouldClearMockTxPreviewRequestDedupe({
+        isMockTxMonitorActive: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        hasRenderableFrame: false,
+        lifecyclePhase: "warming-transport",
+        transportPhase: "warming",
+        previousFence: "mock-tx|mock-apt|awaiting-frame|idle",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps dedupe once a Mock Tx frame is renderable", () => {
+    expect(
+      shouldClearMockTxPreviewRequestDedupe({
+        isMockTxMonitorActive: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        hasRenderableFrame: true,
+        lifecyclePhase: "standby",
+        transportPhase: "ready",
+        previousFence: "mock-tx|mock-tx|awaiting-frame|warming",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear for the same fence twice", () => {
+    expect(
+      shouldClearMockTxPreviewRequestDedupe({
+        isMockTxMonitorActive: true,
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        hasRenderableFrame: false,
+        lifecyclePhase: "awaiting-frame",
+        transportPhase: "ready",
+        previousFence: "mock-tx|mock-tx|awaiting-frame|ready",
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("resolveMockTxMonitorSampleRateForView", () => {
-  it("keeps the Whole Channel view rate ahead of stale 3.2 MHz source metadata", () => {
+  it("keeps the Whole Channel view rate ahead of stale source metadata", () => {
     expect(
       resolveMockTxMonitorSampleRateForView(
         4_372_000,
@@ -40,7 +87,7 @@ describe("resolveMockTxMonitorSampleRateForView", () => {
 });
 
 describe("resolveLiveDevicePlaceholderState", () => {
-  it.each(["loading", "loose", "stale"])(
+  it.each(["loading", "stale"])(
     "dismisses a %s placeholder when current-source I/Q is already renderable",
     (deviceState) => {
       expect(

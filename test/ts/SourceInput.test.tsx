@@ -120,7 +120,7 @@ describe("SourceInput", () => {
               name: "HackRF One",
               capability: "tx_rx",
               duplex_mode: "Half-duplex",
-              status: { label: "tx_preview", paused: true },
+              status: { label: "standby", paused: true },
             },
           ]}
           onPreviewDeviceTx={jest.fn()}
@@ -133,8 +133,74 @@ describe("SourceInput", () => {
     expect(
       screen.getByRole("button", { name: "Start Tx" }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Standby/)).toBeInTheDocument();
     const rxButton = screen.getByRole("button", { name: "Resume Rx [Space]" });
     expect(rxButton).toHaveStyle({ opacity: "0.45" });
+  });
+
+  it("transforms buttons to Resume Rx (muted) and Start Tx when txPreviewSourceId is set", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming", paused: false },
+            },
+          ]}
+          onPreviewDeviceTx={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+          txPreviewSourceId={null}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Preview Tx" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pause Rx [Space]" }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "standby", paused: true },
+            },
+          ]}
+          onPreviewDeviceTx={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+          txPreviewSourceId="hackrf-1"
+          txBindingSourceId="hackrf-1"
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Start Tx" }),
+    ).toBeInTheDocument();
+    const mutedRxButton = screen.getByRole("button", {
+      name: "Resume Rx [Space]",
+    });
+    expect(mutedRxButton).toBeInTheDocument();
+    expect(mutedRxButton).toHaveStyle({ opacity: "0.45" });
   });
 
   it("labels backend Tx standby separately from paused Rx", () => {
@@ -164,7 +230,9 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByRole("button", { name: "Start Tx" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Start Tx" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Resume Rx [Space]" }),
     ).toHaveStyle({ opacity: "0.45" });
@@ -359,7 +427,7 @@ describe("SourceInput", () => {
     );
 
     expect(
-      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+      screen.getByText("Rx/Tx · Transmitting (Tx) · Half-duplex"),
     ).toBeInTheDocument();
     const deviceRow = screen
       .getByText("HackRF One #2")
@@ -402,7 +470,7 @@ describe("SourceInput", () => {
     );
 
     expect(
-      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+      screen.getByText("Rx/Tx · Transmitting (Tx) · Half-duplex"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
   });
@@ -604,7 +672,7 @@ describe("SourceInput", () => {
     expect(screen.getByTitle("Switch to HackRF One #2")).toBeInTheDocument();
     expect(screen.queryByText("File Selection")).not.toBeInTheDocument();
     expect(
-      screen.getByText("Rx/Tx · Connected · Half-duplex"),
+      screen.getByText("Rx/Tx · Transmitting (Tx) · Half-duplex"),
     ).toBeInTheDocument();
   });
 
@@ -900,7 +968,9 @@ describe("SourceInput", () => {
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
     expect(
-      within(deviceRow).getByRole("status", { name: /rx active.*first frame/i }),
+      within(deviceRow).getByRole("status", {
+        name: /rx active.*first frame/i,
+      }),
     ).toBeInTheDocument();
     expect(
       within(deviceRow).queryByRole("button", { name: /pause rx/i }),
@@ -960,7 +1030,7 @@ describe("SourceInput", () => {
               capability: "tx_rx",
               duplex_mode: "Half-duplex",
               status: {
-                label: "tx_preview",
+                label: "standby",
                 paused: true,
                 onAction: jest.fn(),
               },
@@ -979,7 +1049,9 @@ describe("SourceInput", () => {
       .closest('[role="button"]') as HTMLElement;
     expect(deviceRow).not.toBeNull();
 
-    const txButton = within(deviceRow).getByRole("button", { name: "Start Tx" });
+    const txButton = within(deviceRow).getByRole("button", {
+      name: "Start Tx",
+    });
     const rxButton = within(deviceRow).getByRole("button", {
       name: /resume rx/i,
     });
@@ -989,5 +1061,208 @@ describe("SourceInput", () => {
 
     fireEvent.click(txButton);
     expect(onToggleDeviceTxMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-opens the browse dialog once when autoBrowseRequested is set in file mode", () => {
+    const clickSpy = jest
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+    const onAutoBrowseHandled = jest.fn();
+
+    const { rerender } = render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          autoBrowseRequested
+          onAutoBrowseHandled={onAutoBrowseHandled}
+          onSourceModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    // Not in file mode yet: no click.
+    expect(clickSpy).not.toHaveBeenCalled();
+
+    rerender(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="file"
+          autoBrowseRequested
+          onAutoBrowseHandled={onAutoBrowseHandled}
+          onSourceModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(onAutoBrowseHandled).toHaveBeenCalledTimes(1);
+
+    // After the parent clears the request, no further clicks.
+    rerender(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="file"
+          autoBrowseRequested={false}
+          onAutoBrowseHandled={onAutoBrowseHandled}
+          onSourceModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    clickSpy.mockRestore();
+  });
+
+  it("disables source action buttons while the pills are dimmed in file mode", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="file"
+          livePreviewStage={0}
+          onSourceModeChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming", paused: false },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    expect(deviceRow).not.toBeNull();
+
+    const pauseRx = within(deviceRow).getByRole("button", {
+      name: /pause rx/i,
+    });
+    const startTx = within(deviceRow).getByRole("button", {
+      name: "Start Tx",
+    });
+    expect(pauseRx).toBeDisabled();
+    expect(startTx).toBeDisabled();
+  });
+
+  it("enables source action buttons at full transparency outside file mode", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming", paused: false },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    const pauseRx = within(deviceRow).getByRole("button", {
+      name: /pause rx/i,
+    });
+    const startTx = within(deviceRow).getByRole("button", {
+      name: "Start Tx",
+    });
+    expect(pauseRx).toBeEnabled();
+    expect(startTx).toBeEnabled();
+  });
+
+  it("requires a double-click on a dimmed source pill to switch out of file mode", () => {
+    const onSelectedDeviceChange = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="file"
+          livePreviewStage={0}
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="mock-rx"
+          onSelectedDeviceChange={onSelectedDeviceChange}
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "connected", paused: false },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    const targetRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+
+    // A single click on the dimmed pill must not switch sources.
+    fireEvent.click(targetRow);
+    expect(onSelectedDeviceChange).not.toHaveBeenCalled();
+
+    // A second click within the double-click window switches.
+    fireEvent.click(targetRow);
+    expect(onSelectedDeviceChange).toHaveBeenCalledWith("hackrf-1");
+  });
+
+  it("switches sources with a single click at full transparency outside file mode", () => {
+    const onSelectedDeviceChange = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="mock-rx"
+          onSelectedDeviceChange={onSelectedDeviceChange}
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "connected" },
+            },
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "connected", paused: false },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    const targetRow = screen
+      .getByText("HackRF One")
+      .closest('[role="button"]') as HTMLElement;
+    fireEvent.click(targetRow);
+    expect(onSelectedDeviceChange).toHaveBeenCalledWith("hackrf-1");
   });
 });

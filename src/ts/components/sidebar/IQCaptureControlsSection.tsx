@@ -13,7 +13,7 @@ import {
   updateNotification,
 } from "@n-apt/redux/slices/notificationsSlice";
 import { useAppSelector } from "@n-apt/redux/store";
-import { formatDurationMs } from "@n-apt/utils/formatters";
+import { formatDurationMs, formatFileSize } from "@n-apt/utils/formatters";
 import { formatChannelFreq, formatFrequency } from "@n-apt/utils/frequency";
 import { isValidNaptRange } from "@n-apt/utils/signals";
 import {
@@ -179,14 +179,6 @@ const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
   }
 `;
 
-const SampleRateBadge = styled.span`
-  margin-left: auto;
-  font-size: 11px;
-  color: ${(props) => props.theme.metadataLabel};
-  font-family: ${(props) => props.theme.typography.mono};
-  letter-spacing: 0.5px;
-`;
-
 const DurationUnit = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
@@ -236,6 +228,13 @@ const DurationInputBox = styled.input`
   &:hover {
     border-color: ${(props) => props.theme.primary};
   }
+`;
+
+const DurationEstimate = styled.div`
+  margin-top: 4px;
+  font-size: 11px;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
 `;
 
 const CaptureActions = styled.div`
@@ -439,6 +438,8 @@ interface CaptureRange {
 
 interface IQCaptureControlsSectionProps {
   variant?: "sidebar" | "node";
+  defaultOpen?: boolean;
+  open?: boolean;
   activeCaptureAreas: string[];
   availableCaptureAreas: Array<{
     label: string;
@@ -480,6 +481,8 @@ export const IQCaptureControlsSection: React.FC<
   IQCaptureControlsSectionProps
 > = ({
   variant = "sidebar",
+  defaultOpen = false,
+  open,
   activeCaptureAreas,
   availableCaptureAreas,
   captureDurationMode,
@@ -561,9 +564,12 @@ export const IQCaptureControlsSection: React.FC<
         min: matchingSegment?.min ?? area.min,
         max: matchingSegment?.max ?? area.max,
         extra: area.extra,
+        totalLabel: formatChannelFreq(
+          (matchingSegment?.max ?? area.max) - (matchingSegment?.min ?? area.min),
+        ),
       };
     });
-  }, [availableCaptureAreas, captureRange.segments]);
+  }, [availableCaptureAreas, captureRange.max, captureRange.min, captureRange.segments]);
 
   const handleActiveCaptureAreasChange = (nextAreas: string[]) => {
     const hwHz = maxSampleRate;
@@ -671,19 +677,12 @@ export const IQCaptureControlsSection: React.FC<
     activeCaptureAreas.length,
   ]);
 
-  // Helper function to format file sizes
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    const value = bytes / Math.pow(k, i);
-    // Show decimal places for KB and above, but not for bytes
-    if (i === 0) {
-      return `${Math.round(value)} ${sizes[i]}`;
-    }
-    return `${value.toFixed(2)} ${sizes[i]}`;
-  };
+  const selectedCaptureSpanHz =
+    activeCaptureAreas.length > 0
+      ? Math.max(0, captureRange.max - captureRange.min)
+      : 0;
+  const estimatedTimedDataBytes =
+    Math.max(0, captureDurationS) * selectedCaptureSpanHz * 2;
 
   // Notification effect for capture status changes
   React.useEffect(() => {
@@ -802,13 +801,6 @@ export const IQCaptureControlsSection: React.FC<
     !isAuthenticated ||
     (!isCaptureActive && !hasSelectedCaptureAreas);
 
-  const formatSampleRateLabel = (hz: number) => {
-    if (!hz || Number.isNaN(hz)) {
-      return "0 Hz";
-    }
-    return formatChannelFreq(hz);
-  };
-
   const handleGeolocationToggle = async (enabled: boolean) => {
     if (enabled && captureFileType === ".napt") {
       const hasPermission = await requestPermission();
@@ -820,7 +812,6 @@ export const IQCaptureControlsSection: React.FC<
     }
     onCaptureGeolocationChange(enabled);
   };
-  const sampleRateLabel = formatSampleRateLabel(maxSampleRate);
   const capturePhaseMessage = captureStatus?.message;
   const captureButtonLabel = isCaptureActive ? "Stop" : "Capture";
   const handleCaptureClick = isCaptureActive
@@ -834,11 +825,6 @@ export const IQCaptureControlsSection: React.FC<
       <ChannelsSelector
         label="Ranges"
         icon={Scan}
-        headerExtra={
-          <SampleRateBadge aria-label="Hardware sample rate">
-            {sampleRateLabel}
-          </SampleRateBadge>
-        }
         channels={mappedCaptureAreas}
         selectedLabels={activeCaptureAreas}
         onChange={handleActiveCaptureAreasChange}
@@ -870,6 +856,11 @@ export const IQCaptureControlsSection: React.FC<
                   }
                 />
                 <DurationUnit>s</DurationUnit>
+                {activeCaptureAreas.length > 0 && (
+                  <DurationEstimate>
+                    Estimated data: {formatFileSize(estimatedTimedDataBytes)}
+                  </DurationEstimate>
+                )}
               </div>
             ) : (
               <DurationManualCenter>
@@ -1065,12 +1056,14 @@ export const IQCaptureControlsSection: React.FC<
   );
 
   return (
-    <Section>
+    <Section data-sidebar-scroll-root="iq-capture">
       {variant === "sidebar" ? (
         <Collapsible
           icon={<FileSignal size={14} />}
           label="Take an I/Q Capture"
-          defaultOpen={false}
+          defaultOpen={defaultOpen}
+          open={open}
+          sectionId="iq-capture"
         >
           <SectionBody>{captureContent}</SectionBody>
         </Collapsible>

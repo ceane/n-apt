@@ -1,8 +1,7 @@
 /**
- * The single source of truth for source duplex capabilities and the mode the
- * visualizer is currently presenting. A device can be Tx-capable without the
- * current view being Tx; that distinction is essential for half-duplex Rx
- * pause/resume transitions.
+ * The single source of truth for source duplex capabilities and the status the
+ * visualizer is currently presenting. Rx and Tx are represented by explicit
+ * backend statuses; capability and UI binding must not invent a second mode.
  */
 export type SourceDuplexMode = "simplex" | "half_duplex" | "duplex";
 export type ActiveDuplexMode = "rx" | "tx" | "rx_tx";
@@ -14,6 +13,7 @@ export type SourceModeAction =
   | "resume_rx"
   | "bind_tx"
   | "enter_tx_standby"
+  | "request_rx_mode"
   | "request_rx_frame"
   | "request_tx_frame"
   | "request_tx_preview";
@@ -56,6 +56,28 @@ const normalizeToken = (value: unknown): string =>
     ? value.trim().toLowerCase().replace(/-/g, "_")
     : "";
 
+/** A source can continue feeding the stream while the control socket catches up. */
+export const isSourceStreamAvailable = (status: unknown): boolean =>
+  ["connected", "receiving", "streaming", "transmitting", "standby", "paused"].includes(
+    normalizeToken(status),
+  );
+
+export const isSourcePresentationConnected = ({
+  controlConnected,
+  sourceStatus,
+  sourceTransportReady,
+  hasFrame,
+}: {
+  controlConnected: boolean;
+  sourceStatus?: unknown;
+  sourceTransportReady?: boolean;
+  hasFrame?: boolean;
+}): boolean =>
+  controlConnected ||
+  isSourceStreamAvailable(sourceStatus) ||
+  sourceTransportReady === true ||
+  hasFrame === true;
+
 export const normalizeSourceDuplexMode = (
   value: unknown,
 ): SourceDuplexMode => {
@@ -71,6 +93,26 @@ export const normalizeSourceDuplexMode = (
     return "duplex";
   }
   return "simplex";
+};
+
+const isTxOnlySource = (source: SourceModeSource): boolean => {
+  const capability = normalizeToken(source.capability);
+  const kind = normalizeToken(source.kind);
+  return (
+    capability === "tx" ||
+    kind === "mock_tx" ||
+    (capability === "mock" && kind.includes("tx"))
+  );
+};
+
+const sourceCanReceive = (source: SourceModeSource): boolean => {
+  const capability = normalizeToken(source.capability);
+  return capability === "rx" || capability === "tx_rx" || capability === "mock";
+};
+
+const sourceCanTransmit = (source: SourceModeSource): boolean => {
+  const capability = normalizeToken(source.capability);
+  return capability === "tx" || capability === "tx_rx" || isTxOnlySource(source);
 };
 
 const normalizeActiveDuplexMode = (
@@ -107,30 +149,9 @@ const resolveExplicitActiveDuplexMode = (
       .filter((mode): mode is ActiveDuplexMode => mode !== null),
   );
   if (normalizedModes.has("rx_tx")) return "rx_tx";
-  if (normalizedModes.has("rx") && normalizedModes.has("tx")) return "rx_tx";
   if (normalizedModes.has("tx")) return "tx";
   if (normalizedModes.has("rx")) return "rx";
   return null;
-};
-
-const isTxOnlySource = (source: SourceModeSource): boolean => {
-  const capability = normalizeToken(source.capability);
-  const kind = normalizeToken(source.kind);
-  return (
-    capability === "tx" ||
-    kind === "mock_tx" ||
-    (capability === "mock" && kind.includes("tx"))
-  );
-};
-
-const sourceCanReceive = (source: SourceModeSource): boolean => {
-  const capability = normalizeToken(source.capability);
-  return capability === "rx" || capability === "tx_rx" || capability === "mock";
-};
-
-const sourceCanTransmit = (source: SourceModeSource): boolean => {
-  const capability = normalizeToken(source.capability);
-  return capability === "tx" || capability === "tx_rx" || isTxOnlySource(source);
 };
 
 export const resolveSourceModeManagement = ({
@@ -142,33 +163,36 @@ export const resolveSourceModeManagement = ({
   const duplexMode = normalizeSourceDuplexMode(resolvedSource.duplex_mode);
   const canReceive = sourceCanReceive(resolvedSource);
   const canTransmit = sourceCanTransmit(resolvedSource);
+  const status = normalizeToken(resolvedSource.status);
   const explicitActiveMode = resolveExplicitActiveDuplexMode(resolvedSource);
   const isBoundToTx =
     !!resolvedSource.id &&
     (resolvedSource.id === txBindingSourceId ||
       resolvedSource.id === txPreviewSourceId);
-  const status = normalizeToken(resolvedSource.status);
+  const isTxStatus = status === "standby" || status === "transmitting";
   const isTransmitting = status === "transmitting";
   const viewMode: SourceViewMode =
     isTxOnlySource(resolvedSource) ||
     isBoundToTx ||
-    explicitActiveMode === "tx" ||
-    status === "tx_preview" ||
-    isTransmitting
+    (status !== "receiving" && status !== "paused" && explicitActiveMode === "tx") ||
+    isTxStatus
       ? "tx"
       : "rx";
 
   const activeDuplexMode =
-    explicitActiveMode ??
-    (duplexMode === "duplex" && canReceive && canTransmit
-      ? "rx_tx"
-      : viewMode);
+    status === "receiving" || status === "paused"
+      ? "rx"
+      : explicitActiveMode ??
+        (isTxStatus || isBoundToTx
+          ? "tx"
+          : duplexMode === "duplex" && canReceive && canTransmit
+            ? "rx_tx"
+            : "rx");
   const isRxMode = viewMode === "rx";
   const isTxMode = viewMode === "tx";
   const isRxPaused =
     isRxMode &&
-    (resolvedSource.paused === true ||
-      (duplexMode === "half_duplex" && status === "standby"));
+    (resolvedSource.paused === true || status === "paused");
   const isTxStandby = isTxMode && !isTransmitting;
 
   return {
@@ -216,6 +240,7 @@ export const resolveSourceModeTransition = ({
       actions: [
         "clear_tx_binding",
         ...(duplexMode === "half_duplex" ? ["resume_rx" as const] : []),
+        "request_rx_mode",
         "request_rx_frame",
       ],
     };
@@ -257,3 +282,21 @@ export const resolveTxStopTransition = ({
     actions: ["enter_tx_standby"],
   };
 };
+
+export const shouldUseSourceOwnedTxPreview = ({
+  isTxPreviewStandby,
+  isSwitchingLiveSource,
+}: {
+  isTxPreviewStandby: boolean;
+  isSwitchingLiveSource: boolean;
+}): boolean => isTxPreviewStandby || isSwitchingLiveSource;
+
+export const shouldRetainTxStandbyAfterStop = ({
+  isTransmitting,
+  isHalfDuplex,
+  isTxMode,
+}: {
+  isTransmitting: boolean;
+  isHalfDuplex: boolean;
+  isTxMode: boolean;
+}): boolean => isTransmitting && isHalfDuplex && isTxMode;

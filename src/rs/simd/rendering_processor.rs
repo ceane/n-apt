@@ -148,8 +148,8 @@ impl RenderingProcessor {
       scratch.window_type = Some(normalized_window);
       scratch.window_len = num_samples;
     }
-    let inv_norm = 1.0
-      / (num_samples as f32 * scratch.window_energy).max(1e-12);
+    let inv_norm =
+      1.0 / (num_samples as f32 * scratch.window_energy).max(1e-12);
 
     scratch
       .buffer

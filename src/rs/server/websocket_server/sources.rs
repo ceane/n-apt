@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::warn;
 use std::ffi::CStr;
 use std::sync::atomic::Ordering;
 
@@ -18,7 +17,6 @@ use super::complex_baseband::MOCK_TX_DISPLAY_NAME;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::device::HackRfDevice;
 #[cfg(has_hackrf)]
-use crate::sdr::hackrf::ffi as hackrf_ffi;
 use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
 use crate::server::utils::{
   device_config_key, reconcile_device_state,
@@ -87,7 +85,10 @@ fn source_id_for_device(
   sanitize_source_component(&format!("{kind}-{fallback_index}"))
 }
 
-pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
+pub fn resolve_source_selection(
+  shared: &SharedState,
+  source_id: &str,
+) -> Result<SourceSelection> {
   if source_id == "mock-apt" || source_id == "mock_apt" {
     return Ok(SourceSelection::MockApt);
   }
@@ -106,45 +107,15 @@ pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
   }
 
   #[cfg(has_hackrf)]
-  unsafe {
-    if hackrf_ffi::hackrf_init() != 0 {
-      return Err(anyhow::anyhow!(
-        "Failed to initialize HackRF device list for source selection"
-      ));
+  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+    if source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    ) == source_id
+    {
+      return Ok(SourceSelection::HackRf(device.index as i32));
     }
-
-    let list = hackrf_ffi::hackrf_device_list();
-    if list.is_null() {
-      let _ = hackrf_ffi::hackrf_exit();
-      return Err(anyhow::anyhow!(
-        "No HackRF One device list available for source selection"
-      ));
-    }
-
-    let devicecount = (*list).devicecount.max(0) as usize;
-    for index in 0..devicecount {
-      let serial_number = if !(*list).serial_numbers.is_null() {
-        let serial_ptr = *(*list).serial_numbers.add(index);
-        if serial_ptr.is_null() {
-          String::new()
-        } else {
-          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
-        }
-      } else {
-        String::new()
-      };
-
-      if source_id_for_device("hackrf_one", Some(&serial_number), index)
-        == source_id
-      {
-        hackrf_ffi::hackrf_device_list_free(list);
-        let _ = hackrf_ffi::hackrf_exit();
-        return Ok(SourceSelection::HackRf(index as i32));
-      }
-    }
-
-    hackrf_ffi::hackrf_device_list_free(list);
-    let _ = hackrf_ffi::hackrf_exit();
   }
 
   Err(anyhow::anyhow!(
@@ -153,9 +124,10 @@ pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
 }
 
 pub fn open_device_for_source_id(
+  shared: &SharedState,
   source_id: &str,
 ) -> Result<Box<dyn crate::sdr::SdrDevice>> {
-  match resolve_source_selection(source_id)? {
+  match resolve_source_selection(shared, source_id)? {
     SourceSelection::MockApt => {
       Ok(crate::sdr::SdrDeviceFactory::create_mock_device())
     }
@@ -187,7 +159,11 @@ fn source_capability_for_kind_and_duplex(
   match duplex_mode.map(|mode| mode.to_ascii_lowercase()) {
     Some(mode) if mode == "full-duplex" || mode == "full_duplex" => "tx_rx",
     Some(mode) if mode == "half-duplex" || mode == "half_duplex" => {
-      if is_tx_capable_source_kind(kind) { "tx_rx" } else { "rx" }
+      if is_tx_capable_source_kind(kind) {
+        "tx_rx"
+      } else {
+        "rx"
+      }
     }
     _ => source_capability_for_kind(kind),
   }
@@ -196,6 +172,8 @@ fn source_capability_for_kind_and_duplex(
 #[cfg(test)]
 mod tx_suite_tests {
   use super::super::tx_suite::{resolve_tx_suite_pair, DeviceCapability};
+  use serial_test::serial;
+  use std::sync::atomic::Ordering;
 
   #[test]
   fn prefers_dedicated_rx_and_half_duplex_tx_pair() {
@@ -207,14 +185,14 @@ mod tx_suite_tests {
 
     assert_eq!(pair.rx_source_id, "rx");
     assert_eq!(pair.tx_source_id, "tx");
-    assert_eq!(pair.tx_mode, "standby");
+    assert_eq!(pair.tx_status, "standby");
   }
 
   #[test]
   fn uses_one_full_duplex_device_for_both_roles() {
-    let pair = resolve_tx_suite_pair(&[
-      DeviceCapability::new("duplex", true, true, true),
-    ])
+    let pair = resolve_tx_suite_pair(&[DeviceCapability::new(
+      "duplex", true, true, true,
+    )])
     .expect("duplex pair should resolve");
 
     assert_eq!(pair.rx_source_id, "duplex");
@@ -223,18 +201,38 @@ mod tx_suite_tests {
 
   #[test]
   fn rejects_tx_only_pair_without_an_rx_source() {
-    assert!(resolve_tx_suite_pair(&[
-      DeviceCapability::new("tx", false, true, false),
-    ])
+    assert!(resolve_tx_suite_pair(&[DeviceCapability::new(
+      "tx", false, true, false
+    ),])
     .is_none());
   }
 
   #[test]
+  #[serial]
   fn reports_mock_tx_standby_when_tx_is_not_active() {
-    crate::safety::TX_TRANSMITTING.store(false, std::sync::atomic::Ordering::Relaxed);
+    crate::safety::TX_TRANSMITTING
+      .store(false, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(true, false, "connected", "mock_tx"),
       "standby"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn reports_distinct_rx_lifecycle_statuses() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(true, false, "connected", "hackrf_one"),
+      "receiving"
+    );
+    assert_eq!(
+      super::source_status_for_entry(true, true, "connected", "hackrf_one"),
+      "paused"
+    );
+    assert_eq!(
+      super::source_status_for_entry(true, false, "stale", "hackrf_one"),
+      "stale"
     );
   }
 }
@@ -253,14 +251,14 @@ fn source_status_for_entry(
     if kind == "mock_tx" {
       return "standby";
     }
-    return "connected";
+    return "paused";
   }
   let active_tx_state = is_active_source
     && is_tx_capable_source_kind(kind)
     && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
   if kind.starts_with("mock_apt") {
     if is_active_source {
-      "streaming"
+      "receiving"
     } else {
       "connected"
     }
@@ -275,12 +273,11 @@ fn source_status_for_entry(
   } else if is_active_source {
     match device_state {
       "loading" => "loading",
-      "loose" => "loading",
       "disconnected" => "disconnected",
       "stale" => "stale",
       "error" => "error",
       "transmitting" => "transmitting",
-      _ => "streaming",
+      _ => "receiving",
     }
   } else {
     "connected"
@@ -352,7 +349,8 @@ fn build_source_payload(
     .devices
     .get(device_config_key(&device_profile))
     .and_then(|device_cfg| device_cfg.duplex_mode.as_deref());
-  let source_capability = source_capability_for_kind_and_duplex(kind, duplex_mode);
+  let source_capability =
+    source_capability_for_kind_and_duplex(kind, duplex_mode);
   let can_receive = matches!(source_capability, "rx" | "tx_rx" | "mock");
   let can_transmit = matches!(source_capability, "tx" | "tx_rx");
   let supported_controls = [
@@ -718,64 +716,39 @@ fn enumerate_hackrf_sources(
   active_source_id: &str,
 ) -> Vec<serde_json::Value> {
   let mut sources = Vec::new();
-  unsafe {
-    if hackrf_ffi::hackrf_init() != 0 {
-      warn!("Failed to initialize HackRF device list for source inventory");
-      return sources;
+  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+    let source_id = source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    );
+    if source_id == active_source_id {
+      continue;
     }
+    let paused = shared.is_source_paused(&source_id);
 
-    let list = hackrf_ffi::hackrf_device_list();
-    if list.is_null() {
-      let _ = hackrf_ffi::hackrf_exit();
-      return sources;
-    }
-
-    let devicecount = (*list).devicecount.max(0) as usize;
-    for index in 0..devicecount {
-      let serial_number = if !(*list).serial_numbers.is_null() {
-        let serial_ptr = *(*list).serial_numbers.add(index);
-        if serial_ptr.is_null() {
-          String::new()
-        } else {
-          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
-        }
-      } else {
-        String::new()
-      };
-
-      let source_id =
-        source_id_for_device("hackrf_one", Some(&serial_number), index);
-      if source_id == active_source_id {
-        continue;
-      }
-      let paused = shared.is_source_paused(&source_id);
-
-      let source_name = status_device_name(
-        true,
-        "HackRF One",
-        &build_device_profile("hackrf_one"),
-      );
-      sources.push(build_source_payload(
-        shared,
-        source_id,
-        source_name,
-        "hackrf_one",
-        "connected",
-        None,
-        0,
-        crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-        serial_number,
-        String::new(),
-        "HackRF One".to_string(),
-        "HackRF One".to_string(),
-        true,
-        paused,
-        false,
-      ));
-    }
-
-    hackrf_ffi::hackrf_device_list_free(list);
-    let _ = hackrf_ffi::hackrf_exit();
+    let source_name = status_device_name(
+      true,
+      "HackRF One",
+      &build_device_profile("hackrf_one"),
+    );
+    sources.push(build_source_payload(
+      shared,
+      source_id,
+      source_name,
+      "hackrf_one",
+      "connected",
+      None,
+      0,
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+      device.serial_number.clone(),
+      String::new(),
+      "HackRF One".to_string(),
+      "HackRF One".to_string(),
+      true,
+      paused,
+      false,
+    ));
   }
 
   sources
@@ -814,9 +787,7 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   }
   sources.extend(enumerate_rtl_sdr_sources(shared, &active_source_id));
   #[cfg(has_hackrf)]
-  {
-    sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
-  }
+  sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
   let hardware_is_active = !shared
     .device_profile
     .lock()

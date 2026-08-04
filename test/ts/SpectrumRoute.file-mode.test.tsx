@@ -21,7 +21,10 @@ import {
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
 } from "../../src/ts/redux/slices/spectrumSlice";
-import { requestNextLiveFrame } from "../../src/ts/redux/thunks/websocketThunks";
+import {
+  requestNextLiveFrame,
+  requestNextPausedFrame,
+} from "../../src/ts/redux/thunks/websocketThunks";
 import { buildAppTheme } from "../../src/ts/components/ui/Theme";
 import { THEME_TOKENS } from "../../src/ts/consts";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
@@ -106,6 +109,9 @@ jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
     requestNextLiveFrame: jest.fn(() => ({
       type: "mock/requestNextLiveFrame",
     })),
+    requestNextPausedFrame: jest.fn(() => ({
+      type: "mock/requestNextPausedFrame",
+    })),
   };
 });
 
@@ -162,6 +168,7 @@ describe("SpectrumRoute file mode", () => {
     fftPlaybackCanvasMock.mockClear();
     fftAndWaterfallMock.mockClear();
     jest.mocked(requestNextLiveFrame).mockClear();
+    jest.mocked(requestNextPausedFrame).mockClear();
   });
 
   it("forwards zoom and temporal resolution state to file playback", async () => {
@@ -252,7 +259,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -389,7 +396,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -443,12 +450,12 @@ describe("SpectrumRoute file mode", () => {
       sourceLabel: "Mock Tx SDR",
       message: "Start Tx to view backend-generated monitor I/Q.",
     });
-    expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+    expect(mockValue.wsConnection.sendTransmitStatus).not.toHaveBeenCalled();
   });
 
   it("clears the stale mock apt frame at the Mock Tx selection boundary", async () => {
-    const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
-    requestNextLiveFrameMock.mockClear();
+    const requestNextPausedFrameMock = jest.mocked(requestNextPausedFrame);
+    requestNextPausedFrameMock.mockClear();
 
     const liveFrame = {
       type: "spectrum",
@@ -551,7 +558,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -634,7 +641,9 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(handoffProps.dataRef).toBe(dataRef);
-    expect(dataRef.current).toBeNull();
+    // Keep the last painted Mock APT frame until the Mock Tx preview arrives.
+    // Nulling here produced a black FFT under the standby chrome.
+    expect(dataRef.current).toBe(liveFrame);
     expect(handoffProps.expectedSourceId).toBe("mock-tx");
     expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
@@ -682,22 +691,21 @@ describe("SpectrumRoute file mode", () => {
     );
 
     await waitFor(() => {
-      expect(requestNextLiveFrameMock).toHaveBeenCalled();
+      expect(requestNextPausedFrameMock).toHaveBeenCalled();
     });
-    expect(dataRef.current).toBeNull();
+    // Transport may still hold the previous frame until the preview lands.
+    expect(dataRef.current).toBe(liveFrame);
     const visualizerProps =
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
+    // Without a Mock Tx preview yet, lifecycle owns Loading (not black).
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
-      sourceLabel: "Mock Tx SDR",
-      message: "Start Tx to view backend-generated monitor I/Q.",
+      kind: "loading",
     });
     expect(dispatchSpy.mock.calls.flat()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "mock/requestNextLiveFrame" }),
+        expect.objectContaining({ type: "mock/requestNextPausedFrame" }),
       ]),
     );
   });
@@ -795,7 +803,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -930,7 +938,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -979,7 +987,7 @@ describe("SpectrumRoute file mode", () => {
       kind: "top-bar",
       title: "Start Tx to transmit",
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
       txSettings: expect.objectContaining({
         centerFrequencyHz: 137_100_000,
         bandwidthHz: 2_400_000,
@@ -1094,7 +1102,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -1269,7 +1277,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -1330,11 +1338,11 @@ describe("SpectrumRoute file mode", () => {
     });
     expect(visualizerProps.isStandby).toBe(true);
     expect(visualizerProps.dataRef.current).toBeNull();
+    // No preview frame yet → Loading covers the canvas (never black).
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
@@ -1433,9 +1441,10 @@ describe("SpectrumRoute file mode", () => {
         kind: "top-bar",
         title: "Start Tx to transmit",
       });
-      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+      // Keep the last preview painted while the retune one-shot is in flight.
+      expect(narrowedVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
@@ -1502,9 +1511,11 @@ describe("SpectrumRoute file mode", () => {
         kind: "top-bar",
         title: "Start Tx to transmit",
       });
-      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+      expect(narrowedVisualizerProps.dataRef.current).toBe(
+        widenedMockTxPreviewFrame,
+      );
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
@@ -1520,7 +1531,7 @@ describe("SpectrumRoute file mode", () => {
   it("syncs canvas Tx bandwidth changes to the active backend transmitter while viewing Mock APT", async () => {
     jest.useFakeTimers();
     try {
-      const sendTransmitMode = jest.fn();
+      const sendTransmitStatus = jest.fn();
       const mockAptSource = {
         id: "mock-apt",
         name: "Mock APT SDR",
@@ -1627,7 +1638,7 @@ describe("SpectrumRoute file mode", () => {
           sendDemodulateCommand: jest.fn(),
           sendTrainingCommand: jest.fn(),
           sendPowerScaleCommand: jest.fn(),
-          sendTransmitMode,
+          sendTransmitStatus,
         },
         toggleVisualizerPause: jest.fn(),
         cryptoCorrupted: false,
@@ -1665,7 +1676,7 @@ describe("SpectrumRoute file mode", () => {
         </Provider>,
       );
 
-      expect(sendTransmitMode).toHaveBeenCalledWith(
+      expect(sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
@@ -1673,7 +1684,7 @@ describe("SpectrumRoute file mode", () => {
           sampleRateHz: 4_372_000,
         }),
       );
-      sendTransmitMode.mockClear();
+      sendTransmitStatus.mockClear();
 
       act(() => {
         store.dispatch(setTxSampleRateHz(873_000));
@@ -1691,7 +1702,7 @@ describe("SpectrumRoute file mode", () => {
         jest.advanceTimersByTime(17);
       });
 
-      expect(sendTransmitMode).toHaveBeenCalledWith(
+      expect(sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
@@ -1804,7 +1815,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,

@@ -1,23 +1,64 @@
 import {
+  isSourcePresentationConnected,
   resolveSourceModeManagement,
   resolveSourceModeTransition,
   resolveTxStopTransition,
+  shouldUseSourceOwnedTxPreview,
+  shouldRetainTxStandbyAfterStop,
 } from "../../src/ts/utils/sourceModeManagement";
 
 describe("sourceModeManagement", () => {
+  it("treats a receiving source as connected before the control socket catches up", () => {
+    expect(
+      isSourcePresentationConnected({
+        controlConnected: false,
+        sourceStatus: "receiving",
+        sourceTransportReady: false,
+        hasFrame: false,
+      }),
+    ).toBe(true);
+  });
+
   it.each([
     ["simplex Rx", { capability: "rx", duplex_mode: "simplex" }, "rx"],
     ["simplex Tx", { capability: "tx", duplex_mode: "simplex" }, "tx"],
     [
-      "paused half-duplex Rx",
-      { capability: "tx_rx", duplex_mode: "half_duplex", status: "standby" },
+      "receiving half-duplex Rx",
+      {
+        capability: "tx_rx",
+        duplex_mode: "half_duplex",
+        status: "receiving",
+      },
       "rx",
     ],
     [
-      "half-duplex Tx binding",
-      { id: "hackrf-1", capability: "tx_rx", duplex_mode: "half_duplex" },
+      "paused half-duplex Rx",
+      {
+        capability: "tx_rx",
+        duplex_mode: "half_duplex",
+        status: "paused",
+        paused: true,
+      },
+      "rx",
+    ],
+    [
+      "stale half-duplex Rx",
+      {
+        capability: "tx_rx",
+        duplex_mode: "half_duplex",
+        status: "stale",
+      },
+      "rx",
+    ],
+    [
+      "half-duplex Tx standby",
+      {
+        id: "hackrf-1",
+        capability: "tx_rx",
+        duplex_mode: "half_duplex",
+        status: "standby",
+      },
       "tx",
-      "hackrf-1",
     ],
     [
       "duplex Rx view with both active",
@@ -29,7 +70,7 @@ describe("sourceModeManagement", () => {
       "rx",
     ],
   ])("resolves %s as %s", (...args) => {
-    const [_label, source, expectedMode, txBindingSourceId] = args as [
+    const [_label, source, expectedMode, txBindingSourceId] = args as unknown as [
       string,
       Record<string, unknown>,
       string,
@@ -42,24 +83,41 @@ describe("sourceModeManagement", () => {
 
     expect(state.viewMode).toBe(expectedMode);
     expect(state.shouldShowTxControls).toBe(expectedMode === "tx");
-    expect(state.shouldRequestTxPreview).toBe(expectedMode === "tx");
+    expect(state.shouldRequestTxPreview).toBe(
+      expectedMode === "tx" && source.status !== "transmitting",
+    );
   });
 
-  it("uses the explicit active duplex mode when the backend provides it", () => {
+  it("uses receiving and paused statuses as the Rx state contract", () => {
     expect(
       resolveSourceModeManagement({
         source: {
           capability: "tx_rx",
           duplex_mode: "half_duplex",
           active_duplex_mode: "tx",
-          status: "standby",
+          status: "receiving",
         },
       }),
     ).toMatchObject({
       duplexMode: "half_duplex",
-      activeDuplexMode: "tx",
-      viewMode: "tx",
-      shouldShowTxControls: true,
+      viewMode: "rx",
+      activeDuplexMode: "rx",
+      isRxPaused: false,
+    });
+
+    expect(
+      resolveSourceModeManagement({
+        source: {
+          capability: "tx_rx",
+          duplex_mode: "half_duplex",
+          status: "paused",
+          paused: true,
+        },
+      }),
+    ).toMatchObject({
+      viewMode: "rx",
+      activeDuplexMode: "rx",
+      isRxPaused: true,
     });
   });
 
@@ -70,11 +128,12 @@ describe("sourceModeManagement", () => {
           capability: "tx_rx",
           duplex_mode: "duplex",
           active_duplex_modes: ["rx", "tx"],
+          status: "receiving",
         },
       }),
     ).toMatchObject({
       duplexMode: "duplex",
-      activeDuplexMode: "rx_tx",
+      activeDuplexMode: "rx",
       viewMode: "rx",
     });
   });
@@ -91,7 +150,12 @@ describe("sourceModeManagement", () => {
       sourceId: "hackrf-1",
       fromMode: "tx",
       toMode: "rx",
-      actions: ["clear_tx_binding", "resume_rx", "request_rx_frame"],
+      actions: [
+        "clear_tx_binding",
+        "resume_rx",
+        "request_rx_mode",
+        "request_rx_frame",
+      ],
     });
   });
 
@@ -120,5 +184,37 @@ describe("sourceModeManagement", () => {
       toMode: "tx",
       actions: ["enter_tx_standby"],
     });
+  });
+
+  it("uses the source-owned preview transport while entering Tx standby", () => {
+    expect(
+      shouldUseSourceOwnedTxPreview({
+        isTxPreviewStandby: true,
+        isSwitchingLiveSource: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseSourceOwnedTxPreview({
+        isTxPreviewStandby: false,
+        isSwitchingLiveSource: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("retains the Tx standby controls after stopping half-duplex transmission", () => {
+    expect(
+      shouldRetainTxStandbyAfterStop({
+        isTransmitting: true,
+        isHalfDuplex: true,
+        isTxMode: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetainTxStandbyAfterStop({
+        isTransmitting: true,
+        isHalfDuplex: false,
+        isTxMode: true,
+      }),
+    ).toBe(false);
   });
 });

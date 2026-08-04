@@ -62,14 +62,21 @@ pub struct IqFile {
   pub chunks: Vec<IqChunk>,
 }
 
-pub fn encode(file: &IqFile, key: Option<&[u8; 32]>) -> Result<Vec<u8>, String> {
+pub fn encode(
+  file: &IqFile,
+  key: Option<&[u8; 32]>,
+) -> Result<Vec<u8>, String> {
   if file.metadata.interleaving != "IQ" {
-    return Err(format!("unsupported interleaving: {}", file.metadata.interleaving));
+    return Err(format!(
+      "unsupported interleaving: {}",
+      file.metadata.interleaving
+    ));
   }
   if file.private_metadata.is_some() && key.is_none() {
     return Err("private metadata requires encryption".into());
   }
-  let metadata = serde_json::to_vec(&file.metadata).map_err(|e| e.to_string())?;
+  let metadata =
+    serde_json::to_vec(&file.metadata).map_err(|e| e.to_string())?;
   let frames = serde_json::to_vec(&file.frames).map_err(|e| e.to_string())?;
   let mut payload = Vec::new();
   if let Some(private) = &file.private_metadata {
@@ -107,7 +114,9 @@ pub fn decode(bytes: &[u8], key: Option<&[u8; 32]>) -> Result<IqFile, String> {
     return Err("invalid IQ v3 header".into());
   }
   let read_u64 = |start: usize| -> Result<u64, String> {
-    bytes.get(start..start + 8).ok_or("truncated IQ header".into())
+    bytes
+      .get(start..start + 8)
+      .ok_or("truncated IQ header".into())
       .map(|v| u64::from_le_bytes(v.try_into().unwrap()))
   };
   let metadata_len = read_u64(8)? as usize;
@@ -120,13 +129,18 @@ pub fn decode(bytes: &[u8], key: Option<&[u8; 32]>) -> Result<IqFile, String> {
   if payload_start + payload_len > bytes.len() {
     return Err("truncated IQ payload".into());
   }
-  let metadata: IqMetadata = serde_json::from_slice(&bytes[metadata_start..frames_start])
-    .map_err(|e| e.to_string())?;
+  let metadata: IqMetadata =
+    serde_json::from_slice(&bytes[metadata_start..frames_start])
+      .map_err(|e| e.to_string())?;
   if metadata.interleaving != "IQ" {
-    return Err(format!("unsupported interleaving: {}", metadata.interleaving));
+    return Err(format!(
+      "unsupported interleaving: {}",
+      metadata.interleaving
+    ));
   }
-  let frames: Vec<FrameUpdate> = serde_json::from_slice(&bytes[frames_start..payload_start])
-    .map_err(|e| e.to_string())?;
+  let frames: Vec<FrameUpdate> =
+    serde_json::from_slice(&bytes[frames_start..payload_start])
+      .map_err(|e| e.to_string())?;
   let mut payload = bytes[payload_start..payload_start + payload_len].to_vec();
   if encrypted {
     let key = key.ok_or("IQ file is encrypted")?;
@@ -138,23 +152,47 @@ pub fn decode(bytes: &[u8], key: Option<&[u8; 32]>) -> Result<IqFile, String> {
   let mut offset = 0;
   while offset < payload.len() {
     if payload.len() - offset >= 12 && &payload[offset..offset + 4] == b"PMD3" {
-      let len = u64::from_le_bytes(payload[offset + 4..offset + 12].try_into().unwrap()) as usize;
+      let len = u64::from_le_bytes(
+        payload[offset + 4..offset + 12].try_into().unwrap(),
+      ) as usize;
       offset += 12;
-      if offset + len > payload.len() { return Err("truncated private metadata".into()); }
-      private_metadata = Some(serde_json::from_slice(&payload[offset..offset + len]).map_err(|e| e.to_string())?);
+      if offset + len > payload.len() {
+        return Err("truncated private metadata".into());
+      }
+      private_metadata = Some(
+        serde_json::from_slice(&payload[offset..offset + len])
+          .map_err(|e| e.to_string())?,
+      );
       offset += len;
       continue;
     }
-    if offset + 20 > payload.len() { return Err("truncated IQ chunk".into()); }
-    let sample_offset = u64::from_le_bytes(payload[offset..offset+8].try_into().unwrap());
-    let channel = u32::from_le_bytes(payload[offset+8..offset+12].try_into().unwrap());
-    let len = u64::from_le_bytes(payload[offset+12..offset+20].try_into().unwrap()) as usize;
+    if offset + 20 > payload.len() {
+      return Err("truncated IQ chunk".into());
+    }
+    let sample_offset =
+      u64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap());
+    let channel =
+      u32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap());
+    let len =
+      u64::from_le_bytes(payload[offset + 12..offset + 20].try_into().unwrap())
+        as usize;
     offset += 20;
-    if offset + len > payload.len() { return Err("truncated IQ chunk data".into()); }
-    chunks.push(IqChunk { sample_offset, channel, data: payload[offset..offset+len].to_vec() });
+    if offset + len > payload.len() {
+      return Err("truncated IQ chunk data".into());
+    }
+    chunks.push(IqChunk {
+      sample_offset,
+      channel,
+      data: payload[offset..offset + len].to_vec(),
+    });
     offset += len;
   }
-  Ok(IqFile { metadata, private_metadata, frames, chunks })
+  Ok(IqFile {
+    metadata,
+    private_metadata,
+    frames,
+    chunks,
+  })
 }
 
 #[cfg(test)]
@@ -165,7 +203,9 @@ mod tests {
   fn round_trips_chunked_iq_with_sparse_updates() {
     let file = IqFile {
       metadata: IqMetadata::default(),
-      private_metadata: Some(serde_json::json!({"serial_number": "trusted-only"})),
+      private_metadata: Some(
+        serde_json::json!({"serial_number": "trusted-only"}),
+      ),
       frames: vec![FrameUpdate {
         sample_offset: 4,
         timestamp_us: 25,
@@ -192,8 +232,16 @@ mod tests {
   fn rejects_unknown_interleaving() {
     let mut metadata = IqMetadata::default();
     metadata.interleaving = "QI".into();
-    let err = encode(&IqFile { metadata, private_metadata: None, frames: vec![], chunks: vec![] }, None)
-      .unwrap_err();
+    let err = encode(
+      &IqFile {
+        metadata,
+        private_metadata: None,
+        frames: vec![],
+        chunks: vec![],
+      },
+      None,
+    )
+    .unwrap_err();
     assert!(err.contains("interleaving"));
   }
 }

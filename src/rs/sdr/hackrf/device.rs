@@ -4,7 +4,7 @@ use log::{debug, info};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -19,14 +19,20 @@ const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
 const HACKRF_RX_START_RETRY_ATTEMPTS: usize = 5;
 const HACKRF_RX_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 
+static HACKRF_NATIVE_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 struct RxContext {
   tx: Sender<Vec<u8>>,
 }
-struct TxContext { iq: Mutex<Vec<u8>> }
+struct TxContext {
+  iq: Vec<u8>,
+}
 
 fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
   let mut payload = samples.to_vec();
-  if payload.len() % 2 != 0 { payload.push(0); }
+  if payload.len() % 2 != 0 {
+    payload.push(0);
+  }
   payload
 }
 
@@ -74,45 +80,111 @@ pub struct HackRfDevice {
 unsafe impl Send for HackRfDevice {}
 
 extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
-  if transfer.is_null() {
-    return 0;
-  }
+  let res = std::panic::catch_unwind(|| {
+    if transfer.is_null() {
+      return 0;
+    }
 
-  let transfer = unsafe { &mut *transfer };
-  if transfer.buffer.is_null() || transfer.valid_length <= 0 {
-    return 0;
-  }
+    let transfer = unsafe { &mut *transfer };
+    if transfer.buffer.is_null()
+      || transfer.valid_length <= 0
+      || transfer.rx_ctx.is_null()
+    {
+      return 0;
+    }
 
-  let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
-  let len = transfer.valid_length as usize;
-  let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
-  let mut frame = Vec::with_capacity(len);
-  frame.extend_from_slice(data);
+    let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
+    let len = transfer.valid_length as usize;
+    let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
+    let mut frame = Vec::with_capacity(len);
+    frame.extend_from_slice(data);
 
-  let _ = ctx.tx.try_send(frame);
+    let _ = ctx.tx.try_send(frame);
 
-  0
+    0
+  });
+  res.unwrap_or(0)
 }
 
 extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
-  if transfer.is_null() { return -1; }
-  let transfer = unsafe { &mut *transfer };
-  if transfer.buffer.is_null() || transfer.buffer_length <= 0 { return -1; }
-  let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
-  let iq = ctx.iq.lock().unwrap();
-  if iq.is_empty() { return -1; }
-  let output = unsafe { std::slice::from_raw_parts_mut(transfer.buffer, transfer.buffer_length as usize) };
-  for (index, byte) in output.iter_mut().enumerate() { *byte = iq[index % iq.len()]; }
-  transfer.valid_length = output.len() as c_int;
-  0
+  let res = std::panic::catch_unwind(|| {
+    if transfer.is_null() {
+      return -1;
+    }
+    let transfer = unsafe { &mut *transfer };
+    if transfer.buffer.is_null()
+      || transfer.buffer_length <= 0
+      || transfer.rx_ctx.is_null()
+    {
+      return -1;
+    }
+    let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
+    if ctx.iq.is_empty() {
+      return -1;
+    }
+    let output = unsafe {
+      std::slice::from_raw_parts_mut(
+        transfer.buffer,
+        transfer.buffer_length as usize,
+      )
+    };
+    for (index, byte) in output.iter_mut().enumerate() {
+      *byte = ctx.iq[index % ctx.iq.len()];
+    }
+    transfer.valid_length = output.len() as c_int;
+    0
+  });
+  res.unwrap_or(-1)
 }
 
 impl HackRfDevice {
+  pub(crate) fn native_operation_lock() -> MutexGuard<'static, ()> {
+    HACKRF_NATIVE_OPERATION_LOCK
+      .get_or_init(|| Mutex::new(()))
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
+
   pub fn open_first() -> Result<Self> {
     Self::open(0)
   }
 
+  pub(crate) fn enumerate_serial_numbers() -> Result<Vec<String>> {
+    let _native_operation_guard = Self::native_operation_lock();
+    unsafe {
+      if ffi::hackrf_init() != 0 {
+        return Err(anyhow!("Failed to initialize HackRF One"));
+      }
+      let list = ffi::hackrf_device_list();
+      if list.is_null() {
+        let _ = ffi::hackrf_exit();
+        return Ok(Vec::new());
+      }
+
+      let mut serial_numbers = Vec::new();
+      let device_count = (*list).devicecount.max(0) as usize;
+      for index in 0..device_count {
+        let serial_number = if !(*list).serial_numbers.is_null() {
+          let serial_ptr = *(*list).serial_numbers.add(index);
+          if serial_ptr.is_null() {
+            String::new()
+          } else {
+            CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
+          }
+        } else {
+          String::new()
+        };
+        serial_numbers.push(serial_number);
+      }
+
+      ffi::hackrf_device_list_free(list);
+      let _ = ffi::hackrf_exit();
+      Ok(serial_numbers)
+    }
+  }
+
   pub fn open(index: i32) -> Result<Self> {
+    let _native_operation_guard = Self::native_operation_lock();
     unsafe {
       if ffi::hackrf_init() != 0 {
         return Err(anyhow!("Failed to initialize HackRF One"));
@@ -237,6 +309,7 @@ impl HackRfDevice {
   }
 
   fn cleanup_inner(&mut self) {
+    let _native_operation_guard = Self::native_operation_lock();
     self.stop_transmitting();
     self.stop_streaming();
     if !self.dev.is_null() {
@@ -244,6 +317,7 @@ impl HackRfDevice {
       self.dev = ptr::null_mut();
     }
     let _ = self.rx_context.take();
+    let _ = self.tx_context.take();
     let _ = unsafe { ffi::hackrf_exit() };
   }
 }
@@ -279,15 +353,33 @@ impl SdrDevice for HackRfDevice {
   fn transmit_iq(&mut self, samples: Option<&[u8]>) -> Result<()> {
     match samples {
       Some(samples) => {
+        self.stop_transmitting();
         self.stop_streaming();
-        let context = Arc::new(TxContext { iq: Mutex::new(prepare_hackrf_tx_payload(samples)) });
-        if context.iq.lock().unwrap().is_empty() { return Err(anyhow!("HackRF TX requires I/Q samples")); }
-        let ret = unsafe { ffi::hackrf_start_tx(self.dev, Some(hackrf_tx_callback), Arc::as_ptr(&context) as *mut _) };
-        if ret != 0 { return Err(anyhow!("Failed to start HackRF One TX streaming (error code: {})", ret)); }
+        let payload = prepare_hackrf_tx_payload(samples);
+        if payload.is_empty() {
+          return Err(anyhow!("HackRF TX requires I/Q samples"));
+        }
+        let context = Arc::new(TxContext { iq: payload });
+        let ret = unsafe {
+          ffi::hackrf_start_tx(
+            self.dev,
+            Some(hackrf_tx_callback),
+            Arc::as_ptr(&context) as *mut _,
+          )
+        };
+        if ret != 0 {
+          return Err(anyhow!(
+            "Failed to start HackRF One TX streaming (error code: {})",
+            ret
+          ));
+        }
         self.tx_context = Some(context);
         self.tx_started = true;
       }
-      None => { self.stop_transmitting(); self.tx_context = None; }
+      None => {
+        self.stop_transmitting();
+        self.tx_context = None;
+      }
     }
     Ok(())
   }

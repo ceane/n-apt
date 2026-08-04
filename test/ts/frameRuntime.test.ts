@@ -3,7 +3,11 @@ import {
   createSourceFrameRuntime,
   getLiveFrameRefForSource,
 } from "../../src/ts/visualization/frameRuntime";
-import { liveDataBySourceRef } from "../../src/ts/redux/middleware/websocketMiddleware";
+import {
+  liveDataBySourceRef,
+  presentationController,
+  sourceVisualizationRuntime,
+} from "../../src/ts/redux/middleware/websocketMiddleware";
 
 describe("frame runtime", () => {
   test("reads and clears an imperative frame slot without React state", () => {
@@ -49,6 +53,65 @@ describe("frame runtime", () => {
       };
       expect(txRef.current).toEqual({ sequence: 3 });
     } finally {
+      liveDataBySourceRef.current = previous;
+    }
+  });
+
+  test("keeps RX and TX presentation reads isolated for one source", () => {
+    const rxFrame = { source_id: "shared-source", frame_status: "receiving" };
+    const txFrame = {
+      source_id: "shared-source",
+      frame_status: "standby",
+      is_tx_preview: true,
+    };
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+
+      presentationController.selectSource("shared-source", "rx");
+      presentationController.commitActiveSource("shared-source");
+      presentationController.acceptFrame(rxFrame as any, "rx");
+
+      presentationController.selectSource("shared-source", "tx");
+      presentationController.commitActiveSource("shared-source");
+      presentationController.acceptFrame(txFrame as any, "tx");
+
+      presentationController.selectSource("shared-source", "rx");
+      presentationController.commitActiveSource("shared-source");
+
+      expect(getLiveFrameRefForSource("shared-source", "rx").current).toBe(
+        rxFrame,
+      );
+      expect(getLiveFrameRefForSource("shared-source", "tx").current).toBe(
+        txFrame,
+      );
+    } finally {
+      presentationController.reset();
+      liveDataBySourceRef.current = previous;
+    }
+  });
+
+  test("does not fall back from an RX slot to a source-scoped TX frame", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
+
+      const txFrame = {
+        source_id: "shared-source",
+        frame_status: "transmitting",
+        is_tx_preview: true,
+      };
+      sourceVisualizationRuntime.publish(txFrame as any);
+      liveDataBySourceRef.current["shared-source"] =
+        sourceVisualizationRuntime.getSourceRef("shared-source");
+
+      expect(getLiveFrameRefForSource("shared-source", "rx").current).toBeNull();
+    } finally {
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
       liveDataBySourceRef.current = previous;
     }
   });

@@ -142,7 +142,7 @@ export const FileProcessingSection: React.FC<FileProcessingSectionProps> = ({
     onSelectedFilesChange(registeredFiles);
   };
 
-  const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
+  const ACCEPTED_TYPES = [".napt", ".iq", ".wav"];
 
   const {
     isDragging,

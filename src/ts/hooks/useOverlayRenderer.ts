@@ -1355,6 +1355,7 @@ export function useOverlayRenderer() {
         | undefined,
       nodePreview = false,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
+      visualRange?: { min: number; max: number },
     ) => {
       if (!zoombox) return;
 
@@ -1395,6 +1396,42 @@ export function useOverlayRenderer() {
       ctx.lineTo(left + boxWidth / 2, top + boxHeight);
       ctx.stroke();
       ctx.restore();
+
+      if (visualRange && visualRange.max > visualRange.min) {
+        const centerX = left + boxWidth / 2;
+        const centerFrequencyHz =
+          visualRange.min +
+          ((centerX - plotLeft) / Math.max(1, plotWidth)) *
+            (visualRange.max - visualRange.min);
+        const label = formatFrequency(centerFrequencyHz, {
+          showUnits: true,
+          precisionMHz: 6,
+          precisionKHz: 3,
+          trimTrailingZeros: true,
+        }).replace(/(\d)(?=[A-Za-z])/g, "$1 ");
+        ctx.save();
+        ctx.font = "700 11px 'JetBrains Mono', monospace";
+        const textWidth = ctx.measureText(label).width;
+        const labelWidth = textWidth + 18;
+        const labelHeight = 24;
+        const labelX = Math.max(
+          4,
+          Math.min(width - labelWidth - 4, centerX - labelWidth / 2),
+        );
+        const labelY = Math.max(4, top - labelHeight - 8);
+        ctx.fillStyle = "rgba(15, 23, 42, 0.96)";
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.98)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(labelX, labelY, labelWidth, labelHeight, 12);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "rgba(226, 232, 240, 0.98)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, labelX + labelWidth / 2, labelY + labelHeight / 2);
+        ctx.restore();
+      }
     },
     [],
   );

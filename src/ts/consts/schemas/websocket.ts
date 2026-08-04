@@ -10,11 +10,13 @@ export { type GeolocationData };
 
 export type DeviceState =
   | "connected"
+  | "initializing"
   | "loading"
-  | "loose"
   | "disconnected"
   | "stale"
   | "error"
+  | "receiving"
+  | "paused"
   | "standby"
   | "transmitting"
   | "streaming"
@@ -115,9 +117,18 @@ export type ChannelsMessage = {
   error?: string | null;
 };
 
+export type IqFrameStatus =
+  | "receiving"
+  | "standby"
+  | "transmitting"
+  | "paused";
+
 type IqRawFramePayload = {
   type: "spectrum";
   is_mock_apt?: boolean;
+  frame_status?: IqFrameStatus;
+  is_tx_preview?: boolean;
+  is_mock_tx_preview?: boolean;
   center_frequency_hz?: number;
   waveform_span_hz?: number | null;
   timestamp?: number;
@@ -272,11 +283,13 @@ export type DeviceDuplexMode = "half_duplex";
 
 export type SourceStatus =
   | "connected"
+  | "initializing"
   | "loading"
-  | "loose"
   | "disconnected"
   | "stale"
   | "error"
+  | "receiving"
+  | "paused"
   | "standby"
   | "transmitting"
   | "streaming"
@@ -402,11 +415,10 @@ export type WebSocketMessage =
       paused: boolean;
       source_id: string;
       duplex_mode?: DeviceDuplexMode;
-      active_mode?: DeviceActiveMode;
     }
   | {
-      type: "tx_mode";
-      active_mode: DeviceActiveMode;
+      type: "status";
+      status: "standby" | "transmitting";
       txDevice?: string;
       serialNumber?: string;
       centerFrequencyHz?: number;

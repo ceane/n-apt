@@ -1,8 +1,71 @@
 use n_apt_backend::consts::fft::SAMPLE_RATE;
 use n_apt_backend::sdr::processor::SdrProcessor;
+use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::types::SdrProcessorSettings;
 use serial_test::serial;
 use std::time::{Duration, Instant};
+
+#[test]
+fn frequency_requests_coalesce_to_the_latest_value_without_a_processor_lock() {
+  unsafe {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+  }
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+
+  shared.request_center_frequency(1_700_000);
+  shared.request_center_frequency(1_800_000);
+
+  assert_eq!(
+    shared
+      .pending_center_freq
+      .load(std::sync::atomic::Ordering::Acquire),
+    1_800_000
+  );
+  assert!(shared
+    .pending_center_freq_dirty
+    .load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[test]
+#[cfg_attr(
+  debug_assertions,
+  ignore = "strict FFT frame budget is enforced in the release profile"
+)]
+#[serial]
+fn mock_retune_to_next_fft_frame_stays_inside_the_fft_frame_budget() {
+  let mut processor =
+    SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
+  let sample_rate = processor.get_sample_rate();
+
+  for fft_size in [2048usize, 8192usize] {
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(fft_size),
+        ..Default::default()
+      })
+      .expect("Failed to apply FFT size");
+    let _ = processor
+      .read_and_process_frame()
+      .expect("Failed to warm mock frame");
+
+    let frame_rate =
+      SdrProcessor::calculate_valid_frame_rate(fft_size, sample_rate);
+    let frame_budget = Duration::from_secs_f64(1.0 / frame_rate as f64);
+    let target_center = 1_500_000 + fft_size as u32;
+    let started_at = Instant::now();
+    processor.queue_center_frequency(target_center);
+    let _ = processor
+      .read_and_process_frame()
+      .expect("Failed to process retuned mock frame");
+    let elapsed = started_at.elapsed();
+
+    assert_eq!(processor.get_center_frequency(), target_center);
+    assert!(
+      elapsed < frame_budget,
+      "FFT size {fft_size} retune response took {elapsed:?}, budget is {frame_budget:?}"
+    );
+  }
+}
 
 /// CI runners (GitHub Actions' ubuntu-latest) are shared VMs with variable
 /// single-thread perf. Return a multiplier so timing assertions stay valid.

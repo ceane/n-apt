@@ -141,6 +141,15 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
       } satisfies CanvasPlaceholderState;
     }
 
+    if (isPaused) {
+      return {
+        kind: "top-bar" as const,
+        kicker: "Paused",
+        title: "",
+        sourceLabel: placeholderSourceLabel,
+      } satisfies CanvasPlaceholderState;
+    }
+
     return null;
   }, [
     explicitPlaceholderState,
@@ -148,6 +157,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     placeholderSourceLabel,
     placeholderPaneLabel,
     awaitingDeviceData,
+    isPaused,
   ]);
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -204,9 +214,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
       <WaterfallSection>
         <SectionTitleRow>
           <SectionTitle>
-            {isStandby
-              ? "Waterfall Display (Standby)"
-              : `Waterfall Display ${isPaused ? "(Paused)" : ""}`}
+            Waterfall Display
           </SectionTitle>
           {headerActionContent && (
             <SectionTitleActions data-disabled={!!placeholderState}>

@@ -11,6 +11,8 @@ import {
   shouldShowSourceHandoffOverlay,
   shouldFlushWebGpuStreamCache,
   shouldResetVisualPresentationForSelection,
+  shouldPreserveWaterfallOnTxStandby,
+  shouldClearWebGpuForPlaceholder,
 } from "@n-apt/utils/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
@@ -22,15 +24,25 @@ describe("WebGPU stream reset", () => {
       shouldResetVisualPresentationForSelection("mock-tx", "mock-tx"),
     ).toBe(false);
   });
+  test("does not wipe WebGPU for Loading or standby chrome", () => {
+    expect(shouldClearWebGpuForPlaceholder("loading")).toBe(false);
+    expect(shouldClearWebGpuForPlaceholder("top-bar")).toBe(false);
+    expect(shouldClearWebGpuForPlaceholder("overlay-only")).toBe(false);
+    expect(shouldClearWebGpuForPlaceholder(null)).toBe(false);
+    expect(shouldClearWebGpuForPlaceholder("error")).toBe(true);
+    expect(shouldClearWebGpuForPlaceholder("disconnected")).toBe(true);
+  });
+
   test("commits a pending source reset only with the replacement frame", () => {
     expect(shouldCommitSourcePresentationReset(true, true)).toBe(true);
     expect(shouldCommitSourcePresentationReset(true, false)).toBe(false);
     expect(shouldCommitSourcePresentationReset(false, true)).toBe(false);
   });
 
-  test("commits a pending source reset without a frame for stale source standby", () => {
+  test("does not commit a pending reset without a replacement frame by default", () => {
+    expect(shouldCommitSourcePresentationReset(true, false, false)).toBe(false);
+    expect(shouldCommitSourcePresentationReset(true, true, false)).toBe(true);
     expect(shouldCommitSourcePresentationReset(true, false, true)).toBe(true);
-    expect(shouldCommitSourcePresentationReset(false, false, true)).toBe(false);
     expect(shouldCommitSourcePresentationReset(true, true, false, true)).toBe(
       false,
     );
@@ -49,6 +61,49 @@ describe("WebGPU stream reset", () => {
         isStandbyTopBar: true,
         presentedSourceId: "mock-tx",
         expectedSourceId: "mock-tx",
+      }),
+    ).toBe(false);
+  });
+
+  test("preserves the selected Tx waterfall across repeated standby/transmit toggles", () => {
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: false,
+        nextIsStandby: true,
+        expectedSourceId: "hackrf-one",
+        presentedSourceId: "hackrf-one",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: true,
+        nextIsStandby: false,
+        expectedSourceId: "hackrf-one",
+        presentedSourceId: "hackrf-one",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: false,
+        nextIsStandby: true,
+        expectedSourceId: "hackrf-one",
+        presentedSourceId: "hackrf-one",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: true,
+        nextIsStandby: false,
+        expectedSourceId: "hackrf-one",
+        presentedSourceId: "hackrf-one",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: false,
+        nextIsStandby: true,
+        expectedSourceId: "hackrf-one",
+        presentedSourceId: "mock-apt",
       }),
     ).toBe(false);
   });
@@ -242,7 +297,7 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
-  test("clears the old presentation at selection and resets only once", () => {
+  test("retains the painted graph across Mock APT → Mock Tx selection", () => {
     const selection = resolveWebGpuStreamTransition(
       {
         sourceId: "mock-apt",
@@ -256,8 +311,8 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(selection).toEqual({
-      clearLiveFrame: true,
-      advanceResetEpoch: true,
+      clearLiveFrame: false,
+      advanceResetEpoch: false,
     });
 
     const commit = resolveWebGpuStreamTransition(
@@ -276,6 +331,29 @@ describe("WebGPU stream reset", () => {
       clearLiveFrame: false,
       advanceResetEpoch: false,
     });
+  });
+
+  test("preserves Tx waterfall across Start Tx when the transport ref is briefly empty", () => {
+    expect(
+      shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby: true,
+        nextIsStandby: false,
+        expectedSourceId: "mock-tx",
+        presentedSourceId: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps the last presentation under a standby top-bar frame gap", () => {
+    expect(
+      shouldPreservePresentationDuringFrameGap({
+        hasPresentedFrame: true,
+        hasCurrentFrame: false,
+        isDeviceConnected: true,
+        hasExplicitPlaceholder: false,
+        hasPlaceholderError: false,
+      }),
+    ).toBe(true);
   });
 });
 

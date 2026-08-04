@@ -129,7 +129,7 @@ describe("FFTAndWaterfall", () => {
         sourceHandoffPending: true,
         sourceTransportPhase: "warming",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldShowLiveServerDownPlaceholder({
         isConnected: true,
@@ -500,16 +500,28 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
-  it("keeps standby top bars non-blocking while both visualizers stay live", () => {
+  it("keeps standby top bars while a live frame is present", () => {
     render(
       <FFTAndWaterfall
-        dataRef={{ current: null }}
+        dataRef={{
+          current: {
+            source_id: "mock-tx",
+            iq_data: new Uint8Array([128, 129]),
+            frame_status: "standby",
+            is_tx_preview: true,
+          },
+        }}
         frequencyRange={{ min: 100, max: 101 }}
         centerFrequencyHz={100_500_000}
         activeSignalArea="A"
         isPaused={false}
         isStandby={true}
         snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: true,
+        }}
         placeholderState={{
           kind: "top-bar",
           title: "Start Tx to transmit",
@@ -738,7 +750,7 @@ describe("FFTAndWaterfall", () => {
     expect(fftProps?.txSlider).toBeUndefined();
   });
 
-  it("surfaces a server-down placeholder for the mock apt source", () => {
+  it("renders a lifecycle-owned Server Down placeholder without inventing one", () => {
     mockedSpectrumState = {
       deviceKind: "mock_apt",
       showTxSlider: true,
@@ -757,6 +769,14 @@ describe("FFTAndWaterfall", () => {
       ],
     };
 
+    const lifecycleServerDown = {
+      kind: "error" as const,
+      reason: "Server down",
+      message:
+        "The server was disconnected due to being manually exited or an error.",
+      sourceLabel: "mock-apt",
+    };
+
     render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -766,28 +786,75 @@ describe("FFTAndWaterfall", () => {
         isPaused={false}
         isStandby={true}
         snapshotGridPreference={true}
-        placeholderState={{
-          kind: "top-bar",
-          title: "Start Tx to transmit",
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: false,
         }}
+        placeholderState={lifecycleServerDown}
+        placeholderErrorReason="Server down"
       />,
     );
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBe("Server down");
-    expect(fftProps?.placeholderState).toBeNull();
-    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.placeholderState).toMatchObject(lifecycleServerDown);
     const waterfallProps =
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(waterfallProps?.placeholderErrorReason).toBe("Server down");
-    expect(waterfallProps?.placeholderState).toBeNull();
-    expect(waterfallProps?.awaitingDeviceData).toBe(false);
+    expect(waterfallProps?.placeholderState).toMatchObject(lifecycleServerDown);
   });
 
-  it("reports server down even when a stale receiving status remains after kill", () => {
+  it("does not invent Server Down when lifecycle owns placeholders during handoff", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+        },
+      ],
+      sourceStatuses: { "mock-apt": "receiving" },
+      sourceTransport: { sourceId: "mock-apt", phase: "warming", error: null },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: true,
+          clearStalePresentation: true,
+          preserveMatchingPresentation: false,
+        }}
+        placeholderState={{
+          kind: "loading",
+          paneLabel: "FFT",
+          sourceLabel: "Mock APT SDR",
+          message: "Waiting for the first frame to arrive.",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
+    expect(fftProps?.placeholderState).toMatchObject({ kind: "loading" });
+  });
+
+  it("falls back to Server Down only when lifecycle presentation is absent", () => {
     mockedWebsocketState = {
       isConnected: false,
       connectionStatus: "disconnected",
@@ -818,7 +885,6 @@ describe("FFTAndWaterfall", () => {
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBe("Server down");
-    expect(fftProps?.placeholderState).toBeNull();
   });
 
   it("does not flash Server Down while the first websocket connect is in flight", () => {

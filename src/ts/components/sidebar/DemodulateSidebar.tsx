@@ -20,6 +20,7 @@ import FileSelectionSidebar from "@n-apt/components/sidebar/FileSelectionSidebar
 import { ScanningProgress } from "@n-apt/components/sidebar/ScanningProgress";
 import { DemodulationMathSidebar } from "@n-apt/components/sidebar/DemodulationMathSidebar";
 import { DemodSidebarNodes } from "@n-apt/components/sidebar/DemodSidebarNodes";
+import { usePrompt } from "@n-apt/components/ui/PromptProvider";
 import { DemodulationFlows } from "@n-apt/components/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/hooks/useSpectrumStore";
 import { liveFrameRuntime } from "@n-apt/visualization/frameRuntime";
@@ -72,6 +73,24 @@ const InfoText = styled.div`
   line-height: 1.5;
 `;
 
+const ClearNodesButton = styled.button`
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: -6px;
+  padding: 8px 12px;
+  border: 1px solid ${({ theme }) => theme.colors?.border || "#334155"};
+  border-radius: 6px;
+  background: transparent;
+  color: ${({ theme }) => theme.colors?.textSecondary || "#94a3b8"};
+  cursor: pointer;
+  font-size: 11px;
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors?.error || "#ef4444"};
+    color: ${({ theme }) => theme.colors?.error || "#ef4444"};
+  }
+`;
+
 interface DemodulateSidebarProps {
   sourceMode?: SourceMode;
   onSourceModeChange?: (mode: SourceMode) => void;
@@ -103,7 +122,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   detectedRegions = 0,
 }) => {
   const dispatch = useAppDispatch();
-  const { setFlow, nodes } = useDemod();
+  const { setFlow, nodes, clearFlow } = useDemod();
+  const { showPrompt } = usePrompt();
   const {
     toggleVisualizerPause,
     manualVisualizerPaused,
@@ -121,7 +141,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       const source = sources.find((entry) => entry.id === id);
       if (!source) return;
       const transmitting = source.status === "transmitting";
-      wsConnection.sendTransmitMode?.(!transmitting, source.name ?? id, {
+      wsConnection.sendTransmitStatus?.(!transmitting, source.name ?? id, {
         serialNumber: source.serial_number?.trim() || id,
         centerFrequencyHz: tx.txCenterFrequencyHz,
         bandwidthHz: tx.txSampleRateHz,
@@ -140,7 +160,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         txHopRateHz: tx.txHopRateHz,
       });
     },
-    [sources, tx, wsConnection.sendTransmitMode],
+    [sources, tx, wsConnection.sendTransmitStatus],
   );
 
   const handleFlowSelect = useCallback(
@@ -149,6 +169,17 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     },
     [setFlow],
   );
+
+  const handleClearAllNodes = useCallback(() => {
+    showPrompt({
+      title: "Clear All Present Nodes",
+      message: "Clear all present nodes? This cannot be undone.",
+      confirmText: "Clear All",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: clearFlow,
+    });
+  }, [clearFlow, showPrompt]);
 
   const isTxSuiteFlow = nodes.some(
     (node) => node.data?.sourceBindingGroup === "tx-suite",
@@ -290,11 +321,14 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
                   ? "#19d97d"
                   : undefined,
             label: source.status ?? undefined,
-            loading: source.status === "loading",
+            loading:
+              source.status === "loading" || source.status === "initializing",
             loadingLabel:
-              source.status === "loading"
-                ? `Loading ${source.name}`
-                : undefined,
+              source.status === "initializing"
+                ? `Initializing ${source.name}`
+                : source.status === "loading"
+                  ? `Loading ${source.name}`
+                  : undefined,
             actionLabel,
             actionTitle,
             onAction: isTxSource
@@ -534,6 +568,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         fileActionLabel={fileActionLabel}
         fileActionTitle={fileActionTitle}
       />
+
+      <ClearNodesButton type="button" onClick={handleClearAllNodes}>
+        Clear All Present Nodes
+      </ClearNodesButton>
 
       {sourceMode === "file" && (
         <FileSelectionSidebar

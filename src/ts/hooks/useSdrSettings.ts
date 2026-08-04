@@ -570,9 +570,17 @@ export const useSdrSettings = ({
     if (sdrSettings?.gain?.hackrf_amp_enable !== undefined) {
       setHackrfAmpEnabled(sdrSettings.gain.hackrf_amp_enable);
     }
-    if (sdrSettings?.gain?.tuner_bandwidth !== undefined) {
+    if (
+      (typeof state.hackrfBasebandBandwidth !== "number" ||
+        state.hackrfBasebandBandwidth === null) &&
+      sdrSettings?.gain?.tuner_bandwidth !== undefined
+    ) {
       setHackrfBasebandBandwidth(sdrSettings.gain.tuner_bandwidth);
-    } else if (deviceType === "hackrf_one") {
+    } else if (
+      (typeof state.hackrfBasebandBandwidth !== "number" ||
+        state.hackrfBasebandBandwidth === null) &&
+      deviceType === "hackrf_one"
+    ) {
       setHackrfBasebandBandwidth(3_200_000);
     }
     if (sdrSettings?.ppm !== undefined) {
@@ -596,6 +604,7 @@ export const useSdrSettings = ({
     setRtlAGC,
     setTunerAGC,
     currentSampleRateHz,
+    state.hackrfBasebandBandwidth,
     dispatch,
     maxSampleRate,
     sendCurrentSettings,

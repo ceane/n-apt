@@ -3,11 +3,12 @@ import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
 import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
 import {
   requestNextLiveFrame,
+  resolveWholeChannelSampleRateForSourceSwitch,
   sendSelectSource,
 } from "../../src/ts/redux/thunks/websocketThunks";
 
 describe("requestNextLiveFrame thunk", () => {
-  it("dispatches websocket/sendMessage with request_next_frame when connected", async () => {
+  it("updates Tx stream options when connected", async () => {
     const seen: any[] = [];
     const captureMiddleware = () => (next: any) => (action: any) => {
       seen.push(action);
@@ -31,8 +32,8 @@ describe("requestNextLiveFrame thunk", () => {
     expect(
       seen.some(
         (action) =>
-          action?.type === "websocket/sendMessage" &&
-          action?.payload?.type === "request_next_frame",
+          action?.type === "websocket/refreshStream" &&
+          action?.payload?.mode === "rx",
       ),
     ).toBe(true);
   });
@@ -70,9 +71,9 @@ describe("requestNextLiveFrame thunk", () => {
 
     const data = seen.find(
       (action) =>
-        action?.type === "websocket/sendMessage" &&
-        action?.payload?.type === "request_next_frame",
-    )?.payload?.data;
+        action?.type === "websocket/refreshStream" &&
+        action?.payload?.mode === "tx",
+    )?.payload?.options;
 
     expect(data).toMatchObject({
       centerFrequencyHz: 137_100_000,
@@ -137,5 +138,33 @@ describe("requestNextLiveFrame thunk", () => {
       source_id: "hackrf-1",
       sample_rate: 18_250_000,
     });
+  });
+
+  it("carries the active Whole Channel rate into Mock Tx", () => {
+    expect(
+      resolveWholeChannelSampleRateForSourceSwitch({
+        source: {
+          id: "mock-tx",
+          kind: "mock_tx",
+          name: "Mock Tx SDR",
+          sdr: {
+            max_sample_rate: 2_400_000,
+            sample_rate_options: [2_400_000],
+            settings: {
+              sample_rate: 2_400_000,
+            },
+          },
+        } as any,
+        channels: [
+          {
+            id: "channel-a",
+            label: "A",
+            min_hz: 18_000,
+            max_hz: 4_390_000,
+          } as any,
+        ],
+        activeSignalArea: "A",
+      }),
+    ).toBe(4_372_000);
   });
 });

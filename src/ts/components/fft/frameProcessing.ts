@@ -21,13 +21,19 @@ export function shouldPresentSpectrumFrameForRange({
   frameSampleRateHz,
   requestedRange,
   requiresExactRange,
+  isTxPreviewFrame = false,
 }: {
   frameCenterHz?: number | null;
   frameSampleRateHz?: number | null;
   requestedRange: { min: number; max: number };
   requiresExactRange: boolean;
+  isTxPreviewFrame?: boolean;
 }): boolean {
   if (!requiresExactRange) return true;
+  // A v2 standby frame carries explicit presentation ownership. It is safe to
+  // paint while the Tx slider/view range catches up; otherwise the FFT can go
+  // blank even though the waterfall has already accepted the same frame.
+  if (isTxPreviewFrame) return true;
   if (
     typeof frameCenterHz !== "number" ||
     !Number.isFinite(frameCenterHz) ||

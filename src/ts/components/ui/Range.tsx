@@ -115,6 +115,7 @@ export interface RangeProps {
   variant?: RangeVariant;
   children?: React.ReactNode;
   fullWidth?: boolean;
+  totalLabel?: string;
 }
 
 export const Range: React.FC<RangeProps> = ({
@@ -126,6 +127,7 @@ export const Range: React.FC<RangeProps> = ({
   variant = "primary",
   children,
   fullWidth = false,
+  totalLabel,
 }) => {
   return (
     <RangeWrapper style={fullWidth ? { gridColumn: "1 / -1" } : undefined}>
@@ -143,7 +145,9 @@ export const Range: React.FC<RangeProps> = ({
           $active={selected}
           aria-hidden={!selected}
           $variant={variant}
-        />
+        >
+          {selected && totalLabel}
+        </RangeTotal>
         <RangeEnd>{formatChannelFreq(max)}</RangeEnd>
       </RangeButton>
       {children}

@@ -46,6 +46,31 @@ import {
 } from "@n-apt/consts/types";
 import { NaptSpikeDetectionResult } from "@n-apt/utils/naptSpikeDetection";
 
+const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow";
+
+const readSessionFlow = (sourceMode: string, fallback: { nodes: Node[]; edges: Edge[] }) => {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const stored = window.sessionStorage.getItem(DEMOD_FLOW_SESSION_KEY);
+    if (!stored) return fallback;
+    const parsed = JSON.parse(stored) as {
+      sourceMode?: string;
+      nodes?: Node[];
+      edges?: Edge[];
+    };
+    if (
+      parsed.sourceMode !== sourceMode ||
+      !Array.isArray(parsed.nodes) ||
+      !Array.isArray(parsed.edges)
+    ) {
+      return fallback;
+    }
+    return { nodes: parsed.nodes, edges: parsed.edges };
+  } catch {
+    return fallback;
+  }
+};
+
 interface DemodContextValue {
   windowSizeHz: number;
   setWindowSizeHz: (size: number) => void;
@@ -92,6 +117,7 @@ interface DemodContextValue {
   onEdgesChange: OnEdgesChange;
   setNodes: Dispatch<SetStateAction<Node[]>>;
   setEdges: Dispatch<SetStateAction<Edge[]>>;
+  clearFlow: () => void;
   setFlow: (flowId: string, customNodes?: Node[], customEdges?: Edge[]) => void;
   flowVersion: number;
 
@@ -147,10 +173,30 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     () => buildDemodFlowGraph(state.sourceMode || "live"),
     [state.sourceMode],
   );
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
+  const restoredFlow = useMemo(
+    () => readSessionFlow(state.sourceMode || "live", initialFlow),
+    [initialFlow, state.sourceMode],
+  );
+  const [nodes, setNodes, onNodesChange] = useNodesState(restoredFlow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(restoredFlow.edges);
   const [flowVersion, setFlowVersion] = useState(0);
+  const intentionalEmptyFlowRef = React.useRef(restoredFlow.nodes.length === 0);
   const previousSourceModeRef = React.useRef(state.sourceMode || "live");
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        DEMOD_FLOW_SESSION_KEY,
+        JSON.stringify({
+          sourceMode: state.sourceMode || "live",
+          nodes,
+          edges,
+        }),
+      );
+    } catch {
+      // Session storage can be unavailable in private or restricted contexts.
+    }
+  }, [edges, nodes, state.sourceMode]);
 
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
@@ -264,6 +310,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     // Source-specific nodes are not interchangeable: adapt only that node so
     // switching sources does not discard the flow selected by the user.
     if (sourceModeChanged || nodes.length === 0) {
+      if (!sourceModeChanged && nodes.length === 0 && intentionalEmptyFlowRef.current) {
+        intentionalEmptyFlowRef.current = false;
+        return;
+      }
       const nextFlow =
         nodes.length === 0
           ? buildDemodFlowGraph(nextSourceMode)
@@ -273,6 +323,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setFlowVersion((v) => v + 1);
     }
   }, [edges, nodes, setEdges, setNodes, state.sourceMode]);
+
+  const clearFlow = useCallback(() => {
+    intentionalEmptyFlowRef.current = true;
+    setNodes([]);
+    setEdges([]);
+    setFlowVersion((v) => v + 1);
+  }, [setEdges, setNodes]);
 
   const setFlow = useCallback(
     (_flowId: string, customNodes?: Node[], customEdges?: Edge[]) => {
@@ -736,6 +793,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       onEdgesChange,
       setNodes,
       setEdges,
+      clearFlow,
       setFlow,
       flowVersion,
       fileCapturedRange,
@@ -763,6 +821,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       onEdgesChange,
       setNodes,
       setEdges,
+      clearFlow,
       setFlow,
       flowVersion,
       fileCapturedRange,

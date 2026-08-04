@@ -97,9 +97,11 @@ import {
 import {
   flushWebGpuPresentation,
   flushWebGpuPresentationMultiple,
+  shouldClearWebGpuForPlaceholder,
   getInitialHandledWebGpuResetEpoch,
   resetWebGpuStreamTemporalHistory,
   shouldCommitSourcePresentationReset,
+  shouldPreserveWaterfallOnTxStandby,
   shouldRestoreWebGpuStreamState,
 } from "@n-apt/utils/webgpuStreamReset";
 import { formatFrequency, roundDbValue } from "@n-apt/utils/frequency";
@@ -1373,6 +1375,12 @@ export type FFTCanvasHandle = {
   } | null;
 };
 
+const EMPTY_LIMIT_MARKERS: SdrLimitMarker[] = [];
+
+export const resolveLimitMarkers = (
+  limitMarkers: SdrLimitMarker[] | undefined,
+): SdrLimitMarker[] => limitMarkers ?? EMPTY_LIMIT_MARKERS;
+
 const FFTCanvas = memo(
   forwardRef<FFTCanvasHandle, FFTCanvasProps>((props, ref) => {
     const {
@@ -1424,7 +1432,7 @@ const FFTCanvas = memo(
       deviceName,
       tunerGainDb,
       isIqRecordingActive = false,
-      limitMarkers = [],
+      limitMarkers: limitMarkersProp,
       isWaterfallCleared = false,
       onResetWaterfallCleared,
       awaitingDeviceData = false,
@@ -1450,6 +1458,7 @@ const FFTCanvas = memo(
       onSelectionChange,
       autoZoomStability = false,
     } = props;
+    const limitMarkers = resolveLimitMarkers(limitMarkersProp);
     const canRestoreVisualizerSession = shouldRestoreWebGpuStreamState(
       webGpuStreamResetEpoch,
     );
@@ -1688,6 +1697,7 @@ const FFTCanvas = memo(
     const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+    const [txSliderVisualRevision, setTxSliderVisualRevision] = useState(0);
     const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
       const wasActive = powerLineDbRef.current !== null;
       const isActive = nextPowerLineDb !== null;
@@ -2102,16 +2112,10 @@ const FFTCanvas = memo(
         if (isStandby && !explicitPlaceholderState) {
           return null;
         }
+        // Placeholder authority lives in liveSourceLifecycle (via route props).
+        // This canvas only renders the supplied state / error reason.
         if (explicitPlaceholderState) {
           return explicitPlaceholderState;
-        }
-
-        if (!isDeviceConnected) {
-          return {
-            kind: "error",
-            sourceLabel: placeholderSourceLabel,
-            reason: "Server down",
-          };
         }
 
         if (placeholderErrorReason) {
@@ -2119,6 +2123,15 @@ const FFTCanvas = memo(
             kind: "error",
             sourceLabel: placeholderSourceLabel,
             reason: placeholderErrorReason,
+          };
+        }
+
+        if (isPaused) {
+          return {
+            kind: "top-bar",
+            kicker: "Paused",
+            title: "",
+            sourceLabel: placeholderSourceLabel,
           };
         }
 
@@ -2142,8 +2155,8 @@ const FFTCanvas = memo(
         placeholderPaneLabel,
         awaitingDeviceData,
         explicitPlaceholderState,
-        isDeviceConnected,
         isStandby,
+        isPaused,
       ]);
 
     const demodFocusOverlay = useMemo(() => {
@@ -2325,7 +2338,7 @@ const FFTCanvas = memo(
         centerHzFormatted: `○ ${formatHz(center)}`,
         bandwidthFormatted: `| ${formatHz(bandwidth)} |`,
       };
-    }, [effectiveTxSlider, currentVisualRange]);
+    }, [effectiveTxSlider, currentVisualRange, txSliderVisualRevision]);
     const txSliderDisplayLabel = useMemo(() => {
       if (!txSliderVisualMetrics) return null;
       return txModeDeviceName
@@ -2436,8 +2449,8 @@ const FFTCanvas = memo(
     const activeScaleDbMax = vizDbMax;
 
     const clearSpectrumBackbuffer = useCallback(() => {
-      const device = webgpuDeviceRef.current;
-      const format = webgpuFormatRef.current;
+      const device = webgpuDeviceRef?.current ?? null;
+      const format = webgpuFormatRef?.current ?? null;
 
       if (device && format) {
         const canvases = [
@@ -2637,6 +2650,21 @@ const FFTCanvas = memo(
 
     const forceRenderRef = useRef<(() => void) | null>(null);
 
+    // Pointer moves can arrive much faster than the FFT frame cadence. Keep
+    // paused overlays responsive, but never synchronously force a full FFT
+    // render once per pointer event while the user is panning/retuning.
+    const dragRepaintFrameRef = useRef<number | null>(null);
+
+    useEffect(
+      () => () => {
+        if (dragRepaintFrameRef.current !== null) {
+          window.cancelAnimationFrame(dragRepaintFrameRef.current);
+          dragRepaintFrameRef.current = null;
+        }
+      },
+      [],
+    );
+
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
       forceRenderRef.current?.();
@@ -2725,11 +2753,12 @@ const FFTCanvas = memo(
     }, [awaitingDeviceData, onRenderableFrameChange, placeholderErrorReason]);
 
     useLayoutEffect(() => {
+      // Loading / standby chrome must cover the last painted graph — never wipe
+      // WebGPU for those. Clearing on Loading flashed black between handoff
+      // and the Mock Tx standby preview paint.
       if (
-        (!explicitPlaceholderState ||
-          explicitPlaceholderState.kind === "top-bar" ||
-          explicitPlaceholderState.kind === "overlay-only") &&
-        !placeholderErrorReason
+        !placeholderErrorReason &&
+        !shouldClearWebGpuForPlaceholder(explicitPlaceholderState?.kind)
       ) {
         return;
       }
@@ -2798,8 +2827,16 @@ const FFTCanvas = memo(
       liveDragSelectionRef,
       onDragRepaint: useCallback(() => {
         overlayDirtyRef.current.markers = true;
-        forceRenderRef.current?.();
-      }, [overlayDirtyRef]),
+        if (isPaused && dragRepaintFrameRef.current === null) {
+          dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
+            dragRepaintFrameRef.current = null;
+            forceRenderRef.current?.();
+          });
+        }
+      }, [isPaused, overlayDirtyRef]),
+      onTxSliderRepaint: useCallback(() => {
+        setTxSliderVisualRevision((revision) => revision + 1);
+      }, []),
       tooltipSpanRef,
       powerLineDbRef,
       onPowerLineDbChange: setPowerLineDb,
@@ -2832,12 +2869,14 @@ const FFTCanvas = memo(
     } = useWaterfallRetuneCompute();
 
     useEffect(() => {
-      const hasBlockingPlaceholder =
-        !!placeholderErrorReason ||
-        (explicitPlaceholderState !== null &&
-          explicitPlaceholderState.kind !== "top-bar" &&
-          explicitPlaceholderState.kind !== "overlay-only");
-      if (!hasBlockingPlaceholder) return;
+      // Error placeholders may tear down GPU state. Loading must not — the
+      // overlay sits on top of the retained presentation until replacement.
+      if (
+        !placeholderErrorReason &&
+        !shouldClearWebGpuForPlaceholder(explicitPlaceholderState?.kind)
+      ) {
+        return;
+      }
       cleanupWebGPUFIFOWaterfall();
       clearSpectrumBackbuffer();
     }, [
@@ -2914,6 +2953,39 @@ const FFTCanvas = memo(
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const recoverPausedWaveformRef = useRef<() => boolean>(() => false);
+    const previousIsStandbyRef = useRef(isStandby);
+
+    // The standby bar commits with React, but the frame loop may not run
+    // before the browser paints that commit. Preserve a same-source TX
+    // waterfall across rapid standby/transmit toggles; reset only when the
+    // retained frame belongs to a different presentation owner.
+    useLayoutEffect(() => {
+      if (previousIsStandbyRef.current === isStandby) return;
+      const previousIsStandby = previousIsStandbyRef.current;
+      previousIsStandbyRef.current = isStandby;
+      const presentedSourceId =
+        dataRef.current && !Array.isArray(dataRef.current)
+          ? dataRef.current.source_id
+          : lastRenderableFrameRef.current?.source_id ??
+            lastPausedFrameSourceIdRef.current;
+      const preserveTxWaterfall = shouldPreserveWaterfallOnTxStandby({
+        previousIsStandby,
+        nextIsStandby: isStandby,
+        expectedSourceId,
+        presentedSourceId,
+      });
+      if (!preserveTxWaterfall) {
+        // Defer the wipe until a replacement frame commits. Immediate clear
+        // here flashed black under STANDBY while the one-shot preview was
+        // still in flight (WebGPU clear → paint latency).
+        pendingSourcePresentationResetRef.current = true;
+      }
+      forceRenderRef.current?.();
+    }, [
+      dataRef,
+      expectedSourceId,
+      isStandby,
+    ]);
 
     /**
      * Animation loop for continuous spectrum and waterfall updates
@@ -2925,6 +2997,13 @@ const FFTCanvas = memo(
      */
     const onRenderFrame = useCallback(
       (_runId: number) => {
+        // Standby toggles are handled by the layout effect above. Never wipe
+        // WebGPU from the animation loop — that raced the preserve path and
+        // cleared the canvas a frame before the standby preview painted.
+        if (previousIsStandbyRef.current !== isStandby) {
+          previousIsStandbyRef.current = isStandby;
+        }
+
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
         const spectrumOverlayCanvas = spectrumOverlayCanvasRef.current;
@@ -2976,10 +3055,9 @@ const FFTCanvas = memo(
           (hasStalePresentedSource ||
             (currentFrame != null && !isCurrentSourceFrame))
         ) {
-          // The selected lifecycle owns the source boundary. Clear the
-          // mutable canvas fallback as soon as it is known to belong to a
-          // different source, even when no replacement frame has arrived.
-          commitPendingSourcePresentationReset();
+          // Mark a deferred reset only. Committing here wiped the FFT to
+          // black before Mock Tx standby / Start Tx replacement frames arrived.
+          pendingSourcePresentationResetRef.current = true;
         }
         if (currentFrame && !isCurrentSourceFrame) {
           lastIncomingFrameRef.current = null;
@@ -3409,6 +3487,10 @@ const FFTCanvas = memo(
               frameSampleRateHz: currentFrame?.sample_rate,
               requestedRange: frequencyRangeRef.current,
               requiresExactRange: isStandby || isPaused,
+              isTxPreviewFrame:
+                (currentFrame as any)?.frame_status === "standby" ||
+                (currentFrame as any)?.is_tx_preview === true ||
+                (currentFrame as any)?.is_mock_tx_preview === true,
             }))
         ) {
           const preparedSpectrum = prepareSpectrumRenderData({
@@ -3772,6 +3854,7 @@ const FFTCanvas = memo(
                   zoomboxStateRef.current,
                   nodePreview,
                   bottomReservedPx,
+                  visualRange,
                 );
               }
 
@@ -3801,9 +3884,14 @@ const FFTCanvas = memo(
                 currentVisualRange: visualRange,
                 textureWidth: 4096,
               });
+              const isTxPreviewFrame =
+                (currentFrame as any)?.is_tx_preview === true ||
+                (currentFrame as any)?.is_mock_tx_preview === true;
               const shouldUpdateWaterfallRow =
-                !isStandby &&
-                (hasNewData || (!isPaused && waterfallMotion.shouldPaintMotionRow));
+                (!isStandby || isTxPreviewFrame) &&
+                (hasNewData ||
+                  ((!isPaused || isTxPreviewFrame) &&
+                    waterfallMotion.shouldPaintMotionRow));
               retuneDriftPxRef.current = waterfallMotion.driftBins;
               retuneSmearRef.current = 0;
 
@@ -4410,14 +4498,6 @@ const FFTCanvas = memo(
       );
       activeVisualizerSessionKeyRef.current = visualizerSessionKey;
 
-      if (isStandby) {
-        // Standby is already a complete presentation. Clear the previous
-        // source beneath its overlay immediately so no foreign spectrum or
-        // waterfall history can show through the translucent scrim.
-        pendingSourcePresentationResetRef.current = false;
-        clearLocalVisualizerSession();
-      }
-
       // Switching sources is a presentation handoff, not a disconnect. Reset
       // processing state so samples cannot blend across devices, while leaving
       // the current GPU surfaces painted until a saved target presentation or
@@ -4435,8 +4515,10 @@ const FFTCanvas = memo(
             visualizerMachine?.restore(visualizerSessionKey) ?? null,
           )
         : false;
-      pendingSourcePresentationResetRef.current =
-        !isStandby && !restoredFromMachine;
+      // Defer GPU wipe until a replacement frame commits — including standby
+      // handoffs. Immediate clearLocalVisualizerSession flashed black under
+      // STANDBY while the one-shot preview was still in flight.
+      pendingSourcePresentationResetRef.current = !restoredFromMachine;
       if (restoredFromMachine) {
         forceRenderRef.current?.();
       }
@@ -5109,15 +5191,14 @@ const FFTCanvas = memo(
             >
               <SpectrumSection>
                 {!compact && (
-                  <SectionTitleRow>
-                    <SectionTitle>
-                      {isStandby
-                        ? "FFT Signal Display (Standby)"
-                        : `FFT Signal Display ${isPaused ? "(Paused)" : ""}`}
-                    </SectionTitle>
+                    <SectionTitleRow>
+                    <SectionTitle>FFT Signal Display</SectionTitle>
                     {headerActionContent && (
                       <SectionTitleActions
-                        data-disabled={!!canvasPlaceholderState}
+                        data-disabled={
+                          !!canvasPlaceholderState &&
+                          canvasPlaceholderState.kind !== "top-bar"
+                        }
                       >
                         {headerActionContent}
                       </SectionTitleActions>

@@ -159,13 +159,8 @@ describe("FFTCanvas Pause Functionality", () => {
 
     renderFFTCanvas(pausedProps);
 
-    expect(
-      screen.getByText((content, _element) => {
-        return (
-          content.includes("FFT Signal Display") && content.includes("(Paused)")
-        );
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
   });
 
   it("should preserve last frame when paused with valid data", () => {
@@ -203,25 +198,31 @@ describe("FFTCanvas Pause Functionality", () => {
       ...mockProps,
       isPaused: true,
       isDeviceConnected: false,
+      // Lifecycle-owned error placeholder beats the paused top-bar.
+      placeholderState: {
+        kind: "error" as const,
+        reason: "Server down",
+        message:
+          "The server was disconnected due to being manually exited or an error.",
+      },
     };
 
     renderFFTCanvas(pausedProps);
 
-    // Should still render UI elements even in mock mode + paused
-    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+    expect(screen.getByText("Server Down")).toBeInTheDocument();
   });
 
   it("should transition from paused to unpaused correctly", async () => {
     const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: true });
 
     // Initially paused
-    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // Unpause
     rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
 
     await waitFor(() => {
-      expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     });
   });
 
@@ -229,13 +230,13 @@ describe("FFTCanvas Pause Functionality", () => {
     const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: false });
 
     // Initially not paused
-    expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
 
     // Pause
     rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
 
     await waitFor(() => {
-      expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+      expect(screen.getByText("Paused")).toBeInTheDocument();
     });
   });
 

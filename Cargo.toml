@@ -85,6 +85,10 @@ path = "test/rust/hackrf_integration_tests.rs"
 name = "reload_tests"
 path = "test/rust/reload_tests.rs"
 
+[[test]]
+name = "stream_manager_tests"
+path = "test/rust/stream_manager_tests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
@@ -228,4 +232,3 @@ overflow-checks = false
 [[bin]]
 name = "test_fft"
 path = "src/rs/bin/test_fft.rs"
-

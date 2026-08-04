@@ -6,9 +6,9 @@ import {
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   updateDeviceState,
   setCaptureStatus,
-  setCryptoCorrupted,
   queueMessage,
   clearQueuedMessages,
   setSpectrumFrames,
@@ -19,7 +19,7 @@ import {
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
-import { decryptPayload, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
+import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
   type DeviceState,
   type SourceInfo,
@@ -27,7 +27,6 @@ import {
   type SpectrumFrame,
 } from "@n-apt/consts/schemas/websocket";
 import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
-import { createIqFramePump, type IqFramePump } from "@n-apt/io/iqFramePump";
 import {
   processWebSocketMessageWithValidation,
   isValidChannelsMessageEnhanced,
@@ -42,8 +41,22 @@ import {
   sourceSpectrumRuntime,
 } from "@n-apt/visualization/sourceVisualizationRuntime";
 import { isMockTxSource } from "@n-apt/utils/deviceCapabilities";
-import { resolveSourceModeManagement } from "@n-apt/utils/sourceModeManagement";
+import {
+  isSourceStreamAvailable,
+  resolveSourceModeManagement,
+} from "@n-apt/utils/sourceModeManagement";
 import { filterLiveFramesForSource } from "@n-apt/utils/liveSourcePresentation";
+import {
+  createSourceModeStreamManager,
+  type StreamSubscription,
+  type StreamOptions,
+} from "@n-apt/streams/sourceModeStreamManager";
+import { createMultiplexedStreamTransport } from "@n-apt/streams/multiplexedStreamTransport";
+import {
+  createSourcePresentationController,
+  type SourcePresentationController,
+} from "@n-apt/streams/sourcePresentationController";
+import { resolveTxStandbyAnnouncement } from "@n-apt/streams/txStandbyAnnouncement";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -58,6 +71,36 @@ export const liveDataBySourceRef: {
 
 export const sourceVisualizationRuntime =
   new SourceVisualizationRuntime<IqRawFrame>();
+
+/**
+ * Central presentation controller — single source of truth for per-source,
+ * per-mode frame acceptance, pause/freeze, standby, and canvas key decisions.
+ * Shadowed in parallel with existing liveDataRef writes until canvas consumers
+ * migrate in Phase 5.
+ */
+export let presentationController: SourcePresentationController =
+  createSourcePresentationController();
+
+const cachedRxFrameBySourceId = new Map<string, IqRawFrame>();
+
+export const resolveRxFrameToRestore = (
+  frame: IqRawFrame | null | undefined,
+  sourceId: string | null | undefined,
+): IqRawFrame | null =>
+  frame && sourceId && frame.source_id === sourceId ? frame : null;
+
+export const isBoundTxPreviewStandby = ({
+  activeSourceId,
+  boundTxSourceId,
+  sourceStatus,
+}: {
+  activeSourceId: string | null | undefined;
+  boundTxSourceId: string | null | undefined;
+  sourceStatus: SourceInfo["status"];
+}): boolean =>
+  !!activeSourceId &&
+  activeSourceId === boundTxSourceId &&
+  sourceStatus === "standby";
 
 export { decodeIqFrameEnvelope } from "@n-apt/io/iqStreamProtocol";
 export { createIqFramePump } from "@n-apt/io/iqFramePump";
@@ -127,7 +170,10 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
     typeof sourceGain === "number" ? sourceGain : sourceGain?.tuner_gain;
   return {
     deviceState: sourceStatus,
-    deviceLoadingReason: sourceStatus === "loading" ? "connect" : null,
+    deviceLoadingReason:
+      sourceStatus === "loading" || sourceStatus === "initializing"
+        ? "connect"
+        : null,
     backend: source.kind,
     deviceInfo: source.name,
     deviceName: source.name,
@@ -173,19 +219,6 @@ const normalizeTxIdentity = (value: unknown): string =>
         .replace(/[\s_-]+/g, "")
     : "";
 
-const normalizeDeviceActiveMode = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "rx" || normalized === "tx" || normalized === "rx_tx"
-    ? normalized
-    : null;
-};
-
-const isTxModeActiveMode = (value: unknown): boolean => {
-  const normalized = normalizeDeviceActiveMode(value);
-  return normalized === "tx" || normalized === "rx_tx";
-};
-
 const sourceMatchesTxRequest = (
   source: SourceInfo,
   data: Record<string, unknown>,
@@ -210,12 +243,60 @@ const sourceMatchesTxRequest = (
   return false;
 };
 
+/**
+ * Source snapshots can briefly describe a transmitting source as connected
+ * while another source is becoming active. Preserve the already-confirmed Tx
+ * state for that source; an explicit source status message can still replace
+ * it with the authoritative stopped state.
+ */
+export const preserveTransmittingSourceStatuses = (
+  previousSources: SourceInfo[],
+  incomingSources: SourceInfo[],
+): SourceInfo[] => {
+  const transmittingSourceIds = new Set(
+    previousSources
+      .filter((source) => source.status === "transmitting")
+      .map((source) => source.id),
+  );
+  return incomingSources.map((source) =>
+    transmittingSourceIds.has(source.id) && source.status !== "transmitting"
+      ? { ...source, status: "transmitting" }
+      : source,
+  );
+};
+
+/** Resolve the immediate source status for an explicit Tx/Rx control action. */
+export const resolveOptimisticTransmitStatus = ({
+  enabled,
+  source,
+  txBindingSourceId,
+}: {
+  enabled: boolean;
+  source: SourceInfo;
+  txBindingSourceId?: string | null;
+}): SourceInfo["status"] => {
+  if (enabled) return "transmitting";
+
+  // Stopping active Tx enters Tx standby so the final Tx frame remains
+  // visible. A source that is already in standby, however, is leaving the
+  // Tx view when its binding is cleared and must return to Rx immediately.
+  if (source.status === "transmitting") {
+    return resolveSourceModeManagement({ source }).isTxMode
+      ? "standby"
+      : "receiving";
+  }
+  if (source.status === "standby" && txBindingSourceId === source.id) {
+    return "standby";
+  }
+  return "receiving";
+};
+
 const applyOptimisticTransmitStatus = (
   dispatch: Dispatch,
   getState: () => any,
   data: Record<string, unknown>,
 ) => {
-  const enabled = isTxModeActiveMode(data.active_mode);
+  const enabled = data.status === "transmitting";
   const websocketState = getState().websocket;
   const currentSources: SourceInfo[] = websocketState.sources ?? [];
   if (currentSources.length === 0) {
@@ -233,18 +314,18 @@ const applyOptimisticTransmitStatus = (
     return;
   }
 
-  const nextStatus: SourceInfo["status"] = enabled
-    ? "transmitting"
-    : targetSource.capabilities?.supports_tx_monitor === true ||
-        resolveSourceModeManagement({ source: targetSource }).isTxMode
-      ? "standby"
-      : "connected";
+  const nextStatus = resolveOptimisticTransmitStatus({
+    enabled,
+    source: targetSource,
+    txBindingSourceId:
+      websocketState.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
+  });
   const nextSources = currentSources.map((source) => {
     if (source.id === targetSource.id) {
       return { ...source, status: nextStatus };
     }
     if (enabled && source.status === "transmitting") {
-      return { ...source, status: "connected" as const };
+      return { ...source, status: "receiving" as const };
     }
     return source;
   });
@@ -279,19 +360,6 @@ interface WebSocketInstance {
   disposed: boolean;
 }
 
-interface SourceIqWebSocketInstance {
-  ws: WebSocket | null;
-  url: string;
-  sourceId: string | null;
-  reconnectTimeout: number | null;
-}
-
-interface SecondarySourceIqSocket {
-  ws: WebSocket;
-  url: string;
-  pump: IqFramePump;
-}
-
 // Store WebSocket instance reference in middleware closure
 let wsInstance: WebSocketInstance = {
   ws: null,
@@ -305,31 +373,45 @@ let wsInstance: WebSocketInstance = {
   disposed: false,
 };
 
-let sourceIqWsInstance: SourceIqWebSocketInstance = {
-  ws: null,
-  url: "",
-  sourceId: null,
-  reconnectTimeout: null,
-};
-let sourceIqFramePump: IqFramePump | null = null;
-const secondarySourceIqSockets = new Map<string, SecondarySourceIqSocket>();
-let controlIqFramePump: IqFramePump | null = null;
-let lastTxPreviewRequestBySocket = new WeakMap<
-  WebSocket,
-  { signature: string; sentAt: number }
->();
-let txPreviewRequestAnimationFrame: number | null = null;
-let pendingTxPreviewRequest: {
-  dispatch: Dispatch;
-  getState: () => any;
-} | null = null;
+let multiplexedStreamTransport: ReturnType<
+  typeof createMultiplexedStreamTransport
+> | null = null;
+let sourceModeStreamManager: ReturnType<
+  typeof createSourceModeStreamManager
+> | null = null;
+let managedRxSubscription: StreamSubscription | null = null;
+let managedTxSubscription: StreamSubscription | null = null;
+let managedRxSourceId: string | null = null;
+let managedTxSourceId: string | null = null;
+let managedRxSubscribePending = false;
+let managedTxSubscribePending = false;
+let pendingManagedTxOptions: StreamOptions | null = null;
+
+/**
+ * Runtime-only stream ownership snapshot for integration diagnostics. This
+ * deliberately exposes subscription identity and epoch, not frame payloads;
+ * high-rate IQ remains in the source presentation refs.
+ */
+export const getManagedStreamDebugSnapshot = () => ({
+  rx: {
+    sourceId: managedRxSourceId,
+    subscribePending: managedRxSubscribePending,
+    streamEpoch: managedRxSubscription?.streamEpoch ?? null,
+    hasSubscription: managedRxSubscription !== null,
+  },
+  tx: {
+    sourceId: managedTxSourceId,
+    subscribePending: managedTxSubscribePending,
+    streamEpoch: managedTxSubscription?.streamEpoch ?? null,
+    hasSubscription: managedTxSubscription !== null,
+  },
+});
 
 // Batching for high-frequency data
 let dataBatchFrame: number | null = null;
 let pendingDataUpdate: any = null;
 let statusBatchFrame: number | null = null;
 let pendingStatusUpdates: any = null;
-let allowNextPausedFrame = false;
 let pausedFrameRequestInFlight = false;
 let lastPauseCommandTime = 0;
 let lastExpectedPauseState: boolean | null = null;
@@ -340,10 +422,6 @@ const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
-let lastFrameRequestTime = 0;
-let pendingTrailingFrameRequestTimeout: ReturnType<typeof setTimeout> | null =
-  null;
-const FRAME_REQUEST_THROTTLE_MS = 100;
 const RETUNE_CENTER_TOLERANCE_HZ = 10;
 const RETUNE_WATCHDOG_GRACE_MS = 500;
 const RETUNE_WATCHDOG_MIN_MISMATCH_FRAMES = 8;
@@ -407,25 +485,6 @@ export const normalizeFrequencyRangeMessageData = (
   return normalized;
 };
 
-export const buildSourceIqWebSocketUrl = (
-  controlUrl: string,
-  source:
-    | Pick<SourceInfo, "id" | "stream_key" | "iq_stream_protocols">
-    | null
-    | undefined,
-): string | null => {
-  const streamKey = source?.stream_key?.trim() || source?.id?.trim();
-  if (!controlUrl || !streamKey) return null;
-
-  const url = new URL(controlUrl, window.location.href);
-  url.pathname = url.pathname.replace(/\/ws\/?$/, "/ws");
-  url.pathname = `${url.pathname}/source/${encodeURIComponent(streamKey)}/iq`;
-  if (source?.iq_stream_protocols?.includes(2)) {
-    url.searchParams.set("iq_protocol", "2");
-  }
-  return url.toString();
-};
-
 export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
 };
@@ -457,27 +516,30 @@ export const resetPausedFrameRequestGate = (): void => {
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
   lastSettingsRequest = null;
-  lastFrameRequestTime = 0;
   lastFrequencyRangeRequest = null;
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
-  lastTxPreviewRequestBySocket = new WeakMap();
-  allowNextPausedFrame = false;
   pendingDataUpdate = null;
   pendingStatusUpdates = null;
   liveDataRef.current = null;
   liveDataBySourceRef.current = {};
   sourceVisualizationRuntime.clear();
-  sourceIqFramePump?.reset();
-  sourceIqFramePump = null;
-  controlIqFramePump?.reset();
-  controlIqFramePump = null;
+  cachedRxFrameBySourceId.clear();
+  presentationController.reset();
+  managedRxSubscription?.unsubscribe();
+  managedTxSubscription?.unsubscribe();
+  managedRxSubscription = null;
+  managedTxSubscription = null;
+  managedRxSourceId = null;
+  managedTxSourceId = null;
+  managedRxSubscribePending = false;
+  managedTxSubscribePending = false;
+  pendingManagedTxOptions = null;
+  sourceModeStreamManager?.dispose();
+  sourceModeStreamManager = null;
+  multiplexedStreamTransport?.dispose();
+  multiplexedStreamTransport = null;
   resetPausedFrameRequestGate();
-  pendingTxPreviewRequest = null;
-  if (txPreviewRequestAnimationFrame !== null) {
-    cancelAnimationFrame(txPreviewRequestAnimationFrame);
-    txPreviewRequestAnimationFrame = null;
-  }
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -493,28 +555,6 @@ export const resetWebSocketMiddlewareState = (): void => {
     wsInstance.ws.onopen = null;
     wsInstance.ws = null;
   }
-  if (sourceIqWsInstance.ws) {
-    sourceIqWsInstance.ws.onclose = null;
-    sourceIqWsInstance.ws.onerror = null;
-    sourceIqWsInstance.ws.onmessage = null;
-    sourceIqWsInstance.ws.onopen = null;
-    sourceIqWsInstance.ws.close();
-    sourceIqWsInstance.ws = null;
-  }
-  if (sourceIqWsInstance.reconnectTimeout !== null) {
-    clearTimeout(sourceIqWsInstance.reconnectTimeout);
-    sourceIqWsInstance.reconnectTimeout = null;
-  }
-  sourceIqWsInstance.url = "";
-  sourceIqWsInstance.sourceId = null;
-  for (const socket of secondarySourceIqSockets.values()) {
-    socket.pump.reset();
-    socket.ws.onclose = null;
-    socket.ws.onerror = null;
-    socket.ws.onmessage = null;
-    socket.ws.close();
-  }
-  secondarySourceIqSockets.clear();
   if (wsInstance.reconnectTimeout !== null) {
     clearTimeout(wsInstance.reconnectTimeout);
     wsInstance.reconnectTimeout = null;
@@ -533,6 +573,8 @@ export const resetWebSocketMiddlewareState = (): void => {
 };
 
 // Process batched data updates — writes directly to liveDataRef, no Redux dispatch.
+// The presentation controller shadows all frame acceptance decisions; the legacy
+// liveDataRef path is preserved until canvas consumers migrate in Phase 5.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
   if (pendingDataUpdate !== null) {
     const state = getState();
@@ -543,6 +585,37 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const activeSource = (state.websocket.sources ?? []).find(
       (source: SourceInfo) => source.id === activeSourceId,
     );
+    const boundTxSourceId =
+      state.sourceRouting?.bindings?.["tx-suite:tx"] ?? null;
+    const selectedSourceId =
+      state.sourceSelection?.selectedSourceId || null;
+    const selectedSource = (state.websocket.sources ?? []).find(
+      (source: SourceInfo) => source.id === selectedSourceId,
+    );
+    const selectedSourceMode = selectedSource
+      ? resolveSourceModeManagement({
+          source: selectedSource,
+          txBindingSourceId: boundTxSourceId,
+        })
+      : null;
+    // A source can be selected for presentation before the backend commits it
+    // as active. Tx is the important case here: a duplex/secondary Tx stream
+    // may continue producing standby frames while the active source remains
+    // the RX source. Those frames must feed the selected Tx canvas, but must
+    // not leak into an unrelated RX presentation.
+    const selectedTxPresentationSourceId =
+      selectedSourceMode?.isTxMode === true ? selectedSourceId : null;
+    const activeSourceStatus =
+      state.websocket.sourceStatuses?.[activeSourceId] ?? activeSource?.status;
+    const selectedTxPresentationStatus = selectedTxPresentationSourceId
+      ? state.websocket.sourceStatuses?.[selectedTxPresentationSourceId] ??
+        selectedSource?.status
+      : null;
+    const isSelectedTxPresentationTransmitting =
+      selectedTxPresentationStatus === "transmitting";
+    const isSelectedTxPresentationStandby =
+      selectedTxPresentationSourceId !== null &&
+      !isSelectedTxPresentationTransmitting;
     const isActiveMockTxMonitor = isMockTxSource({
       id: activeSource?.id ?? activeSourceId,
       kind: activeSource?.kind,
@@ -550,49 +623,147 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const isActiveTxMonitorTransmitting =
       (activeSource?.capabilities?.supports_tx_monitor === true ||
         isActiveMockTxMonitor) &&
-      (activeSource?.status === "transmitting" ||
-        state.websocket.sourceStatuses?.[activeSourceId] === "transmitting");
+      activeSourceStatus === "transmitting";
     const isActiveTxMonitorStandby =
       (activeSource?.capabilities?.supports_tx_monitor === true ||
         isActiveMockTxMonitor) &&
       !isActiveTxMonitorTransmitting;
+    const isActiveBoundTxPreviewStandby = isBoundTxPreviewStandby({
+      activeSourceId,
+      boundTxSourceId: state.sourceRouting?.bindings?.["tx-suite:tx"],
+      sourceStatus: activeSourceStatus ?? null,
+    });
+    const isActiveTxPreviewBinding =
+      !!activeSourceId &&
+      boundTxSourceId === activeSourceId;
+    const isTxPresentationFrame = (frame: any): boolean =>
+      frame?.frame_status === "standby" ||
+      frame?.frame_status === "transmitting" ||
+      frame?.is_tx_preview === true ||
+      frame?.is_mock_tx_preview === true;
+    const isActiveTxPresentation =
+      activeSourceStatus === "standby" ||
+      activeSourceStatus === "transmitting" ||
+      isActiveTxPreviewBinding ||
+      (selectedTxPresentationSourceId !== null &&
+        (requestedSourceId === null ||
+          requestedSourceId === selectedTxPresentationSourceId)) ||
+      (isActiveMockTxMonitor &&
+        activeSourceStatus !== "paused" &&
+        activeSourceStatus !== "receiving");
     const frames = Array.isArray(pendingDataUpdate)
       ? pendingDataUpdate
       : [pendingDataUpdate];
     for (const frame of frames) {
       const sourceId = frame?.source_id;
       if (typeof sourceId === "string" && sourceId.length > 0) {
+        if (
+          sourceId === activeSourceId &&
+          !isTxPresentationFrame(frame) &&
+          !isBoundTxPreviewStandby({
+            activeSourceId,
+            boundTxSourceId: state.sourceRouting?.bindings?.["tx-suite:tx"],
+            sourceStatus: activeSourceStatus ?? null,
+          }) &&
+          activeSourceStatus !== "transmitting"
+        ) {
+          cachedRxFrameBySourceId.set(sourceId, frame);
+        }
         if (sourceVisualizationRuntime.publish(frame)) {
           liveDataBySourceRef.current[sourceId] =
             sourceVisualizationRuntime.getSourceRef(sourceId);
         }
+        // Feed the unified presentation controller — per-source, per-mode
+        presentationController.acceptFrame(frame);
       }
     }
     // Per-source refs retain their own latest frames for secondary previews,
     // but only the source currently being presented may enter the shared
     // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
     // before the backend commits activeSourceId.
-    const presentationSourceId = requestedSourceId ?? activeSourceId;
+    const presentationSourceId =
+      requestedSourceId ?? selectedTxPresentationSourceId ?? activeSourceId;
     const presentationFrames = filterLiveFramesForSource(
       frames,
       presentationSourceId,
       // Mock Tx preview frames can still arrive through the legacy control
       // path without a source tag; hardware handoffs must remain strict.
       isActiveMockTxMonitor && requestedSourceId === null,
+    ).filter(
+      (frame: any) =>
+        !isTxPresentationFrame(frame) || isActiveTxPresentation,
     );
+    const readinessFrame = presentationFrames.find(
+      (frame: any) =>
+        frame?.source_id === activeSourceId &&
+        typeof frame?.sequence === "number",
+    );
+    const currentReadiness = state.websocket.sourceFrameReadiness;
+    if (
+      readinessFrame &&
+      !isFileSource &&
+      (!currentReadiness ||
+        currentReadiness.sourceId !== readinessFrame.source_id ||
+        currentReadiness.streamEpoch !==
+          (typeof readinessFrame.stream_epoch === "number"
+            ? readinessFrame.stream_epoch
+            : null))
+    ) {
+      dispatch(
+        updateDeviceState({
+          sourceFrameReadiness: {
+            sourceId: readinessFrame.source_id,
+            streamEpoch:
+              typeof readinessFrame.stream_epoch === "number"
+                ? readinessFrame.stream_epoch
+                : null,
+            sequence: readinessFrame.sequence,
+          },
+        }),
+      );
+    }
+    const hasTxPreviewFrame = presentationFrames.some(
+      (f: any) =>
+        f?.frame_status === "standby" ||
+        f?.is_tx_preview === true ||
+        f?.is_mock_tx_preview === true,
+    );
+    const shouldAcceptPausedFrame =
+      hasTxPreviewFrame ||
+      false;
+
     if (
       presentationFrames.length > 0 &&
-      ((!isPaused && !isActiveTxMonitorStandby) ||
-        allowNextPausedFrame ||
+      ((!isPaused &&
+        !isActiveTxMonitorStandby &&
+        !isActiveBoundTxPreviewStandby &&
+        !isSelectedTxPresentationStandby) ||
+        shouldAcceptPausedFrame ||
         isActiveTxMonitorTransmitting) &&
       !isFileSource
     ) {
       if (
-        (isPaused || isActiveTxMonitorStandby) &&
-        allowNextPausedFrame &&
-        !isActiveTxMonitorTransmitting
+        (isPaused ||
+          isActiveTxMonitorStandby ||
+          isActiveBoundTxPreviewStandby ||
+          isSelectedTxPresentationStandby) &&
+        (shouldAcceptPausedFrame || hasTxPreviewFrame) &&
+        !isActiveTxMonitorTransmitting &&
+        !isSelectedTxPresentationTransmitting
       ) {
-        liveDataRef.current = collapsePausedFrameBatch(presentationFrames);
+        const framesToUse = hasTxPreviewFrame
+          ? presentationFrames.filter(
+              (f: any) =>
+                f?.frame_status === "standby" ||
+                f?.is_tx_preview === true ||
+                f?.is_mock_tx_preview === true,
+            )
+          : presentationFrames;
+        liveDataRef.current = collapsePausedFrameBatch(framesToUse);
+        // A requested untagged standby frame is still a one-frame response.
+        // Consume the request regardless of whether the backend tagged it as
+        // a Tx preview; otherwise the next frame can replace the preview.
+        resetPausedFrameRequestGate();
       } else {
         if (Array.isArray(liveDataRef.current)) {
           liveDataRef.current.push(...presentationFrames);
@@ -604,12 +775,11 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         } else {
           liveDataRef.current = [...presentationFrames];
         }
+        resetPausedFrameRequestGate();
       }
       if (Array.isArray(liveDataRef.current)) {
         liveDataRef.current = trimLiveFrameQueue(liveDataRef.current);
       }
-      allowNextPausedFrame = false;
-      resetPausedFrameRequestGate();
     }
     pendingDataUpdate = null;
   }
@@ -629,7 +799,7 @@ const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
     }
     pendingStatusUpdates = null;
   }
-  syncSourceIqSocket(dispatch, getState);
+  syncManagedStreamSubscriptions(dispatch, getState);
   statusBatchFrame = null;
 };
 
@@ -645,7 +815,7 @@ const applyStatusUpdates = (
   if (hasChanges) {
     dispatch(updateDeviceState(updates));
   }
-  syncSourceIqSocket(dispatch, getState);
+  syncManagedStreamSubscriptions(dispatch, getState);
 };
 
 const getPausedValue = (payload: unknown): boolean | null => {
@@ -687,21 +857,6 @@ const getPauseDuplexMode = (payload: unknown): string | null => {
   }
 
   return null;
-};
-
-const getPauseActiveMode = (payload: unknown): string | null => {
-  const normalized = normalizeDeviceActiveMode(
-    payload && typeof payload === "object" && "activeMode" in payload
-      ? (payload as { activeMode?: unknown }).activeMode
-      : undefined,
-  );
-  if (normalized) return normalized;
-
-  return normalizeDeviceActiveMode(
-    payload && typeof payload === "object" && "active_mode" in payload
-      ? (payload as { active_mode?: unknown }).active_mode
-      : undefined,
-  );
 };
 
 const getPauseSourceId = (payload: unknown): string | null => {
@@ -937,10 +1092,412 @@ export const __testQueueLiveDataForMiddleware = (
   queueLiveData(data, dispatch, getState);
 };
 
+const sourceCenterFrequencyHz = (state: any): number => {
+  const range = state.spectrum?.frequencyRange;
+  if (
+    range &&
+    typeof range.min === "number" &&
+    typeof range.max === "number" &&
+    range.max > range.min
+  ) {
+    return (range.min + range.max) / 2;
+  }
+  return Number(state.spectrum?.frequency ?? 0);
+};
+
+const buildManagedRxOptions = (state: any, source: SourceInfo): StreamOptions => {
+  const settings = source.sdr?.settings ?? {};
+  return {
+    mode: "rx",
+    centerFrequencyHz: sourceCenterFrequencyHz(state),
+    sampleRateHz: Number(settings.sample_rate ?? state.spectrum?.sampleRateHz ?? 1),
+    fftSize: Number(settings.fft_size ?? state.spectrum?.fftSize ?? 1024),
+    fftWindow: settings.fft_window ?? state.spectrum?.fftWindow,
+    frameRate: settings.frame_rate ?? state.spectrum?.fftFrameRate,
+    gain:
+      typeof settings.gain === "number"
+        ? settings.gain
+        : settings.gain?.tuner_gain,
+  };
+};
+
+const buildManagedTxOptions = (
+  state: any,
+  overrides: Record<string, unknown> = {},
+): StreamOptions => ({
+  mode: "tx",
+  centerFrequencyHz: Number(
+    overrides.centerFrequencyHz ?? state.spectrum?.txCenterFrequencyHz ?? 0,
+  ),
+  sampleRateHz: Number(
+    overrides.sampleRateHz ??
+      overrides.sample_rate ??
+      state.spectrum?.txSampleRateHz ??
+      1,
+  ),
+  bandwidthHz: Number(
+    overrides.bandwidthHz ?? state.spectrum?.txSampleRateHz ?? 1,
+  ),
+  signal: String(overrides.txSignal ?? state.spectrum?.txSignal ?? "wifi"),
+  powerDbm: Number(overrides.powerDbm ?? state.spectrum?.txPowerDbm ?? 0),
+  ifftSize: Number(overrides.txIfftSize ?? state.spectrum?.txIfftSize ?? 1024),
+});
+
+/**
+ * The manager's tx stream carries the generated waveform in both standby and
+ * transmitting states. Legacy frame gating uses the explicit preview marker
+ * to admit a standby frame, so derive that presentation metadata from the
+ * current source state without generating or copying a second IQ payload.
+ */
+export const normalizeManagedStreamFrame = ({
+  frame,
+  mode,
+  sourceStatus,
+}: {
+  frame: IqRawFrame;
+  mode: "rx" | "tx";
+  sourceStatus: SourceInfo["status"];
+}): IqRawFrame => {
+  if (mode !== "tx" || sourceStatus === "transmitting") return frame;
+  return {
+    ...frame,
+    frame_status: "standby",
+    is_tx_preview: true,
+    is_mock_tx_preview: true,
+  };
+};
+
+/**
+ * Managed Tx subscriptions deliver both continuous transmit frames and
+ * request-driven Mock Tx standby previews. Continuous monitor playback stays
+ * gated on the backend; standby only publishes when request_next_frame fires.
+ */
+export const resolveManagedTxSourceId = (state: any): string | null => {
+  const sources: SourceInfo[] = state.sources ?? [];
+  const sourceStatuses = state.sourceStatuses ?? {};
+  const selectedSourceId =
+    (typeof state.sourceSelection?.selectedSourceId === "string" &&
+      state.sourceSelection.selectedSourceId) ||
+    null;
+  const isTxCapable = (source: SourceInfo | undefined): boolean =>
+    !!source &&
+    (source.capability === "tx" ||
+      source.capability === "tx_rx" ||
+      source.kind === "mock_tx" ||
+      source.id === "mock-tx");
+  const isTransmittingTxSource = (source: SourceInfo | undefined): boolean => {
+    if (!isTxCapable(source)) return false;
+    const status = sourceStatuses[source!.id] ?? source!.status;
+    return status === "transmitting";
+  };
+  const isStandbyPreviewTxSource = (
+    source: SourceInfo | undefined,
+  ): boolean => {
+    if (!isTxCapable(source)) return false;
+    const status = sourceStatuses[source!.id] ?? source!.status;
+    return (
+      status !== "transmitting" &&
+      isSourceStreamAvailable(status) &&
+      (source!.id === "mock-tx" || source!.kind === "mock_tx")
+    );
+  };
+
+  const boundSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
+  if (typeof boundSourceId === "string" && boundSourceId.length > 0) {
+    const boundSource = sources.find((source) => source.id === boundSourceId);
+    if (isTransmittingTxSource(boundSource)) {
+      return boundSourceId;
+    }
+  }
+
+  const selectedSource = sources.find(
+    (source: SourceInfo) => source.id === selectedSourceId,
+  );
+  if (isStandbyPreviewTxSource(selectedSource)) {
+    return selectedSource!.id;
+  }
+
+  const activeSource = sources.find(
+    (source: SourceInfo) => source.id === state.activeSourceId,
+  );
+  if (isTransmittingTxSource(activeSource)) {
+    return activeSource!.id;
+  }
+  if (isStandbyPreviewTxSource(activeSource)) {
+    return activeSource!.id;
+  }
+  return null;
+};
+
+const handleManagedStreamEvent = (
+  sourceId: string,
+  mode: "rx" | "tx",
+  event: import("@n-apt/streams/sourceModeStreamManager").StreamEvent,
+  dispatch: Dispatch,
+  getState: () => any,
+): void => {
+  if (event.type === "stream_frame") {
+    const state = getState().websocket;
+    const source = (state.sources ?? []).find(
+      (candidate: SourceInfo) => candidate.id === sourceId,
+    );
+    const sourceStatus =
+      state.sourceStatuses?.[sourceId] ?? source?.status ?? null;
+    queueLiveData(
+      normalizeManagedStreamFrame({
+        frame: event.frame,
+        mode,
+        sourceStatus,
+      }),
+      dispatch,
+      getState,
+    );
+  } else if (event.type === "stream_error") {
+    dispatch(setOperationalError(event.message));
+  } else if (
+    mode === "rx" &&
+    (event.type === "stream_opened" || event.type === "stream_state") &&
+    getState().websocket.activeSourceId === sourceId
+  ) {
+    const phase =
+      event.state === "unavailable"
+        ? "failed"
+        : event.state === "opening"
+          ? "warming"
+          : "ready";
+    publishSourceTransport(
+      dispatch,
+      getState,
+      sourceId,
+      phase,
+      event.reason ?? null,
+      phase === "failed",
+    );
+  }
+};
+
+const isCurrentManagedRxTarget = (
+  rootState: any,
+  sourceId: string,
+): boolean => {
+  const state = rootState.websocket ?? rootState;
+  const source = (state.sources ?? []).find(
+    (candidate: SourceInfo) => candidate.id === sourceId,
+  );
+  return (
+    state.activeSourceId === sourceId &&
+    source.capabilities?.can_receive !== false &&
+    !!source?.iq_format &&
+    isSourceStreamAvailable(source.status)
+  );
+};
+
+const isCurrentManagedTxTarget = (
+  rootState: any,
+  sourceId: string,
+): boolean => {
+  const state = rootState.websocket ?? rootState;
+  const source = (state.sources ?? []).find(
+    (candidate: SourceInfo) => candidate.id === sourceId,
+  );
+  const resolvedSourceId = resolveManagedTxSourceId({
+    ...state,
+    sourceRouting: rootState.sourceRouting ?? state.sourceRouting,
+    sourceSelection: rootState.sourceSelection ?? state.sourceSelection,
+  });
+  const status = state.sourceStatuses?.[sourceId] ?? source?.status;
+  return (
+    resolvedSourceId === sourceId &&
+    !!source &&
+    (source.capability === "tx" ||
+      source.capability === "tx_rx" ||
+      source.kind === "mock_tx" ||
+      source.id === "mock-tx") &&
+    isSourceStreamAvailable(status)
+  );
+};
+
+const syncManagedStreamSubscriptions = (
+  dispatch: Dispatch,
+  getState: () => any,
+): void => {
+  if (!sourceModeStreamManager) return;
+  if (wsInstance.ws?.readyState !== WebSocket.OPEN) return;
+  const state = getState().websocket;
+  const activeSource = (state.sources ?? []).find(
+    (source: SourceInfo) => source.id === state.activeSourceId,
+  );
+  const wantsRx =
+    !!activeSource?.iq_format &&
+    activeSource.capabilities?.can_receive !== false &&
+    isSourceStreamAvailable(activeSource.status);
+  const rxSourceId = wantsRx ? activeSource.id : null;
+  if (managedRxSourceId !== rxSourceId) {
+    managedRxSubscription?.unsubscribe();
+    managedRxSubscription = null;
+    managedRxSourceId = null;
+  }
+  if (rxSourceId && activeSource && !managedRxSubscription && !managedRxSubscribePending) {
+    managedRxSubscribePending = true;
+    const key = { sourceId: rxSourceId, mode: "rx" as const };
+    void sourceModeStreamManager
+      .subscribe(key, buildManagedRxOptions(getState(), activeSource), (event) =>
+        handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
+      )
+      .then((subscription) => {
+        managedRxSubscribePending = false;
+        if (!isCurrentManagedRxTarget(getState(), rxSourceId)) {
+          subscription.unsubscribe();
+          return;
+        }
+        managedRxSubscription = subscription;
+        managedRxSourceId = rxSourceId;
+        syncManagedStreamSubscriptions(dispatch, getState);
+      })
+      .catch((error: unknown) => {
+        managedRxSubscribePending = false;
+        dispatch(
+          setOperationalError(
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      });
+  } else if (managedRxSubscription && activeSource) {
+    void managedRxSubscription.updateOptions(buildManagedRxOptions(getState(), activeSource));
+  }
+  // A source handoff can commit after the stream acknowledgement. In that
+  // ordering the stream_opened event was intentionally ignored while the old
+  // source was still active, leaving the transport stuck at warming even
+  // though the manager has a real epoch and is delivering frames.
+  if (
+    managedRxSubscription &&
+    activeSource?.id === rxSourceId &&
+    managedRxSubscription.streamEpoch > 0 &&
+    getState().websocket.sourceTransport?.phase !== "ready"
+  ) {
+    publishSourceTransport(dispatch, getState, rxSourceId, "ready");
+  }
+
+  const txSourceId = resolveManagedTxSourceId({
+    ...state,
+    sourceRouting: getState().sourceRouting,
+    sourceSelection: getState().sourceSelection,
+  });
+  const txSource = (state.sources ?? []).find(
+    (source: SourceInfo) => source.id === txSourceId,
+  );
+  const txStatus =
+    (txSourceId && state.sourceStatuses?.[txSourceId]) || txSource?.status;
+  const wantsTx =
+    !!txSource &&
+    (txSource.capability === "tx" ||
+      txSource.capability === "tx_rx" ||
+      txSource.kind === "mock_tx" ||
+      txSource.id === "mock-tx") &&
+    isSourceStreamAvailable(txStatus);
+  if (!wantsTx || !txSourceId) {
+    managedTxSubscription?.unsubscribe();
+    managedTxSubscription = null;
+    managedTxSourceId = null;
+  } else if (managedTxSourceId !== txSourceId) {
+    managedTxSubscription?.unsubscribe();
+    managedTxSubscription = null;
+    managedTxSourceId = null;
+  }
+  if (wantsTx && txSourceId && !managedTxSubscription && !managedTxSubscribePending) {
+    managedTxSubscribePending = true;
+    const key = { sourceId: txSourceId, mode: "tx" as const };
+    const txOptions =
+      pendingManagedTxOptions ?? buildManagedTxOptions(getState());
+    void sourceModeStreamManager
+      .subscribe(key, txOptions, (event) =>
+        handleManagedStreamEvent(txSourceId, "tx", event, dispatch, getState),
+      )
+      .then((subscription) => {
+        managedTxSubscribePending = false;
+        if (!isCurrentManagedTxTarget(getState(), txSourceId)) {
+          subscription.unsubscribe();
+          return;
+        }
+        managedTxSubscription = subscription;
+        managedTxSourceId = txSourceId;
+        pendingManagedTxOptions = null;
+        syncManagedStreamSubscriptions(dispatch, getState);
+      })
+      .catch((error: unknown) => {
+        managedTxSubscribePending = false;
+        dispatch(
+          setOperationalError(
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      });
+  } else if (managedTxSubscription) {
+    void managedTxSubscription.updateOptions(
+      pendingManagedTxOptions ?? buildManagedTxOptions(getState()),
+    );
+    pendingManagedTxOptions = null;
+  }
+  if (
+    managedTxSubscription &&
+    activeSource?.id === txSourceId &&
+    managedTxSubscription.streamEpoch > 0 &&
+    getState().websocket.sourceTransport?.phase !== "ready"
+  ) {
+    publishSourceTransport(dispatch, getState, txSourceId!, "ready");
+  }
+};
+
+const MANAGED_STREAM_OPTION_ACTIONS = new Set([
+  "spectrum/setTxGeometry",
+  "spectrum/setTxCenterFrequencyHz",
+  "spectrum/setTxSampleRateHz",
+  "spectrum/setTxSignal",
+  "spectrum/setTxPowerDbm",
+  "spectrum/setTxIfftSize",
+  "spectrum/setTxViewerSampleRateHz",
+  "sourceRouting/setSourceBinding",
+  "sourceRouting/setSourceBindings",
+]);
+
+export const shouldSyncManagedStreamOptions = (type: string): boolean =>
+  MANAGED_STREAM_OPTION_ACTIONS.has(type);
+
 const sameAesKeyReference = (
   current: CryptoKey | null,
   next: CryptoKey | null,
 ): boolean => current === next;
+
+const resetManagedStreamPipeline = (recreate: boolean): void => {
+  managedRxSubscription?.unsubscribe();
+  managedTxSubscription?.unsubscribe();
+  managedRxSubscription = null;
+  managedTxSubscription = null;
+  managedRxSourceId = null;
+  managedTxSourceId = null;
+  managedRxSubscribePending = false;
+  managedTxSubscribePending = false;
+  sourceModeStreamManager?.dispose();
+  sourceModeStreamManager = null;
+  multiplexedStreamTransport?.dispose();
+  multiplexedStreamTransport = null;
+  presentationController.reset();
+
+  if (
+    recreate &&
+    wsInstance.enabled &&
+    wsInstance.url &&
+    wsInstance.aesKey
+  ) {
+    multiplexedStreamTransport = createMultiplexedStreamTransport({
+      url: wsInstance.url,
+      aesKey: wsInstance.aesKey,
+    });
+    sourceModeStreamManager = createSourceModeStreamManager({
+      transportFactory: multiplexedStreamTransport.transportFactory,
+    });
+  }
+};
 
 const cleanupSocket = () => {
   requestedSourceId = null;
@@ -957,9 +1514,7 @@ const cleanupSocket = () => {
     wsInstance.ws.close();
     wsInstance.ws = null;
   }
-  cleanupSourceIqSocket();
-  controlIqFramePump?.reset();
-  controlIqFramePump = null;
+  resetManagedStreamPipeline(false);
 
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
@@ -968,76 +1523,6 @@ const cleanupSocket = () => {
   pendingStatusUpdates = null;
   liveDataRef.current = null;
   wsInstance.disposed = true;
-};
-
-const cleanupSourceIqSocket = () => {
-  sourceIqFramePump?.reset();
-  sourceIqFramePump = null;
-  if (sourceIqWsInstance.ws) {
-    sourceIqWsInstance.ws.onclose = null;
-    sourceIqWsInstance.ws.onerror = null;
-    sourceIqWsInstance.ws.onmessage = null;
-    sourceIqWsInstance.ws.onopen = null;
-    sourceIqWsInstance.ws.close();
-    sourceIqWsInstance.ws = null;
-  }
-  if (sourceIqWsInstance.reconnectTimeout !== null) {
-    clearTimeout(sourceIqWsInstance.reconnectTimeout);
-    sourceIqWsInstance.reconnectTimeout = null;
-  }
-  sourceIqWsInstance.url = "";
-  sourceIqWsInstance.sourceId = null;
-};
-
-export const buildTxPreviewRequestPayload = (state: any) => {
-  const txSettings = state.spectrum;
-  const frequencyRange = txSettings?.frequencyRange;
-  const hasValidViewRange =
-    frequencyRange &&
-    typeof frequencyRange.max === "number" &&
-    typeof frequencyRange.min === "number" &&
-    frequencyRange.max > frequencyRange.min;
-  const viewSpanHz = hasValidViewRange
-    ? frequencyRange.max - frequencyRange.min
-    : undefined;
-  const viewCenterHz = hasValidViewRange
-    ? (frequencyRange.min + frequencyRange.max) / 2
-    : txSettings.txCenterFrequencyHz;
-  const viewerSampleRateHz =
-    viewSpanHz && viewSpanHz > 0
-      ? viewSpanHz
-      : typeof txSettings.txViewerSampleRateHz === "number" &&
-          txSettings.txViewerSampleRateHz > 0
-        ? txSettings.txViewerSampleRateHz
-        : txSettings.txSampleRateHz;
-  return {
-    type: "request_next_frame",
-    centerFrequencyHz: txSettings.txCenterFrequencyHz,
-    viewCenterHz,
-    bandwidthHz: txSettings.txSampleRateHz,
-    sample_rate: viewerSampleRateHz,
-    powerDbm: txSettings.txPowerDbm,
-    txSignal: txSettings.txSignal,
-    txIfftSize: txSettings.txIfftSize,
-  };
-};
-
-/** Request a source-owned Tx preview using the Tx viewer's own display span. */
-const sendSecondaryTxPreviewRequest = (
-  ws: WebSocket,
-  getState: () => any,
-) => {
-  if (ws.readyState !== WebSocket.OPEN) return;
-  const payload = buildTxPreviewRequestPayload(getState());
-  const signature = JSON.stringify(payload);
-  const previous = lastTxPreviewRequestBySocket.get(ws);
-  const now = Date.now();
-  if (previous && previous.signature === signature && now - previous.sentAt < 100) {
-    return;
-  }
-  lastTxPreviewRequestBySocket.set(ws, { signature, sentAt: now });
-  allowNextPausedFrame = true;
-  ws.send(JSON.stringify(payload));
 };
 
 export const resolveTxPreviewSourceId = (state: any): string | null => {
@@ -1051,6 +1536,19 @@ export const resolveTxPreviewSourceId = (state: any): string | null => {
   if (!activeSource) return null;
   const mode = resolveSourceModeManagement({ source: activeSource });
   return mode.shouldRequestTxPreview ? activeSource.id : null;
+};
+
+/** Apply the local Tx-preview state before the backend status round trip. */
+export const applyOptimisticTxPreviewState = (
+  sources: SourceInfo[],
+  sourceId: string | null,
+): SourceInfo[] => {
+  if (!sourceId) return sources;
+  return sources.map((source) =>
+    source.id === sourceId
+      ? { ...source, status: "standby", paused: true }
+      : source,
+  );
 };
 
 const clearTxPreviewFrames = (
@@ -1068,154 +1566,18 @@ const clearTxPreviewFrames = (
 
   sourceVisualizationRuntime.reset(txSourceId);
   sourceSpectrumRuntime.reset(txSourceId);
-  liveDataBySourceRef.current[txSourceId] =
-    sourceVisualizationRuntime.getSourceRef(txSourceId);
-  const secondary = secondarySourceIqSockets.get(txSourceId);
-  secondary?.pump.reset();
-
+  const sourceRef = sourceVisualizationRuntime.getSourceRef(txSourceId);
+  const cachedRxFrame = resolveRxFrameToRestore(
+    cachedRxFrameBySourceId.get(txSourceId),
+    txSourceId,
+  );
+  sourceRef.current = cachedRxFrame;
+  liveDataBySourceRef.current[txSourceId] = sourceRef;
+  cachedRxFrameBySourceId.delete(txSourceId);
   if (txSourceId === state.activeSourceId) {
-    liveDataRef.current = [];
-    sourceIqFramePump?.reset();
+    liveDataRef.current = cachedRxFrame;
   }
 };
-
-const sendTxPreviewRequestToOpenSockets = (getState: () => any) => {
-  const state = getState().websocket;
-  const txSourceId = resolveTxPreviewSourceId({
-    ...state,
-    sourceRouting: getState().sourceRouting,
-  });
-  if (!txSourceId) return;
-  const activeSourceId = state.activeSourceId;
-  const activeTxSource = (state.sources ?? []).find(
-    (source: SourceInfo) => source.id === activeSourceId && source.id === txSourceId,
-  );
-  if (
-    activeTxSource &&
-    activeTxSource.status !== "transmitting" &&
-    state.sourceStatuses?.[activeTxSource.id] !== "transmitting" &&
-    sourceIqWsInstance.ws?.readyState === WebSocket.OPEN
-  ) {
-    sendSecondaryTxPreviewRequest(sourceIqWsInstance.ws, getState);
-  }
-
-  for (const [sourceId, socket] of secondarySourceIqSockets) {
-    if (sourceId === txSourceId) {
-      sendSecondaryTxPreviewRequest(socket.ws, getState);
-    }
-  }
-};
-
-const scheduleTxPreviewRequest = (
-  dispatch: Dispatch,
-  getState: () => any,
-) => {
-  pendingTxPreviewRequest = { dispatch, getState };
-  if (txPreviewRequestAnimationFrame !== null) return;
-  txPreviewRequestAnimationFrame = requestAnimationFrame(() => {
-    txPreviewRequestAnimationFrame = null;
-    const pending = pendingTxPreviewRequest;
-    pendingTxPreviewRequest = null;
-    if (!pending) return;
-    syncSecondaryTxSourceIqSocket(pending.dispatch, pending.getState);
-    sendTxPreviewRequestToOpenSockets(pending.getState);
-  });
-};
-
-const TX_PREVIEW_GEOMETRY_ACTIONS = new Set([
-  "spectrum/setTxGeometry",
-  "spectrum/setTxCenterFrequencyHz",
-  "spectrum/setTxSampleRateHz",
-  "spectrum/setTxSignal",
-  "spectrum/setTxPowerDbm",
-  "spectrum/setTxIfftSize",
-  "spectrum/setTxViewerSampleRateHz",
-  "spectrum/setFrequencyRange",
-  "sourceRouting/setSourceBinding",
-  "sourceRouting/setSourceBindings",
-]);
-
-const shouldRefreshTxPreview = (type: string): boolean =>
-  TX_PREVIEW_GEOMETRY_ACTIONS.has(type);
-
-const syncSecondaryTxSourceIqSocket = (
-  dispatch: Dispatch,
-  getState: () => any,
-) => {
-  if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) return;
-  if (wsInstance.ws?.readyState !== WebSocket.OPEN) return;
-
-  const state = getState().websocket;
-  const activeSourceId = state.activeSourceId;
-  const boundTxSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
-  const txSource =
-    (boundTxSourceId
-      ? (state.sources ?? []).find(
-          (source: SourceInfo) =>
-            source.id === boundTxSourceId &&
-            source.id !== activeSourceId &&
-            source.iq_format,
-        )
-      : null);
-
-  for (const [sourceId, socket] of secondarySourceIqSockets) {
-    if (!txSource || sourceId !== txSource.id) {
-      socket.pump.reset();
-      socket.ws.close();
-      secondarySourceIqSockets.delete(sourceId);
-    }
-  }
-  if (!txSource || !shouldOpenSourceIqSocket(txSource.status)) return;
-  const existing = secondarySourceIqSockets.get(txSource.id);
-  if (existing && (existing.ws.readyState === WebSocket.CONNECTING || existing.ws.readyState === WebSocket.OPEN)) return;
-
-  const url = buildSourceIqWebSocketUrl(wsInstance.url, txSource);
-  if (!url) return;
-  const ws = new WebSocket(url);
-  ws.binaryType = "arraybuffer";
-  const pump = createStoreIqFramePump(
-    dispatch,
-    getState,
-    wsInstance.aesKey,
-    txSource.id,
-  );
-  secondarySourceIqSockets.set(txSource.id, { ws, url, pump });
-  const sourceId = txSource.id;
-  ws.onopen = () => {
-    if (sourceId !== txSource.id) return;
-    sendSecondaryTxPreviewRequest(ws, getState);
-  };
-  ws.onmessage = (event) => {
-    if (event.data instanceof ArrayBuffer && wsInstance.aesKey && secondarySourceIqSockets.get(sourceId)?.ws === ws) {
-      pump.enqueue(event.data, sourceId);
-    }
-  };
-  ws.onerror = () => undefined;
-  ws.onclose = () => {
-    if (secondarySourceIqSockets.get(sourceId)?.ws === ws) {
-      secondarySourceIqSockets.delete(sourceId);
-      if (wsInstance.enabled && !wsInstance.disposed) {
-        window.setTimeout(() => syncSecondaryTxSourceIqSocket(dispatch, getState), 250);
-      }
-    }
-  };
-};
-
-export const shouldAcceptSourceIqSocketMessage = ({
-  socketIsCurrent,
-  socketSourceId,
-  activeSourceId,
-  requestedSourceId = null,
-}: {
-  socketIsCurrent: boolean;
-  socketSourceId: string;
-  activeSourceId: string | null;
-  requestedSourceId?: string | null;
-}): boolean =>
-  socketIsCurrent &&
-  socketSourceId.length > 0 &&
-  socketSourceId === activeSourceId &&
-  (requestedSourceId === null || socketSourceId === requestedSourceId);
 
 /**
  * Do not create a new raw-I/Q transport while the device is recovering.
@@ -1227,12 +1589,6 @@ export const shouldAcceptSourceIqSocketMessage = ({
  * is intentionally allowed to remain warm; this gate only applies to new
  * sockets.
  */
-export const shouldOpenSourceIqSocket = (status: unknown): boolean =>
-  status === "connected" ||
-  status === "streaming" ||
-  status === "transmitting" ||
-  status === "standby";
-
 /** Publishes only transport boundary changes; raw frame traffic never enters Redux. */
 const publishSourceTransport = (
   dispatch: Dispatch,
@@ -1256,137 +1612,24 @@ const publishSourceTransport = (
   }
 };
 
-const syncSourceIqSocket = (dispatch: Dispatch, getState: () => any) => {
-  if (!wsInstance.enabled || !wsInstance.url || !wsInstance.aesKey) {
-    cleanupSourceIqSocket();
-    return;
-  }
-  if (wsInstance.ws?.readyState !== WebSocket.OPEN) {
-    cleanupSourceIqSocket();
-    return;
-  }
-
-  const state = getState().websocket;
-  const activeSourceId = state.activeSourceId;
-  const transportSourceId = requestedSourceId ?? activeSourceId;
-  const activeSource = (state.sources ?? []).find(
-    (source: SourceInfo) => source.id === transportSourceId,
+/** Announce the Tx mode boundary without enabling RF transmission. */
+const announceTxStandbyForSource = (
+  sourceId: string | null | undefined,
+  getState: () => any,
+): void => {
+  if (!sourceId || wsInstance.ws?.readyState !== WebSocket.OPEN) return;
+  const source = (getState().websocket.sources ?? []).find(
+    (candidate: SourceInfo) => candidate.id === sourceId,
   );
-  if (!activeSource?.iq_format) {
-    cleanupSourceIqSocket();
-    syncSecondaryTxSourceIqSocket(dispatch, getState);
-    return;
-  }
-
-  const existing = sourceIqWsInstance.ws;
-  if (
-    existing &&
-    sourceIqWsInstance.sourceId === activeSource.id &&
-    (existing.readyState === WebSocket.CONNECTING ||
-      existing.readyState === WebSocket.OPEN)
-  ) {
-    syncSecondaryTxSourceIqSocket(dispatch, getState);
-    return;
-  }
-
-  // A source switch invalidates the previous source's raw stream even when
-  // the replacement source is still loading and cannot open its own socket.
-  if (existing && sourceIqWsInstance.sourceId !== activeSource.id) {
-    cleanupSourceIqSocket();
-  }
-
-  // A closed raw stream is expected while USB is settling. Wait for the
-  // source status to become usable instead of reopening it on every timeout.
-  if (!shouldOpenSourceIqSocket(activeSource.status)) {
-    if (sourceIqWsInstance.reconnectTimeout !== null) {
-      clearTimeout(sourceIqWsInstance.reconnectTimeout);
-      sourceIqWsInstance.reconnectTimeout = null;
-    }
-    syncSecondaryTxSourceIqSocket(dispatch, getState);
-    return;
-  }
-
-  const nextUrl = buildSourceIqWebSocketUrl(wsInstance.url, activeSource);
-  if (!nextUrl) {
-    cleanupSourceIqSocket();
-    return;
-  }
-
-  cleanupSourceIqSocket();
-  publishSourceTransport(dispatch, getState, activeSource.id, "warming");
-  const ws = new WebSocket(nextUrl);
-  ws.binaryType = "arraybuffer";
-  sourceIqWsInstance.ws = ws;
-  sourceIqWsInstance.url = nextUrl;
-  sourceIqWsInstance.sourceId = activeSource.id;
-  sourceIqWsInstance.reconnectTimeout = null;
-  const socketSourceId = activeSource.id;
-  sourceIqFramePump = createStoreIqFramePump(
-    dispatch,
-    getState,
-    wsInstance.aesKey,
+  if (!source) return;
+  const mode = resolveSourceModeManagement({ source });
+  if (!mode.canTransmit) return;
+  wsInstance.ws.send(
+    JSON.stringify({
+      type: "status",
+      ...resolveTxStandbyAnnouncement(source),
+    }),
   );
-
-  ws.onopen = () => {
-    publishSourceTransport(dispatch, getState, socketSourceId, "ready");
-    const activeSource = getState().websocket.sources?.find(
-      (source: SourceInfo) => source.id === socketSourceId,
-    );
-    if (
-      activeSource &&
-      (activeSource.capability === "tx" || activeSource.capability === "tx_rx")
-    ) {
-      const state = getState();
-      const isTransmitting =
-        state.websocket.sources?.find((s: any) => s.id === socketSourceId)
-          ?.status === "transmitting" ||
-        state.websocket.sourceStatuses?.[socketSourceId] === "transmitting";
-      if (!isTransmitting) {
-        if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
-          // Preview commands belong to the source-I/Q socket. Sending this
-          // through the control socket cannot produce a frame for the active
-          // Mock Tx canvas because the source stream owns the direct response.
-          sendSecondaryTxPreviewRequest(ws, getState);
-        }
-      }
-    }
-  };
-
-  ws.onmessage = (event) => {
-    if (
-      event.data instanceof ArrayBuffer &&
-      wsInstance.aesKey &&
-      shouldAcceptSourceIqSocketMessage({
-        socketIsCurrent: sourceIqWsInstance.ws === ws,
-        socketSourceId,
-        activeSourceId: getState().websocket.activeSourceId,
-        requestedSourceId,
-      })
-    ) {
-      sourceIqFramePump?.enqueue(event.data, socketSourceId);
-    }
-  };
-  ws.onerror = (error) => {
-    console.error("Source I/Q WebSocket error:", error);
-  };
-  ws.onclose = () => {
-    if (sourceIqWsInstance.ws === ws) {
-      sourceIqWsInstance.ws = null;
-      if (
-        wsInstance.enabled &&
-        !wsInstance.disposed &&
-        sourceIqWsInstance.url === nextUrl &&
-        sourceIqWsInstance.sourceId === activeSource.id &&
-        sourceIqWsInstance.reconnectTimeout === null
-      ) {
-        sourceIqWsInstance.reconnectTimeout = window.setTimeout(() => {
-          sourceIqWsInstance.reconnectTimeout = null;
-          syncSourceIqSocket(dispatch, getState);
-        }, 250);
-      }
-    }
-  };
-  syncSecondaryTxSourceIqSocket(dispatch, getState);
 };
 
 // WebSocket message processing
@@ -1399,6 +1642,23 @@ const processMessage = (
   if (!processWebSocketMessageWithValidation(dispatch, getState, parsedData)) {
     console.warn("WebSocket message failed validation:", parsedData);
     return;
+  }
+
+  // Promote reconnect TCP opens only after real control-plane traffic arrives.
+  // Also clear sticky control-plane "error" left by older stream/source races
+  // once healthy control messages prove the socket is still live.
+  const connectionStatus = getState().websocket.connectionStatus;
+  if (
+    !getState().websocket.isConnected &&
+    getState().websocket.hasConnectedOnce &&
+    (connectionStatus === "connecting" || connectionStatus === "reconnecting")
+  ) {
+    dispatch(setConnected());
+  } else if (
+    getState().websocket.isConnected &&
+    connectionStatus === "error"
+  ) {
+    dispatch(setConnected());
   }
 
   if (parsedData?.type === "tx_safety") {
@@ -1428,14 +1688,27 @@ const processMessage = (
 
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
+      const previousSources = getState().websocket.sources ?? [];
       if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
+        // The backend commonly confirms a source handoff with source_info
+        // rather than a separate active_source event. Commit the presentation
+        // target here so the first managed frame is not rejected as stale
+        // while its slot is still in the switching phase.
+        presentationController.commitActiveSource(parsedData.active_source);
       }
+      const sources =
+        parsedData.active_source !== previousActiveSourceId
+          ? preserveTransmittingSourceStatuses(
+              previousSources,
+              parsedData.sources,
+            )
+          : parsedData.sources;
       const activeSource =
-        parsedData.sources.find(
+        sources.find(
           (source: SourceInfo) => source.id === parsedData.active_source,
         ) ??
-        parsedData.sources[0] ??
+        sources[0] ??
         null;
       const derived = activeSource
         ? deriveLegacyStateFromSource(activeSource)
@@ -1447,7 +1720,7 @@ const processMessage = (
         clearLiveSpectrumFrames(dispatch);
       }
       const sourceStatuses = Object.fromEntries(
-        parsedData.sources.map((source: SourceInfo) => [
+        sources.map((source: SourceInfo) => [
           source.id,
           source.status,
         ]),
@@ -1469,7 +1742,7 @@ const processMessage = (
         activeSourceId: parsedData.active_source,
         activeSourceMode: parsedData.active_source_mode,
         isPaused: targetIsPaused,
-        sources: parsedData.sources,
+        sources,
         sourceStatuses,
         ...(parsedData.active_source !== previousActiveSourceId
           ? { sourceFrameReadiness: null }
@@ -1523,6 +1796,8 @@ const processMessage = (
           : {}),
       };
 
+      presentationController.commitActiveSource(parsedData.source_id);
+
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const activeSource =
         currentSources.find(
@@ -1555,7 +1830,7 @@ const processMessage = (
   if (parsedData?.type === "channels") {
     if (!isValidChannelsMessageEnhanced(parsedData)) {
       console.error("Channels message validation failed:", parsedData);
-      dispatch(setError("Error: Bad JSON"));
+      dispatch(setOperationalError("Error: Bad JSON"));
       return;
     }
 
@@ -1563,7 +1838,7 @@ const processMessage = (
       const channels = parsedData.channels as SpectrumFrame[];
       const firstChannel = channels[0];
       if (!firstChannel) {
-        dispatch(setError("Error: Bad JSON"));
+        dispatch(setOperationalError("Error: Bad JSON"));
         return;
       }
 
@@ -1595,11 +1870,11 @@ const processMessage = (
         }),
       );
       if (parsedData.error) {
-        dispatch(setError(`Error: ${parsedData.error}`));
+        dispatch(setOperationalError(`Error: ${parsedData.error}`));
       }
     } catch (e) {
       console.error("Failed to parse channels message:", e);
-      dispatch(setError("Error: Bad JSON"));
+      dispatch(setOperationalError("Error: Bad JSON"));
     }
     return;
   }
@@ -1612,11 +1887,21 @@ const processMessage = (
 
     try {
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
+      const txPreviewSourceId =
+        getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null;
       const nextSources = currentSources.map((source) =>
         source.id === parsedData.source_id
           ? {
               ...source,
-              status: parsedData.status,
+              // Pause broadcasts describe the transport, not the selected
+              // Tx viewer mode. Keep an explicitly bound preview in standby
+              // until the binding is cleared or transmission starts.
+              status:
+                txPreviewSourceId === parsedData.source_id &&
+                source.status === "standby" &&
+                parsedData.status !== "transmitting"
+                  ? "standby"
+                  : parsedData.status,
               loading_attempt:
                 parsedData.loading_attempt ?? source.loading_attempt,
               loading_attempt_max:
@@ -1637,7 +1922,13 @@ const processMessage = (
       const sourceStatuses = {
         ...(getState().websocket.sourceStatuses ?? {}),
       };
-      sourceStatuses[parsedData.source_id] = parsedData.status;
+      sourceStatuses[parsedData.source_id] =
+        nextSources.find((source) => source.id === parsedData.source_id)
+          ?.status ?? parsedData.status;
+      presentationController.setSourceStatus(
+        parsedData.source_id,
+        sourceStatuses[parsedData.source_id],
+      );
       const updates: any = {
         sourceStatuses,
         sources: nextSources,
@@ -1646,9 +1937,13 @@ const processMessage = (
       if (parsedData.source_id === getState().websocket.activeSourceId) {
         updates.deviceState = mapSourceStatusToDeviceState(parsedData.status);
         updates.deviceLoadingReason =
-          parsedData.status === "loading" ? "connect" : null;
+          parsedData.status === "loading" ||
+          parsedData.status === "initializing"
+            ? "connect"
+            : null;
         if (
           parsedData.status === "loading" ||
+          parsedData.status === "initializing" ||
           parsedData.status === "stale" ||
           parsedData.status === "disconnected"
         ) {
@@ -1739,9 +2034,9 @@ const processMessage = (
         true,
       );
       requestedSourceId = null;
-      syncSourceIqSocket(dispatch, getState);
+      syncManagedStreamSubscriptions(dispatch, getState);
     }
-    dispatch(setError(parsedData.message));
+    dispatch(setOperationalError(parsedData.message));
     return;
   }
 
@@ -1861,73 +2156,6 @@ const processMessage = (
   }
 };
 
-/** Build the bounded binary frame pipeline for one socket generation. */
-const createStoreIqFramePump = (
-  dispatch: Dispatch,
-  getState: () => any,
-  aesKey: CryptoKey,
-  subscribedSourceId?: string,
-): IqFramePump =>
-  createIqFramePump({
-    decrypt: (payload) => decryptBinaryPayload(aesKey, payload),
-    publish: (frame) => {
-      if (!isFrameStale(frame.center_frequency_hz ?? 0)) {
-        checkRetuneWatchdog(frame.center_frequency_hz ?? 0);
-        queueLiveData(frame, dispatch, getState);
-      }
-    },
-    getLifecycle: () => {
-      const state = getState().websocket;
-      const lifecycleSourceId = subscribedSourceId ?? state.activeSourceId;
-      const activeSource = (state.sources ?? []).find(
-        (source: SourceInfo) => source.id === lifecycleSourceId,
-      );
-      return {
-        sourceId: lifecycleSourceId ?? null,
-        streamEpoch: activeSource?.stream_epoch ?? null,
-      };
-    },
-    onLifecycleChange: (sourceId, streamEpoch) => {
-      const websocketState = getState().websocket;
-      if (subscribedSourceId && subscribedSourceId !== sourceId) return;
-      if (!subscribedSourceId && websocketState.activeSourceId !== sourceId) {
-        return;
-      }
-      const sources = (websocketState.sources ?? []).map((source: SourceInfo) =>
-        source.id === sourceId && source.stream_epoch !== streamEpoch
-          ? { ...source, stream_epoch: streamEpoch }
-          : source,
-      );
-      applyStatusUpdates(dispatch, getState, { sources });
-    },
-    onFirstFrameAccepted: (frame) => {
-      // Readiness is currently a presentation-level field for the active
-      // source. A secondary source still gets published into its own
-      // liveDataBySourceRef, but must not replace the Rx source's readiness.
-      if (
-        subscribedSourceId &&
-        getState().websocket.activeSourceId !== subscribedSourceId
-      ) {
-        return;
-      }
-      const readiness = {
-        sourceId: frame.source_id ?? getState().websocket.activeSourceId ?? "",
-        streamEpoch:
-          typeof frame.stream_epoch === "number" ? frame.stream_epoch : null,
-        sequence: frame.sequence ?? 0,
-      };
-      const current = getState().websocket.sourceFrameReadiness;
-      if (
-        current?.sourceId === readiness.sourceId &&
-        current.streamEpoch === readiness.streamEpoch
-      ) {
-        return;
-      }
-      dispatch(updateDeviceState({ sourceFrameReadiness: readiness }));
-    },
-    onDecryptionFailure: () => dispatch(setCryptoCorrupted()),
-  });
-
 // Create WebSocket middleware
 const createWebSocketMiddleware =
   (): Middleware<{}, any> => (store) => (next) => (action: any) => {
@@ -1956,7 +2184,7 @@ const createWebSocketMiddleware =
         if (hasReusableSocket) {
           if (existingSocket?.readyState === WebSocket.OPEN) {
             dispatch(setConnected());
-            syncSourceIqSocket(dispatch, getState);
+            syncManagedStreamSubscriptions(dispatch, getState);
           } else {
             dispatch(setConnecting());
           }
@@ -1980,31 +2208,39 @@ const createWebSocketMiddleware =
         wsInstance.enabled = enabled;
         wsInstance.reconnectAttempts = 0;
         wsInstance.disposed = false;
+        multiplexedStreamTransport = createMultiplexedStreamTransport({
+          url,
+          aesKey,
+        });
+        sourceModeStreamManager = createSourceModeStreamManager({
+          transportFactory: multiplexedStreamTransport.transportFactory,
+        });
 
         const connect = () => {
           if (wsInstance.disposed) return;
 
           try {
             dispatch(setConnecting());
-            const parsedUrl = new URL(url);
-            parsedUrl.searchParams.set("iq_protocol", "2");
-            const ws = new WebSocket(parsedUrl.toString());
-            ws.binaryType = "arraybuffer";
+            const ws = new WebSocket(url);
             wsInstance.ws = ws;
-            controlIqFramePump = createStoreIqFramePump(
-              dispatch,
-              getState,
-              aesKey,
-            );
 
             ws.onopen = () => {
               if (wsInstance.disposed) {
                 ws.close();
                 return;
               }
-              dispatch(setConnected());
+              // After a live session, TCP open alone must not clear Server Down.
+              // Wait for the first control-plane status/source_info before
+              // marking connected — reconnect polling against a crashed backend
+              // otherwise flashes Loading between abort loops.
+              const hadSession = getState().websocket.hasConnectedOnce === true;
+              if (hadSession) {
+                dispatch(setConnecting());
+              } else {
+                dispatch(setConnected());
+              }
               wsInstance.reconnectAttempts = 0;
-              syncSourceIqSocket(dispatch, getState);
+              syncManagedStreamSubscriptions(dispatch, getState);
 
               // Send queued messages
               const state = getState();
@@ -2069,15 +2305,6 @@ const createWebSocketMiddleware =
             ws.onmessage = async (event) => {
               if (wsInstance.disposed) return;
 
-              // Binary fast-path for spectrum data
-              if (event.data instanceof ArrayBuffer) {
-                if (wsInstance.aesKey) {
-                  const activeSourceId = getState().websocket.activeSourceId;
-                  controlIqFramePump?.enqueue(event.data, activeSourceId ?? "");
-                }
-                return;
-              }
-
               const raw = event.data as string;
               let parsed: any;
               try {
@@ -2140,6 +2367,10 @@ const createWebSocketMiddleware =
 
             ws.onclose = () => {
               if (wsInstance.disposed) return;
+              // Drop stale multiplexed stream sockets pinned to the previous
+              // backend before the control plane reconnects after a hot-reload
+              // swap. Recreate so Mock APT / live sources can subscribe cleanly.
+              resetManagedStreamPipeline(true);
               dispatch(softDisconnect());
 
               // Exponential backoff reconnection
@@ -2201,11 +2432,22 @@ const createWebSocketMiddleware =
           cancelAnimationFrame(dataBatchFrame);
           dataBatchFrame = null;
         }
-        cleanupSourceIqSocket();
         resetPausedFrameRequestGate();
 
         dispatch(setDisconnected());
         return next(action);
+      }
+
+      case "websocket/refreshStream": {
+        const result = next(action);
+        if (action.payload?.mode === "tx") {
+          pendingManagedTxOptions = buildManagedTxOptions(
+            getState(),
+            action.payload.options ?? {},
+          );
+        }
+        syncManagedStreamSubscriptions(dispatch, getState);
+        return result;
       }
 
       case "websocket/sendMessage": {
@@ -2229,7 +2471,7 @@ const createWebSocketMiddleware =
         }
 
         if (
-          type === "tx_mode" &&
+          type === "status" &&
           wsInstance.ws &&
           wsInstance.ws.readyState === WebSocket.OPEN
         ) {
@@ -2238,48 +2480,6 @@ const createWebSocketMiddleware =
             getState,
             normalizedData ?? {},
           );
-        }
-
-        if (type === "request_next_frame") {
-          const frameSourceId =
-            normalizedData?.source_id ??
-            requestedSourceId ??
-            getState().websocket.activeSourceId;
-          if (frameSourceId) {
-            normalizedData = {
-              ...(normalizedData ?? {}),
-              source_id: frameSourceId,
-            };
-          }
-          const now = Date.now();
-          if (now - lastFrameRequestTime < FRAME_REQUEST_THROTTLE_MS) {
-            console.debug(
-              "[WebSocket Middleware] Throttling redundant frame request",
-            );
-            if (pendingTrailingFrameRequestTimeout) {
-              clearTimeout(pendingTrailingFrameRequestTimeout);
-            }
-            pendingTrailingFrameRequestTimeout = setTimeout(
-              () => {
-                pendingTrailingFrameRequestTimeout = null;
-                dispatch(action);
-              },
-              FRAME_REQUEST_THROTTLE_MS - (now - lastFrameRequestTime),
-            );
-            return next(action);
-          }
-
-          if (pendingTrailingFrameRequestTimeout) {
-            clearTimeout(pendingTrailingFrameRequestTimeout);
-            pendingTrailingFrameRequestTimeout = null;
-          }
-
-          if (!shouldAcceptPausedFrameRequest()) {
-            return next(action);
-          }
-
-          lastFrameRequestTime = now;
-          allowNextPausedFrame = true;
         }
 
         if (type === "select_source") {
@@ -2312,9 +2512,16 @@ const createWebSocketMiddleware =
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
           if (requestedSourceId) {
+            const isTx =
+              requestedSourceId === "mock-tx" ||
+              (getState().websocket.sources ?? []).find(
+                (source: SourceInfo) => source.id === requestedSourceId,
+              )?.capability === "tx";
+            presentationController.selectSource(requestedSourceId, isTx ? "tx" : "rx");
             pendingDataUpdate = null;
-            liveDataRef.current = null;
-            sourceIqFramePump?.reset();
+            // Keep the last live frame in the mutable ref across selection.
+            // Nulling here forced a black FFT before the target preview/stream
+            // frame arrived; the canvas rejects foreign source_ids instead.
             dispatch(updateDeviceState({ sourceFrameReadiness: null }));
             publishSourceTransport(
               dispatch,
@@ -2324,18 +2531,28 @@ const createWebSocketMiddleware =
               null,
               true,
             );
-            allowNextPausedFrame = true;
           }
           // Start the target transport during backend device swap so the
           // first committed frame does not wait on a second WebSocket
           // handshake. Frames remain gated by the active source identity.
-          syncSourceIqSocket(dispatch, getState);
+          syncManagedStreamSubscriptions(dispatch, getState);
         }
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
-        } else if (type === "tx_mode" || type === "request_next_frame") {
-          allowNextPausedFrame = false;
+          const selectedSource = (getState().websocket.sources ?? []).find(
+            (source: SourceInfo) => source.id === normalizedData?.source_id,
+          );
+          const selectedMode = selectedSource
+            ? resolveSourceModeManagement({ source: selectedSource })
+            : null;
+          if (selectedMode?.canTransmit && !selectedMode.canReceive) {
+            announceTxStandbyForSource(selectedSource.id, getState);
+            // Do not request_next_frame here. SpectrumRoute owns the one-shot
+            // with Tx settings; a bare middleware request plus the route
+            // request produced multiple advancing standby frames.
+          }
+        } else if (type === "status") {
           resetPausedFrameRequestGate();
         } else {
           // Queue the message for when connection is restored
@@ -2358,9 +2575,14 @@ const createWebSocketMiddleware =
         lastExpectedPauseState = isPaused;
 
         if (isPaused) {
-          allowNextPausedFrame = false;
           resetPausedFrameRequestGate();
           pendingDataUpdate = null;
+        }
+
+        if (sourceId) {
+          const duplexMode = getPauseDuplexMode(action.payload);
+          const mode = duplexMode === "tx" ? "tx" : "rx";
+          presentationController.setPaused(sourceId, mode, isPaused);
         }
 
         if (
@@ -2374,12 +2596,8 @@ const createWebSocketMiddleware =
             source_id: sourceId,
           };
           const duplexMode = getPauseDuplexMode(action.payload);
-          const activeMode = getPauseActiveMode(action.payload);
           if (duplexMode) {
             pausePayload.duplex_mode = duplexMode;
-          }
-          if (activeMode) {
-            pausePayload.active_mode = activeMode;
           }
           wsInstance.ws.send(JSON.stringify(pausePayload));
         }
@@ -2405,14 +2623,44 @@ const createWebSocketMiddleware =
           clearLiveSpectrumFrames(dispatch);
         }
         if (activeSourceChanged) {
-          syncSourceIqSocket(dispatch, getState);
+          syncManagedStreamSubscriptions(dispatch, getState);
+        }
+        if (sourceModeStreamManager) {
+          syncManagedStreamSubscriptions(dispatch, getState);
         }
         return result;
       }
 
       case "txSuite/requestPreview": {
         const result = next(action);
-        scheduleTxPreviewRequest(dispatch, getState);
+        const state = getState();
+        const sourceId = resolveTxPreviewSourceId({
+          ...state.websocket,
+          sourceRouting: state.sourceRouting,
+        });
+        if (sourceId && !cachedRxFrameBySourceId.has(sourceId)) {
+          const currentFrame = sourceVisualizationRuntime.getSourceRef(sourceId)
+            .current;
+          const rxFrame = resolveRxFrameToRestore(currentFrame, sourceId);
+          if (rxFrame) cachedRxFrameBySourceId.set(sourceId, rxFrame);
+        }
+        const sources = applyOptimisticTxPreviewState(
+          state.websocket.sources ?? [],
+          sourceId,
+        );
+        if (sourceId && sources !== state.websocket.sources) {
+          dispatch(
+            updateDeviceState({
+              sources,
+              sourceStatuses: Object.fromEntries(
+                sources.map((source) => [source.id, source.status]),
+              ),
+            }),
+          );
+        }
+        if (sourceModeStreamManager) {
+          syncManagedStreamSubscriptions(dispatch, getState);
+        }
         return result;
       }
 
@@ -2431,8 +2679,18 @@ const createWebSocketMiddleware =
           if (previousTxBinding && !nextTxBinding) {
             clearTxPreviewFrames(getState, previousTxBinding);
           }
-          if (shouldRefreshTxPreview(action.type)) {
-            scheduleTxPreviewRequest(dispatch, getState);
+          if (
+            sourceModeStreamManager &&
+            (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
+          ) {
+            syncManagedStreamSubscriptions(dispatch, getState);
+          }
+          if (
+            isSourceBindingAction &&
+            nextTxBinding &&
+            nextTxBinding !== previousTxBinding
+          ) {
+            announceTxStandbyForSource(nextTxBinding, getState);
           }
           return result;
         }

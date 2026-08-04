@@ -63,8 +63,8 @@ export default function FFTPlaybackCanvas(props: any) {
     return (
       <div data-testid="fft-stitcher-canvas" style={{ padding: "20px" }}>
         <h2>N-APT File Stitcher & I/Q Replay</h2>
-        <div>Drop .wav or .napt files here</div>
-        <div>No files selected</div>
+        <div>Drop .napt, .iq, or .wav files here</div>
+        <div>No files selected (.napt, .iq, .wav)</div>
       </div>
     );
   }

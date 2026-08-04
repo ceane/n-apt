@@ -1,116 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import styled from "styled-components";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { DoorOpen } from "lucide-react";
-import nAptLogo from "@n-apt/public/images/icon.svg";
+import {
+  AppPublicSidebar,
+  PublicMainGrid,
+  PublicPage,
+  PublicSectionLink,
+  PublicShell,
+} from "@n-apt/components/layout/AppPublicPageLayout";
 import licenseText from "../../../LICENSE?raw";
 import responsibleUseText from "../../../RESPONSIBLE_USE.md?raw";
-
-const Page = styled.main`
-  min-height: 100dvh;
-  padding: 48px 20px;
-  background: ${(props) => props.theme.background};
-  color: ${(props) => props.theme.textPrimary};
-`;
-
-const Shell = styled.div`
-  width: min(100%, 920px);
-  margin: 0 auto;
-  padding: 28px;
-  border: 1px solid ${(props) => props.theme.border};
-  border-radius: 20px;
-  background: ${(props) => props.theme.surface ?? "rgba(16,16,16,0.9)"};
-`;
-
-const Intro = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-`;
-
-const MainGrid = styled.div`
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(0, 3fr);
-  gap: 40px;
-  align-items: start;
-
-  @media (max-width: 900px) {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-`;
-
-const Sidebar = styled.aside`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  position: sticky;
-  top: 28px;
-  align-self: start;
-  max-height: calc(100vh - 56px);
-
-  @media (max-width: 900px) {
-    position: static;
-    max-height: none;
-  }
-`;
-
-const SidebarTop = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: auto;
-  padding-right: 4px;
-`;
-
-const LogoLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-bottom: 20px;
-`;
-
-const Logo = styled.img`
-  width: 72px;
-  height: 72px;
-  display: block;
-
-  @media (prefers-color-scheme: dark) {
-    filter: invert(0.9);
-  }
-`;
-
-const SectionLink = styled.a`
-  display: block;
-  margin: 0 0 12px;
-  color: ${(props) => props.theme.textSecondary};
-  text-decoration: none;
-  font-family: ${(props) => props.theme.typography.sans};
-  font-size: 14px;
-  line-height: 1.4;
-
-  &:hover {
-    color: ${(props) => props.theme.primary};
-    text-decoration: underline;
-  }
-`;
-
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: auto;
-  color: ${(props) => props.theme.primary};
-  text-decoration: none;
-  font-family: ${(props) => props.theme.typography.sans};
-  font-size: 13px;
-
-  &:hover {
-    text-decoration: underline;
-  }
-`;
 
 const Body = styled.article`
   line-height: 1.7;
@@ -326,25 +227,16 @@ export const LegalDocumentRoute: React.FC = () => {
   }, [page]);
 
   return (
-    <Page>
-      <Shell>
-        <MainGrid>
-          <Sidebar aria-label={`${pageTitle} navigation`}>
-            <SidebarTop>
-              <LogoLink to="/auth" aria-label="N-APT home">
-                <Logo src={nAptLogo} alt="N-APT" />
-              </LogoLink>
-              {navItems.map((item) => (
-                <SectionLink key={item.href} href={item.href}>
-                  {item.label}
-                </SectionLink>
-              ))}
-            </SidebarTop>
-            <BackLink to="/auth">
-              <DoorOpen size={16} strokeWidth={2} />
-              Back to sign in
-            </BackLink>
-          </Sidebar>
+    <PublicPage>
+      <PublicShell>
+        <PublicMainGrid>
+          <AppPublicSidebar aria-label={`${pageTitle} navigation`}>
+            {navItems.map((item) => (
+              <PublicSectionLink key={item.href} href={item.href}>
+                {item.label}
+              </PublicSectionLink>
+            ))}
+          </AppPublicSidebar>
           {error ? (
             <ErrorBox>{error}</ErrorBox>
           ) : (
@@ -387,8 +279,8 @@ export const LegalDocumentRoute: React.FC = () => {
               </ReactMarkdown>
             </Body>
           )}
-        </MainGrid>
-      </Shell>
-    </Page>
+        </PublicMainGrid>
+      </PublicShell>
+    </PublicPage>
   );
 };

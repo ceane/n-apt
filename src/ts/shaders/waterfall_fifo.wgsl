@@ -1,6 +1,6 @@
 @group(0) @binding(0) var dataTex: texture_2d<f32>;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> uniforms: array<vec4<f32>, 4>;
+@group(0) @binding(2) var<uniform> uniforms: array<vec4<f32>, 5>;
 
 struct VertexOut { @builtin(position) position: vec4<f32> }
 
@@ -59,13 +59,17 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
   let colorCount = max(1.0, uniforms[1].w);
   let fTexW      = f32(texW);
 
-  // uniforms[2] = (dbMin, dbMax, wfSmooth, 0)
+  // uniforms[2] = (dbMin, dbMax, wfSmooth, historyZoom)
   let dbMin    = uniforms[2].x;
   let dbMax    = uniforms[2].y;
   let wfSmooth = uniforms[2].z > 0.5;
+  let historyZoom = max(uniforms[2].w, 1.0);
 
-  // uniforms[3] = background RGBA
-  let bg = uniforms[3];
+  // uniforms[3] = immutable-history normalized pan
+  let historyPan = uniforms[3].x;
+
+  // uniforms[4] = background RGBA
+  let bg = uniforms[4];
 
   if (!inBounds) {
     return bg;
@@ -77,7 +81,14 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
   // Map display x → bin index
   // Use center-aligned sampling (px + 0.5) to avoid sub-pixel flickering
   let xCenter = xIn + 0.5;
-  let exactBin = xCenter * fTexW / max(plotW, 1.0);
+  let displayX = xCenter / max(plotW, 1.0);
+  let sourceX = 0.5 + (displayX - 0.5) / historyZoom;
+  let sampledSourceX = clamp(
+    sourceX + historyPan,
+    0.0,
+    1.0,
+  );
+  let exactBin = sampledSourceX * fTexW;
 
   var finalColor: vec4<f32>;
 
@@ -85,7 +96,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     // SMOOTH MODE: linear interpolation between adjacent bins
     let lenMinusOne = max(fTexW - 1.0, 1.0);
     // Scale xCenter to [0, lenMinusOne] range for interpolation
-    let exactIdx = xIn * lenMinusOne / max(plotW - 1.0, 1.0);
+    let exactIdx = sampledSourceX * lenMinusOne;
     let idxFloor = i32(floor(exactIdx));
     let idxCeil  = min(idxFloor + 1, texW - 1);
     let frac     = exactIdx - f32(idxFloor);

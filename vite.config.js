@@ -73,6 +73,28 @@ const styledComponentsFixPlugin = () => ({
   },
 });
 
+const rebuildStatusPlugin = () => ({
+  name: "n-apt-rebuild-status",
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const urlPath = req.url?.split("?")[0];
+      if (urlPath !== "/rebuild-status") {
+        next();
+        return;
+      }
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      const statusFile = path.resolve(dirname, ".rebuild_status.json");
+      if (fs.existsSync(statusFile)) {
+        res.end(fs.readFileSync(statusFile));
+      } else {
+        res.end(JSON.stringify({ rebuilding: false }));
+      }
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
@@ -87,6 +109,7 @@ export default defineConfig(({ mode }) => {
   plugins: [
     injectBrowserEnv(browserEnv),
     styledComponentsFixPlugin(),
+    rebuildStatusPlugin(),
     react({
       // Configure React Fast Refresh to handle styled-components better
       jsxRuntime: 'automatic',
@@ -99,7 +122,14 @@ export default defineConfig(({ mode }) => {
   ],
   optimizeDeps: {
     include: ['styled-components', 'react', 'react-dom'],
-    exclude: [],
+    // Heavy / route-lazy packages: keep out of cold Rolldown prebundle so
+    // Vite can serve the app before these are needed.
+    exclude: [
+      '@huggingface/transformers',
+      'elkjs',
+      'elkjs/lib/elk.bundled.js',
+    ],
+    holdUntilCrawlEnd: false,
   },
   ssr: {
     noExternal: ['styled-components'],
@@ -158,22 +188,6 @@ export default defineConfig(({ mode }) => {
     },
     fs: {
       allow: fsAllow,
-    },
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (req.url === '/rebuild-status') {
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          const statusFile = path.resolve(dirname, '.rebuild_status.json');
-          if (fs.existsSync(statusFile)) {
-            res.end(fs.readFileSync(statusFile));
-          } else {
-            res.end(JSON.stringify({ rebuilding: false }));
-          }
-        } else {
-          next();
-        }
-      });
     },
     proxy: {
       "/ws": {

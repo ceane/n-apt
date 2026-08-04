@@ -1,0 +1,571 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
+use tokio::sync::broadcast;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamMode {
+  Rx,
+  Tx,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamKey {
+  pub source_id: String,
+  pub mode: StreamMode,
+}
+
+impl StreamKey {
+  pub fn new(source_id: impl Into<String>, mode: StreamMode) -> Self {
+    Self {
+      source_id: source_id.into(),
+      mode,
+    }
+  }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RxStreamOptions {
+  pub center_frequency_hz: u64,
+  pub sample_rate_hz: u32,
+  pub fft_size: usize,
+  pub fft_window: Option<String>,
+  pub frame_rate: Option<u32>,
+  pub gain: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TxStreamOptions {
+  pub center_frequency_hz: u64,
+  pub sample_rate_hz: u32,
+  pub bandwidth_hz: u32,
+  pub signal: String,
+  pub power_dbm: f64,
+  pub ifft_size: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum StreamOptions {
+  Rx(RxStreamOptions),
+  Tx(TxStreamOptions),
+}
+
+impl StreamOptions {
+  fn mode(&self) -> StreamMode {
+    match self {
+      Self::Rx(_) => StreamMode::Rx,
+      Self::Tx(_) => StreamMode::Tx,
+    }
+  }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StreamFrame {
+  pub key: StreamKey,
+  pub stream_epoch: u64,
+  pub options_revision: u64,
+  pub sequence: u64,
+  pub timestamp: i64,
+  pub center_frequency_hz: Option<u64>,
+  pub sample_rate_hz: u32,
+  pub iq_data: Arc<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TxStreamPayload {
+  pub center_frequency_hz: u64,
+  pub sample_rate_hz: u32,
+  pub iq_data: Arc<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StreamEvent {
+  Opened {
+    key: StreamKey,
+    stream_epoch: u64,
+    options_revision: u64,
+    options: StreamOptions,
+  },
+  OptionsApplied {
+    key: StreamKey,
+    stream_epoch: u64,
+    options_revision: u64,
+    options: StreamOptions,
+  },
+  Frame(StreamFrame),
+  State {
+    key: StreamKey,
+    stream_epoch: u64,
+    options_revision: u64,
+    state: StreamState,
+    reason: Option<String>,
+  },
+  Error {
+    key: StreamKey,
+    stream_epoch: u64,
+    options_revision: u64,
+    code: String,
+    message: String,
+  },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamState {
+  Opening,
+  Ready,
+  Stopping,
+  Unavailable,
+  Error,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SourceStreamCapabilities {
+  pub can_receive: bool,
+  pub can_transmit: bool,
+  pub full_duplex: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StreamMetrics {
+  pub subscriber_count: usize,
+  pub accepted_frames: u64,
+  pub sequence: u64,
+  pub stream_epoch: u64,
+  pub options_revision: u64,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum StreamError {
+  InvalidOptions,
+  Capability(String),
+  Arbitration(String),
+  MissingStream,
+}
+
+impl StreamError {
+  pub fn code(&self) -> &'static str {
+    match self {
+      Self::InvalidOptions => "options",
+      Self::Capability(_) => "capability",
+      Self::Arbitration(_) => "arbitration",
+      Self::MissingStream => "missing_stream",
+    }
+  }
+}
+
+impl Display for StreamError {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::InvalidOptions => {
+        formatter.write_str("stream options do not match stream mode")
+      }
+      Self::Capability(message) | Self::Arbitration(message) => {
+        formatter.write_str(message)
+      }
+      Self::MissingStream => formatter.write_str("stream is not active"),
+    }
+  }
+}
+
+impl std::error::Error for StreamError {}
+
+struct StreamEntry {
+  options: StreamOptions,
+  stream_epoch: u64,
+  options_revision: u64,
+  sequence: u64,
+  accepted_frames: u64,
+  subscribers: usize,
+  close_generation: u64,
+  sender: broadcast::Sender<StreamEvent>,
+}
+
+struct ManagerInner {
+  streams: Mutex<HashMap<StreamKey, StreamEntry>>,
+  capabilities: Mutex<HashMap<String, SourceStreamCapabilities>>,
+  tx_payloads: Mutex<HashMap<StreamKey, TxStreamPayload>>,
+  next_epoch: AtomicU64,
+  next_subscription: AtomicU64,
+  no_subscriber_grace: Duration,
+}
+
+#[derive(Clone)]
+pub struct StreamingSourceModeManager {
+  inner: Arc<ManagerInner>,
+}
+
+pub struct StreamSubscription {
+  manager: Weak<ManagerInner>,
+  key: StreamKey,
+  subscription_id: u64,
+  receiver: broadcast::Receiver<StreamEvent>,
+  active: Arc<AtomicBool>,
+}
+
+impl StreamingSourceModeManager {
+  pub fn new(no_subscriber_grace: Duration) -> Self {
+    Self {
+      inner: Arc::new(ManagerInner {
+        streams: Mutex::new(HashMap::new()),
+        capabilities: Mutex::new(HashMap::new()),
+        tx_payloads: Mutex::new(HashMap::new()),
+        next_epoch: AtomicU64::new(1),
+        next_subscription: AtomicU64::new(1),
+        no_subscriber_grace,
+      }),
+    }
+  }
+
+  pub fn register_source(
+    &self,
+    source_id: impl Into<String>,
+    capabilities: SourceStreamCapabilities,
+  ) {
+    self
+      .inner
+      .capabilities
+      .lock()
+      .unwrap()
+      .insert(source_id.into(), capabilities);
+  }
+
+  pub fn subscribe(
+    &self,
+    key: StreamKey,
+    options: StreamOptions,
+  ) -> Result<StreamSubscription, StreamError> {
+    if key.source_id.trim().is_empty() || options.mode() != key.mode {
+      return Err(StreamError::InvalidOptions);
+    }
+    self.validate_capability(&key)?;
+
+    let mut streams = self.inner.streams.lock().unwrap();
+    if self.has_conflicting_mode(&key, &streams) {
+      return Err(StreamError::Arbitration(format!(
+        "source {} is already streaming the other half-duplex mode",
+        key.source_id
+      )));
+    }
+    if let Some(entry) = streams.get_mut(&key) {
+      if options.mode() != entry.options.mode() {
+        return Err(StreamError::InvalidOptions);
+      }
+      entry.close_generation = entry.close_generation.wrapping_add(1);
+      let receiver = entry.sender.subscribe();
+      if entry.options != options {
+        entry.options = options.clone();
+        entry.options_revision += 1;
+        entry.stream_epoch = self.next_epoch();
+        entry.sequence = 0;
+        let _ = entry.sender.send(StreamEvent::OptionsApplied {
+          key: key.clone(),
+          stream_epoch: entry.stream_epoch,
+          options_revision: entry.options_revision,
+          options,
+        });
+      }
+      entry.subscribers += 1;
+      return Ok(self.make_subscription(key, receiver, entry.subscribers));
+    }
+
+    let (sender, receiver) = broadcast::channel(32);
+    let stream_epoch = self.next_epoch();
+    let options_revision = 1;
+    streams.insert(
+      key.clone(),
+      StreamEntry {
+        options,
+        stream_epoch,
+        options_revision,
+        sequence: 0,
+        accepted_frames: 0,
+        subscribers: 1,
+        close_generation: 0,
+        sender,
+      },
+    );
+    Ok(self.make_subscription(key, receiver, 1))
+  }
+
+  fn make_subscription(
+    &self,
+    key: StreamKey,
+    receiver: broadcast::Receiver<StreamEvent>,
+    _subscriber_count: usize,
+  ) -> StreamSubscription {
+    StreamSubscription {
+      manager: Arc::downgrade(&self.inner),
+      key,
+      subscription_id: self
+        .inner
+        .next_subscription
+        .fetch_add(1, Ordering::Relaxed),
+      receiver,
+      active: Arc::new(AtomicBool::new(true)),
+    }
+  }
+
+  fn validate_capability(&self, key: &StreamKey) -> Result<(), StreamError> {
+    let capabilities = self
+      .inner
+      .capabilities
+      .lock()
+      .unwrap()
+      .get(&key.source_id)
+      .copied()
+      .unwrap_or(SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: true,
+      });
+    let allowed = match key.mode {
+      StreamMode::Rx => capabilities.can_receive,
+      StreamMode::Tx => capabilities.can_transmit,
+    };
+    if allowed {
+      Ok(())
+    } else {
+      Err(StreamError::Capability(format!(
+        "source {} does not support {:?} streaming",
+        key.source_id, key.mode
+      )))
+    }
+  }
+
+  fn has_conflicting_mode(
+    &self,
+    key: &StreamKey,
+    streams: &HashMap<StreamKey, StreamEntry>,
+  ) -> bool {
+    let capabilities = self
+      .inner
+      .capabilities
+      .lock()
+      .unwrap()
+      .get(&key.source_id)
+      .copied()
+      .unwrap_or(SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: true,
+      });
+    if capabilities.full_duplex {
+      return false;
+    }
+    streams.keys().any(|existing| {
+      existing.source_id == key.source_id && existing.mode != key.mode
+    })
+  }
+
+  fn next_epoch(&self) -> u64 {
+    self.inner.next_epoch.fetch_add(1, Ordering::Relaxed)
+  }
+
+  pub fn publish_iq_frame(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+  ) -> Result<StreamFrame, StreamError> {
+    self.publish_iq_frame_with_metadata(
+      key,
+      timestamp,
+      None,
+      sample_rate_hz,
+      iq_data,
+    )
+  }
+
+  pub fn publish_iq_frame_with_metadata(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+  ) -> Result<StreamFrame, StreamError> {
+    let mut streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
+    entry.sequence += 1;
+    entry.accepted_frames += 1;
+    let frame = StreamFrame {
+      key: key.clone(),
+      stream_epoch: entry.stream_epoch,
+      options_revision: entry.options_revision,
+      sequence: entry.sequence,
+      timestamp,
+      center_frequency_hz,
+      sample_rate_hz,
+      iq_data,
+    };
+    let _ = entry.sender.send(StreamEvent::Frame(frame.clone()));
+    Ok(frame)
+  }
+
+  pub fn options(&self, key: &StreamKey) -> Option<StreamOptions> {
+    self
+      .inner
+      .streams
+      .lock()
+      .unwrap()
+      .get(key)
+      .map(|entry| entry.options.clone())
+  }
+
+  pub fn metrics(&self, key: &StreamKey) -> Option<StreamMetrics> {
+    self
+      .inner
+      .streams
+      .lock()
+      .unwrap()
+      .get(key)
+      .map(|entry| StreamMetrics {
+        subscriber_count: entry.subscribers,
+        accepted_frames: entry.accepted_frames,
+        sequence: entry.sequence,
+        stream_epoch: entry.stream_epoch,
+        options_revision: entry.options_revision,
+      })
+  }
+
+  pub fn has_stream(&self, key: &StreamKey) -> bool {
+    self.inner.streams.lock().unwrap().contains_key(key)
+  }
+
+  pub fn set_tx_payload(
+    &self,
+    key: StreamKey,
+    center_frequency_hz: u64,
+    sample_rate_hz: u32,
+    iq_data: Vec<u8>,
+  ) {
+    self.inner.tx_payloads.lock().unwrap().insert(
+      key,
+      TxStreamPayload {
+        center_frequency_hz,
+        sample_rate_hz,
+        iq_data: Arc::new(iq_data),
+      },
+    );
+  }
+
+  pub fn tx_payload(&self, key: &StreamKey) -> Option<TxStreamPayload> {
+    self.inner.tx_payloads.lock().unwrap().get(key).cloned()
+  }
+
+  pub fn clear_tx_payload(&self, key: &StreamKey) {
+    self.inner.tx_payloads.lock().unwrap().remove(key);
+  }
+
+  pub fn update_options(
+    &self,
+    key: &StreamKey,
+    options: StreamOptions,
+  ) -> Result<(u64, u64), StreamError> {
+    if options.mode() != key.mode {
+      return Err(StreamError::InvalidOptions);
+    }
+    self.validate_capability(key)?;
+    let mut streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
+    if entry.options == options {
+      return Ok((entry.stream_epoch, entry.options_revision));
+    }
+    entry.options = options.clone();
+    entry.options_revision += 1;
+    entry.stream_epoch = self.next_epoch();
+    entry.sequence = 0;
+    let epoch = entry.stream_epoch;
+    let revision = entry.options_revision;
+    let _ = entry.sender.send(StreamEvent::OptionsApplied {
+      key: key.clone(),
+      stream_epoch: epoch,
+      options_revision: revision,
+      options,
+    });
+    Ok((epoch, revision))
+  }
+
+  fn unsubscribe(&self, key: &StreamKey, subscription_id: u64) {
+    let mut streams = self.inner.streams.lock().unwrap();
+    let Some(entry) = streams.get_mut(key) else {
+      return;
+    };
+    if entry.subscribers == 0 {
+      return;
+    }
+    entry.subscribers -= 1;
+    entry.close_generation = entry.close_generation.wrapping_add(1);
+    if entry.subscribers > 0 {
+      return;
+    }
+
+    let close_generation = entry.close_generation;
+    let delay = self.inner.no_subscriber_grace;
+    let weak = Arc::downgrade(&self.inner);
+    let key = key.clone();
+    log::debug!(
+      "stream subscriber {} released {:?}; scheduling close in {:?}",
+      subscription_id,
+      key,
+      delay
+    );
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+      handle.spawn(async move {
+        tokio::time::sleep(delay).await;
+        let Some(inner) = weak.upgrade() else {
+          return;
+        };
+        let mut streams = inner.streams.lock().unwrap();
+        let should_remove = streams.get(&key).is_some_and(|entry| {
+          entry.subscribers == 0 && entry.close_generation == close_generation
+        });
+        if should_remove {
+          streams.remove(&key);
+        }
+      });
+    }
+  }
+}
+
+impl StreamSubscription {
+  pub async fn recv(
+    &mut self,
+  ) -> Result<StreamEvent, broadcast::error::RecvError> {
+    self.receiver.recv().await
+  }
+
+  pub fn update_options(
+    &mut self,
+    options: StreamOptions,
+  ) -> Result<(), StreamError> {
+    let manager = self.manager.upgrade().ok_or(StreamError::MissingStream)?;
+    let manager = StreamingSourceModeManager { inner: manager };
+    manager.update_options(&self.key, options).map(|_| ())
+  }
+
+  pub fn unsubscribe(&self) {
+    if !self.active.swap(false, Ordering::AcqRel) {
+      return;
+    }
+    if let Some(inner) = self.manager.upgrade() {
+      StreamingSourceModeManager { inner }
+        .unsubscribe(&self.key, self.subscription_id);
+    }
+  }
+}
+
+impl Drop for StreamSubscription {
+  fn drop(&mut self) {
+    self.unsubscribe();
+  }
+}

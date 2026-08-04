@@ -100,7 +100,10 @@ export function hasNaptReceiveDefaults(
 }
 
 const isConnected = (source: CaptureSource) =>
-  source.status === "connected" || source.status === "streaming";
+  source.status === "connected" ||
+  source.status === "receiving" ||
+  source.status === "paused" ||
+  source.status === "streaming";
 
 /**
  * Selects a stable backend source ID for a CLI operation.
@@ -121,7 +124,10 @@ export function resolveRequestedDevice({
     const selected = sources.find((source) => source.id === requested);
     if (
       !selected ||
-      (selected.status !== "connected" && selected.status !== "streaming")
+      selected.status !== "connected" &&
+      selected.status !== "receiving" &&
+      selected.status !== "paused" &&
+      selected.status !== "streaming"
     ) {
       throw new Error(`Device '${requested}' is unavailable`);
     }

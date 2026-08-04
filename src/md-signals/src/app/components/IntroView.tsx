@@ -24,39 +24,33 @@ export function IntroView({ onComplete }: { onComplete: () => void }) {
   }, [onComplete]);
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-background">
+    <div className="relative w-full h-full min-h-0 overflow-hidden bg-background">
       {/* Triangle lattice background */}
       <TriangleLattice />
 
       {/* Sine waves */}
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-8">
         {[0, 1, 2].map((waveIndex) => (
-          <svg
+          <motion.svg
             key={waveIndex}
             className="w-full h-24"
             viewBox="0 0 1000 100"
             preserveAspectRatio="none"
+            animate={{ y: [0, 8, 0] }}
+            transition={{
+              duration: 3 + waveIndex * 0.5,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
           >
-            <motion.path
+            <path
               d="M0,50 Q125,0 250,50 T500,50 T750,50 T1000,50"
               fill="none"
               stroke="currentColor"
               strokeWidth="3"
               className={waveIndex === 0 ? 'text-foreground opacity-60' : waveIndex === 1 ? 'text-muted-foreground opacity-50' : 'text-foreground opacity-40'}
-              animate={{
-                d: [
-                  "M0,50 Q125,0 250,50 T500,50 T750,50 T1000,50",
-                  "M0,50 Q125,100 250,50 T500,50 T750,50 T1000,50",
-                  "M0,50 Q125,0 250,50 T500,50 T750,50 T1000,50",
-                ],
-              }}
-              transition={{
-                duration: 3 + waveIndex * 0.5,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
             />
-          </svg>
+          </motion.svg>
         ))}
       </div>
 
@@ -94,20 +88,9 @@ export function IntroView({ onComplete }: { onComplete: () => void }) {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 1, delay: 0.5 }}
       >
-        <h1 className="text-6xl font-bold text-foreground mb-4">Signal Processing</h1>
+        <h1 className="text-6xl font-bold text-foreground mb-4">All about signals!</h1>
         <p className="text-xl text-muted-foreground">Exploring the fundamentals of radio and digital signals</p>
       </motion.div>
-
-      {/* Skip button */}
-      <motion.button
-        className="absolute bottom-8 right-8 px-6 py-3 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 2 }}
-        onClick={onComplete}
-      >
-        Skip Intro
-      </motion.button>
     </div>
   );
 }

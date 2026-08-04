@@ -20,7 +20,23 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfallCanvas", () => {
-  it("renders the paused title and all waterfall layers", () => {
+  it("does not add standby text to the waterfall header", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          isStandby={true}
+          setWaterfallGpuCanvasNode={jest.fn()}
+          setWaterfallOverlayCanvasNode={jest.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
+    expect(screen.queryByText("Waterfall Display (Standby)")).not.toBeInTheDocument();
+  });
+
+  it("renders the paused bar without inline paused text", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
 
@@ -34,9 +50,9 @@ describe("FIFOWaterfallCanvas", () => {
       </ThemeProvider>,
     );
 
-    expect(
-      screen.getByText(/Waterfall Display \(Paused\)/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
+    expect(screen.queryByText(/\(Paused\)/i)).not.toBeInTheDocument();
     expect(
       container.querySelector("#fft-waterfall-canvas-webgpu"),
     ).toBeInTheDocument();

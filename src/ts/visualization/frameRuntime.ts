@@ -1,9 +1,11 @@
 import {
   liveDataBySourceRef,
   liveDataRef,
+  presentationController,
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import type { StreamMode } from "@n-apt/streams/sourceModeStreamManager";
 
 export interface FrameRuntime<T> {
   readonly ref: { current: T | null };
@@ -45,25 +47,64 @@ type LiveFrameRef = { current: any };
 const sourceFrameProxyRefs: Record<string, LiveFrameRef> = {};
 
 /** Return the presentation slot owned by a selected live source. */
-export const getLiveFrameRefForSource = (sourceId?: string | null) => {
-  if (!sourceId) return liveDataRef;
+export const getLiveFrameRefForSource = (
+  sourceId?: string | null,
+  mode?: StreamMode,
+) => {
+  if (!sourceId) {
+    const ctrlRef = presentationController.getPresentationRef();
+    if (ctrlRef.current) return ctrlRef;
+    return liveDataRef;
+  }
 
-  const existingProxy = sourceFrameProxyRefs[sourceId];
+  const proxyKey = `${sourceId}\0${mode ?? "active"}`;
+  const existingProxy = sourceFrameProxyRefs[proxyKey];
   if (existingProxy) return existingProxy;
 
   let fallbackRef: LiveFrameRef = { current: null };
   const proxy = {} as LiveFrameRef;
   const resolveSourceRef = (): LiveFrameRef => {
+    const effectiveMode = mode ?? presentationController.getSnapshot().active.mode;
+    // 1. Check presentationController active target first
+    const activeSnap = presentationController.getSnapshot();
+    if (
+      activeSnap.active.sourceId === sourceId ||
+      activeSnap.active.pendingSourceId === sourceId
+    ) {
+      if (!mode || activeSnap.active.mode === effectiveMode) {
+        const ctrlRef = presentationController.getPresentationRef(effectiveMode);
+        if (ctrlRef.current || presentationController.getSlot(sourceId, effectiveMode)) {
+          return ctrlRef;
+        }
+      }
+    }
+
+    // 2. Check only the requested source/mode slot. A source can retain both
+    // RX and TX presentation state, but a consumer must never cross that mode
+    // boundary while switching back to the source.
+    const slot = presentationController.getSlot(sourceId, effectiveMode);
+    if (slot) {
+      if (slot.frozenFrame) {
+        return { current: slot.frozenFrame.frame };
+      }
+      return slot.liveFrameRef;
+    }
+
+    // The legacy source-scoped fallback predates RX/TX slots. It is safe only
+    // when no mode was requested; otherwise it can hand an RX canvas a TX
+    // preview from the same physical source during a mode switch.
+    if (mode) return fallbackRef;
+
     const mappedRef = liveDataBySourceRef.current[sourceId];
-    if (mappedRef && mappedRef !== proxy) return mappedRef;
+    if (mappedRef && mappedRef !== proxy && mappedRef.current) return mappedRef;
 
     const runtimeRef = sourceVisualizationRuntime?.getSourceRef?.(sourceId);
-    if (runtimeRef) {
+    if (runtimeRef && runtimeRef.current) {
       liveDataBySourceRef.current[sourceId] = runtimeRef;
       fallbackRef = runtimeRef;
       return runtimeRef;
     }
-    return fallbackRef;
+    return mappedRef ?? runtimeRef ?? fallbackRef;
   };
 
   Object.defineProperty(proxy, "current", {
@@ -74,7 +115,7 @@ export const getLiveFrameRefForSource = (sourceId?: string | null) => {
       resolveSourceRef().current = value;
     },
   });
-  sourceFrameProxyRefs[sourceId] = proxy;
+  sourceFrameProxyRefs[proxyKey] = proxy;
   resolveSourceRef();
   return proxy;
 };

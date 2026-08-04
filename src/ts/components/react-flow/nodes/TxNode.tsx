@@ -63,7 +63,7 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
   const toggleTransmit = React.useCallback(() => {
     const device = transmitSource?.name ?? transmitSourceId;
     if (!device) return;
-    wsConnection.sendTransmitMode?.(!isTransmitting, device, {
+    wsConnection.sendTransmitStatus?.(!isTransmitting, device, {
       serialNumber: transmitSource?.serial_number ?? transmitSourceId,
       centerFrequencyHz: tx.txCenterFrequencyHz,
       bandwidthHz: tx.txSampleRateHz,

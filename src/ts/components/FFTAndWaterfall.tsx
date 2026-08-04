@@ -232,31 +232,45 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       (hasIncomingData &&
         (props.presentationPolicy?.suppressStaleFrames === true ||
           props.presentationPolicy?.preserveMatchingPresentation === true));
+    // When SpectrumRoute supplies a presentationPolicy, liveSourceLifecycle is
+    // the placeholder authority. Canvas layers only render that decision.
+    const lifecycleOwnsPlaceholders = props.presentationPolicy != null;
     const placeholderErrorReason = useMemo(() => {
       if (props.placeholderErrorReason) {
         return props.placeholderErrorReason;
       }
-      if (sourceMode === "live") {
-        if (
-          shouldShowLiveServerDownPlaceholder({
-            isConnected: wsState.isConnected,
-            connectionStatus: wsState.connectionStatus,
-            hasConnectedOnce: wsState.hasConnectedOnce === true,
-            sourceStreamReady,
-            sourceHandoffPending:
-              props.presentationPolicy?.suppressStaleFrames === true,
-            sourceTransportPhase: wsState.sourceTransport?.phase,
-          })
-        ) {
-          return "Server down";
-        }
-        if (wsState.cryptoCorrupted) {
-          return "Crypto Corrupted";
-        }
+      if (
+        props.placeholderState?.kind === "error" &&
+        props.placeholderState.reason
+      ) {
+        return props.placeholderState.reason;
+      }
+      if (sourceMode === "live" && wsState.cryptoCorrupted) {
+        return "Crypto Corrupted";
+      }
+      if (lifecycleOwnsPlaceholders) {
+        return null;
+      }
+      // Unit-test / non-route fallback only — production live path uses lifecycle.
+      if (
+        sourceMode === "live" &&
+        shouldShowLiveServerDownPlaceholder({
+          isConnected: wsState.isConnected,
+          connectionStatus: wsState.connectionStatus,
+          hasConnectedOnce: wsState.hasConnectedOnce === true,
+          sourceStreamReady,
+          sourceHandoffPending:
+            props.presentationPolicy?.suppressStaleFrames === true,
+          sourceTransportPhase: wsState.sourceTransport?.phase,
+        })
+      ) {
+        return "Server down";
       }
       return null;
     }, [
       props.placeholderErrorReason,
+      props.placeholderState,
+      lifecycleOwnsPlaceholders,
       sourceMode,
       wsState.isConnected,
       wsState.connectionStatus,
@@ -292,27 +306,23 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       awaitingDeviceData ||
       placeholderErrorReason ||
       (props.placeholderState && props.placeholderState.kind !== "top-bar") ||
-      (sourceMode === "live" &&
-        !props.isPaused &&
-        !props.isStandby &&
-        !hasLiveFrame)
+      // Standby top-bar is not a full-canvas cover. If there is no live frame
+      // yet, still treat the visualizer as loading so we never sit on black.
+      (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
     );
 
     const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
       ? placeholderErrorReason
         ? false
         : awaitingDeviceData ||
-          (sourceMode === "live" &&
-            !props.isPaused &&
-            !props.isStandby &&
-            !hasLiveFrame)
+          (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
-      // Connection and device errors are authoritative. Do not let a stale
-      // standby/loading presentation mask the server-disconnected state.
-      if (placeholderErrorReason) return null;
+      // Lifecycle-attached placeholder is authoritative (including Server Down).
       if (props.placeholderState) return props.placeholderState;
+      if (lifecycleOwnsPlaceholders) return null;
+      if (placeholderErrorReason) return null;
       if (!sharedAwaitingDeviceData) return null;
       return {
         kind: "loading" as const,
@@ -324,6 +334,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             : undefined,
       };
     }, [
+      lifecycleOwnsPlaceholders,
       placeholderErrorReason,
       props.placeholderSourceLabel,
       props.placeholderState,

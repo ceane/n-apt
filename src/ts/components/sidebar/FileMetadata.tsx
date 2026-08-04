@@ -356,7 +356,9 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
         </MetadataGrid>
       ) : (
         <MetadataEmptyBox>
-          No extended metadata available for this file type.
+          {_selectedNaptFile
+            ? "No extended metadata available for this file type."
+            : "No file currently selected"}
         </MetadataEmptyBox>
       )}
     </>

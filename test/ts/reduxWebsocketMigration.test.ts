@@ -16,14 +16,18 @@ import {
   shouldResendRetuneRequest,
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
-  buildSourceIqWebSocketUrl,
-  shouldAcceptSourceIqSocketMessage,
   normalizeFrequencyRangeMessageData,
   resolveIncomingChannelsFrequencyRange,
   isSourceModePaused,
-  shouldOpenSourceIqSocket,
   resolveTxPreviewSourceId,
-  buildTxPreviewRequestPayload,
+  resolveOptimisticTransmitStatus,
+  applyOptimisticTxPreviewState,
+  resolveRxFrameToRestore,
+  isBoundTxPreviewStandby,
+  preserveTransmittingSourceStatuses,
+  normalizeManagedStreamFrame,
+  shouldSyncManagedStreamOptions,
+  resolveManagedTxSourceId,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -35,11 +39,67 @@ import {
 import spectrumSlice, {
   setTxGeometry,
 } from "@n-apt/redux/slices/spectrumSlice";
+import sourceRoutingSlice, {
+  setSourceBinding,
+} from "@n-apt/redux/slices/sourceRoutingSlice";
+import sourceSelectionSlice, {
+  setSelectedSourceId,
+} from "@n-apt/redux/slices/sourceSelectionSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
 import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
 import { waitFor } from "@testing-library/react";
 import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
+import { bytesToBase64 } from "@n-apt/crypto/webcrypto";
+
+describe("managed stream option synchronization", () => {
+  it("does not reconfigure the stream for a live frequency-range drag", () => {
+    expect(shouldSyncManagedStreamOptions("spectrum/setFrequencyRange")).toBe(
+      false,
+    );
+    expect(shouldSyncManagedStreamOptions("spectrum/setTxGeometry")).toBe(
+      true,
+    );
+  });
+
+  it("opens a managed Tx stream for selected Mock Tx standby preview delivery", () => {
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            kind: "mock_tx",
+            capability: "tx",
+            status: "standby",
+          },
+        ],
+        sourceStatuses: { "mock-tx": "standby" },
+        sourceSelection: { selectedSourceId: "mock-tx" },
+        sourceRouting: { bindings: { "tx-suite:tx": "mock-tx" } },
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("opens a managed Tx stream while actively transmitting", () => {
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "mock-tx",
+        sources: [
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            capability: "tx",
+            status: "transmitting",
+          },
+        ],
+        sourceStatuses: { "mock-tx": "transmitting" },
+        sourceRouting: { bindings: {} },
+      }),
+    ).toBe("mock-tx");
+  });
+});
 
 const decodeIqFrameEnvelope = (
   websocketMiddlewareExports as typeof websocketMiddlewareExports & {
@@ -55,7 +115,7 @@ const decodeIqFrameEnvelope = (
 
 const buildV2IqEnvelope = () => {
   const sourceId = new TextEncoder().encode("rtl-sdr-v4");
-  const headerLength = 52 + sourceId.length;
+  const headerLength = 56 + sourceId.length;
   const bytes = new Uint8Array(headerLength + 3);
   bytes.set(new TextEncoder().encode("NAPT"), 0);
   const view = new DataView(bytes.buffer);
@@ -63,17 +123,204 @@ const buildV2IqEnvelope = () => {
   view.setUint8(5, 0);
   view.setUint16(6, headerLength, true);
   view.setUint16(8, sourceId.length, true);
-  view.setUint16(10, 0, true);
-  view.setBigUint64(12, 7n, true);
-  view.setBigUint64(20, 11n, true);
-  view.setBigUint64(28, 1234n, true);
-  view.setBigUint64(36, 137_100_000n, true);
-  view.setUint32(44, 1, true);
-  view.setUint32(48, 2_400_000, true);
-  bytes.set(sourceId, 52);
+  view.setUint8(10, 0);
+  view.setBigUint64(16, 7n, true);
+  view.setBigUint64(24, 11n, true);
+  view.setBigUint64(32, 1234n, true);
+  view.setBigUint64(40, 137_100_000n, true);
+  view.setUint32(48, 1, true);
+  view.setUint32(52, 2_400_000, true);
+  bytes.set(sourceId, 56);
   bytes.set([9, 8, 7], headerLength);
   return bytes.buffer;
 };
+
+describe("Tx preview source state", () => {
+  it("marks a manager Tx frame as a standby preview while Tx is idle", () => {
+    const iqData = new Uint8Array([128, 129, 127, 130]);
+    const frame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      source_id: "mock-tx",
+      protocol_version: 2 as const,
+      stream_epoch: 3,
+      sequence: 8,
+      frame_status: "transmitting" as const,
+      iq_data: iqData,
+    };
+
+    const normalized = normalizeManagedStreamFrame({
+      frame,
+      mode: "tx",
+      sourceStatus: "standby",
+    });
+
+    expect(normalized).toMatchObject({
+      frame_status: "standby",
+      is_tx_preview: true,
+      is_mock_tx_preview: true,
+    });
+    expect(normalized.iq_data).toBe(iqData);
+  });
+
+  it("records the first accepted stream frame as source readiness", () => {
+    jest.useFakeTimers();
+    try {
+      const readinessStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }),
+      });
+      readinessStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "rtl-sdr-v4",
+          sources: [
+            {
+              id: "rtl-sdr-v4",
+              name: "RTL-SDR v4",
+              kind: "rtl_sdr",
+              capability: "rx",
+              status: "receiving",
+              loading_attempt: 0,
+              loading_attempt_max: 0,
+              supports_approx_dbm: false,
+              sdr: {
+                max_sample_rate: 2_400_000,
+                sample_rate_options: [2_400_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 2_400_000,
+                  center_frequency: 137_100_000,
+                },
+              },
+            },
+          ],
+          sourceStatuses: { "rtl-sdr-v4": "receiving" },
+          isPaused: false,
+        }),
+      );
+
+      const frame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "rtl-sdr-v4",
+        stream_epoch: 4,
+        sequence: 11,
+        center_frequency_hz: 137_100_000,
+        sample_rate: 2_400_000,
+        iq_data: new Uint8Array([128, 129, 127, 130]),
+      };
+      __testQueueLiveDataForMiddleware(
+        frame,
+        readinessStore.dispatch as any,
+        readinessStore.getState as any,
+      );
+
+      jest.runOnlyPendingTimers();
+
+      expect(readinessStore.getState().websocket.sourceFrameReadiness).toEqual({
+        sourceId: "rtl-sdr-v4",
+        streamEpoch: 4,
+        sequence: 11,
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("returns a standby source to receiving when its Tx binding is cleared", () => {
+    const source = {
+      id: "hackrf-1",
+      capability: "tx_rx",
+      status: "standby",
+      duplex_mode: "half_duplex",
+    } as any;
+
+    expect(
+      resolveOptimisticTransmitStatus({
+        enabled: false,
+        source,
+        txBindingSourceId: null,
+      }),
+    ).toBe("receiving");
+    expect(
+      resolveOptimisticTransmitStatus({
+        enabled: false,
+        source,
+        txBindingSourceId: source.id,
+      }),
+    ).toBe("standby");
+  });
+
+  it("keeps a transmitting source transmitting across an unrelated source switch", () => {
+    const previousSources = [
+      { id: "mock-tx", status: "transmitting" },
+      { id: "rtl-sdr-v4", status: "connected" },
+    ];
+    const incomingSources = [
+      { id: "mock-tx", status: "connected" },
+      { id: "rtl-sdr-v4", status: "receiving" },
+    ];
+
+    expect(
+      preserveTransmittingSourceStatuses(previousSources as any, incomingSources as any),
+    ).toEqual([
+      { id: "mock-tx", status: "transmitting" },
+      { id: "rtl-sdr-v4", status: "receiving" },
+    ]);
+  });
+
+  it("marks the bound source as paused Tx standby immediately", () => {
+    const sources = [
+      {
+        id: "hackrf-1",
+        name: "HackRF One",
+        capability: "tx_rx",
+        status: "streaming",
+        paused: false,
+      },
+    ] as any;
+
+    expect(applyOptimisticTxPreviewState(sources, "hackrf-1")).toEqual([
+      expect.objectContaining({
+        id: "hackrf-1",
+        status: "standby",
+        paused: true,
+      }),
+    ]);
+  });
+
+  it("restores the cached Rx frame for the source leaving Tx preview", () => {
+    const rxFrame = {
+      source_id: "hackrf-1",
+      sequence: 12,
+      waveform: new Float32Array([1, 2, 3]),
+    } as any;
+
+    expect(resolveRxFrameToRestore(rxFrame, "hackrf-1")).toBe(rxFrame);
+    expect(resolveRxFrameToRestore(rxFrame, "rtl-sdr-1")).toBeNull();
+  });
+
+  it("recognizes a bound hardware source in Tx preview standby", () => {
+    expect(
+      isBoundTxPreviewStandby({
+        activeSourceId: "hackrf-1",
+        boundTxSourceId: "hackrf-1",
+        sourceStatus: "standby",
+      }),
+    ).toBe(true);
+    expect(
+      isBoundTxPreviewStandby({
+        activeSourceId: "hackrf-1",
+        boundTxSourceId: "hackrf-1",
+        sourceStatus: "streaming",
+      }),
+    ).toBe(false);
+  });
+});
 
 // Mock WebSocket to prevent actual connections
 global.WebSocket = jest.fn(() => ({
@@ -96,29 +343,6 @@ Object.assign(global.WebSocket, {
 });
 
 describe("Redux WebSocket Migration", () => {
-  it("builds Tx preview requests with independent Tx and VFO centers", () => {
-    expect(
-      buildTxPreviewRequestPayload({
-        spectrum: {
-          txCenterFrequencyHz: 2_204_000,
-          txSampleRateHz: 1_000_000,
-          txPowerDbm: 9,
-          txSignal: "wifi",
-          txIfftSize: 65_536,
-          frequencyRange: { min: 1_000_000, max: 5_000_000 },
-        },
-      }),
-    ).toEqual({
-      type: "request_next_frame",
-      centerFrequencyHz: 2_204_000,
-      viewCenterHz: 3_000_000,
-      bandwidthHz: 1_000_000,
-      sample_rate: 4_000_000,
-      powerDbm: 9,
-      txSignal: "wifi",
-      txIfftSize: 65_536,
-    });
-  });
 
   it("does not fall back to Tx preview for a paused half-duplex Rx source", () => {
     expect(
@@ -131,16 +355,12 @@ describe("Redux WebSocket Migration", () => {
             kind: "hackrf_one",
             capability: "tx_rx",
             duplex_mode: "half_duplex",
-            status: "standby",
+            status: "paused",
             paused: true,
           },
         ],
       }),
     ).toBeNull();
-  });
-
-  it("opens the Mock Tx source-IQ socket while its source is on standby", () => {
-    expect(shouldOpenSourceIqSocket("standby")).toBe(true);
   });
 
   let store: ReturnType<typeof configureStore>;
@@ -160,16 +380,6 @@ describe("Redux WebSocket Migration", () => {
   it("treats a live server-selected source as resumed", () => {
     expect(isSourceModePaused("live")).toBe(false);
     expect(isSourceModePaused("file")).toBe(true);
-  });
-
-  it("rejects a late frame from the source socket replaced by a switch", () => {
-    expect(
-      shouldAcceptSourceIqSocketMessage({
-        socketIsCurrent: false,
-        socketSourceId: "hackrf-one",
-        activeSourceId: "rtl-sdr-v4",
-      }),
-    ).toBe(false);
   });
 
   beforeEach(() => {
@@ -222,6 +432,7 @@ describe("Redux WebSocket Migration", () => {
           center_frequency_hz: 137_100_000,
           data_type: 1,
           sample_rate: 2_400_000,
+          frame_status: "receiving",
         },
         encryptedPayload: new Uint8Array([9, 8, 7]),
       });
@@ -254,41 +465,16 @@ describe("Redux WebSocket Migration", () => {
       ).toThrow(/header/i);
 
       const zeroSampleRate = new Uint8Array(buildV2IqEnvelope());
-      new DataView(zeroSampleRate.buffer).setUint32(48, 0, true);
+      new DataView(zeroSampleRate.buffer).setUint32(52, 0, true);
       expect(() =>
         decodeIqFrameEnvelope?.(zeroSampleRate.buffer, "rtl-sdr-v4"),
       ).toThrow(/sample rate/i);
 
       const wrongDataType = new Uint8Array(buildV2IqEnvelope());
-      new DataView(wrongDataType.buffer).setUint32(44, 99, true);
+      new DataView(wrongDataType.buffer).setUint32(48, 99, true);
       expect(() =>
         decodeIqFrameEnvelope?.(wrongDataType.buffer, "rtl-sdr-v4"),
       ).toThrow(/data type/i);
-    });
-
-    it("builds per-source IQ WebSocket URLs from stream keys", () => {
-      expect(
-        buildSourceIqWebSocketUrl(
-          "ws://localhost:5173/ws?token=session-token",
-          {
-            id: "rtl-sdr-0",
-            stream_key: "00000001",
-            stream_key_kind: "serial",
-          } as any,
-        ),
-      ).toBe("ws://localhost:5173/ws/source/00000001/iq?token=session-token");
-    });
-
-    it("negotiates v2 only when the source advertises it", () => {
-      expect(
-        buildSourceIqWebSocketUrl("ws://localhost/ws?token=session-token", {
-          id: "rtl-sdr-v4",
-          stream_key: "00000001",
-          iq_stream_protocols: [1, 2],
-        }),
-      ).toBe(
-        "ws://localhost/ws/source/00000001/iq?token=session-token&iq_protocol=2",
-      );
     });
 
     it("accepts active Mock Tx monitor frames while the visualizer is paused", async () => {
@@ -377,7 +563,7 @@ describe("Redux WebSocket Migration", () => {
                 name: "Mock Tx SDR",
                 kind: "mock_tx",
                 capability: "tx",
-                status: "connected",
+                status: "standby",
                 sdr: {
                   max_sample_rate: 2_400_000,
                   sample_rate_options: [2_400_000],
@@ -389,7 +575,7 @@ describe("Redux WebSocket Migration", () => {
                 },
               },
             ],
-            sourceStatuses: { "mock-tx": "connected" },
+            sourceStatuses: { "mock-tx": "standby" },
           },
         });
 
@@ -414,7 +600,146 @@ describe("Redux WebSocket Migration", () => {
       }
     });
 
-    it("accepts exactly one requested Mock Tx standby preview frame", async () => {
+    it("accepts a tagged Mock Tx standby frame while status is catching up", () => {
+      jest.useFakeTimers();
+      try {
+        const middlewareStore = configureStore({
+          reducer: {
+            websocket: websocketSlice,
+            spectrum: spectrumSlice,
+          },
+          middleware: (getDefaultMiddleware) =>
+            getDefaultMiddleware({ serializableCheck: false }),
+        });
+        middlewareStore.dispatch({
+          type: "websocket/updateDeviceState",
+          payload: {
+            isPaused: false,
+            activeSourceId: "mock-tx",
+            sources: [
+              {
+                id: "mock-tx",
+                name: "Mock Tx SDR",
+                kind: "mock_tx",
+                capability: "tx",
+                status: "connected",
+                sdr: {
+                  max_sample_rate: 2_400_000,
+                  sample_rate_options: [2_400_000],
+                  fft_display: { markers: [] },
+                  settings: {
+                    sample_rate: 2_400_000,
+                    center_frequency: 137_100_000,
+                  },
+                },
+              },
+            ],
+            sourceStatuses: { "mock-tx": "connected" },
+          },
+        });
+
+        __testQueueLiveDataForMiddleware(
+          {
+            type: "spectrum",
+            frame_status: "standby",
+            is_tx_preview: true,
+            source_id: "mock-tx",
+            center_frequency_hz: 137_100_000,
+            sample_rate: 2_400_000,
+            iq_data: new Uint8Array([128, 129, 127, 126]),
+          },
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+        jest.advanceTimersByTime(16);
+
+        expect(liveDataRef.current).toMatchObject({
+          source_id: "mock-tx",
+          frame_status: "standby",
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("routes a selected secondary Tx standby frame while Rx remains active", () => {
+      jest.useFakeTimers();
+      try {
+        const middlewareStore = configureStore({
+          reducer: {
+            websocket: websocketSlice,
+            spectrum: spectrumSlice,
+            sourceRouting: sourceRoutingSlice,
+            sourceSelection: sourceSelectionSlice,
+          },
+          middleware: (getDefaultMiddleware) =>
+            getDefaultMiddleware({ serializableCheck: false }),
+        });
+
+        middlewareStore.dispatch(
+          updateDeviceState({
+            isPaused: false,
+            activeSourceId: "mock-apt",
+            sources: [
+              {
+                id: "mock-apt",
+                name: "Mock APT SDR",
+                kind: "mock_apt",
+                capability: "rx",
+                status: "receiving",
+              } as any,
+              {
+                id: "mock-tx",
+                name: "Mock Tx SDR",
+                kind: "mock_tx",
+                capability: "tx",
+                status: "standby",
+              } as any,
+            ],
+            sourceStatuses: {
+              "mock-apt": "receiving",
+              "mock-tx": "standby",
+            },
+          }),
+        );
+        middlewareStore.dispatch(setSelectedSourceId("mock-tx"));
+        middlewareStore.dispatch(
+          setSourceBinding({
+            group: "tx-suite",
+            role: "tx",
+            sourceId: "mock-tx",
+          }),
+        );
+
+        const frame = {
+          type: "spectrum" as const,
+          data_type: "iq_raw" as const,
+          source_id: "mock-tx",
+          frame_status: "standby" as const,
+          is_tx_preview: true,
+          stream_epoch: 4,
+          sequence: 9,
+          center_frequency_hz: 137_100_000,
+          sample_rate: 2_400_000,
+          iq_data: new Uint8Array([128, 129, 127, 126]),
+        };
+        __testQueueLiveDataForMiddleware(
+          frame,
+          middlewareStore.dispatch as any,
+          middlewareStore.getState as any,
+        );
+        jest.advanceTimersByTime(16);
+
+        expect(liveDataRef.current).toMatchObject({
+          source_id: "mock-tx",
+          frame_status: "standby",
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("keeps the latest Mock Tx standby preview frame", async () => {
       jest.useFakeTimers();
       try {
         const middlewareStore = configureStore({
@@ -459,7 +784,7 @@ describe("Redux WebSocket Migration", () => {
                 name: "Mock Tx SDR",
                 kind: "mock_tx",
                 capability: "tx",
-                status: "connected",
+                status: "standby",
                 sdr: {
                   max_sample_rate: 2_400_000,
                   sample_rate_options: [2_400_000],
@@ -471,17 +796,13 @@ describe("Redux WebSocket Migration", () => {
                 },
               },
             ],
-            sourceStatuses: { "mock-tx": "connected" },
+            sourceStatuses: { "mock-tx": "standby" },
           },
         });
-        middlewareStore.dispatch({
-          type: "websocket/sendMessage",
-          payload: { type: "request_next_frame", data: {} },
-        });
-
         const firstFrame = {
           type: "spectrum",
           data_type: "iq_raw",
+          frame_status: "standby",
           center_frequency_hz: 137_100_000,
           sample_rate: 2_400_000,
           iq_data: new Uint8Array([128, 128, 129, 127]),
@@ -504,14 +825,14 @@ describe("Redux WebSocket Migration", () => {
         );
         jest.advanceTimersByTime(16);
 
-        expect(liveDataRef.current).toEqual(firstFrame);
+        expect(liveDataRef.current).toEqual(secondFrame);
         expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
       } finally {
         jest.useRealTimers();
       }
     });
 
-    it("sends an active Mock Tx preview request through its source-IQ socket", () => {
+    it("subscribes an active Mock Tx through the multiplexed stream socket", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
         const socket = {
@@ -558,12 +879,12 @@ describe("Redux WebSocket Migration", () => {
               name: "Mock Tx SDR",
               kind: "mock_tx",
               capability: "tx",
-              status: "connected",
+              status: "transmitting",
               iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
               stream_key: "mock-tx",
             },
           ],
-          sourceStatuses: { "mock-tx": "connected" },
+          sourceStatuses: { "mock-tx": "transmitting" },
         } as any),
       );
 
@@ -573,12 +894,17 @@ describe("Redux WebSocket Migration", () => {
       sourceSocket.readyState = WebSocket.OPEN;
       controlSocket.readyState = WebSocket.OPEN;
       sourceSocket.onopen?.();
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(sourceSocket.send).toHaveBeenCalledWith(
-        expect.stringContaining('"type":"request_next_frame"'),
+        expect.stringContaining('"type":"stream_subscribe"'),
+      );
+      expect(sourceSocket.send).toHaveBeenCalledWith(
+        expect.stringContaining('"mode":"tx"'),
       );
       expect(controlSocket.send).not.toHaveBeenCalledWith(
-        expect.stringContaining('"type":"request_next_frame"'),
+        expect.stringContaining('"type":"stream_subscribe"'),
       );
 
       sourceSocket.send.mockClear();
@@ -603,11 +929,12 @@ describe("Redux WebSocket Migration", () => {
           }),
         );
 
-        expect(sourceSocket.send).not.toHaveBeenCalled();
-        jest.runOnlyPendingTimers();
-        expect(sourceSocket.send).toHaveBeenCalledTimes(1);
+        expect(sourceSocket.send).toHaveBeenCalled();
         expect(sourceSocket.send).toHaveBeenCalledWith(
-          expect.stringContaining('"centerFrequencyHz":2200000'),
+          expect.stringContaining('"type":"stream_update_options"'),
+        );
+        expect(sourceSocket.send).toHaveBeenCalledWith(
+          expect.stringContaining('"centerFrequencyHz":2000000'),
         );
       } finally {
         jest.useRealTimers();
@@ -618,6 +945,7 @@ describe("Redux WebSocket Migration", () => {
         type: "spectrum",
         data_type: "iq_raw",
         source_id: "mock-tx",
+        frame_status: "transmitting",
         center_frequency_hz: 137_100_000,
         sample_rate: 2_400_000,
         iq_data: new Uint8Array([128, 128, 129, 127]),
@@ -630,10 +958,130 @@ describe("Redux WebSocket Migration", () => {
           middlewareStore.getState as any,
         );
         jest.advanceTimersByTime(16);
-        expect(liveDataRef.current).toEqual(previewFrame);
+        expect(liveDataRef.current).toEqual([previewFrame]);
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it("delivers an encrypted RX stream frame into the live FFT frame path", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
+        const socket = {
+          readyState: sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
+          close: jest.fn(),
+          send: jest.fn(),
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn(),
+          dispatchEvent: jest.fn(),
+          onopen: null,
+          onclose: null,
+          onerror: null,
+          onmessage: null,
+        };
+        sockets.push(socket);
+        return socket;
+      });
+
+      const rawKey = new Uint8Array(32).fill(7);
+      const aesKey = await crypto.subtle.importKey(
+        "raw",
+        rawKey,
+        { name: "AES-GCM" },
+        false,
+        ["encrypt", "decrypt"],
+      );
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws",
+          aesKey,
+          enabled: true,
+        },
+      });
+      sockets[0]?.onopen?.();
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "mock-apt",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "receiving",
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
+              stream_key: "mock-apt",
+              sdr: {
+                settings: {
+                  center_frequency: 137_100_000,
+                  sample_rate: 2_400_000,
+                  fft_size: 1024,
+                },
+              },
+            },
+          ],
+          sourceStatuses: { "mock-apt": "receiving" },
+        } as any),
+      );
+
+      expect(sockets.length).toBeGreaterThanOrEqual(2);
+      const sourceSocket = sockets[1];
+      sourceSocket.readyState = WebSocket.OPEN;
+      sourceSocket.onopen?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const iv = new Uint8Array(12).fill(3);
+      const plaintext = new Uint8Array([128, 128, 129, 127]);
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        aesKey,
+        plaintext,
+      );
+      const encryptedPayload = new Uint8Array(iv.length + ciphertext.byteLength);
+      encryptedPayload.set(iv);
+      encryptedPayload.set(new Uint8Array(ciphertext), iv.length);
+
+      sourceSocket.onmessage?.({
+        data: JSON.stringify({
+          type: "stream_frame",
+          sourceId: "mock-apt",
+          mode: "rx",
+          streamEpoch: 1,
+          optionsRevision: 1,
+          sequence: 1,
+          timestamp: 1234,
+          centerFrequencyHz: 137_100_000,
+          sampleRateHz: 2_400_000,
+          iqData: bytesToBase64(encryptedPayload),
+        }),
+      });
+
+      await waitFor(() => {
+        expect(liveDataRef.current).toEqual([
+          expect.objectContaining({
+            source_id: "mock-apt",
+            sequence: 1,
+            iq_data: new Uint8Array([128, 128, 129, 127]),
+          }),
+        ]);
+      });
     });
 
     it("clears stale live spectrum caches immediately when disconnecting", () => {
@@ -833,7 +1281,7 @@ describe("Redux WebSocket Migration", () => {
       expect(websocketState.spectrumFrames).toEqual([]);
     });
 
-    it("opens a per-source IQ WebSocket after source_info activates a raw-IQ source", async () => {
+    it("opens the multiplexed stream WebSocket after source_info activates a raw-IQ source", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -915,11 +1363,11 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
-    it("opens a per-source IQ WebSocket when reconnect reuses an open control socket", async () => {
+    it("reuses the multiplexed stream WebSocket when reconnect reuses control", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1000,11 +1448,11 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/00000001/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
-    it("opens a per-source IQ WebSocket when the control socket opens after source state is already ready", async () => {
+    it("opens the multiplexed stream WebSocket when control opens after source state", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1086,11 +1534,11 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/00000001/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
-    it("waits for the control socket to open before opening a per-source IQ WebSocket", async () => {
+    it("waits for the control socket to open before opening the multiplexed stream WebSocket", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1171,7 +1619,7 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toEqual([
-        "ws://localhost/ws?token=session-token&iq_protocol=2",
+        "ws://localhost/ws?token=session-token",
       ]);
 
       sockets[0].readyState = WebSocket.OPEN;
@@ -1180,11 +1628,11 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/00000001/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
-    it("retargets the per-source IQ WebSocket when active source state changes", async () => {
+    it("retargets the logical stream subscription when active source changes", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1265,11 +1713,11 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/00000001/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
-    it("preconnects a requested source and restores the active transport when the switch fails", async () => {
+    it("preconnects a requested logical stream and restores active transport on failure", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1352,7 +1800,7 @@ describe("Redux WebSocket Migration", () => {
       });
 
       expect(sockets.map((socket) => socket.url)).toContain(
-        "ws://localhost/ws/source/mock-tx/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
       expect(middlewareStore.getState().websocket.activeSourceId).toBe(
         "mock-apt",
@@ -1378,7 +1826,7 @@ describe("Redux WebSocket Migration", () => {
       });
 
       expect(sockets[sockets.length - 1]?.url).toBe(
-        "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+        "ws://localhost/ws/streams?token=session-token",
       );
       expect(middlewareStore.getState().websocket.sourceTransport).toEqual({
         sourceId: "mock-tx",
@@ -1491,7 +1939,7 @@ describe("Redux WebSocket Migration", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 25));
 
-      expect(mockIqSocket.close).toHaveBeenCalledTimes(1);
+      expect(mockIqSocket.close).not.toHaveBeenCalled();
       expect(liveDataRef.current).toBeNull();
       expect(middlewareStore.getState().websocket.activeSourceId).toBe(
         "rtl-sdr-v4",
@@ -1512,8 +1960,9 @@ describe("Redux WebSocket Migration", () => {
       expect(
         middlewareStore.getState().websocket.sourceStatuses["rtl-sdr-v4"],
       ).toBe("streaming");
-      expect(sockets[2].url).toBe(
-        "ws://localhost/ws/source/rtl-v4/iq?token=session-token",
+      expect(sockets).toHaveLength(2);
+      expect(sockets[1].url).toBe(
+        "ws://localhost/ws/streams?token=session-token",
       );
     });
 
@@ -1616,7 +2065,7 @@ describe("Redux WebSocket Migration", () => {
       );
     });
 
-    it("optimistically reflects tx_mode sends in source status before backend echo", async () => {
+    it("optimistically reflects transmit status sends before backend echo", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1698,9 +2147,9 @@ describe("Redux WebSocket Migration", () => {
       middlewareStore.dispatch({
         type: "websocket/sendMessage",
         payload: {
-          type: "tx_mode",
+          type: "status",
           data: {
-            active_mode: "tx",
+            status: "transmitting",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
@@ -1717,9 +2166,9 @@ describe("Redux WebSocket Migration", () => {
       middlewareStore.dispatch({
         type: "websocket/sendMessage",
         payload: {
-          type: "tx_mode",
+          type: "status",
           data: {
-            active_mode: "rx",
+            status: "standby",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
@@ -1824,7 +2273,7 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
-    it("reopens the active per-source IQ WebSocket after an unexpected close", async () => {
+    it("reopens the multiplexed stream WebSocket after an unexpected close", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -1904,14 +2353,16 @@ describe("Redux WebSocket Migration", () => {
       });
 
       await new Promise((resolve) => setTimeout(resolve, 25));
+      jest.useFakeTimers();
       sockets[1].onclose?.();
-      await new Promise((resolve) => setTimeout(resolve, 275));
+      jest.advanceTimersByTime(250);
+      jest.useRealTimers();
 
       expect(
         sockets.filter(
           (socket) =>
             socket.url ===
-            "ws://localhost/ws/source/mock-apt/iq?token=session-token",
+            "ws://localhost/ws/streams?token=session-token",
         ),
       ).toHaveLength(2);
     });
@@ -1982,12 +2433,11 @@ describe("Redux WebSocket Migration", () => {
           paused: true,
           source_id: "mock-apt",
           duplex_mode: "half_duplex",
-          active_mode: "rx",
         }),
       );
     });
 
-    it("sends tx_mode messages with active_mode", () => {
+    it("sends transmit status messages", () => {
       const send = jest.fn();
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
         readyState: WebSocket.OPEN,
@@ -2025,9 +2475,9 @@ describe("Redux WebSocket Migration", () => {
       middlewareStore.dispatch({
         type: "websocket/sendMessage",
         payload: {
-          type: "tx_mode",
+          type: "status",
           data: {
-            active_mode: "tx",
+            status: "transmitting",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
@@ -2036,8 +2486,8 @@ describe("Redux WebSocket Migration", () => {
 
       expect(send).toHaveBeenCalledWith(
         JSON.stringify({
-          type: "tx_mode",
-          active_mode: "tx",
+          type: "status",
+          status: "transmitting",
           txDevice: "Mock Tx SDR",
           serialNumber: "mock-tx",
         }),
@@ -2710,20 +3160,17 @@ describe("Redux WebSocket Migration", () => {
       middlewareStore.dispatch({
         type: "websocket/sendMessage",
         payload: {
-          type: "tx_mode",
+          type: "status",
           data: {
-            active_mode: "tx",
+            status: "transmitting",
             txDevice: "Mock Tx SDR",
             serialNumber: "mock-tx",
           },
         },
       });
       middlewareStore.dispatch({
-        type: "websocket/sendMessage",
-        payload: {
-          type: "request_next_frame",
-          data: {},
-        },
+        type: "websocket/refreshStream",
+        payload: { mode: "tx", options: {} },
       });
 
       expect(middlewareStore.getState().websocket.queuedMessages).toEqual([]);

@@ -150,6 +150,23 @@ describe("Validation System", () => {
       ).toBe(true);
     });
 
+    test("should validate receiving and paused source statuses", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "receiving",
+        }),
+      ).toBe(true);
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "paused",
+        }),
+      ).toBe(true);
+    });
+
     test("should validate source sdr settings update", () => {
       expect(
         isValidSourceSdrSettingsMessage({

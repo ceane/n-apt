@@ -7,6 +7,7 @@ export const SliderContainer = styled.div<{
   $disabled?: boolean;
   $hasSnapRanges?: boolean;
 }>`
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: ${({ $orientation }) =>
@@ -17,6 +18,22 @@ export const SliderContainer = styled.div<{
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
   ${({ $hasSnapRanges, $orientation }) =>
     $hasSnapRanges && $orientation === "horizontal" ? "padding-top: 36px;" : ""}
+`;
+
+const InlineValueEditor = styled.input`
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 84px;
+  border: 1px solid ${({ theme }) => theme.primary};
+  border-radius: 12px;
+  background: ${({ theme }) => theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
+  padding: 6px 8px;
+  text-align: center;
+  font-family: "JetBrains Mono", monospace;
 `;
 
 export const SliderLabel = styled.span<{
@@ -282,6 +299,7 @@ export interface SliderProps {
   labelPlacement?: "top" | "bottom" | "left" | "right";
   snapRanges?: SnapRange[];
   disabled?: boolean;
+  editable?: boolean;
 }
 
 export const Slider: React.FC<SliderProps> = React.memo(
@@ -303,8 +321,11 @@ export const Slider: React.FC<SliderProps> = React.memo(
     labelPlacement,
     snapRanges = [],
     disabled = false,
+    editable = false,
   }) => {
     const [isDragging, setIsDragging] = React.useState(false);
+    const [isEditing, setIsEditing] = React.useState(false);
+    const [editValue, setEditValue] = React.useState(String(value));
 
     const getNormFromVal = useCallback(
       (val: number) => {
@@ -428,6 +449,29 @@ export const Slider: React.FC<SliderProps> = React.memo(
         onMouseDown={disabled ? undefined : handleMouseDown}
         className={className}
         aria-disabled={disabled}
+        data-testid={label ? `slider-${label}` : undefined}
+        tabIndex={disabled ? -1 : 0}
+        onDoubleClick={() => {
+          if (!editable || disabled) return;
+          setEditValue(String(value));
+          setIsEditing(true);
+        }}
+        onMouseEnter={(event) => {
+          if (!disabled) event.currentTarget.focus();
+        }}
+        onKeyDownCapture={(event) => {
+          if (disabled || !editable) return;
+          const direction =
+            event.key === "ArrowUp" || event.key === "ArrowRight"
+              ? 1
+              : event.key === "ArrowDown" || event.key === "ArrowLeft"
+                ? -1
+                : 0;
+          if (!direction) return;
+          onChange(Math.max(min, Math.min(max, value + direction * step)));
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         <TrackClipper>
           {snapRanges.map((r, i) => {
@@ -466,7 +510,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
           </SelectedMarker>
         )}
 
-        {!hideThumbValue && snapRanges.length === 0 && (
+        {!isEditing && !hideThumbValue && snapRanges.length === 0 && (
           <SliderValue $orientation={orientation}>
             {formatValue ? formatValue(value) : value}
           </SliderValue>
@@ -480,6 +524,28 @@ export const Slider: React.FC<SliderProps> = React.memo(
 
     const isAfter = labelPlacement === "bottom" || labelPlacement === "right";
 
+    const editor = isEditing ? (
+      <InlineValueEditor
+        type="number"
+        aria-label={`${label ?? "Slider"} value`}
+        value={editValue}
+        min={min}
+        max={max}
+        step={step}
+        autoFocus
+        onChange={(event) => setEditValue(event.target.value)}
+        onBlur={() => {
+          const parsed = Number(editValue);
+          if (Number.isFinite(parsed)) onChange(Math.max(min, Math.min(max, parsed)));
+          setIsEditing(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") setIsEditing(false);
+        }}
+      />
+    ) : null;
+
     return (
       <SliderContainer
         $orientation={orientation}
@@ -491,6 +557,7 @@ export const Slider: React.FC<SliderProps> = React.memo(
           <SliderLabel $orientation={orientation}>{label}</SliderLabel>
         )}
         {TrackComponent}
+        {editor}
         {isAfter && (
           <SliderLabel $orientation={orientation}>{label}</SliderLabel>
         )}

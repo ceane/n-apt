@@ -36,4 +36,6 @@ The software may change over time and may be unavailable, interrupted, or modifi
 
 ## Contact
 
+If you have questions about these Terms of Use, open an issue or discussion on the [n-apt repository](https://github.com/ceane/n-apt), or reach the maintainer through the contact listed on the [repository owner profile](https://github.com/ceane).
+
 If you do not agree to these Terms of Use, do not continue using the application.

@@ -11,6 +11,11 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
+use super::stream_manager::{
+  StreamKey, StreamMode, StreamingSourceModeManager,
+};
+#[cfg(test)]
+use super::stream_manager::{StreamOptions, TxStreamOptions};
 use super::types::{PowerScale, SpectrumData};
 use crate::sdr::processor::SdrProcessor;
 
@@ -35,7 +40,9 @@ pub use broadcasting::{
   broadcast_source_status_for_id, build_channels_snapshot,
   reconcile_stale_device_snapshot,
 };
-pub use complex_baseband::{MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR};
+pub use complex_baseband::{
+  MOCK_TX_DISPLAY_NAME, MOCK_TX_MONITOR_SAMPLE_CURSOR,
+};
 pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
@@ -49,7 +56,10 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 // Standby remains request-only through should_hold_mock_tx_standby_stream.
 const TX_MONITOR_FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 
-fn sync_shared_sample_rate(shared_state: &SharedState, processor: &SdrProcessor) {
+fn sync_shared_sample_rate(
+  shared_state: &SharedState,
+  processor: &SdrProcessor,
+) {
   let sample_rate = processor.get_sample_rate();
   if sample_rate == 0 {
     return;
@@ -65,6 +75,28 @@ fn sync_shared_sample_rate(shared_state: &SharedState, processor: &SdrProcessor)
   );
 }
 
+/// Cleanup invalidates the current device handle. Recovery must never leave a
+/// cleaned processor in the live frame loop when reopening the selected
+/// source fails, or the next read can call device FFI through a null handle.
+fn fallback_to_mock_after_recovery_failure(
+  processor: &mut SdrProcessor,
+  shared_state: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+  error_message: String,
+) -> Result<()> {
+  processor.swap_device(crate::sdr::SdrDeviceFactory::create_mock_device())?;
+  sync_shared_sample_rate(shared_state, processor);
+  shared_state.update_device_status(
+    false,
+    processor.get_device_info(),
+    build_device_profile(processor.device_type()),
+  );
+  shared_state.set_active_source_pause_state("mock-apt", false);
+  shared_state.set_device_backend_error(Some(error_message));
+  broadcast_device_status(shared_state, broadcast_tx);
+  Ok(())
+}
+
 /// The monitor payload is consumed by the browser's configured FFT. The Tx
 /// IFFT size controls waveform construction, but must not determine how many
 /// samples the frontend measures.
@@ -75,9 +107,10 @@ pub(crate) fn resolve_mock_tx_monitor_fft_size(
   frontend_fft_size.clamp(256, 262_144)
 }
 
-fn spawn_mock_tx_monitor_stream(
+fn spawn_tx_monitor_stream(
   shared_state: Arc<SharedState>,
   spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
+  stream_manager: StreamingSourceModeManager,
 ) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move {
     let mut ticker = tokio::time::interval(TX_MONITOR_FRAME_INTERVAL);
@@ -87,31 +120,75 @@ fn spawn_mock_tx_monitor_stream(
       if shared_state.shutdown.load(Ordering::Relaxed) {
         break;
       }
-      if !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed) {
+      let tx_is_active = crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+      let active_source_id = active_source_id(&shared_state);
+      let tx_key = StreamKey::new(active_source_id.clone(), StreamMode::Tx);
+      let managed_tx_stream = stream_manager.has_stream(&tx_key);
+      if !should_run_tx_monitor(
+        &active_source_id,
+        tx_is_active,
+        managed_tx_stream,
+      ) {
         continue;
       }
-
-      let frame_state = shared_state.clone();
-      let frame = match tokio::task::spawn_blocking(move || {
-        crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
-          &frame_state,
-        )
-      })
-      .await
-      {
-        Ok(frame) => frame,
-        Err(error) => {
-          warn!("Mock Tx monitor worker failed: {error}");
-          continue;
+      let frame = if active_source_id == MOCK_TX_SOURCE_ID {
+        let frame_state = shared_state.clone();
+        match tokio::task::spawn_blocking(move || {
+          crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+            &frame_state,
+          )
+        })
+        .await
+        {
+          Ok(frame) => frame,
+          Err(error) => {
+            warn!("Mock Tx monitor worker failed: {error}");
+            continue;
+          }
         }
+      } else {
+        let Some(payload) = stream_manager.tx_payload(&tx_key) else {
+          continue;
+        };
+        crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
+          &shared_state,
+          &active_source_id,
+          payload.center_frequency_hz as f64,
+          payload.sample_rate_hz,
+          (*payload.iq_data).clone(),
+          false,
+        )
       };
+      let _ = stream_manager.publish_iq_frame_with_metadata(
+        &tx_key,
+        frame.timestamp,
+        frame.center_frequency_hz.map(|frequency| frequency as u64),
+        frame.sample_rate.unwrap_or(1),
+        Arc::new(frame.iq_data.clone()),
+      );
       let _ = spectrum_tx.send(Arc::new(frame));
     }
   })
 }
 
-fn should_delegate_mock_tx_monitor(active_source_id: &str, tx_is_active: bool) -> bool {
-  active_source_id == MOCK_TX_SOURCE_ID && tx_is_active
+fn should_delegate_tx_monitor(
+  active_source_id: &str,
+  tx_is_active: bool,
+) -> bool {
+  tx_is_active
+    && (active_source_id == MOCK_TX_SOURCE_ID
+      || active_source_id == "hackrf_one"
+      || active_source_id.starts_with("hackrf_one-"))
+}
+
+fn should_run_tx_monitor(
+  active_source_id: &str,
+  tx_is_active: bool,
+  _managed_tx_stream: bool,
+) -> bool {
+  // Standby remains request-only. A managed subscription must not auto-start
+  // continuous monitor playback; only an explicit transmitting state does.
+  tx_is_active && should_delegate_tx_monitor(active_source_id, true)
 }
 
 fn broadcast_source_switch_error(
@@ -147,7 +224,10 @@ fn should_synthesize_mock_tx_monitor_frame(
 /// marker. Deriving it from the processor display name incorrectly labels
 /// Mock Tx frames as Mock APT and makes v1/source-preview consumers reject the
 /// current frame in favour of stale data.
-fn frame_is_mock_apt(frame_source_id: &str, streaming_mock_tx_monitor: bool) -> bool {
+fn frame_is_mock_apt(
+  frame_source_id: &str,
+  streaming_mock_tx_monitor: bool,
+) -> bool {
   !streaming_mock_tx_monitor && frame_source_id == "mock-apt"
 }
 
@@ -215,9 +295,7 @@ mod frame_ownership_tests {
       Some("mock-tx")
     ));
     assert!(should_publish_frame_for_source_transition(
-      "mock-tx",
-      "mock-tx",
-      None
+      "mock-tx", "mock-tx", None
     ));
   }
 }
@@ -254,6 +332,13 @@ fn should_fallback_to_mock_on_early_read_error(
     && !is_async_sample_timeout_error(error)
 }
 
+fn read_failure_state(current_state: &str) -> Option<&'static str> {
+  match current_state {
+    "loading" | "disconnected" => None,
+    _ => Some("stale"),
+  }
+}
+
 #[cfg(test)]
 fn should_restart_real_device_reader_on_read_error(
   error: &anyhow::Error,
@@ -267,16 +352,20 @@ fn should_restart_real_device_reader_on_read_error(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReaderRecoveryAction {
   RestartReader,
+  WaitForReaderShutdown,
   ReopenDevice,
   FallbackToMock,
 }
 
 fn resolve_reader_recovery_action(
   is_async_timeout: bool,
+  reader_is_active: bool,
   streak: u32,
   supported_device_present: bool,
 ) -> ReaderRecoveryAction {
-  if is_async_timeout
+  if is_async_timeout && !reader_is_active {
+    ReaderRecoveryAction::WaitForReaderShutdown
+  } else if is_async_timeout
     && streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
   {
     ReaderRecoveryAction::RestartReader
@@ -288,6 +377,13 @@ fn resolve_reader_recovery_action(
 }
 
 fn should_fallback_to_mock_on_threshold_read_error(
+  error: &anyhow::Error,
+  supported_device_present: bool,
+) -> bool {
+  !supported_device_present && !is_async_sample_timeout_error(error)
+}
+
+fn should_promote_fast_path_error_to_read_error(
   error: &anyhow::Error,
   supported_device_present: bool,
 ) -> bool {
@@ -354,10 +450,7 @@ mod tests {
 
   #[test]
   fn mock_tx_monitor_uses_frontend_fft_size_not_tx_ifft_size() {
-    assert_eq!(
-      resolve_mock_tx_monitor_fft_size(65_536, 262_144),
-      65_536
-    );
+    assert_eq!(resolve_mock_tx_monitor_fft_size(65_536, 262_144), 65_536);
   }
 
   #[test]
@@ -383,43 +476,157 @@ mod tests {
 
   #[test]
   fn active_mock_tx_monitor_is_delegated_to_the_monitor_worker() {
-    assert!(should_delegate_mock_tx_monitor("mock-tx", true));
-    assert!(!should_delegate_mock_tx_monitor("mock-tx", false));
-    assert!(!should_delegate_mock_tx_monitor("mock-apt", true));
+    assert!(should_delegate_tx_monitor("mock-tx", true));
+    assert!(!should_delegate_tx_monitor("mock-tx", false));
+    assert!(!should_delegate_tx_monitor("mock-apt", true));
+  }
+
+  #[test]
+  fn managed_tx_subscription_does_not_auto_start_standby_monitor() {
+    // Standby is announcement + request-only preview. A managed subscription
+    // alone must not invoke continuous Tx monitor playback.
+    assert!(!should_run_tx_monitor("mock-tx", false, true));
+    assert!(!should_run_tx_monitor("hackrf_one-test", false, true));
+    assert!(!should_run_tx_monitor("mock-tx", false, false));
+    assert!(!should_run_tx_monitor("mock-apt", false, true));
+    assert!(should_run_tx_monitor("mock-tx", true, true));
+    assert!(should_run_tx_monitor("mock-tx", true, false));
+  }
+
+  #[test]
+  fn active_hackrf_tx_monitor_is_delegated_to_the_monitor_worker() {
+    assert!(should_delegate_tx_monitor("hackrf_one-test", true));
+  }
+
+  #[tokio::test]
+  #[serial]
+  async fn active_hackrf_tx_monitor_emits_fresh_iq_for_each_tick() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let _mock_tx_test_guard =
+      complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    *shared.device_profile.lock().unwrap() = build_device_profile("hackrf_one");
+    *shared.device_serial.lock().unwrap() = "test".to_string();
+    let tx_iq = vec![128, 129, 127, 130, 126, 131];
+    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(250));
+    stream_manager.set_tx_payload(
+      StreamKey::new("hackrf_one-test", StreamMode::Tx),
+      2_400_000,
+      2_000_000,
+      tx_iq.clone(),
+    );
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+
+    let monitor =
+      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let first =
+      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+        .await
+        .expect("first active HackRF Tx monitor frame should arrive")
+        .expect("active HackRF Tx monitor channel should remain open");
+    let second =
+      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+        .await
+        .expect("second active HackRF Tx monitor frame should arrive")
+        .expect("active HackRF Tx monitor channel should remain open");
+
+    assert_eq!(first.source_id, "hackrf_one-test");
+    assert_eq!(second.source_id, "hackrf_one-test");
+    assert_ne!(first.sequence, second.sequence);
+    assert_eq!(first.iq_data, tx_iq);
+    assert_eq!(second.iq_data, first.iq_data);
+
+    shared.shutdown.store(true, Ordering::Relaxed);
+    monitor
+      .await
+      .expect("active HackRF Tx monitor should stop cleanly");
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
   }
 
   #[tokio::test]
   #[serial]
   async fn active_mock_tx_monitor_emits_fresh_iq_for_each_tick() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let _mock_tx_test_guard = complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
+    let _mock_tx_test_guard =
+      complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
     let shared = SharedState::new("redis://127.0.0.1:6379");
+    *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(250));
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
-    shared
-      .mock_tx_transmitting
-      .store(true, Ordering::Relaxed);
+    shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_mock_tx_monitor_stream(shared.clone(), spectrum_tx);
-    let first = tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
-      .await
-      .expect("first active Tx monitor frame should arrive")
-      .expect("active Tx monitor channel should remain open");
-    let second = tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
-      .await
-      .expect("second active Tx monitor frame should arrive")
-      .expect("active Tx monitor channel should remain open");
+    let monitor =
+      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let first =
+      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+        .await
+        .expect("first active Tx monitor frame should arrive")
+        .expect("active Tx monitor channel should remain open");
+    let second =
+      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+        .await
+        .expect("second active Tx monitor frame should arrive")
+        .expect("active Tx monitor channel should remain open");
 
     assert_eq!(first.source_id, MOCK_TX_SOURCE_ID);
     assert_eq!(second.source_id, MOCK_TX_SOURCE_ID);
     assert_ne!(first.iq_data, second.iq_data);
 
     shared.shutdown.store(true, Ordering::Relaxed);
-    monitor.await.expect("active Tx monitor should stop cleanly");
+    monitor
+      .await
+      .expect("active Tx monitor should stop cleanly");
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
-    shared
-      .mock_tx_transmitting
-      .store(false, Ordering::Relaxed);
+    shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
+  }
+
+  #[tokio::test]
+  #[serial]
+  async fn managed_mock_tx_subscriber_receives_standby_frames() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let _mock_tx_test_guard =
+      complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
+    shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+
+    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(250));
+    let _subscription = stream_manager
+      .subscribe(
+        StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx),
+        StreamOptions::Tx(TxStreamOptions {
+          center_frequency_hz: 2_400_000,
+          sample_rate_hz: 2_000_000,
+          bandwidth_hz: 2_000_000,
+          signal: "wifi".to_string(),
+          power_dbm: -18.0,
+          ifft_size: 1024,
+        }),
+      )
+      .expect("managed Tx subscription should open");
+
+    let monitor =
+      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let frame =
+      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+        .await
+        .expect("standby Tx subscriber should receive a frame")
+        .expect("standby Tx monitor channel should remain open");
+
+    assert_eq!(frame.source_id, MOCK_TX_SOURCE_ID);
+    assert_eq!(frame.is_tx_preview, Some(true));
+
+    shared.shutdown.store(true, Ordering::Relaxed);
+    monitor
+      .await
+      .expect("standby Tx monitor should stop cleanly");
   }
 
   #[test]
@@ -494,16 +701,12 @@ mod tests {
     ]);
 
     assert_eq!(
-      source_lifecycle::take_warm_source_for_active(
-        &mut warm,
-        "rtl-sdr-v4",
-      ),
+      source_lifecycle::take_warm_source_for_active(&mut warm, "rtl-sdr-v4",),
       Some(2)
     );
     assert!(warm.contains_key("mock-tx"));
     assert!(source_lifecycle::take_warm_source_for_active(
-      &mut warm,
-      "mock-apt",
+      &mut warm, "mock-apt",
     )
     .is_none());
   }
@@ -590,6 +793,13 @@ mod tests {
   }
 
   #[test]
+  fn read_failure_marks_a_connected_reader_stale_not_disconnected() {
+    assert_eq!(read_failure_state("connected"), Some("stale"));
+    assert_eq!(read_failure_state("stale"), Some("stale"));
+    assert_eq!(read_failure_state("disconnected"), None);
+  }
+
+  #[test]
   fn async_sample_timeout_does_not_force_early_mock_fallback() {
     let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
 
@@ -628,7 +838,7 @@ mod tests {
     let threshold = super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD;
     let mut actions = Vec::new();
     for streak in threshold..threshold + 3 {
-      actions.push(resolve_reader_recovery_action(true, streak, true));
+      actions.push(resolve_reader_recovery_action(true, true, streak, true));
     }
 
     assert_eq!(
@@ -640,12 +850,16 @@ mod tests {
       ]
     );
     assert_eq!(
-      resolve_reader_recovery_action(false, threshold, true),
+      resolve_reader_recovery_action(false, true, threshold, true),
       ReaderRecoveryAction::ReopenDevice
     );
     assert_eq!(
-      resolve_reader_recovery_action(false, threshold, false),
+      resolve_reader_recovery_action(false, true, threshold, false),
       ReaderRecoveryAction::FallbackToMock
+    );
+    assert_eq!(
+      resolve_reader_recovery_action(true, false, threshold, true),
+      ReaderRecoveryAction::WaitForReaderShutdown
     );
   }
 
@@ -657,6 +871,14 @@ mod tests {
       &error, false
     ));
   }
+
+  #[test]
+  fn fast_path_hardware_error_without_usb_enters_disconnect_recovery() {
+    let error = anyhow::anyhow!("Failed to set baseband bandwidth to 4372000");
+
+    assert!(should_promote_fast_path_error_to_read_error(&error, false));
+    assert!(!should_promote_fast_path_error_to_read_error(&error, true));
+  }
 }
 
 #[derive(Clone)]
@@ -665,6 +887,7 @@ pub struct WebSocketServer {
   shared_state: Arc<SharedState>,
   broadcast_tx: broadcast::Sender<String>,
   spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
+  stream_manager: StreamingSourceModeManager,
 }
 
 impl Default for WebSocketServer {
@@ -707,6 +930,8 @@ impl WebSocketServer {
     // Create broadcast channel for WebSocket clients
     let (broadcast_tx, _) = broadcast::channel(1000);
     let (spectrum_tx, _) = broadcast::channel(1000);
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(250));
 
     let shared = SharedState::new(redis_url);
     // Sync initial state with SharedState
@@ -727,6 +952,7 @@ impl WebSocketServer {
       shared_state: shared,
       broadcast_tx,
       spectrum_tx,
+      stream_manager,
     }
   }
 
@@ -740,6 +966,7 @@ impl WebSocketServer {
     let shared_state = self.shared_state.clone();
     let _broadcast_tx = self.broadcast_tx.clone();
     let spectrum_tx = self.spectrum_tx.clone();
+    let stream_manager = self.stream_manager.clone();
 
     let hotplug_monitor = crate::sdr::hotplug::HotplugMonitor::new()
       .expect("Failed to create hotplug monitor");
@@ -747,8 +974,11 @@ impl WebSocketServer {
     let mut hotplug_state = crate::sdr::hotplug::HotplugState::new();
     let mut target_fps: u32 = 30; // sensible default until first frame
     let mut allow_next_paused_frame = false;
-    let tx_monitor_task =
-      spawn_mock_tx_monitor_stream(shared_state.clone(), spectrum_tx.clone());
+    let tx_monitor_task = spawn_tx_monitor_stream(
+      shared_state.clone(),
+      spectrum_tx.clone(),
+      stream_manager.clone(),
+    );
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
       HashMap::new();
 
@@ -816,16 +1046,45 @@ impl WebSocketServer {
               .push(settings);
           }
           crate::server::types::SdrCommand::RequestNextFrame => {
-            allow_next_paused_frame = true;
+            // Mock Tx standby is request-only. Publish exactly one preview and
+            // do not also wake the general read loop — that produced a second
+            // advancing frame and flashed the standby canvas.
+            //
+            // Fulfill when Mock Tx is active OR a Mock Tx preview is armed
+            // before select_source commits (cold-start / early request).
+            let active = active_source_id(&shared_state);
+            let tx_is_active =
+              crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+            let mock_tx_preview_armed = shared_state
+              .paused_frame_request_for_source(MOCK_TX_SOURCE_ID)
+              .is_some();
+            if !tx_is_active
+              && (mock_tx_preview_armed || active == MOCK_TX_SOURCE_ID)
+            {
+              let frame_state = shared_state.clone();
+              let frame = crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+                &frame_state,
+              );
+              let tx_key =
+                StreamKey::new(MOCK_TX_SOURCE_ID.to_string(), StreamMode::Tx);
+              let _ = stream_manager.publish_iq_frame_with_metadata(
+                &tx_key,
+                frame.timestamp,
+                frame.center_frequency_hz.map(|frequency| frequency as u64),
+                frame.sample_rate.unwrap_or(1),
+                Arc::new(frame.iq_data.clone()),
+              );
+              let _ = spectrum_tx.send(Arc::new(frame));
+              shared_state.clear_paused_frame_request();
+              allow_next_paused_frame = false;
+            } else {
+              allow_next_paused_frame = true;
+            }
           }
           crate::server::types::SdrCommand::SetFrequency(freq) => {
-            // Frequency change is fast (just sets a pending field), so use brief lock
-            let mut processor = sdr_processor.lock().await;
-            if processor.capture_active {
-              log::debug!("Ignoring SetFrequency during active capture");
-            } else {
-              processor.queue_center_frequency(freq);
-            }
+            // Keep compatibility with internally queued commands while using
+            // the same lock-free latest-value path as WebSocket retunes.
+            shared_state.request_center_frequency(freq);
           }
           crate::server::types::SdrCommand::SetGain(gain) => {
             shared_state.pending_fast_settings.lock().unwrap().push(
@@ -877,12 +1136,10 @@ impl WebSocketServer {
             }
 
             info!("Switching active source to {}", source_id);
-            let previous_source_is_transmitting =
-              crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
-                || (current_source_id == "mock-tx"
-                  && shared_state
-                    .mock_tx_transmitting
-                    .load(Ordering::Relaxed));
+            let previous_source_is_transmitting = crate::safety::TX_TRANSMITTING
+              .load(Ordering::Relaxed)
+              || (current_source_id == "mock-tx"
+                && shared_state.mock_tx_transmitting.load(Ordering::Relaxed));
             if !previous_source_is_transmitting {
               // Keep source pause state per device. The previous RX source
               // must not remain logically active after a handoff; a source
@@ -915,20 +1172,23 @@ impl WebSocketServer {
                 info!("Reusing warm SDR source {}", source_id);
                 Ok(device)
               }
-              None => open_device_for_source_id(&source_id),
+              None => open_device_for_source_id(&shared_state, &source_id),
             };
 
             match next_device {
               Ok(new_device) => {
                 let mut swap_result = processor
-                  .swap_device_keep_warm_with_sample_rate(new_device, sample_rate);
+                  .swap_device_keep_warm_with_sample_rate(
+                    new_device,
+                    sample_rate,
+                  );
                 if swap_result.is_err() && was_warm {
                   warn!(
                     "Warm SDR source {} did not resume; reopening once",
                     source_id
                   );
-                  swap_result = open_device_for_source_id(&source_id)
-                    .and_then(|device| {
+                  swap_result =
+                    open_device_for_source_id(&shared_state, &source_id).and_then(|device| {
                       processor.swap_device_keep_warm_with_sample_rate(
                         device,
                         sample_rate,
@@ -965,10 +1225,15 @@ impl WebSocketServer {
                   Ok(mut previous_device) => {
                     sync_shared_sample_rate(&shared_state, &processor);
                     // Re-apply the last known center frequency if we have one, so we don't start at default and jump
-                    let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
+                    let last_freq =
+                      shared_state.pending_center_freq.load(Ordering::Relaxed);
                     if last_freq > 0 {
-                      if let Err(e) = processor.set_center_frequency(last_freq) {
-                        warn!("Failed to apply last known frequency after swap: {}", e);
+                      if let Err(e) = processor.set_center_frequency(last_freq)
+                      {
+                        warn!(
+                          "Failed to apply last known frequency after swap: {}",
+                          e
+                        );
                       }
                     }
 
@@ -1016,9 +1281,19 @@ impl WebSocketServer {
                     }
                     shared_state
                       .set_device_backend_error(processor.get_error());
+                    // Recovery cooldowns belong to the source that failed;
+                    // a successful handoff must not make the next source
+                    // inherit the previous device's failure window.
+                    hotplug_state.last_failure_at = None;
+                    // Capture before pause-state sync. set_active_source_pause_state
+                    // clears paused-frame tokens, which would drop a Mock Tx
+                    // standby preview armed during the pending handoff.
+                    let wake_standby_preview = shared_state
+                      .paused_frame_request_for_source(&source_id)
+                      .is_some();
                     if source_id == "mock-tx" || source_id == "mock-apt" {
-                    shared_state
-                      .set_active_source_pause_state(&source_id, false);
+                      shared_state
+                        .set_active_source_pause_state(&source_id, false);
                     } else {
                       prepare_selected_source_for_rx(
                         &shared_state,
@@ -1035,6 +1310,36 @@ impl WebSocketServer {
                       processor.is_rx_active(),
                     );
                     shared_state.clear_pending_source_switch(&source_id);
+                    // A preview may have been armed during the pending handoff.
+                    // Fulfill Mock Tx with exactly one published frame — never
+                    // also wake the general read loop (that flashed progress).
+                    if wake_standby_preview {
+                      if source_id == MOCK_TX_SOURCE_ID {
+                        let frame_state = shared_state.clone();
+                        let frame = crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+                          &frame_state,
+                        );
+                        let tx_key = StreamKey::new(
+                          MOCK_TX_SOURCE_ID.to_string(),
+                          StreamMode::Tx,
+                        );
+                        let _ = stream_manager.publish_iq_frame_with_metadata(
+                          &tx_key,
+                          frame.timestamp,
+                          frame
+                            .center_frequency_hz
+                            .map(|frequency| frequency as u64),
+                          frame.sample_rate.unwrap_or(1),
+                          Arc::new(frame.iq_data.clone()),
+                        );
+                        let _ = spectrum_tx.send(Arc::new(frame));
+                        shared_state.clear_paused_frame_request();
+                        allow_next_paused_frame = false;
+                      } else {
+                        shared_state.mark_paused_frame_requested(&source_id);
+                        allow_next_paused_frame = true;
+                      }
+                    }
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                     hotplug_state.last_hardware_swap = Some(Instant::now());
                   }
@@ -1100,7 +1405,8 @@ impl WebSocketServer {
                 } else {
                   sync_shared_sample_rate(&shared_state, &processor);
                   // Re-apply the last known center frequency
-                  let last_freq = shared_state.pending_center_freq.load(Ordering::Relaxed);
+                  let last_freq =
+                    shared_state.pending_center_freq.load(Ordering::Relaxed);
                   if last_freq > 0 {
                     if let Err(e) = processor.set_center_frequency(last_freq) {
                       warn!("Failed to apply last known frequency after restart swap: {}", e);
@@ -1400,7 +1706,7 @@ impl WebSocketServer {
             info!("Setting power scale to: {:?}", scale);
             processor.set_power_scale(scale);
           }
-          crate::server::types::SdrCommand::SetTransmitMode {
+          crate::server::types::SdrCommand::SetTransmitStatus {
             enabled,
             device,
             tx_signal,
@@ -1431,14 +1737,16 @@ impl WebSocketServer {
 
             let active_kind =
               shared_state.device_profile.lock().unwrap().kind.clone();
+            let active_source_id = active_source_id(&shared_state);
             if let Some(tx_signal) = tx_signal.as_deref() {
               *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
             }
-            let effective_power_dbm = complex_baseband::resolve_effective_tx_power_dbm(
-              power_dbm,
-              vga_gain_db,
-              amp_enabled,
-            );
+            let effective_power_dbm =
+              complex_baseband::resolve_effective_tx_power_dbm(
+                power_dbm,
+                vga_gain_db,
+                amp_enabled,
+              );
             if let Some(power_dbm) = effective_power_dbm {
               *crate::safety::TX_POWER_DBM.lock().unwrap() = power_dbm;
             }
@@ -1454,14 +1762,23 @@ impl WebSocketServer {
             }
             let was_transmitting =
               crate::safety::TX_TRANSMITTING.swap(enabled, Ordering::Relaxed);
+            if !enabled {
+              crate::safety::TX_HOP_ENABLED.store(false, Ordering::Relaxed);
+              shared_state.tx_hop_enabled.store(false, Ordering::Relaxed);
+            }
 
-            // For mock tx devices, seed the monitor view center so the first
-            // preview frame is independent from the receive device's settings.
-            if is_mock_tx_device && enabled && !was_transmitting {
-              if let Some(center_frequency_hz) = center_frequency_hz {
-                let center_hz = center_frequency_hz.min(u32::MAX as u64);
-                *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() =
-                  center_hz as f64;
+            // Seed the monitor view only when unset. Start Tx must not clobber
+            // an established standby VFO before the status payload's
+            // viewCenterHz is applied — that left the carrier off-window and
+            // rendered a flat noise floor.
+            if is_mock_tx_device && enabled {
+              let mut view_center =
+                crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap();
+              if *view_center <= 0.0 {
+                if let Some(center_frequency_hz) = center_frequency_hz {
+                  let center_hz = center_frequency_hz.min(u32::MAX as u64);
+                  *view_center = center_hz as f64;
+                }
               }
             }
 
@@ -1495,9 +1812,13 @@ impl WebSocketServer {
               let mut processor = sdr_processor.lock().await;
               if enabled {
                 let center_hz = center_frequency_hz.unwrap_or(0) as f64;
-                let sample_rate = sample_rate_hz.unwrap_or(2_000_000).min(u32::MAX as u64) as u32;
+                let sample_rate =
+                  sample_rate_hz.unwrap_or(2_000_000).min(u32::MAX as u64)
+                    as u32;
                 if let Some(center_frequency_hz) = center_frequency_hz {
-                  processor.set_center_frequency(center_frequency_hz.min(u32::MAX as u64) as u32)?;
+                  processor.set_center_frequency(
+                    center_frequency_hz.min(u32::MAX as u64) as u32,
+                  )?;
                 }
                 if sample_rate_hz.is_some() {
                   processor.set_sample_rate(sample_rate)?;
@@ -1515,8 +1836,18 @@ impl WebSocketServer {
                   &mut *shared_state.mock_tx_phase_accumulator.lock().unwrap(),
                 );
                 processor.transmit_iq(Some(&iq))?;
+                stream_manager.set_tx_payload(
+                  StreamKey::new(active_source_id.clone(), StreamMode::Tx),
+                  center_hz.min(u32::MAX as f64) as u64,
+                  sample_rate,
+                  iq,
+                );
               } else {
                 processor.transmit_iq(None)?;
+                stream_manager.clear_tx_payload(&StreamKey::new(
+                  active_source_id.clone(),
+                  StreamMode::Tx,
+                ));
               }
             }
 
@@ -1673,7 +2004,8 @@ impl WebSocketServer {
             take_warm_source_for_active(&mut warm_devices, &active_source)
           {
             let source_id = active_source.clone();
-            let restored_sample_rate = shared_state.sdr_settings.lock().unwrap().sample_rate;
+            let restored_sample_rate =
+              shared_state.sdr_settings.lock().unwrap().sample_rate;
             match processor.swap_device_keep_warm_with_sample_rate(
               warm_device,
               Some(restored_sample_rate),
@@ -1794,9 +2126,12 @@ impl WebSocketServer {
       let requested_single_frame = allow_next_paused_frame;
       let tx_is_active_for_gate =
         crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
-      if should_delegate_mock_tx_monitor(&active_source_for_pause, tx_is_active_for_gate) {
-        // The dedicated Mock Tx monitor worker owns active Mock Tx frames.
-        // Avoid blocking it with the general SDR read/process loop.
+      if should_delegate_tx_monitor(
+        &active_source_for_pause,
+        tx_is_active_for_gate,
+      ) {
+        // The dedicated Tx monitor worker owns active Mock Tx and HackRF
+        // frames. Avoid blocking it with the general SDR read/process loop.
         tokio::time::sleep(Duration::from_millis(20)).await;
         continue;
       }
@@ -1815,7 +2150,10 @@ impl WebSocketServer {
         && !requested_single_frame
         && !should_stream_while_tx_active
       {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::select! {
+          _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+          _ = shared_state.pending_center_freq_notify.notified() => {},
+        }
         continue;
       }
       allow_next_paused_frame = false;
@@ -1833,6 +2171,30 @@ impl WebSocketServer {
             move || -> Result<(String, Vec<f32>, i64, u32, bool, String, PowerScale, u32, Vec<u8>, u32)> {
               let mut processor = cloned_processor.blocking_lock();
 
+              // Apply only the newest retune request. This avoids taking the
+              // processor mutex on the WebSocket task and prevents a burst of
+              // VFO events from producing a queue of stale hardware writes.
+              if cloned_shared
+                .pending_center_freq_dirty
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+              {
+                let pending_frequency = cloned_shared
+                  .pending_center_freq
+                  .load(std::sync::atomic::Ordering::Acquire);
+                if pending_frequency > 0
+                  && pending_frequency != processor.get_center_frequency()
+                {
+                  if let Err(error) =
+                    processor.set_center_frequency(pending_frequency)
+                  {
+                    log::warn!(
+                      "Failed to apply pending frequency in websocket loop: {}",
+                      error
+                    );
+                  }
+                }
+              }
+
               // ── Apply any fast-path settings that arrived while we were
               //    blocked on the previous frame's read_samples. ──────────
               let pending: Vec<_> = {
@@ -1843,6 +2205,21 @@ impl WebSocketServer {
               let old_fft_size = processor.fft_processor.config().fft_size;
               for settings in pending {
                 if let Err(e) = processor.apply_settings(settings) {
+                  let supported_device_present = cloned_shared
+                    .usb_inventory_known
+                    .load(Ordering::Acquire)
+                    && cloned_shared
+                      .supported_usb_device_count
+                      .load(Ordering::Relaxed)
+                      > 0;
+                  if !processor.is_mock()
+                    && should_promote_fast_path_error_to_read_error(
+                      &e,
+                      supported_device_present,
+                    )
+                  {
+                    return Err(e);
+                  }
                   log::error!("Failed to apply fast-path settings: {}", e);
                 }
               }
@@ -1993,7 +2370,10 @@ impl WebSocketServer {
             shared_state.record_successful_read();
             let current_state =
               shared_state.device_state.lock().unwrap().clone();
-            if current_state == "disconnected" || current_state == "loading" {
+            if current_state == "disconnected"
+              || current_state == "loading"
+              || current_state == "stale"
+            {
               info!("First successful frame after recovery — confirming connected state");
               shared_state.update_device_status(
                 true,
@@ -2028,6 +2408,10 @@ impl WebSocketServer {
 
           let (stream_epoch, sequence) =
             shared_state.next_stream_frame_identity();
+          let tx_is_active_for_frame =
+            crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+          let is_mock_tx_standby_preview =
+            frame_source_id == MOCK_TX_SOURCE_ID && !tx_is_active_for_frame;
           let spectrum_message = SpectrumData {
             message_type: "spectrum".to_string(),
             waveform: Vec::new(),
@@ -2042,13 +2426,31 @@ impl WebSocketServer {
             sample_rate: Some(sample_rate),
             power_scale: Some(power_scale),
             iq_data: raw_iq,
+            // Untagged Mock Tx standby frames land in the RX presentation slot
+            // while the UI reads TX mode — leaving a black STANDBY canvas.
+            is_tx_preview: is_mock_tx_standby_preview.then_some(true),
           };
+
+          let publish_key = StreamKey::new(
+            frame_source_id.clone(),
+            if is_mock_tx_standby_preview {
+              StreamMode::Tx
+            } else {
+              StreamMode::Rx
+            },
+          );
+          let _ = stream_manager.publish_iq_frame_with_metadata(
+            &publish_key,
+            timestamp,
+            Some(center_frequency as u64),
+            sample_rate,
+            Arc::new(spectrum_message.iq_data.clone()),
+          );
 
           // Broadcast to all connected WebSocket clients
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
           }
-
         }
         Ok(Err(e)) => {
           // ── Read error: use the same debounced recovery logic ──
@@ -2065,7 +2467,7 @@ impl WebSocketServer {
             let current_state =
               shared_state.device_state.lock().unwrap().clone();
             if current_state == "loading"
-              || current_state == "loose"
+              || current_state == "stale"
               || current_state == "disconnected"
             {
               debug!(
@@ -2074,6 +2476,17 @@ impl WebSocketServer {
               );
               tokio::time::sleep(Duration::from_millis(100)).await;
               continue;
+            }
+
+            // A reader failure is not proof of USB removal. Mark the stream
+            // stale so the frontend stops treating old frames as current,
+            // while the hotplug monitor independently checks for a real
+            // disconnect and keeps the reconnect path available.
+            if let Some(read_state) = read_failure_state(&current_state) {
+              if current_state != read_state {
+                shared_state.set_device_state(read_state, None);
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+              }
             }
 
             let streak = shared_state.record_health_failure();
@@ -2100,7 +2513,13 @@ impl WebSocketServer {
             }
 
             if streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-              let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
+              let supported_device_present = shared_state
+                .usb_inventory_known
+                .load(Ordering::Acquire)
+                && shared_state
+                  .supported_usb_device_count
+                  .load(Ordering::Relaxed)
+                  > 0;
               if should_fallback_to_mock_on_early_read_error(
                 &e,
                 streak,
@@ -2155,17 +2574,35 @@ impl WebSocketServer {
               tokio::time::sleep(Duration::from_millis(100)).await;
             } else {
               // Threshold reached: restart stalled readers before falling back.
-              let supported_device_present = matches!(crate::sdr::hotplug::supported_usb_device_count(), Ok(count) if count > 0);
+              let supported_device_present = shared_state
+                .usb_inventory_known
+                .load(Ordering::Acquire)
+                && shared_state
+                  .supported_usb_device_count
+                  .load(Ordering::Relaxed)
+                  > 0;
               warn!(
                   "Read-error threshold reached (streak={}). Supported USB device present={}.",
                   streak, supported_device_present,
                 );
+              let reader_recovery_action = resolve_reader_recovery_action(
+                is_async_sample_timeout_error(&e),
+                processor.is_rx_active(),
+                streak,
+                supported_device_present,
+              );
               if matches!(
-                resolve_reader_recovery_action(
-                  is_async_sample_timeout_error(&e),
-                  streak,
-                  supported_device_present,
-                ),
+                reader_recovery_action,
+                ReaderRecoveryAction::WaitForReaderShutdown
+              ) {
+                warn!(
+                  "RTL-SDR reader is still stopping; waiting before any reopen"
+                );
+                shared_state.set_device_state("stale", None);
+                shared_state.set_device_backend_error(Some(e.to_string()));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+              } else if matches!(
+                reader_recovery_action,
                 ReaderRecoveryAction::RestartReader
               ) {
                 // A sample timeout means the current reader stalled; it does
@@ -2197,14 +2634,19 @@ impl WebSocketServer {
                       "Failed to restart current SDR async reader after sample timeout: {}",
                       restart_e
                     );
-                    let supported_device_present = matches!(
-                      crate::sdr::hotplug::supported_usb_device_count(),
-                      Ok(count) if count > 0
-                    );
+                    let supported_device_present = shared_state
+                      .usb_inventory_known
+                      .load(Ordering::Acquire)
+                      && shared_state
+                        .supported_usb_device_count
+                        .load(Ordering::Relaxed)
+                        > 0;
                     if !supported_device_present {
                       warn!(
                         "USB device disappeared while restarting reader; falling back to Mock APT"
                       );
+                      shared_state.set_device_state("disconnected", None);
+                      broadcast_device_status(&shared_state, &_broadcast_tx);
                       if let Err(swap_e) = processor.swap_device(
                         crate::sdr::SdrDeviceFactory::create_mock_device(),
                       ) {
@@ -2233,7 +2675,7 @@ impl WebSocketServer {
                       // has already been detached). Reopen the real device
                       // immediately instead of retrying the same stale
                       // handle forever on the loading placeholder.
-                      shared_state.set_device_state("loading", Some("restart"));
+                      shared_state.set_device_state("stale", None);
                       broadcast_device_status(&shared_state, &_broadcast_tx);
                       match processor.cleanup() {
                         Err(cleanup_e) => {
@@ -2249,7 +2691,10 @@ impl WebSocketServer {
                           ));
                         }
                         Ok(()) => {
-                          match crate::sdr::SdrDeviceFactory::create_device() {
+                          let requested_source_id =
+                            active_source_id(&shared_state);
+                          match open_device_for_source_id(&shared_state, &requested_source_id)
+                          {
                             Ok(new_device)
                               if !new_device
                                 .device_type()
@@ -2259,10 +2704,27 @@ impl WebSocketServer {
                               if let Err(swap_e) =
                                 processor.swap_device(new_device)
                               {
-                                error!("Failed to reopen device after reader restart failure: {}", swap_e);
-                                shared_state.set_device_backend_error(Some(
-                                  swap_e.to_string(),
-                                ));
+                                let fallback_error = format!(
+                                  "Failed to reopen selected SDR after reader restart failure: {}",
+                                  swap_e
+                                );
+                                error!("{}", fallback_error);
+                                if let Err(mock_swap_e) =
+                                  fallback_to_mock_after_recovery_failure(
+                                    &mut processor,
+                                    &shared_state,
+                                    &_broadcast_tx,
+                                    fallback_error.clone(),
+                                  )
+                                {
+                                  error!(
+                                    "Failed to fall back to Mock APT after device reopen failure: {}",
+                                    mock_swap_e
+                                  );
+                                  shared_state.set_device_backend_error(Some(
+                                    fallback_error,
+                                  ));
+                                }
                               } else {
                                 info!("Reopened SDR after stale reader restart failure");
                                 shared_state
@@ -2280,10 +2742,26 @@ impl WebSocketServer {
                               }
                             }
                             _ => {
-                              shared_state.set_device_backend_error(Some(format!(
-                              "Async SDR sample reader restart failed; no supported device available: {}",
-                              restart_e
-                            )));
+                              let fallback_error = format!(
+                                "Async SDR sample reader restart failed; no supported device available: {}",
+                                restart_e
+                              );
+                              if let Err(swap_e) =
+                                fallback_to_mock_after_recovery_failure(
+                                  &mut processor,
+                                  &shared_state,
+                                  &_broadcast_tx,
+                                  fallback_error.clone(),
+                                )
+                              {
+                                error!(
+                                  "Failed to fall back to Mock APT after reader restart failure: {}",
+                                  swap_e
+                                );
+                                shared_state.set_device_backend_error(Some(
+                                  fallback_error,
+                                ));
+                              }
                             }
                           }
                         }
@@ -2324,7 +2802,8 @@ impl WebSocketServer {
                     continue;
                   }
 
-                  match crate::sdr::SdrDeviceFactory::create_device() {
+                  let requested_source_id = active_source_id(&shared_state);
+                  match open_device_for_source_id(&shared_state, &requested_source_id) {
                     Ok(new_device)
                       if !new_device
                         .device_type()
@@ -2332,15 +2811,30 @@ impl WebSocketServer {
                         .contains("mock") =>
                     {
                       if let Err(swap_e) = processor.swap_device(new_device) {
-                        error!(
-                          "Failed to swap to preferred device on read error: {}",
+                        let fallback_error = format!(
+                          "Failed to swap to selected SDR on read error: {}",
                           swap_e
                         );
-                        shared_state
-                          .set_device_state("loading", Some("restart"));
-                        shared_state
-                          .set_device_backend_error(processor.get_error());
-                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                        error!("{}", fallback_error);
+                        if let Err(mock_swap_e) =
+                          fallback_to_mock_after_recovery_failure(
+                            &mut processor,
+                            &shared_state,
+                            &_broadcast_tx,
+                            fallback_error.clone(),
+                          )
+                        {
+                          error!(
+                            "Failed to fall back to Mock APT after read-error swap failure: {}",
+                            mock_swap_e
+                          );
+                          shared_state
+                            .set_device_backend_error(Some(fallback_error));
+                          broadcast_device_status(
+                            &shared_state,
+                            &_broadcast_tx,
+                          );
+                        }
                       } else {
                         info!("Read-error swap succeeded. Awaiting first healthy frame.");
                         shared_state
@@ -2357,12 +2851,30 @@ impl WebSocketServer {
                     }
                     _ => {
                       warn!(
-                        "Read-error restart did not return a real device while USB is still present; keeping device in recovery"
+                        "Read-error restart did not return the selected real device while USB is still present; falling back to Mock APT"
                       );
-                      shared_state.set_device_state("loading", Some("restart"));
-                      shared_state
-                        .set_device_backend_error(processor.get_error());
-                      broadcast_device_status(&shared_state, &_broadcast_tx);
+                      let fallback_error = format!(
+                        "Selected SDR could not be reopened while USB is present: {}",
+                        processor
+                          .get_error()
+                          .unwrap_or_else(|| "device reopen failed".to_string())
+                      );
+                      if let Err(swap_e) =
+                        fallback_to_mock_after_recovery_failure(
+                          &mut processor,
+                          &shared_state,
+                          &_broadcast_tx,
+                          fallback_error.clone(),
+                        )
+                      {
+                        error!(
+                          "Failed to fall back to Mock APT after read-error reopen failure: {}",
+                          swap_e
+                        );
+                        shared_state
+                          .set_device_backend_error(Some(fallback_error));
+                        broadcast_device_status(&shared_state, &_broadcast_tx);
+                      }
                       hotplug_state.last_hardware_swap = Some(Instant::now());
                     }
                   }
@@ -2538,7 +3050,10 @@ impl WebSocketServer {
       let elapsed = start_time.elapsed();
       let target_duration = Duration::from_millis(1000 / (target_fps as u64));
       if elapsed < target_duration {
-        tokio::time::sleep(target_duration - elapsed).await;
+        tokio::select! {
+          _ = tokio::time::sleep(target_duration - elapsed) => {},
+          _ = shared_state.pending_center_freq_notify.notified() => {},
+        }
       }
     }
 
@@ -2561,6 +3076,10 @@ impl WebSocketServer {
 
   pub fn get_spectrum_tx(&self) -> broadcast::Sender<Arc<SpectrumData>> {
     self.spectrum_tx.clone()
+  }
+
+  pub fn get_stream_manager(&self) -> StreamingSourceModeManager {
+    self.stream_manager.clone()
   }
 }
 

@@ -1,10 +1,13 @@
 import React from "react";
 import styled from "styled-components";
+import { useNavigate } from "react-router-dom";
 import {
   useLearnSignals,
   SignalSection,
+  getLearnSignalsSectionPath,
 } from "@n-apt/contexts/LearnSignalsContext";
 import { BookOpen } from "lucide-react";
+import { LearnSignalsNavGroupTitle } from "@n-apt/components/layout/LearnSignalsInteractiveShell";
 
 const RouteContent = styled.div`
   padding: 4cqh 3cqw;
@@ -65,8 +68,8 @@ const SectionButton = styled.button<{ $isActive: boolean }>`
 `;
 
 export const LearnSignalsSidebar: React.FC = () => {
-  const { activeSection, setActiveSection, showIntro, setShowIntro } =
-    useLearnSignals();
+  const { activeSection, showIntro } = useLearnSignals();
+  const navigate = useNavigate();
 
   const sections: SignalSection[] = [
     "Radio Waves",
@@ -78,7 +81,26 @@ export const LearnSignalsSidebar: React.FC = () => {
     "FFT (Rx) and IFFT (Tx)",
     "Triangulation",
     "Aperture",
+    "I/Q Captures",
+    "FFT & IFFT",
   ];
+
+  const capturingSections: SignalSection[] = ["I/Q Captures", "FFT & IFFT"];
+  const coreSections = sections.filter(
+    (section) => !capturingSections.includes(section),
+  );
+
+  const renderButton = (section: SignalSection) => (
+    <SectionButton
+      key={section}
+      $isActive={!showIntro && activeSection === section}
+      onClick={() =>
+        navigate(`/learn-signals/${getLearnSignalsSectionPath(section)}`)
+      }
+    >
+      {section}
+    </SectionButton>
+  );
 
   return (
     <RouteContent>
@@ -93,15 +115,12 @@ export const LearnSignalsSidebar: React.FC = () => {
         </InfoText>
       </InfoBox>
 
-      {showIntro ? (
-        <SectionButton $isActive={true} onClick={() => setShowIntro(true)}>
-          Introduction View
-        </SectionButton>
-      ) : (
-        <SectionButton $isActive={false} onClick={() => setShowIntro(true)}>
-          Show Introduction
-        </SectionButton>
-      )}
+      <SectionButton
+        $isActive={showIntro}
+        onClick={() => navigate("/learn-signals")}
+      >
+        {showIntro ? "Introduction View" : "Show Introduction"}
+      </SectionButton>
 
       <div
         style={{
@@ -111,18 +130,9 @@ export const LearnSignalsSidebar: React.FC = () => {
           marginTop: "8px",
         }}
       >
-        {sections.map((section) => (
-          <SectionButton
-            key={section}
-            $isActive={!showIntro && activeSection === section}
-            onClick={() => {
-              setShowIntro(false);
-              setActiveSection(section);
-            }}
-          >
-            {section}
-          </SectionButton>
-        ))}
+        {coreSections.map(renderButton)}
+        <LearnSignalsNavGroupTitle>Capturing Signals</LearnSignalsNavGroupTitle>
+        {capturingSections.map(renderButton)}
       </div>
     </RouteContent>
   );

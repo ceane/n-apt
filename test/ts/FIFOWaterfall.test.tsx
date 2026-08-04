@@ -32,6 +32,61 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfall", () => {
+  it("does not append the current row again for immutable zoom-only redraws", async () => {
+    const resampler = jest.fn(
+      (
+        _data: ArrayLike<number>,
+        targetLength: number,
+        output?: Float32Array,
+      ) => output ?? new Float32Array(targetLength),
+    );
+    const waveform = new Float32Array([-90, -70]);
+    const view = render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={waveform}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          waterfallHistoryFill="immutable"
+          historyZoom={1}
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(resampler).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={waveform}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          waterfallHistoryFill="immutable"
+          historyZoom={10}
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector("canvas")).toHaveAttribute(
+        "data-renderer-mode",
+        "2d",
+      ),
+    );
+    expect(resampler).toHaveBeenCalledTimes(1);
+  });
+
   it("draws one standby preview frame before freezing a paused feed", async () => {
     const listenerRef: {
       current: ((waveform: Float32Array) => void) | null;
@@ -222,6 +277,8 @@ describe("FIFOWaterfall", () => {
           retuneSmear={0}
           isPaused={false}
           isVisible
+          waterfallHistoryFill="immutable"
+          historyPan={0.25}
           performScalarResampling={(data, targetLength) =>
             Array.from({ length: targetLength }, (_, index) => data[index] ?? 0)
           }
@@ -237,6 +294,7 @@ describe("FIFOWaterfall", () => {
     );
     expect(drawWebGPU.mock.calls[0][0].plotMargin).toEqual({ x: 0, y: 0 });
     expect(drawWebGPU.mock.calls[0][0].fftData).toBe(waveform);
+    expect(drawWebGPU.mock.calls[0][0].historyPan).toBe(0.25);
     await waitFor(() => expect(getContextSpy).toHaveBeenCalledWith("2d"));
     expect(view.container.querySelector("canvas")).toHaveAttribute(
       "data-renderer-error",
@@ -315,7 +373,7 @@ describe("FIFOWaterfall", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a server down placeholder when the device disconnects", () => {
+  it("shows a server down placeholder when the control plane reports Server down", () => {
     render(
       <ThemeProvider theme={mockTheme}>
         <FIFOWaterfall
@@ -327,6 +385,7 @@ describe("FIFOWaterfall", () => {
           isPaused={false}
           isVisible
           isDeviceConnected={false}
+          placeholderErrorReason="Server down"
           placeholderSourceLabel="Live SDR"
           performScalarResampling={(data, targetLength) =>
             Array.from({ length: targetLength }, (_, index) => data[index] ?? 0)
@@ -341,5 +400,29 @@ describe("FIFOWaterfall", () => {
         "The server was disconnected due to being manually exited or an error.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("keeps Loading when presentation is not ready during a healthy handoff", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={null}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          isDeviceConnected={false}
+          placeholderSourceLabel="Mock APT SDR"
+          performScalarResampling={(data, targetLength) =>
+            Array.from({ length: targetLength }, (_, index) => data[index] ?? 0)
+          }
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText(/Loading/i)).toBeInTheDocument();
+    expect(screen.queryByText("Server Down")).not.toBeInTheDocument();
   });
 });

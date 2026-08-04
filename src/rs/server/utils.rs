@@ -690,15 +690,15 @@ pub fn reconcile_device_state(
   device_state: &str,
 ) -> String {
   match (device_connected, device_state) {
-    // "loading" is always authoritative — it means we're mid-transition
+    // "loading" and "initializing" are authoritative mid-transition states.
     (_, "loading") => "loading".to_string(),
-    // "loose" is authoritative — the device briefly vanished but may recover
-    (_, "loose") => "loose".to_string(),
+    (_, "initializing") => "initializing".to_string(),
     // "stale" is authoritative — the health loop set it deliberately
     (_, "stale") => "stale".to_string(),
     // Normal consistency checks
     (true, "disconnected") => "connected".to_string(),
     (false, "connected") => "disconnected".to_string(),
+    (false, _) => "disconnected".to_string(),
     _ => device_state.to_string(),
   }
 }
@@ -1711,7 +1711,10 @@ pub fn save_capture_file_multi(
   }
 
   // SECURITY: Strict validation of file_type.
-  if result.file_type != ".napt" && result.file_type != ".wav" && result.file_type != ".iq" {
+  if result.file_type != ".napt"
+    && result.file_type != ".wav"
+    && result.file_type != ".iq"
+  {
     return Err(format!("Unsupported file_type: '{}'", result.file_type));
   }
 
@@ -1790,15 +1793,26 @@ pub fn save_capture_file_multi(
 
   if result.file_type == ".iq" {
     meta_obj["channels"] = serde_json::Value::Array(
-      result.channels.iter().map(|ch| serde_json::json!({
-        "center_freq_hz": ch.center_freq_hz,
-        "sample_rate_hz": ch.sample_rate_hz,
-        "bins_per_frame": ch.bins_per_frame,
-        "label": ch.label,
-      })).collect(),
+      result
+        .channels
+        .iter()
+        .map(|ch| {
+          serde_json::json!({
+            "center_freq_hz": ch.center_freq_hz,
+            "sample_rate_hz": ch.sample_rate_hz,
+            "bins_per_frame": ch.bins_per_frame,
+            "label": ch.label,
+          })
+        })
+        .collect(),
     );
     let mut fields = meta_obj.as_object().cloned().unwrap_or_default();
-    for key in ["format", "format_version", "interleaving", "sample_encoding"] {
+    for key in [
+      "format",
+      "format_version",
+      "interleaving",
+      "sample_encoding",
+    ] {
       fields.remove(key);
     }
     let metadata = crate::server::iq_format::IqMetadata {
@@ -1813,18 +1827,40 @@ pub fn save_capture_file_multi(
         None
       },
       frames: result.frame_updates.clone(),
-      chunks: result.channels.iter().enumerate().map(|(channel, ch)| crate::server::iq_format::IqChunk {
-        sample_offset: 0,
-        channel: channel as u32,
-        data: ch.iq_data.clone(),
-      }).collect(),
+      chunks: result
+        .channels
+        .iter()
+        .enumerate()
+        .map(|(channel, ch)| crate::server::iq_format::IqChunk {
+          sample_offset: 0,
+          channel: channel as u32,
+          data: ch.iq_data.clone(),
+        })
+        .collect(),
     };
-    let encoded = crate::server::iq_format::encode(&iq_file, if result.encrypted { Some(encryption_key) } else { None })?;
+    let encoded = crate::server::iq_format::encode(
+      &iq_file,
+      if result.encrypted {
+        Some(encryption_key)
+      } else {
+        None
+      },
+    )?;
     let mut hasher = sha2::Sha256::new();
     hasher.update(&encoded);
-    let checksum = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
-    std::fs::write(&path, &encoded).map_err(|e| format!("Failed to write IQ: {e}"))?;
-    return Ok(CaptureArtifact { filename, path, file_size: encoded.len() as u64, checksum });
+    let checksum = hasher
+      .finalize()
+      .iter()
+      .map(|b| format!("{b:02x}"))
+      .collect::<String>();
+    std::fs::write(&path, &encoded)
+      .map_err(|e| format!("Failed to write IQ: {e}"))?;
+    return Ok(CaptureArtifact {
+      filename,
+      path,
+      file_size: encoded.len() as u64,
+      checksum,
+    });
   } else if result.encrypted && result.file_type == ".napt" {
     // Construct plaintext: JSON header with `channels` array + padding + Concatenated Data
     let header_size = 4096; // Larger header for multi-channel JSON

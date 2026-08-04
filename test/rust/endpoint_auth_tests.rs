@@ -4,6 +4,7 @@ use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::crypto;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::stream_manager::StreamingSourceModeManager;
 use n_apt_backend::server::types::SpectrumData;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::session::SessionStore;
@@ -114,6 +115,9 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, RedisGuard) {
     webauthn,
     broadcast_tx,
     spectrum_tx,
+    stream_manager: StreamingSourceModeManager::new(
+      std::time::Duration::from_millis(250),
+    ),
     cmd_tx,
     sdr_processor,
   });
@@ -137,6 +141,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
     ("/api/towers/bounds", "GET"),
     ("/api/capture/download", "GET"),
     ("/api/webmcp/execute", "POST"),
+    ("/ws/streams?token=invalid-token", "GET"),
   ];
 
   for (path, method) in endpoints {
@@ -240,6 +245,7 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
         sample_rate: Some(2_400_000),
         power_scale: None,
         iq_data: original_iq.clone(),
+        is_tx_preview: None,
       }))
       .is_ok()
     {

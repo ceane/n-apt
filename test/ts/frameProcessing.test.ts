@@ -176,4 +176,16 @@ describe("shouldPresentSpectrumFrameForRange", () => {
       }),
     ).toBe(true);
   });
+
+  it("presents an explicitly tagged Tx preview while its view range catches up", () => {
+    expect(
+      shouldPresentSpectrumFrameForRange({
+        frameCenterHz: 2_204_000,
+        frameSampleRateHz: 2_400_000,
+        requestedRange: { min: 1_000_000, max: 5_372_000 },
+        requiresExactRange: true,
+        isTxPreviewFrame: true,
+      }),
+    ).toBe(true);
+  });
 });

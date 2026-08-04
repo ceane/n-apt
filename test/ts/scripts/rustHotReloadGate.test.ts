@@ -1,23 +1,29 @@
 import { describe, expect, it, jest } from "@jest/globals";
+import {
+  buildRustBackendStopCommand,
+  canKeepRustHotReloadWatcherAttached,
+  createRustHotReloadGate,
+  getRustHotReloadProcessLabel,
+  getRustHotReloadRuntimeLabel,
+  getRustHotReloadStepLabel,
+  isProcessSpinnerActive,
+  runRustHotReloadValidation,
+} from "../../../scripts/build/rustHotReloadGate";
 
 describe("Rust hot reload gate", () => {
-  it("animates the spinner whenever a process is running", () => {
-    const {
-      isProcessSpinnerActive,
-    } = require("../../src/ts/utils/rustHotReloadGate");
+  it("keeps the watcher attached while the Rust process is rebuilding", () => {
+    expect(canKeepRustHotReloadWatcherAttached(101, 102, 103)).toBe(true);
+    expect(canKeepRustHotReloadWatcherAttached(101, 102, undefined)).toBe(false);
+  });
 
+  it("animates the spinner whenever a process is running", () => {
     expect(isProcessSpinnerActive("running")).toBe(true);
     expect(isProcessSpinnerActive("warning")).toBe(false);
     expect(isProcessSpinnerActive("success")).toBe(false);
   });
 
   it("waits for a quiet window before reporting readiness", () => {
-    jest.useFakeTimers();
-    const {
-      createRustHotReloadGate,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
-    const gate = createRustHotReloadGate(1000);
+    const gate = createRustHotReloadGate(1000, 30_000);
 
     gate.recordChange(undefined, 0);
     expect(gate.shouldAttemptValidation(0)).toBe(false);
@@ -27,15 +33,33 @@ describe("Rust hot reload gate", () => {
     gate.recordChange(undefined, 1200);
     expect(gate.shouldAttemptValidation(1999)).toBe(false);
     expect(gate.shouldAttemptValidation(2200)).toBe(true);
+  });
 
-    jest.useRealTimers();
+  it("forces validation after the max coalesce window even if edits keep arriving", () => {
+    const gate = createRustHotReloadGate(5000, 30_000);
+
+    gate.recordChange("a.rs", 0);
+    gate.recordChange("b.rs", 4000);
+    gate.recordChange("c.rs", 8000);
+    gate.recordChange("d.rs", 12_000);
+    gate.recordChange("e.rs", 29_000);
+
+    expect(gate.shouldAttemptValidation(29_000)).toBe(false);
+    expect(gate.shouldAttemptValidation(30_000)).toBe(true);
+    expect(gate.getRemainingMs(29_000)).toBe(1000);
+  });
+
+  it("resets the coalesce window after clear", () => {
+    const gate = createRustHotReloadGate(1000, 5000);
+    gate.recordChange("a.rs", 0);
+    expect(gate.shouldAttemptValidation(5000)).toBe(true);
+    gate.clear();
+    gate.recordChange("b.rs", 6000);
+    expect(gate.shouldAttemptValidation(6500)).toBe(false);
+    expect(gate.shouldAttemptValidation(7000)).toBe(true);
   });
 
   it("stops after cargo check fails", async () => {
-    const {
-      runRustHotReloadValidation,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
     >;
@@ -63,16 +87,12 @@ describe("Rust hot reload gate", () => {
     expect(updateStatus).toHaveBeenCalledWith(
       "warning",
       "Rust check failed - running old binary",
-      "Rust backend running (old)",
+      "[HOT-RELOAD] Rust backend running (old)",
     );
     expect(result.stage).toBe("check_failed");
   });
 
   it("checks, builds, then restarts on success", async () => {
-    const {
-      runRustHotReloadValidation,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
     >;
@@ -99,24 +119,16 @@ describe("Rust hot reload gate", () => {
     expect(cargoCheck).toHaveBeenCalledTimes(1);
     expect(cargoBuild).toHaveBeenCalledTimes(1);
     expect(restart).toHaveBeenCalledTimes(1);
-    expect(updateStatus).toHaveBeenCalledWith(
-      "success",
-      "Running new build",
-      expect.any(String),
-    );
     expect(result.stage).toBe("restarted");
     expect(updateStatus.mock.calls).toEqual([
-      ["running", "Checking Rust backend...", "Checking Rust backend"],
-      ["running", "Building Rust backend...", "Building Rust backend"],
-      ["running", "Restarting Rust backend...", "Restarting Rust backend"],
-      ["success", "Running new build", "Rust backend reloaded"],
+      ["running", "Checking Rust backend...", "[HOT-RELOAD] Checking Rust backend..."],
+      ["running", "Building Rust backend...", "[HOT-RELOAD] Rebuilding Rust backend..."],
+      ["running", "Restarting Rust backend...", "Restarting Rust backend..."],
+      ["success", "Running new build", "[HOT-RELOAD] Rust backend reloaded"],
     ]);
   });
 
   it("reports a restart exception as a failed restart", async () => {
-    const {
-      runRustHotReloadValidation,
-    } = require("../../src/ts/utils/rustHotReloadGate");
     const updateStatus = jest.fn();
 
     const result = await runRustHotReloadValidation({
@@ -138,10 +150,6 @@ describe("Rust hot reload gate", () => {
   });
 
   it("stops before restart when cancelled during validation", async () => {
-    const {
-      runRustHotReloadValidation,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
     const cargoCheck = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<{ success: boolean; output: string }>
     >;
@@ -156,19 +164,15 @@ describe("Rust hot reload gate", () => {
     const restart = jest.fn() as unknown as jest.MockedFunction<
       () => Promise<boolean>
     >;
-    const log = jest.fn();
-    const updateStatus = jest.fn();
 
     const result = await runRustHotReloadValidation({
       cargoCheck,
       cargoBuild,
       restart,
-      log,
-      updateStatus,
+      log: jest.fn(),
+      updateStatus: jest.fn(),
       isCancelled: () => cancelled,
     });
-
-    cancelled = true;
 
     expect(cargoCheck).toHaveBeenCalledTimes(1);
     expect(cargoBuild).toHaveBeenCalledTimes(1);
@@ -177,10 +181,6 @@ describe("Rust hot reload gate", () => {
   });
 
   it("builds a targeted rust backend stop command for hot reload", () => {
-    const {
-      buildRustBackendStopCommand,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
     expect(buildRustBackendStopCommand(38510, "darwin")).toContain("38510");
     expect(buildRustBackendStopCommand(38510, "win32")).toContain("38510");
     expect(buildRustBackendStopCommand(38510, "darwin")).not.toContain("pkill");
@@ -188,11 +188,6 @@ describe("Rust hot reload gate", () => {
   });
 
   it("formats hot-reload process and runtime labels separately", () => {
-    const {
-      getRustHotReloadProcessLabel,
-      getRustHotReloadRuntimeLabel,
-    } = require("../../src/ts/utils/rustHotReloadGate");
-
     expect(getRustHotReloadProcessLabel("running", "Checking Rust backend..."))
       .toBe("[HOT-RELOAD] Rebuilding Rust backend...");
     expect(getRustHotReloadProcessLabel("running", "Restarting Rust backend..."))
@@ -201,5 +196,10 @@ describe("Rust hot reload gate", () => {
       .toBe("✓ Updated (+2)");
     expect(getRustHotReloadRuntimeLabel(0, "Running"))
       .toBe("Running");
+    expect(getRustHotReloadStepLabel("waiting"))
+      .toBe("[HOT-RELOAD] Waiting for Rust changes to settle...");
+    expect(getRustHotReloadStepLabel("ready"))
+      .toBe("[HOT-RELOAD] Rust backend reloaded");
+    expect(getRustHotReloadStepLabel("idle")).toBeUndefined();
   });
 });

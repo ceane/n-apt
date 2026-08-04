@@ -44,4 +44,4 @@ We use reasonable technical and organizational safeguards, but no system is comp
 
 ## Contact
 
-If you have privacy questions or want to exercise your rights, contact the operator of the application through the repository or project contact channels.
+If you have privacy questions or want to exercise your rights, open an issue or discussion on the [n-apt repository](https://github.com/ceane/n-apt), or reach the maintainer through the contact listed on the [repository owner profile](https://github.com/ceane).

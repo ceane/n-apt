@@ -68,6 +68,7 @@ export interface ChannelOption {
   min: number;
   max: number;
   extra?: React.ReactNode;
+  totalLabel?: string;
 }
 
 export interface ChannelsGridProps {
@@ -106,6 +107,7 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
             selected={isSelected}
             onToggle={handleToggle}
             variant={rangeVariant}
+            totalLabel={channel.totalLabel}
           >
             {channel.extra}
           </Range>

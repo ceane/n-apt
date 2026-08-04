@@ -101,12 +101,12 @@ export const FileSelection: React.FC<FileSelectionProps> = ({
         onDrop={onDrop}
       >
         <SettingLabelContainer>
-          <SettingLabel>Choose or drag files…</SettingLabel>
+          <SettingLabel>No files selected (.napt, .iq, .wav)</SettingLabel>
         </SettingLabelContainer>
         <FileInputActions>
           <HiddenFileInput
             type="file"
-            accept=".napt,.wav,.c64"
+            accept=".napt,.iq,.wav"
             multiple
             id="fileInput"
             onChange={onFileChange}

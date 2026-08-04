@@ -1,9 +1,31 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import { useFrequencyDrag } from "@n-apt/hooks/useFrequencyDrag";
+import {
+  createAnimationFrameCoalescer,
+  useFrequencyDrag,
+} from "@n-apt/hooks/useFrequencyDrag";
 import React from "react";
 
 describe("useFrequencyDrag Hook", () => {
+  test("coalesces rapid frequency updates to the latest value per animation frame", () => {
+    let runFrame: (() => void) | null = null;
+    const publish = jest.fn();
+    const coalescer = createAnimationFrameCoalescer(publish, (callback) => {
+      runFrame = callback;
+      return 1;
+    });
+
+    coalescer.schedule({ min: 100, max: 110 });
+    coalescer.schedule({ min: 200, max: 210 });
+    coalescer.schedule({ min: 300, max: 310 });
+
+    expect(publish).not.toHaveBeenCalled();
+    expect(runFrame).not.toBeNull();
+    (runFrame as unknown as () => void)();
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith({ min: 300, max: 310 });
+  });
+
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
@@ -304,6 +326,33 @@ describe("useFrequencyDrag Hook", () => {
 
     triggerPointerUp(900, 550);
     expect(zoomboxStateRef.current).toBeNull();
+  });
+
+  it("moves the active zoombox with arrow keys", () => {
+    const zoomboxStateRef = {
+      current: {
+        startX: 100,
+        startY: 100,
+        currentX: 300,
+        currentY: 250,
+      },
+    };
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        zoomboxStateRef,
+      }),
+    );
+
+    const event = new KeyboardEvent("keydown", { key: "ArrowRight" });
+    listeners.keydown(event);
+
+    expect(zoomboxStateRef.current).toEqual({
+      startX: 110,
+      startY: 100,
+      currentX: 310,
+      currentY: 250,
+    });
   });
 
   it("should start a fresh range drag inside an existing selection unless resizing", () => {

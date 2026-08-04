@@ -95,7 +95,7 @@ fn broadcast_device_status_includes_websocket_payload_fields() {
 
   assert_eq!(payload["type"], "source_info");
   assert_eq!(payload["sources"][0]["capability"], "rx");
-  assert_eq!(payload["sources"][0]["status"], "connected");
+  assert_eq!(payload["sources"][0]["status"], "receiving");
   assert_eq!(payload["active_source"], "rtl-sdr-1");
   assert_eq!(payload["active_source_mode"], "live");
   assert!(payload.get("device_name").is_none());
@@ -290,7 +290,7 @@ fn paused_active_sources_do_not_report_streaming_status() {
     .iter()
     .find(|source| source["id"].as_str() == Some("mock-apt"))
     .expect("active mock apt source");
-  assert_eq!(active["status"], "connected");
+  assert_eq!(active["status"], "paused");
 }
 
 #[test]

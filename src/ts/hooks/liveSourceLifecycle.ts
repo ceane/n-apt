@@ -212,12 +212,11 @@ export const isCommittedStandbyPresentation = ({
     selectedSourceId === presentedSourceId);
 
 /**
- * Allows a source-owned Mock Tx preview to be requested during handoff.
+ * Fire a Mock Tx standby one-shot as soon as Mock Tx is selected / cold-started.
  *
- * The preview socket is independently scoped to Mock Tx, so waiting for the
- * backend to commit the active source only adds a blank frame to the visual
- * handoff. Terminal transport failures and explicit disconnection still stop
- * the request; warming and device-swap phases intentionally do not.
+ * The backend accepts `request_next_frame` for the active source or the pending
+ * select_source target, so warming/swapping must request immediately — waiting
+ * for standby/ready leaves a black FFT on first Rx→Tx and on reload into Mock Tx.
  */
 export const shouldRequestMockTxStandbyPreview = ({
   isSelectedMockTxSource,
@@ -298,18 +297,20 @@ export type LiveSourceLifecycleTrace = {
 const RECOVERY_STATUSES = new Set(["loading", "stale"]);
 
 /**
- * Distinguish first-boot / reconnect warm-up from a killed backend.
+ * Distinguish first-boot warm-up from a killed backend.
  *
  * Bare `!isConnected` is wrong: the control socket starts disconnected and
- * passes through `connecting` before any frame can arrive. Server Down is only
- * valid after a live session existed, or on a hard socket error.
+ * passes through `connecting` before any frame can arrive. After a live
+ * session has existed, reconnect polling (`reconnecting` / `connecting`) is
+ * still Server Down — those statuses must not flash Loading while the backend
+ * remains dead. Device handoff / transport warm-up are not backend death.
  */
 export const isControlPlaneUnavailable = ({
   isConnected,
   connectionStatus = null,
   hasConnectedOnce = false,
-  sourceHandoffPending = false,
-  transportPhase = null,
+  sourceHandoffPending: _sourceHandoffPending = false,
+  transportPhase: _transportPhase = null,
 }: {
   isConnected: boolean;
   connectionStatus?: string | null;
@@ -317,17 +318,16 @@ export const isControlPlaneUnavailable = ({
   sourceHandoffPending?: boolean;
   transportPhase?: string | null;
 }): boolean => {
-  if (isConnected || connectionStatus === "connected") return false;
-  if (
-    connectionStatus === "connecting" ||
-    connectionStatus === "reconnecting"
-  ) {
-    return false;
-  }
-  // Device switches and transport warm-up are not backend death.
-  if (sourceHandoffPending || transportPhase === "warming") return false;
+  // An open control socket is never "Server Down". Stream/source failures can
+  // leave connectionStatus sticky at "error" without closing the socket
+  // (File → Mock Tx subscribe races); that must stay Loading/handoff, not the
+  // killed-backend placeholder, or Mock APT inherits a false Server Down.
+  if (isConnected) return false;
   if (connectionStatus === "error") return true;
-  return hasConnectedOnce === true;
+  // After a live session, softDisconnect / reconnect polling is Server Down.
+  // First-boot disconnected/connecting keep Loading instead.
+  if (hasConnectedOnce === true) return true;
+  return false;
 };
 
 /**
@@ -448,10 +448,18 @@ export const resolveLiveSourceLifecycle = ({
     );
   }
 
-  // Standby is a presentation mode, not a lack of data. A requested Mock Tx
-  // preview remains renderable underneath its persistent standby top bar.
-  if (isStandby || standbyPlaceholder) {
+  // Standby with a committed preview frame shows the top bar over the graph.
+  // Standby without a frame must stay in awaiting-frame so Loading covers the
+  // canvas instead of a black FFT under the STANDBY chrome.
+  if ((isStandby || standbyPlaceholder) && hasValidFrame) {
     return result("standby", standbyPlaceholder);
+  }
+  if (isStandby || standbyPlaceholder) {
+    return result(
+      "awaiting-frame",
+      handoffPlaceholder ??
+        createLiveSourceHandoffPlaceholder(selectedSourceId),
+    );
   }
 
   if (hasValidFrame) return result("ready", null);
@@ -474,6 +482,24 @@ export const isLiveSourceAwaitingFrame = (
   lifecycle: LiveSourceLifecycle,
 ): boolean =>
   isLiveSourceHandoffPending(lifecycle) || lifecycle.phase === "awaiting-frame";
+
+/** Error reason from a lifecycle-owned error placeholder, if any. */
+export const resolveLiveSourceLifecycleErrorReason = (
+  lifecycle: Pick<LiveSourceLifecycle, "placeholder">,
+): string | null =>
+  lifecycle.placeholder?.kind === "error"
+    ? (lifecycle.placeholder.reason ?? null)
+    : null;
+
+/** Default loading card while a selected live source has no accepted frame. */
+export const createLiveSourceHandoffPlaceholder = (
+  sourceLabel?: string | null,
+): CanvasPlaceholderState => ({
+  kind: "loading",
+  paneLabel: "FFT",
+  sourceLabel: sourceLabel ?? undefined,
+  message: "Waiting for the first frame to arrive.",
+});
 
 /** Adds the phase-appropriate placeholder without recomputing lifecycle. */
 export const attachLiveSourceLifecyclePlaceholder = (
@@ -498,14 +524,24 @@ export const attachLiveSourceLifecyclePlaceholder = (
       case "warming-transport":
       case "swapping-device":
       case "awaiting-frame":
-        // Mock Tx has a complete standby presentation before its one-shot
-        // preview arrives. Keep the lifecycle gate, but avoid flashing a
-        // generic loading card during the effectively instant mock handoff.
-        return standbyPlaceholder ?? handoffPlaceholder;
+        // Full-canvas Loading only. A standby top-bar alone leaves a black
+        // FFT while the one-shot preview is in flight.
+        return (
+          handoffPlaceholder ??
+          (lifecycle.placeholder?.kind === "loading"
+            ? lifecycle.placeholder
+            : null) ??
+          createLiveSourceHandoffPlaceholder(lifecycle.selectedSourceId)
+        );
       case "standby":
         return standbyPlaceholder;
-      default:
+      case "idle":
+      case "ready":
         return null;
+      default: {
+        const _exhaustive: never = lifecycle.phase;
+        return _exhaustive;
+      }
     }
   })();
   return { ...lifecycle, placeholder };

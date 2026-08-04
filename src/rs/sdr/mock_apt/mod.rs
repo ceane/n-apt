@@ -16,7 +16,8 @@
 
 use crate::s::fft::types::RawSamples;
 use crate::s::ifft::complex_baseband::{
-  canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator, ComplexBasebandIQParams,
+  canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
+  ComplexBasebandIQParams,
 };
 use std::sync::{Arc, LazyLock, Mutex};
 

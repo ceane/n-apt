@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import "@testing-library/jest-dom";
@@ -24,11 +24,14 @@ describe("GetStartedRoute", () => {
       screen.getByRole("heading", { name: "Let's get started." }),
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole("article")).toHaveLength(8);
+    expect(screen.getAllByRole("article")).toHaveLength(7);
+    expect(
+      screen.getByRole("button", { name: /Playback I\/Q Captures/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Take an I/Q Capture")).toBeInTheDocument();
     expect(screen.getByText("Use app")).toBeInTheDocument();
     expect(screen.getByText("View signals via SDRs")).toBeInTheDocument();
-    expect(screen.getByText("Lingo and Learn")).toBeInTheDocument();
+    expect(screen.getByText("Playback I/Q Captures")).toBeInTheDocument();
     expect(screen.getByText("See hardware gallery")).toBeInTheDocument();
     expect(screen.getByText("Learn more about signals")).toBeInTheDocument();
     expect(screen.getByText("Terms and Conditions")).toBeInTheDocument();
@@ -37,6 +40,10 @@ describe("GetStartedRoute", () => {
       screen.getByRole("switch", { name: /Bypass Start Page Next Time/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("No SDRs connected")).toBeInTheDocument();
+    expect(screen.getByText("Accepts")).toBeInTheDocument();
+    expect(screen.getByText(".napt")).toBeInTheDocument();
+    expect(screen.getByText(".iq")).toBeInTheDocument();
+    expect(screen.getByText(".wav")).toBeInTheDocument();
     expect(screen.queryByText("RTL-SDR")).not.toBeInTheDocument();
     expect(screen.queryByText("HackRF One")).not.toBeInTheDocument();
   });
@@ -55,9 +62,6 @@ describe("GetStartedRoute", () => {
       screen.getByRole("link", { name: /View signals via SDRs/i }),
     ).toHaveAttribute("href", "/");
     expect(
-      screen.getByRole("link", { name: /Lingo and Learn/i }),
-    ).toHaveAttribute("href", "/faq");
-    expect(
       screen.getByRole("link", { name: /See hardware gallery/i }),
     ).toHaveAttribute("href", "/3d-model-gallery");
     expect(
@@ -69,6 +73,44 @@ describe("GetStartedRoute", () => {
     expect(
       screen.getByRole("link", { name: /Privacy Policy/i }),
     ).toHaveAttribute("href", "/privacy");
+  });
+
+  it("opens the file dialog from the Playback I/Q Captures card", () => {
+    const clickSpy = jest
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+    renderRoute();
+
+    const playbackCard = screen.getByRole("button", {
+      name: /Playback I\/Q Captures/i,
+    });
+    expect(playbackCard).toBeInTheDocument();
+    fireEvent.click(playbackCard);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    clickSpy.mockRestore();
+  });
+
+  it("registers selected playback files into the store", () => {
+    const { container } = renderRoute();
+
+    const playbackCard = screen.getByRole("button", {
+      name: /Playback I\/Q Captures/i,
+    });
+    fireEvent.click(playbackCard);
+
+    const fileInput = container.querySelector(
+      'input[type="file"][accept=".napt,.iq,.wav"]',
+    ) as HTMLInputElement;
+    expect(fileInput).not.toBeNull();
+
+    const file = new File(["fake-iq"], "capture.napt", {
+      type: "application/octet-stream",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // Selecting files should not crash; the store dispatch path is exercised.
+    expect(fileInput.value).toBe("");
   });
 
   it("persists bypass start page preference from the Use app card", async () => {

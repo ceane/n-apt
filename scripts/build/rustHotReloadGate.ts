@@ -30,8 +30,29 @@ export type RustHotReloadValidationResult =
     }
   | { stage: "restarted"; check: RustCommandResult; build: RustCommandResult };
 
+export type RustHotReloadPhase =
+  | "idle"
+  | "waiting"
+  | "rebuilding"
+  | "restarting"
+  | "ready"
+  | "degraded";
+
+export const RUST_HOT_RELOAD_QUIET_MS = 5000;
+export const RUST_HOT_RELOAD_MAX_COALESCE_MS = 30000;
+
 export function isProcessSpinnerActive(status: string): boolean {
   return status === "running";
+}
+
+export function canKeepRustHotReloadWatcherAttached(
+  vitePid?: number,
+  redisPid?: number,
+  rustPid?: number,
+): boolean {
+  return [vitePid, redisPid, rustPid].every(
+    (pid) => typeof pid === "number" && Number.isInteger(pid) && pid > 0,
+  );
 }
 
 export function getRustHotReloadProcessLabel(
@@ -42,6 +63,27 @@ export function getRustHotReloadProcessLabel(
   return message?.includes("Restarting")
     ? "Restarting Rust backend..."
     : "[HOT-RELOAD] Rebuilding Rust backend...";
+}
+
+export function getRustHotReloadStepLabel(phase: RustHotReloadPhase): string | undefined {
+  switch (phase) {
+    case "idle":
+      return undefined;
+    case "waiting":
+      return "[HOT-RELOAD] Waiting for Rust changes to settle...";
+    case "rebuilding":
+      return "[HOT-RELOAD] Rebuilding Rust backend...";
+    case "restarting":
+      return "Restarting Rust backend...";
+    case "ready":
+      return "[HOT-RELOAD] Rust backend reloaded";
+    case "degraded":
+      return "[HOT-RELOAD] Rust backend running (old)";
+    default: {
+      const _exhaustive: never = phase;
+      return _exhaustive;
+    }
+  }
 }
 
 export function getRustHotReloadRuntimeLabel(
@@ -55,21 +97,47 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createRustHotReloadGate(quietWindowMs: number) {
+export function createRustHotReloadGate(
+  quietWindowMs: number,
+  maxCoalesceMs: number = Number.POSITIVE_INFINITY,
+) {
+  let firstChangeAt = -Infinity;
   let lastChangeAt = -Infinity;
   const changedFiles = new Set<string>();
 
   return {
     recordChange(filename?: string, at = Date.now()) {
+      if (!Number.isFinite(lastChangeAt) || lastChangeAt === -Infinity) {
+        firstChangeAt = at;
+      }
       lastChangeAt = at;
       if (filename) changedFiles.add(filename);
     },
     shouldAttemptValidation(now = Date.now()) {
-      return (
-        Number.isFinite(lastChangeAt) && now - lastChangeAt >= quietWindowMs
-      );
+      if (!Number.isFinite(lastChangeAt) || lastChangeAt === -Infinity) {
+        return false;
+      }
+      const quietElapsed = now - lastChangeAt >= quietWindowMs;
+      const maxElapsed =
+        Number.isFinite(maxCoalesceMs) &&
+        Number.isFinite(firstChangeAt) &&
+        firstChangeAt !== -Infinity &&
+        now - firstChangeAt >= maxCoalesceMs;
+      return quietElapsed || maxElapsed;
+    },
+    getRemainingMs(now = Date.now()) {
+      if (!Number.isFinite(lastChangeAt) || lastChangeAt === -Infinity) {
+        return null;
+      }
+      const quietRemaining = Math.max(0, quietWindowMs - (now - lastChangeAt));
+      if (!Number.isFinite(maxCoalesceMs) || !Number.isFinite(firstChangeAt) || firstChangeAt === -Infinity) {
+        return quietRemaining;
+      }
+      const maxRemaining = Math.max(0, maxCoalesceMs - (now - firstChangeAt));
+      return Math.min(quietRemaining, maxRemaining);
     },
     clear() {
+      firstChangeAt = -Infinity;
       lastChangeAt = -Infinity;
       changedFiles.clear();
     },
@@ -104,7 +172,7 @@ export async function runRustHotReloadValidation(
   deps.updateStatus(
     "running",
     "Checking Rust backend...",
-    "Checking Rust backend",
+    "[HOT-RELOAD] Checking Rust backend...",
   );
   let check: RustCommandResult;
   try {
@@ -121,7 +189,7 @@ export async function runRustHotReloadValidation(
     deps.updateStatus(
       "warning",
       "Rust check failed - running old binary",
-      "Rust backend running (old)",
+      "[HOT-RELOAD] Rust backend running (old)",
     );
     return { stage: "check_failed", check };
   }
@@ -129,7 +197,7 @@ export async function runRustHotReloadValidation(
   deps.updateStatus(
     "running",
     "Building Rust backend...",
-    "Building Rust backend",
+    "[HOT-RELOAD] Rebuilding Rust backend...",
   );
   let build: RustCommandResult;
   try {
@@ -146,7 +214,7 @@ export async function runRustHotReloadValidation(
     deps.updateStatus(
       "warning",
       "Rust build failed - running old binary",
-      "Rust backend running (old)",
+      "[HOT-RELOAD] Rust backend running (old)",
     );
     return { stage: "build_failed", check, build };
   }
@@ -154,7 +222,7 @@ export async function runRustHotReloadValidation(
   deps.updateStatus(
     "running",
     "Restarting Rust backend...",
-    "Restarting Rust backend",
+    "Restarting Rust backend...",
   );
   let restarted = false;
   try {
@@ -183,6 +251,10 @@ export async function runRustHotReloadValidation(
     return { stage: "restart_failed", check, build };
   }
 
-  deps.updateStatus("success", "Running new build", "Rust backend reloaded");
+  deps.updateStatus(
+    "success",
+    "Running new build",
+    "[HOT-RELOAD] Rust backend reloaded",
+  );
   return { stage: "restarted", check, build };
 }

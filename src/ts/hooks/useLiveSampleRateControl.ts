@@ -11,6 +11,33 @@ import { resolveWholeChannelMode } from "@n-apt/utils/wholeChannelControl";
 export type SampleRateMode = "whole" | "manual";
 export type SampleRateAnchorPosition = "start" | "center" | "end";
 
+export const resolveHackrfBasebandSampleRateHz = ({
+  isHackrfOne,
+  sourceMode,
+  isWholeChannelMode,
+  wholeChannelSampleRate,
+  sampleRateHz,
+}: {
+  isHackrfOne: boolean;
+  sourceMode: "live" | "file";
+  isWholeChannelMode: boolean;
+  wholeChannelSampleRate: number | null;
+  sampleRateHz: number | null;
+}): number | null => {
+  if (!isHackrfOne || sourceMode !== "live") return null;
+  if (
+    isWholeChannelMode &&
+    typeof wholeChannelSampleRate === "number" &&
+    Number.isFinite(wholeChannelSampleRate) &&
+    wholeChannelSampleRate > 0
+  ) {
+    return wholeChannelSampleRate;
+  }
+  return typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+    ? sampleRateHz
+    : null;
+};
+
 type UseLiveSampleRateControlArgs = {
   sourceMode: "live" | "file";
   supportsWholeChannelSampleRate: boolean;
@@ -24,6 +51,7 @@ type UseLiveSampleRateControlArgs = {
   maxFrameRateLimit?: number;
   startingAnchorPosition?: SampleRateAnchorPosition;
   setSampleRate: (rate: number) => void;
+  onSampleRateApplied?: (rate: number) => void;
   setFftFrameRate?: (rate: number) => void;
   applyFrequencyRange: (range: FrequencyRange) => void;
 };
@@ -145,6 +173,7 @@ export const useLiveSampleRateControl = ({
   maxFrameRateLimit,
   startingAnchorPosition = "start",
   setSampleRate,
+  onSampleRateApplied,
   setFftFrameRate,
   applyFrequencyRange,
 }: UseLiveSampleRateControlArgs) => {
@@ -213,6 +242,7 @@ export const useLiveSampleRateControl = ({
       }
 
       setSampleRate(resolvedSampleRate);
+      onSampleRateApplied?.(resolvedSampleRate);
       setFftFrameRate?.(
         computeMaxFrameRate(
           resolvedSampleRate,
@@ -251,6 +281,7 @@ export const useLiveSampleRateControl = ({
       sampleRateHz,
       startingAnchorPosition,
       setSampleRate,
+      onSampleRateApplied,
       setFftFrameRate,
       sourceMode,
       applyFrequencyRangeIfChanged,
@@ -309,6 +340,7 @@ export const useLiveSampleRateControl = ({
       sampleRateModeRef.current = "whole";
       lastAppliedWholeChannelRateRef.current = nextRate;
       setSampleRate(nextRate);
+      onSampleRateApplied?.(nextRate);
       setFftFrameRate?.(
         computeMaxFrameRate(nextRate, fftSize ?? 0, maxFrameRateLimit),
       );
@@ -325,6 +357,14 @@ export const useLiveSampleRateControl = ({
       return;
     }
 
+    if (sampleRateHz === nextRate) {
+      if (lastAppliedWholeChannelRateRef.current !== nextRate) {
+        onSampleRateApplied?.(nextRate);
+      }
+      lastAppliedWholeChannelRateRef.current = nextRate;
+      return;
+    }
+
     if (
       typeof sampleRateHz === "number" &&
       Number.isFinite(sampleRateHz) &&
@@ -338,14 +378,11 @@ export const useLiveSampleRateControl = ({
     if (sampleRateModeRef.current === "manual") {
       return;
     }
-    if (sampleRateHz === nextRate) {
-      lastAppliedWholeChannelRateRef.current = nextRate;
-      return;
-    }
     if (lastAppliedWholeChannelRateRef.current === nextRate) return;
 
     lastAppliedWholeChannelRateRef.current = nextRate;
     setSampleRate(nextRate);
+    onSampleRateApplied?.(nextRate);
 
     if (frequencyRange) {
       applyFrequencyRangeIfChanged(
@@ -366,6 +403,7 @@ export const useLiveSampleRateControl = ({
     maxSampleRateHz,
     sampleRateHz,
     setSampleRate,
+    onSampleRateApplied,
     sourceMode,
     startingAnchorPosition,
     wholeChannelSampleRate,

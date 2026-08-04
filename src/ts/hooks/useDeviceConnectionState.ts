@@ -22,7 +22,12 @@ export const useDeviceConnectionState = ({
   } | null>(null);
 
   useEffect(() => {
-    if (deviceState === "connected" || deviceState === "streaming") {
+    if (
+      deviceState === "connected" ||
+      deviceState === "receiving" ||
+      deviceState === "paused" ||
+      deviceState === "streaming"
+    ) {
       lastUnavailableStateRef.current = null;
       return;
     }
@@ -40,6 +45,8 @@ export const useDeviceConnectionState = ({
 
     if (
       deviceState !== "connected" &&
+      deviceState !== "receiving" &&
+      deviceState !== "paused" &&
       deviceState !== "streaming" &&
       showSpikeOverlay
     ) {

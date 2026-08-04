@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import "leaflet/dist/leaflet.css";
 import styled from "styled-components";
 import {
   MapContainer,

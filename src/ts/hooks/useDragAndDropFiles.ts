@@ -18,9 +18,9 @@ const extractFiles = (dataTransfer: DataTransfer): File[] => {
       [],
     );
 
-    if (itemFiles.length > 0) {
-      return itemFiles;
-    }
+    // Some browsers expose a non-empty items list during dragover/drop but
+    // return no File objects from getAsFile(). Always fall back to files.
+    if (itemFiles.length > 0) return itemFiles;
   }
 
   return dataTransfer.files ? Array.from(dataTransfer.files) : [];

@@ -49,4 +49,5 @@ describe("useFFTAnimation", () => {
     expect(latestRender).toHaveBeenCalledTimes(1);
     unmount();
   });
+
 });

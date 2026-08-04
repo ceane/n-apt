@@ -63,6 +63,31 @@ const DEFAULT_COLORMAP: number[][] = [
   [0, 0, 0],
   [255, 255, 255],
 ];
+export const copySpectrumIntoWaterfallRow = (
+  target: Float32Array,
+  spectrum: Float32Array,
+): void => {
+  if (target.length === spectrum.length) {
+    target.set(spectrum);
+    return;
+  }
+
+  const spectrumLength = spectrum.length;
+  for (let i = 0; i < target.length; i++) {
+    if (spectrumLength === 0) {
+      target[i] = -200;
+      continue;
+    }
+    const sourceIndex = Math.min(
+      spectrumLength - 1,
+      Math.floor((i * spectrumLength) / target.length),
+    );
+    target[i] = Number.isFinite(spectrum[sourceIndex])
+      ? spectrum[sourceIndex]
+      : -200;
+  }
+};
+
 const COLORMAP_BYTES_CACHE = new WeakMap<number[][], Uint8Array>();
 
 const getColormapBytes = (colormap: number[][]): Uint8Array => {
@@ -148,6 +173,8 @@ export interface WebGPUFIFOWaterfallOptions {
   centerFrequencyHz?: number;
   isPaused?: boolean;
   isFirstFrame?: boolean;
+  historyZoom?: number;
+  historyPan?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +223,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         primitive: { topology: "triangle-list" },
       });
 
-      const uniforms = new Float32Array(16);
+      const uniforms = new Float32Array(20);
       const uniformBuf = device.createBuffer({
         size: uniforms.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -267,6 +294,8 @@ export function useDrawWebGPUFIFOWaterfall() {
         centerFrequencyHz,
         isPaused = false,
         isFirstFrame = false,
+        historyZoom = 1,
+        historyPan = 0,
       } = options;
 
       const existingState = stateRef.current;
@@ -528,24 +557,10 @@ export function useDrawWebGPUFIFOWaterfall() {
             const nextWriteRow = s.writeRow + 1;
             s.writeRow = nextWriteRow === s.texH ? 0 : nextWriteRow;
           } else {
-            const f32 = s.rowFloats;
-            const fftDataLength = fftData.length;
-            for (let i = 0; i < s.texW; i++) {
-              if (fftDataLength === 0) {
-                f32[i] = -200;
-                continue;
-              }
-              // Callers such as WaterfallNode provide a display-width row,
-              // while this renderer owns a fixed 4096-bin texture. Resample
-              // across the complete texture instead of flooring the tail.
-              const sourceIndex = Math.min(
-                fftDataLength - 1,
-                Math.floor((i * fftDataLength) / s.texW),
-              );
-              f32[i] = Number.isFinite(fftData[sourceIndex])
-                ? fftData[sourceIndex]
-                : -200;
-            }
+            // WaterfallNode supplies the renderer's native 4096-bin row. Keep
+            // that hot path to one typed-array copy and only resample callers
+            // that actually provide a different width.
+            copySpectrumIntoWaterfallRow(s.rowFloats, fftData);
             for (let smearIdx = 0; smearIdx <= smear; smearIdx++) {
               let row = s.writeRow - smearIdx;
               if (row < 0) row += s.texH;
@@ -626,17 +641,23 @@ export function useDrawWebGPUFIFOWaterfall() {
         s.uniforms[6] = s.texH;
         s.uniforms[7] = s.colorCount;
 
-        // uniforms[2] = (fftMin, fftMax, wfSmooth, 0)
+        // uniforms[2] = (fftMin, fftMax, wfSmooth, historyZoom)
         s.uniforms[8] = fftMin;
         s.uniforms[9] = fftMax;
         s.uniforms[10] = wfSmooth ? 1.0 : 0.0;
-        s.uniforms[11] = 0;
+        s.uniforms[11] = Math.max(1, historyZoom);
 
-        // uniforms[3] = background RGBA
-        s.uniforms[12] = bgR;
-        s.uniforms[13] = bgG;
-        s.uniforms[14] = bgB;
-        s.uniforms[15] = bgA;
+        // uniforms[3] = immutable-history pan and reserved values
+        s.uniforms[12] = historyPan;
+        s.uniforms[13] = 0;
+        s.uniforms[14] = 0;
+        s.uniforms[15] = 0;
+
+        // uniforms[4] = background RGBA
+        s.uniforms[16] = bgR;
+        s.uniforms[17] = bgG;
+        s.uniforms[18] = bgB;
+        s.uniforms[19] = bgA;
 
         device.queue.writeBuffer(
           s.uniformBuf,

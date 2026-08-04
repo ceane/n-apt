@@ -112,4 +112,26 @@ describe("frame presentation policy", () => {
     expect(decision.showLoadingPlaceholder).toBe(false);
     expect(decision.showErrorPlaceholder).toBe(false);
   });
+
+  it("preserves the painted graph under a standby top-bar while awaiting a frame", () => {
+    const decision = resolveFramePresentation({
+      currentFrame: null,
+      expectedSourceId: "mock-tx",
+      lastPresentedSourceId: "mock-apt",
+      lastRenderableFrame: null,
+      isStandby: true,
+      awaitingDeviceData: false,
+      isLoadingPlaceholder: false,
+      isDeviceConnected: true,
+      placeholderErrorReason: null,
+      explicitPlaceholderState: {
+        kind: "top-bar",
+        title: "Start Tx to transmit",
+      },
+      hasPresentedSpectrumFrame: true,
+    });
+
+    expect(decision.preservePresentationDuringGap).toBe(true);
+    expect(decision.shouldClearStaleStandby).toBe(false);
+  });
 });

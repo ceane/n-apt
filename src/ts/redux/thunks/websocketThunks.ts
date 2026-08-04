@@ -47,7 +47,7 @@ export const resolveWholeChannelSampleRateForSourceSwitch = ({
   channels,
   activeSignalArea,
 }: {
-  source: Pick<SourceInfo, "kind" | "name" | "sdr"> | null | undefined;
+  source: Pick<SourceInfo, "id" | "kind" | "name" | "sdr"> | null | undefined;
   channels: SpectrumFrame[];
   activeSignalArea?: string | null;
 }): number | null => {
@@ -78,6 +78,12 @@ export const resolveWholeChannelSampleRateForSourceSwitch = ({
 
   const channelSpan = Math.abs(channel.max_hz - channel.min_hz);
   if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
+
+  // Mock Tx is a synthetic monitor. Its 2.4 MHz Tx waveform does not limit
+  // the visualizer's explicit Whole Channel receive view.
+  if (source.kind === "mock_tx" || source.kind === "mock-tx") {
+    return Math.round(channelSpan);
+  }
 
   const configuredMaximum = source.sdr?.max_sample_rate;
   const sourceMaximum =
@@ -146,6 +152,7 @@ export const sendFrequencyRange = createAsyncThunk(
 );
 
 export interface RequestNextLiveFrameOptions {
+  sourceId?: string | null;
   txSettings?: {
     centerFrequencyHz?: number | null;
     viewCenterHz?: number | null;
@@ -160,9 +167,12 @@ export interface RequestNextLiveFrameOptions {
 const buildRequestNextFrameData = (
   options?: RequestNextLiveFrameOptions,
 ): Record<string, unknown> => {
-  const txSettings = options?.txSettings;
-  if (!txSettings) return {};
   const data: Record<string, unknown> = {};
+  if (typeof options?.sourceId === "string" && options.sourceId.trim()) {
+    data.source_id = options.sourceId.trim();
+  }
+  const txSettings = options?.txSettings;
+  if (!txSettings) return data;
   if (
     typeof txSettings.centerFrequencyHz === "number" &&
     Number.isFinite(txSettings.centerFrequencyHz)
@@ -215,12 +225,10 @@ export const requestNextLiveFrame = createAsyncThunk(
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/refreshStream",
         payload: {
-          type: "request_next_frame",
-          data: {
-            ...buildRequestNextFrameData(options),
-          },
+          mode: options?.txSettings ? "tx" : "rx",
+          options: options ? buildRequestNextFrameData(options) : undefined,
         },
       });
     }
@@ -235,13 +243,13 @@ export const requestNextPausedFrame = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // Standby previews are one-shot. Do not open a continuous managed Tx
+      // stream; that would look like automatic transmission.
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {
-            ...buildRequestNextFrameData(options),
-          },
+          data: buildRequestNextFrameData(options),
         },
       });
     }

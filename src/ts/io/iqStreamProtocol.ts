@@ -1,5 +1,7 @@
+import type { IqFrameStatus } from "@n-apt/consts/schemas/websocket";
+
 const V1_HEADER_BYTES = 24;
-const V2_FIXED_HEADER_BYTES = 52;
+const V2_FIXED_HEADER_BYTES = 56;
 const V2_MAGIC = [0x4e, 0x41, 0x50, 0x54] as const;
 
 /** Metadata carried outside the encrypted I/Q sample payload. */
@@ -13,6 +15,7 @@ export type IqFrameEnvelopeMetadata = {
   data_type: number;
   sample_rate: number;
   flags?: number;
+  frame_status?: IqFrameStatus;
 };
 
 /** A validated wire envelope whose payload is still encrypted. */
@@ -39,6 +42,21 @@ const validateIqMetadata = (dataType: number, sampleRate: number): void => {
   if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
     throw new Error(`Invalid I/Q frame sample rate: ${sampleRate}`);
   }
+};
+
+const FRAME_STATUS_BY_WIRE: readonly IqFrameStatus[] = [
+  "receiving",
+  "standby",
+  "transmitting",
+  "paused",
+];
+
+const decodeFrameStatus = (value: number): IqFrameStatus => {
+  const status = FRAME_STATUS_BY_WIRE[value];
+  if (!status) {
+    throw new Error(`Invalid I/Q frame status: ${value}`);
+  }
+  return status;
 };
 
 /**
@@ -71,6 +89,7 @@ export const decodeIqFrameEnvelope = (
         center_frequency_hz: readSafeU64(view, 8, "center frequency"),
         data_type: dataType,
         sample_rate: sampleRate,
+        frame_status: "receiving",
       },
       encryptedPayload,
     };
@@ -81,6 +100,7 @@ export const decodeIqFrameEnvelope = (
   }
   const version = view.getUint8(4);
   const flags = view.getUint8(5);
+  const frameStatus = view.getUint8(10);
   const headerLength = view.getUint16(6, true);
   const sourceIdLength = view.getUint16(8, true);
   if (version !== 2) {
@@ -100,8 +120,8 @@ export const decodeIqFrameEnvelope = (
   if (!sourceId) {
     throw new Error("Invalid I/Q frame header: empty source ID");
   }
-  const dataType = view.getUint32(44, true);
-  const sampleRate = view.getUint32(48, true);
+  const dataType = view.getUint32(48, true);
+  const sampleRate = view.getUint32(52, true);
   validateIqMetadata(dataType, sampleRate);
   const encryptedPayload = new Uint8Array(buffer, headerLength);
   if (encryptedPayload.length === 0) {
@@ -112,13 +132,14 @@ export const decodeIqFrameEnvelope = (
     metadata: {
       protocol_version: 2,
       source_id: sourceId,
-      stream_epoch: readSafeU64(view, 12, "stream epoch"),
-      sequence: readSafeU64(view, 20, "sequence"),
-      timestamp: readSafeU64(view, 28, "timestamp"),
-      center_frequency_hz: readSafeU64(view, 36, "center frequency"),
+      stream_epoch: readSafeU64(view, 16, "stream epoch"),
+      sequence: readSafeU64(view, 24, "sequence"),
+      timestamp: readSafeU64(view, 32, "timestamp"),
+      center_frequency_hz: readSafeU64(view, 40, "center frequency"),
       data_type: dataType,
       sample_rate: sampleRate,
       flags,
+      frame_status: decodeFrameStatus(frameStatus),
     },
     encryptedPayload,
   };

@@ -7,7 +7,8 @@ import styled, {
 import { Leva } from "leva";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
-import { ChevronLeft, ChevronRight, Box } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Box } from "lucide-react";
+import { AppBackButton } from "@n-apt/components/ui/AppBackButton";
 import Brain from "@n-apt/components/3D/Brain";
 import {
   LowNoiseAmplifier,
@@ -212,6 +213,17 @@ const MODELS: ModelDef[] = [
     category: "Telecommunications Infrastructure / Cell Sites",
   },
 ];
+
+const CATEGORY_ORDER = [
+  "Telecommunications Infrastructure / Cell Sites",
+  "Components",
+  "Scenes",
+  "Charts",
+  "Biological",
+] as const;
+const FIRST_MODEL_INDEX = MODELS.findIndex(
+  (model) => model.category === CATEGORY_ORDER[0],
+);
 
 // ─── GLB-backed scene components ─────────────────────────────────────────────
 
@@ -579,13 +591,65 @@ const ModelLabel = styled.div`
 const PaginationBar = styled.div`
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 12px;
   padding: 14px 24px;
   border-top: 1px solid ${(props) => props.theme.border};
   background: ${(props) => props.theme.background};
   backdrop-filter: blur(12px);
   flex-shrink: 0;
+`;
+
+const ModelDrawer = styled.div`
+  position: absolute;
+  right: 24px;
+  bottom: 78px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - 48px));
+  max-height: min(60vh, 520px);
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 12px;
+  background: ${(props) => props.theme.background};
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+`;
+
+const DrawerCategory = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  & + & {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid ${(props) => props.theme.border};
+  }
+`;
+
+const PaginationControls = styled.div`
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+`;
+
+const ModelSelector = styled.div`
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 4px 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 `;
 
 const NavButton = styled.button`
@@ -619,19 +683,34 @@ const NavButton = styled.button`
   }
 `;
 
-const ModelSelector = styled.div`
+const DrawerModelButton = styled.button<{ $isActive: boolean }>`
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 4px;
-  overflow-x: auto;
-  max-width: calc(100vw - 200px);
+  gap: 7px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid
+    ${(props) => (props.$isActive ? props.theme.primary : props.theme.border)};
+  border-radius: 8px;
+  background: ${(props) =>
+    props.$isActive ? props.theme.primaryAnchor : props.theme.surface};
+  color: ${(props) =>
+    props.$isActive ? props.theme.primary : props.theme.textSecondary};
+  font: inherit;
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 
-  /* Hide scrollbar for cleaner look but still scrollable */
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    background: ${(props) => props.theme.primaryAnchor};
   }
+`;
+
+const DrawerToggle = styled(NavButton)`
+  flex-shrink: 0;
 `;
 
 const CategoryDivider = styled.div`
@@ -651,6 +730,10 @@ const CategoryLabel = styled.div`
   white-space: nowrap;
   flex-shrink: 0;
   font-family: ${(props) => props.theme.typography.mono};
+`;
+
+const DrawerCategoryLabel = styled(CategoryLabel)`
+  margin: 0 0 4px;
 `;
 
 const ModelPill = styled.button<{ $isActive: boolean }>`
@@ -770,7 +853,8 @@ function BrainLights() {
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export const Model3DGalleryRoute: React.FC = () => {
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(FIRST_MODEL_INDEX);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const activeModel = MODELS[activeIndex];
   const theme = useTheme() as any;
 
@@ -884,7 +968,34 @@ export const Model3DGalleryRoute: React.FC = () => {
         </ModelLabel>
       </ViewportArea>
 
+      {isDrawerOpen && (
+        <ModelDrawer aria-label="All 3D models">
+          {CATEGORY_ORDER.map((category) => (
+            <DrawerCategory key={category}>
+              <DrawerCategoryLabel>{category}</DrawerCategoryLabel>
+              {MODELS.map((model, i) =>
+                model.category === category ? (
+                  <DrawerModelButton
+                    key={model.key}
+                    $isActive={i === activeIndex}
+                    onClick={() => {
+                      setActiveIndex(i);
+                      setIsDrawerOpen(false);
+                    }}
+                  >
+                    <PillDot $isActive={i === activeIndex} />
+                    {model.label}
+                  </DrawerModelButton>
+                ) : null,
+              )}
+            </DrawerCategory>
+          ))}
+        </ModelDrawer>
+      )}
+
       <PaginationBar>
+        <AppBackButton variant="bar" />
+        <PaginationControls>
         <NavButton
           id="model-gallery-prev"
           onClick={prev}
@@ -895,7 +1006,7 @@ export const Model3DGalleryRoute: React.FC = () => {
         </NavButton>
 
         <ModelSelector>
-          {Array.from(new Set(MODELS.map((m) => m.category))).map(
+          {CATEGORY_ORDER.map(
             (category, catIdx) => (
               <React.Fragment key={category}>
                 {catIdx > 0 && <CategoryDivider />}
@@ -928,6 +1039,15 @@ export const Model3DGalleryRoute: React.FC = () => {
         >
           <ChevronRight size={18} />
         </NavButton>
+        <DrawerToggle
+          type="button"
+          onClick={() => setIsDrawerOpen((isOpen) => !isOpen)}
+          aria-label={isDrawerOpen ? "Close model drawer" : "Open model drawer"}
+          aria-expanded={isDrawerOpen}
+        >
+          <ChevronUp size={18} />
+        </DrawerToggle>
+        </PaginationControls>
       </PaginationBar>
     </Wrapper>
   );

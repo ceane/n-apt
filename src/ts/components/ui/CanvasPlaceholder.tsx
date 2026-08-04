@@ -20,6 +20,7 @@ export type CanvasPlaceholderState =
   | {
     kind: "idle" | "top-bar" | "overlay-only";
     sourceLabel?: string;
+    kicker?: string;
     title: string;
     message?: string;
   }
@@ -196,6 +197,7 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
               ? {
                 width: "auto",
                 maxWidth: "100%",
+                minWidth: "220px",
                 padding: "8px 16px",
                 display: "flex",
                 alignItems: "center",
@@ -219,7 +221,7 @@ export const CanvasPlaceholder: React.FC<CanvasPlaceholderProps> = ({
             <PlaceholderKicker
               style={isTopBar ? { marginBottom: 0 } : undefined}
             >
-              Standby
+              {state.kicker || "Standby"}
             </PlaceholderKicker>
             <PlaceholderTitle
               style={isTopBar ? { fontSize: "14px" } : undefined}

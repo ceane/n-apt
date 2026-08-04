@@ -133,7 +133,7 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
 
   // Prime a separately routed Tx source once when the node mounts. Subsequent
   // Tx setting changes are refreshed by websocket middleware after the Redux
-  // action lands, avoiding duplicate request_next_frame messages.
+  // action lands, avoiding duplicate stream subscriptions.
   React.useEffect(() => {
     dispatch({ type: "txSuite/requestPreview" });
     dispatch(setTxViewerTemporalResolution("lossless"));

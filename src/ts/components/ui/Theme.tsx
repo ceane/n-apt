@@ -184,6 +184,8 @@ const applyThemeToDocument = (theme: AppStyledTheme) => {
 
   setCssVariables(root, rootVars);
 
+  root.classList.toggle("dark", theme.mode === "dark");
+
   root.style.background = theme.colors.background;
   root.style.color = theme.colors.textPrimary;
   root.style.fontFamily = theme.typography.mono;

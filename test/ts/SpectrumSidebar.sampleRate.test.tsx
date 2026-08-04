@@ -13,6 +13,7 @@ import {
 import { Provider, useSelector } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { SpectrumSidebar } from "../../src/ts/components/sidebar/SpectrumSidebar";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
@@ -24,7 +25,9 @@ import websocketSlice, {
 import authSlice from "../../src/ts/redux/slices/authSlice";
 import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
 import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
-import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
+import waterfallSlice, {
+  setSourceMode,
+} from "../../src/ts/redux/slices/waterfallSlice";
 import themeSlice from "../../src/ts/redux/slices/themeSlice";
 import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
 import demodSlice from "../../src/ts/redux/slices/demodSlice";
@@ -147,6 +150,7 @@ jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
     onSelectedDeviceChange,
     onToggleDeviceTxMode,
     selectedDeviceId,
+    onSourceModeChange,
   }: {
     devices?: Array<{
       id: string;
@@ -159,10 +163,18 @@ jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
     onSelectedDeviceChange?: (id: string) => void;
     onToggleDeviceTxMode?: (id: string) => void;
     selectedDeviceId?: string;
+    onSourceModeChange?: (mode: "live" | "file") => void;
   }) => (
     <div data-testid="source-input">
       <button type="button" onClick={() => onToggleDeviceTxMode?.("device-1")}>
         source-input
+      </button>
+      <button
+        type="button"
+        onClick={() => onSourceModeChange?.("file")}
+        data-testid="select-file-mode"
+      >
+        File Selection
       </button>
       {devices.map((device) => (
         <div key={device.id}>
@@ -312,7 +324,7 @@ const initMockState = () => {
     deviceProfile: { kind: "hackrf_one" },
     sendSettings: jest.fn(),
     sendFrequencyRange: jest.fn(),
-    sendTransmitMode: jest.fn(),
+    sendTransmitStatus: jest.fn(),
   };
   mockStoreDispatch = jest.fn((action: any) => {
     if (action?.type === "SET_SDR_SETTINGS_BUNDLE" && action.settings) {
@@ -359,6 +371,9 @@ const initMockState = () => {
     if (action?.type === "SET_FFT_FRAME_RATE") {
       mockLiveState = { ...mockLiveState, fftFrameRate: action.fftFrameRate };
     }
+    if (action?.type === "SET_SOURCE_MODE") {
+      mockLiveState = { ...mockLiveState, sourceMode: action.mode };
+    }
   });
   mockToggleVisualizerPause = jest.fn();
 };
@@ -374,7 +389,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -432,7 +449,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -475,7 +494,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -576,7 +597,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -616,7 +639,6 @@ describe("SpectrumSidebar sample rate behavior", () => {
         expect.objectContaining({ sampleRate: 4_372_000 }),
       ),
     );
-
     const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
       "combobox",
     ) as HTMLSelectElement;
@@ -689,7 +711,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const { getByRole } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -703,14 +727,14 @@ describe("SpectrumSidebar sample rate behavior", () => {
         cancelText: "Let me think about it...",
       }),
     );
-    expect(mockWsConnection.sendTransmitMode).not.toHaveBeenCalled();
+    expect(mockWsConnection.sendTransmitStatus).not.toHaveBeenCalled();
 
     await act(async () => {
       mockShowPrompt.mock.calls[0][0].onConfirm();
     });
 
     expect(window.localStorage.getItem(TRANSMIT_WARNING_ACK_KEY)).toBe("true");
-    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+    expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
       true,
       "Mock APT SDR",
       expect.objectContaining({
@@ -796,7 +820,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -873,7 +899,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const { getByRole } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -881,7 +909,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     fireEvent.click(getByRole("button", { name: /source-input/i }));
 
     expect(mockShowPrompt).not.toHaveBeenCalled();
-    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+    expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
       true,
       "Mock APT SDR",
       expect.objectContaining({
@@ -943,7 +971,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -959,8 +989,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
     fireEvent.click(startTxButton);
 
     expect(mockShowPrompt).not.toHaveBeenCalled();
-    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
-    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+    expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledTimes(1);
+    expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
       true,
       "Mock Tx SDR",
       expect.objectContaining({
@@ -1015,13 +1045,15 @@ describe("SpectrumSidebar sample rate behavior", () => {
       const { rerender } = render(
         <Provider store={store}>
           <ThemeProvider theme={theme}>
+            <MemoryRouter>
             <SpectrumSidebar />
+          </MemoryRouter>
           </ThemeProvider>
         </Provider>,
       );
 
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
-      mockWsConnection.sendTransmitMode.mockClear();
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledTimes(1);
+      mockWsConnection.sendTransmitStatus.mockClear();
 
       for (const centerFrequencyHz of [2_205_000, 2_206_000, 2_207_000]) {
         act(() => {
@@ -1032,21 +1064,23 @@ describe("SpectrumSidebar sample rate behavior", () => {
           rerender(
             <Provider store={store}>
               <ThemeProvider theme={theme}>
-                <SpectrumSidebar />
+                <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
               </ThemeProvider>
             </Provider>,
           );
         });
       }
 
-      expect(mockWsConnection.sendTransmitMode).not.toHaveBeenCalled();
+      expect(mockWsConnection.sendTransmitStatus).not.toHaveBeenCalled();
 
       act(() => {
         jest.advanceTimersByTime(17);
       });
 
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
@@ -1119,18 +1153,20 @@ describe("SpectrumSidebar sample rate behavior", () => {
       const { rerender } = render(
         <Provider store={store}>
           <ThemeProvider theme={theme}>
+            <MemoryRouter>
             <SpectrumSidebar />
+          </MemoryRouter>
           </ThemeProvider>
         </Provider>,
       );
 
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenLastCalledWith(
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenLastCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({ bandwidthHz: 2_400_000 }),
       );
-      mockWsConnection.sendTransmitMode.mockClear();
+      mockWsConnection.sendTransmitStatus.mockClear();
 
       act(() => {
         store.dispatch({
@@ -1140,7 +1176,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
         rerender(
           <Provider store={store}>
             <ThemeProvider theme={theme}>
-              <SpectrumSidebar />
+              <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
             </ThemeProvider>
           </Provider>,
         );
@@ -1150,8 +1188,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
         jest.advanceTimersByTime(17);
       });
 
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledTimes(1);
-      expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledTimes(1);
+      expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
@@ -1230,7 +1268,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -1385,7 +1425,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -1514,12 +1556,14 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
 
-    mockWsConnection.sendTransmitMode.mockClear();
+    mockWsConnection.sendTransmitStatus.mockClear();
     const nowSpy = jest.spyOn(Date, "now").mockReturnValue(100);
 
     const sourceInput = screen.getByTestId("source-input");
@@ -1533,7 +1577,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
 
     nowSpy.mockRestore();
 
-    expect(mockWsConnection.sendTransmitMode).toHaveBeenCalledWith(
+    expect(mockWsConnection.sendTransmitStatus).toHaveBeenCalledWith(
       false,
       "HackRF One #2",
       expect.objectContaining({
@@ -1584,7 +1628,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -1654,7 +1700,9 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
@@ -1670,9 +1718,12 @@ describe("SpectrumSidebar sample rate behavior", () => {
         >;
         expect(
           calls.some(
-            ([settings]) =>
-              settings?.sampleRate === 5_200_000 ||
-              settings?.tunerBandwidth === 5_200_000,
+            ([settings]) => settings?.sampleRate === 5_200_000,
+          ),
+        ).toBe(true);
+        expect(
+          calls.some(
+            ([settings]) => settings?.tunerBandwidth === 5_200_000,
           ),
         ).toBe(true);
       },
@@ -1690,11 +1741,73 @@ describe("SpectrumSidebar sample rate behavior", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
-          <SpectrumSidebar />
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
         </ThemeProvider>
       </Provider>,
     );
 
     expect(screen.queryByText("Tx Settings")).not.toBeInTheDocument();
+  });
+
+  it("resets file-selection mode to live when the source=fileSelection deep link is removed", async () => {
+    const store = createStore();
+    // Model the app already being in file mode from the deep link.
+    mockLiveState = { ...mockLiveState, sourceMode: "file" };
+    store.dispatch(setSourceMode("file"));
+
+    const LocationHarness: React.FC = () => {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          data-testid="remove-deep-link"
+        >
+          Back
+        </button>
+      );
+    };
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter initialEntries={["/?source=fileSelection"]}>
+            <LocationHarness />
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    // On mount with the deep link present, file mode is forced.
+    expect(store.getState().waterfall.sourceMode).toBe("file");
+
+    fireEvent.click(screen.getByTestId("remove-deep-link"));
+
+    // Once the deep link is gone, the source returns to live.
+    await waitFor(() => {
+      expect(store.getState().waterfall.sourceMode).toBe("live");
+    });
+  });
+
+  it("keeps a manual File Selection on the regular app (no deep link)", () => {
+    const store = createStore();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter initialEntries={["/"]}>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    // Clicking File Selection on the regular app must not be reset back to live.
+    fireEvent.click(screen.getByTestId("select-file-mode"));
+
+    expect(store.getState().waterfall.sourceMode).toBe("file");
   });
 });
