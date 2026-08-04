@@ -330,6 +330,7 @@ const SdrSettingsSection: React.FC = () => {
       <SectionGrid>
         <Row label={<SettingLabel>Sample Rate</SettingLabel>}>
           <SettingSelect
+            aria-label="Sample Rate"
             value={state.sampleRateHz}
             onChange={(e) => {
               const value = Number(e.target.value);
@@ -337,9 +338,9 @@ const SdrSettingsSection: React.FC = () => {
               dispatch(setSdrSettingsBundle({ sampleRateHz: value }));
             }}
           >
-            {[state.sampleRateHz, 3_200_000, 1_600_000, 800_000].map(
+            {[...new Set([state.sampleRateHz, 3_200_000, 1_600_000, 800_000])].map(
               (rate) => (
-                <option key={rate} value={rate}>
+                <option key={`sample-rate-${rate}`} value={rate}>
                   {(rate / 1_000_000).toFixed(1)} MHz
                 </option>
               ),
@@ -349,6 +350,7 @@ const SdrSettingsSection: React.FC = () => {
 
         <Row label={<SettingLabel>FFT Size</SettingLabel>}>
           <NumberInput
+            aria-label="FFT Size"
             type="number"
             min={16}
             step={16}
@@ -362,6 +364,7 @@ const SdrSettingsSection: React.FC = () => {
 
         <Row label={<SettingLabel>FFT Window</SettingLabel>}>
           <SettingSelect
+            aria-label="FFT Window"
             value={state.fftWindow}
             onChange={(e) => dispatch(setFftWindow(e.target.value))}
           >
@@ -389,6 +392,7 @@ const SdrSettingsSection: React.FC = () => {
 
         <Row label={<SettingLabel>Gain (dB)</SettingLabel>}>
           <NumberInput
+            aria-label="Gain"
             type="number"
             step={1}
             value={state.gain}
@@ -483,7 +487,11 @@ const LoginSettingsSection: React.FC = () => {
         }
         tooltip="Skip the start page and land directly in the app after signing in."
       >
-        <Toggle $active={bypass} onClick={() => handleChange(!bypass)} />
+        <Toggle
+          aria-label="Bypass after logging in"
+          $active={bypass}
+          onClick={() => handleChange(!bypass)}
+        />
       </Row>
     </SettingsSectionBlock>
   );
@@ -507,6 +515,7 @@ const IqCaptureSettingsSection: React.FC = () => {
       <SectionGrid>
         <Row label={<SettingLabel>Default duration mode</SettingLabel>}>
           <SettingSelect
+            aria-label="Default duration mode"
             value={capture.captureDurationMode}
             onChange={(e) =>
               update({
@@ -699,6 +708,7 @@ const SnapshotSettingsSection: React.FC = () => {
 
         <Row label={<SettingLabel>Fast Snapshot: include stats</SettingLabel>}>
           <Toggle
+            aria-label="Fast Snapshot: include stats"
             $active={snapshot.fastSnapshotShowStats}
             onClick={() =>
               update({

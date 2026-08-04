@@ -5,28 +5,15 @@ import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { SidebarRoutesNav } from "@n-apt/components/sidebar/SidebarRoutesNav";
 import { SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY } from "@n-apt/utils/sidebarRoutesExpanded";
+import { buildAppTheme } from "@n-apt/components/ui/Theme";
 
-const theme = {
-  layout: { sidebarWidth: 280, sidebarMinWidth: 200 },
-  spacing: {
-    xxs: "2px",
-    xs: "4px",
-    sm: "8px",
-    md: "12px",
-    lg: "16px",
-    xxl: "24px",
-  },
-  typography: { mono: "monospace" },
-  background: "#111",
-  border: "#333",
-  borderHover: "#555",
-  surface: "#222",
-  surfaceHover: "#2a2a2a",
-  primary: "#0cf",
-  textMuted: "#888",
-  textSecondary: "#ccc",
-  metadataLabel: "#666",
-};
+const theme = buildAppTheme({
+  accentColor: "#00ccff",
+  fftColor: "#00ccff",
+  appMode: "dark",
+  resolvedMode: "dark",
+  waterfallTheme: "classic",
+});
 
 const renderNav = (
   pathname: string,

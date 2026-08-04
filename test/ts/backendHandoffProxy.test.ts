@@ -3,6 +3,11 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import type {
+  RawData,
+  WebSocket as WsWebSocket,
+  WebSocketServer as WsWebSocketServer,
+} from "ws";
 
 import { createRequire } from "node:module";
 
@@ -10,8 +15,8 @@ const nodeRequire = createRequire(path.join(process.cwd(), "package.json"));
 const ws = nodeRequire(
   path.join(path.dirname(nodeRequire.resolve("ws/package.json")), "index.js"),
 );
-const WebSocket = ws.WebSocket;
-const WebSocketServer = ws.WebSocketServer ?? ws.Server;
+const WebSocket = ws.WebSocket as typeof WsWebSocket;
+const WebSocketServer = (ws.WebSocketServer ?? ws.Server) as typeof WsWebSocketServer;
 
 const listen = (server: http.Server) => new Promise<number>((resolve) => {
   server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port));
@@ -27,7 +32,7 @@ const requestBody = (port: number) => new Promise<string>((resolve, reject) => {
   request.on("error", reject);
 });
 
-const waitForClose = (socket: WebSocket, timeoutMs = 2000) =>
+const waitForClose = (socket: WsWebSocket, timeoutMs = 2000) =>
   new Promise<void>((resolve, reject) => {
     if (socket.readyState === WebSocket.CLOSED) {
       resolve();
@@ -101,7 +106,7 @@ describe("backend handoff target store", () => {
         response.end("ok");
       });
       const wss = new WebSocketServer({ server: backend });
-      wss.on("connection", (socket) => {
+      wss.on("connection", (socket: WsWebSocket) => {
         socket.send("hello");
       });
       const port = await listen(backend);
@@ -125,7 +130,7 @@ describe("backend handoff target store", () => {
 
     const replacement = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
     const message = await new Promise<string>((resolve, reject) => {
-      replacement.once("message", (data) => resolve(String(data)));
+      replacement.once("message", (data: RawData) => resolve(String(data)));
       replacement.once("error", reject);
     });
     expect(message).toBe("hello");

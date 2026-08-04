@@ -60,8 +60,7 @@ export function createBackendHandoffProxy(options: {
     proxiedSockets.clear();
   };
 
-  const targetWatcher = fs.watch(targetDirectory, (_event, filename) => {
-    if (filename !== path.basename(options.targetFile)) return;
+  const refreshTarget = () => {
     try {
       const nextTarget = readBackendTarget(options.targetFile);
       const targetChanged =
@@ -75,7 +74,10 @@ export function createBackendHandoffProxy(options: {
     } catch {
       // Atomic replacement can briefly make the file unavailable.
     }
-  });
+  };
+  // Polling avoids platform-specific fs.watch rename semantics and the low
+  // per-process watcher limits reached by repeated test/dev proxy instances.
+  const targetPoller = setInterval(refreshTarget, 50);
 
   const server = http.createServer((request, response) => {
     const upstream = http.request({
@@ -133,7 +135,7 @@ export function createBackendHandoffProxy(options: {
 
   const originalClose = server.close.bind(server);
   server.close = ((callback?: (error?: Error) => void) => {
-    targetWatcher.close();
+    clearInterval(targetPoller);
     closeProxiedSockets();
     websocketServer?.close();
     return originalClose(callback);

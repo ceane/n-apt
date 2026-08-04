@@ -76,6 +76,7 @@ export interface ToggleProps {
   disabled?: boolean;
   children?: React.ReactNode;
   title?: string;
+  "aria-label"?: string;
   activeLabel?: string;
   inactiveLabel?: string;
   showInnerLabel?: boolean;
@@ -88,6 +89,7 @@ export const Toggle: React.FC<ToggleProps> = ({
   disabled,
   children,
   title,
+  "aria-label": ariaLabel,
   activeLabel,
   inactiveLabel,
   showInnerLabel,
@@ -128,6 +130,7 @@ export const Toggle: React.FC<ToggleProps> = ({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       title={title}
+      aria-label={ariaLabel}
       role="switch"
       aria-checked={$active}
       aria-disabled={disabled}

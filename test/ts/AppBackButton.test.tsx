@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { AppBackButton } from "@n-apt/components/ui/AppBackButton";
+import { buildAppTheme } from "@n-apt/components/ui/Theme";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(),
@@ -11,16 +12,13 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
 
 const { useAuthentication } = jest.requireMock("@n-apt/hooks/useAuthentication");
 
-const theme = {
-  mode: "dark" as const,
-  typography: { sans: "sans-serif", mono: "monospace" },
-  primary: "#0cf",
-  background: "#111",
-  border: "#333",
-  surface: "#222",
-  textSecondary: "#ccc",
-  primaryAnchor: "rgba(0,204,255,0.1)",
-};
+const theme = buildAppTheme({
+  accentColor: "#00ccff",
+  fftColor: "#00ccff",
+  appMode: "dark",
+  resolvedMode: "dark",
+  waterfallTheme: "classic",
+});
 
 const renderButton = (isAuthenticated: boolean) => {
   useAuthentication.mockReturnValue({

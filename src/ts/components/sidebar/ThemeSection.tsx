@@ -179,6 +179,7 @@ export const ThemeSection: React.FC<{ hideHeader?: boolean }> = ({
       >
         <Row label={<IconLabel icon={Palette} text="App Theme" />}>
           <SettingSelect
+            aria-label="App Theme"
             value={appMode}
             onChange={(e) =>
               handleSetAppMode(e.target.value as "system" | "dark" | "light")

@@ -445,10 +445,9 @@ describe("SpectrumRoute file mode", () => {
     expect(visualizerProps.isDeviceConnected).toBe(true);
     expect(visualizerProps.dataRef.current?.iq_data).toBeUndefined();
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
       sourceLabel: "Mock Tx SDR",
-      message: "Start Tx to view backend-generated monitor I/Q.",
+      message: "Waiting for the first frame to arrive.",
     });
     expect(mockValue.wsConnection.sendTransmitStatus).not.toHaveBeenCalled();
   });
@@ -984,10 +983,10 @@ describe("SpectrumRoute file mode", () => {
       ]?.[0];
     expect(visualizerProps.isStandby).toBe(true);
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
     });
     expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
+      sourceId: "mock-tx",
       txSettings: expect.objectContaining({
         centerFrequencyHz: 137_100_000,
         bandwidthHz: 2_400_000,
@@ -1337,12 +1336,14 @@ describe("SpectrumRoute file mode", () => {
       txSampleRateHz: 2_400_000,
     });
     expect(visualizerProps.isStandby).toBe(true);
-    expect(visualizerProps.dataRef.current).toBeNull();
-    // No preview frame yet → Loading covers the canvas (never black).
+    // The standby request retains the generated preview frame while the
+    // source-ownership handoff is still committing, avoiding a black canvas.
+    expect(visualizerProps.dataRef.current).not.toBeNull();
     expect(visualizerProps.placeholderState).toMatchObject({
       kind: "loading",
     });
     expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
@@ -1383,8 +1384,7 @@ describe("SpectrumRoute file mode", () => {
           fftAndWaterfallMock.mock.calls.length - 1
         ]?.[0];
       expect(nextVisualizerProps.placeholderState).toMatchObject({
-        kind: "top-bar",
-        title: "Start Tx to transmit",
+        kind: "loading",
       });
       expect(nextVisualizerProps.isStandby).toBe(true);
       expect(nextVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
@@ -1409,8 +1409,7 @@ describe("SpectrumRoute file mode", () => {
           fftAndWaterfallMock.mock.calls.length - 1
         ]?.[0];
       expect(standbyProps.placeholderState).toMatchObject({
-        kind: "top-bar",
-        title: "Start Tx to transmit",
+        kind: "loading",
       });
       expect(standbyProps.isStandby).toBe(true);
     });
@@ -1438,13 +1437,13 @@ describe("SpectrumRoute file mode", () => {
         txSampleRateHz: 3_400_000,
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
-        kind: "top-bar",
-        title: "Start Tx to transmit",
+        kind: "loading",
       });
       // Keep the last preview painted while the retune one-shot is in flight.
       expect(narrowedVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
     });
     expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
@@ -1508,14 +1507,14 @@ describe("SpectrumRoute file mode", () => {
         txSampleRateHz: 1_400_000,
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
-        kind: "top-bar",
-        title: "Start Tx to transmit",
+        kind: "loading",
       });
       expect(narrowedVisualizerProps.dataRef.current).toBe(
         widenedMockTxPreviewFrame,
       );
     });
     expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,

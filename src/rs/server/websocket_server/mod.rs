@@ -586,7 +586,7 @@ mod tests {
 
   #[tokio::test]
   #[serial]
-  async fn managed_mock_tx_subscriber_receives_standby_frames() {
+  async fn managed_mock_tx_subscriber_does_not_auto_start_standby_frames() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
@@ -614,14 +614,12 @@ mod tests {
 
     let monitor =
       spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
-    let frame =
-      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+    assert!(
+      tokio::time::timeout(Duration::from_millis(100), spectrum_rx.recv())
         .await
-        .expect("standby Tx subscriber should receive a frame")
-        .expect("standby Tx monitor channel should remain open");
-
-    assert_eq!(frame.source_id, MOCK_TX_SOURCE_ID);
-    assert_eq!(frame.is_tx_preview, Some(true));
+        .is_err(),
+      "standby Tx subscriptions must wait for an explicit preview request"
+    );
 
     shared.shutdown.store(true, Ordering::Relaxed);
     monitor
