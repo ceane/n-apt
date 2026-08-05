@@ -11,9 +11,20 @@ const STORAGE_KEYS = {
 } as const;
 
 // Safe localStorage operations
-const safeSetItem = (key: string, value: string): boolean => {
+const getAvailableLocalStorage = (): Storage | null => {
   try {
-    localStorage.setItem(key, value);
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string): boolean => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return false;
+
+  try {
+    storage.setItem(key, value);
     return true;
   } catch (error) {
     console.warn(`Failed to save to localStorage (${key}):`, error);
@@ -22,8 +33,11 @@ const safeSetItem = (key: string, value: string): boolean => {
 };
 
 const safeGetItem = (key: string): string | null => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return null;
+
   try {
-    return localStorage.getItem(key);
+    return storage.getItem(key);
   } catch (error) {
     console.warn(`Failed to read from localStorage (${key}):`, error);
     return null;
@@ -31,8 +45,11 @@ const safeGetItem = (key: string): string | null => {
 };
 
 const safeRemoveItem = (key: string): boolean => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return false;
+
   try {
-    localStorage.removeItem(key);
+    storage.removeItem(key);
     return true;
   } catch (error) {
     console.warn(`Failed to remove from localStorage (${key}):`, error);

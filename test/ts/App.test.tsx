@@ -1,7 +1,7 @@
 import * as React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router";
 // @ts-ignore - Module is mocked below
 import { AppRoutes } from "@n-apt/routes/Routes";
 import { TestWrapper } from "./testUtils";

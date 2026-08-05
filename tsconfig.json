@@ -13,6 +13,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "rootDirs": [".", "./.react-router/types"],
 
     /* Linting */
     "strict": true,
@@ -44,7 +45,7 @@
       "@n-apt/validation/*": ["./src/ts/validation/*"]
     }
   },
-  "include": ["src/ts", "src/tracked-interactive", "src/md-preview", "src/md-signals", "src/encrypted-modules", "src/ts/types", "src/types", "test/ts", "test/integration"],
+  "include": ["src/ts", ".react-router/types/**/*", "src/tracked-interactive", "src/md-preview", "src/md-signals", "src/encrypted-modules", "src/ts/types", "src/types", "test/ts", "test/integration"],
   "exclude": ["src/md-preview/components/canvas/ascii-motion-animation.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

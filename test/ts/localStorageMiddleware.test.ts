@@ -14,6 +14,26 @@ describe("loadPersistedSdrSettings", () => {
     localStorage.clear();
   });
 
+  it("does not warn while the framework build has no browser localStorage", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(loadPersistedSdrSettings()).toEqual({});
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(globalThis, "localStorage", descriptor);
+      }
+      warn.mockRestore();
+    }
+  });
+
   it("preserves persisted dBm ranges instead of flattening them to 0 dBm", () => {
     localStorage.setItem(
       "napt-sdr-settings-v2",

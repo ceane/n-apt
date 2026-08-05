@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import styled from "styled-components";
 import { Logo } from "@n-apt/components/ui/Logo";
 import { AppBackButton } from "@n-apt/components/ui/AppBackButton";

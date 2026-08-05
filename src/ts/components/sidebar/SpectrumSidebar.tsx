@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { SatelliteDish, Trash2, Unplug, ChevronDown } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import {
   useAppSelector,
   useAppDispatch,

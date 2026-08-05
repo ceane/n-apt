@@ -1,7 +1,7 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 
 jest.mock("@n-apt/hooks/useAuthentication", () => ({
@@ -19,6 +19,7 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
 
 import {
   AuthenticationUI,
+  AuthenticationRoute,
   type AuthState,
 } from "@n-apt/routes/AuthenticationRoute";
 
@@ -44,6 +45,19 @@ describe("AuthenticationRoute", () => {
     expect(
       screen.getByText("Secure Access Required for N-APT"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps authenticated onboarding behind the authentication boundary", () => {
+    render(
+      <MemoryRouter initialEntries={["/get-started"]}>
+        <AuthenticationRoute>
+          <div>authenticated content</div>
+        </AuthenticationRoute>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Secure Access Required for N-APT")).toBeInTheDocument();
+    expect(screen.queryByText("authenticated content")).not.toBeInTheDocument();
   });
 
   it("uses darken blending for the light-mode logo", () => {

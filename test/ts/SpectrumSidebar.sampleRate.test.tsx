@@ -13,7 +13,7 @@ import {
 import { Provider, useSelector } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router";
 import { SpectrumSidebar } from "../../src/ts/components/sidebar/SpectrumSidebar";
 import { buildAppTheme } from "@n-apt/components/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";

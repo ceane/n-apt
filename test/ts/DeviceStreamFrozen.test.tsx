@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "../../src/ts/components/FFTCanvas";
 import { FrequencyRange } from "../../src/ts/consts/types";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 
 // Mock the hooks that FFTCanvas uses

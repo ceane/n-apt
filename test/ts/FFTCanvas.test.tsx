@@ -23,7 +23,7 @@ import {
   formatTxIfftSizeLabel,
 } from "../../src/ts/components/FFTCanvas";
 import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";

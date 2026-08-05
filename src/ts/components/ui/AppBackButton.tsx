@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import styled from "styled-components";
 import { DoorOpen } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";

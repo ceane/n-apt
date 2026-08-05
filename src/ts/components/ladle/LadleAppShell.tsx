@@ -2,7 +2,7 @@ import React from "react";
 import { MainLayout } from "@n-apt/components/MainLayout";
 
 import { useLadleContext, useLink } from "@ladle/react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 
 interface LadleAppShellProps {
   children: React.ReactNode;

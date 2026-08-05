@@ -45,6 +45,9 @@
     "sigint"
   ],
   "author": "Ceane Lamerez",
+  "engines": {
+    "node": ">=22.22.0"
+  },
   "scripts": {
     "setup": "node scripts/setup/create_env.js && cargo fetch",
     "decrypt-modules": "npx tsx scripts/encrypted-modules/crypt.ts decrypt",
@@ -54,12 +57,14 @@
     "build:markdown": "vite build --config vite.markdown.config.ts",
     "preview:markdown": "vite preview --config vite.markdown.config.ts --port 4174",
     "dev": "npm --silent run decrypt-modules-if-needed && npm --silent run build_orchestrator",
+    "dev:router": "NAPT_REACT_ROUTER=1 react-router dev",
     "build_orchestrator": "node --import tsx scripts/build/build-orchestrator.tsx",
     "legal-app": "node scripts/legal-app-server/index.mjs",
     "cli": "tsx scripts/cli/index.ts",
     "build:rust": "cargo build --bin n-apt-backend",
     "build:rust:release": "cargo build --release --bin n-apt-backend",
     "build:frontend": "vite build",
+    "build:router": "NAPT_REACT_ROUTER=1 react-router build",
     "build:wasm": "./scripts/build/build_wasm.sh",
     "build": "npm run build:rust && npm run build:wasm && npm run build:frontend",
     "test": "npm run test:shader:fixtures && jest test/ts && npm run test:shader",
@@ -84,6 +89,7 @@
     "format:rust:fast": "./scripts/rust/rustfmt-fast.sh",
     "format:rust:check": "cargo fmt --all -- --check",
     "typecheck": "tsc --noEmit --ignoreDeprecations 6.0",
+    "typegen": "NAPT_REACT_ROUTER=1 react-router typegen",
     "format:check": "oxfmt --check 'src/ts/**/*.{ts,tsx,js,jsx,cjs,mjs}' 'test/**/*.{ts,tsx,js,jsx,cjs,mjs}'",
     "towers:load:redis": "node scripts/redis/load_towers_to_redis.cjs",
     "towers:load:all": "node scripts/redis/load_all_towers_to_redis.cjs",
@@ -175,9 +181,9 @@
     "motion": "12.42.2",
     "n_apt_canvas": "file:./packages/n_apt_canvas",
     "next-themes": "0.4.6",
-    "react": "^16.8.4 || ^17.0.0 || ^18.0.0 || ^19.0.0",
+    "react": "^19.2.7",
     "react-day-picker": "10.0.1",
-    "react-dom": "^19.2.4",
+    "react-dom": "^19.2.7",
     "react-flow": "^1.0.3",
     "react-helmet-async": "^3.0.0",
     "react-katex": "^3.1.0",
@@ -186,7 +192,8 @@
     "react-redux": "9.3.0",
     "react-resizable-panels": "4.12.1",
     "react-responsive-masonry": "2.7.2",
-    "react-router-dom": "7.18.1",
+    "react-router": "8.3.0",
+    "@react-router/node": "8.3.0",
     "recharts": "3.9.2",
     "redis": "6.1.0",
     "rehype-highlight": "^7.0.2",
@@ -199,10 +206,12 @@
     "unist-util-visit": "^5.1.0",
     "vaul": "1.1.2",
     "zod": "^4.3.6",
-    "zustand": "^5.0.11"
+    "zustand": "^5.0.11",
+    "isbot": "^5"
   },
   "devDependencies": {
     "@ladle/react": "^5.1.1",
+    "@react-router/dev": "8.3.0",
     "@playwright/test": "1.61.1",
     "@tailwindcss/postcss": "4.3.2",
     "@tailwindcss/vite": "4.3.2",
