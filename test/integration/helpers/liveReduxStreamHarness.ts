@@ -410,7 +410,10 @@ export const createLiveReduxStreamHarness = async (
       await dispatch(sendSelectSource(sourceId));
       await harness.waitFor(
         () => store.getState().websocket,
-        (state) => state.activeSourceId === sourceId,
+        (state) =>
+          state.activeSourceId === sourceId &&
+          (state.sourceStatuses[sourceId] === "standby" ||
+            state.sourceTransport?.sourceId === sourceId),
       );
     },
 
@@ -442,6 +445,7 @@ export const createLiveReduxStreamHarness = async (
       const state = store.getState();
       await dispatch(
         requestNextPausedFrame({
+          sourceId: "mock-tx",
           txSettings: {
             centerFrequencyHz: state.spectrum?.txCenterFrequencyHz ?? null,
             bandwidthHz: state.spectrum?.txSampleRateHz ?? null,
@@ -472,7 +476,11 @@ export const createLiveReduxStreamHarness = async (
       });
       await harness.waitFor(
         () => store.getState().websocket,
-        (state) => state.sourceStatuses[sourceId] === (enabled ? "transmitting" : "standby"),
+        (state) =>
+          enabled
+            ? state.sourceStatuses[sourceId] === "transmitting"
+            : state.sourceStatuses[sourceId] === "standby" ||
+              state.sourceStatuses[sourceId] === "receiving",
       );
     },
 

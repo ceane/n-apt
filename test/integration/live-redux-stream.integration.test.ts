@@ -60,10 +60,10 @@ describe("live Redux/source-mode stream harness", () => {
       (value) =>
         value.redux.activeSourceId === "mock-tx" &&
         value.redux.sourceStatuses["mock-tx"] === "standby" &&
-        !value.managed.tx.hasSubscription &&
-        value.lifecycle.phase === "standby",
+        value.managed.tx.hasSubscription &&
+        value.presentationPhase?.phase === "warming",
     );
-    expect(txStandby.managed.tx.hasSubscription).toBe(false);
+    expect(txStandby.managed.tx.hasSubscription).toBe(true);
 
     let standbySequence: number | null = null;
     for (let attempt = 0; attempt < 40; attempt += 1) {

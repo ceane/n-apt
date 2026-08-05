@@ -122,7 +122,13 @@ fn spawn_tx_monitor_stream(
       }
       let tx_is_active = crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       let active_source_id = active_source_id(&shared_state);
-      let tx_key = StreamKey::new(active_source_id.clone(), StreamMode::Tx);
+      let active_tx_key = StreamKey::new(active_source_id.clone(), StreamMode::Tx);
+      let mock_tx_key = StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx);
+      let tx_key = if stream_manager.has_stream(&active_tx_key) {
+        active_tx_key
+      } else {
+        mock_tx_key
+      };
       let managed_tx_stream = stream_manager.has_stream(&tx_key);
       if !should_run_tx_monitor(
         &active_source_id,
@@ -184,11 +190,12 @@ fn should_delegate_tx_monitor(
 fn should_run_tx_monitor(
   active_source_id: &str,
   tx_is_active: bool,
-  _managed_tx_stream: bool,
+  managed_tx_stream: bool,
 ) -> bool {
   // Standby remains request-only. A managed subscription must not auto-start
   // continuous monitor playback; only an explicit transmitting state does.
-  tx_is_active && should_delegate_tx_monitor(active_source_id, true)
+  tx_is_active
+    && (should_delegate_tx_monitor(active_source_id, true) || managed_tx_stream)
 }
 
 fn broadcast_source_switch_error(
@@ -491,6 +498,7 @@ mod tests {
     assert!(!should_run_tx_monitor("mock-apt", false, true));
     assert!(should_run_tx_monitor("mock-tx", true, true));
     assert!(should_run_tx_monitor("mock-tx", true, false));
+    assert!(should_run_tx_monitor("mock-apt", true, true));
   }
 
   #[test]

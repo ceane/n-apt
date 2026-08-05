@@ -29,8 +29,8 @@ const mockRaf = jest.spyOn(window, "requestAnimationFrame");
 // Ensure we use the real FFTCanvas for integration testing, not the manual mock in __mocks__
 jest.unmock("@n-apt/components/FFTCanvas");
 
-jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
-  useWebGPUInit: () => ({
+jest.mock("@n-apt/hooks/useWebGPUInit", () => {
+  const lifecycle = () => ({
     webgpuEnabled: false,
     isInitializingWebGPU: false,
     webgpuDeviceRef: { current: null },
@@ -39,10 +39,17 @@ jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
     markersOverlayRendererRef: { current: null },
     spikesOverlayRendererRef: { current: null },
     overlayDirtyRef: { current: { grid: false, markers: false } },
-  }),
-}));
+  });
+  return { useWebGPULifecycle: lifecycle, useWebGPUInit: lifecycle };
+});
 
 jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+  useSpectrumMath: () => ({
+    processIqToDbmSpectrum: jest.fn(
+      (_iq: Uint8Array, _offsetDb: number, fftSize: number) =>
+        new Float32Array(Math.max(1, fftSize)).fill(-80),
+    ),
+  }),
   useWasmSimdMath: () => ({
     isAvailable: false,
     isLoading: false,

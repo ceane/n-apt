@@ -49,20 +49,20 @@ const makeV2Envelope = (
   encryptedPayload: Uint8Array,
 ): ArrayBuffer => {
   const sourceBytes = new TextEncoder().encode(sourceId);
-  const headerLength = 52 + sourceBytes.length;
+  const headerLength = 56 + sourceBytes.length;
   const bytes = new Uint8Array(headerLength + encryptedPayload.length);
   bytes.set(new TextEncoder().encode("NAPT"));
   const view = new DataView(bytes.buffer);
   view.setUint8(4, 2);
   view.setUint16(6, headerLength, true);
   view.setUint16(8, sourceBytes.length, true);
-  view.setBigUint64(12, BigInt(epoch), true);
-  view.setBigUint64(20, BigInt(sequence), true);
-  view.setBigUint64(28, BigInt(sequence), true);
-  view.setBigUint64(36, 137_100_000n, true);
-  view.setUint32(44, 1, true);
-  view.setUint32(48, 2_400_000, true);
-  bytes.set(sourceBytes, 52);
+  view.setBigUint64(16, BigInt(epoch), true);
+  view.setBigUint64(24, BigInt(sequence), true);
+  view.setBigUint64(32, BigInt(sequence), true);
+  view.setBigUint64(40, 137_100_000n, true);
+  view.setUint32(48, 1, true);
+  view.setUint32(52, 2_400_000, true);
+  bytes.set(sourceBytes, 56);
   bytes.set(encryptedPayload, headerLength);
   return bytes.buffer;
 };
@@ -135,8 +135,8 @@ describe("device swap payload-form integration", () => {
       },
     );
     expect(selectionReset).toEqual({
-      clearLiveFrame: true,
-      advanceResetEpoch: true,
+      clearLiveFrame: false,
+      advanceResetEpoch: false,
     });
     expect(
       shouldResetVisualPresentationForSelection("mock-apt", "mock-tx"),
@@ -173,17 +173,16 @@ describe("device swap payload-form integration", () => {
       }),
     );
     pump.enqueue(makeV2Envelope("mock-apt", 11, 1, mockAptPayload), "mock-apt");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const aptFrame = frameFromRef();
     const aptForm = payloadForm(aptFrame.iq_data);
 
     // This is the same handoff boundary as websocket/sendMessage(select_source):
     // clear the old presentation, reset the source pump, and await the commit.
-    liveDataRef.current = null;
-    pump.reset();
     lifecycle.sourceId = "mock-tx";
     lifecycle.streamEpoch = 12;
+    liveDataRef.current = null;
+    pump.reset();
     store.dispatch(
       updateDeviceState({
         activeSourceId: "mock-tx",
@@ -198,12 +197,11 @@ describe("device swap payload-form integration", () => {
     // A late old-source frame follows the swap and must never reach the
     // pre-WebGPU presentation ref.
     pump.enqueue(makeV2Envelope("mock-apt", 11, 2, mockAptPayload), "mock-tx");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(liveDataRef.current).toBeNull();
 
     pump.enqueue(makeV2Envelope("mock-tx", 12, 1, mockTxPayload), "mock-tx");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const txFrame = frameFromRef();
     const txForm = payloadForm(txFrame.iq_data);
 

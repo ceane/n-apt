@@ -1373,7 +1373,8 @@ const syncManagedStreamSubscriptions = (
     managedRxSubscription &&
     activeSource?.id === rxSourceId &&
     managedRxSubscription.streamEpoch > 0 &&
-    getState().websocket.sourceTransport?.phase !== "ready"
+    (getState().websocket.sourceTransport?.sourceId !== rxSourceId ||
+      getState().websocket.sourceTransport?.phase !== "ready")
   ) {
     publishSourceTransport(dispatch, getState, rxSourceId, "ready");
   }
@@ -1442,7 +1443,8 @@ const syncManagedStreamSubscriptions = (
     managedTxSubscription &&
     activeSource?.id === txSourceId &&
     managedTxSubscription.streamEpoch > 0 &&
-    getState().websocket.sourceTransport?.phase !== "ready"
+    (getState().websocket.sourceTransport?.sourceId !== txSourceId ||
+      getState().websocket.sourceTransport?.phase !== "ready")
   ) {
     publishSourceTransport(dispatch, getState, txSourceId!, "ready");
   }
