@@ -10,7 +10,7 @@ describe("demodulation harness", () => {
   });
 
   it("dispatches algorithms without coupling to React Flow", () => {
-    expect(runDemodulationAlgorithm("fm", new Uint8Array([1, 2]))).toEqual(new Uint8Array([1, 2]));
+    expect(runDemodulationAlgorithm("fm", new Uint8Array([1, 2]))).toBeInstanceOf(Float32Array);
     expect(() => runDemodulationAlgorithm("unknown", new Uint8Array())).toThrow(/unsupported/i);
   });
 });

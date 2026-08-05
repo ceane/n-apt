@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { createDemodProcessor } from "@n-apt/utils/demodProcessors";
 import {
   applyComplexLowPass,
   shiftIqToBaseband,
@@ -42,6 +43,10 @@ export function useNAPTAudioDemod(
 ): AudioDemodNAPTHandle {
   const NAPT_IMAGE_CARRIER = 2400;
   const { targetSampleRate } = options;
+  const sharedProcessor = useMemo(
+    () => createDemodProcessor("napt", { targetSampleRate }),
+    [targetSampleRate],
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
@@ -192,16 +197,12 @@ export function useNAPTAudioDemod(
       frameCenterFrequencyHz?: number | null,
     ) => {
       if (!iqData || iqData.length === 0) return;
-      const baseband = demodulateNAPTBaseband(
-        iqData,
-        inputSampleRate,
-        frameCenterFrequencyHz,
-      );
+      const baseband = demodulateNAPTBaseband(iqData, inputSampleRate, frameCenterFrequencyHz);
       const imageEnvelope = envelopeDetectNAPT(baseband, inputSampleRate);
       const detection = detectNaptSpikeCandidates(imageEnvelope);
       setDetectionResult(detection);
       const selected = detection.selectedCandidate;
-      let finalAudio = imageEnvelope;
+      let finalAudio = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
       if (selected) {
         const segment = imageEnvelope.slice(
           selected.startIndex,
@@ -217,13 +218,6 @@ export function useNAPTAudioDemod(
           }
         }
       }
-      if (inputSampleRate !== targetSampleRate) {
-        finalAudio = resampleAudio(
-          finalAudio,
-          inputSampleRate,
-          targetSampleRate,
-        );
-      }
       if (finalAudio.length === 0) {
         processedAudioBufferRef.current = null;
         return;
@@ -234,7 +228,7 @@ export function useNAPTAudioDemod(
       demodulateNAPTBaseband,
       envelopeDetectNAPT,
       resampleAudio,
-      targetSampleRate,
+      sharedProcessor,
     ],
   );
 

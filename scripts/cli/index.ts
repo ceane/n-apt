@@ -40,12 +40,13 @@ async function demod(args: string[]) {
   const sampleRateHz = Number(flag(args, "--sample-rate", "2400000"));
   const algorithm = flag(args, "--algorithm", "fm") as DemodAlgorithm;
   const plan = prepareDemodulation({ centerFrequencyHz, frequencyRangeHz: [minHz, maxHz], sampleRateHz, algorithm });
-  const processed = runDemodulationAlgorithm(algorithm, new Uint8Array(await readFile(input)));
+  const processed = runDemodulationAlgorithm(algorithm, new Uint8Array(await readFile(input)), { sampleRateHz, targetSampleRate: sampleRateHz, centerFrequencyHz, bandwidthHz: maxHz - minHz });
   const trailer = Buffer.from(JSON.stringify({ ...plan.trailer, reference: { parent_artifact: input }, tool_version: "n-apt-cli" }));
-  const chunk = Buffer.alloc(20 + processed.length); chunk.writeBigUInt64LE(0n, 0); chunk.writeUInt32LE(0, 8); chunk.writeBigUInt64LE(BigInt(processed.length), 12); Buffer.from(processed).copy(chunk, 20);
+  const processedBytes = Buffer.from(processed.buffer, processed.byteOffset, processed.byteLength);
+  const chunk = Buffer.alloc(20 + processedBytes.length); chunk.writeBigUInt64LE(0n, 0); chunk.writeUInt32LE(0, 8); chunk.writeBigUInt64LE(BigInt(processedBytes.length), 12); processedBytes.copy(chunk, 20);
   const frames = Buffer.from("[]");
   const marker = Buffer.alloc(24); Buffer.from("NAPTTRLR").copy(marker); marker[8] = 1; marker.writeBigUInt64LE(BigInt(trailer.length), 16);
-  const metadata: any = { format: "iq", format_version: 4, interleaving: "IQ", center_frequency_hz: centerFrequencyHz, capture_sample_rate_hz: sampleRateHz, frequency_range: [minHz, maxHz], bandwidth: maxHz - minHz, fft_size: plan.fftSize, temporal_resolution: "lossless", sections: { binary: { offset_bytes: 0, length_bytes: chunk.length, encoding: "iq_u8_interleaved", encrypted: false }, trailer: { offset_bytes: 0, length_bytes: marker.length + trailer.length, encoding: "utf8_json", version: 1 } } };
+  const metadata: any = { format: "iq", format_version: 4, interleaving: "IQ", center_frequency_hz: centerFrequencyHz, capture_sample_rate_hz: sampleRateHz, frequency_range: [minHz, maxHz], bandwidth: maxHz - minHz, fft_size: plan.fftSize, temporal_resolution: "lossless", data_format: "demod_pcm_f32", sections: { binary: { offset_bytes: 0, length_bytes: chunk.length, encoding: "pcm_f32_mono", encrypted: false }, trailer: { offset_bytes: 0, length_bytes: marker.length + trailer.length, encoding: "utf8_json", version: 1 } } };
   let metadataBytes = Buffer.from(JSON.stringify(metadata));
   metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
   metadataBytes = Buffer.from(JSON.stringify(metadata)); metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;

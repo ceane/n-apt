@@ -1,4 +1,5 @@
 import { DEMOD_MIN_FFT_SIZE } from "./demodQuality";
+import { createDemodProcessor } from "./demodProcessors";
 
 export type DemodAlgorithm = "fm" | "apt" | "napt";
 export type DemodHarnessInput = {
@@ -35,15 +36,14 @@ export function prepareDemodulation(input: DemodHarnessInput): DemodPlan {
   };
 }
 
-export function runDemodulationAlgorithm(algorithm: string, iq: Uint8Array): Uint8Array {
-  switch (algorithm) {
-    // The harness owns selection and artifact provenance; DSP implementations
-    // can be added behind this stable dispatch boundary.
-    case "fm":
-    case "apt":
-    case "napt":
-      return iq.slice();
-    default:
-      throw new Error(`Unsupported demodulation algorithm: ${algorithm}`);
-  }
+export function runDemodulationAlgorithm(
+  algorithm: DemodAlgorithm,
+  iq: Uint8Array,
+  options: { sampleRateHz?: number; targetSampleRate?: number; centerFrequencyHz?: number; bandwidthHz?: number } = {},
+): Float32Array {
+  return createDemodProcessor(algorithm, {
+    targetSampleRate: options.targetSampleRate ?? 48_000,
+    centerFrequency: options.centerFrequencyHz,
+    bandwidth: options.bandwidthHz,
+  }).process(iq, options.sampleRateHz ?? 2_400_000, options.centerFrequencyHz);
 }

@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { createDemodProcessor } from "@n-apt/utils/demodProcessors";
 import {
   applyComplexLowPass,
   shiftIqToBaseband,
@@ -33,6 +34,10 @@ export function useAudioDemodAPT(
 ): AudioDemodAPTHandle {
   const APT_IMAGE_CARRIER = 2400; // 2.4kHz subcarrier
   const { targetSampleRate } = options;
+  const sharedProcessor = useMemo(
+    () => createDemodProcessor("apt", { targetSampleRate }),
+    [targetSampleRate],
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
@@ -165,31 +170,9 @@ export function useAudioDemodAPT(
     ) => {
       if (!iqData || iqData.length === 0) return;
 
-      // 1. FM demodulation to get baseband (which contains 2.4kHz AM subcarrier)
-      const baseband = demodulateAPTBaseband(
-        iqData,
-        inputSampleRate,
-        frameCenterFrequencyHz,
-      );
-
-      // 2. Apply Envelope Detection to recover image pixels (magnitude of 2.4kHz subcarrier)
-      // Note: It's theoretically better to apply this at the original inputSampleRate
-      // to preserve more phase nuance before resampling.
-      const imageEnvelope = envelopeDetectAPT(baseband, inputSampleRate);
-
-      // 3. Resample the resulting envelope to the target audio sample rate (e.g. 48kHz)
-      let finalAudio = imageEnvelope;
-      if (inputSampleRate !== targetSampleRate) {
-        finalAudio = resampleAudio(
-          imageEnvelope,
-          inputSampleRate,
-          targetSampleRate,
-        );
-      }
-
-      processedAudioBufferRef.current = finalAudio;
+      processedAudioBufferRef.current = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
     },
-    [demodulateAPTBaseband, envelopeDetectAPT, resampleAudio, targetSampleRate],
+    [sharedProcessor],
   );
 
   const playAudio = useCallback(() => {
