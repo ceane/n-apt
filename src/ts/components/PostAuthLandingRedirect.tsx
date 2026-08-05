@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { getPostAuthLandingPath } from "@n-apt/utils/bypassStartPage";
 

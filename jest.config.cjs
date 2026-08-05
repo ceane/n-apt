@@ -8,8 +8,8 @@ module.exports = {
   ],
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   moduleNameMapper: {
+    "^react-router$": "<rootDir>/test/ts/__mocks__/react-router.cjs",
     "^(\\.{1,2}/.*)\\.js$": "$1",
-    "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
     "^@n-apt/consts$": "<rootDir>/src/ts/consts",
     "^@n-apt/md-preview/utils/hmr$": "<rootDir>/test/ts/__mocks__/mdPreviewHmrMock.cjs",
     "^@n-apt/md-preview/(.*)$": "<rootDir>/src/md-preview/$1",

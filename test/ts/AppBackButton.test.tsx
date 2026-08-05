@@ -1,6 +1,6 @@
 import * as React from "react";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { AppBackButton } from "@n-apt/components/ui/AppBackButton";

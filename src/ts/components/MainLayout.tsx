@@ -5,7 +5,7 @@ import { NAPTSidebarHeader } from "@n-apt/components/sidebar/NAPTSidebarHeader";
 import { SidebarRoutesNav } from "@n-apt/components/sidebar/SidebarRoutesNav";
 import { CollapsedToggleButton } from "@n-apt/components/sidebar/SidebarToggle";
 import { ContentArea } from "@n-apt/components/Layout";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { useSidebarNavigationScroll } from "@n-apt/hooks/useSidebarNavigationScroll";
 
 const NavigationContainer = memo(styled.nav`

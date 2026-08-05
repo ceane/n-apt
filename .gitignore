@@ -27,6 +27,7 @@ build/
 scripts/dist/
 scratch/
 .ts-node-build/
+.react-router/
 benches/
 
 # Generated diagnostics and test artifacts

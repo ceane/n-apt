@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import styled from "styled-components";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";

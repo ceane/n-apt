@@ -4,7 +4,7 @@ import styled, {
   ThemeProvider,
   ThemeContext,
 } from "styled-components";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 import { Button } from "@n-apt/components/ui/Button";
 import { FileSignal, Lock, Radio, ThumbsUp, TriangleAlert } from "lucide-react";
 import { Tooltip } from "@n-apt/components/ui/Tooltip";
@@ -1032,8 +1032,7 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     location.pathname === "/privacy" ||
     location.pathname === "/license" ||
     location.pathname === "/responsible-use" ||
-    location.pathname.startsWith("/learn-signals") ||
-    location.pathname === "/get-started";
+    location.pathname.startsWith("/learn-signals");
 
   if (isPublicRoute) {
     return <>{children}</>;

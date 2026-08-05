@@ -5,6 +5,7 @@ import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import glsl from "vite-plugin-glsl";
+import { reactRouter } from "@react-router/dev/vite";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
@@ -96,6 +97,7 @@ const rebuildStatusPlugin = () => ({
 });
 
 export default defineConfig(({ mode }) => {
+  const useFrameworkViteRoot = process.env.NAPT_REACT_ROUTER === "1";
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
     Object.entries(env).filter(
@@ -115,6 +117,7 @@ export default defineConfig(({ mode }) => {
       jsxRuntime: 'automatic',
       // Ensure JSX is parsed correctly
     }),
+    ...(useFrameworkViteRoot ? [reactRouter()] : []),
     glsl({
       defaultExtension: 'wgsl',
       compress: false,
@@ -134,10 +137,14 @@ export default defineConfig(({ mode }) => {
   ssr: {
     noExternal: ['styled-components'],
   },
-  root: "./src/ts",
-  envDir: "../../",
+  root: useFrameworkViteRoot ? dirname : "./src/ts",
+  envDir: useFrameworkViteRoot ? dirname : "../../",
   publicDir: path.resolve(dirname, "public"),
   build: {
+    // Keep the existing CSS surface compatible with Vite 8's default
+    // Lightning CSS minifier. The app's global @font-face declarations are
+    // valid PostCSS input but are rejected by Lightning CSS's minify pass.
+    cssMinify: 'esbuild',
     outDir: "./dist",
     rollupOptions: {
       output: {

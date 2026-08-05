@@ -25,7 +25,7 @@ import type {
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
 import { isMockDevice, isMockTxSource } from "@n-apt/utils/deviceCapabilities";
 import { buildWsUrl } from "@n-apt/services/auth";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 import {
   selectActiveSourceDerivedState,

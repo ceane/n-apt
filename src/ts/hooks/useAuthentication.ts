@@ -56,6 +56,10 @@ type AuthAction =
   | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
 
 const getInitialHasPasskeys = () => {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+
   try {
     return localStorage.getItem("n_apt_has_passkeys") === "true";
   } catch {

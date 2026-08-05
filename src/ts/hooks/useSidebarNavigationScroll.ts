@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import type React from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 let hasInitializedSidebarScroll = false;
 let lastSidebarScrollTop = 0;

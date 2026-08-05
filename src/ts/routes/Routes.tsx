@@ -1,13 +1,11 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
-import { DrawSignalPaginationProvider } from "@n-apt/contexts/DrawSignalPaginationContext";
 import type { FFTCanvasHandle } from "@n-apt/components";
 
-import { DemodulateSidebar } from "@n-apt/components/sidebar/DemodulateSidebar";
 import { DrawSignalSidebar } from "@n-apt/components/sidebar/DrawSignalSidebar";
 import { MapEndpointsSidebar } from "@n-apt/components/sidebar/MapEndpointsSidebar";
 import { Model3DSidebar } from "@n-apt/components/sidebar/Model3DSidebar";
@@ -69,13 +67,13 @@ const LegalDocumentRoute = lazy(() =>
   })),
 );
 const LearnSignalsRoute = lazy(() =>
-  import("@n-apt/routes/LearnSignalsRoute").then((m) => ({
-    default: m.LearnSignalsRoute,
+  import("@n-apt/framework/LearnSignalsRoute").then((m) => ({
+    default: m.default,
   })),
 );
 const GetStartedRoute = lazy(() =>
   import("@n-apt/routes/GetStartedRoute").then((m) => ({
-    default: m.GetStartedRoute,
+    default: m.default,
   })),
 );
 const SettingsRoute = lazy(() =>
@@ -89,20 +87,16 @@ const CellularTriangulationTargetingDemoRoute = lazy(() =>
   })),
 );
 const QuestionnaireRoute = lazy(
-  () => import("@n-apt/legal-app/routes/QuestionnaireRoute"),
+  () => import("@n-apt/framework/QuestionnaireRoute"),
 );
 const XArchiveFormatterRoute = lazy(
-  () => import("@n-apt/legal-app/routes/TranscriptFixerRoute"),
+  () => import("@n-apt/framework/XArchiveFormatterRoute"),
 );
 
-import { Model3DProvider } from "@n-apt/hooks/useModel3D";
-import { LearnSignalsProvider } from "@n-apt/contexts/LearnSignalsContext";
-import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/hooks/useHotspotEditor";
-
-import { DemodProvider, useDemod } from "@n-apt/contexts/DemodContext";
-import { ReactFlowProvider } from "@xyflow/react";
-import { MapLocationsProvider } from "@n-apt/hooks/useMapLocations";
-import { MapRoutePathsProvider } from "@n-apt/hooks/useMapRoutePaths";
+import {
+  LazyDemodSidebarAdapter,
+  RouteScopedProviders,
+} from "@n-apt/routes/RouteScopedProviders";
 import { useSpectrumStore } from "@n-apt/hooks/useSpectrumStore";
 import {
   createNoteCardFromSpectrum,
@@ -111,7 +105,6 @@ import {
   useAppSelector,
 } from "@n-apt/redux";
 import { selectSourceMode } from "@n-apt/redux/selectors/performanceSelectors";
-import { NsaProgramToolsShell } from "@n-apt/legal-app/NsaProgramToolsShell";
 import { useSettingsSectionScrollSpy } from "@n-apt/hooks/useSettingsSectionScrollSpy";
 
 const SETTINGS_SECTIONS = [
@@ -172,43 +165,6 @@ const GlobalSpacePauseHandler: React.FC = () => {
 // routes keeps the sidebar in place and only the content area swaps. The
 // Suspense fallback also lives inside the content area so a lazy route chunk
 // shows "Loading…" in the section only — not a full-app flash.
-// Only mounted on demod routes, so useDemod (and the scanner work it pulls
-// in) never runs for unrelated pages. Its context may also be mocked away in
-// tests, so it must not be called from the always-mounted shell.
-const DemodSidebarAdapter: React.FC = () => {
-  const {
-    windowSizeHz,
-    setWindowSizeHz,
-    stepSizeHz,
-    setStepSizeHz,
-    audioThreshold,
-    setAudioThreshold,
-    scanner,
-    currentFreq,
-    scanRange,
-    startScan,
-    stopScan,
-  } = useDemod();
-
-  return (
-    <DemodulateSidebar
-      windowSizeHz={windowSizeHz}
-      stepSizeHz={stepSizeHz}
-      audioThreshold={audioThreshold}
-      onWindowSizeChange={setWindowSizeHz}
-      onStepSizeChange={setStepSizeHz}
-      onAudioThresholdChange={setAudioThreshold}
-      isScanning={scanner.isScanning}
-      scanProgress={scanner.scanProgress}
-      scanCurrentFreq={currentFreq}
-      scanRange={scanRange}
-      detectedRegions={scanner.detectedRegions.length}
-      onScanStart={startScan}
-      onScanStop={stopScan}
-    />
-  );
-};
-
 const AppShellLayout: React.FC = () => {
   const location = useLocation();
   const dispatch = useAppDispatch();
@@ -255,7 +211,7 @@ const AppShellLayout: React.FC = () => {
       />
     );
   } else if (isDemod) {
-    sidebar = <DemodSidebarAdapter />;
+    sidebar = <LazyDemodSidebarAdapter />;
   } else if (isSettings) {
     sidebar = (
       <SettingsSidebar
@@ -332,19 +288,11 @@ const AppShellLayout: React.FC = () => {
         <Route path="/responsible-use" element={<LegalDocumentRoute />} />
         <Route
           path="/learn-signals"
-          element={
-            <LearnSignalsProvider>
-              <LearnSignalsRoute />
-            </LearnSignalsProvider>
-          }
+          element={<LearnSignalsRoute />}
         />
         <Route
           path="/learn-signals/:sectionSlug"
-          element={
-            <LearnSignalsProvider>
-              <LearnSignalsRoute />
-            </LearnSignalsProvider>
-          }
+          element={<LearnSignalsRoute />}
         />
         <Route
           path="/faq"
@@ -372,19 +320,11 @@ const AppShellLayout: React.FC = () => {
         />
         <Route
           path="/questionnaire"
-          element={
-            <NsaProgramToolsShell>
-              <QuestionnaireRoute />
-            </NsaProgramToolsShell>
-          }
+          element={<QuestionnaireRoute />}
         />
         <Route
           path="/x-archive-formatter"
-          element={
-            <NsaProgramToolsShell>
-              <XArchiveFormatterRoute />
-            </NsaProgramToolsShell>
-          }
+          element={<XArchiveFormatterRoute />}
         />
       </Routes>
     </Suspense>
@@ -408,20 +348,8 @@ const AppRoutesInner: React.FC = () => {
 
 export const AppRoutes: React.FC = () => {
   return (
-    <DemodProvider>
-      <ReactFlowProvider>
-        <Model3DProvider>
-          <HotspotEditorProvider>
-            <MapLocationsProvider>
-              <MapRoutePathsProvider>
-                <DrawSignalPaginationProvider>
-                  <AppRoutesInner />
-                </DrawSignalPaginationProvider>
-              </MapRoutePathsProvider>
-            </MapLocationsProvider>
-          </HotspotEditorProvider>
-        </Model3DProvider>
-      </ReactFlowProvider>
-    </DemodProvider>
+    <RouteScopedProviders>
+      <AppRoutesInner />
+    </RouteScopedProviders>
   );
 };

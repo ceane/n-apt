@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { PostAuthLandingRedirect } from "@n-apt/components/PostAuthLandingRedirect";
