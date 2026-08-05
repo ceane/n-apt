@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import archiver from 'archiver';
 import extractZip from 'extract-zip';
 import fileUpload from 'express-fileupload';
+import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +18,14 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ extended: true, limit: '500mb' }));
+
+const apiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+});
+app.use('/api', apiRateLimit);
 
 await fs.ensureDir(archivesDir);
 await fs.ensureDir(exportedDir);
@@ -37,6 +46,19 @@ function parseTwitterJs(content) {
 
 function toTwitterJs(globalName, data) {
   return `window.${globalName} = ${JSON.stringify(data, null, 2)}`;
+}
+
+function resolveArchivePath(root, name) {
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error('Archive name is required');
+  }
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(resolvedRoot, name);
+  const relative = path.relative(resolvedRoot, resolvedPath);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Invalid archive path');
+  }
+  return resolvedPath;
 }
 
 app.use(fileUpload({ createParentPath: true }));
@@ -92,8 +114,11 @@ app.get('/api/archives', async (_req, res) => {
 app.post('/api/archives/extract', async (req, res) => {
   try {
     const { archiveName } = req.body;
-    const zipPath = path.join(archivesDir, archiveName);
-    const extractPath = path.join(archivesDir, archiveName.replace(/\.zip$/i, ''));
+    const zipPath = resolveArchivePath(archivesDir, archiveName);
+    const extractPath = resolveArchivePath(
+      archivesDir,
+      archiveName.replace(/\.zip$/i, ''),
+    );
 
     if (!await fs.pathExists(zipPath)) {
       return res.status(404).json({ error: 'Archive not found' });
@@ -108,7 +133,7 @@ app.post('/api/archives/extract', async (req, res) => {
 
 app.get('/api/archives/:archiveName/tweets', async (req, res) => {
   try {
-    const archivePath = path.join(archivesDir, req.params.archiveName);
+    const archivePath = resolveArchivePath(archivesDir, req.params.archiveName);
     const dataPath = path.join(archivePath, 'data');
 
     if (!await fs.pathExists(dataPath)) {
@@ -138,10 +163,10 @@ app.get('/api/archives/:archiveName/tweets', async (req, res) => {
 app.post('/api/export', async (req, res) => {
   try {
     const { archiveName, filteredTweetIds, exportName } = req.body;
-    const sourcePath = path.join(archivesDir, archiveName);
+    const sourcePath = resolveArchivePath(archivesDir, archiveName);
     const timestamp = Date.now();
     const exportFolderName = exportName || `filtered-${archiveName}-${timestamp}`;
-    const exportPath = path.join(exportedDir, exportFolderName);
+    const exportPath = resolveArchivePath(exportedDir, exportFolderName);
 
     await fs.ensureDir(exportPath);
     await fs.copy(sourcePath, exportPath);
@@ -238,7 +263,7 @@ app.post('/api/export', async (req, res) => {
 
 app.get('/api/download/:filename', async (req, res) => {
   try {
-    const filePath = path.join(exportedDir, req.params.filename);
+    const filePath = resolveArchivePath(exportedDir, req.params.filename);
     if (!await fs.pathExists(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
