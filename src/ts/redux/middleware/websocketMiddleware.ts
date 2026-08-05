@@ -57,6 +57,7 @@ import {
   type SourcePresentationController,
 } from "@n-apt/streams/sourcePresentationController";
 import { resolveTxStandbyAnnouncement } from "@n-apt/streams/txStandbyAnnouncement";
+import { demodFrameQueue } from "@n-apt/visualization/demodFrameQueue";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -104,6 +105,14 @@ export const isBoundTxPreviewStandby = ({
 
 export { decodeIqFrameEnvelope } from "@n-apt/io/iqStreamProtocol";
 export { createIqFramePump } from "@n-apt/io/iqFramePump";
+
+const isDemodEligibleLiveFrame = (frame: any): boolean =>
+  !!frame?.source_id &&
+  !!frame?.iq_data &&
+  frame?.frame_status !== "standby" &&
+  frame?.frame_status !== "transmitting" &&
+  frame?.is_tx_preview !== true &&
+  frame?.is_mock_tx_preview !== true;
 
 // Tracks the requested/selected source during transition to filter out old frames
 let requestedSourceId: string | null = null;
@@ -306,9 +315,7 @@ const applyOptimisticTransmitStatus = (
   const targetSource =
     currentSources.find((source) => sourceMatchesTxRequest(source, data)) ??
     currentSources.find(
-      (source) =>
-      source.capability === "tx" ||
-        source.capability === "tx_rx",
+      (source) => source.capability === "tx" || source.capability === "tx_rx",
     );
   if (!targetSource) {
     return;
@@ -522,6 +529,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   pendingDataUpdate = null;
   pendingStatusUpdates = null;
   liveDataRef.current = null;
+  demodFrameQueue.clear();
   liveDataBySourceRef.current = {};
   sourceVisualizationRuntime.clear();
   cachedRxFrameBySourceId.clear();
@@ -587,8 +595,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     );
     const boundTxSourceId =
       state.sourceRouting?.bindings?.["tx-suite:tx"] ?? null;
-    const selectedSourceId =
-      state.sourceSelection?.selectedSourceId || null;
+    const selectedSourceId = state.sourceSelection?.selectedSourceId || null;
     const selectedSource = (state.websocket.sources ?? []).find(
       (source: SourceInfo) => source.id === selectedSourceId,
     );
@@ -608,8 +615,8 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const activeSourceStatus =
       state.websocket.sourceStatuses?.[activeSourceId] ?? activeSource?.status;
     const selectedTxPresentationStatus = selectedTxPresentationSourceId
-      ? state.websocket.sourceStatuses?.[selectedTxPresentationSourceId] ??
-        selectedSource?.status
+      ? (state.websocket.sourceStatuses?.[selectedTxPresentationSourceId] ??
+        selectedSource?.status)
       : null;
     const isSelectedTxPresentationTransmitting =
       selectedTxPresentationStatus === "transmitting";
@@ -634,8 +641,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       sourceStatus: activeSourceStatus ?? null,
     });
     const isActiveTxPreviewBinding =
-      !!activeSourceId &&
-      boundTxSourceId === activeSourceId;
+      !!activeSourceId && boundTxSourceId === activeSourceId;
     const isTxPresentationFrame = (frame: any): boolean =>
       frame?.frame_status === "standby" ||
       frame?.frame_status === "transmitting" ||
@@ -690,8 +696,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       // path without a source tag; hardware handoffs must remain strict.
       isActiveMockTxMonitor && requestedSourceId === null,
     ).filter(
-      (frame: any) =>
-        !isTxPresentationFrame(frame) || isActiveTxPresentation,
+      (frame: any) => !isTxPresentationFrame(frame) || isActiveTxPresentation,
     );
     const readinessFrame = presentationFrames.find(
       (frame: any) =>
@@ -728,9 +733,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         f?.is_tx_preview === true ||
         f?.is_mock_tx_preview === true,
     );
-    const shouldAcceptPausedFrame =
-      hasTxPreviewFrame ||
-      false;
+    const shouldAcceptPausedFrame = hasTxPreviewFrame || false;
 
     if (
       presentationFrames.length > 0 &&
@@ -768,10 +771,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         if (Array.isArray(liveDataRef.current)) {
           liveDataRef.current.push(...presentationFrames);
         } else if (liveDataRef.current) {
-          liveDataRef.current = [
-            liveDataRef.current,
-            ...presentationFrames,
-          ];
+          liveDataRef.current = [liveDataRef.current, ...presentationFrames];
         } else {
           liveDataRef.current = [...presentationFrames];
         }
@@ -1023,6 +1023,7 @@ const shouldClearStaleSpectrumFrames = (
 
 const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
   liveDataRef.current = null;
+  demodFrameQueue.clear();
   dispatch(setSpectrumFrames([]));
 };
 
@@ -1070,6 +1071,13 @@ const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
     return;
   }
 
+  // Keep demodulation independent from the one-frame visualizer retention
+  // policy below. Audio processing may poll less often than requestAnimationFrame,
+  // so dropping frames here creates audible gaps even when the visualizer is smooth.
+  if (isDemodEligibleLiveFrame(data)) {
+    demodFrameQueue.push([data]);
+  }
+
   if (pendingDataUpdate === null) {
     pendingDataUpdate = [data];
   } else {
@@ -1105,12 +1113,17 @@ const sourceCenterFrequencyHz = (state: any): number => {
   return Number(state.spectrum?.frequency ?? 0);
 };
 
-const buildManagedRxOptions = (state: any, source: SourceInfo): StreamOptions => {
+const buildManagedRxOptions = (
+  state: any,
+  source: SourceInfo,
+): StreamOptions => {
   const settings = source.sdr?.settings ?? {};
   return {
     mode: "rx",
     centerFrequencyHz: sourceCenterFrequencyHz(state),
-    sampleRateHz: Number(settings.sample_rate ?? state.spectrum?.sampleRateHz ?? 1),
+    sampleRateHz: Number(
+      settings.sample_rate ?? state.spectrum?.sampleRateHz ?? 1,
+    ),
     fftSize: Number(settings.fft_size ?? state.spectrum?.fftSize ?? 1024),
     fftWindow: settings.fft_window ?? state.spectrum?.fftWindow,
     frameRate: settings.frame_rate ?? state.spectrum?.fftFrameRate,
@@ -1337,12 +1350,20 @@ const syncManagedStreamSubscriptions = (
     managedRxSubscription = null;
     managedRxSourceId = null;
   }
-  if (rxSourceId && activeSource && !managedRxSubscription && !managedRxSubscribePending) {
+  if (
+    rxSourceId &&
+    activeSource &&
+    !managedRxSubscription &&
+    !managedRxSubscribePending
+  ) {
     managedRxSubscribePending = true;
     const key = { sourceId: rxSourceId, mode: "rx" as const };
     void sourceModeStreamManager
-      .subscribe(key, buildManagedRxOptions(getState(), activeSource), (event) =>
-        handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
+      .subscribe(
+        key,
+        buildManagedRxOptions(getState(), activeSource),
+        (event) =>
+          handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
       )
       .then((subscription) => {
         managedRxSubscribePending = false;
@@ -1363,7 +1384,9 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedRxSubscription && activeSource) {
-    void managedRxSubscription.updateOptions(buildManagedRxOptions(getState(), activeSource));
+    void managedRxSubscription.updateOptions(
+      buildManagedRxOptions(getState(), activeSource),
+    );
   }
   // A source handoff can commit after the stream acknowledgement. In that
   // ordering the stream_opened event was intentionally ignored while the old
@@ -1405,7 +1428,12 @@ const syncManagedStreamSubscriptions = (
     managedTxSubscription = null;
     managedTxSourceId = null;
   }
-  if (wantsTx && txSourceId && !managedTxSubscription && !managedTxSubscribePending) {
+  if (
+    wantsTx &&
+    txSourceId &&
+    !managedTxSubscription &&
+    !managedTxSubscribePending
+  ) {
     managedTxSubscribePending = true;
     const key = { sourceId: txSourceId, mode: "tx" as const };
     const txOptions =
@@ -1485,12 +1513,7 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
   multiplexedStreamTransport = null;
   presentationController.reset();
 
-  if (
-    recreate &&
-    wsInstance.enabled &&
-    wsInstance.url &&
-    wsInstance.aesKey
-  ) {
+  if (recreate && wsInstance.enabled && wsInstance.url && wsInstance.aesKey) {
     multiplexedStreamTransport = createMultiplexedStreamTransport({
       url: wsInstance.url,
       aesKey: wsInstance.aesKey,
@@ -1524,6 +1547,7 @@ const cleanupSocket = () => {
   pendingDataUpdate = null;
   pendingStatusUpdates = null;
   liveDataRef.current = null;
+  demodFrameQueue.clear();
   wsInstance.disposed = true;
 };
 
@@ -1656,10 +1680,7 @@ const processMessage = (
     (connectionStatus === "connecting" || connectionStatus === "reconnecting")
   ) {
     dispatch(setConnected());
-  } else if (
-    getState().websocket.isConnected &&
-    connectionStatus === "error"
-  ) {
+  } else if (getState().websocket.isConnected && connectionStatus === "error") {
     dispatch(setConnected());
   }
 
@@ -1722,10 +1743,7 @@ const processMessage = (
         clearLiveSpectrumFrames(dispatch);
       }
       const sourceStatuses = Object.fromEntries(
-        sources.map((source: SourceInfo) => [
-          source.id,
-          source.status,
-        ]),
+        sources.map((source: SourceInfo) => [source.id, source.status]),
       );
       if (parsedData.active_source === requestedSourceId) {
         requestedSourceId = null;
@@ -1850,9 +1868,13 @@ const processMessage = (
       };
       const currentRange = getState().spectrum?.frequencyRange;
       const currentSignalArea = getState().spectrum?.activeSignalArea;
-      const targetSourceId = parsedData.source_id || getState().websocket.activeSourceId;
-      const persistedArea = targetSourceId ? getPersistedActiveSignalArea(targetSourceId) : null;
-      const inManualMode = currentSignalArea === "manual" || persistedArea === "manual";
+      const targetSourceId =
+        parsedData.source_id || getState().websocket.activeSourceId;
+      const persistedArea = targetSourceId
+        ? getPersistedActiveSignalArea(targetSourceId)
+        : null;
+      const inManualMode =
+        currentSignalArea === "manual" || persistedArea === "manual";
 
       if (!inManualMode) {
         dispatch(
@@ -2265,7 +2287,7 @@ const createWebSocketMiddleware =
                     min_hz: currentRange.min,
                     max_hz: currentRange.max,
                     center_frequency: (currentRange.min + currentRange.max) / 2,
-                  })
+                  }),
                 );
               }
 
@@ -2274,19 +2296,34 @@ const createWebSocketMiddleware =
                 const sdrSettingsPayload: Record<string, any> = {
                   type: "settings",
                 };
-                if (typeof spectrumSettings.fftSize === "number" && spectrumSettings.fftSize > 0) {
+                if (
+                  typeof spectrumSettings.fftSize === "number" &&
+                  spectrumSettings.fftSize > 0
+                ) {
                   sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
                 }
-                if (typeof spectrumSettings.fftWindow === "string" && spectrumSettings.fftWindow.length > 0) {
+                if (
+                  typeof spectrumSettings.fftWindow === "string" &&
+                  spectrumSettings.fftWindow.length > 0
+                ) {
                   sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
                 }
-                if (typeof spectrumSettings.fftFrameRate === "number" && spectrumSettings.fftFrameRate > 0) {
+                if (
+                  typeof spectrumSettings.fftFrameRate === "number" &&
+                  spectrumSettings.fftFrameRate > 0
+                ) {
                   sdrSettingsPayload.frameRate = spectrumSettings.fftFrameRate;
                 }
-                if (typeof spectrumSettings.sampleRateHz === "number" && spectrumSettings.sampleRateHz > 0) {
+                if (
+                  typeof spectrumSettings.sampleRateHz === "number" &&
+                  spectrumSettings.sampleRateHz > 0
+                ) {
                   sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
                 }
-                if (typeof spectrumSettings.gain === "number" && spectrumSettings.gain >= 0) {
+                if (
+                  typeof spectrumSettings.gain === "number" &&
+                  spectrumSettings.gain >= 0
+                ) {
                   sdrSettingsPayload.gain = spectrumSettings.gain;
                 }
                 if (typeof spectrumSettings.ppm === "number") {
@@ -2418,6 +2455,7 @@ const createWebSocketMiddleware =
         }
 
         liveDataRef.current = null;
+        demodFrameQueue.clear();
         pendingDataUpdate = null;
         pendingStatusUpdates = null;
         if (statusBatchFrame !== null) {
@@ -2519,7 +2557,10 @@ const createWebSocketMiddleware =
               (getState().websocket.sources ?? []).find(
                 (source: SourceInfo) => source.id === requestedSourceId,
               )?.capability === "tx";
-            presentationController.selectSource(requestedSourceId, isTx ? "tx" : "rx");
+            presentationController.selectSource(
+              requestedSourceId,
+              isTx ? "tx" : "rx",
+            );
             pendingDataUpdate = null;
             // Keep the last live frame in the mutable ref across selection.
             // Nulling here forced a black FFT before the target preview/stream
@@ -2641,8 +2682,8 @@ const createWebSocketMiddleware =
           sourceRouting: state.sourceRouting,
         });
         if (sourceId && !cachedRxFrameBySourceId.has(sourceId)) {
-          const currentFrame = sourceVisualizationRuntime.getSourceRef(sourceId)
-            .current;
+          const currentFrame =
+            sourceVisualizationRuntime.getSourceRef(sourceId).current;
           const rxFrame = resolveRxFrameToRestore(currentFrame, sourceId);
           if (rxFrame) cachedRxFrameBySourceId.set(sourceId, rxFrame);
         }
@@ -2666,36 +2707,35 @@ const createWebSocketMiddleware =
         return result;
       }
 
-      default:
-        {
-          const isSourceBindingAction =
-            action.type === "sourceRouting/setSourceBinding" ||
-            action.type === "sourceRouting/setSourceBindings";
-          const previousTxBinding = isSourceBindingAction
-            ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
-            : null;
-          const result = next(action);
-          const nextTxBinding = isSourceBindingAction
-            ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
-            : null;
-          if (previousTxBinding && !nextTxBinding) {
-            clearTxPreviewFrames(getState, previousTxBinding);
-          }
-          if (
-            sourceModeStreamManager &&
-            (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
-          ) {
-            syncManagedStreamSubscriptions(dispatch, getState);
-          }
-          if (
-            isSourceBindingAction &&
-            nextTxBinding &&
-            nextTxBinding !== previousTxBinding
-          ) {
-            announceTxStandbyForSource(nextTxBinding, getState);
-          }
-          return result;
+      default: {
+        const isSourceBindingAction =
+          action.type === "sourceRouting/setSourceBinding" ||
+          action.type === "sourceRouting/setSourceBindings";
+        const previousTxBinding = isSourceBindingAction
+          ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
+          : null;
+        const result = next(action);
+        const nextTxBinding = isSourceBindingAction
+          ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
+          : null;
+        if (previousTxBinding && !nextTxBinding) {
+          clearTxPreviewFrames(getState, previousTxBinding);
         }
+        if (
+          sourceModeStreamManager &&
+          (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
+        ) {
+          syncManagedStreamSubscriptions(dispatch, getState);
+        }
+        if (
+          isSourceBindingAction &&
+          nextTxBinding &&
+          nextTxBinding !== previousTxBinding
+        ) {
+          announceTxStandbyForSource(nextTxBinding, getState);
+        }
+        return result;
+      }
     }
   };
 

@@ -6,6 +6,7 @@ import {
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
 import type { StreamMode } from "@n-apt/streams/sourceModeStreamManager";
+import { demodFrameQueue } from "./demodFrameQueue";
 
 export interface FrameRuntime<T> {
   readonly ref: { current: T | null };
@@ -37,6 +38,10 @@ export const createSourceFrameRuntime = <T>(
 });
 
 export const liveFrameRuntime = createFrameRuntime(liveDataRef);
+export const demodFrameRuntime = {
+  drain: () => demodFrameQueue.drain(),
+  clear: () => demodFrameQueue.clear(),
+};
 export const fileFrameRuntime = createFrameRuntime(filePlaybackDataRef);
 export const liveSourceFrameRuntime = createSourceFrameRuntime(
   liveDataRef,
@@ -64,7 +69,8 @@ export const getLiveFrameRefForSource = (
   let fallbackRef: LiveFrameRef = { current: null };
   const proxy = {} as LiveFrameRef;
   const resolveSourceRef = (): LiveFrameRef => {
-    const effectiveMode = mode ?? presentationController.getSnapshot().active.mode;
+    const effectiveMode =
+      mode ?? presentationController.getSnapshot().active.mode;
     // 1. Check presentationController active target first
     const activeSnap = presentationController.getSnapshot();
     if (
@@ -72,8 +78,12 @@ export const getLiveFrameRefForSource = (
       activeSnap.active.pendingSourceId === sourceId
     ) {
       if (!mode || activeSnap.active.mode === effectiveMode) {
-        const ctrlRef = presentationController.getPresentationRef(effectiveMode);
-        if (ctrlRef.current || presentationController.getSlot(sourceId, effectiveMode)) {
+        const ctrlRef =
+          presentationController.getPresentationRef(effectiveMode);
+        if (
+          ctrlRef.current ||
+          presentationController.getSlot(sourceId, effectiveMode)
+        ) {
           return ctrlRef;
         }
       }

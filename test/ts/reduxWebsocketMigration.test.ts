@@ -8,6 +8,7 @@ import {
   liveDataRef,
   liveDataBySourceRef,
 } from "@n-apt/redux/middleware/websocketMiddleware";
+import { demodFrameQueue } from "@n-apt/visualization/demodFrameQueue";
 import {
   shouldAcceptPausedFrameRequest,
   resetPausedFrameRequestGate,
@@ -57,9 +58,7 @@ describe("managed stream option synchronization", () => {
     expect(shouldSyncManagedStreamOptions("spectrum/setFrequencyRange")).toBe(
       false,
     );
-    expect(shouldSyncManagedStreamOptions("spectrum/setTxGeometry")).toBe(
-      true,
-    );
+    expect(shouldSyncManagedStreamOptions("spectrum/setTxGeometry")).toBe(true);
   });
 
   it("opens a managed Tx stream for selected Mock Tx standby preview delivery", () => {
@@ -266,7 +265,10 @@ describe("Tx preview source state", () => {
     ];
 
     expect(
-      preserveTransmittingSourceStatuses(previousSources as any, incomingSources as any),
+      preserveTransmittingSourceStatuses(
+        previousSources as any,
+        incomingSources as any,
+      ),
     ).toEqual([
       { id: "mock-tx", status: "transmitting" },
       { id: "rtl-sdr-v4", status: "receiving" },
@@ -343,7 +345,6 @@ Object.assign(global.WebSocket, {
 });
 
 describe("Redux WebSocket Migration", () => {
-
   it("does not fall back to Tx preview for a paused half-duplex Rx source", () => {
     expect(
       resolveTxPreviewSourceId({
@@ -836,7 +837,8 @@ describe("Redux WebSocket Migration", () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
         const socket = {
-          readyState: sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
+          readyState:
+            sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
           close: jest.fn(),
           send: jest.fn(),
           addEventListener: jest.fn(),
@@ -880,7 +882,11 @@ describe("Redux WebSocket Migration", () => {
               kind: "mock_tx",
               capability: "tx",
               status: "transmitting",
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "mock-tx",
             },
           ],
@@ -968,7 +974,8 @@ describe("Redux WebSocket Migration", () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
         const socket = {
-          readyState: sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
+          readyState:
+            sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
           close: jest.fn(),
           send: jest.fn(),
           addEventListener: jest.fn(),
@@ -1054,7 +1061,9 @@ describe("Redux WebSocket Migration", () => {
         aesKey,
         plaintext,
       );
-      const encryptedPayload = new Uint8Array(iv.length + ciphertext.byteLength);
+      const encryptedPayload = new Uint8Array(
+        iv.length + ciphertext.byteLength,
+      );
       encryptedPayload.set(iv);
       encryptedPayload.set(new Uint8Array(ciphertext), iv.length);
 
@@ -1339,7 +1348,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "mock-apt",
               stream_key_kind: "source_id",
               serial_number: "mock-apt",
@@ -1415,7 +1428,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1500,7 +1517,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1595,7 +1616,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1689,7 +1714,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "00000001",
               stream_key_kind: "serial",
               serial_number: "00000001",
@@ -1748,7 +1777,11 @@ describe("Redux WebSocket Migration", () => {
         loading_attempt: 0,
         loading_attempt_max: 2,
         supports_approx_dbm: true,
-        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+        iq_format: {
+          element_type: "u8",
+          layout: "interleaved_iq",
+          typed_array: "Uint8Array",
+        },
         stream_key: id,
         stream_key_kind: "source_id",
         sdr: {
@@ -1872,7 +1905,11 @@ describe("Redux WebSocket Migration", () => {
         loading_attempt: status === "loading" ? 1 : 0,
         loading_attempt_max: 2,
         supports_approx_dbm: true,
-        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+        iq_format: {
+          element_type: "u8",
+          layout: "interleaved_iq",
+          typed_array: "Uint8Array",
+        },
         stream_key: streamKey,
         stream_key_kind: "source_id",
         serial_number: streamKey,
@@ -2024,7 +2061,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "hackrf-test-serial",
               stream_key_kind: "serial",
               serial_number: "hackrf-test-serial",
@@ -2178,9 +2219,7 @@ describe("Redux WebSocket Migration", () => {
       expect(middlewareStore.getState().websocket.sources[0].status).toBe(
         "standby",
       );
-      expect(middlewareStore.getState().websocket.deviceState).toBe(
-        "standby",
-      );
+      expect(middlewareStore.getState().websocket.deviceState).toBe("standby");
     });
 
     it("applies backend source_info status changes when only source status changed", async () => {
@@ -2331,7 +2370,11 @@ describe("Redux WebSocket Migration", () => {
               loading_attempt: 0,
               loading_attempt_max: 2,
               supports_approx_dbm: true,
-              iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
               stream_key: "mock-apt",
               stream_key_kind: "source_id",
               serial_number: "mock-apt",
@@ -2361,8 +2404,7 @@ describe("Redux WebSocket Migration", () => {
       expect(
         sockets.filter(
           (socket) =>
-            socket.url ===
-            "ws://localhost/ws/streams?token=session-token",
+            socket.url === "ws://localhost/ws/streams?token=session-token",
         ),
       ).toHaveLength(2);
     });
@@ -2878,6 +2920,31 @@ describe("Redux WebSocket Migration", () => {
       expect(trimmed[0].timestamp).toBe(19);
     });
 
+    it("retains every eligible IQ frame for demodulation despite visualizer trimming", () => {
+      jest.useFakeTimers();
+      for (let index = 0; index < 4; index += 1) {
+        __testQueueLiveDataForMiddleware(
+          {
+            type: "spectrum",
+            data_type: "iq_raw",
+            source_id: "rtl-sdr-v4",
+            iq_data: new Uint8Array([128, 128]),
+            sample_rate: 3_200_000,
+            center_frequency_hz: 93_300_000,
+            sequence: index,
+          },
+          store.dispatch as any,
+          store.getState as any,
+        );
+      }
+
+      expect(demodFrameQueue.drain().map((frame) => frame.sequence)).toEqual([
+        0, 1, 2, 3,
+      ]);
+      jest.runOnlyPendingTimers();
+      jest.useRealTimers();
+    });
+
     it("does not silently reject live frames by center-frequency mismatch", () => {
       expect(isFrameStale(1_618_000)).toBe(false);
       expect(isFrameStale(26_738_000)).toBe(false);
@@ -3114,7 +3181,8 @@ describe("Redux WebSocket Migration", () => {
     it("soft disconnect keeps source inventory while marking the control plane down", () => {
       const store = configureStore({
         reducer: { websocket: websocketSlice },
-        middleware: (gDM) => gDM({ serializableCheck: false }).concat(websocketMiddleware),
+        middleware: (gDM) =>
+          gDM({ serializableCheck: false }).concat(websocketMiddleware),
       });
 
       store.dispatch(

@@ -1,6 +1,7 @@
 import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
 
-export const DEMOD_MIN_FFT_SIZE = 65_536;
+// RTL-SDR sustains 60 FPS at 32,768; 65,536 is available but is a 48 FPS mode.
+export const DEMOD_MIN_FFT_SIZE = 32_768;
 export const DEMOD_REQUIRED_TEMPORAL_RESOLUTION: TemporalResolution =
   "lossless";
 

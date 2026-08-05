@@ -9,7 +9,7 @@ describe("demodQuality", () => {
   it("filters out FFT sizes below the demod quality floor", () => {
     expect(
       getDemodQualityLockedFftSizes([16_384, 32_768, 65_536, 131_072]),
-    ).toEqual([65_536, 131_072]);
+    ).toEqual([32_768, 65_536, 131_072]);
   });
 
   it("falls back to the minimum FFT size when no higher options exist", () => {
@@ -21,11 +21,11 @@ describe("demodQuality", () => {
   it("keeps the current FFT size available when it already exceeds the floor", () => {
     expect(
       getDemodQualityLockedFftSizes(
-        [65_536, 131_072],
+        [32_768, 65_536, 131_072],
         DEMOD_MIN_FFT_SIZE,
         262_144,
       ),
-    ).toEqual([65_536, 131_072, 262_144]);
+    ).toEqual([32_768, 65_536, 131_072, 262_144]);
   });
 
   it("enforces the minimum FFT size and lossless temporal resolution when locked", () => {
@@ -35,7 +35,7 @@ describe("demodQuality", () => {
         true,
       ),
     ).toEqual({
-      fftSize: 65_536,
+      fftSize: 32_768,
       temporalResolution: "lossless",
     });
   });

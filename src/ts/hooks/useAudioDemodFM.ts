@@ -39,7 +39,12 @@ export function useAudioDemodFM(
 ): AudioDemodFMHandle {
   const { targetSampleRate, centerFrequency = 0, bandwidth = 200000 } = options;
   const sharedProcessor = useMemo(
-    () => createDemodProcessor("fm", { targetSampleRate, centerFrequency, bandwidth }),
+    () =>
+      createDemodProcessor("fm", {
+        targetSampleRate,
+        centerFrequency,
+        bandwidth,
+      }),
     [targetSampleRate, centerFrequency, bandwidth],
   );
 
@@ -234,7 +239,11 @@ export function useAudioDemodFM(
     ): Float32Array | null => {
       if (!iqData || iqData.length === 0) return null;
 
-      return sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
+      return sharedProcessor.process(
+        iqData,
+        inputSampleRate,
+        frameCenterFrequencyHz,
+      );
     },
     [sharedProcessor],
   );
@@ -289,6 +298,7 @@ export function useAudioDemodFM(
   const stopAudio = useCallback(() => {
     setIsPlaying(false);
     nextStartTimeRef.current = 0;
+    sharedProcessor.reset();
     // Reset DSP state to prevent pops when restarting
     shiftStateRef.current = { phase: 0 };
     lastDiscrimIRef.current = 0;
@@ -301,7 +311,7 @@ export function useAudioDemodFM(
     filterStateRef.current.prevI = 0;
     filterStateRef.current.prevQ = 0;
     nextStartTimeRef.current = 0;
-  }, []);
+  }, [sharedProcessor]);
 
   // For compatibility with DemodContext, playAudio now just calls playChunk
   const resumeAudioContext = useCallback(() => {

@@ -21,7 +21,10 @@ import {
 import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
 import { useAudioDemodAPT } from "@n-apt/hooks/useAudioDemodAPT";
 import { useNAPTAudioDemod } from "@n-apt/hooks/useNAPTAudioDemod";
-import { liveFrameRuntime } from "@n-apt/visualization/frameRuntime";
+import {
+  demodFrameRuntime,
+  liveFrameRuntime,
+} from "@n-apt/visualization/frameRuntime";
 import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
@@ -48,7 +51,10 @@ import { NaptSpikeDetectionResult } from "@n-apt/utils/naptSpikeDetection";
 
 const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow";
 
-const readSessionFlow = (sourceMode: string, fallback: { nodes: Node[]; edges: Edge[] }) => {
+const readSessionFlow = (
+  sourceMode: string,
+  fallback: { nodes: Node[]; edges: Edge[] },
+) => {
   if (typeof window === "undefined") return fallback;
   try {
     const stored = window.sessionStorage.getItem(DEMOD_FLOW_SESSION_KEY);
@@ -167,6 +173,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     algorithm: "fm" as const,
   };
   const isPaused = useAppSelector((state) => state.websocket.isPaused);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
 
   // React Flow state moved to context for global access (e.g. sidebar templates)
   const initialFlow = useMemo(
@@ -310,7 +319,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     // Source-specific nodes are not interchangeable: adapt only that node so
     // switching sources does not discard the flow selected by the user.
     if (sourceModeChanged || nodes.length === 0) {
-      if (!sourceModeChanged && nodes.length === 0 && intentionalEmptyFlowRef.current) {
+      if (
+        !sourceModeChanged &&
+        nodes.length === 0 &&
+        intentionalEmptyFlowRef.current
+      ) {
         intentionalEmptyFlowRef.current = false;
         return;
       }
@@ -364,31 +377,48 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     targetSampleRate: 48000,
     bufferSize: 4096,
   });
+  const {
+    processIQData: processFmIQData,
+    playAudio: playFmAudio,
+    stopAudio: stopFmAudio,
+  } = fmDemod;
+  const {
+    processIQData: processAptIQData,
+    playAudio: playAptAudio,
+    stopAudio: stopAptAudio,
+  } = aptDemod;
+  const {
+    processIQData: processNaptIQData,
+    playAudio: playNaptAudio,
+    stopAudio: stopNaptAudio,
+  } = naptDemod;
 
   // Throttled IQ demod processing — polls the frame runtime instead of subscribing
   // to dataFrameCounter to avoid re-rendering the entire DemodProvider tree on every frame.
   // 30fps is more than sufficient for audio buffer processing.
   useEffect(() => {
     if (isPaused) {
-      fmDemod.stopAudio();
-      aptDemod.stopAudio();
-      naptDemod.stopAudio();
+      demodFrameRuntime.clear();
+      stopFmAudio();
+      stopAptAudio();
+      stopNaptAudio();
       return;
     }
 
-    if (!demodState.isListening || !demodState.centerFreqHz) return;
+    if (!demodState.isListening || !demodState.centerFreqHz) {
+      demodFrameRuntime.clear();
+      return;
+    }
 
     const id = setInterval(() => {
-      const queue = Array.isArray(liveFrameRuntime.ref.current)
-        ? liveFrameRuntime.ref.current
-        : liveFrameRuntime.ref.current
-          ? [liveFrameRuntime.ref.current]
-          : [];
+      const queue = demodFrameRuntime
+        .drain()
+        .filter(
+          (frame) => !activeSourceId || frame.source_id === activeSourceId,
+        );
       if (queue.length === 0) return;
 
-      // Drain the queue
-      const batch = [...queue];
-      liveFrameRuntime.ref.current = [];
+      const batch = queue;
 
       for (const current of batch) {
         if (!current || !current.iq_data) continue;
@@ -398,38 +428,46 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
 
         if (demodState.algorithm === "fm") {
-          const audioData = fmDemod.processIQData(
+          const audioData = processFmIQData(
             iqData,
             sampleRate,
             frameCenterFrequencyHz,
           );
           if (audioData) {
-            fmDemod.playAudio(audioData);
+            playFmAudio(audioData);
           }
         } else if (demodState.algorithm === "apt") {
-          aptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
-          aptDemod.playAudio();
+          processAptIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          playAptAudio();
         } else if (demodState.algorithm === "napt") {
-          naptDemod.processIQData(iqData, sampleRate, frameCenterFrequencyHz);
-          naptDemod.playAudio();
+          processNaptIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          playNaptAudio();
         }
       }
     }, 33);
 
     return () => {
       clearInterval(id);
-      fmDemod.stopAudio();
-      aptDemod.stopAudio();
-      naptDemod.stopAudio();
+      demodFrameRuntime.clear();
+      stopFmAudio();
+      stopAptAudio();
+      stopNaptAudio();
     };
   }, [
     demodState.isListening,
     demodState.centerFreqHz,
     demodState.algorithm,
+    activeSourceId,
     isPaused,
-    fmDemod,
-    aptDemod,
-    naptDemod,
+    processFmIQData,
+    playFmAudio,
+    stopFmAudio,
+    processAptIQData,
+    playAptAudio,
+    stopAptAudio,
+    processNaptIQData,
+    playNaptAudio,
+    stopNaptAudio,
   ]);
 
   // Initialize the scanner manager with the WS sender functions
