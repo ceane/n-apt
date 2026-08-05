@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { createDemodProcessor } from "@n-apt/utils/demodProcessors";
 import {
   applyComplexLowPass,
   computeFrequencyOffsetHz,
@@ -37,6 +38,10 @@ export function useAudioDemodFM(
   options: AudioDemodFMOptions,
 ): AudioDemodFMHandle {
   const { targetSampleRate, centerFrequency = 0, bandwidth = 200000 } = options;
+  const sharedProcessor = useMemo(
+    () => createDemodProcessor("fm", { targetSampleRate, centerFrequency, bandwidth }),
+    [targetSampleRate, centerFrequency, bandwidth],
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
@@ -229,15 +234,9 @@ export function useAudioDemodFM(
     ): Float32Array | null => {
       if (!iqData || iqData.length === 0) return null;
 
-      const demodulatedAudio = demodulateFM(
-        iqData,
-        inputSampleRate,
-        frameCenterFrequencyHz,
-      );
-
-      return resampleAudio(demodulatedAudio, inputSampleRate, targetSampleRate);
+      return sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
     },
-    [demodulateFM, targetSampleRate, resampleAudio],
+    [sharedProcessor],
   );
 
   // Play a chunk of demodulated audio through Web Audio API

@@ -1076,6 +1076,7 @@ pub async fn execute_webmcp_tool_handler(
     "startCapture" => handle_start_capture(&state, params).await,
     "stopCapture" => handle_stop_capture(&state, params).await,
     "classifySignal" => handle_classify_signal(&state, params).await,
+    "getDeviceStatus" => handle_get_device_status(&state).await,
     _ => {
       warn!("Unknown WebMCP tool: {}", tool_name);
       WebMCPToolResponse {
@@ -1088,6 +1089,16 @@ pub async fn execute_webmcp_tool_handler(
   };
 
   Json(result).into_response()
+}
+
+async fn handle_get_device_status(state: &Arc<super::AppState>) -> WebMCPToolResponse {
+  let status = build_source_info_snapshot(&state.shared);
+  WebMCPToolResponse {
+    success: true,
+    result: Some(serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({}))),
+    error: None,
+    tool: "getDeviceStatus".to_string(),
+  }
 }
 
 /// POST /api/debug/stitch-diagnostic — Run a 2-hop capture and return stitching data

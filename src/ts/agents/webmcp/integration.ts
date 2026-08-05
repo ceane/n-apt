@@ -58,6 +58,7 @@ export async function executeTool(
 // WebMCP Registration System
 export class WebMCPRegistry {
   private tools: WebMCPTool[] = [];
+  private registeredTools: WebMCPTool[] = [];
   private currentRoute = "/";
 
   setRoute(route: string) {
@@ -95,6 +96,7 @@ export class WebMCPRegistry {
           },
         });
       }
+      this.registeredTools = [...this.tools];
       console.log(
         `Registered ${this.tools.length} WebMCP tools for route ${this.currentRoute}`,
       );
@@ -108,9 +110,10 @@ export class WebMCPRegistry {
     if (!window.webmcp) return;
 
     try {
-      for (const tool of this.tools) {
+      for (const tool of this.registeredTools) {
         await window.webmcp.unregisterTool(tool.name);
       }
+      this.registeredTools = [];
     } catch (error) {
       console.error("Failed to unregister WebMCP tools:", error);
     }
@@ -134,7 +137,7 @@ declare global {
 // React Hook for WebMCP Integration
 import { useEffect, useState, useCallback } from "react";
 
-export function useWebMCP(route: string) {
+export function useWebMCP(route = "/") {
   const [isRegistered, setIsRegistered] = useState(false);
   const [availableTools, setAvailableTools] = useState<WebMCPTool[]>([]);
   const [lastResult, setLastResult] = useState<any>(null);

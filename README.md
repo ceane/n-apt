@@ -367,6 +367,33 @@ The web app will be **available at `http://localhost:5173`** with the WebSocket 
 
 ### Command-Line Captures
 
+### Agent surfaces and CLI automation
+
+N-APT exposes a route-aware Markdown-for-Agents surface and WebMCP capability
+manifest. Request `text/markdown` from `/agents.md` for the coverage index or
+from a supported app route for its agent instructions:
+
+```bash
+curl -H 'Accept: text/markdown' http://localhost:5173/agents.md
+curl -H 'Accept: text/markdown' http://localhost:5173/visualizer
+```
+
+The CLI exposes the same capability inventory and can retrieve Markdown or
+execute authenticated backend tools:
+
+```bash
+npm run cli -- agent capabilities --json
+npm run cli -- agent markdown --route /visualizer
+npm run cli -- agent call getDeviceStatus --json
+npm run cli -- agent call setGain --params '{"gain":46.9}' --allow-mutations --json
+```
+
+CLI execution is read-only by default. Mutations require `--allow-mutations`;
+transmission and destructive device/storage actions are blocked. Unsupported,
+authenticated-only, legal, onboarding, educational, and demo routes are
+explicitly marked in the capability manifest rather than advertised as
+automatable.
+
 The CLI can discover SDR devices, render signal snapshots, and record I/Q
 captures without opening or operating the frontend UI. Run commands from the
 repository root after completing the setup and installation steps above.
