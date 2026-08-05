@@ -519,6 +519,19 @@ mod tests {
     let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
+    let _subscription = stream_manager
+      .subscribe(
+        StreamKey::new("hackrf_one-test", StreamMode::Tx),
+        StreamOptions::Tx(TxStreamOptions {
+          center_frequency_hz: 2_400_000,
+          sample_rate_hz: 2_000_000,
+          bandwidth_hz: 2_000_000,
+          signal: "wifi".to_string(),
+          power_dbm: -18.0,
+          ifft_size: 1024,
+        }),
+      )
+      .expect("managed HackRF Tx subscription should open");
     stream_manager.set_tx_payload(
       StreamKey::new("hackrf_one-test", StreamMode::Tx),
       2_400_000,

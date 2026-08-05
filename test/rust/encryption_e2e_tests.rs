@@ -73,12 +73,20 @@ fn test_encryption_save_load_cycle() {
   // 5. Extract header and payload
   // Header is first 4096 bytes
   let header_bytes = &file_bytes[..4096];
-  let payload_bytes = &file_bytes[4096..];
 
   // 6. Parse Header
   let header_str = String::from_utf8_lossy(header_bytes);
   let header_json: serde_json::Value =
     serde_json::from_str(header_str.trim()).expect("Header parse failed");
+  let binary_length = header_json["metadata"]["sections"]["binary"]
+    ["length_bytes"]
+    .as_u64()
+    .expect("binary section length missing") as usize;
+  let payload_end = 4096 + binary_length;
+  assert!(
+    payload_end <= file_bytes.len(),
+    "binary section must fit inside the saved file"
+  );
   let wrapped_dek_b64 = header_json["metadata"]["wrapped_dek"]
     .as_str()
     .expect("wrapped_dek missing");
@@ -93,8 +101,10 @@ fn test_encryption_save_load_cycle() {
   dek.copy_from_slice(&dek_bytes);
 
   // 8. Decrypt Payload using DEK
-  let decrypted_payload = crypto::decrypt_payload_binary(&dek, payload_bytes)
-    .expect("Payload decryption failed");
+  let encrypted_payload = &file_bytes[4096..payload_end];
+  let decrypted_payload =
+    crypto::decrypt_payload_binary(&dek, encrypted_payload)
+      .expect("Payload decryption failed");
 
   // 9. Compare with original
   assert_eq!(decrypted_payload, original_iq, "Decrypted IQ data mismatch");

@@ -147,6 +147,17 @@ async fn test_protected_endpoints_deny_unauthorized() {
   for (path, method) in endpoints {
     let response = if method == "POST" {
       server.post(path).await
+    } else if path.starts_with("/ws/") {
+      server
+        .get(path)
+        .add_header(axum::http::header::CONNECTION, "upgrade")
+        .add_header(axum::http::header::UPGRADE, "websocket")
+        .add_header("sec-websocket-version", "13")
+        .add_header(
+          "sec-websocket-key",
+          "dGhlIHNhbXBsZSBub25jZQ==",
+        )
+        .await
     } else {
       server.get(path).await
     };
