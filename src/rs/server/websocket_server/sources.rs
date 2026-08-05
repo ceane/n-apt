@@ -16,7 +16,7 @@ pub enum SourceSelection {
 use super::complex_baseband::MOCK_TX_DISPLAY_NAME;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::device::HackRfDevice;
-#[cfg(has_hackrf)]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
 use crate::server::utils::{
   device_config_key, reconcile_device_state,
