@@ -1,0 +1,33 @@
+import React from "react";
+import { Provider } from "react-redux";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { configureStore } from "@reduxjs/toolkit";
+import { ThemeProvider } from "styled-components";
+import { FmNode } from "../../src/ts/components/react-flow/nodes/FmNode";
+import demodReducer from "../../src/ts/redux/slices/demodSlice";
+import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
+import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
+import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+
+describe("FmNode station selection", () => {
+  it("commits the complete FM selection before the range command reads Redux", () => {
+    const store = configureStore({ reducer: { demod: demodReducer, spectrum: spectrumReducer, websocket: websocketReducer } as any });
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={buildAppTheme({ accentColor: "#00d4ff", fftColor: "#00d4ff", appMode: "system", resolvedMode: "dark", waterfallTheme: "classic" })}>
+          <FmNode data={{ label: "FM Radio" }} />
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "92.7" }));
+    expect(store.getState().demod).toMatchObject({
+      centerFreqHz: 92_700_000,
+      bandwidthCenterFreqHz: 92_700_000,
+      bandwidthHz: 200_000,
+      bandwidthStartHz: 92_600_000,
+      bandwidthKhz: 200,
+    });
+    expect(store.getState().spectrum.frequencyRange).toEqual({ min: 92_600_000, max: 92_800_000 });
+  });
+});

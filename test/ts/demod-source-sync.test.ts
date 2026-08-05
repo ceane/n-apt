@@ -488,5 +488,8 @@ describe("syncRadioDemodFromSource - 1.6MHz Regression Prevention", () => {
 
     // For FM tuning, centerFreqHz (hardware/center freq) is updated
     expect(store.getState().demod.centerFreqHz).toBe(98_100_000);
+    expect(store.getState().demod.bandwidthCenterFreqHz).toBe(98_100_000);
+    expect(store.getState().demod.bandwidthHz).toBe(200_000);
+    expect(store.getState().demod.bandwidthStartHz).toBe(98_000_000);
   });
 });

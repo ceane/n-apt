@@ -4,6 +4,8 @@ import { Radio as RadioIcon } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { setCenterFreq, setBandwidth } from "@n-apt/redux/slices/demodSlice";
+import { setBandwidthCenterFreq, setBandwidthHz, setBandwidthStartHz } from "@n-apt/redux/slices/demodSlice";
+import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
 
 const NodeContainer = styled.div`
@@ -108,11 +110,18 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
   const handleStationClick = (freqMHz: number) => {
     // Send frequency change command to server with ±100kHz range (200kHz total) for FM demodulation
     const freqHz = freqMHz * 1_000_000;
+    const range = { min: freqHz - 100_000, max: freqHz + 100_000 };
+    // Commit the complete FM selection before sending the wire command. The
+    // websocket thunk reads Redux state to build bandwidth-center metadata.
+    // Updating it first prevents a previous Span selection from retuning FM.
+    dispatch(setCenterFreq(freqHz));
+    dispatch(setBandwidthCenterFreq(freqHz));
+    dispatch(setBandwidthHz(200_000));
+    dispatch(setBandwidthStartHz(range.min));
+    dispatch(setBandwidth(200));
+    dispatch(setFrequencyRange(range));
     dispatch(
-      sendFrequencyRange({
-        min: freqHz - 100_000,
-        max: freqHz + 100_000,
-      }),
+      sendFrequencyRange(range),
     );
     // Set PPM to 0 for precise FM tuning
     dispatch({
@@ -131,8 +140,6 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
       },
     });
     // Update local Redux state to keep the pill selected and set bandwidth
-    dispatch(setCenterFreq(freqMHz * 1e6));
-    dispatch(setBandwidth(200));
   };
 
   return (

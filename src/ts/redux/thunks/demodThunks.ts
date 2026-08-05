@@ -101,6 +101,15 @@ export const syncRadioDemodFromSource = createAsyncThunk(
         payload.bandwidthKhz != null && Number.isFinite(payload.bandwidthKhz)
           ? payload.bandwidthKhz
           : 200;
+      const bandwidthHz = bandwidthKhz * 1000;
+      if (payload.centerFreqHz != null && Number.isFinite(payload.centerFreqHz)) {
+        // FM's selected station is both the hardware center and the demod
+        // selection center. Keep both fields coherent so a stale span
+        // selection cannot retune the next frequency-range command.
+        dispatch(setBandwidthCenterFreq(payload.centerFreqHz));
+        dispatch(setBandwidthHz(bandwidthHz));
+        dispatch(setBandwidthStartHz(payload.centerFreqHz - bandwidthHz / 2));
+      }
       dispatch(setBandwidth(bandwidthKhz));
       return;
     }
