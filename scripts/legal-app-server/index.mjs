@@ -243,7 +243,10 @@ app.post('/api/export', async (req, res) => {
       }
     }
 
-    const zipPath = path.join(exportedDir, `${exportFolderName}.zip`);
+    const zipPath = resolveArchivePath(
+      exportedDir,
+      `${exportFolderName}.zip`,
+    );
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
     archive.pipe(output);
