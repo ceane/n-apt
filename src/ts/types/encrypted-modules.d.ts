@@ -14,7 +14,7 @@ declare module "@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath" {
 }
 
 declare module "@n-apt/webmcp/integration" {
-  export function useWebMCP(): any;
+  export function useWebMCP(route?: string): any;
   export function initializeWebMCP(): boolean;
   export function setupSpectrumToolHandlers(sidebarProps: any): void;
   export function setupDrawSignalToolHandlers(drawSignalProps: any): void;

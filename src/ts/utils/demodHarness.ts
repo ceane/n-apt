@@ -37,10 +37,13 @@ export function prepareDemodulation(input: DemodHarnessInput): DemodPlan {
 }
 
 export function runDemodulationAlgorithm(
-  algorithm: DemodAlgorithm,
+  algorithm: string,
   iq: Uint8Array,
   options: { sampleRateHz?: number; targetSampleRate?: number; centerFrequencyHz?: number; bandwidthHz?: number } = {},
 ): Float32Array {
+  if (algorithm !== "fm" && algorithm !== "apt" && algorithm !== "napt") {
+    throw new Error(`Unsupported demodulation algorithm: ${algorithm}`);
+  }
   return createDemodProcessor(algorithm, {
     targetSampleRate: options.targetSampleRate ?? 48_000,
     centerFrequency: options.centerFrequencyHz,

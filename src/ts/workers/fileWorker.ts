@@ -969,6 +969,7 @@ self.onmessage = async function (e) {
 
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
+              if (!metadata) throw new Error("Invalid NAPT metadata");
               let naptBinaryFileData = file.fileData;
               if ((metadata.format_version ?? 3) >= 4) {
                 const binary = metadata.sections?.binary;
