@@ -57,6 +57,10 @@ export const PostAuthLandingRedirect: React.FC<PostAuthLandingRedirectProps> = (
     if (pendingRedirect === null) {
       return;
     }
+    // Consume the login transition before entering the landing route. Without
+    // this, a landing-page card that navigates to `/` looks like another fresh
+    // login and redirects back to `/get-started`.
+    sawLoginScreenRef.current = false;
     navigate(pendingRedirect, { replace: true });
     setPendingRedirect(null);
   }, [pendingRedirect, navigate]);

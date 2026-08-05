@@ -1,6 +1,7 @@
 import * as React from "react";
-import { MemoryRouter, Routes, Route } from "react-router";
+import { MemoryRouter, Routes, Route, Link } from "react-router";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { PostAuthLandingRedirect } from "@n-apt/components/PostAuthLandingRedirect";
 
@@ -42,7 +43,10 @@ const Harness = ({ initialPath }: { initialPath: string }) => (
         path="/get-started"
         element={
           <PostAuthLandingRedirect>
-            <Dummy label="get-started" />
+            <>
+              <Dummy label="get-started" />
+              <Link to="/">Use app</Link>
+            </>
           </PostAuthLandingRedirect>
         }
       />
@@ -94,6 +98,27 @@ describe("PostAuthLandingRedirect", () => {
     rerender(<Harness initialPath="/auth" />);
 
     expect(await screen.findByText("get-started")).toBeInTheDocument();
+  });
+
+  it("does not redirect back to the start page when a card navigates to /", async () => {
+    const user = userEvent.setup();
+    useAuthentication.mockReturnValue({
+      isAuthenticated: false,
+      isInitialAuthCheck: false,
+    });
+    const { rerender } = renderAt("/");
+
+    useAuthentication.mockReturnValue({
+      isAuthenticated: true,
+      isInitialAuthCheck: false,
+    });
+    rerender(<Harness initialPath="/" />);
+
+    expect(await screen.findByText("get-started")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Use app" }));
+
+    expect(await screen.findByText("app")).toBeInTheDocument();
+    expect(screen.queryByText("get-started")).not.toBeInTheDocument();
   });
 
   it("does not redirect a returning user whose stored session is restored", async () => {
