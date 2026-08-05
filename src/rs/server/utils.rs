@@ -1756,7 +1756,7 @@ pub fn save_capture_file_multi(
     "data_format": "iq_u8",
     "spectrum_shifted": true,
     "format": if result.file_type == ".iq" { "iq" } else if result.file_type == ".wav" { "wav" } else { "napt" },
-    "format_version": 3,
+    "format_version": if result.file_type == ".wav" { 3 } else { 4 },
     "interleaving": "IQ",
     "device_profile": {
       "kind": result.source_device,
@@ -1837,6 +1837,7 @@ pub fn save_capture_file_multi(
           data: ch.iq_data.clone(),
         })
         .collect(),
+      trailer: None,
     };
     let encoded = crate::server::iq_format::encode(
       &iq_file,
@@ -1899,6 +1900,35 @@ pub fn save_capture_file_multi(
     meta_obj["wrapped_dek"] =
       serde_json::json!(crate::crypto::to_base64(&wrapped_dek_bytes));
 
+    // The v4 trailer is deliberately readable and contains only optional
+    // processing/provenance metadata. Signal properties remain in the header.
+    const TRAILER_MAGIC: &[u8; 8] = b"NAPTTRLR";
+    const TRAILER_HEADER_SIZE: usize = 24;
+    let trailer_json = serde_json::json!({
+      "processing": { "operation": "capture" },
+      "tool_version": env!("CARGO_PKG_VERSION"),
+    })
+    .to_string();
+    let encrypted_data =
+      crate::crypto::encrypt_payload_binary(&dek, &payload_plaintext)
+        .map_err(|e| format!("Encryption failed: {}", e))?;
+    let trailer_offset = header_size + encrypted_data.len();
+    let trailer_length = TRAILER_HEADER_SIZE + trailer_json.len();
+    meta_obj["sections"] = serde_json::json!({
+      "binary": {
+        "offset_bytes": header_size,
+        "length_bytes": encrypted_data.len(),
+        "encoding": "iq_u8_interleaved",
+        "encrypted": true
+      },
+      "trailer": {
+        "offset_bytes": trailer_offset,
+        "length_bytes": trailer_length,
+        "encoding": "utf8_json",
+        "version": 1
+      }
+    });
+
     // Header JSON for .napt
     let complete_json = format!(r#"{{"metadata":{}}}"#, meta_obj);
 
@@ -1922,14 +1952,19 @@ pub fn save_capture_file_multi(
       return Err("Metadata size exceeds header_size".to_string());
     }
 
-    // Now encrypt ONLY the fast data (IQ and Spectrum) using the DEK
-    let encrypted_data =
-      crate::crypto::encrypt_payload_binary(&dek, &payload_plaintext)
-        .map_err(|e| format!("Encryption failed: {}", e))?;
-
     writer
       .write_all(&encrypted_data)
       .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
+
+    writer.write_all(TRAILER_MAGIC).map_err(|e| e.to_string())?;
+    writer.write_all(&[1u8; 1]).map_err(|e| e.to_string())?;
+    writer.write_all(&[0u8; 7]).map_err(|e| e.to_string())?;
+    writer
+      .write_all(&(trailer_json.len() as u64).to_le_bytes())
+      .map_err(|e| e.to_string())?;
+    writer
+      .write_all(trailer_json.as_bytes())
+      .map_err(|e| e.to_string())?;
 
     writer
       .flush()

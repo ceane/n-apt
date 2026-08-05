@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -18,6 +18,7 @@ import {
   fetchAgentMarkdown,
   printAgentCapabilities,
 } from "./agent";
+import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "../../src/ts/utils/demodHarness";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -27,6 +28,30 @@ dotenv.config({ quiet: true });
 function usage(): never {
   console.error(`Usage: npm run cli -- devices\n       npm run cli -- capture <snapshot|iq> [options]\n       npm run cli -- agent capabilities [--json]\n       npm run cli -- agent markdown --route <path> [--json]\n       npm run cli -- agent tools [--json]\n       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
   process.exit(2);
+}
+
+async function demod(args: string[]) {
+  const input = flag(args, "--input", "");
+  if (!input) throw new Error("demod requires --input <raw-IQ-file>");
+  const output = flag(args, "--output", "demodulated.iq");
+  const centerFrequencyHz = Number(flag(args, "--center-frequency", "0"));
+  const minHz = Number(flag(args, "--min-frequency", String(centerFrequencyHz)));
+  const maxHz = Number(flag(args, "--max-frequency", String(centerFrequencyHz + 1)));
+  const sampleRateHz = Number(flag(args, "--sample-rate", "2400000"));
+  const algorithm = flag(args, "--algorithm", "fm") as DemodAlgorithm;
+  const plan = prepareDemodulation({ centerFrequencyHz, frequencyRangeHz: [minHz, maxHz], sampleRateHz, algorithm });
+  const processed = runDemodulationAlgorithm(algorithm, new Uint8Array(await readFile(input)));
+  const trailer = Buffer.from(JSON.stringify({ ...plan.trailer, reference: { parent_artifact: input }, tool_version: "n-apt-cli" }));
+  const chunk = Buffer.alloc(20 + processed.length); chunk.writeBigUInt64LE(0n, 0); chunk.writeUInt32LE(0, 8); chunk.writeBigUInt64LE(BigInt(processed.length), 12); Buffer.from(processed).copy(chunk, 20);
+  const frames = Buffer.from("[]");
+  const marker = Buffer.alloc(24); Buffer.from("NAPTTRLR").copy(marker); marker[8] = 1; marker.writeBigUInt64LE(BigInt(trailer.length), 16);
+  const metadata: any = { format: "iq", format_version: 4, interleaving: "IQ", center_frequency_hz: centerFrequencyHz, capture_sample_rate_hz: sampleRateHz, frequency_range: [minHz, maxHz], bandwidth: maxHz - minHz, fft_size: plan.fftSize, temporal_resolution: "lossless", sections: { binary: { offset_bytes: 0, length_bytes: chunk.length, encoding: "iq_u8_interleaved", encrypted: false }, trailer: { offset_bytes: 0, length_bytes: marker.length + trailer.length, encoding: "utf8_json", version: 1 } } };
+  let metadataBytes = Buffer.from(JSON.stringify(metadata));
+  metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
+  metadataBytes = Buffer.from(JSON.stringify(metadata)); metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
+  const header = Buffer.alloc(40); Buffer.from("NAPT-IQ3").copy(header); header.writeBigUInt64LE(BigInt(metadataBytes.length), 8); header.writeBigUInt64LE(BigInt(frames.length), 16); header.writeBigUInt64LE(BigInt(chunk.length), 24);
+  await writeFile(output, Buffer.concat([header, metadataBytes, frames, chunk, marker, trailer]));
+  console.log(JSON.stringify({ output, algorithm, fftSize: plan.fftSize, bytes: processed.length }));
 }
 
 async function fetchSources() {
@@ -352,6 +377,7 @@ async function resolveDeviceArgument(args: string[], sources: any[]) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "demod") { await demod(args); return; }
   if (args[0] === "agent") {
     const command = args[1];
     const json = args.includes("--json");
