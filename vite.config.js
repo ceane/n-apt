@@ -95,6 +95,63 @@ const rebuildStatusPlugin = () => ({
   },
 });
 
+const markdownForAgentsPlugin = () => ({
+  name: "n-apt-markdown-for-agents",
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const urlPath = (req.url || "").split("?")[0];
+      const wantsMarkdown = String(req.headers.accept || "").includes("text/markdown");
+      if (urlPath === "/agents.md" && (wantsMarkdown || req.method === "GET")) {
+        const index = [
+          "# N-APT Agent Surfaces",
+          "",
+          "This index describes the Markdown-for-Agents and WebMCP surfaces. CLI mutations require `--allow-mutations`; transmission and destructive operations are blocked.",
+          "",
+          "## Supported Markdown routes",
+          "",
+          "- `/` and `/visualizer` — [visualizer](visualizer.md)",
+          "- `/demodulate` and `/demod` — [analysis](analysis.md)",
+          "- `/draw-signal` — [draw-signal](draw-signal.md)",
+          "- `/3d-model` — [3d-model](3d-model.md)",
+          "- `/map-endpoints` — [map-endpoints](map-endpoints.md)",
+          "",
+          "## Coverage policy",
+          "",
+          "Settings and I/Q captures require authentication. Educational, legal, onboarding, and demo routes are not executable agent surfaces.",
+        ].join("\n");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.setHeader("Vary", "Accept");
+        res.setHeader("x-markdown-tokens", String(Math.ceil(index.length / 4)));
+        res.setHeader("content-signal", "ai-train=no, search=yes, ai-input=yes");
+        res.end(index);
+        return;
+      }
+      if (!wantsMarkdown) return next();
+      const files = {
+        "/": "visualizer.md",
+        "/visualizer": "visualizer.md",
+        "/demodulate": "analysis.md",
+        "/demod": "analysis.md",
+        "/draw-signal": "draw-signal.md",
+        "/3d-model": "3d-model.md",
+        "/map-endpoints": "map-endpoints.md",
+      };
+      const file = files[urlPath];
+      if (!file) return next();
+      const filePath = path.resolve(dirname, "src/ts/agents/markdown/routes", file);
+      if (!fs.existsSync(filePath)) return next();
+      const content = fs.readFileSync(filePath, "utf8");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.setHeader("Vary", "Accept");
+      res.setHeader("x-markdown-tokens", String(Math.ceil(content.length / 4)));
+      res.setHeader("content-signal", "ai-train=no, search=yes, ai-input=yes");
+      res.end(content);
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
@@ -110,6 +167,7 @@ export default defineConfig(({ mode }) => {
     injectBrowserEnv(browserEnv),
     styledComponentsFixPlugin(),
     rebuildStatusPlugin(),
+    markdownForAgentsPlugin(),
     react({
       // Configure React Fast Refresh to handle styled-components better
       jsxRuntime: 'automatic',

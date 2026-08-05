@@ -93,7 +93,7 @@ export const AgentIntegrationProvider: React.FC<
   }, [pathname, dispatch, mapLocations, model3D, hotspotEditor]);
 
   // Get WebMCP tools for current route
-  const { isRegistered, availableTools } = useWebMCP();
+  const { isRegistered, availableTools } = useWebMCP(pathname);
 
   // Debug information for development
   useEffect(() => {

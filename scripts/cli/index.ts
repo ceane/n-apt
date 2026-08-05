@@ -13,6 +13,11 @@ import {
   resolveNaptReceiveDefaults,
   resolveRequestedDevice,
 } from "../../src/ts/capture/policy";
+import {
+  executeAgentTool,
+  fetchAgentMarkdown,
+  printAgentCapabilities,
+} from "./agent";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -20,7 +25,7 @@ dotenv.config({ path: ".env.local", quiet: true });
 dotenv.config({ quiet: true });
 
 function usage(): never {
-  console.error(`Usage: npm run cli -- capture <snapshot|iq> [options]\n       npm run cli -- devices`);
+  console.error(`Usage: npm run cli -- devices\n       npm run cli -- capture <snapshot|iq> [options]\n       npm run cli -- agent capabilities [--json]\n       npm run cli -- agent markdown --route <path> [--json]\n       npm run cli -- agent tools [--json]\n       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
   process.exit(2);
 }
 
@@ -347,6 +352,34 @@ async function resolveDeviceArgument(args: string[], sources: any[]) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "agent") {
+    const command = args[1];
+    const json = args.includes("--json");
+    if (command === "capabilities" || command === "tools") {
+      printAgentCapabilities(json);
+      return;
+    }
+    if (command === "markdown") {
+      const route = flag(args, "--route", "/");
+      await ensureAppRunning();
+      const result = await fetchAgentMarkdown(frontend, route);
+      console.log(json ? JSON.stringify(result, null, 2) : result.body);
+      return;
+    }
+    if (command === "call") {
+      const name = args[2];
+      if (!name) usage();
+      const paramsText = flag(args, "--params", "{}");
+      let params: unknown;
+      try { params = JSON.parse(paramsText); } catch { throw new Error("--params must be valid JSON"); }
+      await ensureAppRunning();
+      const token = await authenticateCli();
+      const result = await executeAgentTool(backend, token, name, params, args.includes("--allow-mutations"));
+      console.log(json ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+      return;
+    }
+    usage();
+  }
   if (args[0] !== "devices" && args[0] !== "capture") usage();
 
   await ensureAppRunning();
