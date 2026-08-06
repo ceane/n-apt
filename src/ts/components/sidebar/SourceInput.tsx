@@ -822,7 +822,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   </DevicePillMeta>
                 </DevicePillMain>
                 <DeviceActions>
-                  {device.status?.loading ? (
+                  {device.status?.loading &&
+                  !isHalfDuplex &&
+                  !onToggleDeviceTxMode &&
+                  !device.status?.onAction ? (
                     <DeviceLoadingState
                       role="status"
                       aria-label={
@@ -859,7 +862,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : !isHalfDuplex &&
-                    device.status?.onAction &&
+                    (device.status?.onAction ||
+                      device.status?.actionLabel ||
+                      device.status?.canPause) &&
                     (!isTxCapable || deviceTxActionsEnabled) ? (
                     isTxCapable ? (
                       <TxModeActionButton
@@ -912,8 +917,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       </DeviceActionButton>
                     )
                   ) : null}
-                  {!device.status?.loading &&
-                  isHalfDuplex &&
+                  {isHalfDuplex &&
                   onToggleDeviceTxMode ? (
                     <TxModeActionButton
                       type="button"

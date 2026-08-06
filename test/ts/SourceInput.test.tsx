@@ -935,7 +935,7 @@ describe("SourceInput", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows a loading spinner instead of an assumed Rx pause action", () => {
+  it("keeps Rx and Tx controls visible while a half-duplex device is loading", () => {
     render(
       <TestWrapper>
         <SourceInput
@@ -968,16 +968,11 @@ describe("SourceInput", () => {
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
     expect(
-      within(deviceRow).getByRole("status", {
-        name: /rx active.*first frame/i,
-      }),
+      within(deviceRow).getByRole("button", { name: /resume rx/i }),
     ).toBeInTheDocument();
     expect(
-      within(deviceRow).queryByRole("button", { name: /pause rx/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(deviceRow).queryByRole("button", { name: /start tx/i }),
-    ).not.toBeInTheDocument();
+      within(deviceRow).getByRole("button", { name: /start tx/i }),
+    ).toBeInTheDocument();
   });
 
   it("switches half-duplex devices into Tx standby with one click", () => {

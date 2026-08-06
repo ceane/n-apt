@@ -5,9 +5,34 @@ import {
   resolveTxStopTransition,
   shouldUseSourceOwnedTxPreview,
   shouldRetainTxStandbyAfterStop,
+  canToggleTransmitMode,
 } from "../../src/ts/utils/sourceModeManagement";
 
 describe("sourceModeManagement", () => {
+  it("blocks starting TX without a Tx-suite node binding but permits stopping", () => {
+    expect(
+      canToggleTransmitMode({
+        nextEnabled: true,
+        sourceId: "hackrf-1",
+        txBindingSourceId: null,
+        txPreviewSourceId: null,
+      }),
+    ).toBe(false);
+    expect(
+      canToggleTransmitMode({
+        nextEnabled: false,
+        sourceId: "hackrf-1",
+        txBindingSourceId: null,
+      }),
+    ).toBe(true);
+    expect(
+      canToggleTransmitMode({
+        nextEnabled: true,
+        sourceId: "hackrf-1",
+        txBindingSourceId: "hackrf-1",
+      }),
+    ).toBe(true);
+  });
   it("treats a receiving source as connected before the control socket catches up", () => {
     expect(
       isSourcePresentationConnected({

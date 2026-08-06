@@ -51,6 +51,22 @@ export interface SourceModeManagement {
   shouldRequestTxPreview: boolean;
 }
 
+/** Starting TX requires an active Tx-suite binding; stopping is always allowed. */
+export const canToggleTransmitMode = ({
+  nextEnabled,
+  sourceId,
+  txBindingSourceId,
+  txPreviewSourceId,
+}: {
+  nextEnabled: boolean;
+  sourceId: string;
+  txBindingSourceId?: string | null;
+  txPreviewSourceId?: string | null;
+}): boolean =>
+  !nextEnabled ||
+  txBindingSourceId === sourceId ||
+  txPreviewSourceId === sourceId;
+
 const normalizeToken = (value: unknown): string =>
   typeof value === "string"
     ? value.trim().toLowerCase().replace(/-/g, "_")

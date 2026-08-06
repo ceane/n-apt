@@ -39,6 +39,7 @@ export const getDemodFileSelectionActions = (
 ];
 import type { NaptMetadata } from "@n-apt/consts/types";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
+import { canToggleTransmitMode } from "@n-apt/utils/sourceModeManagement";
 
 const SidebarContent = styled.div`
   display: grid;
@@ -133,6 +134,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     wsConnection,
   } = useSpectrumStore();
   const tx = useAppSelector((state) => state.spectrum);
+  const txSuiteSourceId = useAppSelector(
+    (state) => state.sourceRouting.bindings["tx-suite:tx"] ?? null,
+  );
   const sourceMode = useAppSelector(selectSourceMode);
   const selectedFiles = useAppSelector(selectSelectedFiles);
 
@@ -141,6 +145,16 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       const source = sources.find((entry) => entry.id === id);
       if (!source) return;
       const transmitting = source.status === "transmitting";
+      if (
+        source.kind?.toLowerCase?.() === "hackrf_one" &&
+        !canToggleTransmitMode({
+          nextEnabled: !transmitting,
+          sourceId: id,
+          txBindingSourceId: txSuiteSourceId,
+        })
+      ) {
+        return;
+      }
       wsConnection.sendTransmitStatus?.(!transmitting, source.name ?? id, {
         serialNumber: source.serial_number?.trim() || id,
         centerFrequencyHz: tx.txCenterFrequencyHz,
@@ -160,7 +174,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         txHopRateHz: tx.txHopRateHz,
       });
     },
-    [sources, tx, wsConnection.sendTransmitStatus],
+    [sources, tx, txSuiteSourceId, wsConnection.sendTransmitStatus],
   );
 
   const handleFlowSelect = useCallback(
@@ -283,7 +297,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const sourceDevices = useMemo(
     () =>
       sources.map((source) => {
-        const isStreaming = source.status === "streaming";
+        const isRxActive = ["connected", "receiving", "streaming"].includes(
+          source.status ?? "",
+        );
         const isMockSource = source.capability === "mock";
         const isTxSource =
           source.capability?.toLowerCase().includes("tx") ||
@@ -291,7 +307,10 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           source.name === "Mock Tx SDR";
         const isPaused = source.paused ?? false;
         const isLiveConnected =
-          source.status === "connected" || isStreaming || isMockSource;
+          isRxActive ||
+          source.status === "paused" ||
+          source.paused === true ||
+          isMockSource;
         const actionLabel = isLiveConnected
           ? isPaused
             ? "Resume"
@@ -315,9 +334,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
               : undefined,
           status: {
             color:
-              isMockSource && isStreaming
+                isMockSource && isRxActive
                 ? "#ffb000"
-                : isStreaming
+                : isRxActive
                   ? "#19d97d"
                   : undefined,
             label: source.status ?? undefined,

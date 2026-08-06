@@ -128,6 +128,7 @@ import {
 } from "@n-apt/utils/frequency";
 import { resolveSampleRateSpec, SampleRateSpec } from "@n-apt/utils/signals";
 import {
+  canToggleTransmitMode,
   resolveSourceModeManagement,
   resolveSourceModeTransition,
   resolveTxStopTransition,
@@ -1587,6 +1588,21 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       if (!source) {
         return;
       }
+      const isPhysicalHackRfSource =
+        source.kind?.toLowerCase?.() === "hackrf_one" ||
+        (selectedSource?.id === source.id &&
+          selectedBackendKind === "hackrf_one");
+      if (
+        isPhysicalHackRfSource &&
+        !canToggleTransmitMode({
+          nextEnabled,
+          sourceId,
+          txBindingSourceId: txSuiteSourceId,
+          txPreviewSourceId,
+        })
+      ) {
+        return;
+      }
 
       const applyToggle = () => {
         pendingTxStopSourceIdRef.current = nextEnabled ? null : source.id;
@@ -1639,10 +1655,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               hopRateHz: txHopRateHz,
             })
           : null;
-        const isPhysicalHackRf =
-          source.kind?.toLowerCase?.() === "hackrf_one" ||
-          (selectedSource?.id === source.id &&
-            selectedBackendKind === "hackrf_one");
+        const isPhysicalHackRf = isPhysicalHackRfSource;
         if (
           nextEnabled &&
           source.duplex_mode?.toLowerCase?.() === "half-duplex" &&
@@ -1740,6 +1753,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txHopChannels,
       txHopRateHz,
       isConnected,
+      txPreviewSourceId,
+      txSuiteSourceId,
       wsConnection.sendTransmitStatus,
       spectrumTransport.sendPauseCommand,
     ],
