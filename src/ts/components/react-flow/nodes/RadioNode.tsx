@@ -165,7 +165,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
     const hasAptNode = nodes.some((n) => n.data && n.data.aptOptions);
 
     if (hasAptNode && algorithm === "fm") {
-      dispatch(setAlgorithm("apt"));
+      dispatch(setAlgorithm("aptImage"));
     }
   }, [getNodes, algorithm, dispatch]);
 
@@ -288,13 +288,15 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
           <StyledSelect
             value={hasFmNodeUpstream ? "fm" : algorithm}
             onChange={(e) =>
-              dispatch(setAlgorithm(e.target.value as "fm" | "apt" | "napt"))
+      dispatch(
+        setAlgorithm(e.target.value as "fm" | "aptAudio" | "aptImage"),
+      )
             }
             disabled={hasFmNodeUpstream}
           >
             <option value="fm">FM (Wideband/Narrow)</option>
-            <option value="apt">APT (NOAA Satellite)</option>
-            <option value="napt">N-APT (Audio)</option>
+            <option value="aptAudio">APTAudio (NOAA Satellite audio)</option>
+            <option value="aptImage">APTImage (NOAA Satellite image)</option>
           </StyledSelect>
         </ControlItem>
       </ControlGroup>

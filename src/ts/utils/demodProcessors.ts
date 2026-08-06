@@ -8,12 +8,16 @@ import {
 /** Peak deviation of an FM broadcast carrier, used as the full-scale audio reference. */
 const FM_BROADCAST_PEAK_DEVIATION_HZ = 75_000;
 
-export type DemodAlgorithm = "fm" | "apt" | "napt";
+/** Algorithms available to the live demodulation pipeline. */
+export type DemodAlgorithm = "fm" | "aptAudio" | "aptImage";
+
+/** Configuration shared by the streaming demodulator implementations. */
 export type DemodProcessorOptions = {
   targetSampleRate: number;
   centerFrequency?: number;
   bandwidth?: number;
 };
+/** Stateful processor that converts raw I/Q frames into target-rate samples. */
 export type DemodProcessor = {
   process(
     iqData: Uint8Array,
@@ -32,6 +36,10 @@ type StreamingResampler = {
   reset: () => void;
 };
 
+/**
+ * Creates a linear resampler whose interpolation phase and tail sample survive
+ * across frames, preventing repeated frame-start clicks or timing drift.
+ */
 function createStreamingResampler(): StreamingResampler {
   // The position is relative to the current input chunk. Keeping it across
   // chunks prevents the interpolation phase from restarting at zero for every
@@ -103,6 +111,10 @@ function createStreamingResampler(): StreamingResampler {
   };
 }
 
+/**
+ * Builds the FM broadcast processor: tune, channel-filter, discriminate phase,
+ * remove DC, low-pass audio, de-emphasize, normalize deviation, and resample.
+ */
 function fmProcessor(options: DemodProcessorOptions): DemodProcessor {
   const shiftState: ShiftState = { phase: 0 };
   const filterState: LowPassState = { prevI: 0, prevQ: 0 };
@@ -182,6 +194,13 @@ function fmProcessor(options: DemodProcessorOptions): DemodProcessor {
   };
 }
 
+/**
+ * Builds the APT processor shared by APTAudio and APTImage.
+ *
+ * Both variants first FM-demodulate the 2.4 kHz APT subcarrier and apply the
+ * discrete envelope detector. APTAudio additionally feeds the result through
+ * NAPT-specific detection in its hook; APTImage is the traditional image path.
+ */
 function imageProcessor(options: DemodProcessorOptions): DemodProcessor {
   let shiftState: ShiftState = { phase: 0 };
   let filterState: LowPassState = { prevI: 0, prevQ: 0 };
@@ -240,12 +259,13 @@ function imageProcessor(options: DemodProcessorOptions): DemodProcessor {
   };
 }
 
+/** Creates the requested stateful FM or APT-family processor. */
 export function createDemodProcessor(
   algorithm: DemodAlgorithm,
   options: DemodProcessorOptions,
 ): DemodProcessor {
   if (algorithm === "fm") return fmProcessor(options);
-  if (algorithm === "apt" || algorithm === "napt")
+  if (algorithm === "aptAudio" || algorithm === "aptImage")
     return imageProcessor(options);
   throw new Error(`Unsupported demodulation algorithm: ${algorithm}`);
 }

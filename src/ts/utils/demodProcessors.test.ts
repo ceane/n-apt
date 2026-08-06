@@ -19,16 +19,16 @@ describe("shared demod processors", () => {
     expect(result.some((sample) => Math.abs(sample) > 0)).toBe(true);
   });
 
-  it("selects APT and NAPT through the same framework-independent API", () => {
+  it("selects APTAudio and APTImage through the same framework-independent API", () => {
     const iq = new Uint8Array(128).fill(128);
     expect(
-      createDemodProcessor("apt", { targetSampleRate: 48_000 }).process(
+      createDemodProcessor("aptAudio", { targetSampleRate: 48_000 }).process(
         iq,
         240_000,
       ),
     ).toBeInstanceOf(Float32Array);
     expect(
-      createDemodProcessor("napt", { targetSampleRate: 48_000 }).process(
+      createDemodProcessor("aptImage", { targetSampleRate: 48_000 }).process(
         iq,
         240_000,
       ),

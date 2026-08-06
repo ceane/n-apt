@@ -223,7 +223,7 @@ const rangeContains = (outer: FrequencyRange, inner: FrequencyRange) =>
 
 export const shouldPreservePendingFmTune = (params: {
   sourceMode: DemodSourceMode;
-  algorithm: "fm" | "apt" | "napt";
+  algorithm: "fm" | "aptAudio" | "aptImage";
   pendingCenterHz: number | null | undefined;
   currentSelection: FrequencyRange | null | undefined;
   incomingRange: FrequencyRange | null | undefined;

@@ -19,8 +19,8 @@ import {
   AudioPlaybackHandle,
 } from "@n-apt/hooks/useAudioExtraction";
 import { useAudioDemodFM } from "@n-apt/hooks/useAudioDemodFM";
-import { useAudioDemodAPT } from "@n-apt/hooks/useAudioDemodAPT";
-import { useNAPTAudioDemod } from "@n-apt/hooks/useNAPTAudioDemod";
+import { useAPTImageDemod } from "@n-apt/hooks/useAPTImageDemod";
+import { useAPTAudioDemod } from "@n-apt/hooks/useAPTAudioDemod";
 import {
   demodFrameRuntime,
   liveFrameRuntime,
@@ -113,8 +113,8 @@ interface DemodContextValue {
   stopScan: () => void;
 
   // FM demodulation state
-  selectedAlgorithm: "fm" | "apt" | "napt";
-  setSelectedAlgorithm: (algorithm: "fm" | "apt" | "napt") => void;
+  selectedAlgorithm: "fm" | "aptAudio" | "aptImage";
+  setSelectedAlgorithm: (algorithm: "fm" | "aptAudio" | "aptImage") => void;
 
   // React Flow state
   nodes: Node[];
@@ -161,7 +161,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<
-    "fm" | "apt" | "napt"
+    "fm" | "aptAudio" | "aptImage"
   >("fm");
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
     useSpectrumStore();
@@ -369,11 +369,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
     bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
-  const aptDemod = useAudioDemodAPT({
+  const aptImageDemod = useAPTImageDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
   });
-  const naptDemod = useNAPTAudioDemod({
+  const aptAudioDemod = useAPTAudioDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
   });
@@ -383,15 +383,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     stopAudio: stopFmAudio,
   } = fmDemod;
   const {
-    processIQData: processAptIQData,
+    processIQData: processAptImageIQData,
+    playAudio: playAptImageAudio,
+    stopAudio: stopAptImageAudio,
+  } = aptImageDemod;
+  const {
+    processIQData: processAptAudioIQData,
     playAudio: playAptAudio,
     stopAudio: stopAptAudio,
-  } = aptDemod;
-  const {
-    processIQData: processNaptIQData,
-    playAudio: playNaptAudio,
-    stopAudio: stopNaptAudio,
-  } = naptDemod;
+    detectSpikes: detectNaptSpikes,
+  } = aptAudioDemod;
 
   // Throttled IQ demod processing — polls the frame runtime instead of subscribing
   // to dataFrameCounter to avoid re-rendering the entire DemodProvider tree on every frame.
@@ -400,8 +401,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     if (isPaused) {
       demodFrameRuntime.clear();
       stopFmAudio();
+      stopAptImageAudio();
       stopAptAudio();
-      stopNaptAudio();
       return;
     }
 
@@ -436,12 +437,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           if (audioData) {
             playFmAudio(audioData);
           }
-        } else if (demodState.algorithm === "apt") {
-          processAptIQData(iqData, sampleRate, frameCenterFrequencyHz);
+        } else if (demodState.algorithm === "aptImage") {
+          processAptImageIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          playAptImageAudio();
+        } else if (demodState.algorithm === "aptAudio") {
+          processAptAudioIQData(iqData, sampleRate, frameCenterFrequencyHz);
           playAptAudio();
-        } else if (demodState.algorithm === "napt") {
-          processNaptIQData(iqData, sampleRate, frameCenterFrequencyHz);
-          playNaptAudio();
         }
       }
     }, 33);
@@ -450,8 +451,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       clearInterval(id);
       demodFrameRuntime.clear();
       stopFmAudio();
+      stopAptImageAudio();
       stopAptAudio();
-      stopNaptAudio();
     };
   }, [
     demodState.isListening,
@@ -462,12 +463,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     processFmIQData,
     playFmAudio,
     stopFmAudio,
-    processAptIQData,
+    processAptImageIQData,
+    playAptImageAudio,
+    stopAptImageAudio,
     playAptAudio,
     stopAptAudio,
-    processNaptIQData,
-    playNaptAudio,
-    stopNaptAudio,
+    processAptAudioIQData,
   ]);
 
   // Initialize the scanner manager with the WS sender functions
@@ -835,8 +836,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setFlow,
       flowVersion,
       fileCapturedRange,
-      naptDetectionResult: naptDemod.detectionResult,
-      detectNaptSpikes: naptDemod.detectSpikes,
+      naptDetectionResult: aptAudioDemod.detectionResult,
+      detectNaptSpikes: aptAudioDemod.detectSpikes,
     }),
     [
       windowSizeHz,
@@ -863,8 +864,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setFlow,
       flowVersion,
       fileCapturedRange,
-      naptDemod.detectionResult,
-      naptDemod.detectSpikes,
+      aptAudioDemod.detectionResult,
+      aptAudioDemod.detectSpikes,
     ],
   );
 

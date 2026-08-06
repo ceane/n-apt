@@ -1,7 +1,18 @@
+/** Mutable oscillator phase carried between streaming I/Q frames. */
 export interface ShiftState {
   phase: number;
 }
 
+/**
+ * Converts offset-binary interleaved I/Q into normalized complex baseband and
+ * rotates it by a frequency offset.
+ *
+ * @param iqData Interleaved unsigned I/Q samples in `[I, Q, I, Q, ...]` form.
+ * @param sampleRateHz Input sample rate in hertz.
+ * @param frequencyOffsetHz Desired signal frequency minus frame center in hertz.
+ * @param state Stateful oscillator phase used to keep frame boundaries continuous.
+ * @returns Interleaved normalized floating-point I/Q samples.
+ */
 export const shiftIqToBaseband = (
   iqData: Uint8Array,
   sampleRateHz: number,
@@ -37,11 +48,17 @@ export const shiftIqToBaseband = (
   return shifted;
 };
 
+/** Mutable one-pole filter state carried between streaming I/Q frames. */
 export interface LowPassState {
   prevI: number;
   prevQ: number;
 }
 
+/**
+ * Applies the same first-order low-pass filter independently to I and Q.
+ * `bandwidthHz` is treated as the full channel width; the filter cutoff is
+ * half of that width.
+ */
 export const applyComplexLowPass = (
   iqData: Float32Array,
   sampleRateHz: number,
@@ -74,6 +91,10 @@ export const applyComplexLowPass = (
   return filtered;
 };
 
+/**
+ * Computes the selected channel's offset from the center frequency of an I/Q
+ * frame. Missing or invalid metadata produces a safe zero-Hz offset.
+ */
 export const computeFrequencyOffsetHz = (
   selectedFrequencyHz: number | null | undefined,
   frameCenterFrequencyHz: number | null | undefined,

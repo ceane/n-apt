@@ -4,17 +4,13 @@ import {
   applyComplexLowPass,
   shiftIqToBaseband,
 } from "@n-apt/utils/demodulation";
-import {
-  detectNaptSpikeCandidates,
-  type NaptSpikeDetectionResult,
-} from "@n-apt/utils/naptSpikeDetection";
 
-export interface AudioDemodNAPTOptions {
+export interface APTImageDemodOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
   bufferSize: number; // Audio buffer size
 }
 
-export interface AudioDemodNAPTHandle {
+export interface APTImageDemodHandle {
   processIQData: (
     iqData: Uint8Array,
     sampleRate: number,
@@ -25,39 +21,30 @@ export interface AudioDemodNAPTHandle {
   setVolume: (volume: number) => void;
   isPlaying: boolean;
   volume: number;
-  detectionResult: NaptSpikeDetectionResult | null;
-  detectSpikes: (
-    iqData: Uint8Array,
-    sampleRate: number,
-    frameCenterFrequencyHz?: number | null,
-  ) => NaptSpikeDetectionResult | null;
 }
 
 /**
- * N-APT audio demodulation and playback using Web Audio API.
- * This is currently a direct copy of the APT demod pipeline so the new
- * hook can be wired into the mix without altering the existing behavior.
+ * Demodulates traditional APT image content and exposes it through the shared
+ * Web Audio playback boundary. The DSP output is the recovered image envelope;
+ * image reconstruction/display remains a separate consumer concern.
  */
-export function useNAPTAudioDemod(
-  options: AudioDemodNAPTOptions,
-): AudioDemodNAPTHandle {
-  const NAPT_IMAGE_CARRIER = 2400;
+export function useAPTImageDemod(
+  options: APTImageDemodOptions,
+): APTImageDemodHandle {
+  const APT_IMAGE_CARRIER = 2400; // 2.4kHz subcarrier
   const { targetSampleRate } = options;
   const sharedProcessor = useMemo(
-    () => createDemodProcessor("napt", { targetSampleRate }),
+    () => createDemodProcessor("aptImage", { targetSampleRate }),
     [targetSampleRate],
   );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.8);
-  const [detectionResult, setDetectionResult] =
-    useState<NaptSpikeDetectionResult | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const processedAudioBufferRef = useRef<Float32Array | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -68,7 +55,8 @@ export function useNAPTAudioDemod(
     return audioContextRef.current;
   }, []);
 
-  const demodulateNAPTBaseband = useCallback(
+  // Standard FM demodulation (APT is FM modulated)
+  const demodulateAPTBaseband = useCallback(
     (
       iqData: Uint8Array,
       sampleRate: number,
@@ -96,14 +84,12 @@ export function useNAPTAudioDemod(
         audioBuffer[j] = phaseDiff;
       }
 
+      // Normalization
       let maxAmp = 0;
-      for (let j = 0; j < samples; j++) {
+      for (let j = 0; j < samples; j++)
         maxAmp = Math.max(maxAmp, Math.abs(audioBuffer[j]));
-      }
       if (maxAmp > 0) {
-        for (let j = 0; j < samples; j++) {
-          audioBuffer[j] /= maxAmp;
-        }
+        for (let j = 0; j < samples; j++) audioBuffer[j] /= maxAmp;
       }
 
       return audioBuffer;
@@ -111,38 +97,8 @@ export function useNAPTAudioDemod(
     [],
   );
 
-  const detectSpikes = useCallback(
-    (
-      iqData: Uint8Array,
-      sampleRate: number,
-      frameCenterFrequencyHz?: number | null,
-    ) => {
-      if (!iqData || iqData.length === 0) {
-        setDetectionResult(null);
-        return null;
-      }
-
-      const baseband = demodulateNAPTBaseband(
-        iqData,
-        sampleRate,
-        frameCenterFrequencyHz,
-      );
-      const magnitude = new Float32Array(baseband.length);
-      for (let i = 0; i < baseband.length; i++) {
-        magnitude[i] = Math.abs(baseband[i]);
-      }
-      const result = detectNaptSpikeCandidates(magnitude);
-      setDetectionResult(result);
-      return result;
-    },
-    [demodulateNAPTBaseband],
-  );
-
   const resampleAudio = useCallback(
     (audio: Float32Array, fromRate: number, toRate: number): Float32Array => {
-      if (fromRate === toRate) {
-        return audio;
-      }
       const ratio = fromRate / toRate;
       const outputLength = Math.floor(audio.length / ratio);
       const resampled = new Float32Array(outputLength);
@@ -162,29 +118,44 @@ export function useNAPTAudioDemod(
     [],
   );
 
-  const envelopeDetectNAPT = useCallback(
+  const envelopeDetectAPT = useCallback(
     (audio: Float32Array, sampleRate: number): Float32Array => {
-      const phi = (2 * Math.PI * NAPT_IMAGE_CARRIER) / sampleRate;
+      const phi = 2 * Math.PI * (APT_IMAGE_CARRIER / sampleRate);
       const cosPhi = Math.cos(phi);
       const sinPhi = Math.sin(phi);
 
       const samples = audio.length;
       const envelope = new Float32Array(samples);
+
+      // Formula from PI-SDR / apt137 for discrete envelope detection
       for (let j = 1; j < samples; j++) {
         const xi = audio[j];
         const prevXi = audio[j - 1];
-        const val = Math.sqrt(
-          Math.max(0, xi * xi + prevXi * prevXi - 2 * xi * prevXi * cosPhi),
-        );
+
+        const term1 = xi * xi;
+        const term2 = prevXi * prevXi;
+        const term3 = 2 * xi * prevXi * cosPhi;
+
+        // Prevent negative values due to floating point precision errors before sqrt
+        const val = Math.sqrt(Math.max(0, term1 + term2 - term3));
         envelope[j] = val / sinPhi;
       }
-      envelope[0] = envelope[1] || 0;
 
+      // Handle index 0
+      envelope[0] = envelope[1];
+
+      // Simple normalization and clamping for audio representation of pixels
       let maxAmp = 0;
       for (let j = 0; j < samples; j++) maxAmp = Math.max(maxAmp, envelope[j]);
       if (maxAmp > 0) {
-        for (let j = 0; j < samples; j++) envelope[j] /= maxAmp;
+        for (let j = 0; j < samples; j++) {
+          // Map [0, max] to [0, 1] then shift to center around 0 for DC-free audio if needed?
+          // Actually for audio of pixels, we just clamp to 1.0 but pixels are unipolar.
+          // We'll provide it as unipolar [0, 1] which the audio context will handle as positive samples.
+          envelope[j] /= maxAmp;
+        }
       }
+
       return envelope;
     },
     [],
@@ -197,69 +168,17 @@ export function useNAPTAudioDemod(
       frameCenterFrequencyHz?: number | null,
     ) => {
       if (!iqData || iqData.length === 0) return;
-      const baseband = demodulateNAPTBaseband(iqData, inputSampleRate, frameCenterFrequencyHz);
-      const imageEnvelope = envelopeDetectNAPT(baseband, inputSampleRate);
-      const detection = detectNaptSpikeCandidates(imageEnvelope);
-      setDetectionResult(detection);
-      const selected = detection.selectedCandidate;
-      let finalAudio = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
-      if (selected) {
-        const segment = imageEnvelope.slice(
-          selected.startIndex,
-          selected.endIndex + 1,
-        );
-        const maxAmp = segment.reduce(
-          (acc, value) => Math.max(acc, Math.abs(value)),
-          0,
-        );
-        if (maxAmp > 0) {
-          for (let i = 0; i < finalAudio.length; i++) {
-            finalAudio[i] /= maxAmp;
-          }
-        }
-      }
-      if (finalAudio.length === 0) {
-        processedAudioBufferRef.current = null;
-        return;
-      }
-      processedAudioBufferRef.current = finalAudio;
+
+      processedAudioBufferRef.current = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
     },
-    [
-      demodulateNAPTBaseband,
-      envelopeDetectNAPT,
-      resampleAudio,
-      sharedProcessor,
-    ],
+    [sharedProcessor],
   );
 
-  const stopAudio = useCallback(() => {
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.stop();
-      } catch {}
-      sourceNodeRef.current = null;
-    }
-    if (gainNodeRef.current) {
-      gainNodeRef.current.disconnect();
-      gainNodeRef.current = null;
-    }
-    nextStartTimeRef.current = 0;
-    setIsPlaying(false);
-  }, []);
-
   const playAudio = useCallback(() => {
-    if (
-      !processedAudioBufferRef.current ||
-      processedAudioBufferRef.current.length === 0
-    ) {
-      return;
-    }
+    if (!processedAudioBufferRef.current) return;
     try {
       const audioContext = getAudioContext();
-      if (audioContext.state === "suspended") {
-        void audioContext.resume();
-      }
-      if (processedAudioBufferRef.current.length === 0) return;
+      stopAudio();
       const buffer = audioContext.createBuffer(
         1,
         processedAudioBufferRef.current.length,
@@ -274,19 +193,32 @@ export function useNAPTAudioDemod(
       gainNode.connect(audioContext.destination);
       sourceNodeRef.current = sourceNode;
       gainNodeRef.current = gainNode;
-      const currentTime = audioContext.currentTime;
-      if (nextStartTimeRef.current < currentTime + 0.02) {
-        nextStartTimeRef.current = currentTime + 0.15;
-      }
-      const startTime = nextStartTimeRef.current;
-      sourceNode.start(startTime);
-      nextStartTimeRef.current = startTime + buffer.duration;
+      sourceNode.onended = () => {
+        setIsPlaying(false);
+        sourceNodeRef.current = null;
+        gainNodeRef.current = null;
+      };
+      sourceNode.start(0);
       setIsPlaying(true);
     } catch (error) {
-      console.error("Error playing N-APT audio:", error);
+      console.error("Error playing APT audio:", error);
       setIsPlaying(false);
     }
   }, [getAudioContext, volume, targetSampleRate]);
+
+  const stopAudio = useCallback(() => {
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.stop();
+      } catch {}
+      sourceNodeRef.current = null;
+    }
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect();
+      gainNodeRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
 
   const setVolume = useCallback((newVolume: number) => {
     const clamped = Math.max(0, Math.min(1, newVolume));
@@ -301,14 +233,5 @@ export function useNAPTAudioDemod(
     };
   }, [stopAudio]);
 
-  return {
-    processIQData,
-    playAudio,
-    stopAudio,
-    setVolume,
-    isPlaying,
-    volume,
-    detectionResult,
-    detectSpikes,
-  };
+  return { processIQData, playAudio, stopAudio, setVolume, isPlaying, volume };
 }

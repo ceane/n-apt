@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { renderHook, act } from "@testing-library/react";
-import { useNAPTAudioDemod } from "../../src/ts/hooks/useNAPTAudioDemod";
+import { useAPTAudioDemod } from "../../src/ts/hooks/useAPTAudioDemod";
 
-describe("useNAPTAudioDemod", () => {
+describe("useAPTAudioDemod", () => {
   it("exposes detection state after running the detector", () => {
     const { result } = renderHook(() =>
-      useNAPTAudioDemod({ targetSampleRate: 48000, bufferSize: 4096 }),
+      useAPTAudioDemod({ targetSampleRate: 48000, bufferSize: 4096 }),
     );
 
     const iqData = new Uint8Array(256);

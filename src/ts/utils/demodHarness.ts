@@ -1,7 +1,7 @@
 import { DEMOD_MIN_FFT_SIZE } from "./demodQuality";
 import { createDemodProcessor } from "./demodProcessors";
 
-export type DemodAlgorithm = "fm" | "apt" | "napt";
+export type DemodAlgorithm = "fm" | "aptAudio" | "aptImage";
 export type DemodHarnessInput = {
   centerFrequencyHz: number;
   frequencyRangeHz: [number, number];
@@ -41,7 +41,11 @@ export function runDemodulationAlgorithm(
   iq: Uint8Array,
   options: { sampleRateHz?: number; targetSampleRate?: number; centerFrequencyHz?: number; bandwidthHz?: number } = {},
 ): Float32Array {
-  if (algorithm !== "fm" && algorithm !== "apt" && algorithm !== "napt") {
+  if (
+    algorithm !== "fm" &&
+    algorithm !== "aptAudio" &&
+    algorithm !== "aptImage"
+  ) {
     throw new Error(`Unsupported demodulation algorithm: ${algorithm}`);
   }
   return createDemodProcessor(algorithm, {

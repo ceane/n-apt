@@ -112,3 +112,17 @@ describe("fm demod processor", () => {
     expect(aliasPeak).toBeLessThan(inBandPeak * 0.1);
   });
 });
+
+describe("APT demod processor variants", () => {
+  it("exposes distinct APTAudio and APTImage processor names", () => {
+    const options = { targetSampleRate: 48_000 };
+    const iq = new Uint8Array([128, 128, 128, 128]);
+
+    expect(createDemodProcessor("aptAudio", options).process(iq, 3_200_000)).toBeInstanceOf(
+      Float32Array,
+    );
+    expect(createDemodProcessor("aptImage", options).process(iq, 3_200_000)).toBeInstanceOf(
+      Float32Array,
+    );
+  });
+});
