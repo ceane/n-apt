@@ -27,7 +27,15 @@ describe("FmNode station selection", () => {
       bandwidthHz: 200_000,
       bandwidthStartHz: 92_600_000,
       bandwidthKhz: 200,
+      fmTuneIntentHz: 92_700_000,
     });
     expect(store.getState().spectrum.frequencyRange).toEqual({ min: 92_600_000, max: 92_800_000 });
+    expect(store.getState().spectrum).toMatchObject({
+      fftSize: 32_768,
+      fftFrameRate: 60,
+      displayTemporalResolution: "lossless",
+      gain: 30,
+      ppm: 0,
+    });
   });
 });

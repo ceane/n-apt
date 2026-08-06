@@ -9,6 +9,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::ffi;
+use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
 use crate::sdr::SdrDevice;
 
 const HACKRF_MAX_SAMPLE_RATE: u32 = 20_000_000;
@@ -73,6 +74,8 @@ pub struct HackRfDevice {
   requested_center_frequency: u32,
   ppm: u32,
   iq_buffer: Vec<u8>,
+  /// Contiguous IQ retained for streaming consumers such as audio.
+  audio_tap: AudioIqTap,
   streaming_started: bool,
   serial_number: String,
 }
@@ -234,6 +237,7 @@ impl HackRfDevice {
         requested_center_frequency: 0,
         ppm: 0,
         iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
+        audio_tap: AudioIqTap::new(),
         streaming_started: false,
         serial_number,
       })
@@ -248,6 +252,17 @@ impl HackRfDevice {
     }
 
     Arc::as_ptr(self.rx_context.as_ref().expect("rx context")) as *mut _
+  }
+
+  /// Retain a received chunk in the audio tap as unsigned offset binary.
+  ///
+  /// The tap feeds consumers that expect the same format the display path
+  /// emits, so the signed i8 samples must be converted before retention rather
+  /// than after.
+  fn tap_normalized(&mut self, chunk: &[u8]) {
+    let mut normalized = chunk.to_vec();
+    normalize_hackrf_buffer(&mut normalized);
+    self.audio_tap.push(&normalized);
   }
 
   fn set_sample_rate_inner(&mut self, rate: u32) -> Result<()> {
@@ -410,6 +425,17 @@ impl SdrDevice for HackRfDevice {
       },
     )?;
 
+    // Tap every byte that arrives before the display path below truncates to a
+    // single FFT, and drain the rest of the queue so the audio timeline has no
+    // hole between display frames. The display keeps the freshest frame.
+    if self.audio_tap.is_enabled() {
+      self.tap_normalized(&frame);
+      while let Ok(next) = self.rx_queue.try_recv() {
+        self.tap_normalized(&next);
+        frame = next;
+      }
+    }
+
     let target_len = fft_size.saturating_mul(2);
     if frame.len() > target_len {
       frame.truncate(target_len);
@@ -434,8 +460,35 @@ impl SdrDevice for HackRfDevice {
     })
   }
 
+  fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
+    if enabled {
+      self.audio_tap.set_capacity_for_sample_rate(self.sample_rate);
+    }
+    self.audio_tap.set_enabled(enabled);
+  }
+
+  fn take_audio_iq(&mut self) -> Option<AudioIqBlock> {
+    if !self.audio_tap.is_enabled() {
+      return None;
+    }
+    let data = self.audio_tap.take();
+    if data.is_empty() {
+      return None;
+    }
+    Some(AudioIqBlock {
+      data,
+      sample_rate: self.sample_rate,
+      dropped_bytes: self.audio_tap.dropped_bytes(),
+    })
+  }
+
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-    self.set_sample_rate_inner(rate)
+    self.set_sample_rate_inner(rate)?;
+    // The latency budget is in seconds, and retained samples belong to the old
+    // rate, so they cannot carry over.
+    self.audio_tap.set_capacity_for_sample_rate(rate);
+    self.audio_tap.clear();
+    Ok(())
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
@@ -543,6 +596,9 @@ impl SdrDevice for HackRfDevice {
   fn flush_read_queue(&mut self) {
     drain_rx_queue(&self.rx_queue);
     self.iq_buffer.clear();
+    // A flush is an intentional discontinuity, so retained audio would splice
+    // unrelated spectrum into the stream.
+    self.audio_tap.clear();
   }
 
   fn reset_buffer(&mut self) -> Result<()> {
@@ -685,6 +741,7 @@ mod tests {
       requested_center_frequency: 0,
       ppm: 0,
       iq_buffer: Vec::new(),
+      audio_tap: AudioIqTap::new(),
       tx_context: None,
       tx_started: false,
       streaming_started: false,

@@ -5,6 +5,9 @@ import {
   type ShiftState,
 } from "./demodulation";
 
+/** Peak deviation of an FM broadcast carrier, used as the full-scale audio reference. */
+const FM_BROADCAST_PEAK_DEVIATION_HZ = 75_000;
+
 export type DemodAlgorithm = "fm" | "apt" | "napt";
 export type DemodProcessorOptions = {
   targetSampleRate: number;
@@ -32,13 +35,18 @@ type StreamingResampler = {
 function createStreamingResampler(): StreamingResampler {
   // The position is relative to the current input chunk. Keeping it across
   // chunks prevents the interpolation phase from restarting at zero for every
-  // IQ frame.
+  // IQ frame. It can be negative, in which case the interpolation window
+  // straddles the frame boundary and reads `previousTail`.
   let sourcePosition = 0;
+  let previousTail = 0;
+  let hasPreviousTail = false;
   let previousFromRate = 0;
   let previousToRate = 0;
 
   const reset = () => {
     sourcePosition = 0;
+    previousTail = 0;
+    hasPreviousTail = false;
     previousFromRate = 0;
     previousToRate = 0;
   };
@@ -61,17 +69,25 @@ function createStreamingResampler(): StreamingResampler {
       }
       if (fromRate !== previousFromRate || toRate !== previousToRate) {
         sourcePosition = 0;
+        hasPreviousTail = false;
         previousFromRate = fromRate;
         previousToRate = toRate;
       }
 
       const ratio = fromRate / toRate;
+      // Index -1 is the retained last sample of the previous chunk, so a
+      // carried-over negative position still interpolates across real data.
+      const sampleAt = (index: number) => {
+        if (index < 0) return hasPreviousTail ? previousTail : audio[0];
+        return audio[index];
+      };
+
       const output: number[] = [];
       while (sourcePosition < audio.length - 1) {
         const index = Math.floor(sourcePosition);
         const fraction = sourcePosition - index;
         output.push(
-          audio[index] * (1 - fraction) + audio[index + 1] * fraction,
+          sampleAt(index) * (1 - fraction) + sampleAt(index + 1) * fraction,
         );
         sourcePosition += ratio;
       }
@@ -80,6 +96,8 @@ function createStreamingResampler(): StreamingResampler {
       // sample is intentionally left for the next chunk so interpolation can
       // span the frame boundary.
       sourcePosition -= audio.length;
+      previousTail = audio[audio.length - 1];
+      hasPreviousTail = true;
       return new Float32Array(output);
     },
   };
@@ -139,17 +157,25 @@ function fmProcessor(options: DemodProcessorOptions): DemodProcessor {
         previousI = currentI;
         previousQ = currentQ;
       }
+      const alpha = 1 / inputRate / (1 / (2 * Math.PI * 15500) + 1 / inputRate);
+      const deAlpha = Math.exp(-1 / (75e-6 * inputRate));
+      // The discriminator emits radians of phase change per sample, so its
+      // amplitude shrinks as the IQ rate rises. Convert to deviation in Hz
+      // before normalizing, otherwise the level depends on the SDR's sample
+      // rate and a 3.2 MS/s stream plays ~19 dB quieter than a 256 kS/s one.
+      const fullScalePerRadian =
+        inputRate / (2 * Math.PI * FM_BROADCAST_PEAK_DEVIATION_HZ);
       for (let i = 0; i < samples; i++) {
         dcBias = 0.999 * dcBias + 0.001 * output[i];
         output[i] -= dcBias;
-        const alpha =
-          1 / inputRate / (1 / (2 * Math.PI * 15500) + 1 / inputRate);
         lp1 += alpha * (output[i] - lp1);
         lp2 += alpha * (lp1 - lp2);
         output[i] = lp2;
-        const deAlpha = Math.exp(-1 / (75e-6 * inputRate));
         deemphasis = (1 - deAlpha) * output[i] + deAlpha * deemphasis;
-        output[i] = Math.max(-1.1, Math.min(1.1, (deemphasis / Math.PI) * 2.5));
+        output[i] = Math.max(
+          -1,
+          Math.min(1, deemphasis * fullScalePerRadian),
+        );
       }
       return resampler.process(output, inputRate, options.targetSampleRate);
     },

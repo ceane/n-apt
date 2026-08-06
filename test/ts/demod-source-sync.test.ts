@@ -3,6 +3,7 @@ import {
   syncDemodSpanFromSourceContext,
   updateSpanStateThunk,
   syncRadioDemodFromSource,
+  shouldPreservePendingFmTune,
   type DemodSourceSyncPayload,
 } from "../../src/ts/redux/thunks/demodThunks";
 import { configureStore } from "@reduxjs/toolkit";
@@ -152,6 +153,30 @@ describe("resolveDemodSourceRange", () => {
       range: { min: 24_720_000, max: 29_880_000 },
       reason: "live_frequency_range",
     });
+  });
+
+  it("does not let a stale live frame overwrite a pending FM station", () => {
+    expect(
+      shouldPreservePendingFmTune({
+        sourceMode: "live",
+        algorithm: "fm",
+        pendingCenterHz: 92_700_000,
+        currentSelection: { min: 92_600_000, max: 92_800_000 },
+        incomingRange: { min: 0, max: 3_200_000 },
+      }),
+    ).toBe(true);
+  });
+
+  it("releases the FM tune fence when the selected range is confirmed", () => {
+    expect(
+      shouldPreservePendingFmTune({
+        sourceMode: "live",
+        algorithm: "fm",
+        pendingCenterHz: 92_700_000,
+        currentSelection: { min: 92_600_000, max: 92_800_000 },
+        incomingRange: { min: 92_600_000, max: 92_800_000 },
+      }),
+    ).toBe(false);
   });
 });
 

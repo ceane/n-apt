@@ -67,6 +67,19 @@ pub trait SdrDevice: Send {
   /// Read IQ samples from the device
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
 
+  /// Enable retention of a contiguous IQ stream alongside the display path.
+  ///
+  /// The display path keeps only the freshest frame, which is correct for a
+  /// real-time waterfall but leaves a hole at every frame boundary. Consumers
+  /// that need an unbroken timeline, such as audio demodulation, enable this
+  /// tap. Devices without a streaming reader default to a no-op.
+  fn set_audio_iq_tap_enabled(&mut self, _enabled: bool) {}
+
+  /// Take the contiguous IQ retained since the last call, if the tap is active.
+  fn take_audio_iq(&mut self) -> Option<audio_iq_tap::AudioIqBlock> {
+    None
+  }
+
   fn transmit_iq(&mut self, _samples: Option<&[u8]>) -> Result<()> {
     Err(anyhow::anyhow!("This SDR does not support transmission"))
   }
@@ -268,7 +281,7 @@ impl SdrDeviceFactory {
   }
 }
 
-#[cfg(has_hackrf)]
+pub mod audio_iq_tap;
 pub mod hackrf;
 pub mod hotplug;
 pub mod mock_apt;

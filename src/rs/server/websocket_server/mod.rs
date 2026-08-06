@@ -2331,9 +2331,20 @@ impl WebSocketServer {
               } else {
                 let force_noise =
                   cloned_shared.force_noise.load(std::sync::atomic::Ordering::Relaxed);
+                // The display path reads one FFT-sized block and keeps only the
+                // freshest samples, which is right for a real-time waterfall.
+                // Audio continuity comes from the tap instead: it retains every
+                // sample the display path discards, so the streamed IQ covers an
+                // unbroken timeline no matter how long a frame takes to build.
+                processor.set_audio_iq_tap_enabled(true);
                 let waveform =
                   processor.read_and_process_frame_with_noise(force_noise)?;
-                (waveform, processor.frame.last_frame_raw_iq.clone())
+                let contiguous_iq = processor
+                  .take_audio_iq()
+                  .map(|block| block.data)
+                  .filter(|data| !data.is_empty())
+                  .unwrap_or_else(|| processor.frame.last_frame_raw_iq.clone());
+                (waveform, contiguous_iq)
               };
               let fps = processor.display_frame_rate;
               Ok((
@@ -3054,7 +3065,8 @@ impl WebSocketServer {
 
       // Maintain target frame rate
       let elapsed = start_time.elapsed();
-      let target_duration = Duration::from_millis(1000 / (target_fps as u64));
+      let target_duration =
+        Duration::from_micros(1_000_000 / (target_fps as u64));
       if elapsed < target_duration {
         tokio::select! {
           _ = tokio::time::sleep(target_duration - elapsed) => {},

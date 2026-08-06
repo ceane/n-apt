@@ -676,6 +676,19 @@ impl SdrProcessor {
     self.device.device_type().contains("Mock")
   }
 
+  /// Start or stop retaining a contiguous IQ stream for audio consumers.
+  pub fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
+    self.device.set_audio_iq_tap_enabled(enabled);
+  }
+
+  /// Take the contiguous IQ retained since the last call. Returns `None` when
+  /// the tap is inactive or nothing new arrived.
+  pub fn take_audio_iq(
+    &mut self,
+  ) -> Option<crate::sdr::audio_iq_tap::AudioIqBlock> {
+    self.device.take_audio_iq()
+  }
+
   /// Check if the underlying device is still healthy
   pub fn is_healthy(&self) -> bool {
     self.device.is_healthy()
@@ -725,6 +738,17 @@ impl SdrProcessor {
   pub fn read_and_process_frame_with_noise(
     &mut self,
     force_noise: bool,
+  ) -> Result<Vec<f32>> {
+    self.read_and_process_frame_with_noise_and_iq_size(force_noise, None)
+  }
+
+  /// Read and process one live frame, optionally reading a larger raw IQ block
+  /// than the FFT consumes. Streaming audio no longer needs this: it reads from
+  /// the device's audio tap, which retains samples across frame boundaries.
+  fn read_and_process_frame_with_noise_and_iq_size(
+    &mut self,
+    force_noise: bool,
+    requested_iq_samples: Option<usize>,
   ) -> Result<Vec<f32>> {
     let fft_size = self.fft_processor.config().fft_size;
     let sample_rate = self.get_sample_rate();
@@ -810,8 +834,15 @@ impl SdrProcessor {
       }
     }
 
-    // 1. Read ONE fresh block of FFT size directly from the async layer
-    let mut samples = self.device.read_samples(fft_size)?;
+    // 1. Read one fresh block directly from the async layer. Capture paths
+    // keep the historical FFT-sized block; live streaming may request a
+    // larger block so the raw IQ covers one complete display-frame interval.
+    let read_size = if self.capture_active {
+      fft_size
+    } else {
+      requested_iq_samples.unwrap_or(fft_size).max(fft_size)
+    };
+    let mut samples = self.device.read_samples(read_size)?;
 
     if samples.data.is_empty() {
       return Ok(vec![-120.0; fft_size]);
@@ -820,7 +851,7 @@ impl SdrProcessor {
     while self.frame.post_retune_discard_frames > 0 {
       self.frame.post_retune_discard_frames -= 1;
 
-      let next_samples = self.device.read_samples(fft_size)?;
+      let next_samples = self.device.read_samples(read_size)?;
       if next_samples.data.is_empty() {
         if let Some(ref held) = self.frame.last_stable_spectrum {
           return Ok(held.clone());

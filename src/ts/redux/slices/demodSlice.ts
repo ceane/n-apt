@@ -17,6 +17,8 @@ export interface DemodState {
   bandwidthHz: number;
   bandwidthStartHz: number;
   alignment: "centered" | "start" | "end";
+  /** Latest FM station selected by the user, awaiting live-frame confirmation. */
+  fmTuneIntentHz: number | null;
 }
 
 const initialState: DemodState = {
@@ -36,6 +38,7 @@ const initialState: DemodState = {
   bandwidthHz: 500_000,
   bandwidthStartHz: 25_750_000,
   alignment: "centered",
+  fmTuneIntentHz: null,
 };
 
 const demodSlice = createSlice({
@@ -100,6 +103,12 @@ const demodSlice = createSlice({
     ) => {
       state.alignment = action.payload;
     },
+    setFmTuneIntent: (state, action: PayloadAction<number>) => {
+      state.fmTuneIntentHz = action.payload;
+    },
+    clearFmTuneIntent: (state) => {
+      state.fmTuneIntentHz = null;
+    },
   },
 });
 
@@ -116,6 +125,8 @@ export const {
   setBandwidthHz,
   setBandwidthStartHz,
   setAlignment,
+  setFmTuneIntent,
+  clearFmTuneIntent,
 } = demodSlice.actions;
 
 export default demodSlice.reducer;

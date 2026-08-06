@@ -16,6 +16,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use super::ffi;
+use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
 use crate::sdr::SdrDevice;
 
 pub struct RtlSdrDevice {
@@ -31,6 +32,9 @@ pub struct RtlSdrDevice {
   /// `usb_claim_interface error -3`.
   reader_stop_pending: Option<Arc<AtomicBool>>,
   iq_overflow: Vec<u8>,
+  /// Contiguous IQ retained for streaming consumers, independent of the
+  /// display path's freshest-frame policy.
+  audio_tap: AudioIqTap,
   max_sample_rate_cache: Option<u32>,
   last_error: Option<String>,
   usb_serial: String,
@@ -124,6 +128,7 @@ impl RtlSdrDevice {
     let rx_for_device = rx.clone();
     self.rx_queue = Some(rx_for_device);
     self.iq_overflow.clear();
+    self.audio_tap.clear();
 
     let dev_ptr_val = self.dev as usize;
     let device_index = self.device_index;
@@ -245,6 +250,7 @@ impl RtlSdrDevice {
       async_thread: None,
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial,
@@ -753,6 +759,7 @@ impl SdrDevice for RtlSdrDevice {
       return Err(anyhow!("RTL-SDR async reader is still stopping"));
     }
     self.iq_overflow.clear();
+    self.audio_tap.clear();
     Ok(())
   }
 
@@ -778,7 +785,11 @@ impl SdrDevice for RtlSdrDevice {
 
     if let Some(rx) = &self.rx_queue {
       // First, aggressively drain any queued backlog to stay real-time!
+      // Every chunk is also teed into the audio tap, because the freshest-frame
+      // policy below deliberately discards whatever arrived while the previous
+      // frame was being processed and audio needs those samples.
       while let Ok(chunk) = rx.try_recv() {
+        self.audio_tap.push(&chunk);
         self.iq_overflow.extend_from_slice(&chunk);
       }
 
@@ -797,6 +808,7 @@ impl SdrDevice for RtlSdrDevice {
         // Increased timeout to reduce spurious timeouts during high load or busy USB conditions.
         match rx.recv_timeout(std::time::Duration::from_millis(1000)) {
           Ok(chunk) => {
+            self.audio_tap.push(&chunk);
             self.iq_overflow.extend_from_slice(&chunk);
           }
           Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -846,8 +858,35 @@ impl SdrDevice for RtlSdrDevice {
     })
   }
 
+  fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
+    if enabled {
+      self.audio_tap.set_capacity_for_sample_rate(self.get_sample_rate());
+    }
+    self.audio_tap.set_enabled(enabled);
+  }
+
+  fn take_audio_iq(&mut self) -> Option<AudioIqBlock> {
+    if !self.audio_tap.is_enabled() {
+      return None;
+    }
+    let data = self.audio_tap.take();
+    if data.is_empty() {
+      return None;
+    }
+    Some(AudioIqBlock {
+      data,
+      sample_rate: self.get_sample_rate(),
+      dropped_bytes: self.audio_tap.dropped_bytes(),
+    })
+  }
+
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-    RtlSdrDevice::set_sample_rate(self, rate)
+    RtlSdrDevice::set_sample_rate(self, rate)?;
+    // The latency budget is expressed in seconds, so it has to follow the rate.
+    // Retained samples belong to the old rate and cannot be resampled.
+    self.audio_tap.set_capacity_for_sample_rate(rate);
+    self.audio_tap.clear();
+    Ok(())
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
@@ -902,6 +941,9 @@ impl SdrDevice for RtlSdrDevice {
     }
     // Clear the software overflow accumulator
     self.iq_overflow.clear();
+    // A flush is an intentional discontinuity (retune, seek), so retained audio
+    // would splice unrelated spectrum into the stream.
+    self.audio_tap.clear();
   }
 
   fn reset_buffer(&mut self) -> Result<()> {
@@ -1013,6 +1055,7 @@ mod tests {
       async_thread: Some(handle),
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),
@@ -1036,6 +1079,7 @@ mod tests {
       async_thread: Some(handle),
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),

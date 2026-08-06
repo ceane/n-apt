@@ -64,6 +64,7 @@ import type { PauseSnapshot } from "@n-apt/hooks/pauseSnapshotStorage";
 import {
   accumulateFullChannelWaveform,
   FULL_CHANNEL_BINS,
+  newestIqWindow,
   prepareSpectrumRenderData,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
@@ -3249,7 +3250,7 @@ const FFTCanvas = memo(
           let waveform: Float32Array;
 
           const rawSpectrum = resolveSpectrumWaveform({
-            source: { iq_data: iqBytes },
+            source: { iq_data: newestIqWindow(iqBytes, frontendFftSize) },
             processIq: (iqData) =>
               processIqToDbmSpectrum(
                 iqData,

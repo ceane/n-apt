@@ -43,6 +43,7 @@ import type { FrequencyRange } from "@n-apt/consts/types";
 import { sourceSpectrumRuntime } from "@n-apt/visualization/sourceVisualizationRuntime";
 import { isTxStandbyPreviewSource } from "@n-apt/utils/liveSourcePresentation";
 import { sourceVisualizationRuntime as liveIqRuntime } from "@n-apt/redux/middleware/websocketMiddleware";
+import { newestIqWindow } from "@n-apt/components/fft/frameProcessing";
 
 interface WaterfallNodeProps {
   data: {
@@ -779,7 +780,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
 
     const iq = (liveFrame as any)?.iq_data;
     if (!iq || iq.length === 0) return null;
-    const spectrum = processIqToDbmSpectrum(iq, 0, waterfallFftSize);
+    const spectrum = processIqToDbmSpectrum(
+      newestIqWindow(iq, waterfallFftSize),
+      0,
+      waterfallFftSize,
+    );
     return spectrum;
   }, [
     frameRevision,

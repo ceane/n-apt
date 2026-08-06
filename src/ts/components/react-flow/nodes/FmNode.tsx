@@ -2,11 +2,29 @@ import React from "react";
 import styled from "styled-components";
 import { Radio as RadioIcon } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
-import { setCenterFreq, setBandwidth } from "@n-apt/redux/slices/demodSlice";
-import { setBandwidthCenterFreq, setBandwidthHz, setBandwidthStartHz } from "@n-apt/redux/slices/demodSlice";
-import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
+import {
+  sendFrequencyRange,
+  sendSettings,
+} from "@n-apt/redux/thunks/websocketThunks";
+import {
+  setCenterFreq,
+  setBandwidth,
+  setFmTuneIntent,
+} from "@n-apt/redux/slices/demodSlice";
+import {
+  setBandwidthCenterFreq,
+  setBandwidthHz,
+  setBandwidthStartHz,
+} from "@n-apt/redux/slices/demodSlice";
+import {
+  setFrequencyRange,
+  setSdrSettingsBundle,
+} from "@n-apt/redux/slices/spectrumSlice";
 import { formatFrequency } from "@n-apt/utils/frequency";
+import {
+  DEMOD_MIN_FFT_SIZE,
+  DEMOD_REQUIRED_TEMPORAL_RESOLUTION,
+} from "@n-apt/utils/demodQuality";
 
 const NodeContainer = styled.div`
   background: ${({ theme }) => theme.colors.background};
@@ -119,26 +137,33 @@ export const FmNode: React.FC<FmNodeProps> = ({ data }) => {
     dispatch(setBandwidthHz(200_000));
     dispatch(setBandwidthStartHz(range.min));
     dispatch(setBandwidth(200));
+    dispatch(setFmTuneIntent(freqHz));
     dispatch(setFrequencyRange(range));
+    const fmSettings = {
+      fftSize: DEMOD_MIN_FFT_SIZE,
+      frameRate: 60,
+      fftWindow: "Rectangular",
+      gain: 30,
+      ppm: 0,
+      tunerAGC: false,
+      rtlAGC: false,
+    };
+    dispatch(
+      setSdrSettingsBundle({
+        fftSize: fmSettings.fftSize,
+        fftFrameRate: fmSettings.frameRate,
+        fftWindow: fmSettings.fftWindow,
+        gain: fmSettings.gain,
+        ppm: fmSettings.ppm,
+        tunerAGC: fmSettings.tunerAGC,
+        rtlAGC: fmSettings.rtlAGC,
+        displayTemporalResolution: DEMOD_REQUIRED_TEMPORAL_RESOLUTION,
+      }),
+    );
+    dispatch(sendSettings(fmSettings));
     dispatch(
       sendFrequencyRange(range),
     );
-    // Set PPM to 0 for precise FM tuning
-    dispatch({
-      type: "websocket/sendMessage",
-      payload: {
-        type: "ppm",
-        ppm: 0,
-      },
-    });
-    // Set FFT Window to Rectangular for FM demodulation
-    dispatch({
-      type: "websocket/sendMessage",
-      payload: {
-        type: "settings",
-        fftWindow: "Rectangular",
-      },
-    });
     // Update local Redux state to keep the pill selected and set bandwidth
   };
 

@@ -127,6 +127,26 @@ export function prepareSpectrumRenderData({
   };
 }
 
+/**
+ * The newest `fftSize` complex samples of a live I/Q payload.
+ *
+ * A live frame carries every sample captured since the previous frame so audio
+ * demodulation has an unbroken timeline, which can be more than one FFT worth.
+ * The display wants the most recent window instead of the oldest, otherwise the
+ * spectrum and waterfall lag the stream by the length of the surplus.
+ */
+export function newestIqWindow(
+  iqData: Uint8Array,
+  fftSize: number,
+): Uint8Array {
+  if (!Number.isFinite(fftSize) || fftSize <= 0) return iqData;
+  const bytesNeeded = fftSize * 2;
+  if (iqData.length <= bytesNeeded) return iqData;
+  // Start on an even index so I and Q never swap.
+  const start = (iqData.length - bytesNeeded) & ~1;
+  return iqData.subarray(start);
+}
+
 export interface SpectrumWaveformSource {
   iq_data?: Uint8Array | null;
   waveform?: Float32Array | null;

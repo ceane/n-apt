@@ -9,6 +9,7 @@ import {
   setHardwareSpanHz,
   setBandwidthHz,
   setBandwidthStartHz,
+  clearFmTuneIntent,
   setAlignment,
   setSourceContext,
 } from "../slices/demodSlice";
@@ -219,6 +220,40 @@ const rangesEqual = (
 
 const rangeContains = (outer: FrequencyRange, inner: FrequencyRange) =>
   inner.min >= outer.min && inner.max <= outer.max;
+
+export const shouldPreservePendingFmTune = (params: {
+  sourceMode: DemodSourceMode;
+  algorithm: "fm" | "apt" | "napt";
+  pendingCenterHz: number | null | undefined;
+  currentSelection: FrequencyRange | null | undefined;
+  incomingRange: FrequencyRange | null | undefined;
+}) => {
+  const {
+    sourceMode,
+    algorithm,
+    pendingCenterHz,
+    currentSelection,
+    incomingRange,
+  } = params;
+  if (
+    sourceMode !== "live" ||
+    algorithm !== "fm" ||
+    !Number.isFinite(pendingCenterHz) ||
+    !currentSelection ||
+    !incomingRange ||
+    currentSelection.max <= currentSelection.min ||
+    incomingRange.max <= incomingRange.min
+  ) {
+    return false;
+  }
+
+  const currentSelectionCenter =
+    (currentSelection.min + currentSelection.max) / 2;
+  return (
+    Math.abs(currentSelectionCenter - Number(pendingCenterHz)) < 0.1 &&
+    !rangeContains(incomingRange, currentSelection)
+  );
+};
 
 const clampSelectionToRange = (
   center: number,
@@ -616,6 +651,30 @@ export const syncDemodSpanFromSourceContext = createAsyncThunk(
     const state = getState() as RootState;
     const demod = state.demod;
     const currentCenter = demod.centerFreqHz ?? 26_000_000;
+    const currentSelection = state.spectrum?.frequencyRange ?? null;
+    if (
+      shouldPreservePendingFmTune({
+        sourceMode: payload.sourceMode,
+        algorithm: demod.algorithm,
+        pendingCenterHz: demod.fmTuneIntentHz,
+        currentSelection,
+        incomingRange: resolved.range,
+      })
+    ) {
+      return;
+    }
+
+    if (
+      payload.sourceMode === "live" &&
+      demod.fmTuneIntentHz != null &&
+      currentSelection &&
+      rangeContains(resolved.range, currentSelection) &&
+      Math.abs(
+        (resolved.range.min + resolved.range.max) / 2 - demod.fmTuneIntentHz,
+      ) < 0.1
+    ) {
+      dispatch(clearFmTuneIntent());
+    }
     const currentBandwidth = demod.bandwidthHz;
     const currentAlignment = demod.alignment as Alignment;
     const currentPreviewRange = state.spectrum.previewRange;
