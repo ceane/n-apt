@@ -18,7 +18,7 @@ describe("agent capability manifest", () => {
     expect(agentCapabilities.routes.length).toBeGreaterThan(10);
     expect(agentCapabilities.routes.every((route) => route.status)).toBe(true);
     expect(getAgentRoute("/settings")?.status).toBe("authenticated");
-    expect(getAgentRoute("/faq")?.status).toBe("unsupported");
+    expect(getAgentRoute("/learn")?.status).toBe("unsupported");
   });
 
   test("allows read-only CLI tools and protects mutations by default", () => {

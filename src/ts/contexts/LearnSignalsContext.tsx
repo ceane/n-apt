@@ -67,8 +67,8 @@ const LearnSignalsContext = createContext<LearnSignalsContextType | undefined>(
 export const LearnSignalsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { sectionSlug } = useParams();
-  const section = getLearnSignalsSectionFromSlug(sectionSlug);
+  const { id } = useParams();
+  const section = getLearnSignalsSectionFromSlug(id);
   const [showIntro, setShowIntro] = useState(section == null);
   const [activeSection, setActiveSection] = useState<SignalSection>(
     section ?? "Radio Waves",

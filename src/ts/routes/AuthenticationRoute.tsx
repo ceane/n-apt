@@ -798,7 +798,7 @@ export const AuthenticationUI = ({
           placement="floating"
           autoIntroExpand
         />
-        <LearnMoreLink to="/learn-signals">
+        <LearnMoreLink to="/learn">
           <Radio size={12} strokeWidth={2} />
           <span>Learn More about Signals &gt;</span>
         </LearnMoreLink>
@@ -917,7 +917,7 @@ export const AuthenticationUI = ({
               <EssentialsLabel>What you need to get started (and view signals in the air)</EssentialsLabel>
               <EssentialsGrid>
                 <EssentialCard
-                  to="/learn-signals/iq-captures"
+                  to="/learn/iq-captures"
                   as={Link}
                   aria-label="I/Q captures and files"
                 >
@@ -1032,7 +1032,7 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     location.pathname === "/privacy" ||
     location.pathname === "/license" ||
     location.pathname === "/responsible-use" ||
-    location.pathname.startsWith("/learn-signals");
+    location.pathname.startsWith("/learn");
 
   if (isPublicRoute) {
     return <>{children}</>;

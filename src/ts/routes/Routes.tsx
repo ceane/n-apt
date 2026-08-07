@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
-import { Routes, Route, Navigate, useLocation } from "react-router";
+import { Routes, Route, useLocation } from "react-router";
 import { MainLayout } from "@n-apt/components/MainLayout";
 import { SpectrumSidebar } from "@n-apt/components/sidebar/SpectrumSidebar";
 import type { FFTCanvasHandle } from "@n-apt/components";
@@ -287,32 +287,12 @@ const AppShellLayout: React.FC = () => {
         <Route path="/license" element={<LegalDocumentRoute />} />
         <Route path="/responsible-use" element={<LegalDocumentRoute />} />
         <Route
-          path="/learn-signals"
+          path="/learn"
           element={<LearnSignalsRoute />}
         />
         <Route
-          path="/learn-signals/:sectionSlug"
+          path="/learn/:id"
           element={<LearnSignalsRoute />}
-        />
-        <Route
-          path="/faq"
-          element={<Navigate to="/learn-signals" replace />}
-        />
-        <Route
-          path="/faq/iq-captures"
-          element={<Navigate to="/learn-signals/iq-captures" replace />}
-        />
-        <Route
-          path="/iq-captures"
-          element={<Navigate to="/learn-signals/iq-captures" replace />}
-        />
-        <Route
-          path="/faq/fft-ifft"
-          element={<Navigate to="/learn-signals/fft-ifft" replace />}
-        />
-        <Route
-          path="/fft-ifft"
-          element={<Navigate to="/learn-signals/fft-ifft" replace />}
         />
         <Route
           path="/game"

@@ -72,7 +72,7 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
       "href",
-      "/learn-signals/iq-captures",
+      "/learn/iq-captures",
     );
     expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
       "href",

@@ -13,13 +13,13 @@ const renderInRouter = (initialPath: string, children: ReactNode) =>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route
-            path="/learn-signals"
+            path="/learn"
             element={
               <LearnSignalsProvider>{wrapperChildren}</LearnSignalsProvider>
             }
           />
           <Route
-            path="/learn-signals/:sectionSlug"
+            path="/learn/:id"
             element={
               <LearnSignalsProvider>{wrapperChildren}</LearnSignalsProvider>
             }
@@ -31,7 +31,7 @@ const renderInRouter = (initialPath: string, children: ReactNode) =>
 
 describe("LearnSignalsProvider deep links", () => {
   it("skips the intro when landing on a specific section sub-route", async () => {
-    const { result } = renderInRouter("/learn-signals/iq-captures", null);
+    const { result } = renderInRouter("/learn/iq-captures", null);
 
     await waitFor(() => {
       expect(result.current.showIntro).toBe(false);
@@ -40,7 +40,7 @@ describe("LearnSignalsProvider deep links", () => {
   });
 
   it("shows the intro by default on the hub route", () => {
-    const { result } = renderInRouter("/learn-signals", null);
+    const { result } = renderInRouter("/learn", null);
 
     expect(result.current.showIntro).toBe(true);
     expect(result.current.activeSection).toBe("Radio Waves");

@@ -76,7 +76,7 @@ const startingPoints: StartingPoint[] = [
     title: "Learn more about signals",
     description: "Interactive lessons on how N-APT and related signals work.",
     Icon: Sparkles,
-    href: "/learn-signals",
+    href: "/learn",
   },
   {
     title: "Terms and Conditions",

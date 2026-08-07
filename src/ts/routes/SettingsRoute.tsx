@@ -733,7 +733,7 @@ const FOOTER_LINK_CARDS: LinkCardItem[] = [
     title: "Lingo and Learn",
     description: "Browse the FAQ to learn radio and signal-processing terms.",
     Icon: Languages,
-    to: "/learn-signals",
+    to: "/learn",
   },
   {
     title: "View on GitHub",

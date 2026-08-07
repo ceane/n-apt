@@ -208,9 +208,7 @@ const renderSignalsNav = (
       key={section}
       type="button"
       $active={!showIntro && activeSection === section}
-      onClick={() =>
-        navigate(`/learn-signals/${getLearnSignalsSectionPath(section)}`)
-      }
+      onClick={() => navigate(`/learn/${getLearnSignalsSectionPath(section)}`)}
     >
       {section}
     </LearnSignalsNavButton>
@@ -221,7 +219,7 @@ const renderSignalsNav = (
       <LearnSignalsNavButton
         type="button"
         $active={showIntro}
-        onClick={() => navigate("/learn-signals")}
+        onClick={() => navigate("/learn")}
       >
         Introduction
       </LearnSignalsNavButton>

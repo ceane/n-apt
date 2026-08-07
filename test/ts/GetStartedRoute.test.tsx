@@ -66,7 +66,7 @@ describe("GetStartedRoute", () => {
     ).toHaveAttribute("href", "/3d-model-gallery");
     expect(
       screen.getByRole("link", { name: /Learn more about signals/i }),
-    ).toHaveAttribute("href", "/learn-signals");
+    ).toHaveAttribute("href", "/learn");
     expect(
       screen.getByRole("link", { name: /Terms and Conditions/i }),
     ).toHaveAttribute("href", "/terms");

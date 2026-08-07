@@ -11,10 +11,10 @@ import {
 // changing authentication or streaming ownership.
 export default [
   layout("./framework/PublicRouteLayout.tsx", [
-    route("learn-signals", "./framework/LearnSignalsRoute.tsx", {
+    route("learn", "./framework/LearnSignalsRoute.tsx", {
       id: "learn-signals",
     }),
-    route("learn-signals/:sectionSlug", "./framework/LearnSignalsRoute.tsx", {
+    route("learn/:id", "./framework/LearnSignalsRoute.tsx", {
       id: "learn-signals-section",
     }),
     route("terms", "./framework/LegalDocumentRoute.tsx", { id: "terms" }),
@@ -22,19 +22,6 @@ export default [
     route("license", "./framework/LegalDocumentRoute.tsx", { id: "license" }),
     route("responsible-use", "./framework/LegalDocumentRoute.tsx", {
       id: "responsible-use",
-    }),
-    route("faq", "./framework/LegacyRedirectRoute.tsx", { id: "faq" }),
-    route("faq/iq-captures", "./framework/LegacyRedirectRoute.tsx", {
-      id: "faq-iq-captures",
-    }),
-    route("iq-captures", "./framework/LegacyRedirectRoute.tsx", {
-      id: "iq-captures",
-    }),
-    route("faq/fft-ifft", "./framework/LegacyRedirectRoute.tsx", {
-      id: "faq-fft-ifft",
-    }),
-    route("fft-ifft", "./framework/LegacyRedirectRoute.tsx", {
-      id: "fft-ifft",
     }),
   ]),
   layout("./framework/AuthenticatedRouteLayout.tsx", [

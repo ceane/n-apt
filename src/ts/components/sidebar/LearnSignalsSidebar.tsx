@@ -95,7 +95,7 @@ export const LearnSignalsSidebar: React.FC = () => {
       key={section}
       $isActive={!showIntro && activeSection === section}
       onClick={() =>
-        navigate(`/learn-signals/${getLearnSignalsSectionPath(section)}`)
+        navigate(`/learn/${getLearnSignalsSectionPath(section)}`)
       }
     >
       {section}
@@ -117,7 +117,7 @@ export const LearnSignalsSidebar: React.FC = () => {
 
       <SectionButton
         $isActive={showIntro}
-        onClick={() => navigate("/learn-signals")}
+        onClick={() => navigate("/learn")}
       >
         {showIntro ? "Introduction View" : "Show Introduction"}
       </SectionButton>
