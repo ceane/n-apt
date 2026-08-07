@@ -28,10 +28,11 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
     // 2. Extract header and payload
     // The header is the first 4096 bytes (JSON)
     const headerBytes = fileArray.slice(0, 4096);
-    const payloadBytes = fileArray.slice(4096);
 
     const headerStr = new TextDecoder().decode(headerBytes).trim();
     const headerJson = JSON.parse(headerStr);
+    const binaryLength = headerJson.metadata.sections.binary.length_bytes;
+    const payloadBytes = fileArray.slice(4096, 4096 + binaryLength);
 
     expect(headerJson.metadata.encrypted).toBe(true);
 
