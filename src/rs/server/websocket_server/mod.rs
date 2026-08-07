@@ -124,7 +124,9 @@ fn spawn_tx_monitor_stream(
       let active_source_id = active_source_id(&shared_state);
       let active_tx_key = StreamKey::new(active_source_id.clone(), StreamMode::Tx);
       let mock_tx_key = StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx);
-      let tx_key = if stream_manager.has_stream(&active_tx_key) {
+      let tx_key = if stream_manager.has_stream(&active_tx_key)
+        || stream_manager.tx_payload(&active_tx_key).is_some()
+      {
         active_tx_key
       } else {
         mock_tx_key
@@ -330,13 +332,11 @@ fn is_async_sample_timeout_error(error: &anyhow::Error) -> bool {
 }
 
 fn should_fallback_to_mock_on_early_read_error(
-  error: &anyhow::Error,
   streak: u32,
   supported_device_present: bool,
 ) -> bool {
   streak < super::shared_state::DISCONNECT_FAILURE_THRESHOLD
     && !supported_device_present
-    && !is_async_sample_timeout_error(error)
 }
 
 fn read_failure_state(current_state: &str) -> Option<&'static str> {
@@ -806,11 +806,11 @@ mod tests {
   }
 
   #[test]
-  fn async_sample_timeout_does_not_force_early_mock_fallback() {
+  fn async_sample_timeout_with_confirmed_usb_absence_falls_back_early() {
     let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
 
-    assert!(!should_fallback_to_mock_on_early_read_error(
-      &error, 1, false
+    assert!(should_fallback_to_mock_on_early_read_error(
+      1, false
     ));
   }
 
@@ -819,7 +819,7 @@ mod tests {
     let error = anyhow::anyhow!("USB read failed");
 
     assert!(should_fallback_to_mock_on_early_read_error(
-      &error, 1, false
+      1, false
     ));
   }
 
@@ -1390,7 +1390,25 @@ impl WebSocketServer {
             shared_state.set_device_state("loading", Some("restart"));
             broadcast_device_status(&shared_state, &_broadcast_tx);
 
-            let new_device_res = crate::sdr::SdrDeviceFactory::create_device();
+            // Release and drop the current USB-owning device before opening
+            // its replacement. Stopping the async reader alone is not enough:
+            // the RtlSdrDevice still owns the libusb handle, so creating the
+            // new RTL-SDR first races the active interface claim and produces
+            // `usb_claim_interface error -3` during hot reload.
+            let release_result = if processor.is_mock() {
+              processor.cleanup()
+            } else {
+              processor.swap_device(
+                crate::sdr::SdrDeviceFactory::create_mock_device(),
+              )
+            };
+            let new_device_res = match release_result {
+              Ok(()) => crate::sdr::SdrDeviceFactory::create_device(),
+              Err(e) => Err(anyhow::anyhow!(
+                "failed to release current SDR before restart: {}",
+                e
+              )),
+            };
             match new_device_res {
               Ok(new_device) => {
                 if let Err(e) = processor.swap_device(new_device) {
@@ -2538,7 +2556,6 @@ impl WebSocketServer {
                   .load(Ordering::Relaxed)
                   > 0;
               if should_fallback_to_mock_on_early_read_error(
-                &e,
                 streak,
                 supported_device_present,
               ) {

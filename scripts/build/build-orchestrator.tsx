@@ -248,7 +248,6 @@ const isWsl = process.platform === 'linux' && (
   os.release().toLowerCase().includes('microsoft')
 );
 const isNativeWindows = isWindows && !isWsl;
-const strictStartupValidation = process.env.NAPT_DEV_STRICT_STARTUP === '1';
 const hotReloadRunsCargoCheck = process.env.NAPT_DEV_RUST_HOT_RELOAD_CHECK === '1';
 const backgroundStartGraceMs = Number.parseInt(process.env.NAPT_DEV_BACKGROUND_GRACE_MS || '500', 10);
 const stepSettleDelayMs = Number.parseInt(process.env.NAPT_DEV_STEP_DELAY_MS || '100', 10);
@@ -422,7 +421,7 @@ const BuildOrchestrator = () => {
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
       { name: 'Validating Rust backend code', status: 'pending' },
-      { name: 'Validating signals.yaml', status: 'pending' },
+      { name: 'Validating signals.yaml (via backend config loader)', status: 'pending' },
       { name: 'Starting Redis database server', status: 'pending' },
       { name: 'Swapping Redis Database', status: 'pending' },
       { name: 'Building WASM SIMD module', status: 'pending' },
@@ -1248,12 +1247,8 @@ sleep 0.5
     echo "Error: UNSAFE_LOCAL_USER_PASSWORD missing from .env.local. Run npm run setup."
     exit 1
   fi
-  if [ "${strictStartupValidation ? '1' : '0'}" = "1" ]; then
-    echo "Checking Rust syntax..."
-    cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
-  else
-    echo "Skipping separate cargo check; cargo build will validate Rust backend compilation."
-  fi
+  echo "[Rust] Running cargo check before config validation..."
+  cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
   `,
           description: 'Validating Rust backend code',
           isBackground: false,
@@ -1265,14 +1260,15 @@ sleep 0.5
             ? 'echo Config validation not supported on Windows; skipping.'
             : `
   set -euo pipefail
-  echo "Validating signals.yaml..."
+  echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
   if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
     ./target/dev-fast/n-apt-backend --validate-config 2>&1
   else
+    echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
     cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
   fi
   `,
-          description: 'Validating signals.yaml',
+          description: 'Validating signals.yaml (via backend config loader)',
           isBackground: false,
           pidKey: undefined,
         },
@@ -2391,25 +2387,25 @@ async function runNonTtyBuild() {
         return executeCommandNonTty(
           isNativeWindows
             ? 'echo Config validation skipped'
-            : strictStartupValidation
-              ? `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`
-              : 'echo "Skipping separate cargo check; cargo build will validate Rust backend compilation."',
+            : `echo "[Rust] Running cargo check before config validation..." && cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
           'Validating Rust backend code'
         );
       }
     },
     {
       index: 2,
-      description: 'Validating signals.yaml',
+      description: 'Validating signals.yaml (via backend config loader)',
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Validation skipped' : `
+          echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
           if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
             ./target/dev-fast/n-apt-backend --validate-config 2>&1
           else
+            echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
             cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
           fi
         `,
-        'Validating signals.yaml'
+        'Validating signals.yaml (via backend config loader)'
       )
     },
     {

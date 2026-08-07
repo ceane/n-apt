@@ -12,7 +12,7 @@ export interface FlowTemplate {
   edges: Edge[];
 }
 
-export const flowTemplates: FlowTemplate[] = [
+const flowTemplatesDefinition: FlowTemplate[] = [
   {
     id: "tx-suite",
     label: "Tx Suite (Two Devices or One Duplex Device)",
@@ -87,8 +87,8 @@ export const flowTemplates: FlowTemplate[] = [
   },
   {
     id: "default",
-    label: "Default Flow",
-    description: "Complete demodulation pipeline with symbol analysis",
+    label: "Reference Capture (Default)",
+    description: "Capture a reference signal for demodulation",
     icon: <Zap size={16} />,
     nodes: [
       {
@@ -104,7 +104,7 @@ export const flowTemplates: FlowTemplate[] = [
       {
         id: "channel",
         type: "custom",
-        position: { x: 250, y: 450 },
+        position: { x: 50, y: 450 },
         data: {
           label: "Channel",
           description: "Channel configuration",
@@ -114,7 +114,7 @@ export const flowTemplates: FlowTemplate[] = [
       {
         id: "signal-config",
         type: "custom",
-        position: { x: 250, y: 850 },
+        position: { x: 450, y: 450 },
         data: {
           label: "Signal Configuration",
           description: "Configure sampling and FFT",
@@ -122,72 +122,22 @@ export const flowTemplates: FlowTemplate[] = [
         },
       },
       {
-        id: "spike",
-        type: "custom",
-        position: { x: 50, y: 1250 },
-        data: {
-          label: "Spike Detection",
-          description: "Detect spike prominences before FFT",
-          spikeOptions: true,
-        },
-      },
-      {
-        id: "beat",
-        type: "custom",
-        position: { x: 450, y: 1250 },
-        data: {
-          label: "Beat Detection",
-          description: "Tune beat offsets before FFT",
-          beatOptions: true,
-        },
-      },
-      {
-        id: "fft",
-        type: "custom",
-        position: { x: 250, y: 1650 },
-        data: {
-          label: "FFT",
-          description: "Fast Fourier Transform",
-          fftOptions: true,
-        },
-      },
-      {
-        id: "symbols",
-        type: "custom",
-        position: { x: 250, y: 2050 },
-        data: {
-          label: "Symbols (I/Q)",
-          description: "I/Q symbol analysis",
-          symbolOptions: true,
-        },
-      },
-      {
-        id: "bitstream",
-        type: "custom",
-        position: { x: 250, y: 2450 },
-        data: {
-          label: "Bitstream (0s/1s)",
-          description: "Binary data analysis",
-          bitstreamOptions: true,
-        },
-      },
-      {
         id: "stimulus",
         type: "custom",
-        position: { x: 250, y: 2850 },
+        position: { x: 250, y: 950 },
         data: {
           label: "Stimulus",
-          description: "Stimulus selection",
+          description: "Select a known reference stimulus",
           stimulusOptions: true,
         },
       },
       {
         id: "output",
         type: "custom",
-        position: { x: 250, y: 3250 },
+        position: { x: 250, y: 1350 },
         data: {
           label: "Output",
-          description: "Analysis results",
+          description: "Use the generated I/Q capture for demodulation",
           outputNode: true,
         },
       },
@@ -202,62 +152,27 @@ export const flowTemplates: FlowTemplate[] = [
       },
       {
         id: "e2",
-        source: "channel",
+        source: "source",
         target: "signal-config",
         animated: true,
         style: { stroke: "#666" },
       },
       {
         id: "e3",
-        source: "signal-config",
-        target: "spike",
+        source: "channel",
+        target: "stimulus",
         animated: true,
         style: { stroke: "#666" },
       },
       {
         id: "e4",
         source: "signal-config",
-        target: "beat",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e5",
-        source: "spike",
-        target: "fft",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e6",
-        source: "beat",
-        target: "fft",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e7",
-        source: "fft",
-        target: "symbols",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e8",
-        source: "symbols",
-        target: "bitstream",
-        animated: true,
-        style: { stroke: "#666" },
-      },
-      {
-        id: "e9",
-        source: "bitstream",
         target: "stimulus",
         animated: true,
         style: { stroke: "#666" },
       },
       {
-        id: "e10",
+        id: "e5",
         source: "stimulus",
         target: "output",
         animated: true,
@@ -551,4 +466,12 @@ export const flowTemplates: FlowTemplate[] = [
     ],
   },
   FindBeatsFlow,
+];
+
+export const flowTemplates: FlowTemplate[] = [
+  flowTemplatesDefinition.find(({ id }) => id === "default")!,
+  flowTemplatesDefinition.find(({ id }) => id === "tx-suite")!,
+  ...flowTemplatesDefinition.filter(
+    ({ id }) => id !== "default" && id !== "tx-suite",
+  ),
 ];

@@ -4,9 +4,16 @@ import {
   getDemodNodePolicy,
   shouldRunDemodAutoLayout,
   shouldVirtualizeDemodFlowNodes,
+  resolveDemodCaptureRange,
 } from "@n-apt/components/react-flow/flows/demodFlowModel";
 
 describe("buildDemodFlowGraph", () => {
+  it("always resolves a non-empty capture range for reference captures", () => {
+    expect(
+      resolveDemodCaptureRange({ sampleRateHz: 3_200_000 }),
+    ).toEqual({ min: 0, max: 3_200_000 });
+  });
+
   it("classifies backend tuning and static metadata nodes by source mode", () => {
     expect(getDemodNodePolicy({ channelNode: true }, "live")).toEqual({
       action: "keep",

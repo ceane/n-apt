@@ -2,6 +2,7 @@ const completedStepLabels: Record<string, string> = {
   "Cleaning up existing processes": "Cleaned up existing processes.",
   "Validating Rust backend code": "Validated Rust backend.",
   "Validating signals.yaml": "Validated signals.yaml.",
+  "Validating signals.yaml (via backend config loader)": "Validated signals.yaml via backend config loader.",
   "Starting Redis database server": "Running Redis DB server.",
   "Swapping Redis Database": "Restored cell tower data.",
   "Swapping Redis Database...": "Restored cell tower data.",

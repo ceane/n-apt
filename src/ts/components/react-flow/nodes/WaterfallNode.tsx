@@ -141,7 +141,7 @@ const NodeTitle = styled.div<{ $analysis?: boolean }>`
     z-index: 2;
     width: max-content;
     padding: 4px 8px 0;
-    pointer-events: none;
+    pointer-events: auto;
   `
       : ""}
 
@@ -1376,7 +1376,12 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       data-iq-length={liveFrame?.iq_data?.length ?? 0}
       data-waveform-length={waveform?.length ?? 0}
     >
-      <NodeTitle $analysis={data.analysisOptions}>{data.label}</NodeTitle>
+      <NodeTitle
+        $analysis={data.analysisOptions}
+        className={data.analysisOptions ? "drag-handle" : undefined}
+      >
+        {data.label}
+      </NodeTitle>
       <CanvasContainer $analysis={data.analysisOptions}>
         {data.showMiniVfo && data.miniVfoPosition === "top" && (
           <TopMiniVfo data-testid="waterfall-node-mini-vfo" data-position="top">

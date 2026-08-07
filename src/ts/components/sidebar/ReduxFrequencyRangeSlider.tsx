@@ -70,7 +70,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const reduxActiveSignalArea = useAppSelector((state) => state.spectrum.activeSignalArea);
   const reduxLastKnownRanges = useAppSelector((state) => state.spectrum.lastKnownRanges);
 
-  const frequencyRange = contextFrequencyRange ?? reduxFrequencyRange;
+  const frequencyRange = reduxFrequencyRange ?? contextFrequencyRange;
   const activeSignalArea = contextActiveSignalArea ?? reduxActiveSignalArea;
   const lastKnownRanges = contextLastKnownRanges ?? reduxLastKnownRanges;
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);

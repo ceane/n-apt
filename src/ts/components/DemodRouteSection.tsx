@@ -128,7 +128,7 @@ const StyledReactFlow = styled(ReactFlow)`
 // Helper component for Signal Options Node
 // Removed local SignalOptions component — now imported from @n-apt/components/react-flow/nodes
 
-const calculateVisibleFrequencyRange = ({
+export const calculateVisibleFrequencyRange = ({
   activeSignalArea,
   frequencyRange,
   lastKnownRanges,
@@ -150,9 +150,7 @@ const calculateVisibleFrequencyRange = ({
   const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
 
   if (!frequencyRange) {
-    return (
-      lastKnownRanges[areaKey] || { min: minFreq, max: minFreq + hardwareSpan }
-    );
+    return lastKnownRanges[areaKey] ?? null;
   }
 
   const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;

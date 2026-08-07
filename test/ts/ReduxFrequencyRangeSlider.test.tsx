@@ -9,6 +9,7 @@ import { buildAppTheme } from "@n-apt/components/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { createTestStore } from "./testUtils";
 import { setHardwareInfo } from "@n-apt/redux/slices/demodSlice";
+import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
 import { websocketActions } from "@n-apt/redux";
 
 const theme = buildAppTheme({
@@ -20,6 +21,55 @@ const theme = buildAppTheme({
 });
 
 describe("ReduxFrequencyRangeSlider", () => {
+  it("follows the Redux spectrum range when the embedded store snapshot is stale", async () => {
+    const store = createTestStore();
+    store.dispatch(
+      setFrequencyRange({
+        min: 1_200_000,
+        max: 2_800_000,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 18_000, max: 1_618_000 },
+                  lastKnownRanges: {},
+                  vizZoom: 1,
+                  vizPanOffset: 0,
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 0, max_hz: 4_000_000 },
+                ],
+                sampleRateHzEffective: 1_600_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <ReduxFrequencyRangeSlider
+              label="A"
+              minFreq={0}
+              maxFreq={4_000_000}
+              sampleRateHz={1_600_000}
+              isActive
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1\.2MHz.*-.*2\.8MHz/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/18kHz.*-.*1\.618MHz/)).not.toBeInTheDocument();
+  });
+
   it("renders all channel cards full-width in whole-channel mode", () => {
     const store = createTestStore();
     store.dispatch(

@@ -7,6 +7,7 @@ export {
   adaptDemodFlowForSourceMode,
   buildDemodFlowGraph,
   getDemodNodePolicy,
+  resolveDemodCaptureRange,
 } from "./demodFlowModel";
 export * from "./templates";
 export { FindBeatsFlow } from "@n-apt/components/react-flow/flows/FindBeatsFlow";

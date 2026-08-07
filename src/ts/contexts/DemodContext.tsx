@@ -41,6 +41,7 @@ import {
 import {
   adaptDemodFlowForSourceMode,
   buildDemodFlowGraph,
+  resolveDemodCaptureRange,
 } from "@n-apt/components/react-flow/flows";
 import {
   AnalysisSession,
@@ -559,6 +560,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             timestamp: captureStatus.timestamp ?? Date.now(),
             fileSize: captureStatus.fileSize,
             duration: finalDuration,
+            sampleRateHz: prev.sampleRateHz,
+            centerFrequencyHz: prev.centerFrequencyHz,
             confidence: 0.85 + Math.random() * 0.1,
             matchRate: 0.92 + Math.random() * 0.05,
             snrDelta: (Math.random() * 10).toFixed(2) + " dB",
@@ -670,6 +673,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           : baselineVector
         : baselineVector;
 
+      const referenceCaptureRange = resolveDemodCaptureRange({
+        explicitRange: state.frequencyRange,
+        liveRange: demodLiveFrequencyRange,
+        fileRange: fileCapturedRange,
+        sampleRateHz: state.sampleRateHz,
+      });
+      const referenceCaptureCenterFrequencyHz = Math.round(
+        (referenceCaptureRange.min + referenceCaptureRange.max) / 2,
+      );
+
       clearAnalysis();
 
       // Start with a countdown
@@ -678,6 +691,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         state: type === "apt" ? "capturing" : "starting",
         type,
         durationS,
+        sampleRateHz: state.sampleRateHz,
+        centerFrequencyHz: referenceCaptureCenterFrequencyHz,
         countdown: count,
         startTime: Date.now(),
         scriptContent,
@@ -757,14 +772,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             // Original capture flow for non-APT types
             const jobId = `ref_${type}_${Date.now()}`;
             // Calculate fragments from current range
-            const fragments = state.frequencyRange
-              ? [
-                  {
-                    minFreq: state.frequencyRange.min,
-                    maxFreq: state.frequencyRange.max,
-                  },
-                ]
-              : [];
+            const fragments = [
+              {
+                minFreq: referenceCaptureRange.min,
+                maxFreq: referenceCaptureRange.max,
+              },
+            ];
 
             sendCaptureCommand({
               jobId,
@@ -798,7 +811,14 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }, 1000);
     },
-    [sendCaptureCommand, clearAnalysis, state.frequencyRange],
+    [
+      clearAnalysis,
+      sendCaptureCommand,
+      demodLiveFrequencyRange,
+      fileCapturedRange,
+      state.frequencyRange,
+      state.sampleRateHz,
+    ],
   );
 
   const value = useMemo(

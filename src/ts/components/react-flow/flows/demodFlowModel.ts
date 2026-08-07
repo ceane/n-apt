@@ -6,6 +6,29 @@ export interface DemodFlowGraph {
   edges: Edge[];
 }
 
+export const resolveDemodCaptureRange = ({
+  explicitRange,
+  liveRange,
+  fileRange,
+  sampleRateHz,
+}: {
+  explicitRange?: { min: number; max: number } | null;
+  liveRange?: { min: number; max: number } | null;
+  fileRange?: { min: number; max: number } | null;
+  sampleRateHz?: number | null;
+}): { min: number; max: number } =>
+  explicitRange ??
+  liveRange ??
+  fileRange ?? {
+    min: 0,
+    max: Math.max(
+      typeof sampleRateHz === "number" && Number.isFinite(sampleRateHz)
+        ? sampleRateHz
+        : 0,
+      1,
+    ),
+  };
+
 export type DemodNodePolicy =
   | { action: "keep" }
   | { action: "replace"; replacement: "metadata" };

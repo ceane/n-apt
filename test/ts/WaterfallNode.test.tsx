@@ -141,6 +141,26 @@ describe("WaterfallNode", () => {
     );
   });
 
+  it("exposes the analysis title as a React Flow drag handle", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <WaterfallNode
+          id="analysis"
+          type="waterfallAnalysis"
+          selected={false}
+          dragging={false}
+          zIndex={0}
+          isConnectable={true}
+          positionAbsoluteX={0}
+          positionAbsoluteY={0}
+          data={{ label: "Waterfall Analysis", analysisOptions: true }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("Waterfall Analysis")).toHaveClass("drag-handle");
+  });
+
   it("clamps a live hardware window to zero Hz like the regular waterfall", () => {
     expect(
       getWaterfallNodeFrequencyRange({

@@ -2,6 +2,8 @@ import React from "react";
 import styled from "styled-components";
 import { Brain } from "lucide-react";
 import { useAuthentication } from "@n-apt/hooks/useAuthentication";
+import { useAppSelector } from "@n-apt/redux";
+import { formatFrequency } from "@n-apt/utils/frequency";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -63,7 +65,7 @@ const Metrics = styled.div`
   gap: 7px;
 `;
 
-const DownloadButton = styled.button`
+const DownloadButton = styled.a`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -110,22 +112,6 @@ const MetadataValue = styled.span`
   word-break: break-word;
 `;
 
-const MetricRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-`;
-
-const MetricLabel = styled.span`
-  opacity: 0.55;
-`;
-
-const MetricValue = styled.span`
-  color: ${({ theme }) => theme.colors.success};
-  font-weight: 700;
-  font-family: ${({ theme }) => theme.typography.mono};
-`;
-
 interface OutputNodeProps {
   data: {
     label?: string;
@@ -139,6 +125,8 @@ interface OutputNodeProps {
       fileName?: string;
       naptFilePath?: string;
       fileSize?: number;
+      sampleRateHz?: number;
+      centerFrequencyHz?: number;
       matchRate?: number;
       snrDelta?: string;
     };
@@ -147,7 +135,26 @@ interface OutputNodeProps {
 
 export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
   const { sessionToken } = useAuthentication();
+  const storeSampleRateHz = useAppSelector(
+    (state) => state.spectrum.sampleRateHz,
+  );
+  const storeFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
   const { result, state } = data as any; // Using any for additional fields like state
+  const sampleRateHz =
+    typeof storeSampleRateHz === "number" &&
+    Number.isFinite(storeSampleRateHz) &&
+    storeSampleRateHz > 0
+      ? storeSampleRateHz
+      : result?.sampleRateHz;
+  const centerFrequencyHz =
+    storeFrequencyRange &&
+    Number.isFinite(storeFrequencyRange.min) &&
+    Number.isFinite(storeFrequencyRange.max) &&
+    storeFrequencyRange.max > storeFrequencyRange.min
+      ? (storeFrequencyRange.min + storeFrequencyRange.max) / 2
+      : result?.centerFrequencyHz;
   const naptFilePath = data.naptFilePath || result?.naptFilePath;
   const downloadHref = React.useMemo(() => {
     if (!naptFilePath) return undefined;
@@ -217,28 +224,11 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         </div>
       </Header>
 
-      <Metrics>
-        <MetricRow>
-          <MetricLabel>Confidence</MetricLabel>
-          <MetricValue>{(result.confidence * 100).toFixed(1)}%</MetricValue>
-        </MetricRow>
-        {result.matchRate !== undefined && (
-          <MetricRow>
-            <MetricLabel>Match rate</MetricLabel>
-            <MetricValue>{(result.matchRate * 100).toFixed(1)}%</MetricValue>
-          </MetricRow>
-        )}
-        {result.snrDelta && (
-          <MetricRow>
-            <MetricLabel>SNR Δ</MetricLabel>
-            <MetricValue>{result.snrDelta}</MetricValue>
-          </MetricRow>
-        )}
-      </Metrics>
-
       {(result.timestamp ||
         result.duration ||
         result.fileSize !== undefined ||
+        sampleRateHz !== undefined ||
+        centerFrequencyHz !== undefined ||
         result.summary) && (
         <MetadataList>
           {result.timestamp && (
@@ -274,6 +264,22 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
             </MetadataRow>
           )}
 
+          {sampleRateHz !== undefined && (
+            <MetadataRow>
+              <MetadataLabel>Sample Rate</MetadataLabel>
+              <MetadataValue>{formatFrequency(sampleRateHz)}</MetadataValue>
+            </MetadataRow>
+          )}
+
+          {centerFrequencyHz !== undefined && (
+            <MetadataRow>
+              <MetadataLabel>Center Frequency</MetadataLabel>
+              <MetadataValue>
+                {formatFrequency(centerFrequencyHz)}
+              </MetadataValue>
+            </MetadataRow>
+          )}
+
           {result.summary && (
             <MetadataRow>
               <MetadataLabel>Summary</MetadataLabel>
@@ -285,11 +291,11 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
 
       {downloadHref && (
         <DownloadButton
+          href={downloadHref}
+          download={result.fileName || "capture.napt"}
           className="nodrag nopan"
           onClick={(e) => {
             e.stopPropagation();
-            e.preventDefault();
-            window.open(downloadHref, "_blank", "noopener,noreferrer");
           }}
         >
           Download .napt

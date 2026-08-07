@@ -13,6 +13,8 @@ export interface CaptureResult {
   timestamp?: number;
   fileSize?: number;
   duration?: number; // milliseconds
+  sampleRateHz?: number;
+  centerFrequencyHz?: number;
   confidence: number;
   matchRate: number;
   snrDelta: string;
@@ -24,6 +26,8 @@ export interface AnalysisSession {
   type?: "audio" | "internal" | "speech" | "vision" | "apt";
   startTime?: number;
   durationS?: number; // The requested duration in seconds
+  sampleRateHz?: number;
+  centerFrequencyHz?: number;
   countdown?: number; // 3, 2, 1...
   result?: CaptureResult;
   scriptContent?: string; // Content of the script for analysis
