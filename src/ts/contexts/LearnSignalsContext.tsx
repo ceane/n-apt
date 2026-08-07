@@ -12,7 +12,8 @@ export type SignalSection =
   | "Triangulation"
   | "Aperture"
   | "I/Q Captures"
-  | "FFT & IFFT";
+  | "FFT & IFFT"
+  | "RMS";
 
 export const LEARN_SIGNALS_SECTION_SLUGS: Record<string, SignalSection> = {
   "radio-waves": "Radio Waves",
@@ -26,6 +27,7 @@ export const LEARN_SIGNALS_SECTION_SLUGS: Record<string, SignalSection> = {
   aperture: "Aperture",
   "iq-captures": "I/Q Captures",
   "fft-ifft": "FFT & IFFT",
+  rms: "RMS",
 };
 
 export const LEARN_SIGNALS_SECTION_PATHS: Record<SignalSection, string> = {
@@ -40,6 +42,7 @@ export const LEARN_SIGNALS_SECTION_PATHS: Record<SignalSection, string> = {
   Aperture: "aperture",
   "I/Q Captures": "iq-captures",
   "FFT & IFFT": "fft-ifft",
+  RMS: "rms",
 };
 
 export const getLearnSignalsSectionPath = (section: SignalSection): string =>

@@ -11,13 +11,21 @@ fn estimate_quantization_error(fs_hz: f64, fft_size: usize) -> f64 {
   fs_hz / (2.0 * fft_size as f64)
 }
 
-/// Calculate RMS of signal
+/// Calculate the root-mean-square (RMS) amplitude of a real-valued signal.
+///
+/// RMS is the square root of the mean of the samples' squared amplitudes:
+/// `sqrt(sum(sample^2) / sample_count)`. It expresses the signal's effective
+/// amplitude and is useful for comparing or normalizing signal energy. An
+/// empty slice returns `NaN` because there is no sample count to average.
 pub fn rms(signal: &[f64]) -> f64 {
   let sum: f64 = signal.iter().map(|x| x * x).sum();
   (sum / signal.len() as f64).sqrt()
 }
 
-/// Normalize noise floor between segments
+/// Normalize a target signal so its RMS amplitude matches the reference.
+///
+/// This operates on linear sample amplitudes. It leaves the target unchanged
+/// when its RMS is zero, avoiding a division by zero for silent input.
 pub fn match_noise_floor(reference: &[f64], target: &mut [f64]) {
   let rms_ref = rms(reference);
   let rms_target = rms(target);

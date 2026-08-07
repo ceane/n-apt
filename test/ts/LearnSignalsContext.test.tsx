@@ -49,6 +49,7 @@ describe("LearnSignalsProvider deep links", () => {
   it("maps every section to a stable path slug", () => {
     expect(getLearnSignalsSectionPath("I/Q Captures")).toBe("iq-captures");
     expect(getLearnSignalsSectionPath("FFT & IFFT")).toBe("fft-ifft");
+    expect(getLearnSignalsSectionPath("RMS")).toBe("rms");
     expect(getLearnSignalsSectionPath("Radio Waves")).toBe("radio-waves");
     expect(getLearnSignalsSectionPath("FFT (Rx) and IFFT (Tx)")).toBe(
       "fft-rx-ifft-tx",

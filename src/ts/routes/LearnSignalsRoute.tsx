@@ -24,6 +24,7 @@ import { Triangulation } from "@n-apt/md-signals/src/app/components/Triangulatio
 import { Aperture } from "@n-apt/md-signals/src/app/components/Aperture";
 import { IQCapturesContent } from "@n-apt/components/faq/IQCapturesContent";
 import { FFTIFFTContent } from "@n-apt/components/faq/FFTIFFTContent";
+import { RMSContent } from "@n-apt/components/faq/RMSContent";
 
 import "@n-apt/md-signals/src/styles/index.css";
 
@@ -183,7 +184,11 @@ const SignalsMain = styled.main`
   }
 `;
 
-const CAPTURING_SECTIONS: SignalSection[] = ["I/Q Captures", "FFT & IFFT"];
+const CAPTURING_SECTIONS: SignalSection[] = [
+  "I/Q Captures",
+  "FFT & IFFT",
+  "RMS",
+];
 
 const renderSignalsNav = (
   sections: SignalSection[],
@@ -250,6 +255,7 @@ export const LearnSignalsRoute: React.FC = () => {
     "Aperture",
     "I/Q Captures",
     "FFT & IFFT",
+    "RMS",
   ];
 
   const nav = renderSignalsNav(
@@ -282,6 +288,7 @@ export const LearnSignalsRoute: React.FC = () => {
             {activeSection === "Aperture" && <Aperture />}
             {activeSection === "I/Q Captures" && <IQCapturesContent />}
             {activeSection === "FFT & IFFT" && <FFTIFFTContent />}
+            {activeSection === "RMS" && <RMSContent />}
           </div>
         </SignalsMain>
       </SignalsContentScope>
