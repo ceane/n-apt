@@ -19,6 +19,7 @@ import {
   printAgentCapabilities,
 } from "./agent";
 import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "../../src/ts/utils/demodHarness";
+import { inspectSignalFile, summarizeSignal, validateSignalInput } from "../../src/ts/utils/signalCli";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -26,7 +27,17 @@ dotenv.config({ path: ".env.local", quiet: true });
 dotenv.config({ quiet: true });
 
 function usage(): never {
-  console.error(`Usage: npm run cli -- devices\n       npm run cli -- capture <snapshot|iq> [options]\n       npm run cli -- agent capabilities [--json]\n       npm run cli -- agent markdown --route <path> [--json]\n       npm run cli -- agent tools [--json]\n       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
+  console.error(`Usage: npm run cli -- devices
+       npm run cli -- capture <snapshot|iq> [options]
+       npm run cli -- signals inspect <input> [--json]
+       npm run cli -- signals spectrum <input> [--json]
+       npm run cli -- signals demod <input> [options]
+       npm run cli -- signals capture [options] --allow-mutations
+       npm run cli -- signals validate <input> [--json]
+       npm run cli -- agent capabilities [--json]
+       npm run cli -- agent markdown --route <path> [--json]
+       npm run cli -- agent tools [--json]
+       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
   process.exit(2);
 }
 
@@ -53,6 +64,50 @@ async function demod(args: string[]) {
   const header = Buffer.alloc(40); Buffer.from("NAPT-IQ3").copy(header); header.writeBigUInt64LE(BigInt(metadataBytes.length), 8); header.writeBigUInt64LE(BigInt(frames.length), 16); header.writeBigUInt64LE(BigInt(chunk.length), 24);
   await writeFile(output, Buffer.concat([header, metadataBytes, frames, chunk, marker, trailer]));
   console.log(JSON.stringify({ output, algorithm, fftSize: plan.fftSize, bytes: processed.length }));
+}
+
+async function signals(args: string[]) {
+  const operation = args[1];
+  if (!operation || operation === "--help" || operation === "help") usage();
+  if (args.includes("--help")) usage();
+  if (operation === "capture") {
+    if (!args.includes("--allow-mutations")) {
+      throw new Error("signals capture requires --allow-mutations; RX capture changes device state");
+    }
+    await ensureAppRunning();
+    const sources = await fetchSources();
+    const selected = resolveRequestedDevice({
+      requested: await resolveDeviceArgument(args, sources),
+      sources,
+    });
+    await iqCapture(args, selected.id, selected);
+    return;
+  }
+  const input = flag(args, "--input", args[2] ?? "");
+  if (!input) throw new Error(`signals ${operation ?? "command"} requires an input file`);
+  const bytes = new Uint8Array(await readFile(input));
+  if (operation === "inspect") {
+    const result = inspectSignalFile(bytes, input);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    return;
+  }
+  if (operation === "spectrum") {
+    const result = summarizeSignal(bytes, input);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    return;
+  }
+  if (operation === "validate") {
+    const result = validateSignalInput(inspectSignalFile(bytes, input).metadata);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
+  if (operation === "demod") {
+    const demodArgs = ["demod", "--input", input, ...args.slice(3)];
+    await demod(demodArgs);
+    return;
+  }
+  usage();
 }
 
 async function fetchSources() {
@@ -379,6 +434,7 @@ async function resolveDeviceArgument(args: string[], sources: any[]) {
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === "demod") { await demod(args); return; }
+  if (args[0] === "signals") { await signals(args); return; }
   if (args[0] === "agent") {
     const command = args[1];
     const json = args.includes("--json");

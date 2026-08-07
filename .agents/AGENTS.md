@@ -3,6 +3,10 @@
 Guidance for AI coding agents working on the N-APT RF spectrum analyzer. Keep
 feature notes and implementation summaries in `.agents/`.
 
+For signal-processing, IQ-capture, FFT, demodulation, `/learn`, or signals CLI
+work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
+terminology, current demod modes, evidence standards, and RX-only safety rules.
+
 ## Working Rules
 
 - The user normally has the dev server running. Do not start or restart it for

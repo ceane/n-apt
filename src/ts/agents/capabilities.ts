@@ -52,12 +52,14 @@ const toCapability = (tool: WebMCPTool): AgentToolCapability => ({
 });
 
 export const agentCapabilities = {
-  version: "1",
+  version: "2",
   routes: routeDefinitions,
   tools: [
     ...allWebMCPTools.map(toCapability),
     { name: "getDeviceStatus", description: "Read current device and source status", parameters: [], returns: { type: "object", description: "Current backend source status" }, category: "Status", execution: "read-only" as const },
     { name: "transmitSignal", description: "Transmit a signal (blocked for agent clients)", parameters: [], returns: { type: "object", description: "Never executed" }, category: "Safety", execution: "blocked" as const },
+    { name: "signalsInspect", description: "Inspect local IQ or N-APT signal metadata", parameters: [{ name: "input", type: "string", required: true }], returns: { type: "object", description: "Signal metadata and sample counts" }, category: "Signals", execution: "read-only" as const },
+    { name: "signalsCaptureRx", description: "Capture receive-only IQ data from an authorized SDR", parameters: [], returns: { type: "object", description: "Local capture result" }, category: "Signals", execution: "mutation" as const, requiresHardware: true },
   ] as AgentToolCapability[],
 };
 
