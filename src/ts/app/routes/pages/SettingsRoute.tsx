@@ -288,6 +288,10 @@ const AttributionRow = styled.div`
   margin-bottom: 4px;
 `;
 
+const AttributionSourceRow = styled(AttributionRow)`
+  margin-top: 12px;
+`;
+
 const AttributionBadge = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textSecondary};
@@ -931,9 +935,52 @@ const SettingsFooter: React.FC = () => {
           </span>
         </AttributionRow>
         <AttributionDetail>
-          CC BY-SA 4.0 license. Not for commercial use without proper
-          licensing.
+          CC BY-SA 4.0 license. Not for commercial use without proper licensing.
         </AttributionDetail>
+        <AttributionSourceRow>
+          <AttributionBadge>SDR++</AttributionBadge>
+          <span>
+            Waterfall colormaps adapted from the{" "}
+            <AttributionLink
+              href="https://github.com/AlexandreRouma/SDRPlusPlus/tree/master/root/res/colormaps"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              SDR++ colormap collection
+            </AttributionLink>
+            .
+          </span>
+        </AttributionSourceRow>
+        <AttributionAuthorList aria-label="SDR++ waterfall colormap authors">
+          <AttributionAuthor>
+            <AttributionAuthorName>Youssef Touil</AttributionAuthorName>
+            <span> — Classic</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>Paul (PD0SWL)</AttributionAuthorName>
+            <span> — Classic Green</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>Ryzerth</AttributionAuthorName>
+            <span> — Electric, Grey Scale, WebSDR</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>csete</AttributionAuthorName>
+            <span> — GQRX</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>B.I.D.S.</AttributionAuthorName>
+            <span> — Inferno, Magma, Plasma, Viridis</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>Yaroslav Andrianov</AttributionAuthorName>
+            <span> — Smoke, Temper Colors, Vivid</span>
+          </AttributionAuthor>
+          <AttributionAuthor>
+            <AttributionAuthorName>Google AI</AttributionAuthorName>
+            <span> — Turbo</span>
+          </AttributionAuthor>
+        </AttributionAuthorList>
       </Attribution>
 
       <LinkCardGrid aria-label="Useful links">

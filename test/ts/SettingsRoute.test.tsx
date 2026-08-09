@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
@@ -135,6 +135,34 @@ describe("SettingsRoute", () => {
     expect(
       screen.getByRole("combobox", { name: /App Theme/i }),
     ).toBeInTheDocument();
+  });
+
+  it("credits the SDR++ waterfall colormap authors", () => {
+    renderRoute();
+
+    expect(
+      screen.getByRole("link", { name: "SDR++ colormap collection" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/AlexandreRouma/SDRPlusPlus/tree/master/root/res/colormaps",
+    );
+    expect(screen.getByText("SDR++").closest("div")).toHaveStyle({
+      marginTop: "12px",
+    });
+    const authorList = screen.getByRole("list", {
+      name: "SDR++ waterfall colormap authors",
+    });
+    const authorRows = within(authorList).getAllByRole("listitem");
+    expect(authorRows).toHaveLength(7);
+    expect(authorRows.map((row) => row.textContent)).toEqual([
+      "Youssef Touil — Classic",
+      "Paul (PD0SWL) — Classic Green",
+      "Ryzerth — Electric, Grey Scale, WebSDR",
+      "csete — GQRX",
+      "B.I.D.S. — Inferno, Magma, Plasma, Viridis",
+      "Yaroslav Andrianov — Smoke, Temper Colors, Vivid",
+      "Google AI — Turbo",
+    ]);
   });
 
   it("renders SDR settings controls backed by the spectrum slice", () => {
