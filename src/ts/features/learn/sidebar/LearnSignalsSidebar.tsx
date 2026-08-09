@@ -78,7 +78,6 @@ export const LearnSignalsSidebar: React.FC = () => {
     "Heterodyning",
     "Tx (Transmit/Broadcasting)",
     "Rx (Receive)",
-    "FFT (Rx) and IFFT (Tx)",
     "Triangulation",
     "Aperture",
     "I/Q Captures",

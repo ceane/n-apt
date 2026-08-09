@@ -18,7 +18,6 @@ import { Modulation } from "@n-apt/learn/Modulation";
 import { Heterodyning } from "@n-apt/learn/Heterodyning";
 import { Transmit } from "@n-apt/learn/Transmit";
 import { Receive } from "@n-apt/learn/Receive";
-import { FFT } from "@n-apt/learn/FFT";
 import { TriangleLattice } from "@n-apt/learn/TriangleLattice";
 import { Triangulation } from "@n-apt/learn/Triangulation";
 import { Aperture } from "@n-apt/learn/Aperture";
@@ -248,7 +247,6 @@ export const LearnSignalsRoute: React.FC = () => {
     "Heterodyning",
     "Tx (Transmit/Broadcasting)",
     "Rx (Receive)",
-    "FFT (Rx) and IFFT (Tx)",
     "Triangulation",
     "Aperture",
     "I/Q Captures",
@@ -281,7 +279,6 @@ export const LearnSignalsRoute: React.FC = () => {
             {activeSection === "Heterodyning" && <Heterodyning />}
             {activeSection === "Tx (Transmit/Broadcasting)" && <Transmit />}
             {activeSection === "Rx (Receive)" && <Receive />}
-            {activeSection === "FFT (Rx) and IFFT (Tx)" && <FFT />}
             {activeSection === "Triangulation" && <Triangulation />}
             {activeSection === "Aperture" && <Aperture />}
             {activeSection === "I/Q Captures" && <IQCapturesContent />}

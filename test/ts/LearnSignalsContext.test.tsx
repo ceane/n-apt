@@ -5,6 +5,7 @@ import {
   LearnSignalsProvider,
   useLearnSignals,
   getLearnSignalsSectionPath,
+  getLearnSignalsSectionFromSlug,
 } from "@n-apt/learn/context/LearnSignalsContext";
 
 const renderInRouter = (initialPath: string, children: ReactNode) =>
@@ -51,8 +52,9 @@ describe("LearnSignalsProvider deep links", () => {
     expect(getLearnSignalsSectionPath("FFT & IFFT")).toBe("fft-ifft");
     expect(getLearnSignalsSectionPath("RMS")).toBe("rms");
     expect(getLearnSignalsSectionPath("Radio Waves")).toBe("radio-waves");
-    expect(getLearnSignalsSectionPath("FFT (Rx) and IFFT (Tx)")).toBe(
-      "fft-rx-ifft-tx",
-    );
+  });
+
+  it("does not expose the duplicate FFT Rx/IFFT Tx deep link", () => {
+    expect(getLearnSignalsSectionFromSlug("fft-rx-ifft-tx")).toBeUndefined();
   });
 });

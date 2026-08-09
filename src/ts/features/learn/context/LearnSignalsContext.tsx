@@ -8,7 +8,6 @@ export type SignalSection =
   | "Heterodyning"
   | "Tx (Transmit/Broadcasting)"
   | "Rx (Receive)"
-  | "FFT (Rx) and IFFT (Tx)"
   | "Triangulation"
   | "Aperture"
   | "I/Q Captures"
@@ -22,7 +21,6 @@ export const LEARN_SIGNALS_SECTION_SLUGS: Record<string, SignalSection> = {
   heterodyning: "Heterodyning",
   tx: "Tx (Transmit/Broadcasting)",
   rx: "Rx (Receive)",
-  "fft-rx-ifft-tx": "FFT (Rx) and IFFT (Tx)",
   triangulation: "Triangulation",
   aperture: "Aperture",
   "iq-captures": "I/Q Captures",
@@ -37,7 +35,6 @@ export const LEARN_SIGNALS_SECTION_PATHS: Record<SignalSection, string> = {
   Heterodyning: "heterodyning",
   "Tx (Transmit/Broadcasting)": "tx",
   "Rx (Receive)": "rx",
-  "FFT (Rx) and IFFT (Tx)": "fft-rx-ifft-tx",
   Triangulation: "triangulation",
   Aperture: "aperture",
   "I/Q Captures": "iq-captures",
