@@ -251,7 +251,7 @@ mod tests {
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let challenge_id = format!("redis-service-test:{}", uuid::Uuid::new_v4());
-    let nonce = [7u8; 32];
+    let nonce = crate::crypto::generate_nonce();
 
     store
       .store_challenge(&challenge_id, nonce)
@@ -280,7 +280,7 @@ mod tests {
     let store = RedisStore::from_client_with_error(client, "invalid URL");
 
     let error = store
-      .store_challenge("degraded-test", [1u8; 32])
+      .store_challenge("degraded-test", crate::crypto::generate_nonce())
       .await
       .expect_err("degraded Redis must reject writes");
     assert!(error.contains("invalid URL"));
