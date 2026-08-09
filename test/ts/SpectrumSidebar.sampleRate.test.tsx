@@ -1202,6 +1202,99 @@ describe("SpectrumSidebar sample rate behavior", () => {
     }
   });
 
+  it("records the Whole Channel exit anchor once while changing the live sample rate", async () => {
+    mockLiveState = {
+      ...mockLiveState,
+      activeSignalArea: "A",
+      frequencyRange: { min: 18_000, max: 4_390_000 },
+      sampleRateHz: 4_372_000,
+      selectedSourceDerived: {
+        backend: "hackrf_one",
+        deviceName: "HackRF One",
+        deviceProfile: { kind: "hackrf_one" },
+        deviceState: "connected",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000, 4_372_000],
+        sampleRateHz: 4_372_000,
+        sdrSettings: null,
+      },
+    };
+    mockEffectiveFrames = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        description: "HackRF test channel",
+      },
+    ];
+    mockSignalAreaBounds = {
+      A: { min: 18_000, max: 4_390_000 },
+      a: { min: 18_000, max: 4_390_000 },
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      backend: "hackrf_one",
+      deviceName: "HackRF One",
+      deviceProfile: { kind: "hackrf_one" },
+      sampleRateHz: 4_372_000,
+      sampleRateOptions: [3_200_000, 4_372_000],
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        deviceState: "connected",
+        backend: "hackrf_one",
+        deviceName: "HackRF One",
+        deviceProfile: { kind: "hackrf_one" } as any,
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [3_200_000, 4_372_000],
+        sampleRateHz: 4_372_000,
+        sdrSettings: {
+          sample_rate: 4_372_000,
+          min_receive_sample_rate: 3_200_000,
+          fft: {
+            default_size: 262144,
+            default_frame_rate: 12,
+            max_size: 262144,
+            max_frame_rate: 12,
+            size_to_frame_rate: { "262144": 12 },
+          },
+        } as any,
+      }),
+    );
+    const dispatchSpy = jest.spyOn(store, "dispatch");
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate")).find(
+      (label) =>
+        label.closest("div")?.parentElement?.querySelector("select") !== null,
+    );
+    const sampleRateRow = sampleRateLabel?.closest("div")?.parentElement;
+    const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+
+    await waitFor(() => expect(sampleRateSelect).toHaveValue("4372000"));
+    fireEvent.change(sampleRateSelect, { target: { value: "3200000" } });
+
+    const anchorUpdates = dispatchSpy.mock.calls.filter(
+      ([action]) => action.type === "spectrum/mergeLastKnownRanges",
+    );
+    expect(anchorUpdates).toHaveLength(1);
+  });
+
   it("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
     mockLiveState = {
       ...mockLiveState,
