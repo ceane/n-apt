@@ -1291,7 +1291,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
         if (Object.keys(anchoredRanges).length > 0) {
           dispatch(mergeLastKnownRanges(anchoredRanges));
-          dispatch(mergeLastKnownRanges(anchoredRanges));
         }
       }
 

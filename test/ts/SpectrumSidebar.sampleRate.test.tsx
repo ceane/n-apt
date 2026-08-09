@@ -1286,7 +1286,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       "combobox",
     ) as HTMLSelectElement;
 
-    await waitFor(() => expect(sampleRateSelect).toHaveValue("4372000"));
+    await waitFor(() => expect(sampleRateSelect).toHaveValue("whole-channel"));
     fireEvent.change(sampleRateSelect, { target: { value: "3200000" } });
 
     const anchorUpdates = dispatchSpy.mock.calls.filter(
