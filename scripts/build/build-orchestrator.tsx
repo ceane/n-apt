@@ -37,6 +37,7 @@ import { getCompletedStepLabel } from './buildStepLabels';
 import { waitForViteReady } from './waitForViteReady';
 import {
   isRebuildStatusStale,
+  formatCargoBuildHeartbeat,
   mergeRebuildRecentLines,
   RUST_HOT_RELOAD_BUILD_STALE_MS,
   summarizeCargoProgressChunk,
@@ -689,6 +690,16 @@ const BuildOrchestrator = () => {
           let stdout = '';
           let stderr = '';
           const MAX_OUTPUT_CHARS = 50000; // Cap captured output
+          let lastCargoProgress = hotReloadActiveRef.current
+            ? 'Compiling n-apt-backend crate'
+            : processLabel;
+          let lastCargoProgressAt = Date.now();
+          const cargoHeartbeat = setInterval(() => {
+            if (!hotReloadActiveRef.current || !lastCargoProgress.toLowerCase().includes('n-apt-backend')) return;
+            const heartbeat = formatCargoBuildHeartbeat(lastCargoProgress, Date.now() - lastCargoProgressAt);
+            updateProcessStatus(stepIndex, 'running', heartbeat, processLabel);
+            writeRebuildStatus({ rebuilding: true, phase: 'building', progress: heartbeat });
+          }, 10_000);
 
           const ingestChunk = (chunk: string, asError: boolean) => {
             if (!chunk.trim()) return;
@@ -704,6 +715,10 @@ const BuildOrchestrator = () => {
 
             const progress = summarizeCargoProgressChunk(chunk);
             if (progress) {
+              if (progress.toLowerCase().includes('n-apt-backend')) {
+                lastCargoProgress = progress;
+                lastCargoProgressAt = Date.now();
+              }
               updateProcessStatus(stepIndex, 'running', progress, processLabel);
               if (hotReloadActiveRef.current || rebuildStatusRef.current.rebuilding) {
                 writeRebuildStatus({
@@ -751,6 +766,7 @@ const BuildOrchestrator = () => {
           });
 
         child.on('close', (code) => {
+          clearInterval(cargoHeartbeat);
           activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
 
@@ -782,6 +798,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('error', (error: any) => {
+          clearInterval(cargoHeartbeat);
           activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
           addLog(chalk.red(`Error in ${description}: ${error.message}`));

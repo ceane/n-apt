@@ -8,7 +8,7 @@ import {
   liveDataRef,
   liveDataBySourceRef,
 } from "@n-apt/redux/middleware/websocketMiddleware";
-import { demodFrameQueue } from "@n-apt/visualization/demodFrameQueue";
+import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 import {
   shouldAcceptPausedFrameRequest,
   resetPausedFrameRequestGate,
@@ -48,7 +48,7 @@ import sourceSelectionSlice, {
 } from "@n-apt/redux/slices/sourceSelectionSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
-import { shouldPauseSourceOnSwitch } from "@n-apt/hooks/useSpectrumStore";
+import { shouldPauseSourceOnSwitch } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { waitFor } from "@testing-library/react";
 import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
 import { bytesToBase64 } from "@n-apt/crypto/webcrypto";

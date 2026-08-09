@@ -1,7 +1,7 @@
 import {
   getQuantizedIqPowerFloorDbmJS,
   getRecommendedFftSizeForIqPowerDbmJS,
-} from "../../src/ts/utils/safetyWasm";
+} from "@n-apt/app/infrastructure/services/safetyWasm";
 
 describe("IQ quantization power floor", () => {
   it("calculates the 8-bit IQ floor from FFT size", () => {

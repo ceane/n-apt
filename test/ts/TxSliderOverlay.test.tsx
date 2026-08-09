@@ -5,7 +5,7 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
-import TxSliderOverlay from "@n-apt/components/TxSliderOverlay";
+import TxSliderOverlay from "@n-apt/transmit/TxSliderOverlay";
 
 describe("TxSliderOverlay", () => {
   it("shows the tx sample rate, center frequency, and power from the current tx state", () => {

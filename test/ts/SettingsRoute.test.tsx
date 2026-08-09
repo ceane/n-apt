@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
-import { SettingsRoute } from "@n-apt/routes/SettingsRoute";
+import { SettingsRoute } from "@n-apt/app/routes/pages/SettingsRoute";
 import { TestWrapper } from "./testUtils";
 
 const renderRoute = (preloadedState?: unknown) =>
@@ -114,6 +114,19 @@ describe("SettingsRoute", () => {
       window.localStorage.getItem("n-apt-settings-defaults-v1") as string,
     );
     expect(stored.snapshot.fastSnapshotShowStats).toBe(true);
+  });
+
+  it("keeps the 0 Hz clamp enabled by default and toggles baseband mirroring", async () => {
+    const user = userEvent.setup();
+    renderRoute();
+
+    const toggle = screen.getByRole("switch", {
+      name: "Mirror I/Q baseband below 0Hz",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
   it("renders the theme section with an App Theme selector", () => {

@@ -12,11 +12,11 @@ if (!mockApi) {
   throw new Error("Test mock API is not available");
 }
 
-mockApi("../../src/ts/hooks/useAuthentication", () => ({
+mockApi("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ isAuthenticated: true }),
   AuthProvider: ({ children }: any) => <>{children}</>,
 }));
-mockApi("@n-apt/hooks/useAuthentication", () => ({
+mockApi("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ isAuthenticated: true }),
   AuthProvider: ({ children }: any) => <>{children}</>,
 }));
@@ -27,7 +27,7 @@ const mockWsConnection = {
   sendDemodulateCommand: jestGlobal?.fn?.() ?? viGlobal?.fn?.() ?? (() => {}),
 };
 
-mockApi("@n-apt/hooks/useSpectrumStore", () => ({
+mockApi("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useSpectrumStore: () => ({
     state: { activeSignalArea: "A" },
     wsConnection: mockWsConnection,
@@ -38,7 +38,7 @@ mockApi("@n-apt/hooks/useSpectrumStore", () => ({
 const {
   DemodProvider,
   useDemod,
-} = require("../../src/ts/contexts/DemodContext");
+} = require("@n-apt/demodulation/context/DemodContext");
 
 const mockStore = configureStore({
   reducer: {

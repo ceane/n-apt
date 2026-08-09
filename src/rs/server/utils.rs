@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexmap::IndexMap;
 use log::info;
 use regex::Regex;
 use serde_yaml::Value;
@@ -7,7 +8,7 @@ use std::io::Write;
 use std::sync::RwLock;
 
 use super::types::{AvailableSpectrumConfig, CaptureArtifact, ChannelSpec};
-use super::types::{DeviceProfile, NaptConfig, SdrConfig};
+use super::types::{DeviceProfile, SdrConfig, SpectrumFrameConfig};
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
@@ -228,25 +229,47 @@ fn reload_signals_config() -> CachedSignalsConfig {
       eprintln!("Location: {}", line_col);
     }
 
+    let uses_legacy_n_apt = serde_yaml::from_str::<Value>(&processed)
+      .ok()
+      .map(|value| {
+        value
+          .get("signals")
+          .and_then(|signals| signals.get("n_apt"))
+          .is_some()
+      })
+      .unwrap_or(false);
+    if uses_legacy_n_apt {
+      eprintln!(
+        "Migration: rename signals.n_apt.channels to signals.channels."
+      );
+      eprintln!("The legacy signals.n_apt key is no longer supported.");
+    }
+
     eprintln!("Error: {}", error_msg);
     eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     eprintln!("\nCommon issues:");
+    eprintln!("  • Missing or invalid signals.channels configuration");
     eprintln!("  • Missing or invalid mock_apt.channels configuration");
     eprintln!("  • Incorrect YAML indentation (use 2 or 4 spaces, be consistent)");
     eprintln!("  • Invalid field names in channel config");
     eprintln!("  • Invalid !frequency tag values (use: !frequency 18kHz, 20MHz, 2.3GHz, 30Hz)");
-    eprintln!("\nExpected mock_apt structure:");
+    eprintln!("\nExpected canonical channel structure:");
+    eprintln!("  channels:");
+    eprintln!("    a:");
+    eprintln!("      freq_range_hz: !frequency_range 18kHz..4.47MHz");
+    eprintln!("      description: \"Channel A\"");
+    eprintln!("\nExpected mock_apt override structure:");
     eprintln!("  mock_apt:");
     eprintln!("    channels:");
     eprintln!("      a:");
-    eprintln!("        freq_range_hz: !frequency_range 18kHz..4.47MHz");
     eprintln!("        signal_strength_range: !dB_range -80dB..-20dB");
     eprintln!("        noise_floor_db: !dB -100dB");
     eprintln!("        ...");
     eprintln!("\nFrequency tag examples:");
     eprintln!("  center_frequency: !frequency 137.5MHz");
     eprintln!("  sample_rate: !frequency 2.4MHz");
-    eprintln!();    panic!("Invalid signals.yaml configuration");
+    eprintln!();
+    panic!("Invalid signals.yaml configuration");
   });
 
   log::info!("Loaded signals.yaml (modified: {:?})", modified);
@@ -397,24 +420,25 @@ pub fn trim_channels_for_header(
 }
 
 pub fn compute_min_receive_sample_rate(
-  napt: &NaptConfig,
+  channels: &IndexMap<String, SpectrumFrameConfig>,
   sdr_sample_rate: u32,
 ) -> u32 {
   const RTL_SDR_FLOOR_HZ: u32 = 3_200_000;
 
-  let widest_channel_bandwidth = widest_channel_bandwidth(napt);
+  let widest_channel_bandwidth = widest_channel_bandwidth(channels);
 
   let derived_floor = widest_channel_bandwidth / 2;
   let min_receive_sample_rate = RTL_SDR_FLOOR_HZ.max(derived_floor);
   min_receive_sample_rate.min(sdr_sample_rate)
 }
 
-/// Resolve the `!channel` sample-rate ceiling from the configured N-APT
+/// Resolve the `!channel` sample-rate ceiling from the configured signal
 /// channels. This is the authoritative maximum for Mock APT; device probe
 /// metadata is only a fallback when the channel configuration is unavailable.
-pub fn widest_channel_bandwidth(napt: &NaptConfig) -> u32 {
-  napt
-    .channels
+pub fn widest_channel_bandwidth(
+  channels: &IndexMap<String, SpectrumFrameConfig>,
+) -> u32 {
+  channels
     .values()
     .filter_map(|channel| {
       let range = &channel.freq_range_hz;
@@ -432,9 +456,12 @@ pub fn widest_channel_bandwidth(napt: &NaptConfig) -> u32 {
     .unwrap_or(0)
 }
 
-pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
+pub fn apply_min_receive_sample_rate(
+  sdr: &mut SdrConfig,
+  channels: &IndexMap<String, SpectrumFrameConfig>,
+) {
   let min_receive_sample_rate =
-    compute_min_receive_sample_rate(napt, sdr.sample_rate);
+    compute_min_receive_sample_rate(channels, sdr.sample_rate);
   sdr.min_receive_sample_rate = Some(min_receive_sample_rate);
   if sdr.sample_rate < min_receive_sample_rate {
     log::warn!(
@@ -449,7 +476,7 @@ pub fn apply_min_receive_sample_rate(sdr: &mut SdrConfig, napt: &NaptConfig) {
 pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
   let parsed = signals_config();
   let mut out = Vec::new();
-  for (id, f) in parsed.signals.n_apt.channels.clone() {
+  for (id, f) in parsed.signals.channels.clone() {
     if f.freq_range_hz.len() < 2 {
       continue;
     }
@@ -574,7 +601,7 @@ pub fn resolve_fft_config(
 pub fn load_sdr_settings() -> super::types::SdrConfig {
   let config = signals_config();
   let mut sdr = config.signals.sdr.clone();
-  apply_min_receive_sample_rate(&mut sdr, &config.signals.n_apt);
+  apply_min_receive_sample_rate(&mut sdr, &config.signals.channels);
   sdr.fft = resolve_fft_config(
     "mock_apt",
     sdr.sample_rate,
@@ -635,7 +662,6 @@ fn extract_channels_from_value(
 ) -> Option<Vec<super::types::SpectrumFrameMessage>> {
   let channels = value
     .get("signals")
-    .and_then(|v| v.get("n_apt"))
     .and_then(|v| v.get("channels"))
     .and_then(|v| v.as_mapping())?;
 
@@ -786,7 +812,7 @@ pub fn device_sample_rate_ceiling(
       return configured_max;
     }
     let configured_channel_ceiling =
-      widest_channel_bandwidth(&signals_config().signals.n_apt);
+      widest_channel_bandwidth(&signals_config().signals.channels);
     return if configured_channel_ceiling > 0 {
       configured_channel_ceiling
     } else {
@@ -829,7 +855,7 @@ pub fn resolve_device_sample_rate_options(
     if matches!(device_profile.kind.as_str(), "mock_apt" | "mock_apt_metal") {
       let config = signals_config();
       compute_min_receive_sample_rate(
-        &config.signals.n_apt,
+        &config.signals.channels,
         config.signals.sdr.sample_rate,
       )
     } else {
@@ -904,7 +930,7 @@ pub fn should_declare_disconnected(missing_streak: u32) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::server::types::{DeviceProfile, NaptConfig, SpectrumFrameConfig};
+  use crate::server::types::{DeviceProfile, SpectrumFrameConfig};
   use indexmap::IndexMap;
   use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1017,8 +1043,7 @@ mod tests {
         description: "C".to_string(),
       },
     );
-    let napt = NaptConfig { channels };
-    let floor = compute_min_receive_sample_rate(&napt, 20_000_000);
+    let floor = compute_min_receive_sample_rate(&channels, 20_000_000);
     assert_eq!(floor, 9_125_000);
   }
 
@@ -1211,20 +1236,19 @@ signals:
         max: 3.0
     signals: []
     training_areas: {}
-  n_apt:
-    channels:
-      c:
-        label: "C"
-        freq_range_hz: [11000000.0, 23000000.0]
-        description: "C"
-      a:
-        label: "A"
-        freq_range_hz: [18000.0, 4370000.0]
-        description: "A"
-      b:
-        label: "B"
-        freq_range_hz: [24720000.0, 29880000.0]
-        description: "B"
+  channels:
+    c:
+      label: "C"
+      freq_range_hz: [11000000.0, 23000000.0]
+      description: "C"
+    a:
+      label: "A"
+      freq_range_hz: [18000.0, 4370000.0]
+      description: "A"
+    b:
+      label: "B"
+      freq_range_hz: [24720000.0, 29880000.0]
+      description: "B"
   sdr:
     sample_rate: 3200000
     center_frequency: 137500000
@@ -1249,11 +1273,11 @@ signals:
     let config: crate::server::types::SignalsConfig =
       serde_yaml::from_str(&processed).expect("parse test config");
     let ordered_ids: Vec<String> =
-      config.signals.n_apt.channels.keys().cloned().collect();
+      config.signals.channels.keys().cloned().collect();
     assert_eq!(ordered_ids, vec!["c", "a", "b"]);
 
     let mut out = Vec::new();
-    for (id, f) in config.signals.n_apt.channels.clone() {
+    for (id, f) in config.signals.channels.clone() {
       out.push((id, f.label));
     }
 
@@ -1271,12 +1295,11 @@ signals:
   fn test_frequency_pipeline_parsing() {
     let yaml = r#"
 signals:
-  n_apt:
-    channels:
-      test_channel:
-        label: "Test"
-        freq_range_hz: !frequency_range 137.1MHz..137.9MHz
-        description: "Test description"
+  channels:
+    test_channel:
+      label: "Test"
+      freq_range_hz: !frequency_range 137.1MHz..137.9MHz
+      description: "Test description"
   mock_apt:
     global_settings:
       noise_floor_base: 0.0
@@ -1332,7 +1355,6 @@ signals:
     // Check channel ranges
     let channel = config
       .signals
-      .n_apt
       .channels
       .get("test_channel")
       .expect("test_channel");
@@ -1516,20 +1538,18 @@ signals:
   #[test]
   fn test_preprocess_frequency_range_syntax() {
     let yaml = r#"
-n_apt:
-  channels:
-    a:
-      label: "A"
-      freq_range_hz: !frequency_range 18kHz..4.47MHz
-      description: "Test"
+channels:
+  a:
+    label: "A"
+    freq_range_hz: !frequency_range 18kHz..4.47MHz
+    description: "Test"
 "#;
 
     let processed = preprocess_frequency_tags(yaml);
     let value: serde_yaml::Value =
       serde_yaml::from_str(&processed).expect("parse yaml");
     let channel = value
-      .get("n_apt")
-      .and_then(|v| v.get("channels"))
+      .get("channels")
       .and_then(|v| v.get("a"))
       .expect("get channel");
 
@@ -1552,14 +1572,17 @@ n_apt:
     let signals = value.get("signals").expect("get signals");
     let mock_apt = signals.get("mock_apt");
     assert!(mock_apt.is_some(), "mock_apt should exist");
-    let n_apt = signals.get("n_apt");
-    assert!(n_apt.is_some(), "n_apt should exist");
+    let channels = signals.get("channels");
+    assert!(channels.is_some(), "signals.channels should exist");
+    assert!(
+      signals.get("n_apt").is_none(),
+      "legacy n_apt should not exist"
+    );
     let sdr = signals.get("sdr");
     assert!(sdr.is_some(), "sdr should exist");
 
     // Check specific values
-    let n_apt = n_apt.unwrap();
-    let channels = n_apt.get("channels").unwrap();
+    let channels = channels.unwrap();
     let channel_a = channels.get("a").unwrap();
     let freq_range = channel_a.get("freq_range_hz").unwrap();
     let arr = freq_range.as_sequence().unwrap();
@@ -1568,6 +1591,36 @@ n_apt:
     eprintln!("Channel A freq_range: [{}, {}]", start, end);
     assert_eq!(start, 18000.0, "start should be 18kHz = 18000.0 Hz");
     assert_eq!(end, 4390000.0, "end should be 4.39MHz = 4390000.0 Hz");
+  }
+
+  #[test]
+  fn legacy_n_apt_shape_is_rejected() {
+    let yaml = r#"
+signals:
+  mock_apt: {}
+  n_apt:
+    channels: {}
+  sdr:
+    sample_rate: 3200000
+    center_frequency: 0
+    gain:
+      tuner_gain: 0
+      rtl_agc: false
+      tuner_agc: false
+    ppm: 0
+    display:
+      min_db: -120
+      max_db: 0
+      padding: 0
+"#;
+
+    let error =
+      serde_yaml::from_str::<crate::server::types::SignalsConfig>(yaml)
+        .expect_err("legacy n_apt configuration should not deserialize");
+    assert!(
+      error.to_string().contains("channels"),
+      "expected missing canonical channels field, got: {error}"
+    );
   }
 
   #[test]

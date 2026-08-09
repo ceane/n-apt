@@ -288,7 +288,11 @@ async fn test_auth_logout_endpoint() {
   let (server, state, _guard) = setup_test_server().await;
 
   // 1. Create a session first to verify revocation
-  let token = state.session_store.create_session([0u8; 32]).await;
+  let token = state
+    .session_store
+    .create_session([0u8; 32])
+    .await
+    .expect("test Redis must be available");
   assert!(
     state.session_store.validate(&token).await.is_some(),
     "Session should be valid after creation"

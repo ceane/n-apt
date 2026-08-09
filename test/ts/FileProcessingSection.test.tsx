@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FileProcessingSection from "@n-apt/components/sidebar/FileProcessingSection";
+import FileProcessingSection from "@n-apt/capture/sidebar/FileProcessingSection";
 import { TestWrapper } from "./testUtils";
 
 describe("FileProcessingSection", () => {

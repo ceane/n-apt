@@ -1,4 +1,10 @@
-import { getRouteProviderGroup } from "@n-apt/routes/RouteScopedProviders";
+import {
+  getRouteProviderGroup,
+  RouteProviderLoading,
+} from "@n-apt/app/routes/pages/RouteScopedProviders";
+import * as React from "react";
+import { render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom";
 
 describe("route provider scope", () => {
   it("assigns demod routes to the demod provider group", () => {
@@ -11,5 +17,12 @@ describe("route provider scope", () => {
     expect(getRouteProviderGroup("/map-endpoints")).toBe("map");
     expect(getRouteProviderGroup("/draw-signal")).toBe("draw-signal");
     expect(getRouteProviderGroup("/settings")).toBe("none");
+  });
+
+  it("keeps a visible route shell while a scoped provider chunk loads", () => {
+    render(React.createElement(RouteProviderLoading));
+
+    expect(screen.getByTestId("route-provider-loading")).toBeVisible();
+    expect(screen.getByText("Loading route…")).toBeVisible();
   });
 });

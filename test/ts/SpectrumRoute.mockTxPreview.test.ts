@@ -1,11 +1,11 @@
 import {
   getMockTxPreviewRequestKey,
   resolveLiveDevicePlaceholderState,
-} from "../../src/ts/routes/SpectrumRoute";
+} from "@n-apt/app/routes/pages/SpectrumRoute";
 import {
   resolveMockTxMonitorSampleRateForView,
   shouldClearMockTxPreviewRequestDedupe,
-} from "../../src/ts/routes/spectrum/mockTxPreview";
+} from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
 
 describe("getMockTxPreviewRequestKey", () => {
   it("changes when TX preview bandwidth changes", () => {

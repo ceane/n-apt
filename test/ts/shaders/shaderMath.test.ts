@@ -1,9 +1,9 @@
-import { FFT_COMPUTE_SHADER } from "../../../src/ts/consts/shaders/fft_compute";
-import { SPECTRUM_SHADER } from "../../../src/ts/consts/shaders/spectrum";
+import { FFT_COMPUTE_SHADER } from "@n-apt/consts/shaders/fft_compute";
+import { SPECTRUM_SHADER } from "@n-apt/consts/shaders/spectrum";
 import {
   WATERFALL_3D_FRAGMENT_SHADER,
   WATERFALL_3D_VERTEX_SHADER,
-} from "../../../src/ts/consts/shaders/waterfall3d";
+} from "@n-apt/consts/shaders/waterfall3d";
 
 const EPSILON = 1e-6;
 

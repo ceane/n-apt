@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
-import { GetStartedRoute } from "@n-apt/routes/GetStartedRoute";
+import { GetStartedRoute } from "@n-apt/app/routes/pages/GetStartedRoute";
 import { TestWrapper } from "./testUtils";
 
 const renderRoute = (preloadedState?: unknown) =>

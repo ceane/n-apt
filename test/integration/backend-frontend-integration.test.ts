@@ -2,8 +2,8 @@
  * Backend-frontend integration test for the new source payload.
  */
 
-import { isValidSourceInfoMessage } from "../../src/ts/validation";
-import { updateDeviceState } from "../../src/ts/redux/slices/websocketSlice";
+import { isValidSourceInfoMessage } from "@n-apt/validation";
+import { updateDeviceState } from "@n-apt/redux/slices/websocketSlice";
 
 describe("Backend-Frontend Source Payload Integration", () => {
   test("should validate and map a source_info snapshot", () => {

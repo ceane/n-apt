@@ -9,7 +9,7 @@ import {
   buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
   shouldSendSignalDisplaySettings,
-} from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("resolveSourceSwitchDisplaySettings", () => {
   it("restores the selected RTL-SDR sample and frame rates together", () => {

@@ -2,7 +2,7 @@ import React from "react";
 import { act, render, screen } from "@testing-library/react";
 import FFTAndWaterfall, {
   shouldShowLiveServerDownPlaceholder,
-} from "@n-apt/components/FFTAndWaterfall";
+} from "@n-apt/spectrum/FFTAndWaterfall";
 
 const fftCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fft-canvas" />
@@ -19,7 +19,7 @@ let mockedSourceMode: "live" | "file" = "live";
 let mockedSpectrumState: Record<string, unknown> = {};
 let mockedWebsocketState: Record<string, unknown> = {};
 
-jest.mock("@n-apt/components/FFTCanvas", () => {
+jest.mock("@n-apt/spectrum/FFTCanvas", () => {
   const React = require("react");
 
   return {
@@ -37,11 +37,11 @@ jest.mock("@n-apt/components/FFTCanvas", () => {
   };
 });
 
-jest.mock("@n-apt/components/VisualizerSliders", () => ({
+jest.mock("@n-apt/spectrum/VisualizerSliders", () => ({
   VisualizerSliders: (props: any) => visualizerSlidersMock(props),
 }));
 
-jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
+jest.mock("@n-apt/spectrum/FIFOWaterfallCanvas", () => ({
   __esModule: true,
   default: (_props: any) => waterfallCanvasMock(_props),
 }));

@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
 
 export interface DemodState {
   sourceMode: "live" | "file";
@@ -7,7 +8,7 @@ export interface DemodState {
   spanRange: { min: number; max: number } | null;
   hardwareRange: { min: number; max: number } | null;
   sampleRateHz: number | null;
-  algorithm: "fm" | "aptAudio" | "aptImage";
+  algorithm: DemodAlgorithm;
   bandwidthKhz: number;
   centerFreqHz: number | null;
   bandwidthCenterFreqHz: number | null;
@@ -75,7 +76,7 @@ const demodSlice = createSlice({
     },
     setAlgorithm: (
       state,
-      action: PayloadAction<"fm" | "aptAudio" | "aptImage">,
+      action: PayloadAction<DemodAlgorithm>,
     ) => {
       state.algorithm = action.payload;
     },

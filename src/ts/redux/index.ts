@@ -81,7 +81,7 @@ export {
   loadPersistedNoteCards,
   persistNoteCards,
   clearPersistedNoteCards,
-} from "@n-apt/utils/noteCardStorage";
+} from "@n-apt/app/infrastructure/services/noteCardStorage";
 
 export {
   selectNoteCards,
@@ -97,6 +97,7 @@ import {
   tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -152,6 +153,7 @@ import {
   setPowerScale,
   setMinReceiveSampleRate,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
   setStitchOption,
@@ -166,6 +168,7 @@ export {
   tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -221,6 +224,7 @@ export {
   setPowerScale,
   setMinReceiveSampleRate,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
   setStitchOption,
@@ -235,6 +239,7 @@ export const spectrumActions = {
   tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -288,6 +293,7 @@ export const spectrumActions = {
   setTemporalResolution,
   setPowerScale,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
 };
@@ -352,6 +358,7 @@ export const themeActions = {
 
 export {
   setSnapshotGrid,
+  setMirrorIqBasebandBelowZero,
   setDeviceInfo,
   resetSettings,
 } from "./slices/settingsSlice";
@@ -471,5 +478,5 @@ export {
   loadPersistedSdrSettings,
   loadPersistedPasskeys,
   loadPersistedSpectrumFrames,
-  loadPersistedSdrSettingsCache,
+  loadPersistedSignalsDefaults,
 } from "./middleware/localStorageMiddleware";

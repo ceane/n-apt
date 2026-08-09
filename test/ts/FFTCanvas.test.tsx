@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTCanvas from "../../src/ts/components/FFTCanvas";
-import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
+import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
+import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
 import {
   getLatestLiveFrame,
   getLiveFrameSignature,
@@ -21,13 +21,13 @@ import {
   shouldPublishProcessedSpectrumFrame,
   invertSpectrumVertically,
   formatTxIfftSizeLabel,
-} from "../../src/ts/components/FFTCanvas";
-import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/FFTCanvas";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
-import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
+import { createFFTVisualizerMachine } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import { createRef } from "react";
 
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
@@ -41,7 +41,7 @@ test("inverts spectrum power values without reversing frequency order", () => {
 });
 
 // Mock useAuthentication to avoid auth errors during state init
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     sessionToken: "mock-token",
     aesKey: new Uint8Array(32),
@@ -49,7 +49,7 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
+jest.mock("@n-apt/spectrum/hooks/useWasmSimdMath", () => {
   const mockUseSpectrumMath = () => ({
     isWasmLoaded: true,
     isSimdAvailable: false,
@@ -78,7 +78,7 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
   };
 });
 
-jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumRenderer", () => ({
   useSpectrumRenderer: () => ({
     drawSpectrum: drawSpectrumMock,
     cleanup: cleanupSpectrumMock,
@@ -88,7 +88,7 @@ jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
 // Keep these component tests on the deterministic Canvas 2D path. The jsdom
 // WebGPU shim exposes partial device methods, which otherwise leaves the
 // asynchronous GPU startup path pending and prevents the first spectrum draw.
-jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
   useWebGPULifecycle: () => ({
     webgpuEnabled: false,
     isInitializingWebGPU: false,
@@ -112,7 +112,7 @@ jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useFftRenderCoordinator", () => {
+jest.mock("@n-apt/spectrum/hooks/useFftRenderCoordinator", () => {
   const React = require("react") as typeof import("react");
   return {
     useFftRenderCoordinator: ({
@@ -138,7 +138,7 @@ jest.mock("@n-apt/hooks/useFftRenderCoordinator", () => {
   };
 });
 
-jest.unmock("@n-apt/components/FFTCanvas");
+jest.unmock("@n-apt/spectrum/FFTCanvas");
 
 const mockTheme = {
   mode: "dark" as const,

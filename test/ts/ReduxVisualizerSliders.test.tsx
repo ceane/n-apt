@@ -2,19 +2,19 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
-import authSlice from "../../src/ts/redux/slices/authSlice";
-import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
-import themeSlice from "../../src/ts/redux/slices/themeSlice";
-import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
-import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
-import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
-import demodSlice from "../../src/ts/redux/slices/demodSlice";
-import ReduxVisualizerSliders from "../../src/ts/components/sidebar/ReduxVisualizerSliders";
-import { setShowTxSlider } from "../../src/ts/redux";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import authSlice from "@n-apt/redux/slices/authSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
+import ReduxVisualizerSliders from "@n-apt/spectrum/sidebar/ReduxVisualizerSliders";
+import { setShowTxSlider } from "@n-apt/redux";
 import { ThemeProvider } from "styled-components";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/ts/consts";
+import { buildAppTheme } from "@n-apt/ui/Theme";
+import { THEME_TOKENS } from "@n-apt/consts";
 
 const theme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,

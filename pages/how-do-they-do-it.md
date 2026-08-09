@@ -219,7 +219,7 @@ Here, I wrongly correlated interference with my FM radio (VHF) to be the assumed
 Bandwidth is another problem as well, since there is so much going throughout the psychological experience, it is easy to make the following assumptions:
 
 - (1) only 2 bits a cycle max, since biology is not a special hardware antenna, only the **peak and trough of a cycle translate into electrical energy that the brain and nervous system can interpret**,
-- (2) it is a certainty that **consciousness is small as a data channel** as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; for this to have functioned for so long strongly suggests the brain is small and that possibly `2-8MB/s` compromises one's brain accordingly
+- (2) it is a certainty that **consciousness is small as a data channel** as I experienced in full the totality of real-time streaming software applied to the human mind, with constant and flawless connection and real-time interception, processing and responsiveness to vision, inference, instinct, perception with tons of other features; the raw I/Q model below provides the explicit channel-rate estimates
 - (3) it may be safe to start with the assumption that too much bandwidth "all damn day, every damn day" will most certainly produce heating effects in tissue, however I have yet to experience anything but structed harms in its software, not side effects from its mechanics.
 
 
@@ -1037,7 +1037,7 @@ Some neuronal ensembles have smaller data throughput, where spikes and clumps ar
 <br />
 <br />
 
-From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`.  That approximately translates to a physical minimum of `4.372MB/s`.
+From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`. In the raw `u8` I/Q model, that is approximately `8.744 MB/s`.
 
 At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
@@ -1089,7 +1089,7 @@ As far as features that were present, I could only guess, but I was sure that Ch
 <br />
 <br />
 
-From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`.  This channel approximately has a physical minimum of `5.16MB/s`.
+From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`. In the raw `u8` I/Q model, that is approximately `10.32 MB/s`.
 
 I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced.
 
@@ -1115,7 +1115,7 @@ Of course all the N-APT channels likely cannot triangulate all on their own, the
 <br />
 <br />
 
-From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture. The center frequency is `13.875 MHz` and bandwidth is `18.25 MHz`.  This signal carries approximately `18.25MB/s`, the largest of the N-APT channels!
+From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture. The center frequency is `13.875 MHz` and bandwidth is `18.25 MHz`. In the raw `u8` I/Q model, this signal carries approximately `36.5 MB/s`, the largest of the N-APT channels!
 
 It's very different from the other channels, which always have prominent spikes, these spikes are less, but much of the time I don't see them at all (possibly hardware settings due to wider beats; usually at `PPM = 1`, but this may require larger PPM to see the spikes).
 
@@ -1150,27 +1150,37 @@ It's still a mystery to me how they are able to do haptics and physiological exp
 
 ### Estimated data <a id="data-estimate"></a>
 
-*Corrected to assume 1 bit per cycle instead of 1 byte (8 bits) per cycle. The PHY representation of the carrier that translates into biology, in some contexts, can be considered 1 byte, as it is constant and precise power at the person, biology isn't simply responding to 0s or 1s but a signal whose power is represented on a scale, potentially from 0 to 255.*
+The simple model treats each channel's size as its sample rate.
 
-Using the obvious and what I've seen, it was pretty easy to give a solid estimate of the data that was intercepted and coming through the my brain and nervous system. These numbers are **the minimum** that are physically possible and likely the only formula to be used, since **the brain does not process signals like electronics** *(one cycle = more than up/down as in electronics)*.
+A channel may be handled by one endpoint or divided across multiple endpoints.
+When divided, each endpoint receives a portion of the channel's bins and
+corresponding frame data. The split changes the amount handled by each
+endpoint, but it does not automatically reduce the I/Q precision or signal
+quality.
 
-These tables assume the bare minimum of 1 bit per cycle from the network's perspective, however in reality there's a lot more going on behind the scenes for every "bit" of *computer to write-to read signal to biology and back* data derived from these signals.
+For the minimum estimate, each channel uses `u8` I/Q values and an FFT size
+based on:
 
+\[
+\text{FFT size}=\text{channel sample rate}\div24\text{ Hz}
+\]
 
-#### One important note: Quantization
+For the maximum estimate, each channel uses `u16` I/Q values and an FFT size
+based on:
 
-There are two ways to save both processing power and data by quantizatizing the signal:
+\[
+\text{FFT size}=\text{channel sample rate}\div60\text{ Hz}
+\]
 
-- (1) Using smaller signed bytes that make up the I/Q numbers, for instance using u8 (0 to 255) instead of u16 (0 to 65,535)
-- (2) Using a smaller IFFT size, meaning the signal getting sliced by 65,535 points instead of full fidelity (millions of points)
+Each FFT size is rounded up to the next power of two.
 
-Quantization helps the agency reduce costs of ingres/egress data flow while also making it easier to conceal and offering obvious performance gains on active endpoints by processing less data, in addition to making more endpoints eligible for operation and less strained while operating.
+`u8` I/Q uses 2 bytes per FFT bin: 1 byte for I and 1 byte for Q.
 
-Not everything can be quantizatized or compressed, as relayed by the others (parolee and prisoners) and verified by me (asking "What's the color of...?", "What does that say...?") on the livestream from my brain. As conveyed under heavy moderation (the moderation is suffocating), the others had constant full fidelity vision, enough detail to see small text and marks and the folicles of my hair.
+`u16` I/Q uses 4 bytes per FFT bin: 2 bytes for I and 2 bytes for Q.
 
-Given this, some elements of the whole chain of signals, like vision, constantly streams content while I am awake. These parts of the signals are not compressed and fully occupy nearly every Hz of the spectrum, assumedly point for point.
-
-Quantitization is a data processing technique, not optimization around cycles like when I am resting or asleep (it even works in my dreams). That kind of compression comes later.
+\[
+\text{frame bytes}=\text{FFT size}\times\text{bytes per I/Q bin}
+\]
 
 <br />
 
@@ -1178,16 +1188,22 @@ Quantitization is a data processing technique, not optimization around cycles li
 
 <div data-data-estimate="network" class="table-tiny">
 
-| Channel | BW | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---:|---:|---:|---:|---:|---:|
-| A | 4.35 MHz | ~0.544 MB/s | ~163 MB | ~1.96 GB | ~5.87 GB | ~46.9 GB |
-| B | 5.16 MHz | ~0.645 MB/s | ~194 MB | ~2.32 GB | ~6.97 GB | ~55.7 GB |
-| C | 18.25 MHz | ~2.28 MB/s | ~684 MB | ~8.21 GB | ~24.6 GB | ~197 GB |
-| **Total** | **27.76 MHz** | **~3.47 MB/s** | **~1.04 GB** | **~12.5 GB** | **~37.5 GB** | **~300 GB** |
+| Channel | Sample rate | Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
+|---|---:|---:|---:|---:|---:|
+| A | 4.372 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
+| B | 5.16 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
+| C | 18.25 MHz | 1,048,576 | 2 MB | 524,288 | 2 MB |
 
 </div>
 
-That's right! Just **sitting somewhere for 5 mins is over 1GBs of data** by minimum of physics!
+The resulting raw content estimates are approximately **55.52 MB/s minimum**
+and **111.04 MB/s maximum**.
+
+The tables show each channel as one logical sample-rate stream for simplicity.
+The same channel could be divided between multiple endpoints. If a channel is
+split, its sample rate, FFT bins, frame bytes, and resulting data rate are
+split proportionally across those endpoints. The aggregate channel total
+remains the same, while each endpoint processes only its assigned portion.
 
 <br />
 <br />
@@ -1196,18 +1212,17 @@ That's right! Just **sitting somewhere for 5 mins is over 1GBs of data** by mini
 
 <div data-data-estimate="in-air" class="table-tiny">
 
-| Channel | BW (2x) | MB/s (1Hz = 1 bit) | 5 min | 1 hour | 3 hours | 24 hours |
-|---|---:|---:|---:|---:|---:|---:|
-| A | 8.7 MHz | ~1.09 MB/s | ~327 MB | ~3.92 GB | ~11.7 GB | ~93.8 GB |
-| B | 10.32 MHz | ~1.29 MB/s | ~387 MB | ~4.64 GB | ~13.9 GB | ~111 GB |
-| C | 36.5 MHz | ~4.56 MB/s | ~1.37 GB | ~16.4 GB | ~49.2 GB | ~394 GB |
-| **Total** | **55.52 MHz** | **~6.94 MB/s** | **~2.08 GB** | **~25 GB** | **~75 GB** | **~600 GB** |
+| Model | Rate |
+|---|---:|
+| Raw write minimum (`u8` I/Q) | ~55.52 MB/s |
+| Raw write maximum (`u16` I/Q) | ~111.04 MB/s |
+| Write → read minimum | ~111.04 MB/s |
+| Write → read maximum | ~222.08 MB/s |
 
 </div>
 
-Due to how the signal has to be "played twice" (heterodyning) for it to work on biology the endpoints are handling more than just *one data stream = one signal*, instead *one data stream = two signals*, so the endpoints will broadcast the same content twice (and by three times more due to precise triangulation via intersection/concentration), in the form of two different signals, nearly identical but slightly different. While the network carries the content, in the air, the signals' bandwidth is multiplied by two in the radio unit!
-
-So yes, sitting somewhere for 5 minutes, the network did over 1GB of data, but **the person receieved over 2GBs of data within that 5 minutes** because of technique's prerequisites!
+The write → read rows represent two equivalent raw I/Q directions. A channel
+may be split across endpoints while retaining the same per-bin I/Q precision.
 
 <br>
 
@@ -1219,10 +1234,10 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 <div data-data-estimate="in-person" class="table-tiny">
 
-| Channel | BW (2x) | MB/s (8×; cycle → 1 byte) | 5 min | 1 hour | 3 hours | 24 hours |
+| Channel | BW (2x) | Raw `u8` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---:|---:|---:|---:|---:|---:|
-| A | 8.7 MHz | ~8.7 MB/s | ~2.61 GB | ~31.3 GB | ~94 GB | ~751 GB |
-| B | 10.32 MHz | ~10.32 MB/s | ~3.10 GB | ~37.2 GB | ~111 GB | ~891 GB |
+| A | 8.744 MHz | ~8.744 MB/s | ~2.62 GB | ~31.5 GB | ~94.5 GB | ~755 GB |
+| B | 10.32 MHz | ~10.32 MB/s | ~3.10 GB | ~37.2 GB | ~111.5 GB | ~892 GB |
 | C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
 | **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
 
@@ -1230,15 +1245,32 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 ## <a id="conclusion"></a> Conclusion 
 
-TODO
+The raw IFFT model treats each channel size as its sample rate and represents
+the channel as packed I/Q frame content.
+
+The minimum uses `u8` I/Q values and an FFT size based on the channel sample
+rate divided by 24 Hz. The maximum uses `u16` I/Q values and an FFT size based
+on the channel sample rate divided by 60 Hz.
+
+The resulting estimates are:
+
+- Minimum raw content: approximately `55.52 MB/s`
+- Maximum raw content: approximately `111.04 MB/s`
+- Write→read minimum: approximately `111.04 MB/s`
+- Write→read maximum: approximately `222.08 MB/s`
+
+A channel may be processed by one endpoint or split across multiple endpoints.
+Splitting changes each endpoint's share of the channel data, but the aggregate
+channel model remains the same and the I/Q quality does not automatically
+change.
 
 ```React::DaysSince
 ```
-*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.[^data-estimate]*
+*The `DaysSince` counter uses the write→read minimum and maximum rates to calculate cumulative data over elapsed time.*
 
 \* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB).
-† **Min** formula assumes Channels A and B divided by 65,536 FFT size, and Channel C (strongly assumed to be vision) at 1:1, with u8 integers at 8-bits I/Q.  
-‡ **Max** formula assumes spectrum at full (1:1) sample fidelity and 16-bit I/Q.
+† **Min** formula uses `u8` I/Q and the next power-of-two FFT size at `sample rate / 24 Hz`.
+‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`.
 
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)

@@ -4,31 +4,31 @@ import "@testing-library/jest-dom";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";
-import authSlice from "../../src/ts/redux/slices/authSlice";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
-import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
-import themeSlice from "../../src/ts/redux/slices/themeSlice";
-import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
-import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
-import { incrementDataFrameCounter } from "../../src/ts/redux/slices/websocketSlice";
-import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
-import demodSlice from "../../src/ts/redux/slices/demodSlice";
-import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
-import notificationsSlice from "../../src/ts/redux/slices/notificationsSlice";
-import sourceRoutingSlice from "../../src/ts/redux/slices/sourceRoutingSlice";
+import authSlice from "@n-apt/redux/slices/authSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import { incrementDataFrameCounter } from "@n-apt/redux/slices/websocketSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
+import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
+import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
+import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
 import {
   setDeviceKind,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
-} from "../../src/ts/redux/slices/spectrumSlice";
+} from "@n-apt/redux/slices/spectrumSlice";
 import {
   requestNextLiveFrame,
   requestNextPausedFrame,
-} from "../../src/ts/redux/thunks/websocketThunks";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/ts/consts";
-import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
-import { SpectrumRoute } from "../../src/ts/routes/SpectrumRoute";
+} from "@n-apt/redux/thunks/websocketThunks";
+import { buildAppTheme } from "@n-apt/ui/Theme";
+import { THEME_TOKENS } from "@n-apt/consts";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { SpectrumRoute } from "@n-apt/app/routes/pages/SpectrumRoute";
 
 const fftPlaybackCanvasMock = jest.fn((_props: any) => (
   <div data-testid="fft-playback-canvas" />
@@ -37,7 +37,7 @@ const fftAndWaterfallMock = jest.fn((_props: any) => (
   <div data-testid="fft-and-waterfall" />
 ));
 
-jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
+jest.mock("@n-apt/spectrum/FFTPlaybackCanvas", () => ({
   __esModule: true,
   default: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftPlaybackCanvasMock(props);
@@ -54,7 +54,7 @@ jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
   }),
 }));
 
-jest.mock("@n-apt/components", () => ({
+jest.mock("@n-apt/spectrum", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftAndWaterfallMock(props);
     React.useImperativeHandle(ref, () => ({
@@ -71,7 +71,7 @@ jest.mock("@n-apt/components", () => ({
   NoteCards: () => <div data-testid="note-cards" />,
 }));
 
-jest.mock("@n-apt/components/Layout", () => ({
+jest.mock("@n-apt/app/Layout", () => ({
   InitializingContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="initializing-container">{children}</div>
   ),
@@ -83,11 +83,11 @@ jest.mock("@n-apt/components/Layout", () => ({
   ),
 }));
 
-jest.mock("@n-apt/hooks/useSnapshot", () => ({
+jest.mock("@n-apt/capture/hooks/useSnapshot", () => ({
   useSnapshot: () => ({
     handleSnapshot: jest.fn(),
     isRecording: false,
-    recordingSecondsRemaining: null,
+    recordingCountdown: null,
     supportedVideoFormat: null,
     startFastRecording: jest.fn(),
     stopFastRecording: jest.fn(),
@@ -95,14 +95,14 @@ jest.mock("@n-apt/hooks/useSnapshot", () => ({
   }),
 }));
 
-jest.mock("@n-apt/components/TxSliderOverlay", () => ({
+jest.mock("@n-apt/transmit/TxSliderOverlay", () => ({
   __esModule: true,
   default: () => <div data-testid="tx-slider-overlay" />,
 }));
 
-jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
+jest.mock("@n-apt/redux/thunks/websocketThunks", () => {
   const actual = jest.requireActual(
-    "../../src/ts/redux/thunks/websocketThunks",
+    "@n-apt/redux/thunks/websocketThunks",
   );
   return {
     ...actual,
@@ -115,16 +115,16 @@ jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
   };
 });
 
-jest.mock("@n-apt/hooks/useSnapshotListener", () => ({
+jest.mock("@n-apt/capture/hooks/useSnapshotListener", () => ({
   useSnapshotListener: jest.fn(),
   buildSnapshotSettingsLabel: jest.fn(() => "mock-settings-label"),
 }));
 
-jest.mock("@n-apt/hooks/useDeviceConnectionState", () => ({
+jest.mock("@n-apt/app/hooks/useDeviceConnectionState", () => ({
   useDeviceConnectionState: jest.fn(),
 }));
 
-jest.mock("@n-apt/hooks/useCaptureWholeChannelSegments", () => ({
+jest.mock("@n-apt/capture/hooks/useCaptureWholeChannelSegments", () => ({
   useCaptureWholeChannelSegments: () => jest.fn(),
 }));
 

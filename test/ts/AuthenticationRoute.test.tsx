@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(() => ({
     authState: "ready" as const,
     isAuthenticated: false,
@@ -21,7 +21,7 @@ import {
   AuthenticationUI,
   AuthenticationRoute,
   type AuthState,
-} from "@n-apt/routes/AuthenticationRoute";
+} from "@n-apt/app/routes/pages/AuthenticationRoute";
 
 describe("AuthenticationRoute", () => {
   const renderAuthenticationUI = (ui: React.ReactElement) =>

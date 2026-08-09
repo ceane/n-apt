@@ -1,6 +1,6 @@
 import sourceRoutingReducer, {
   setSourceBinding,
-} from "../../src/ts/redux/slices/sourceRoutingSlice";
+} from "@n-apt/redux/slices/sourceRoutingSlice";
 
 describe("Tx Suite source assignment", () => {
   it("stores independent Rx and Tx source IDs", () => {

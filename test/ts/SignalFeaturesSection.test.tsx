@@ -2,10 +2,10 @@ import * as React from "react";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
-import { SignalFeaturesSection } from "../../src/ts/components/sidebar/SignalFeaturesSection";
+import { SignalFeaturesSection } from "@n-apt/spectrum/sidebar/SignalFeaturesSection";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 
-jest.mock("@n-apt/components/ui", () => ({
+jest.mock("@n-apt/ui", () => ({
   Row: ({
     label,
     children,

@@ -1,4 +1,4 @@
-import { getWaterfallMotion } from "../../src/ts/utils/waterfallMotion";
+import { getWaterfallMotion } from "@n-apt/spectrum/utils/waterfallMotion";
 
 describe("getWaterfallMotion", () => {
   test("does not request a motion row without a previous range", () => {

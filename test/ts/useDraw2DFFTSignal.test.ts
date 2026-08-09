@@ -3,7 +3,7 @@ import {
   formatLiveCanvasStatusRow,
   drawLiveCanvasStatusRow,
   useDraw2DFFTSignal,
-} from "../../src/ts/hooks/useDraw2DFFTSignal";
+} from "@n-apt/spectrum/hooks/useDraw2DFFTSignal";
 
 describe("formatLiveCanvasStatusRow", () => {
   it("renders the live canvas status row with explicit gain-free labels", () => {

@@ -4,7 +4,7 @@ import {
   setCaptureDefaults,
   setSettingsDefaults,
   setSnapshotDefaults,
-} from "@n-apt/utils/settingsDefaults";
+} from "@n-apt/settings/public/settingsDefaults";
 
 const STORAGE_KEY = "n-apt-settings-defaults-v1";
 

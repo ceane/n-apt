@@ -1,4 +1,4 @@
-import * as presentation from "../../src/ts/utils/liveSourcePresentation";
+import * as presentation from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 
 const isTxStandbyPreviewSource = presentation.isTxStandbyPreviewSource;
 const filterLiveFramesForSource = presentation.filterLiveFramesForSource;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import {
   formatRebuildNotificationMessage,
   shouldShowRebuildNotification,
-} from "../../src/ts/utils/rebuildStatusMessage";
+} from "@n-apt/app/infrastructure/services/rebuildStatusMessage";
 
 describe("rebuild status notifications", () => {
   it("prefers an explicit progress string from rebuild status", () => {

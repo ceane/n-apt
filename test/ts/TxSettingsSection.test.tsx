@@ -2,7 +2,7 @@
 import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
-import { TxSettingsSection } from "../../src/ts/components/sidebar/TxSettingsSection";
+import { TxSettingsSection } from "@n-apt/transmit/sidebar/TxSettingsSection";
 
 describe("TxSettingsSection", () => {
   const defaultProps = {

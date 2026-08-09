@@ -1,5 +1,6 @@
 use super::sources::{
-  active_source_id, build_device_profile, build_source_info_snapshot,
+  active_source_id, build_device_profile, build_signals_defaults_snapshot,
+  build_source_info_snapshot,
 };
 use crate::server::shared_state::SharedState;
 use std::sync::atomic::Ordering;
@@ -117,10 +118,8 @@ pub fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
   if !shared.usb_inventory_known.load(Ordering::Acquire) {
     return false;
   }
-  let supported_device_present = shared
-    .supported_usb_device_count
-    .load(Ordering::Relaxed)
-    > 0;
+  let supported_device_present =
+    shared.supported_usb_device_count.load(Ordering::Relaxed) > 0;
 
   if supported_device_present {
     return false;
@@ -172,6 +171,10 @@ pub fn broadcast_active_source(
     "stream_epoch": shared.current_stream_epoch(),
   });
   let _ = broadcast_tx.send(payload.to_string());
+}
+
+pub fn broadcast_signals_defaults(broadcast_tx: &broadcast::Sender<String>) {
+  let _ = broadcast_tx.send(build_signals_defaults_snapshot().to_string());
 }
 
 #[cfg(test)]

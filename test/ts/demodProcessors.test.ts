@@ -1,4 +1,4 @@
-import { createDemodProcessor } from "../../src/ts/utils/demodProcessors";
+import { createDemodProcessor } from "@n-apt/demodulation/utils/demodProcessors";
 
 const FM_BROADCAST_DEVIATION_HZ = 75_000;
 
@@ -124,5 +124,43 @@ describe("APT demod processor variants", () => {
     expect(createDemodProcessor("aptImage", options).process(iq, 3_200_000)).toBeInstanceOf(
       Float32Array,
     );
+  });
+});
+
+describe("fmDiscriminator demod processor", () => {
+  it("exposes a distinct FM discriminator algorithm from broadcast FM", () => {
+    const options = {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 200_000,
+    };
+    const nextChunk = createFmToneSource(3_200_000, 1_000);
+    const iq = nextChunk(4_096);
+
+    const discriminator = createDemodProcessor("fmDiscriminator", options);
+    const broadcast = createDemodProcessor("fm", options);
+
+    const discAudio = discriminator.process(iq, 3_200_000, 0);
+    const fmAudio = broadcast.process(iq, 3_200_000, 0);
+
+    expect(discAudio).toBeInstanceOf(Float32Array);
+    expect(discAudio.length).toBeGreaterThan(0);
+    expect(peakOf(discAudio)).toBeGreaterThan(0);
+    // Discriminator skips broadcast de-emphasis / 75 kHz normalization, so
+    // the same tone must not match the WFM full-scale path sample-for-sample.
+    expect(peakOf(discAudio)).not.toBeCloseTo(peakOf(fmAudio), 3);
+  });
+
+  it("keeps discriminator output within Web Audio range", () => {
+    const processor = createDemodProcessor("fmDiscriminator", {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 200_000,
+    });
+    const nextChunk = createFmToneSource(3_200_000, 1_000);
+    for (let i = 0; i < 8; i++) {
+      const audio = processor.process(nextChunk(8_192), 3_200_000, 0);
+      expect(peakOf(audio)).toBeLessThanOrEqual(1);
+    }
   });
 });

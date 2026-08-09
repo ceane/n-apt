@@ -1,6 +1,6 @@
 import { renderHook, act } from "@testing-library/react";
 import { createRef } from "react";
-import { useSettingsSectionScrollSpy } from "@n-apt/hooks/useSettingsSectionScrollSpy";
+import { useSettingsSectionScrollSpy } from "@n-apt/settings/hooks/useSettingsSectionScrollSpy";
 
 type ObserverEntry = {
   target: Element;

@@ -1,7 +1,7 @@
 import {
   resolveTxSuiteControlSourceId,
   shouldPinTxSuiteToRxSource,
-} from "../../src/ts/utils/txSuiteSourceControl";
+} from "@n-apt/transmit/public/txSuiteSourceControl";
 
 describe("Tx Suite source control", () => {
   it("keeps the Rx role as the active control source", () => {

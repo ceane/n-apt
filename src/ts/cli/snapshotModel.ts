@@ -1,5 +1,5 @@
-import { computeIqToDbSpectrumScalar } from "@n-apt/hooks/useWasmSimdMath";
-import { dbToColor } from "@n-apt/hooks/useSnapshot";
+import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/hooks/useWasmSimdMath";
+import { dbToColor } from "@n-apt/capture/hooks/useSnapshot";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 
 export interface CliSnapshotFrame {

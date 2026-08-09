@@ -192,6 +192,8 @@ describe("Rust hot reload gate", () => {
       .toBe("[HOT-RELOAD] Rebuilding Rust backend...");
     expect(getRustHotReloadProcessLabel("running", "Restarting Rust backend..."))
       .toBe("Restarting Rust backend...");
+    expect(getRustHotReloadProcessLabel("running", "Compiling n-apt-backend (404/406)"))
+      .toBe("[HOT-RELOAD] Compiling n-apt-backend (404/406)");
     expect(getRustHotReloadRuntimeLabel(2, "Running"))
       .toBe("✓ Updated (+2)");
     expect(getRustHotReloadRuntimeLabel(0, "Running"))

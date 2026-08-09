@@ -1,7 +1,7 @@
 import {
   getSourceStorageIdentity,
   getSourceViewStorageKeyForSource,
-} from "@n-apt/utils/sourcePersistence";
+} from "@n-apt/spectrum/utils/sourcePersistence";
 
 describe("sourcePersistence", () => {
   it("uses backend stream_key before serial number for source-scoped visualizer state", () => {

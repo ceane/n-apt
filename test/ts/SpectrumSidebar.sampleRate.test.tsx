@@ -14,28 +14,28 @@ import { Provider, useSelector } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
 import { MemoryRouter, useNavigate } from "react-router";
-import { SpectrumSidebar } from "../../src/ts/components/sidebar/SpectrumSidebar";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { SpectrumSidebar } from "@n-apt/spectrum/sidebar/SpectrumSidebar";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import websocketSlice, {
   setConnected,
   updateDeviceState,
-} from "../../src/ts/redux/slices/websocketSlice";
-import authSlice from "../../src/ts/redux/slices/authSlice";
-import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
-import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
+} from "@n-apt/redux/slices/websocketSlice";
+import authSlice from "@n-apt/redux/slices/authSlice";
+import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
 import waterfallSlice, {
   setSourceMode,
-} from "../../src/ts/redux/slices/waterfallSlice";
-import themeSlice from "../../src/ts/redux/slices/themeSlice";
-import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
-import demodSlice from "../../src/ts/redux/slices/demodSlice";
+} from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
 
 describe("SpectrumSidebar hot-path diagnostics", () => {
   it("does not log metadata on every animation frame", () => {
     const source = readFileSync(
-      join(process.cwd(), "src/ts/components/sidebar/SpectrumSidebar.tsx"),
+      join(process.cwd(), "src/ts/features/spectrum/sidebar/SpectrumSidebar.tsx"),
       "utf8",
     );
 
@@ -54,7 +54,7 @@ let mockShowPrompt: jest.Mock;
 
 const TRANSMIT_WARNING_ACK_KEY = "napt.transmitWarningAccepted";
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
     sessionToken: "mock-token",
@@ -62,19 +62,19 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useGeolocation", () => ({
+jest.mock("@n-apt/maps/hooks/useGeolocation", () => ({
   useGeolocation: () => ({
     getLocation: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/components/ui/PromptProvider", () => ({
+jest.mock("@n-apt/ui/PromptProvider", () => ({
   usePrompt: () => ({
     showPrompt: mockShowPrompt,
   }),
 }));
 
-jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useOptionalSpectrumStore: () => null,
   LIVE_CONTROL_DEFAULTS: {
     ppm: 0,
@@ -114,36 +114,36 @@ jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
   }),
 }));
 
-jest.mock("@n-apt/components/sidebar/Channels", () => ({
+jest.mock("@n-apt/spectrum/sidebar/Channels", () => ({
   Channels: () => <div data-testid="channels" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/ConnectionStatusSection", () => ({
+jest.mock("@n-apt/spectrum/sidebar/ConnectionStatusSection", () => ({
   ConnectionStatusSection: () => <div data-testid="connection-status" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/FileSelectionSidebar", () => ({
+jest.mock("@n-apt/capture/sidebar/FileSelectionSidebar", () => ({
   __esModule: true,
   default: () => <div data-testid="file-selection" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/IQCaptureControlsSection", () => ({
+jest.mock("@n-apt/capture/sidebar/IQCaptureControlsSection", () => ({
   IQCaptureControlsSection: () => <div data-testid="iq-capture" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/SnapshotControlsSection", () => ({
+jest.mock("@n-apt/capture/sidebar/SnapshotControlsSection", () => ({
   SnapshotControlsSection: () => <div data-testid="snapshot-controls" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/SourceSettingsSection", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SourceSettingsSection", () => ({
   SourceSettingsSection: () => <div data-testid="source-settings" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/ThemeSection", () => ({
+jest.mock("@n-apt/settings/sidebar/ThemeSection", () => ({
   ThemeSection: () => <div data-testid="theme-section" />,
 }));
 
-jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SourceInput", () => ({
   __esModule: true,
   default: ({
     devices = [],
@@ -196,11 +196,11 @@ jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
   ),
 }));
 
-jest.mock("@n-apt/components/ui/Collapsible", () => ({
+jest.mock("@n-apt/ui/Collapsible", () => ({
   Collapsible: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-jest.mock("@n-apt/components/ui/Button", () => ({
+jest.mock("@n-apt/ui/Button", () => ({
   Button: ({ children }: { children: React.ReactNode }) => (
     <button>{children}</button>
   ),

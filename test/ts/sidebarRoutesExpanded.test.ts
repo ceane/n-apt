@@ -2,7 +2,7 @@ import {
   readSidebarRoutesExpanded,
   writeSidebarRoutesExpanded,
   SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY,
-} from "@n-apt/utils/sidebarRoutesExpanded";
+} from "@n-apt/app/layout/sidebarRoutesExpanded";
 
 describe("sidebarRoutesExpanded", () => {
   beforeEach(() => {

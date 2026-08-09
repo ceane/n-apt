@@ -3,7 +3,7 @@ import {
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
   getZoomedViewForCenterFrequency,
-} from "../../src/ts/utils/visualizationZoom";
+} from "@n-apt/spectrum/public/visualizationZoom";
 
 it("allows the VisualizerSliders zoom maximum to reach 1,125x", () => {
   expect(clampVizZoom(1125)).toBe(1125);

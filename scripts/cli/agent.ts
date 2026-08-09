@@ -1,4 +1,4 @@
-import { agentCapabilities, getAgentCapability, isToolAllowedForCli } from "../../src/ts/agents/capabilities";
+import { agentCapabilities, getAgentCapability, isToolAllowedForCli } from "@n-apt/agents/capabilities";
 
 export type CliToolDecision = { allowed: true } | { allowed: false; reason: "unknown" | "blocked" | "mutation_requires_opt_in" };
 

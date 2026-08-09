@@ -1,24 +1,24 @@
 import { configureStore } from "@reduxjs/toolkit";
 import websocketReducer, {
   updateDeviceState,
-} from "../../src/ts/redux/slices/websocketSlice";
+} from "@n-apt/redux/slices/websocketSlice";
 import {
   createIqFramePump,
   type IqFramePumpLifecycle,
-} from "../../src/ts/io/iqFramePump";
+} from "@n-apt/app/infrastructure/io/iqFramePump";
 import {
   __testQueueLiveDataForMiddleware,
   liveDataRef,
   resetWebSocketMiddlewareState,
-} from "../../src/ts/redux/middleware/websocketMiddleware";
+} from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   resolveLiveSourcePresentationPolicy,
   shouldClearPausedStandbyPresentation,
-} from "../../src/ts/hooks/liveSourceLifecycle";
+} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 import {
   resolveWebGpuStreamTransition,
   shouldResetVisualPresentationForSelection,
-} from "../../src/ts/utils/webgpuStreamReset";
+} from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 
 type Form = {
   length: number;

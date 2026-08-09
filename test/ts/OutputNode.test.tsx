@@ -2,11 +2,11 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
-import { OutputNode } from "@n-apt/components/react-flow/nodes/OutputNode";
+import { OutputNode } from "@n-apt/demodulation/react-flow/nodes/OutputNode";
 import { TestWrapper } from "./testUtils";
 
 // Mock useAuthentication hook
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     sessionToken: "test-token",
   }),

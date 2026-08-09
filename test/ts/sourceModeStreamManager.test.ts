@@ -5,7 +5,7 @@ import {
   type StreamMessage,
   type StreamOptions,
   type StreamTransport,
-} from "../../src/ts/streams/sourceModeStreamManager";
+} from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 
 const rxOptions = (centerFrequencyHz = 100_000_000): StreamOptions => ({
   mode: "rx",

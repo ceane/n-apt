@@ -2,7 +2,7 @@ import {
   inspectSignalFile,
   validateSignalInput,
   type SignalMetadata,
-} from "../../src/ts/utils/signalCli";
+} from "@n-apt/cli/signalCli";
 
 describe("signal CLI analysis", () => {
   const metadata: SignalMetadata = {

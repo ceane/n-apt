@@ -1,4 +1,4 @@
-import { presentSpikeAnalysis } from "@n-apt/components/fft/spikeAnalysisPresentation";
+import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentation";
 
 const analysis = {
   isNapt: true,

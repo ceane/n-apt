@@ -3,7 +3,7 @@ import {
   getAgentCapability,
   getAgentRoute,
   isToolAllowedForCli,
-} from "../../src/ts/agents/capabilities";
+} from "@n-apt/agents/capabilities";
 
 describe("agent capability manifest", () => {
   test("advertises every WebMCP tool with an execution policy", () => {

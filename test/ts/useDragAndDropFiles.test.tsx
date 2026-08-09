@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { useDragAndDropFiles } from "@n-apt/hooks/useDragAndDropFiles";
+import { useDragAndDropFiles } from "@n-apt/capture/hooks/useDragAndDropFiles";
 
 describe("useDragAndDropFiles", () => {
   it("extracts files from dataTransfer items on drop", () => {

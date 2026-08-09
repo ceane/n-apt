@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { ConnectionStatusSection } from "../../src/ts/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection } from "@n-apt/spectrum/sidebar/ConnectionStatusSection";
 import { TestWrapper } from "./testUtils";
 
 describe("ConnectionStatusSection file mode", () => {

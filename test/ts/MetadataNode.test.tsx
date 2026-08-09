@@ -1,4 +1,4 @@
-import { getMetadataPlaceholderCopy } from "@n-apt/components/react-flow/nodes/MetadataNode";
+import { getMetadataPlaceholderCopy } from "@n-apt/demodulation/react-flow/nodes/MetadataNode";
 
 describe("getMetadataPlaceholderCopy", () => {
   it("shows no file selected when there is no file", () => {

@@ -6,7 +6,7 @@ import {
   shouldUseSourceOwnedTxPreview,
   shouldRetainTxStandbyAfterStop,
   canToggleTransmitMode,
-} from "../../src/ts/utils/sourceModeManagement";
+} from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 
 describe("sourceModeManagement", () => {
   it("blocks starting TX without a Tx-suite node binding but permits stopping", () => {

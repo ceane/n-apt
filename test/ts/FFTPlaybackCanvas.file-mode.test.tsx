@@ -1,8 +1,8 @@
 import * as React from "react";
 import { render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTPlaybackCanvas from "../../src/ts/components/FFTPlaybackCanvas";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import FFTPlaybackCanvas from "@n-apt/spectrum/FFTPlaybackCanvas";
+import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 
 const fftAndWaterfallMock = jest.fn((_props: any) => (
   <div data-testid="fft-and-waterfall" />
@@ -10,7 +10,7 @@ const fftAndWaterfallMock = jest.fn((_props: any) => (
 const observedInitialFrames: unknown[] = [];
 const triggerSnapshotRenderMock = jest.fn();
 
-jest.mock("@n-apt/components", () => ({
+jest.mock("@n-apt/spectrum", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftAndWaterfallMock(props);
     observedInitialFrames.push(props.dataRef.current);
@@ -27,7 +27,7 @@ jest.mock("@n-apt/components", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
   useStitchingLogic: () => ({
     hasStitchedData: true,
     frequencyRange: { min: 137_000_000, max: 138_000_000 },
@@ -69,25 +69,25 @@ jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/usePlaybackAnimation", () => ({
+jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
   usePlaybackAnimation: () => ({
     animateFrame: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useChannelManagement", () => ({
+jest.mock("@n-apt/spectrum/hooks/useChannelManagement", () => ({
   useChannelManagement: () => ({
     switchChannel: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useSnapshot", () => ({
+jest.mock("@n-apt/capture/public/useSnapshot", () => ({
   useSnapshot: () => ({
     handleSnapshot: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useSpectrumStore: () => ({
     state: { activeSignalArea: "A" },
     toggleVisualizerPause: jest.fn(),

@@ -1,4 +1,4 @@
-import { resolveSampleRateSpec } from "@n-apt/utils/signals";
+import { resolveSampleRateSpec } from "@n-apt/math/signals";
 
 describe("resolveSampleRateSpec", () => {
   it("clamps stale channel-derived rates to the active source maximum", () => {

@@ -1,10 +1,10 @@
-import { buildSdrLimitMarkers } from "../../src/ts/utils/sdrLimitMarkers";
+import { buildSdrLimitMarkers } from "@n-apt/math/sdrLimitMarkers";
 
-jest.mock("../../src/ts/utils/frequency", () => ({
+jest.mock("@n-apt/math/frequency", () => ({
   formatFrequency: jest.fn((freq: number) => `${freq} MHz`),
 }));
 
-import { formatFrequency } from "../../src/ts/utils/frequency";
+import { formatFrequency } from "@n-apt/math/frequency";
 
 describe("SDR Limit Markers", () => {
   beforeEach(() => {

@@ -3,14 +3,14 @@ import {
   selectSdrControls,
   selectSourceInventory,
   selectSpectrumControls,
-} from "../../src/ts/redux/selectors/spectrumSelectors";
-import { selectDrawSignalState } from "../../src/ts/redux/selectors/performanceSelectors";
+} from "@n-apt/redux/selectors/spectrumSelectors";
+import { selectDrawSignalState } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   selectAnalysisViewState,
   selectSourceMode,
   selectSourceTransportSnapshot,
-} from "../../src/ts/redux/selectors/performanceSelectors";
-import { store } from "../../src/ts/redux/store";
+} from "@n-apt/redux/selectors/performanceSelectors";
+import { store } from "@n-apt/redux/store";
 
 describe("spectrum selector migration boundary", () => {
   test("selects only low-frequency spectrum controls", () => {

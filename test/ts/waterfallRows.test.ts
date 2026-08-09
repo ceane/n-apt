@@ -2,7 +2,7 @@ import {
   copyValidWaterfallRow,
   peakResampleWaterfallRow,
   synthesizeWaterfallTransitionRow,
-} from "@n-apt/utils/waterfallRows";
+} from "@n-apt/spectrum/utils/waterfallRows";
 
 describe("waterfallRows", () => {
   it("peak resamples synchronously so every paint gets a complete row", () => {

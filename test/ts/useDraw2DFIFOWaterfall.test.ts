@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { useDraw2DFIFOWaterfall } from "../../src/ts/hooks/useDraw2DFIFOWaterfall";
+import { useDraw2DFIFOWaterfall } from "@n-apt/spectrum/hooks/useDraw2DFIFOWaterfall";
 
 describe("useDraw2DFIFOWaterfall", () => {
   it("reuses its context and ImageData without measuring layout every frame", () => {

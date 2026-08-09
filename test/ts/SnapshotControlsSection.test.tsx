@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { SnapshotControlsSection } from "@n-apt/components/sidebar/SnapshotControlsSection";
+import { SnapshotControlsSection } from "@n-apt/capture/sidebar/SnapshotControlsSection";
 import { TestWrapper } from "./testUtils";
 
 describe("SnapshotControlsSection", () => {

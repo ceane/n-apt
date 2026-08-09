@@ -3,11 +3,11 @@ import { Provider } from "react-redux";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { configureStore } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";
-import { FmNode } from "../../src/ts/components/react-flow/nodes/FmNode";
-import demodReducer from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
-import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+import { FmNode } from "@n-apt/demodulation/react-flow/nodes/FmNode";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
+import websocketReducer from "@n-apt/redux/slices/websocketSlice";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 describe("FmNode station selection", () => {
   it("commits the complete FM selection before the range command reads Redux", () => {

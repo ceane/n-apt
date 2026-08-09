@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
-import { usePauseLogic } from "@n-apt/hooks/usePauseLogic";
-import { writePauseSnapshot } from "@n-apt/hooks/pauseSnapshotStorage";
+import { usePauseLogic } from "@n-apt/spectrum/hooks/usePauseLogic";
+import { writePauseSnapshot } from "@n-apt/capture/hooks/pauseSnapshotStorage";
 
 describe("usePauseLogic", () => {
   beforeEach(() => {

@@ -1,4 +1,4 @@
-import { resolveTxStandbyAnnouncement } from "@n-apt/streams/txStandbyAnnouncement";
+import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 
 describe("Tx standby control-plane announcement", () => {
   it("builds a source-owned standby status for a Tx mode handoff", () => {

@@ -4,7 +4,7 @@ import {
   assetImageUrl,
   assetPageUrl,
   _setBaseUrl,
-} from "../../src/md-preview/utils/asset-helpers";
+} from "@n-apt/app-article/utils/asset-helpers";
 
 describe("Asset Helpers", () => {
   const originalEnv = process.env;

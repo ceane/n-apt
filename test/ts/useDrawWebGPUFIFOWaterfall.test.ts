@@ -1,4 +1,4 @@
-import { copySpectrumIntoWaterfallRow } from "../../src/ts/hooks/useDrawWebGPUFIFOWaterfall";
+import { copySpectrumIntoWaterfallRow } from "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall";
 
 describe("copySpectrumIntoWaterfallRow", () => {
   it("copies a native-width spectrum without resampling", () => {

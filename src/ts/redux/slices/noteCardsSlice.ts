@@ -7,9 +7,9 @@ import {
 import type { RootState } from "@n-apt/redux/store";
 import type { PowerScale } from "@n-apt/redux/slices/spectrumSlice";
 import type { SourceMode } from "@n-apt/redux/slices/waterfallSlice";
-import { formatFrequency } from "@n-apt/utils/frequency";
-import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
-import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
+import { formatFrequency } from "@n-apt/math/frequency";
+import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
+import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 
 type SpectrumSliceState = RootState["spectrum"];
 type WaterfallSliceState = RootState["waterfall"];

@@ -5,6 +5,7 @@ import {
   RUST_HOT_RELOAD_BUILD_STALE_MS,
   RUST_HOT_RELOAD_WAIT_STALE_MS,
   summarizeCargoProgressChunk,
+  formatCargoBuildHeartbeat,
 } from "../../../scripts/build/cargoBuildProgress";
 
 describe("cargoBuildProgress", () => {
@@ -14,6 +15,26 @@ describe("cargoBuildProgress", () => {
    Compiling n-apt-backend v0.5.0 (/tmp/n-apt)
 `);
     expect(summary).toContain("Compiling n-apt-backend");
+  });
+
+  it("describes the n-apt-backend target during its long build", () => {
+    expect(
+      summarizeCargoProgressChunk(
+        "Building [=====================> ] 404/406: n-apt-backend",
+      ),
+    ).toBe("Compiling n-apt-backend (404/406)");
+  });
+
+  it("distinguishes the backend crate from its binary target", () => {
+    expect(summarizeCargoProgressChunk("Compiling n-apt-backend v0.5.0 (/tmp/n-apt)"))
+      .toBe("Compiling n-apt-backend crate");
+    expect(summarizeCargoProgressChunk("Building [====================] 405/406: n-apt-backend(bin)"))
+      .toBe("Building n-apt-backend binary (405/406)");
+  });
+
+  it("describes a quiet n-apt-backend rustc interval", () => {
+    expect(formatCargoBuildHeartbeat("Compiling n-apt-backend crate", 125_000))
+      .toBe("Compiling n-apt-backend crate — rustc is still processing this crate (2m 5s elapsed)");
   });
 
   it("ignores noisy non-progress lines", () => {

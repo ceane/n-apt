@@ -13,8 +13,8 @@ import {
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
   type LiveSourceLifecyclePhase,
-} from "@n-apt/hooks/liveSourceLifecycle";
-import type { SourcePresentationPhase } from "@n-apt/streams/sourcePresentationController";
+} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import type { SourcePresentationPhase } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 
 // The repository has the runtime `ws` dependency but intentionally does not
 // require its optional type package for the browser build.

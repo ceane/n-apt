@@ -4,7 +4,7 @@ import {
   computeEdgeResizedBand,
   getBandDragMode,
   getPointerOffsetWithinBandHz,
-} from "../../src/ts/utils/edgePanning";
+} from "@n-apt/spectrum/public/edgePanning";
 
 describe("getBandDragMode", () => {
   it("treats the middle of a selection as a whole-band drag", () => {

@@ -10,11 +10,11 @@ import { FrequencyRange } from "@n-apt/consts/types";
 import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
-} from "@n-apt/utils/frequency";
+} from "@n-apt/math/frequency";
 import {
   isHackrfDevice,
   isRtlSdrDevice,
-} from "@n-apt/utils/sdrSampleRateGuards";
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =

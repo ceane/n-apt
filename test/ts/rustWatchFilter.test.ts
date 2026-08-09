@@ -8,7 +8,7 @@ describe("Rust watcher path filter", () => {
     expect(isRustSourceChange(root, "server/main.rs")).toBe(true);
     expect(isRustSourceChange(root, "Cargo.toml")).toBe(true);
     expect(isRustSourceChange(root, "../ts/App.tsx")).toBe(false);
-    expect(isRustSourceChange(root, "/workspace/src/ts/App.tsx")).toBe(false);
+    expect(isRustSourceChange(root, "/workspace/src/ts/app/App.tsx")).toBe(false);
     expect(isRustSourceChange(root, "server/main.txt")).toBe(false);
   });
 });

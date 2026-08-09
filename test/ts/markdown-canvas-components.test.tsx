@@ -13,9 +13,9 @@ import {
   ImpedanceCanvas,
   TimeOfFlightCanvas,
   PhaseShiftingCanvas as PhaseShfitingCanvas,
-} from "../../src/md-preview/components/canvas";
-import { BodyAttenuationCanvas as BodyAttenuationWebGPUCanvas } from "../../src/md-preview/components/canvas";
-import remarkSignalCanvasBlocks from "../../src/md-preview/utils/remarkSignalCanvasBlocks";
+} from "@n-apt/app-article/components/canvas";
+import { BodyAttenuationCanvas as BodyAttenuationWebGPUCanvas } from "@n-apt/app-article/components/canvas";
+import remarkSignalCanvasBlocks from "@n-apt/app-article/utils/remarkSignalCanvasBlocks";
 
 // Mock Three.js and React Three Fiber
 jest.mock("three", () => ({

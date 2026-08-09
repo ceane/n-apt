@@ -8,6 +8,7 @@ import {
   CaptureStatus,
   SourceInfo,
   SourceStatus,
+  SignalsSdrDefaults,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 
@@ -119,6 +120,8 @@ export interface WebSocketState {
   sampleRateOptions: number[];
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  /** Effective SDR defaults loaded atomically from signals.yaml. */
+  signalsDefaults: SignalsSdrDefaults | null;
   sdrLimitMarkers: Array<{
     kind: string;
     freq_hz: number;
@@ -171,6 +174,7 @@ const initialState: WebSocketState = {
   sampleRateOptions: [],
   sampleRateHz: null,
   sdrSettings: null,
+  signalsDefaults: null,
   sdrLimitMarkers: [],
 
   spectrumFrames: [],

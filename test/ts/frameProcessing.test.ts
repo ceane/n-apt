@@ -5,7 +5,7 @@ import {
   resolveSpectrumWaveform,
   shouldPresentSpectrumFrameForRange,
   updateTemporalWaveform,
-} from "@n-apt/components/fft/frameProcessing";
+} from "@n-apt/spectrum/fft/frameProcessing";
 
 function createState() {
   return {

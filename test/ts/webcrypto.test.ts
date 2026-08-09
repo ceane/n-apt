@@ -7,7 +7,7 @@ import {
   decryptBinaryPayload,
   bytesToBase64,
   base64ToBytes,
-} from "../../src/ts/crypto/webcrypto";
+} from "@n-apt/crypto/webcrypto";
 import crypto from "node:crypto";
 
 describe("webcrypto service", () => {

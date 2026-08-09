@@ -10,6 +10,7 @@ import {
   isValidSourceInfoMessageEnhanced,
   isValidSourceStatusMessageEnhanced,
   isValidSourceSdrSettingsMessageEnhanced,
+  isValidSignalsDefaultsMessageEnhanced,
   isValidSourceErrorMessageEnhanced,
   isValidCaptureStatus,
   quickValidate,
@@ -283,6 +284,9 @@ export function processWebSocketMessageWithValidation(
 
       case "sdr_settings":
         return isValidSourceSdrSettingsMessageEnhanced(data);
+
+      case "signals_defaults":
+        return isValidSignalsDefaultsMessageEnhanced(data);
 
       case "error":
         return isValidSourceErrorMessageEnhanced(data);

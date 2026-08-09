@@ -120,3 +120,20 @@ build merely to validate a local edit.
 - Use `@n-apt/*` for scoped imports.
 - When adding Vite aliases for static assets, update Jest `moduleNameMapper` so
   tests resolve them through the shared file mock instead of parsing raw assets.
+
+## Learned User Preferences
+
+- Prefer frontend DSP for demodulation so audio/processing changes can be inspected and listened to in real time on the demod route.
+- Treat `liveSourceLifecycle` as the source of truth for live placeholder and stream lifecycle; FFT/waterfall canvases should only render those states.
+- When the backend is down or killed, show Server Down / unavailable — not an indefinite Loading FFT state or optimistic Loading flashes from polling.
+- Do not auto-start Tx when opening a Tx device into standby; standby is announce-only until the user explicitly starts transmit.
+- Keep build/hot-reload orchestration under `scripts/build`; leave in-app hot-reload notifications in the app code.
+
+## Learned Workspace Facts
+
+- Never lower the hardware sample rate below 3.2 MHz (N-APT Nyquist needs that width); narrower modes such as FM use a bandwidth slice/window inside that sample rate.
+- Span bandwidth is a selected slice within the sample-rate window, not the same thing as sample rate.
+- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center).
+- Agent guidance and related docs live under `.agents/` (including `.agents/AGENTS.md`).
+- HackRF One needs LNA/VGA/AMP gain plus baseband bandwidth-filter control, with persistence/control parity similar to other radio gain settings.
+- Avoid eagerly loading heavy `/transformers` / transformers.js paths on app startup; they can hang localhost load and should stay excluded or lazy-loaded.

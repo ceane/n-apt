@@ -10,61 +10,61 @@ import {
 // own feature behavior. Individual routes can move out of this bridge without
 // changing authentication or streaming ownership.
 export default [
-  layout("./framework/PublicRouteLayout.tsx", [
-    route("learn", "./framework/LearnSignalsRoute.tsx", {
+  layout("./app/routes/PublicRouteLayout.tsx", [
+    route("learn", "./app/routes/LearnSignalsRoute.tsx", {
       id: "learn-signals",
     }),
-    route("learn/:id", "./framework/LearnSignalsRoute.tsx", {
+    route("learn/:id", "./app/routes/LearnSignalsRoute.tsx", {
       id: "learn-signals-section",
     }),
-    route("terms", "./framework/LegalDocumentRoute.tsx", { id: "terms" }),
-    route("privacy", "./framework/LegalDocumentRoute.tsx", { id: "privacy" }),
-    route("license", "./framework/LegalDocumentRoute.tsx", { id: "license" }),
-    route("responsible-use", "./framework/LegalDocumentRoute.tsx", {
+    route("terms", "./app/routes/LegalDocumentRoute.tsx", { id: "terms" }),
+    route("privacy", "./app/routes/LegalDocumentRoute.tsx", { id: "privacy" }),
+    route("license", "./app/routes/LegalDocumentRoute.tsx", { id: "license" }),
+    route("responsible-use", "./app/routes/LegalDocumentRoute.tsx", {
       id: "responsible-use",
     }),
   ]),
-  layout("./framework/AuthenticatedRouteLayout.tsx", [
-    route("auth", "./framework/FullApplicationRoute.tsx", { id: "auth" }),
-    route("get-started", "./framework/GetStartedRoute.tsx"),
-    index("./framework/FullApplicationRoute.tsx", { id: "index" }),
-    route("visualizer", "./framework/FullApplicationRoute.tsx", {
+  layout("./app/routes/AuthenticatedRouteLayout.tsx", [
+    route("auth", "./app/routes/FullApplicationRoute.tsx", { id: "auth" }),
+    route("get-started", "./app/routes/GetStartedRoute.tsx"),
+    index("./app/routes/FullApplicationRoute.tsx", { id: "index" }),
+    route("visualizer", "./app/routes/FullApplicationRoute.tsx", {
       id: "visualizer",
     }),
-    route("demodulate", "./framework/FullApplicationRoute.tsx", {
+    route("demodulate", "./app/routes/FullApplicationRoute.tsx", {
       id: "demodulate",
     }),
-    route("demod", "./framework/FullApplicationRoute.tsx", { id: "demod" }),
-    route("settings", "./framework/FullApplicationRoute.tsx", {
+    route("demod", "./app/routes/FullApplicationRoute.tsx", { id: "demod" }),
+    route("settings", "./app/routes/FullApplicationRoute.tsx", {
       id: "settings",
     }),
-    route("draw-signal", "./framework/FullApplicationRoute.tsx", {
+    route("draw-signal", "./app/routes/FullApplicationRoute.tsx", {
       id: "draw-signal",
     }),
-    route("3d-model", "./framework/FullApplicationRoute.tsx", {
+    route("3d-model", "./app/routes/FullApplicationRoute.tsx", {
       id: "3d-model",
     }),
-    route("3d-model-gallery", "./framework/FullApplicationRoute.tsx", {
+    route("3d-model-gallery", "./app/routes/FullApplicationRoute.tsx", {
       id: "3d-model-gallery",
     }),
-    route("map-endpoints", "./framework/FullApplicationRoute.tsx", {
+    route("map-endpoints", "./app/routes/FullApplicationRoute.tsx", {
       id: "map-endpoints",
     }),
-    route("diagnostics/anti-aliasing", "./framework/FullApplicationRoute.tsx", {
+    route("diagnostics/anti-aliasing", "./app/routes/FullApplicationRoute.tsx", {
       id: "anti-aliasing",
     }),
-    route("pretext-demo", "./framework/FullApplicationRoute.tsx", {
+    route("pretext-demo", "./app/routes/FullApplicationRoute.tsx", {
       id: "pretext-demo",
     }),
-    route("vfo-grid-demo", "./framework/FullApplicationRoute.tsx", {
+    route("vfo-grid-demo", "./app/routes/FullApplicationRoute.tsx", {
       id: "vfo-grid-demo",
     }),
-    route("transformers", "./framework/FullApplicationRoute.tsx", {
+    route("transformers", "./app/routes/FullApplicationRoute.tsx", {
       id: "transformers",
     }),
-    route("game", "./framework/FullApplicationRoute.tsx", { id: "game" }),
-    route("questionnaire", "./framework/QuestionnaireRoute.tsx"),
-    route("x-archive-formatter", "./framework/XArchiveFormatterRoute.tsx"),
+    route("game", "./app/routes/FullApplicationRoute.tsx", { id: "game" }),
+    route("questionnaire", "./app/routes/QuestionnaireRoute.tsx"),
+    route("x-archive-formatter", "./app/routes/XArchiveFormatterRoute.tsx"),
   ]),
-  route("*", "./framework/NotFoundRoute.tsx"),
+  route("*", "./app/routes/NotFoundRoute.tsx"),
 ] satisfies RouteConfig;

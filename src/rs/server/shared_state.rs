@@ -1,15 +1,15 @@
-use redis::Commands;
 use std::collections::HashMap;
 use std::sync::atomic::{
-  AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+  AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::Notify;
 
-use super::types::{
-  CaptureArtifact, DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage,
-};
+use crate::app::readiness::ReadinessState;
+use crate::infrastructure::redis::{RedisReadiness, RedisStore};
+
+use super::types::{DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage};
 use super::utils::{load_available_spectrum, load_channels, load_sdr_settings};
 
 /// How often to probe for a newly attached RTL-SDR while running in mock mode.
@@ -36,6 +36,8 @@ pub struct HackRfInventoryDevice {
 
 /// Shared state visible to the async runtime (lock-free where possible)
 pub struct SharedState {
+  /// Backend readiness independent of hardware readiness.
+  pub readiness: AtomicU8,
   /// Latest spectrum data produced by the I/O thread
   pub latest_spectrum: Mutex<Option<(Vec<f32>, bool)>>,
   /// Whether the device is connected (set once at init, updated on fallback)
@@ -110,8 +112,10 @@ pub struct SharedState {
   /// Forces the live stream to emit noise when the frontend/backend
   /// asks for an out-of-bounds tune request.
   pub force_noise: AtomicBool,
-  /// Redis client for persistent metadata and sessions
-  pub redis_client: redis::Client,
+  /// Async Redis operations shared by HTTP handlers and workers.
+  pub redis_store: RedisStore,
+  /// Redis connectivity is tracked independently from HTTP and SDR health.
+  pub redis_readiness: AtomicU8,
 
   // ── Hotplug debounce state ──────────────────────────────────────────
   /// Consecutive health-check failures while in real-hardware mode.
@@ -151,10 +155,26 @@ impl SharedState {
     let passkey = unsafe_local_user_password();
     let encryption_key = crate::crypto::derive_key(&passkey);
     let sdr_settings = load_sdr_settings();
-    let redis_client = redis::Client::open(redis_url)
-      .expect("Failed to initialize Redis client");
+    let (redis_store, redis_readiness) = match redis::Client::open(redis_url) {
+      Ok(client) => (RedisStore::from_client(client), RedisReadiness::Unknown),
+      Err(error) => {
+        log::error!(
+          "Invalid Redis URL; Redis will remain unavailable: {error}"
+        );
+        let fallback_client = redis::Client::open("redis://127.0.0.1/")
+          .expect("built-in Redis fallback URL must be valid");
+        (
+          RedisStore::from_client_with_error(
+            fallback_client,
+            error.to_string(),
+          ),
+          RedisReadiness::Unavailable,
+        )
+      }
+    };
 
     Arc::new(SharedState {
+      readiness: AtomicU8::new(ReadinessState::Starting as u8),
       latest_spectrum: Mutex::new(None),
       device_connected: AtomicBool::new(false),
       supported_usb_device_count: AtomicU32::new(0),
@@ -195,7 +215,8 @@ impl SharedState {
       available_spectrum: load_available_spectrum()
         .map(|range| (range.min_freq, range.max_freq)),
       force_noise: AtomicBool::new(false),
-      redis_client,
+      redis_store,
+      redis_readiness: AtomicU8::new(redis_readiness as u8),
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
@@ -213,6 +234,22 @@ impl SharedState {
       tx_hop_rate_hz: Mutex::new(1.0),
       mock_tx_phase_accumulator: Mutex::new(0.0),
     })
+  }
+
+  pub fn set_readiness(&self, state: ReadinessState) {
+    self.readiness.store(state as u8, Ordering::Release);
+  }
+
+  pub fn readiness_state(&self) -> ReadinessState {
+    ReadinessState::from_u8(self.readiness.load(Ordering::Acquire))
+  }
+
+  pub fn set_redis_readiness(&self, state: RedisReadiness) {
+    self.redis_readiness.store(state as u8, Ordering::Release);
+  }
+
+  pub fn redis_readiness(&self) -> RedisReadiness {
+    RedisReadiness::from_u8(self.redis_readiness.load(Ordering::Acquire))
   }
 
   /// Publish the newest center-frequency request without taking the processor
@@ -438,95 +475,6 @@ impl SharedState {
   /// Increment the failure streak and return the new count.
   pub fn record_health_failure(&self) -> u32 {
     self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
-  }
-
-  /// Store an auth challenge nonce in Redis.
-  pub fn store_challenge(
-    &self,
-    challenge_id: &str,
-    nonce: [u8; 32],
-  ) -> Result<(), String> {
-    let mut conn = self
-      .redis_client
-      .get_connection()
-      .map_err(|e| format!("Redis connection failed: {}", e))?;
-
-    // Select DB 1 for metadata/auth
-    redis::cmd("SELECT")
-      .arg(1)
-      .query::<()>(&mut conn)
-      .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
-
-    let key = format!("challenge:{}", challenge_id);
-    let _: () = conn
-      .set_ex(key, nonce.to_vec(), 60) // 60s TTL
-      .map_err(|e| format!("Redis SETEX failed: {}", e))?;
-
-    Ok(())
-  }
-
-  /// Retrieve and remove an auth challenge nonce from Redis.
-  pub fn take_challenge(&self, challenge_id: &str) -> Option<[u8; 32]> {
-    let mut conn = self.redis_client.get_connection().ok()?;
-    let _ = redis::cmd("SELECT").arg(1).query::<()>(&mut conn).ok()?;
-
-    let key = format!("challenge:{}", challenge_id);
-    let nonce_vec: Option<Vec<u8>> = conn.get(&key).ok()?;
-
-    if let Some(vec) = nonce_vec {
-      let _: () = conn.del(key).ok()?; // Consume challenge
-      if vec.len() == 32 {
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&vec);
-        return Some(arr);
-      }
-    }
-    None
-  }
-
-  /// Store capture artifacts in Redis for a job.
-  pub fn store_capture_artifacts(
-    &self,
-    job_id: &str,
-    artifacts: &[CaptureArtifact],
-  ) -> Result<(), String> {
-    let mut conn = self
-      .redis_client
-      .get_connection()
-      .map_err(|e| format!("Redis connection failed: {}", e))?;
-
-    // Select DB 1 for metadata
-    redis::cmd("SELECT")
-      .arg(1)
-      .query::<()>(&mut conn)
-      .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
-
-    let key = format!("artifacts:{}", job_id);
-    let json = serde_json::to_string(artifacts)
-      .map_err(|e| format!("Serialization failed: {}", e))?;
-
-    let _: () = conn
-      .set(key, json)
-      .map_err(|e| format!("Redis SET failed: {}", e))?;
-
-    Ok(())
-  }
-
-  /// Retrieve capture artifacts from Redis for a job.
-  pub fn get_capture_artifacts(
-    &self,
-    job_id: &str,
-  ) -> Option<Vec<CaptureArtifact>> {
-    let mut conn = self.redis_client.get_connection().ok()?;
-    let _ = redis::cmd("SELECT").arg(1).query::<()>(&mut conn).ok()?;
-
-    let key = format!("artifacts:{}", job_id);
-    let json: Option<String> = conn.get(key).ok()?;
-
-    match json {
-      Some(s) => serde_json::from_str::<Vec<CaptureArtifact>>(&s).ok(),
-      None => None,
-    }
   }
 }
 

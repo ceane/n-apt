@@ -2,7 +2,7 @@ import { renderHook } from "@testing-library/react";
 import {
   useFftCanvasInvalidation,
   type FftCanvasInvalidationOptions,
-} from "@n-apt/hooks/useFftCanvasInvalidation";
+} from "@n-apt/spectrum/hooks/useFftCanvasInvalidation";
 
 const ref = <T,>(current: T) => ({ current });
 

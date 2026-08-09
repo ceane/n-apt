@@ -1,4 +1,4 @@
-import { calculateCenterFrequency } from "../../src/ts/utils/centerFrequency";
+import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
 
 // Mock the FrequencyRange type
 interface FrequencyRange {

@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use webauthn_rs::prelude::*;
 
 /// On-disk format for the credential store.
@@ -17,6 +18,10 @@ pub struct CredentialFile {
 
 /// Manages passkey credential persistence.
 pub struct CredentialStore {
+  paths: OnceLock<Result<CredentialPaths, String>>,
+}
+
+struct CredentialPaths {
   path: PathBuf,
   base_dir: PathBuf,
 }
@@ -24,54 +29,51 @@ pub struct CredentialStore {
 impl CredentialStore {
   /// Create a new credential store. Creates the directory if needed.
   pub fn new() -> Result<Self, String> {
-    let dir = dirs_path()?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
+    let store = Self::deferred();
+    store.resolve_paths()?;
+    Ok(store)
+  }
 
-    // RE-CANONICALIZE the final directory to ensure it's not a symlink to somewhere dangerous.
-    // This is a defense-in-depth measure against TOCTOU or crafted symlink attacks.
-    let dir = dir
-      .canonicalize()
-      .map_err(|e| format!("canonicalize dir: {e}"))?;
-
-    let path = dir.join("credentials.json");
-
-    // Final security check: ensure the path is still within the expected directory
-    // and doesn't contain any traversal components.
-    if !path.is_absolute() {
-      return Err("Credential path must be absolute".to_string());
+  /// Construct a store without touching the filesystem. Path validation and
+  /// directory creation happen on the first credential operation.
+  pub fn deferred() -> Self {
+    Self {
+      paths: OnceLock::new(),
     }
-    if !path.starts_with(&dir) {
-      return Err("Credential path escaped base directory".to_string());
-    }
-    if path
-      .components()
-      .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-      return Err("Credential path contains invalid components".to_string());
-    }
+  }
 
-    Ok(Self {
-      path,
-      base_dir: dir,
-    })
+  #[cfg(test)]
+  fn paths_initialized(&self) -> bool {
+    self.paths.get().is_some()
+  }
+
+  fn resolve_paths(&self) -> Result<&CredentialPaths, String> {
+    self
+      .paths
+      .get_or_init(build_paths)
+      .as_ref()
+      .map_err(Clone::clone)
   }
 
   /// Load credentials from disk. Returns default if file doesn't exist.
   pub fn load(&self) -> CredentialFile {
+    let Ok(paths) = self.resolve_paths() else {
+      return CredentialFile::default();
+    };
     // SECURITY: Explicitly re-validate path safety before reading.
     // This ensures that even if the struct was tampered with, we don't
     // read from an uncontrolled location.
-    if !self.path.starts_with(&self.base_dir)
-      || self
+    if !paths.path.starts_with(&paths.base_dir)
+      || paths
         .path
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-      log::error!("Refusing to read from unsafe path: {:?}", self.path);
+      log::error!("Refusing to read from unsafe path: {:?}", paths.path);
       return CredentialFile::default();
     }
 
-    match std::fs::read_to_string(&self.path) {
+    match std::fs::read_to_string(&paths.path) {
       Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
       Err(_) => CredentialFile::default(),
     }
@@ -79,19 +81,23 @@ impl CredentialStore {
 
   /// Save credentials to disk.
   pub fn save(&self, creds: &CredentialFile) -> Result<(), String> {
+    let paths = self.resolve_paths()?;
     // SECURITY: Explicitly re-validate path safety before writing.
-    if !self.path.starts_with(&self.base_dir)
-      || self
+    if !paths.path.starts_with(&paths.base_dir)
+      || paths
         .path
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-      return Err(format!("Refusing to write to unsafe path: {:?}", self.path));
+      return Err(format!(
+        "Refusing to write to unsafe path: {:?}",
+        paths.path
+      ));
     }
 
     let json = serde_json::to_string_pretty(creds)
       .map_err(|e| format!("serialize: {e}"))?;
-    std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))?;
+    std::fs::write(&paths.path, json).map_err(|e| format!("write: {e}"))?;
     Ok(())
   }
 
@@ -117,6 +123,36 @@ impl CredentialStore {
       .push(passkey);
     self.save(&creds)
   }
+}
+
+fn build_paths() -> Result<CredentialPaths, String> {
+  let dir = dirs_path()?;
+  std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
+
+  // Re-canonicalize the final directory to ensure it is not a symlink to an
+  // unexpected location. This preserves the eager store's security checks.
+  let dir = dir
+    .canonicalize()
+    .map_err(|e| format!("canonicalize dir: {e}"))?;
+  let path = dir.join("credentials.json");
+
+  if !path.is_absolute() {
+    return Err("Credential path must be absolute".to_string());
+  }
+  if !path.starts_with(&dir) {
+    return Err("Credential path escaped base directory".to_string());
+  }
+  if path
+    .components()
+    .any(|c| matches!(c, std::path::Component::ParentDir))
+  {
+    return Err("Credential path contains invalid components".to_string());
+  }
+
+  Ok(CredentialPaths {
+    path,
+    base_dir: dir,
+  })
 }
 
 /// Get the n-apt config directory path (~/.n-apt).
@@ -247,3 +283,14 @@ pub async fn require_session(
 }
 
 pub mod auth_handlers;
+
+#[cfg(test)]
+mod tests {
+  use super::CredentialStore;
+
+  #[test]
+  fn deferred_credential_store_keeps_path_setup_lazy() {
+    let store = CredentialStore::deferred();
+    assert!(!store.paths_initialized());
+  }
+}

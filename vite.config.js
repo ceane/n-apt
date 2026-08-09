@@ -12,6 +12,49 @@ import { fileURLToPath } from 'node:url';
 // import { reactDevtools } from 'agent-react-devtools/vite';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
+const scopedFrontendRoots = {
+  app: "src/ts/app",
+  ui: "src/ts/shared/ui",
+  math: "src/ts/shared/math",
+  layout: "src/ts/shared/layout",
+  spectrum: "src/ts/features/spectrum",
+  demodulation: "src/ts/features/demodulation",
+  capture: "src/ts/features/capture",
+  transmit: "src/ts/features/transmit",
+  maps: "src/ts/features/maps",
+  learn: "src/ts/features/learn",
+  "three-d": "src/ts/features/three-d",
+  "draw-signal": "src/ts/features/draw-signal",
+  classification: "src/ts/features/classification",
+  settings: "src/ts/features/settings",
+  "sdr-test": "src/ts/features/sdr-test",
+  agents: "src/ts/agents",
+  cli: "src/ts/cli",
+  consts: "src/ts/consts",
+  crypto: "src/ts/crypto",
+  redux: "src/ts/redux",
+  types: "src/ts/types",
+  validation: "src/ts/validation",
+  workers: "src/ts/workers",
+  shaders: "src/ts/shaders",
+};
+
+const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
+  ([namespace, relativeRoot]) => {
+    const root = path.resolve(dirname, relativeRoot);
+    return [
+      {
+        find: new RegExp(`^\\/?@n-apt/${namespace}$`),
+        replacement: root,
+      },
+      {
+        find: new RegExp(`^\\/?@n-apt/${namespace}/(.*)$`),
+        replacement: `${root}/$1`,
+      },
+    ];
+  },
+);
+
 const resolveGitRoot = () => {
   try {
     const gitCommonDir = execSync("git rev-parse --git-common-dir", {
@@ -155,6 +198,12 @@ const markdownForAgentsPlugin = () => ({
 
 export default defineConfig(({ mode }) => {
   const useFrameworkViteRoot = process.env.NAPT_REACT_ROUTER === "1";
+  const backendProxyTarget =
+    process.env.NAPT_BACKEND_PROXY_URL ?? "http://localhost:8765";
+  const backendWebSocketProxyTarget = backendProxyTarget.replace(
+    /^http:/,
+    "ws:",
+  );
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
     Object.entries(env).filter(
@@ -170,11 +219,10 @@ export default defineConfig(({ mode }) => {
     styledComponentsFixPlugin(),
     rebuildStatusPlugin(),
     markdownForAgentsPlugin(),
-    react({
+    ...(!useFrameworkViteRoot ? [react({
       // Configure React Fast Refresh to handle styled-components better
       jsxRuntime: 'automatic',
-      // Ensure JSX is parsed correctly
-    }),
+    })] : []),
     ...(useFrameworkViteRoot ? [reactRouter()] : []),
     glsl({
       defaultExtension: 'wgsl',
@@ -203,7 +251,7 @@ export default defineConfig(({ mode }) => {
     // Lightning CSS minifier. The app's global @font-face declarations are
     // valid PostCSS input but are rejected by Lightning CSS's minify pass.
     cssMinify: 'esbuild',
-    outDir: "./dist",
+        outDir: path.resolve(dirname, "dist"),
     rollupOptions: {
       output: {
         manualChunks: (id) => {
@@ -218,12 +266,24 @@ export default defineConfig(({ mode }) => {
     },
   },
   resolve: {
-    alias: [{
-      find: /^\/?@n-apt\/md-signals\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-signals")}/$1`
+    alias: [...scopedFrontendAliases, {
+      find: /^\/?@n-apt\/app-article$/,
+      replacement: path.resolve(dirname, "src/app-article")
     }, {
-      find: /^\/?@n-apt\/md-preview\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+      find: /^\/?@n-apt\/app-article\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-article")}/$1`
+    }, {
+      find: /^\/?@n-apt\/app-game$/,
+      replacement: path.resolve(dirname, "src/app-game")
+    }, {
+      find: /^\/?@n-apt\/app-game\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-game")}/$1`
+    }, {
+      find: /^\/?@n-apt\/app-legal$/,
+      replacement: path.resolve(dirname, "src/app-legal")
+    }, {
+      find: /^\/?@n-apt\/app-legal\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-legal")}/$1`
     }, {
       find: /^\/?@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
@@ -234,9 +294,6 @@ export default defineConfig(({ mode }) => {
       find: /^\/?@n-apt\/webmcp\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/agents/webmcp/$1")
     }, {
-      find: /^\/?@n-apt\/tracked-interactive\/(.*)$/,
-      replacement: path.resolve(dirname, "src/tracked-interactive/$1")
-    }, {
       find: /^\/?@n-apt\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/$1")
     }, {
@@ -246,17 +303,16 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5173,
-    hmr: {
-      protocol: 'ws',
-      host: 'localhost',
-      port: 5173,
-    },
+    // Let Vite bind HMR to the actual dev-server port. A fixed 5173 HMR
+    // endpoint breaks `vite --port <other-port>` and leaves the Router SPA
+    // hydration fallback stuck on Loading N-APT.
+    hmr: true,
     fs: {
       allow: fsAllow,
     },
     proxy: {
       "/ws": {
-        target: "ws://localhost:8765",
+        target: backendWebSocketProxyTarget,
         ws: true,
         changeOrigin: true,
         timeout: 10000,
@@ -274,7 +330,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/auth": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -303,7 +359,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/status": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -320,7 +376,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/logout": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -337,7 +393,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/capture": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -354,7 +410,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/api": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {

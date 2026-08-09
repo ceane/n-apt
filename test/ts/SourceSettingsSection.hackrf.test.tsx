@@ -1,9 +1,9 @@
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import { SourceSettingsSection } from "@n-apt/spectrum/sidebar/SourceSettingsSection";
 import { TestWrapper } from "./testUtils";
 
-jest.mock("@n-apt/components/ui/Tooltip", () => ({
+jest.mock("@n-apt/ui/Tooltip", () => ({
   Tooltip: ({
     title,
     content,

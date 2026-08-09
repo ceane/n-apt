@@ -29,19 +29,19 @@ jest.mock("@xyflow/react", () => ({
   }),
 }));
 
-jest.mock("../../src/ts/contexts/DemodContext", () => ({
-  useDemod: () => ({
+jest.mock("@n-apt/demodulation/context/DemodAudioContext", () => ({
+  useDemodAudio: () => ({
     audioPlayback: {
       stopAudio: jest.fn(),
     },
   }),
 }));
 
-import { RadioNode } from "../../src/ts/components/react-flow/nodes/RadioNode";
-import demodReducer from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
-import themeReducer from "../../src/ts/redux/slices/themeSlice";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+import { RadioNode } from "@n-apt/demodulation/react-flow/nodes/RadioNode";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
+import themeReducer from "@n-apt/redux/slices/themeSlice";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const theme = buildAppTheme({
   accentColor: "#00d4ff",

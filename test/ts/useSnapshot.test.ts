@@ -6,18 +6,20 @@ import {
   buildSnapshotStatsLines,
   buildFastSpectrumCanvas,
   buildFastWaterfallCanvas,
+  createFastFrameScratch,
   pinFastRecordingOptions,
   renderSpectrumSnapshotCanvas,
   renderWaterfallSnapshotCanvas,
   useSnapshot,
-} from "@n-apt/hooks/useSnapshot";
-import { fmtFreq } from "@n-apt/utils/rendering/formatters";
-import { fmtFreqTick } from "@n-apt/utils/rendering/formatters";
+} from "@n-apt/capture/hooks/useSnapshot";
+import { fmtFreq } from "@n-apt/layout/rendering/formatters";
+import { fmtFreqTick } from "@n-apt/layout/rendering/formatters";
+import { formatTimestampWithTimezone } from "@n-apt/math/formatters";
 import { renderHook, act } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
 
-jest.mock("@n-apt/components/ui/Theme", () => ({
-  ...jest.requireActual("@n-apt/components/ui/Theme"),
+jest.mock("@n-apt/ui/Theme", () => ({
+  ...jest.requireActual("@n-apt/ui/Theme"),
   useResolvedThemeMode: jest.fn(() => "dark"),
 }));
 
@@ -59,6 +61,14 @@ describe("fmtFreqTick", () => {
 
   it("keeps sub-MHz GHz ticks distinct", () => {
     expect(fmtFreqTick(1_000_500_000, 250_000)).toBe("1.0005GHz");
+  });
+});
+
+describe("formatTimestampWithTimezone", () => {
+  it("wraps the timezone in parentheses for snapshot labels", () => {
+    expect(formatTimestampWithTimezone("2026-05-18T16:05:26.000Z")).toBe(
+      "2026-05-18 09:05:26 (America/Los_Angeles)",
+    );
   });
 });
 
@@ -410,6 +420,83 @@ describe("fast snapshot canvases", () => {
     ).toBe(true);
   });
 
+  it("blits the live waterfall instead of recoloring the texture while recording", () => {
+    const waterfallGpu = document.createElement("canvas");
+    waterfallGpu.width = 320;
+    waterfallGpu.height = 180;
+    const scratch = createFastFrameScratch();
+
+    global.clearCanvasCalls?.();
+    buildFastWaterfallCanvas(
+      {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        vizZoom: 1,
+        vizPanOffset: 0,
+        dbMin: -120,
+        dbMax: 0,
+        waterfallTextureSnapshot: new Uint8Array(
+          new Float32Array([-30, -40]).buffer,
+        ),
+        waterfallTextureMeta: { width: 1, height: 2, writeRow: 1 },
+      } as any,
+      320,
+      180,
+      { min: 18_000, max: 3_218_000 },
+      { waterfallGpu, waterfallOverlay: null },
+      {
+        background: "#000000",
+        grid: "#333333",
+        tick: "#777777",
+        label: "#777777",
+        center: "#fefefe",
+      },
+      { scratch },
+    );
+
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) => call.name === "putImageData",
+      ),
+    ).toBe(false);
+  });
+
+  it("reuses scratch canvases across recorded frames", () => {
+    const scratch = createFastFrameScratch();
+    const snapshotData = {
+      frequencyRange: { min: 18_000, max: 3_218_000 },
+      waveform: new Float32Array([-90, -60, -70, -50]),
+      vizZoom: 1,
+      vizPanOffset: 0,
+      dbMin: -120,
+      dbMax: 0,
+    } as any;
+    const theme = {
+      bg: "#000000",
+      grid: "#333333",
+      line: "#ffffff",
+      shadow: "#111111",
+      text: "#777777",
+      hwLine: "#999999",
+      hwText: "#aaaaaa",
+      cfText: "#fefefe",
+    };
+
+    const first = buildFastSpectrumCanvas(snapshotData, 320, 180, theme, null, {
+      scratch,
+    });
+    const second = buildFastSpectrumCanvas(
+      snapshotData,
+      320,
+      180,
+      theme,
+      null,
+      { scratch },
+    );
+
+    expect(first).toBeTruthy();
+    expect(second).toBe(first);
+  });
+
   it("uses the snapshot colormap when recoloring raw waterfall textures", () => {
     const canvas = renderWaterfallSnapshotCanvas(
       {
@@ -635,7 +722,7 @@ describe("buildSnapshotStatsLines", () => {
   it("orders stats lines and truncates frequencies", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       channelName: "A",
       whole: false,
@@ -647,7 +734,7 @@ describe("buildSnapshotStatsLines", () => {
 
     expect(lines).toEqual([
       "4.38MHz – 4.39MHz",
-      "2026-05-18 09:05:26 America/Los_Angeles",
+      "2026-05-18 09:05:26 (America/Los_Angeles)",
       "Device Name: Mock APT SDR",
       "Onscreen / partial Channel A",
       "FFT size (# of points): 2048",
@@ -658,7 +745,7 @@ describe("buildSnapshotStatsLines", () => {
   it("uses trimmed MHz formatting for snapshot ranges", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 2_201_269, max: 2_206_731 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       channelName: "A",
       whole: false,
@@ -674,7 +761,7 @@ describe("buildSnapshotStatsLines", () => {
   it("uses whole-channel label when whole is true", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       channelName: "X",
       whole: true,
@@ -691,7 +778,7 @@ describe("buildSnapshotStatsLines", () => {
   it("uses whole-channel label when modeLabel says Whole Channel", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       channelName: "X",
       whole: false,
@@ -708,7 +795,7 @@ describe("buildSnapshotStatsLines", () => {
   it("uses whole-channel label when the rendered span covers the active channel", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 24_720_000, max: 29_880_000 },
-      timestampLabel: "2026-05-28 16:16:06 America/Los_Angeles",
+      timestampLabel: "2026-05-28 16:16:06 (America/Los_Angeles)",
       deviceName: "HackRF One",
       channelName: "B",
       activeSignalAreaBounds: { min: 25_000_000, max: 29_800_000 },
@@ -725,7 +812,7 @@ describe("buildSnapshotStatsLines", () => {
   it("lists each channel visible in the snapshot range", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 20_500_000, max: 30_000_000 },
-      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      timestampLabel: "2026-06-29 12:00:00 (America/Los_Angeles)",
       deviceName: "HackRF One",
       channelName: "C",
       activeSignalAreaBounds: { min: 20_000_000, max: 25_000_000 },
@@ -746,7 +833,7 @@ describe("buildSnapshotStatsLines", () => {
   it("marks a straddled channel partial when only part of it is visible", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 22_000_000, max: 27_000_000 },
-      timestampLabel: "2026-06-29 12:00:00 America/Los_Angeles",
+      timestampLabel: "2026-06-29 12:00:00 (America/Los_Angeles)",
       deviceName: "HackRF One",
       channelName: "C",
       signalAreaBounds: {
@@ -765,7 +852,7 @@ describe("buildSnapshotStatsLines", () => {
   it("does not infer whole-channel just because an RTL-SDR snapshot spans the hardware sample rate", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 100_000_000, max: 103_200_000 },
-      timestampLabel: "2026-06-03 12:00:00 America/Los_Angeles",
+      timestampLabel: "2026-06-03 12:00:00 (America/Los_Angeles)",
       deviceName: "RTL-SDR Blog V4",
       channelName: "A",
       activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
@@ -784,7 +871,7 @@ describe("buildSnapshotStatsLines", () => {
   it("falls back to Onscreen when no channel name is present", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       whole: false,
       fftSize: 2048,
@@ -799,7 +886,7 @@ describe("buildSnapshotStatsLines", () => {
   it("shows non-rectangular FFT windows", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       deviceName: "Mock APT SDR",
       channelName: "A",
       whole: false,
@@ -815,7 +902,7 @@ describe("buildSnapshotStatsLines", () => {
   it("falls back to the legacy gain label when numbers are unavailable", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 America/Los_Angeles",
+      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
       whole: false,
       fftSize: 2048,
       fftWindow: "Rectangular",

@@ -2,7 +2,7 @@ import {
   resolveSourceDisplaySampleRate,
   resolveSourceDisplaySignalArea,
   resolveWholeChannelSampleRate,
-} from "@n-apt/utils/sourceSignalDisplay";
+} from "@n-apt/app/infrastructure/visualization/sourceSignalDisplay";
 
 const channels = [
   { label: "A", min_hz: 18_000, max_hz: 4_390_000 },

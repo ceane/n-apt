@@ -1,4 +1,4 @@
-import { getTxSpectrumRevisionKey } from "../../src/ts/components/FFTCanvas";
+import { getTxSpectrumRevisionKey } from "@n-apt/spectrum/FFTCanvas";
 
 describe("getTxSpectrumRevisionKey", () => {
   it("changes when the TX sample rate changes", () => {

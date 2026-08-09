@@ -33,31 +33,32 @@ import {
   isValidSourceInfoMessage,
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
+  isValidSignalsDefaultsMessage,
   isValidSourceErrorMessage,
   isValidActiveSourceMessage,
 } from "@n-apt/validation";
 import {
   SourceVisualizationRuntime,
   sourceSpectrumRuntime,
-} from "@n-apt/visualization/sourceVisualizationRuntime";
-import { isMockTxSource } from "@n-apt/utils/deviceCapabilities";
+} from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
+import { isMockTxSource } from "@n-apt/app/infrastructure/services/deviceCapabilities";
 import {
   isSourceStreamAvailable,
   resolveSourceModeManagement,
-} from "@n-apt/utils/sourceModeManagement";
-import { filterLiveFramesForSource } from "@n-apt/utils/liveSourcePresentation";
+} from "@n-apt/app/infrastructure/streams/sourceModeManagement";
+import { filterLiveFramesForSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 import {
   createSourceModeStreamManager,
   type StreamSubscription,
   type StreamOptions,
-} from "@n-apt/streams/sourceModeStreamManager";
-import { createMultiplexedStreamTransport } from "@n-apt/streams/multiplexedStreamTransport";
+} from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
+import { createMultiplexedStreamTransport } from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
 import {
   createSourcePresentationController,
   type SourcePresentationController,
-} from "@n-apt/streams/sourcePresentationController";
-import { resolveTxStandbyAnnouncement } from "@n-apt/streams/txStandbyAnnouncement";
-import { demodFrameQueue } from "@n-apt/visualization/demodFrameQueue";
+} from "@n-apt/app/infrastructure/streams/sourcePresentationController";
+import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
+import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -103,8 +104,8 @@ export const isBoundTxPreviewStandby = ({
   activeSourceId === boundTxSourceId &&
   sourceStatus === "standby";
 
-export { decodeIqFrameEnvelope } from "@n-apt/io/iqStreamProtocol";
-export { createIqFramePump } from "@n-apt/io/iqFramePump";
+export { decodeIqFrameEnvelope } from "@n-apt/app/infrastructure/io/iqStreamProtocol";
+export { createIqFramePump } from "@n-apt/app/infrastructure/io/iqFramePump";
 
 const isDemodEligibleLiveFrame = (frame: any): boolean =>
   !!frame?.source_id &&
@@ -468,7 +469,7 @@ export const normalizeFrequencyRangeMessageData = (
     return data;
   }
 
-  const normalized = { ...(data ?? {}) };
+  const normalized = { ...data };
   const integerFields = [
     "min_hz",
     "max_hz",
@@ -1245,7 +1246,7 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
 const handleManagedStreamEvent = (
   sourceId: string,
   mode: "rx" | "tx",
-  event: import("@n-apt/streams/sourceModeStreamManager").StreamEvent,
+  event: import("@n-apt/app/infrastructure/streams/sourceModeStreamManager").StreamEvent,
   dispatch: Dispatch,
   getState: () => any,
 ): void => {
@@ -1702,6 +1703,22 @@ const processMessage = (
     return;
   }
 
+  if (parsedData?.type === "signals_defaults") {
+    if (!isValidSignalsDefaultsMessage(parsedData)) {
+      console.error("Signals defaults message validation failed:", parsedData);
+      return;
+    }
+
+    // Keep YAML defaults as a distinct, atomic snapshot. Mutable source
+    // settings and user preferences remain separate from this read-only data.
+    dispatch(
+      updateDeviceState({
+        signalsDefaults: parsedData.sdr,
+      }),
+    );
+    return;
+  }
+
   // Status messages (backend-driven device state)
   if (parsedData?.type === "source_info") {
     if (!isValidSourceInfoMessage(parsedData)) {
@@ -1944,7 +1961,7 @@ const processMessage = (
         ? deriveLegacyStateFromSource(activeSource)
         : {};
       const sourceStatuses = {
-        ...(getState().websocket.sourceStatuses ?? {}),
+        ...getState().websocket.sourceStatuses,
       };
       sourceStatuses[parsedData.source_id] =
         nextSources.find((source) => source.id === parsedData.source_id)

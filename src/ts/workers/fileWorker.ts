@@ -2,8 +2,9 @@
  * File Processing Worker - Handles file I/O and stitching operations
  */
 
-import { parseFrequency } from "../utils/frequency";
-import { base64ToBytes } from "../crypto/webcrypto";
+import { parseFrequency } from "@n-apt/math/frequency";
+import { base64ToBytes } from "@n-apt/crypto/webcrypto";
+import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 
 let currentFftSize = 8192;
 
@@ -280,7 +281,7 @@ function processToSpectrum(
   fftSize: number = 8192,
 ): number[] {
   const spectrum = Array.from({ length: fftSize }, () => -150);
-  const windowSize = fftSize * 2;
+  const windowSize = fftSize * BYTES_PER_IQ_SAMPLE.u8;
   const windowStep = windowSize * 4;
   const maxChunks = 4;
   const maxStart = Math.max(0, rawData.length - windowSize);
@@ -1167,7 +1168,7 @@ self.onmessage = async function (e) {
         }
 
         const internalFftSize = fftSize || currentFftSize;
-        const chunkSize = internalFftSize * 2; // IQ pair per bin
+        const chunkSize = internalFftSize * BYTES_PER_IQ_SAMPLE.u8;
         const maxFrames = Math.max(
           1,
           Math.min(

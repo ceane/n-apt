@@ -1,5 +1,7 @@
 import {
   clampFrequencyHz,
+  clampFrequencyRangeToBounds,
+  clampCenteredFrequencyRange,
   clampCenteredFrequencyRangeToZeroHz,
   getBandwidthEndHz,
   getBandwidthStartHz,
@@ -14,7 +16,7 @@ import {
   formatChannelFreq,
   roundDbValue,
   type FormatFrequencyOptions,
-} from "@n-apt/utils/frequency";
+} from "@n-apt/math/frequency";
 
 describe("Frequency Utilities", () => {
   test("prefers the VFO center when the visible range is asymmetric", () => {
@@ -25,6 +27,16 @@ describe("Frequency Utilities", () => {
   test("keeps the Mock Tx view centered on the VFO while tuning", () => {
     expect(resolveMockTxMonitorCenterHz(2_022_000, 1_600_000)).toBe(2_022_000);
     expect(resolveMockTxMonitorCenterHz(Number.NaN, 1_600_000)).toBe(1_600_000);
+  });
+
+  test("can relax only the lower frequency bound while retaining the upper bound", () => {
+    expect(
+      clampFrequencyRangeToBounds(
+        { min: -500, max: 500 },
+        { min: 0, max: 1_000 },
+        { minimumFrequencyHz: Number.NEGATIVE_INFINITY },
+      ),
+    ).toEqual({ min: -500, max: 500 });
   });
 
   describe("formatFrequency", () => {
@@ -210,6 +222,15 @@ describe("Frequency Utilities", () => {
       expect(clampCenteredFrequencyRangeToZeroHz(0, 120_000)).toEqual({
         min: 0,
         max: 120_000,
+      });
+    });
+
+    test("can preserve a centered range below zero when baseband mirroring is enabled", () => {
+      expect(
+        clampCenteredFrequencyRange(100, 1_000, Number.NEGATIVE_INFINITY),
+      ).toEqual({
+        min: -400,
+        max: 600,
       });
     });
 

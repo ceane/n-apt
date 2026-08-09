@@ -1,7 +1,7 @@
 import {
   createSpectrumTransport,
   type SpectrumTransportCommands,
-} from "../../src/ts/hooks/useSpectrumTransport";
+} from "@n-apt/spectrum/hooks/useSpectrumTransport";
 
 describe("spectrum transport command boundary", () => {
   test("exposes only transport commands", () => {

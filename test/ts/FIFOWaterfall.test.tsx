@@ -2,9 +2,9 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
-import { FIFOWaterfall } from "../../src/ts/components/FIFOWaterfall";
+import { FIFOWaterfall } from "@n-apt/spectrum/FIFOWaterfall";
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => {
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => {
   const drawWebGPUFIFOWaterfall = jest.fn(() => false);
   return {
     __mockDrawWebGPUFIFOWaterfall: drawWebGPUFIFOWaterfall,
@@ -32,6 +32,69 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfall", () => {
+  it.each(["immutable", "accretive"] as const)(
+    "advances %s history for a new live frame even when the source reuses its row buffer",
+    async (waterfallHistoryFill) => {
+      const listenerRef: {
+        current: ((waveform: Float32Array) => void) | null;
+      } = { current: null };
+      const resampler = jest.fn(
+        (
+          data: ArrayLike<number>,
+          targetLength: number,
+          output?: Float32Array,
+        ) => {
+          const target = output ?? new Float32Array(targetLength);
+          target.fill(Number(data[0] ?? 0));
+          return target;
+        },
+      );
+      const waveform = new Float32Array([-90, -70]);
+
+      render(
+        <ThemeProvider theme={mockTheme}>
+          <FIFOWaterfall
+            width={320}
+            height={180}
+            waveform={null}
+            waveformFeed={{
+              getCurrent: () => null,
+              subscribe: (listener) => {
+                listenerRef.current = listener;
+                return () => {
+                  listenerRef.current = null;
+                };
+              },
+            }}
+            frequencyRange={{ min: 0, max: 1 }}
+            retuneSmear={0}
+            isPaused={false}
+            isVisible
+            forceCanvas2D
+            waterfallHistoryFill={waterfallHistoryFill}
+            historyZoom={waterfallHistoryFill === "immutable" ? 8 : 1}
+            performScalarResampling={resampler}
+          />
+        </ThemeProvider>,
+      );
+
+      act(() => listenerRef.current?.(waveform));
+      await waitFor(() =>
+        expect(resampler.mock.calls.length).toBeGreaterThanOrEqual(1),
+      );
+      const firstFrameCallCount = resampler.mock.calls.length;
+
+      act(() => {
+        waveform[0] = -55;
+        listenerRef.current?.(waveform);
+      });
+
+      await waitFor(() =>
+        expect(resampler.mock.calls.length).toBeGreaterThan(firstFrameCallCount),
+      );
+    },
+  );
+
   it("does not append the current row again for immutable zoom-only redraws", async () => {
     const resampler = jest.fn(
       (
@@ -85,6 +148,56 @@ describe("FIFOWaterfall", () => {
       ),
     );
     expect(resampler).toHaveBeenCalledTimes(1);
+  });
+
+  it("advances immutable prop-driven history when a reused row buffer changes", async () => {
+    const resampler = jest.fn(
+      (
+        _data: ArrayLike<number>,
+        targetLength: number,
+        output?: Float32Array,
+      ) => output ?? new Float32Array(targetLength),
+    );
+    const waveform = new Float32Array([-90, -70]);
+    const view = render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={waveform}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          waterfallHistoryFill="immutable"
+          historyZoom={1}
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(resampler).toHaveBeenCalledTimes(1));
+
+    waveform[0] = -55;
+    view.rerender(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={waveform}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          forceCanvas2D
+          waterfallHistoryFill="immutable"
+          historyZoom={8}
+          performScalarResampling={resampler}
+        />
+      </ThemeProvider>,
+    );
+
+    await waitFor(() => expect(resampler).toHaveBeenCalledTimes(2));
   });
 
   it("draws one standby preview frame before freezing a paused feed", async () => {
@@ -217,7 +330,7 @@ describe("FIFOWaterfall", () => {
 
   it("can force the Canvas2D renderer for embedded flow nodes", async () => {
     const { __mockDrawWebGPUFIFOWaterfall: drawWebGPU } = jest.requireMock(
-      "@n-apt/hooks/useDrawWebGPUFIFOWaterfall",
+      "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall",
     ) as { __mockDrawWebGPUFIFOWaterfall: jest.Mock };
     drawWebGPU.mockClear();
 
@@ -250,7 +363,7 @@ describe("FIFOWaterfall", () => {
 
   it("waits for WebGPU initialization before acquiring a 2D fallback context", async () => {
     const { __mockDrawWebGPUFIFOWaterfall: drawWebGPU } = jest.requireMock(
-      "@n-apt/hooks/useDrawWebGPUFIFOWaterfall",
+      "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall",
     ) as { __mockDrawWebGPUFIFOWaterfall: jest.Mock };
     drawWebGPU.mockClear();
 

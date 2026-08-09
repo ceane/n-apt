@@ -1,6 +1,14 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { FrequencyRange, Alignment } from "@n-apt/consts/types";
-import type { TemporalResolution } from "@n-apt/utils/temporalResolution";
+import type { SignalsSdrDefaults } from "@n-apt/consts/schemas/websocket";
+import type { TemporalResolution } from "@n-apt/math/temporalResolution";
+import {
+  FRONTEND_VISUALIZER_DEFAULTS,
+  VISUALIZER_MAX_ZOOM_LIMITS,
+  getVisualizerDefaultDbLimits,
+} from "@n-apt/consts/visualizerControls";
+
+const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
 export interface GpuSpikeAnalysis {
   isNapt: boolean;
@@ -71,6 +79,7 @@ export interface SpectrumState {
   displayTemporalResolution: TemporalResolution;
   powerScale: PowerScale;
   vizZoom: number;
+  maxVizZoom: number;
   vizZoomFloor: number;
   vizZoomFloorPan: number;
   autoZoomStability: boolean;
@@ -127,6 +136,7 @@ export interface SpectrumState {
   detectedFrameRate: number | null;
   isWaterfallCleared: boolean;
   showSpikeOverlay: boolean;
+  removeDcSpike: boolean;
   gpuSpikeCount: number;
   gpuSpikeAnalysis: GpuSpikeAnalysis | null;
   hoveredSpikeIndex: number | null;
@@ -146,20 +156,20 @@ export interface SpectrumState {
 const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "reduced" as const,
   powerScale: "dB" as const,
-  vizZoom: 1,
-  vizZoomFloor: 1,
-  vizZoomFloorPan: 0,
+  vizZoom: FRONTEND_VISUALIZER_DEFAULTS.zoom,
+  maxVizZoom: FRONTEND_VISUALIZER_DEFAULTS.maxZoom,
+  vizZoomFloor: FRONTEND_VISUALIZER_DEFAULTS.zoomFloor,
+  vizZoomFloorPan: FRONTEND_VISUALIZER_DEFAULTS.zoomFloorPan,
   autoZoomStability: true,
   vizPanOffset: 0,
-  fftMinDb: -120,
-  fftMaxDb: 0,
+  fftMinDb: DEFAULT_DB_LIMITS.min,
+  fftMaxDb: DEFAULT_DB_LIMITS.max,
   previewRange: null,
   fftSizeOptions: [] as number[],
   fftWindow: "Rectangular",
   fftAvgEnabled: false,
   fftSmoothEnabled: false,
   wfSmoothEnabled: false,
-  gain: 49.6,
   txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
@@ -181,13 +191,6 @@ const LIVE_CONTROL_DEFAULTS = {
   txHopChannels: ["a"],
   txHopRateHz: 10,
   txHopEnabled: false,
-  hackrfLnaGain: 0.0,
-  hackrfVgaGain: 30.0,
-  hackrfAmpEnabled: false,
-  hackrfBasebandBandwidth: 3_200_000,
-  ppm: 1,
-  tunerAGC: false,
-  rtlAGC: false,
 };
 
 const initialState: SpectrumState = {
@@ -197,15 +200,16 @@ const initialState: SpectrumState = {
 
   displayTemporalResolution: "reduced",
   powerScale: "dB",
-  vizZoom: 1,
-  vizZoomFloor: 1,
-  vizZoomFloorPan: 0,
+  vizZoom: FRONTEND_VISUALIZER_DEFAULTS.zoom,
+  maxVizZoom: FRONTEND_VISUALIZER_DEFAULTS.maxZoom,
+  vizZoomFloor: FRONTEND_VISUALIZER_DEFAULTS.zoomFloor,
+  vizZoomFloorPan: FRONTEND_VISUALIZER_DEFAULTS.zoomFloorPan,
   autoZoomStability: true,
   vizPanOffset: 0,
   displayMode: "fft",
 
-  fftMinDb: -120,
-  fftMaxDb: 0, // This will be updated based on powerScale
+  fftMinDb: DEFAULT_DB_LIMITS.min,
+  fftMaxDb: DEFAULT_DB_LIMITS.max, // This will be updated based on powerScale
   fftSize: 2048,
   fftSizeOptions: [],
   fftWindow: "Rectangular",
@@ -251,6 +255,7 @@ const initialState: SpectrumState = {
   detectedFrameRate: null,
   isWaterfallCleared: false,
   showSpikeOverlay: false,
+  removeDcSpike: false,
   gpuSpikeCount: 0,
   gpuSpikeAnalysis: null,
   hoveredSpikeIndex: null,
@@ -389,6 +394,16 @@ const spectrumSlice = createSlice({
     setVizZoom: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.vizZoom = action.payload;
+    },
+
+    setMaxVizZoom: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
+      const maxZoom = Math.min(
+        VISUALIZER_MAX_ZOOM_LIMITS.max,
+        Math.max(VISUALIZER_MAX_ZOOM_LIMITS.min, action.payload),
+      );
+      state.maxVizZoom = maxZoom;
+      state.vizZoom = Math.min(state.vizZoom, maxZoom);
     },
 
     setVizZoomFloor: (state, action: PayloadAction<number>) => {
@@ -665,6 +680,10 @@ const spectrumSlice = createSlice({
       }
     },
 
+    setRemoveDcSpike: (state, action: PayloadAction<boolean>) => {
+      state.removeDcSpike = action.payload;
+    },
+
     setGpuSpikeCount: (state, action: PayloadAction<number>) => {
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
     },
@@ -718,23 +737,26 @@ const spectrumSlice = createSlice({
 
     // Reset actions
     resetZoomAndDb: (state) => {
-      const isDbm = state.powerScale === "dBm";
-      state.vizZoom = 1;
-      state.vizZoomFloor = 1;
-      state.vizZoomFloorPan = 0;
+      const defaultDbLimits = getVisualizerDefaultDbLimits(state.powerScale);
+      state.vizZoom = FRONTEND_VISUALIZER_DEFAULTS.zoom;
+      state.vizZoomFloor = FRONTEND_VISUALIZER_DEFAULTS.zoomFloor;
+      state.vizZoomFloorPan = FRONTEND_VISUALIZER_DEFAULTS.zoomFloorPan;
       state.autoZoomStability = true;
       state.vizPanOffset = 0;
       // dBm reset: 30dBm to -100dBm
       // dB reset: 0dB to -120dB
-      state.fftMinDb = isDbm ? -100 : -120;
-      state.fftMaxDb = isDbm ? 30 : 0;
+      state.fftMinDb = defaultDbLimits.min;
+      state.fftMaxDb = defaultDbLimits.max;
     },
 
-    resetLiveControls: (
+  resetLiveControls: (
       state,
-      action: PayloadAction<{ fftSize?: number; fftFrameRate?: number }>,
+      action: PayloadAction<{
+        fftSize?: number;
+        fftFrameRate?: number;
+        sdrDefaults?: SignalsSdrDefaults | null;
+      } | undefined>,
     ) => {
-      const isDbm = state.powerScale === "dBm";
       return {
         ...state,
         displayTemporalResolution:
@@ -747,23 +769,46 @@ const spectrumSlice = createSlice({
         vizZoomFloorPan: 0,
         autoZoomStability: true,
         vizPanOffset: LIVE_CONTROL_DEFAULTS.vizPanOffset,
-        fftMinDb: isDbm ? -100 : -120,
-        fftMaxDb: isDbm ? 30 : 0,
+        fftMinDb: getVisualizerDefaultDbLimits(state.powerScale).min,
+        fftMaxDb: getVisualizerDefaultDbLimits(state.powerScale).max,
         fftWindow: LIVE_CONTROL_DEFAULTS.fftWindow,
         txViewerFftWindow: LIVE_CONTROL_DEFAULTS.txViewerFftWindow,
-        gain: LIVE_CONTROL_DEFAULTS.gain,
-        hackrfLnaGain: LIVE_CONTROL_DEFAULTS.hackrfLnaGain,
-        hackrfVgaGain: LIVE_CONTROL_DEFAULTS.hackrfVgaGain,
-        hackrfAmpEnabled: LIVE_CONTROL_DEFAULTS.hackrfAmpEnabled,
-        hackrfBasebandBandwidth: LIVE_CONTROL_DEFAULTS.hackrfBasebandBandwidth,
-        ppm: LIVE_CONTROL_DEFAULTS.ppm,
-        tunerAGC: LIVE_CONTROL_DEFAULTS.tunerAGC,
-        rtlAGC: LIVE_CONTROL_DEFAULTS.rtlAGC,
+        ...(action.payload?.sdrDefaults
+          ? {
+              gain: action.payload.sdrDefaults.gain.tuner_gain,
+              ...(typeof action.payload.sdrDefaults.gain.hackrf_lna_gain ===
+              "number"
+                ? {
+                    hackrfLnaGain:
+                      action.payload.sdrDefaults.gain.hackrf_lna_gain,
+                  }
+                : {}),
+              ...(typeof action.payload.sdrDefaults.gain.hackrf_vga_gain ===
+              "number"
+                ? {
+                    hackrfVgaGain:
+                      action.payload.sdrDefaults.gain.hackrf_vga_gain,
+                  }
+                : {}),
+              hackrfAmpEnabled:
+                action.payload.sdrDefaults.gain.hackrf_amp_enable ?? false,
+              ...(typeof action.payload.sdrDefaults.gain.tuner_bandwidth ===
+              "number"
+                ? {
+                    hackrfBasebandBandwidth:
+                      action.payload.sdrDefaults.gain.tuner_bandwidth,
+                  }
+                : {}),
+              ppm: action.payload.sdrDefaults.ppm,
+              tunerAGC: action.payload.sdrDefaults.gain.tuner_agc,
+              rtlAGC: action.payload.sdrDefaults.gain.rtl_agc,
+            }
+          : {}),
         fftAvgEnabled: false,
         fftSmoothEnabled: false,
         wfSmoothEnabled: false,
-        fftSize: action.payload.fftSize ?? state.fftSize,
-        fftFrameRate: action.payload.fftFrameRate ?? state.fftFrameRate,
+        fftSize: action.payload?.fftSize ?? state.fftSize,
+        fftFrameRate: action.payload?.fftFrameRate ?? state.fftFrameRate,
         txViewerSampleRateHz: LIVE_CONTROL_DEFAULTS.txViewerSampleRateHz,
         txViewerFftSize: LIVE_CONTROL_DEFAULTS.txViewerFftSize,
         txViewerFftFrameRate: LIVE_CONTROL_DEFAULTS.txViewerFftFrameRate,
@@ -781,6 +826,7 @@ export const {
   setTemporalResolution,
   setPowerScale,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -838,6 +884,7 @@ export const {
   resetZoomAndDb,
   resetLiveControls,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setGpuSpikeAnalysis,
   setHoveredSpikeIndex,

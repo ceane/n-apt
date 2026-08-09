@@ -727,7 +727,7 @@ pub struct SignalsData {
   pub mock_apt: MockAptSignalsConfig,
   #[serde(default)]
   pub mock_tx: MockTxSignalsConfig,
-  pub n_apt: NaptConfig,
+  pub channels: IndexMap<String, SpectrumFrameConfig>,
   pub sdr: SdrConfig,
 }
 
@@ -813,11 +813,6 @@ pub struct MockAptRealisticRfConfig {
 
 fn default_true() -> bool {
   true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NaptConfig {
-  pub channels: IndexMap<String, SpectrumFrameConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

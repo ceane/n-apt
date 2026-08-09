@@ -60,6 +60,9 @@ export function getRustHotReloadProcessLabel(
   message?: string,
 ): string | undefined {
   if (status !== "running") return undefined;
+  if (message?.startsWith("Compiling n-apt-backend") || message?.startsWith("Building n-apt-backend")) {
+    return `[HOT-RELOAD] ${message}`;
+  }
   return message?.includes("Restarting")
     ? "Restarting Rust backend..."
     : "[HOT-RELOAD] Rebuilding Rust backend...";

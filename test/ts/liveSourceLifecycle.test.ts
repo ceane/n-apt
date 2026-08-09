@@ -11,8 +11,8 @@ import {
   shouldRequestMockTxStandbyPreview,
   isCommittedStandbyPresentation,
   shouldPresentMockTxStandby,
-} from "../../src/ts/hooks/liveSourceLifecycle";
-import { resolveFrameReadiness } from "../../src/ts/utils/liveSourcePresentation";
+} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import { resolveFrameReadiness } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 
 const handoffPlaceholder = {
   kind: "loading" as const,

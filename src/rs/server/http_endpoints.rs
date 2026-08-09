@@ -4,11 +4,9 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use log::{error, info, warn};
-use redis::Client as RedisClient;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
@@ -346,6 +344,7 @@ fn parse_filter_set(raw: &Option<String>) -> HashSet<String> {
 }
 /// GET /api/towers/bounds?ne_lat=<>&ne_lng=<>&sw_lat=<>&sw_lng=<>&zoom=<>&tech=<csv>&range=<csv>&mcc=<>&mnc=<>
 pub async fn towers_bounds_handler(
+  State(state): State<Arc<super::AppState>>,
   Query(query): Query<TowerBoundsQuery>,
 ) -> impl IntoResponse {
   if let Err(e) = query.validate() {
@@ -367,12 +366,10 @@ pub async fn towers_bounds_handler(
       .into_response();
   }
 
-  let redis_url =
-    env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
-  let client = match RedisClient::open(redis_url.clone()) {
-    Ok(c) => c,
-    Err(e) => {
-      error!("Failed to initialize Redis client at {}: {}", redis_url, e);
+  let mut fast_tower_db = match state.shared.redis_store.database(2).await {
+    Ok(database) => database,
+    Err(error) => {
+      error!("Failed to connect to Redis DB 2: {error}");
       return (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({"error": "Redis unavailable"})),
@@ -380,11 +377,10 @@ pub async fn towers_bounds_handler(
         .into_response();
     }
   };
-
-  let mut con = match client.get_connection() {
-    Ok(conn) => conn,
-    Err(e) => {
-      error!("Failed to connect to Redis: {}", e);
+  let mut local_tower_db = match state.shared.redis_store.database(4).await {
+    Ok(database) => database,
+    Err(error) => {
+      error!("Failed to connect to Redis DB 4: {error}");
       return (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({"error": "Redis unavailable"})),
@@ -397,66 +393,81 @@ pub async fn towers_bounds_handler(
   let mut all_tower_keys: Vec<String> = Vec::new();
 
   // Query Fast Select DB (2)
-  if let Err(e) = redis::cmd("SELECT").arg(2).query::<()>(&mut con) {
-    error!("Failed to select Redis DB 2: {}", e);
-  } else {
-    let mut cursor = 0u64;
-    loop {
-      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-        .arg(cursor)
-        .arg("MATCH")
-        .arg("tower:*")
-        .arg("COUNT")
-        .arg(100)
-        .query(&mut con)
-        .unwrap_or((0, vec![]));
-
-      all_tower_keys.extend(keys);
-      cursor = new_cursor;
-      if cursor == 0 {
-        break;
+  let mut cursor = 0u64;
+  loop {
+    let (new_cursor, keys): (u64, Vec<String>) = match fast_tower_db
+      .query("SCAN", |command| {
+        command
+          .arg(cursor)
+          .arg("MATCH")
+          .arg("tower:*")
+          .arg("COUNT")
+          .arg(100);
+      })
+      .await
+    {
+      Ok(result) => result,
+      Err(error) => {
+        error!("Failed to scan Redis DB 2: {error}");
+        return (
+          StatusCode::SERVICE_UNAVAILABLE,
+          Json(serde_json::json!({"error": "Redis unavailable"})),
+        )
+          .into_response();
       }
+    };
+
+    all_tower_keys.extend(keys);
+    cursor = new_cursor;
+    if cursor == 0 {
+      break;
     }
   }
 
   // Query Local DB (4) for user-loaded towers
-  if let Err(e) = redis::cmd("SELECT").arg(4).query::<()>(&mut con) {
-    error!("Failed to select Redis DB 4: {}", e);
-  } else {
-    let mut cursor = 0u64;
-    loop {
-      let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-        .arg(cursor)
-        .arg("MATCH")
-        .arg("local:*")
-        .arg("COUNT")
-        .arg(100)
-        .query(&mut con)
-        .unwrap_or((0, vec![]));
-
-      for local_key in keys {
-        if local_key.ends_with(":data") {
-          continue;
-        }
-        if let Ok(tower_ids) = redis::cmd("ZRANGE")
-          .arg(&local_key)
-          .arg(0)
-          .arg(-1)
-          .query::<Vec<String>>(&mut con)
-        {
-          all_tower_keys.extend(tower_ids);
-        }
+  let mut cursor = 0u64;
+  loop {
+    let (new_cursor, keys): (u64, Vec<String>) = match local_tower_db
+      .query("SCAN", |command| {
+        command
+          .arg(cursor)
+          .arg("MATCH")
+          .arg("local:*")
+          .arg("COUNT")
+          .arg(100);
+      })
+      .await
+    {
+      Ok(result) => result,
+      Err(error) => {
+        error!("Failed to scan Redis DB 4: {error}");
+        return (
+          StatusCode::SERVICE_UNAVAILABLE,
+          Json(serde_json::json!({"error": "Redis unavailable"})),
+        )
+          .into_response();
       }
+    };
 
-      cursor = new_cursor;
-      if cursor == 0 {
-        break;
+    for local_key in keys {
+      if local_key.ends_with(":data") {
+        continue;
+      }
+      if let Ok(tower_ids) = local_tower_db
+        .query::<Vec<String>, _>("ZRANGE", |command| {
+          command.arg(&local_key).arg(0).arg(-1);
+        })
+        .await
+      {
+        all_tower_keys.extend(tower_ids);
       }
     }
-  }
 
-  // Switch back to DB 2 for default tower data retrieval
-  let _ = redis::cmd("SELECT").arg(2).query::<()>(&mut con);
+    cursor = new_cursor;
+    if cursor == 0 {
+      break;
+    }
+  }
 
   let range_filter = parse_filter_set(&query.range);
   let mut seen_ids: HashSet<String> = HashSet::new();
@@ -477,23 +488,25 @@ pub async fn towers_bounds_handler(
     }
 
     // Get tower data as JSON string (try DB 2, then DB 4)
-    let tower_json: redis::RedisResult<String> =
-      redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
+    let tower_json: Option<String> = fast_tower_db
+      .query("GET", |command| {
+        command.arg(&tower_key);
+      })
+      .await
+      .unwrap_or(None);
 
     let tower_json = match tower_json {
-      Ok(json) => json,
-      Err(_) => {
-        // Try DB 4 if not found in DB 2
-        let _ = redis::cmd("SELECT").arg(4).query::<()>(&mut con);
-        let local_json =
-          redis::cmd("GET").arg(&tower_key).query::<String>(&mut con);
-        let _ = redis::cmd("SELECT").arg(2).query::<()>(&mut con);
-
-        match local_json {
-          Ok(json) => json,
-          Err(_) => continue,
-        }
-      }
+      Some(json) => json,
+      None => match local_tower_db
+        .query("GET", |command| {
+          command.arg(&tower_key);
+        })
+        .await
+        .unwrap_or(None)
+      {
+        Some(json) => json,
+        None => continue,
+      },
     };
 
     // Parse JSON tower data
@@ -725,19 +738,28 @@ pub async fn capture_download_handler(
     }
   };
 
-  // Get capture artifacts for this job
-  let artifacts: Vec<crate::server::types::CaptureArtifact> = {
-    match state.shared.get_capture_artifacts(&params.job_id) {
-      Some(artifacts) => artifacts,
-      None => {
+  // Get capture artifacts asynchronously so a Redis outage cannot block the
+  // HTTP runtime's worker thread.
+  let artifact_key = format!("artifacts:{}", params.job_id);
+  let artifacts: Vec<crate::server::types::CaptureArtifact> =
+    match state.shared.redis_store.get_json(1, &artifact_key).await {
+      Ok(Some(artifacts)) => artifacts,
+      Ok(None) => {
         return (
           StatusCode::NOT_FOUND,
           "Capture job not found or not completed",
         )
           .into_response();
       }
-    }
-  };
+      Err(error) => {
+        error!("Failed to load capture artifacts from Redis: {error}");
+        return (
+          StatusCode::SERVICE_UNAVAILABLE,
+          "Capture metadata is temporarily unavailable",
+        )
+          .into_response();
+      }
+    };
 
   if artifacts.is_empty() {
     return (

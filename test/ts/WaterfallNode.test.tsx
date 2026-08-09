@@ -6,6 +6,7 @@ import {
   getCenteredWaterfallZoomView,
   getBrushCurveControlPoint,
   getWaterfallNodeFrequencyRange,
+  getWaterfallNodeDisplayRange,
   getWaterfallPinchZoomView,
   getWaterfallVfoDragPan,
   getWaterfallVfoDisplayFrequency,
@@ -15,11 +16,11 @@ import {
   normalizeSpectrumToBrushLine,
   remapBrushLineToZoomBox,
   WaterfallNode,
-} from "@n-apt/components/react-flow/nodes/WaterfallNode";
-import { isFilePlaybackPaused } from "@n-apt/hooks/liveSourceLifecycle";
-import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
+} from "@n-apt/demodulation/react-flow/nodes/WaterfallNode";
+import { isFilePlaybackPaused } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 import { ThemeProvider } from "styled-components";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 
 const theme = buildAppTheme({
@@ -33,6 +34,7 @@ const theme = buildAppTheme({
 const mockReduxState = {
   websocket: { activeSourceId: "test-source", dataFrameCounter: 1 },
   spectrum: { fftMinDb: -120, fftMaxDb: 0 },
+  settings: { mirrorIqBasebandBelowZero: false },
 };
 
 jest.mock("@n-apt/redux", () => ({
@@ -77,7 +79,7 @@ jest.mock("@n-apt/redux/middleware/websocketMiddleware", () => {
   };
 });
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
+jest.mock("@n-apt/spectrum/hooks/useWasmSimdMath", () => {
   const processIqToDbmSpectrum = jest.fn(
     (iq: Uint8Array) => new Float32Array([Number(iq[0] ?? 0)]),
   );
@@ -87,13 +89,14 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => {
   };
 });
 
-jest.mock("@n-apt/components/FIFOWaterfall", () => ({
+jest.mock("@n-apt/spectrum/FIFOWaterfall", () => ({
   FIFOWaterfall: (props: {
     fftMin: number;
     fftMax: number;
     historyZoom?: number;
     historyPan?: number;
     waterfallHistoryFill?: "accretive" | "immutable";
+    binSubset?: { mode: "none" | "interleaved"; parity: "odd" | "even" };
     waveformFeed?: {
       getCurrent: () => Float32Array | null;
       subscribe: (listener: (waveform: Float32Array) => void) => () => void;
@@ -111,11 +114,38 @@ jest.mock("@n-apt/components/FIFOWaterfall", () => ({
         data-history-zoom={props.historyZoom}
         data-history-pan={props.historyPan}
         data-history-fill={props.waterfallHistoryFill}
+        data-bin-subset-mode={props.binSubset?.mode}
+        data-bin-subset-parity={props.binSubset?.parity}
         data-has-waveform-feed={Boolean(props.waveformFeed)}
-        data-feed-waveform-length={props.waveformFeed?.getCurrent()?.length ?? 0}
+        data-feed-waveform-length={
+          props.waveformFeed?.getCurrent()?.length ?? 0
+        }
       />
     );
   },
+}));
+
+jest.mock("@n-apt/spectrum/VisualizerSliders", () => ({
+  __esModule: true,
+  default: (props: {
+    compact?: boolean;
+    dbMax: number;
+    dbMin: number;
+    zoom: number;
+  }) => (
+    <div
+      data-testid="waterfall-analysis-sliders"
+      data-compact={props.compact}
+      data-db-max={props.dbMax}
+      data-db-min={props.dbMin}
+      data-zoom={props.zoom}
+    >
+      <span>Min dB</span>
+      <span>Max dB</span>
+      <span>Zoom</span>
+      <span>1x</span>
+    </div>
+  ),
 }));
 
 describe("WaterfallNode", () => {
@@ -138,6 +168,37 @@ describe("WaterfallNode", () => {
 
     expect(screen.getByTestId("waterfall-analysis-viewport")).toHaveClass(
       "nowheel",
+    );
+  });
+
+  it("uses the compact shared visualizer sliders for analysis controls", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <WaterfallNode
+          id="analysis"
+          type="waterfallAnalysis"
+          selected={false}
+          dragging={false}
+          zIndex={0}
+          isConnectable={true}
+          positionAbsoluteX={0}
+          positionAbsoluteY={0}
+          data={{ label: "Waterfall Analysis", analysisOptions: true }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("waterfall-analysis-sliders")).toHaveAttribute(
+      "data-compact",
+      "true",
+    );
+    expect(screen.getByTestId("waterfall-analysis-sliders")).toHaveAttribute(
+      "data-db-min",
+      "-120",
+    );
+    expect(screen.getByTestId("waterfall-analysis-sliders")).toHaveAttribute(
+      "data-db-max",
+      "0",
     );
   });
 
@@ -170,6 +231,28 @@ describe("WaterfallNode", () => {
         },
       }),
     ).toEqual({ min: 0, max: 4_372_000 });
+  });
+
+  it("lets the shared VFO preserve a negative baseband window when enabled", () => {
+    expect(
+      getWaterfallNodeFrequencyRange({
+        frame: {
+          center_frequency_hz: 372_000,
+          sample_rate: 4_372_000,
+        },
+        allowNegativeFrequencies: true,
+      }),
+    ).toEqual({ min: -1_814_000, max: 2_558_000 });
+  });
+
+  it("keeps the analysis window aligned to the live sample-rate frame", () => {
+    expect(
+      getWaterfallNodeDisplayRange({
+        analysisOptions: true,
+        requestedRange: { min: 36_000, max: 3_200_000 },
+        sourceRange: { min: 18_000, max: 3_218_000 },
+      }),
+    ).toEqual({ min: 18_000, max: 3_218_000 });
   });
 
   it("keeps an off-center zoom-box selection inside the hardware window", () => {
@@ -322,9 +405,7 @@ describe("WaterfallNode", () => {
       clientX: 100,
     });
     expect(
-      screen
-        .getByTestId("waterfall-canvas")
-        .getAttribute("data-history-pan"),
+      screen.getByTestId("waterfall-canvas").getAttribute("data-history-pan"),
     ).not.toBe(panBeforeScroll);
   });
 
@@ -384,6 +465,8 @@ describe("WaterfallNode", () => {
     const waterfall = screen.getByTestId("waterfall-canvas");
 
     expect(miniVfo).toHaveAttribute("data-position", "top");
+    expect(miniVfo).toHaveAttribute("data-drawing-type", "dom");
+    expect(miniVfo).toHaveAttribute("data-tick-level", "top");
     expect(
       Number.parseFloat(getComputedStyle(miniVfo).height),
     ).toBeGreaterThanOrEqual(56);
@@ -406,7 +489,9 @@ describe("WaterfallNode", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.queryByText("Center Frequency / Onscreen Canvas")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Center Frequency / Onscreen Canvas"),
+    ).not.toBeInTheDocument();
     const zoomSelectionButton = screen.getByRole("button", {
       name: "Zoom selection",
     });
@@ -414,20 +499,31 @@ describe("WaterfallNode", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(zoomSelectionButton).toHaveAttribute("aria-pressed", "false");
     fireEvent.doubleClick(screen.getByTestId("waterfall-analysis-vfo"));
-    expect(screen.getByText("Center Frequency / Onscreen Canvas")).toBeInTheDocument();
+    expect(
+      screen.getByText("Center Frequency / Onscreen Canvas"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Lock VFO" }));
     expect(screen.getByRole("button", { name: "Unlock VFO" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(screen.queryByText("Center Frequency / Onscreen Canvas")).not.toBeInTheDocument();
-    const brushButton = screen.getByRole("button", { name: "Paint with selection" });
+    expect(
+      screen.queryByText("Center Frequency / Onscreen Canvas"),
+    ).not.toBeInTheDocument();
+    const brushButton = screen.getByRole("button", {
+      name: "Paint with selection",
+    });
     expect(brushButton).not.toBeDisabled();
     expect(brushButton).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(brushButton);
     expect(brushButton).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("waterfall-brush-overlay")).toHaveClass("nodrag", "nopan");
-    expect(screen.getByRole("button", { name: "Clear brush strokes" })).toBeInTheDocument();
+    expect(screen.getByTestId("waterfall-brush-overlay")).toHaveClass(
+      "nodrag",
+      "nopan",
+    );
+    expect(
+      screen.getByRole("button", { name: "Clear brush strokes" }),
+    ).toBeInTheDocument();
     fireEvent.click(brushButton);
     expect(brushButton).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByTestId("waterfall-brush-overlay")).toHaveStyle({
@@ -435,16 +531,29 @@ describe("WaterfallNode", () => {
     });
     fireEvent.click(brushButton);
     fireEvent.click(screen.getByRole("button", { name: "Unlock VFO" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clear brush strokes" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear brush strokes" }),
+    );
     expect(screen.getByTestId("waterfall-brush-overlay")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear brush strokes" })).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Clear brush strokes" }),
+    ).not.toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Lock VFO" }));
-    expect(screen.getByRole("button", { name: "Clear brush strokes" })).toBeDisabled();
-    expect(screen.queryByTestId("waterfall-db-controls")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Clear brush strokes" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByTestId("waterfall-db-controls"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Min dB")).toBeInTheDocument();
     expect(screen.getByText("Max dB")).toBeInTheDocument();
     expect(screen.getByText("Zoom")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Waterfall theme" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Waterfall theme" }),
+    ).toBeInTheDocument();
+    const themeRow = screen.getByTestId("waterfall-analysis-theme-row");
+    expect(getComputedStyle(themeRow).borderTopWidth).toBe("0px");
+    expect(getComputedStyle(themeRow).paddingTop).toBe("12px");
     const resetButton = screen.getByRole("button", { name: "Reset" });
     expect(resetButton).toBeInTheDocument();
     fireEvent.click(resetButton);
@@ -466,6 +575,62 @@ describe("WaterfallNode", () => {
     );
   });
 
+  it("opens Bin Subset controls and passes the selected interleaved bins to the waterfall", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <WaterfallNode
+          data={{
+            label: "Waterfall Analysis",
+            waterfallOptions: true,
+            analysisOptions: true,
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(
+      screen.queryByRole("combobox", { name: "Bin Subset" }),
+    ).not.toBeInTheDocument();
+    const binSubsetButton = screen.getByRole("button", { name: "Bin Subset" });
+    const inactiveClassName = binSubsetButton.className;
+    expect(binSubsetButton).toHaveAttribute("data-state", "inactive");
+    fireEvent.click(binSubsetButton);
+    expect(binSubsetButton).toHaveAttribute("data-state", "active");
+    expect(binSubsetButton.className).not.toBe(inactiveClassName);
+
+    expect(
+      screen.getByRole("dialog", { name: "Bin Subset" }).parentElement,
+    ).toBe(document.body);
+    expect(
+      screen.getByRole("heading", { name: "Bin Subset" }),
+    ).toBeInTheDocument();
+    const subsetSelect = screen.getByRole("combobox", { name: "Bin Subset" });
+    expect(subsetSelect).toHaveValue("none");
+    expect(
+      screen.queryByRole("combobox", { name: "Bins" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(subsetSelect, { target: { value: "interleaved" } });
+    const binsSelect = screen.getByRole("combobox", { name: "Bins" });
+    expect(binsSelect).toHaveValue("odd");
+
+    fireEvent.change(binsSelect, { target: { value: "even" } });
+    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
+      "data-bin-subset-mode",
+      "interleaved",
+    );
+    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
+      "data-bin-subset-parity",
+      "even",
+    );
+    expect(
+      screen.getByTestId("waterfall-analysis-vfo-bin-subset"),
+    ).toHaveTextContent("Even Bins");
+    expect(screen.getByTestId("waterfall-analysis-vfo")).toHaveStyle({
+      height: "56px",
+    });
+  });
+
   it("flattens a drawn U-shaped baseline relatively", () => {
     const normalized = normalizeSpectrumToBrushLine(
       new Float32Array([-50, -100, -50]),
@@ -478,7 +643,9 @@ describe("WaterfallNode", () => {
       0,
     );
 
-    expect(Array.from(normalized)).toEqual([-66.66666412353516, -66.66666412353516, -66.66666412353516]);
+    expect(Array.from(normalized)).toEqual([
+      -66.66666412353516, -66.66666412353516, -66.66666412353516,
+    ]);
   });
 
   it("remaps the reference line when a zoom box is applied", () => {
@@ -501,9 +668,7 @@ describe("WaterfallNode", () => {
 
   it("pushes standalone live frames directly to the waterfall feed", () => {
     render(
-      <WaterfallNode
-        data={{ label: "Waterfall", waterfallOptions: true }}
-      />,
+      <WaterfallNode data={{ label: "Waterfall", waterfallOptions: true }} />,
     );
 
     expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
@@ -515,7 +680,11 @@ describe("WaterfallNode", () => {
   it("subscribes role-bound waterfalls to the shared source spectrum", () => {
     render(
       <WaterfallNode
-        data={{ label: "Rx Waterfall", waterfallOptions: true, sourceRole: "rx" }}
+        data={{
+          label: "Rx Waterfall",
+          waterfallOptions: true,
+          sourceRole: "rx",
+        }}
       />,
     );
 
@@ -538,7 +707,7 @@ describe("WaterfallNode", () => {
       };
     };
     const { __mockProcessIqToDbmSpectrum: processSpectrum } = jest.requireMock(
-      "@n-apt/hooks/useWasmSimdMath",
+      "@n-apt/spectrum/hooks/useWasmSimdMath",
     ) as { __mockProcessIqToDbmSpectrum: jest.Mock };
     processSpectrum.mockClear();
 
@@ -576,7 +745,7 @@ describe("WaterfallNode", () => {
       };
     };
     const { __mockProcessIqToDbmSpectrum: processSpectrum } = jest.requireMock(
-      "@n-apt/hooks/useWasmSimdMath",
+      "@n-apt/spectrum/hooks/useWasmSimdMath",
     ) as { __mockProcessIqToDbmSpectrum: jest.Mock };
     processSpectrum.mockClear();
 

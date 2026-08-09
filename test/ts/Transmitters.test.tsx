@@ -1,4 +1,4 @@
-import { SDRs } from "@n-apt/components/3D/SDRs";
+import { SDRs } from "@n-apt/three-d/SDRs";
 
 describe("SDRs", () => {
   it("keeps transmit-capable and receive-only hardware in separate namespaces", () => {

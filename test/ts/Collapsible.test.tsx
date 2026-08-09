@@ -2,7 +2,7 @@ import * as React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import { Collapsible } from "@n-apt/components/ui";
+import { Collapsible } from "@n-apt/ui";
 
 describe("Collapsible", () => {
   it("syncs an externally requested open state", () => {

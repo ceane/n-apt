@@ -1,20 +1,78 @@
-# Signals Configuration for N-APT
-# This file contains mock signal generation, n-apt frame definitions, and SDR settings
-# Can be edited while the server is running to test different configurations
+# Signals configuration for the spectrum visualizer
 #
-# Backend Usage (src/rs/server/utils.rs):
-# - Loaded at startup via signals_config() using serde_yaml
-# - n_apt.channels are parsed and converted to SpectrumFrameMessage objects
-# - These messages are sent via WebSocket to the frontend to display N-APT channel boundaries
-# - The frontend uses these channel definitions to visualize frequency ranges on the spectrum display
-# - SDR settings (sample_rate, center_frequency, gain, etc.) are loaded and applied to the hardware
-# - Mock APT settings are used for generating test signals when no real SDR is connected
+# The top-level sections separate canonical channel metadata from source-specific
+# signal generation and hardware settings. Frequency and dB values use the custom
+# YAML tags documented in the backend configuration loader.
+#
+# Runtime behavior:
+# - The backend loads this file at startup and supports hot reload for channels.
+# - signals.channels defines canonical frequency boundaries sent to the frontend.
+# - signals.channels also determines the receive sample-rate floor and ceiling.
+# - signals.mock_apt.channels contains mock-generator overrides for those IDs;
+#   it is intentionally separate from the canonical channel catalog.
+# - SDR settings are loaded and applied to the selected device.
 
 signals:
   # Available frequency range for the spectrum display (not device-specific)
   available_spectrum:
     min_freq: !frequency 0Hz
     max_freq: !frequency 30GHz
+
+  # Canonical channel catalog used by the frontend and receive-rate calculations.
+  # Add or edit channel IDs here; changes are picked up by backend hot reload.
+  # The map order is preserved when the initial channel list is broadcast.
+  #
+  # Research notes (hypotheses, not validated by this configuration or DSP code):
+  # N-APT spectrum channel definitions
+  #
+  # These are the real frequencies and channels that are used for N-APT,
+  # approximated by looking at the spectrum and adjusting the center frequency
+  # to see the signal's stable form of APT-like spikes and valleys.
+  #
+  # These frequencies are surprisingly low in the LF/MF/HF range.
+  # My hypothesis is that they are used because they attenuate far less
+  # (lose less energy) as they travel through objects, obstacles,
+  # and the skull/tissue before they make it back to an endpoint.
+  #
+  # Features experienced include:
+  #   - Mental inference
+  #   - Auditory thought
+  #   - Hearing
+  #   - Voice
+  #   - Audio
+  #   - Speech
+  #   - Reasoning
+  #   - Memory (short and long term)
+  #   - Perception
+  #   - Behavior
+  #   - Emotion
+  #   - Sense of self
+  #   - Awareness
+  #   - Neurotransmitters
+  #   - State of mind
+  #   - 5 Senses (smell, sight, sound, touch, taste)
+  #   - Physiological expression (muscles, haptics, etc.)
+  #   - Vitals (heart, breathing, hunger, libido, etc.)
+  #   - Imagination (visual, perceptual)
+  #   - Vision
+  #   - Dreams
+  channels:
+    # A and B appear similar through part of the lower-frequency range in some
+    # observations; their configured ranges and later spectral structure differ.
+    a:
+      label: "A"
+      freq_range_hz: !frequency_range 18kHz..4.39MHz
+      description: "The potentially primary N-APT channel, notably on the lowe end of the spectrum, encompassing features like audio, voice, physiological effects and more."
+    b:
+      label: "B"
+      freq_range_hz: !frequency_range 24.1MHz..30.37MHz
+      # Alternate observed range retained for reference, not used by the loader.
+      # freq_range_hz: !frequency_range 24.72MHz..29.88MHz
+      description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.) OR this channel being responsible for manipulating intellectual cognitive infrastructure and processing like reasoning, memory and general consciousness."
+    c:
+      label: "C"
+      freq_range_hz: !frequency_range 4.75MHz..23MHz
+      description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more related to visual/temporal lobe content."
 
   # SDR hardware and processing settings
   sdr:
@@ -167,8 +225,9 @@ signals:
           inverse_rms_formula: "10 ** ((dbm - calibration_db) / 20)"
           calibration_db: 15.0
 
-  # Mock APT signal configuration for testing
-  # Per-channel config controls where signals are generated
+  # Mock APT signal-generation configuration for testing.
+  # These settings control how the mock source synthesizes signals; they do not
+  # replace the canonical metadata in signals.channels.
   mock_apt:
     gpu_gen_via_metal: false
     realistic_rf:
@@ -176,10 +235,9 @@ signals:
       aliasing: true
       passband: true
       retune_settling: true
-    # Per-channel mock APT configuration
-    # These channels define where mock signals are generated
-    # The keys (a, b, c) should match the n_apt.channels keys
-    # These mock signals do not do anything or carry any content like a real N-APT signal
+    # Per-channel generation overrides. Keep these IDs aligned with
+    # signals.channels when a mock source should cover the same frequency range.
+    # These synthetic signals are software fixtures, not proof of real RF content.
     channels:
       a:
         label: "A"
@@ -244,58 +302,3 @@ signals:
   triangulation:
     static:
       freq_range_hz: !frequency_range 2.3GHz..2.344GHz
-
-
-  # N-APT spectrum channel definitions
-  #
-  # These are the real frequencies and channels that are used for N-APT
-  # approximated by looking at the spectrum and adjusting the center frequency 
-  # to see the signal's stable form of APT-like spikes and valleys
-  #
-  # These frequencies are surprisingly low in the LF/MF/HF range
-  # My hypothesis is that they are used because they attenuate far less 
-  # (lose less energy) as they travel through objects, obstacles,
-  # and the skull/tissue before they make it back to an endpoint
-  #
-  # Features experienced include:
-  #   - Mental inference
-  #   - Auditory thought
-  #   - Hearing
-  #   - Voice
-  #   - Audio
-  #   - Speech
-  #   - Reasoning
-  #   - Memory (short and long term)
-  #   - Perception
-  #   - Behavior
-  #   - Emotion
-  #   - Sense of self
-  #   - Awareness
-  #   - Neurotransmitters
-  #   - State of mind
-  #   - 5 Senses (smell, sight, sound, touch, taste)
-  #   - Physiological expression (muscles, haptics, etc.)
-  #   - Vitals (heart, breathing, hunger, libido, etc.)
-  #   - Imagination (visual, perceptual)
-  #   - Vision
-  #   - Dreams
-  #
-  n_apt:
-    # Add new channels (e.g. c) and the app will pick them up on rebuild
-    # and via backend hot-reload when available.
-    channels:
-        # A and B look nearly identical for about the first 4MHz except for a spur in B
-        # B is larger and has a different shape after the identical section
-        a:
-          label: "A"
-          freq_range_hz: !frequency_range 18kHz..4.39MHz
-          description: "The potentially primary N-APT channel, notably on the lowe end of the spectrum, encompassing features like audio, voice, physiological effects and more."
-        b:
-          label: "B"
-          freq_range_hz: !frequency_range 24.1MHz..30.37MHz
-          # freq_range_hz: !frequency_range 24.72MHz..29.88MHz
-          description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.) OR this channel being responsible for manipulating intellectual cognitive infrastructure and processing like reasoning, memory and general consciousness."
-        c:
-          label: "C"
-          freq_range_hz: !frequency_range 4.75MHz..23MHz
-          description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more related to visual/temporal lobe content."

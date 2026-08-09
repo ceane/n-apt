@@ -4,7 +4,7 @@ import { join } from "node:path";
 const SPIKE_DETECTION_NODE_SOURCE = readFileSync(
   join(
     process.cwd(),
-    "src/ts/components/react-flow/nodes/SpikeDetectionNode.tsx",
+    "src/ts/features/demodulation/react-flow/nodes/SpikeDetectionNode.tsx",
   ),
   "utf8",
 );

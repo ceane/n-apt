@@ -1,11 +1,11 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { IQCaptureControlsSection } from "../../src/ts/components/sidebar/IQCaptureControlsSection";
+import { IQCaptureControlsSection } from "@n-apt/capture/sidebar/IQCaptureControlsSection";
 import { TestWrapper } from "./testUtils";
 
 // Mock useAuthentication
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
     sessionToken: "mock-token",

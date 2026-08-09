@@ -3,7 +3,7 @@ import { renderHook, act } from "@testing-library/react";
 import {
   createAnimationFrameCoalescer,
   useFrequencyDrag,
-} from "@n-apt/hooks/useFrequencyDrag";
+} from "@n-apt/spectrum/hooks/useFrequencyDrag";
 import React from "react";
 
 describe("useFrequencyDrag Hook", () => {

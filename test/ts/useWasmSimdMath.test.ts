@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { computeIqToDbSpectrumScalar } from "../../src/ts/hooks/useWasmSimdMath";
-import { useWasmSimdMath } from "../../src/ts/hooks/useWasmSimdMath";
+import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/hooks/useWasmSimdMath";
+import { useWasmSimdMath } from "@n-apt/spectrum/hooks/useWasmSimdMath";
 
 function buildToneIqSamples(sampleCount: number, cycles: number): Uint8Array {
   const out = new Uint8Array(sampleCount * 2);

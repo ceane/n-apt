@@ -4,7 +4,7 @@ import path from "path";
 import {
   deriveAesKey,
   decryptBinaryPayload,
-} from "../../src/ts/crypto/webcrypto";
+} from "@n-apt/crypto/webcrypto";
 import crypto from "node:crypto";
 
 // Ensure WebCrypto is available in Node.js environment

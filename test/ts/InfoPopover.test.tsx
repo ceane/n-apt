@@ -1,7 +1,7 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { Tooltip } from "@n-apt/components/ui/Tooltip";
+import { Tooltip } from "@n-apt/ui/Tooltip";
 
 describe("Tooltip Component", () => {
   const mockContent = "Test content for popover";

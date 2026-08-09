@@ -1,6 +1,6 @@
 import React from "react";
 import { render, fireEvent, screen, waitFor } from "@testing-library/react";
-import FrequencyRangeSlider from "../../src/ts/components/sidebar/FrequencyRangeSlider";
+import FrequencyRangeSlider from "@n-apt/spectrum/sidebar/FrequencyRangeSlider";
 import { TestWrapper } from "./testUtils";
 
 describe("FrequencyRangeSlider", () => {
@@ -71,6 +71,27 @@ describe("FrequencyRangeSlider", () => {
       expect(lastCall.min).toBeGreaterThan(120);
       expect(lastCall.max).toBeGreaterThan(150);
     }
+  });
+
+  test("publishes the final drag range once when transmit state is also updating", () => {
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    expect(thumb).toBeInTheDocument();
+
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 150 });
+    fireEvent.mouseUp(window);
+
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
   });
 
   test("responds to keyboard arrows when active", () => {

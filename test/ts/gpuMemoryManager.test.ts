@@ -2,7 +2,7 @@ import {
   GPUMemoryManager,
   getGlobalMemoryManager,
   disposeGlobalMemoryManager,
-} from "../../src/ts/utils/gpuMemoryManager";
+} from "@n-apt/app/infrastructure/visualization/gpuMemoryManager";
 
 // Mock WebGPU device
 const mockDevice = {

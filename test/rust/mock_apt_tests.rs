@@ -46,6 +46,31 @@ mod tests {
       .sum()
   }
 
+  fn ac_energy(samples: &[u8]) -> f64 {
+    let sample_count = samples.len() / 2;
+    if sample_count == 0 {
+      return 0.0;
+    }
+    let mean_i = samples
+      .chunks_exact(2)
+      .map(|sample| sample[0] as f64)
+      .sum::<f64>()
+      / sample_count as f64;
+    let mean_q = samples
+      .chunks_exact(2)
+      .map(|sample| sample[1] as f64)
+      .sum::<f64>()
+      / sample_count as f64;
+    samples
+      .chunks_exact(2)
+      .map(|sample| {
+        let i = sample[0] as f64 - mean_i;
+        let q = sample[1] as f64 - mean_q;
+        i * i + q * q
+      })
+      .sum()
+  }
+
   fn iq_bin_magnitude(
     samples: &[u8],
     sample_rate_hz: f64,
@@ -385,7 +410,7 @@ mod tests {
     let checksum: u64 = samples.data.iter().map(|&b| b as u64).sum();
     println!("MOCK APT IDENTITY:");
     println!("  Waveform checksum: {}", checksum);
-    assert_eq!(checksum, 66846606, "mock APT waveform checksum changed");
+    assert_eq!(checksum, 68178474, "mock APT waveform checksum changed");
 
     // Ensure determinism
     let mut device2 = new_perf_device(12345);
@@ -404,6 +429,26 @@ mod tests {
       duration.as_millis() < 5000,
       "Performance is extremely out of control: {:?}",
       duration
+    );
+  }
+
+  #[test]
+  fn mock_apt_emits_a_centered_dc_spike() {
+    let mut device = MockAptDevice::new_with_seed(0xDC);
+    device.initialize().expect("mock APT initialization");
+    let samples = device
+      .read_samples(32_768)
+      .expect("mock APT frame");
+    let spectrum = fft_spectrum_dbm(&samples.data, samples.sample_rate as f64);
+    // The backend emits ordinary (unshifted) FFT order. The UI centers this
+    // bin when it prepares the display spectrum.
+    let dc = 0;
+    let adjacent = (spectrum[1].1 + spectrum[spectrum.len() - 1].1) * 0.5;
+
+    assert!(
+      spectrum[dc].1 > adjacent + 12.0,
+      "Mock APT DC bin should be visibly above its neighbors: center={:.2} dBm adjacent={adjacent:.2} dBm",
+      spectrum[dc].1,
     );
   }
 
@@ -822,9 +867,9 @@ mod tests {
     let second = device.read_samples(8192).unwrap();
     let third = device.read_samples(8192).unwrap();
 
-    let first_energy = centered_energy(&first.data);
-    let second_energy = centered_energy(&second.data);
-    let third_energy = centered_energy(&third.data);
+    let first_energy = ac_energy(&first.data);
+    let second_energy = ac_energy(&second.data);
+    let third_energy = ac_energy(&third.data);
 
     assert!(
       second_energy > first_energy,

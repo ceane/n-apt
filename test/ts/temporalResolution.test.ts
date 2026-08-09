@@ -7,8 +7,8 @@ import {
   getTemporalResolutionAlpha,
   getTemporalResolutionWindow,
   normalizeTemporalResolution,
-} from "../../src/ts/utils/temporalResolution";
-import { resetWebGpuStreamTemporalHistory } from "@n-apt/utils/webgpuStreamReset";
+} from "@n-apt/math/temporalResolution";
+import { resetWebGpuStreamTemporalHistory } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 
 describe("temporalResolution", () => {
   it("uses a direct copy for lossless temporal resolution", () => {

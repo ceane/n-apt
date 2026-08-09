@@ -2,8 +2,8 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
-import { DemodSidebarNodes } from "../../src/ts/components/sidebar/DemodSidebarNodes";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { DemodSidebarNodes } from "@n-apt/demodulation/sidebar/DemodSidebarNodes";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 
 const theme = buildAppTheme({

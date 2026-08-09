@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { useFFTAnimation } from "../../src/ts/hooks/useFFTAnimation";
+import { useFFTAnimation } from "@n-apt/spectrum/hooks/useFFTAnimation";
 
 describe("useFFTAnimation", () => {
   let requestAnimationFrameMock: jest.SpyInstance;

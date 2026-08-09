@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
-import { FrequencyInput } from "../../src/ts/components/ui/FrequencyInput";
+import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
 
 const theme = {
   colors: {

@@ -1,7 +1,7 @@
 import {
   SourceVisualizationRuntime,
   getLiveVisualizationCapability,
-} from "@n-apt/visualization/sourceVisualizationRuntime";
+} from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 
 type Frame = {
   source_id: string;

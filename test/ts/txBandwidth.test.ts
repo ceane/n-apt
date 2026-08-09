@@ -1,4 +1,4 @@
-import { getTxFrequencyRangeForBandwidth } from "@n-apt/components/sidebar/TxSettingsSection";
+import { getTxFrequencyRangeForBandwidth } from "@n-apt/transmit/sidebar/TxSettingsSection";
 
 describe("Bandwidth + Center Tx settings", () => {
   it("calculates the Tx range without requiring an Rx sample-rate change", () => {

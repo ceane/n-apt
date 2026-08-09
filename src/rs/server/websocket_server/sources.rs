@@ -806,6 +806,17 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   })
 }
 
+/// Send the effective SDR defaults loaded from signals.yaml as one atomic
+/// payload. The frontend keeps this separate from mutable per-source state so
+/// it can display the configured defaults without treating a stale browser
+/// cache as authoritative.
+pub fn build_signals_defaults_snapshot() -> serde_json::Value {
+  serde_json::json!({
+    "type": "signals_defaults",
+    "sdr": crate::server::utils::load_sdr_settings(),
+  })
+}
+
 pub fn active_source_id(shared: &SharedState) -> String {
   let device_profile = shared.device_profile.lock().unwrap().clone();
   if device_profile.kind == "mock_tx" {
@@ -856,6 +867,18 @@ mod stable_source_order_tests {
       active["capabilities"]["max_instantaneous_sample_rate"],
       active["sdr"]["max_sample_rate"]
     );
+  }
+
+  #[test]
+  fn signals_defaults_payload_contains_the_effective_yaml_sdr_config() {
+    let payload = build_signals_defaults_snapshot();
+
+    assert_eq!(payload["type"], "signals_defaults");
+    assert_eq!(payload["sdr"]["sample_rate"], 3_200_000);
+    assert_eq!(payload["sdr"]["center_frequency"], 1_600_000);
+    assert_eq!(payload["sdr"]["gain"]["tuner_gain"], 46.9);
+    assert_eq!(payload["sdr"]["ppm"], 1.0);
+    assert!(payload["sdr"]["devices"].is_object());
   }
 
   #[test]

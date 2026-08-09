@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { useDeviceConnectionState } from "@n-apt/hooks/useDeviceConnectionState";
+import { useDeviceConnectionState } from "@n-apt/app/hooks/useDeviceConnectionState";
 
 describe("useDeviceConnectionState", () => {
   it("only dispatches unavailable state once while disconnected", () => {

@@ -1,4 +1,4 @@
-import { calculateVisibleFrequencyRange } from "@n-apt/components/DemodRouteSection";
+import { calculateVisibleFrequencyRange } from "@n-apt/demodulation/DemodRouteSection";
 
 describe("demod route frequency presentation", () => {
   it("does not invent a default center before the spectrum store has a range", () => {

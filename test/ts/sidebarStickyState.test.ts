@@ -1,4 +1,4 @@
-import { shouldCompactSidebarSourceList } from "../../src/ts/utils/sidebarStickyState";
+import { shouldCompactSidebarSourceList } from "@n-apt/app/layout/sidebarStickyState";
 
 describe("sidebar source compaction during navigation scrolling", () => {
   it("compacts when an auto-scrolled source header reaches the container edge", () => {

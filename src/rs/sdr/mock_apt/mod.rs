@@ -319,6 +319,9 @@ const MOCK_APT_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
 const MOCK_APT_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
 const MOCK_APT_I_DITHER_KEY: u64 = 0x4d41_5054_5458_4949;
 const MOCK_APT_Q_DITHER_KEY: u64 = 0x4d41_5054_5458_5151;
+// Model the small receiver DC offset that real SDRs expose at the centered
+// FFT bin. The display can remove it, while raw IQ captures retain it.
+const MOCK_APT_DC_OFFSET: f64 = 0.04;
 
 fn mock_apt_motion_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
@@ -1536,6 +1539,12 @@ impl MockAptDevice {
       }
     }
 
+    // Keep the receiver's DC offset outside the signal/Tx overlay processing
+    // so it remains a stable centered spike in every generated frame.
+    for sample in self.i_accumulator[..fft_size].iter_mut() {
+      *sample += MOCK_APT_DC_OFFSET;
+    }
+
     // Apply noise, clip and quantize (Sequential to keep RNG identical).
     // If Metal is enabled, we only offload the final conversion stage and
     // keep the RNG on CPU so the seeded stream stays stable.
@@ -1854,12 +1863,11 @@ signals:
   triangulation:
     static:
       freq_range_hz: !frequency_range 2.3GHz..2.344GHz
-  n_apt:
-    channels:
-      a:
-        label: "A"
-        freq_range_hz: !frequency_range 18kHz..4.37MHz
-        description: "A"
+  channels:
+    a:
+      label: "A"
+      freq_range_hz: !frequency_range 18kHz..4.37MHz
+      description: "A"
 "#
     );
     fs::write(path, yaml).expect("write test signals.yaml");

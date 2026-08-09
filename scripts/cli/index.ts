@@ -12,14 +12,14 @@ import {
   resolveCliCaptureFftSize,
   resolveNaptReceiveDefaults,
   resolveRequestedDevice,
-} from "../../src/ts/capture/policy";
+} from "@n-apt/capture/policy";
 import {
   executeAgentTool,
   fetchAgentMarkdown,
   printAgentCapabilities,
 } from "./agent";
-import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "../../src/ts/utils/demodHarness";
-import { inspectSignalFile, summarizeSignal, validateSignalInput } from "../../src/ts/utils/signalCli";
+import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "@n-apt/demodulation/utils/demodHarness";
+import { inspectSignalFile, summarizeSignal, validateSignalInput } from "@n-apt/cli/signalCli";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -224,7 +224,7 @@ async function authenticateCli(): Promise<string> {
     challenge_id: string;
     nonce: string;
   };
-  const { computeHmac } = await import("../../src/ts/crypto/webcrypto");
+  const { computeHmac } = await import("@n-apt/crypto/webcrypto");
   const hmac = await computeHmac(password, challenge.nonce);
   const verifyResponse = await fetch(`${backend}/auth/verify`, {
     method: "POST",

@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
-import { EditableCenterFrequency } from "../../src/ts/components/ui/EditableCenterFrequency";
+import { EditableCenterFrequency } from "@n-apt/ui/EditableCenterFrequency";
 
 const theme = {
   colors: {

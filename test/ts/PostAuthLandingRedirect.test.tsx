@@ -3,19 +3,19 @@ import { MemoryRouter, Routes, Route, Link } from "react-router";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
-import { PostAuthLandingRedirect } from "@n-apt/components/PostAuthLandingRedirect";
+import { PostAuthLandingRedirect } from "@n-apt/app/PostAuthLandingRedirect";
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(),
 }));
 
-jest.mock("@n-apt/utils/bypassStartPage", () => ({
+jest.mock("@n-apt/app/auth/bypassStartPage", () => ({
   getPostAuthLandingPath: jest.fn(),
 }));
 
-const { useAuthentication } = jest.requireMock("@n-apt/hooks/useAuthentication");
+const { useAuthentication } = jest.requireMock("@n-apt/app/hooks/useAuthentication");
 const { getPostAuthLandingPath } = jest.requireMock(
-  "@n-apt/utils/bypassStartPage",
+  "@n-apt/app/auth/bypassStartPage",
 );
 
 const Dummy = ({ label }: { label: string }) => <div>{label}</div>;

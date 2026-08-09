@@ -2,7 +2,7 @@ import {
   getBypassStartPage,
   getPostAuthLandingPath,
   setBypassStartPage,
-} from "@n-apt/utils/bypassStartPage";
+} from "@n-apt/app/auth/bypassStartPage";
 
 describe("bypassStartPage", () => {
   beforeEach(() => {

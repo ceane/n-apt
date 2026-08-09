@@ -5,7 +5,7 @@
  * exchanged between the client and server.
  */
 
-import { type GeolocationData } from "../../types/geolocation";
+import { type GeolocationData } from "@n-apt/types/geolocation";
 export { type GeolocationData };
 
 export type DeviceState =
@@ -52,10 +52,10 @@ export type SdrSettingsConfig = {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
-    hackrf_lna_gain?: number;
-    hackrf_vga_gain?: number;
-    hackrf_amp_enable?: boolean;
-    tuner_bandwidth?: number;
+    hackrf_lna_gain?: number | null;
+    hackrf_vga_gain?: number | null;
+    hackrf_amp_enable?: boolean | null;
+    tuner_bandwidth?: number | null;
   };
   ppm?: number;
   fft?: {
@@ -70,6 +70,43 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
+};
+
+export type SdrSampleRateSpec =
+  | number
+  | string
+  | string[]
+  | { value: string; min: string; max: string };
+
+export type SignalsSdrDefaults = SdrSettingsConfig & {
+  gain: NonNullable<SdrSettingsConfig["gain"]> & {
+    hackrf_lna_gain?: number | null;
+    hackrf_vga_gain?: number | null;
+    hackrf_amp_enable?: boolean | null;
+    tuner_bandwidth?: number | null;
+  };
+  ppm: number;
+  devices: Record<string, {
+    duplex_mode?: string | null;
+    max_sample_rate?: number | null;
+    sample_rate: SdrSampleRateSpec;
+    fft_display?: {
+      markers: Array<{ kind: string; freq_hz: number; label?: string | null }>;
+    } | null;
+    gain_limits?: Record<string, number | null> | null;
+    fft_sizes?: Array<{
+      base: string;
+      fft_min?: number | null;
+      fft_max?: number | null;
+    }> | null;
+    _tx_power_mapping?: Record<string, unknown> | null;
+    _tx_iq_power_model?: Record<string, unknown> | null;
+  }>;
+  fft_sizes?: Array<{
+    base: string;
+    fft_min?: number | null;
+    fft_max?: number | null;
+  }> | null;
 };
 
 export type AptContentType =
@@ -109,6 +146,7 @@ export type SpectrumFrame = {
   description: string;
 };
 
+/** Canonical channel metadata derived by the backend from signals.channels. */
 export type ChannelsMessage = {
   type: "channels";
   source_id: string;
@@ -385,6 +423,11 @@ export interface SourceSdrSettingsMessage {
   sdr: SourceSdrSettings;
 }
 
+export interface SignalsDefaultsMessage {
+  type: "signals_defaults";
+  sdr: SignalsSdrDefaults;
+}
+
 export interface SourceErrorMessage {
   type: "error";
   source_id: string;
@@ -446,6 +489,7 @@ export type WebSocketMessage =
   | { type: "ppm"; ppm: number }
   | ({ type: "settings" } & SDRSettings)
   | SignalDisplaySettingsMessage
+  | SignalsDefaultsMessage
   | { type: "restart_device" }
   | {
       type: "select_source";

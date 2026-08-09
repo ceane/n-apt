@@ -5,10 +5,10 @@ import {
   syncRadioDemodFromSource,
   shouldPreservePendingFmTune,
   type DemodSourceSyncPayload,
-} from "../../src/ts/redux/thunks/demodThunks";
+} from "@n-apt/redux/thunks/demodThunks";
 import { configureStore } from "@reduxjs/toolkit";
-import demodReducer from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
 
 describe("resolveDemodSourceRange", () => {
   it("uses loaded file metadata before playback processing exists", () => {

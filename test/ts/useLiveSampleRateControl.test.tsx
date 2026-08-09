@@ -4,7 +4,7 @@ import {
   canUseWholeChannelSampleRate,
   resolveHackrfBasebandSampleRateHz,
   useLiveSampleRateControl,
-} from "@n-apt/hooks/useLiveSampleRateControl";
+} from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 
 describe("resolveHackrfBasebandSampleRateHz", () => {
   it("uses the active Whole Channel rate instead of the stale local rate", () => {

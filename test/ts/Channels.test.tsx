@@ -3,15 +3,15 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
-import { Channels } from "@n-apt/components/sidebar/Channels";
-import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
+import { Channels } from "@n-apt/spectrum/sidebar/Channels";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { setHardwareInfo } from "@n-apt/redux/slices/demodSlice";
 import { createTestStore } from "./testUtils";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { websocketActions } from "@n-apt/redux";
 
-jest.mock("@n-apt/components/sidebar/FrequencyRangeSlider", () => ({
+jest.mock("@n-apt/spectrum/sidebar/FrequencyRangeSlider", () => ({
   __esModule: true,
   default: ({
     label,

@@ -1,5 +1,5 @@
 import { renderHook, act } from "@testing-library/react";
-import { useThemeStore } from "@n-apt/hooks/useThemeStore";
+import { useThemeStore } from "@n-apt/app/hooks/useThemeStore";
 import { COLORS } from "@n-apt/consts";
 
 describe("useThemeStore", () => {

@@ -13,7 +13,7 @@ import {
   shouldResetVisualPresentationForSelection,
   shouldPreserveWaterfallOnTxStandby,
   shouldClearWebGpuForPlaceholder,
-} from "@n-apt/utils/webgpuStreamReset";
+} from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
   test("resets visual presentation when selection changes", () => {
@@ -359,7 +359,7 @@ describe("WebGPU stream reset", () => {
 
 it("preserves the last Tx frame while stopping into standby", async () => {
   const { resolveWebGpuStreamTransition } = await import(
-    "../../src/ts/utils/webgpuStreamReset"
+    "@n-apt/app/infrastructure/visualization/webgpuStreamReset"
   );
 
   expect(

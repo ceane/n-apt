@@ -144,7 +144,7 @@ describe("Canvas Component Loading Tests", () => {
   describe("Body Attenuation Canvas", () => {
     test("should load and render BodyAttenuationCanvas", async () => {
       const { BodyAttenuationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<BodyAttenuationCanvas />, { container });
 
@@ -158,7 +158,7 @@ describe("Canvas Component Loading Tests", () => {
   describe("Signal Canvas Components", () => {
     test("should load and render AmplitudeModulationCanvas", async () => {
       const { AmplitudeModulationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<AmplitudeModulationCanvas />, { container });
 
@@ -169,7 +169,7 @@ describe("Canvas Component Loading Tests", () => {
 
     test("should load and render FrequencyModulationCanvas", async () => {
       const { FrequencyModulationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<FrequencyModulationCanvas />, { container });
 
@@ -180,7 +180,7 @@ describe("Canvas Component Loading Tests", () => {
 
     test("should load and render HeterodyningCanvas", async () => {
       const { HeterodyningCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<HeterodyningCanvas />, { container });
 
@@ -191,7 +191,7 @@ describe("Canvas Component Loading Tests", () => {
 
     test("should load and render MultipathCanvas", async () => {
       const { MultipathCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<MultipathCanvas />, { container });
 
@@ -204,7 +204,7 @@ describe("Canvas Component Loading Tests", () => {
   describe("Other Canvas Components", () => {
     test("should load and render ImpedanceCanvas", async () => {
       const { ImpedanceCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<ImpedanceCanvas />, { container });
 
@@ -215,7 +215,7 @@ describe("Canvas Component Loading Tests", () => {
 
     test("should load and render TimeOfFlightCanvas", async () => {
       const { TimeOfFlightCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<TimeOfFlightCanvas />, { container });
 
@@ -226,7 +226,7 @@ describe("Canvas Component Loading Tests", () => {
 
     test("should load and render PhaseShiftingCanvas", async () => {
       const { PhaseShiftingCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       render(<PhaseShiftingCanvas />, { container });
 
@@ -245,7 +245,7 @@ describe("Canvas Component Loading Tests", () => {
       });
 
       const { BodyAttenuationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       // Should not throw error
       expect(() => {
@@ -261,7 +261,7 @@ describe("Canvas Component Loading Tests", () => {
       });
 
       const { BodyAttenuationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       // Should not throw error
       expect(() => {
@@ -281,7 +281,7 @@ describe("Canvas Component Loading Tests", () => {
         PhaseShiftingCanvas,
         ImpedanceCanvas,
         TimeOfFlightCanvas,
-      } = await import("../../src/md-preview/components/canvas");
+      } = await import("@n-apt/app-article/components/canvas");
 
       const components = [
         BodyAttenuationCanvas,
@@ -294,27 +294,21 @@ describe("Canvas Component Loading Tests", () => {
         TimeOfFlightCanvas,
       ];
 
-      // Render all components
-      components.forEach((Component, index) => {
+      // Render all components and let any component failure fail this test.
+      components.forEach((Component) => {
         const testContainer = document.createElement("div");
         document.body.appendChild(testContainer);
 
-        try {
-          render(<Component key={index} />, { container: testContainer });
-        } catch (error) {
-          console.error(`Component ${index} failed to render:`, error);
-        }
+        render(<Component />, { container: testContainer });
+        expect(testContainer.childElementCount).toBeGreaterThan(0);
       });
-
-      // All components should render without throwing
-      expect(components.length).toBe(8);
     });
   });
 
   describe("Canvas Performance", () => {
     test("should render canvases within reasonable time", async () => {
       const { BodyAttenuationCanvas } =
-        await import("../../src/md-preview/components/canvas");
+        await import("@n-apt/app-article/components/canvas");
 
       const startTime = performance.now();
 

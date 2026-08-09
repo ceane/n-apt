@@ -1,4 +1,4 @@
-import { createFFTZoomProcessor } from "@n-apt/utils/rendering/fftZoom";
+import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
 
 describe("createFFTZoomProcessor", () => {
   const range = { min: 0, max: 8 };

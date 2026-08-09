@@ -1,4 +1,4 @@
-import { createSourceSwitchCoordinator } from "../../src/ts/hooks/sourceSwitchCoordinator";
+import { createSourceSwitchCoordinator } from "@n-apt/spectrum/hooks/sourceSwitchCoordinator";
 
 describe("source switch coordinator", () => {
   afterEach(() => {

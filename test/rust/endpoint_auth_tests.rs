@@ -147,6 +147,8 @@ async fn test_protected_endpoints_deny_unauthorized() {
   for (path, method) in endpoints {
     let response = if method == "POST" {
       server.post(path).await
+    } else if path.starts_with("/ws/") {
+      server.get_websocket(path).await
     } else {
       server.get(path).await
     };
@@ -161,7 +163,11 @@ async fn test_protected_endpoints_allow_authorized() {
   let (server, state, _guard) = setup_test_server().await;
 
   // Create a valid session
-  let token = state.session_store.create_session([0u8; 32]).await;
+  let token = state
+    .session_store
+    .create_session([0u8; 32])
+    .await
+    .expect("test Redis must be available");
 
   // Test /api/towers/bounds (GET)
   let response = server
@@ -197,7 +203,11 @@ async fn test_invalid_token_denied() {
 async fn test_vault_key_matches_shared_password_key() {
   let (server, state, _guard) = setup_test_server().await;
 
-  let token = state.session_store.create_session([0u8; 32]).await;
+  let token = state
+    .session_store
+    .create_session([0u8; 32])
+    .await
+    .expect("test Redis must be available");
 
   let response = server.get(&format!("/auth/vault-key?token={token}")).await;
   response.assert_status_ok();
@@ -219,7 +229,11 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
 
   let session_key = [7u8; 32];
   assert_ne!(session_key, state.shared.encryption_key);
-  let token = state.session_store.create_session(session_key).await;
+  let token = state
+    .session_store
+    .create_session(session_key)
+    .await
+    .expect("test Redis must be available");
 
   let ws_path = format!("/ws/source/mock-apt/iq?token={token}");
   let mut websocket =

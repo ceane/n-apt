@@ -1,11 +1,11 @@
 import { configureStore } from "@reduxjs/toolkit";
-import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import {
   requestNextLiveFrame,
   resolveWholeChannelSampleRateForSourceSwitch,
   sendSelectSource,
-} from "../../src/ts/redux/thunks/websocketThunks";
+} from "@n-apt/redux/thunks/websocketThunks";
 
 describe("requestNextLiveFrame thunk", () => {
   it("updates Tx stream options when connected", async () => {

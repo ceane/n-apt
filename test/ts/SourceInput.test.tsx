@@ -1,11 +1,11 @@
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
-import SourceInput from "../../src/ts/components/sidebar/SourceInput";
-import SourceSidebar from "../../src/ts/components/sidebar/SourceSidebar";
-import { isSourceDeviceSelected } from "../../src/ts/components/sidebar/SourceInput";
+import SourceInput from "@n-apt/spectrum/sidebar/SourceInput";
+import SourceSidebar from "@n-apt/spectrum/sidebar/SourceSidebar";
+import { isSourceDeviceSelected } from "@n-apt/spectrum/sidebar/SourceInput";
 
-jest.mock("../../src/ts/components/ui/VaultStatus", () => ({
+jest.mock("@n-apt/ui/VaultStatus", () => ({
   VaultStatus: ({ compact }: { compact?: boolean }) =>
     compact ? <span>VAULT LOCKED</span> : null,
 }));

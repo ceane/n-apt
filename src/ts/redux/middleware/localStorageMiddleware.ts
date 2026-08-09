@@ -1,13 +1,20 @@
 import { Middleware } from "@reduxjs/toolkit";
+import type { SignalsSdrDefaults } from "@n-apt/consts/schemas/websocket";
+import { isValidSignalsDefaultsMessage } from "@n-apt/validation";
+import {
+  FRONTEND_VISUALIZER_DEFAULTS,
+  VISUALIZER_MAX_ZOOM_LIMITS,
+} from "@n-apt/consts/visualizerControls";
 
 // Keys for localStorage persistence
 const STORAGE_KEYS = {
   THEME: "napt-theme-storage",
   SDR_SETTINGS: "napt-sdr-settings-v2",
+  SIGNALS_DEFAULTS: "napt-signals-defaults-v1",
   AUTH_PASSKEYS: "n_apt_has_passkeys",
   VISUALIZER_PAUSE: "napt-visualizer-manual-paused",
   SPECTRUM_FRAMES: "napt-spectrum-frames",
-  SDR_SETTINGS_CACHE: "napt-sdr-settings",
+  SETTINGS: "napt-settings-v1",
 } as const;
 
 // Safe localStorage operations
@@ -157,6 +164,7 @@ const createLocalStorageMiddleware =
         tunerAGC: spectrumState.tunerAGC,
         rtlAGC: spectrumState.rtlAGC,
         vizZoom: spectrumState.vizZoom,
+        maxVizZoom: spectrumState.maxVizZoom,
         vizPanOffset: spectrumState.vizPanOffset,
         fftMinDb: spectrumState.fftMinDb,
         fftMaxDb: spectrumState.fftMaxDb,
@@ -188,6 +196,16 @@ const createLocalStorageMiddleware =
           JSON.stringify(waterfallState.snapshotGridPreference),
         );
       }
+    }
+
+    if (action.type?.startsWith("settings/")) {
+      safeSetItem(
+        STORAGE_KEYS.SETTINGS,
+        JSON.stringify({
+          mirrorIqBasebandBelowZero:
+            state.settings.mirrorIqBasebandBelowZero === true,
+        }),
+      );
     }
 
     // Handle auth passkey settings
@@ -227,11 +245,14 @@ const createLocalStorageMiddleware =
       // Cache SDR settings from WebSocket
       if (
         action.type === "websocket/updateDeviceState" &&
-        websocketState.sdrSettings
+        websocketState.signalsDefaults
       ) {
         safeSetItem(
-          STORAGE_KEYS.SDR_SETTINGS_CACHE,
-          JSON.stringify(websocketState.sdrSettings),
+          STORAGE_KEYS.SIGNALS_DEFAULTS,
+          JSON.stringify({
+            version: 1,
+            sdr: websocketState.signalsDefaults,
+          }),
         );
       }
 
@@ -272,7 +293,7 @@ export const mergePersistedSdrSettings = <
   persisted: Partial<T> | null | undefined,
 ): T => ({
   ...defaults,
-  ...(persisted ?? {}),
+  ...persisted,
 });
 
 export const loadPersistedSdrSettings = () => {
@@ -316,6 +337,14 @@ export const loadPersistedSdrSettings = () => {
     if (!Number.isFinite(parsed.txVgaGain)) {
       parsed.txVgaGain = 16;
     }
+
+    if (!Number.isFinite(parsed.maxVizZoom)) {
+      parsed.maxVizZoom = FRONTEND_VISUALIZER_DEFAULTS.maxZoom;
+    }
+    parsed.maxVizZoom = Math.min(
+      VISUALIZER_MAX_ZOOM_LIMITS.max,
+      Math.max(VISUALIZER_MAX_ZOOM_LIMITS.min, parsed.maxVizZoom),
+    );
 
     normalizePersistedTxViewerSettings(parsed);
 
@@ -367,6 +396,23 @@ export const loadPersistedSdrSettings = () => {
   }
 };
 
+export const loadPersistedSettings = (): Partial<{
+  mirrorIqBasebandBelowZero: boolean;
+}> => {
+  const stored = safeGetItem(STORAGE_KEYS.SETTINGS);
+  if (!stored) return {};
+  try {
+    const parsed = JSON.parse(stored);
+    return {
+      mirrorIqBasebandBelowZero:
+        parsed?.mirrorIqBasebandBelowZero === true,
+    };
+  } catch {
+    safeRemoveItem(STORAGE_KEYS.SETTINGS);
+    return {};
+  }
+};
+
 export const loadPersistedPasskeys = () => {
   const stored = safeGetItem(STORAGE_KEYS.AUTH_PASSKEYS);
   return stored === "true";
@@ -386,21 +432,26 @@ export const loadPersistedSpectrumFrames = () => {
   }
 };
 
-export const loadPersistedSdrSettingsCache = () => {
-  const stored = safeGetItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
+export const loadPersistedSignalsDefaults = (): SignalsSdrDefaults | null => {
+  const stored = safeGetItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
   if (!stored) return null;
 
   try {
     const parsed = JSON.parse(stored);
-    if (parsed?.gain && typeof parsed.gain === "object") {
-      if (parsed.gain.tuner_gain === 0) {
-        delete parsed.gain.tuner_gain;
-      }
+    if (
+      parsed?.version !== 1 ||
+      !isValidSignalsDefaultsMessage({
+        type: "signals_defaults",
+        sdr: parsed.sdr,
+      })
+    ) {
+      safeRemoveItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
+      return null;
     }
-    return parsed;
+    return parsed.sdr;
   } catch (error) {
-    console.warn("Failed to parse persisted SDR settings cache:", error);
-    safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
+    console.warn("Failed to parse persisted signals defaults:", error);
+    safeRemoveItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
     return null;
   }
 };

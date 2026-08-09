@@ -1,7 +1,7 @@
 import {
   resolveWholeChannelFrame,
   resolveWholeChannelMode,
-} from "@n-apt/utils/wholeChannelControl";
+} from "@n-apt/spectrum/utils/wholeChannelControl";
 
 describe("whole channel control", () => {
   it("identifies whole-channel mode from the active channel span", () => {

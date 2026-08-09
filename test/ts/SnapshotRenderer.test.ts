@@ -6,8 +6,8 @@ if (
   (globalThis as any).jest = (globalThis as any).vi;
 }
 
-import { CoordinateMapper } from "../../src/ts/utils/rendering/CoordinateMapper";
-import { SnapshotRenderer } from "../../src/ts/utils/rendering/SnapshotRenderer";
+import { CoordinateMapper } from "@n-apt/layout/rendering/CoordinateMapper";
+import { SnapshotRenderer } from "@n-apt/layout/rendering/SnapshotRenderer";
 
 describe("SnapshotRenderer", () => {
   it("rounds dB axis labels to whole numbers", () => {

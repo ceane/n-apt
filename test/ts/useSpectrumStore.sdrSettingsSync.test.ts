@@ -1,4 +1,4 @@
-import { shouldSyncSdrSettingsCache } from "@n-apt/hooks/useSpectrumStore";
+import { shouldSyncSdrSettingsCache } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("shouldSyncSdrSettingsCache", () => {
   it("does not request a Redux write when settings are unchanged", () => {

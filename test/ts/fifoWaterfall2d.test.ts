@@ -1,4 +1,4 @@
-import { createFifoWaterfall2DRenderer } from "../../src/ts/utils/rendering/fifoWaterfall2d";
+import { createFifoWaterfall2DRenderer } from "@n-apt/spectrum/utils/rendering/fifoWaterfall2d";
 
 const createContext = () => {
   const createImageData = jest.fn((width: number, height: number) => ({
@@ -10,6 +10,9 @@ const createContext = () => {
     context: {
       createImageData,
       putImageData: jest.fn(),
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+      imageSmoothingEnabled: true,
     } as unknown as CanvasRenderingContext2D,
     createImageData,
   };
@@ -30,5 +33,41 @@ describe("createFifoWaterfall2DRenderer", () => {
 
     expect(first.createImageData).toHaveBeenCalledTimes(1);
     expect(second.createImageData).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables interpolation while scaling a zoomed history window", () => {
+    const { context } = createContext();
+    const sourceCanvas = {
+      width: 8,
+      height: 4,
+      getContext: jest.fn(() => ({
+        putImageData: jest.fn(),
+        imageSmoothingEnabled: true,
+      })),
+    };
+    const ownerDocument = {
+      createElement: jest.fn(() => sourceCanvas),
+    };
+    Object.defineProperty(context, "canvas", {
+      value: { ownerDocument },
+    });
+    const renderer = createFifoWaterfall2DRenderer();
+
+    renderer.draw(
+      context,
+      8,
+      4,
+      new Uint8ClampedArray(8 * 4 * 4),
+      0,
+      0,
+      8,
+      0,
+    );
+
+    expect((context as any).imageSmoothingEnabled).toBe(false);
+    expect(
+      (sourceCanvas.getContext.mock.results[0]?.value as any)
+        .imageSmoothingEnabled,
+    ).toBe(false);
   });
 });

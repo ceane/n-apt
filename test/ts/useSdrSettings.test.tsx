@@ -6,11 +6,11 @@ import { configureStore } from "@reduxjs/toolkit";
 import {
   deriveStateFromConfig,
   useSdrSettings,
-} from "@n-apt/hooks/useSdrSettings";
-import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
-import { AuthProvider } from "@n-apt/hooks/useAuthentication";
+} from "@n-apt/settings/hooks/useSdrSettings";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
 import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
-import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
+import type { SpectrumState } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 import spectrumSlice, {
   setSdrSettingsBundle,
@@ -25,7 +25,7 @@ describe("N-APT SDR defaults", () => {
   });
 });
 
-testApi.mock("@n-apt/hooks/useAuthentication", () => ({
+testApi.mock("@n-apt/app/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
   useAuthentication: () => ({
     isAuthenticated: true,

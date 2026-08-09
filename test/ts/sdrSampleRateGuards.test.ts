@@ -6,7 +6,7 @@ import {
   resolveCaptureAcquisitionMode,
   resolveCanonicalDisplaySampleRateHz,
   resolveDisplaySampleRateHz,
-} from "@n-apt/utils/sdrSampleRateGuards";
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 describe("resolveDisplaySampleRateHz", () => {
   it("uses the active Whole Channel rate instead of the stale source floor", () => {

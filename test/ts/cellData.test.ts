@@ -1,7 +1,7 @@
 import {
   getCarrierName,
   getPotentialLeasee,
-} from "../../src/ts/utils/cellData";
+} from "@n-apt/maps/public/cellData";
 
 describe("Cell Data Utilities", () => {
   describe("getCarrierName", () => {

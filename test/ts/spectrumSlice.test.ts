@@ -2,8 +2,9 @@ import spectrumReducer, {
   setTxCenterFrequencyHz,
   setTxPowerDbm,
   setSdrSettingsBundle,
+  setMaxVizZoom,
   mergeLastKnownRanges,
-} from "../../src/ts/redux/slices/spectrumSlice";
+} from "@n-apt/redux/slices/spectrumSlice";
 
 describe("Spectrum Slice TX intent", () => {
   const getInitialState = () => {
@@ -56,6 +57,15 @@ describe("Spectrum Slice TX intent", () => {
     expect(state.txPowerDbm).toBe(-80);
   });
 
+  test("stores the editable visualizer maximum zoom", () => {
+    const state = spectrumReducer(
+      getInitialState(),
+      setMaxVizZoom(2250),
+    );
+
+    expect(state.maxVizZoom).toBe(2250);
+  });
+
   test("ignores NaN inputs and prevents state corruption", () => {
     let state = getInitialState();
     const initialPower = state.txPowerDbm;
@@ -83,7 +93,7 @@ describe("Spectrum Slice TX intent", () => {
 
 it("updates Tx center and bandwidth atomically", async () => {
   const { default: reducer, setTxGeometry } = await import(
-    "../../src/ts/redux/slices/spectrumSlice"
+    "@n-apt/redux/slices/spectrumSlice"
   );
   const initial = reducer(undefined, { type: "@@init" });
 

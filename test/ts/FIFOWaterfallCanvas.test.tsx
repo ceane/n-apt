@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
+import FIFOWaterfallCanvas from "@n-apt/spectrum/FIFOWaterfallCanvas";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 

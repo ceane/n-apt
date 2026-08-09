@@ -2,7 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import spectrumReducer, {
   tuneToChannels,
   setTxHopType,
-} from "../../src/ts/redux/slices/spectrumSlice";
+} from "@n-apt/redux/slices/spectrumSlice";
 
 describe("tuneToChannels Redux Action", () => {
   it("initializes state to the primary channel when tuning to multiple channels without ghost frequencies or summed bandwidths", () => {

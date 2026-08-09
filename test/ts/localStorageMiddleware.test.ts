@@ -5,7 +5,7 @@ import websocketSlice, {
 } from "@n-apt/redux/slices/websocketSlice";
 import {
   loadPersistedSdrSettings,
-  loadPersistedSdrSettingsCache,
+  loadPersistedSignalsDefaults,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
 
@@ -120,21 +120,6 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.fftSize).toBe(2048);
   });
 
-  it("drops stale zero tuner gain from cached websocket settings", () => {
-    localStorage.setItem(
-      "napt-sdr-settings",
-      JSON.stringify({
-        gain: { tuner_gain: 0, rtl_agc: false, tuner_agc: false },
-        sample_rate: 3_200_000,
-      }),
-    );
-
-    const parsed = loadPersistedSdrSettingsCache();
-
-    expect(parsed?.gain?.tuner_gain).toBeUndefined();
-    expect(parsed?.gain?.rtl_agc).toBe(false);
-  });
-
   it("removes persisted spectrum frames when the websocket disconnects", () => {
     const store = configureStore({
       reducer: {
@@ -160,5 +145,42 @@ describe("loadPersistedSdrSettings", () => {
     store.dispatch(setDisconnected());
 
     expect(localStorage.getItem("napt-spectrum-frames")).toBeNull();
+  });
+});
+
+describe("loadPersistedSignalsDefaults", () => {
+  it("loads only the versioned atomic signals defaults envelope", () => {
+    const defaults = {
+      sample_rate: 3_200_000,
+      min_receive_sample_rate: 3_200_000,
+      center_frequency: 1_600_000,
+      gain: {
+        tuner_gain: 46.9,
+        rtl_agc: false,
+        tuner_agc: false,
+        hackrf_lna_gain: null,
+        hackrf_vga_gain: 30,
+        hackrf_amp_enable: false,
+        tuner_bandwidth: 3_200_000,
+      },
+      ppm: 1,
+      fft: {
+        default_size: 2048,
+        default_frame_rate: 60,
+        max_size: 262144,
+        max_frame_rate: 60,
+        size_to_frame_rate: { "2048": 60 },
+      },
+      display: { min_db: -120, max_db: 0, padding: 20 },
+      devices: {},
+      fft_sizes: null,
+    };
+
+    localStorage.setItem(
+      "napt-signals-defaults-v1",
+      JSON.stringify({ version: 1, sdr: defaults }),
+    );
+
+    expect(loadPersistedSignalsDefaults()).toEqual(defaults);
   });
 });

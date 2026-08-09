@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import "@testing-library/jest-dom";
-import { IQCapturesContent } from "@n-apt/components/faq/IQCapturesContent";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { IQCapturesContent } from "@n-apt/learn/faq/IQCapturesContent";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const theme = buildAppTheme({
   accentColor: "#00d4ff",

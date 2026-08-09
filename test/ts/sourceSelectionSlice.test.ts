@@ -2,7 +2,7 @@ import sourceSelectionReducer, {
   setPendingSourceSwitchId,
   setSelectedSourceId,
   setSelectionIntentSourceId,
-} from "../../src/ts/redux/slices/sourceSelectionSlice";
+} from "@n-apt/redux/slices/sourceSelectionSlice";
 
 describe("source selection state", () => {
   test("stores selected source intent independently from backend state", () => {

@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import {
   streamWholeChannelSegmentFrames,
   useCaptureWholeChannelSegments,
-} from "@n-apt/hooks/useCaptureWholeChannelSegments";
+} from "@n-apt/capture/hooks/useCaptureWholeChannelSegments";
 import { TestWrapper } from "./testUtils";
 
 describe("streamWholeChannelSegmentFrames", () => {

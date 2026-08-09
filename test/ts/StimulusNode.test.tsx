@@ -2,11 +2,11 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
-import { StimulusNode } from "@n-apt/components/react-flow/nodes/StimulusNode";
+import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
 import { TestWrapper } from "./testUtils";
 
 // Mock the useDemod hook
-jest.mock("@n-apt/contexts/DemodContext", () => ({
+jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => ({
     analysisSession: { state: "idle", type: "audio", startTime: null },
     selectedBaseline: "audio",

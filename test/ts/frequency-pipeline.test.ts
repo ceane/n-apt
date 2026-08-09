@@ -1,5 +1,5 @@
-import { isValidFrequency } from "../../src/ts/validation/guards";
-import { parseFrequency } from "../../src/ts/utils/frequency";
+import { isValidFrequency } from "@n-apt/validation/guards";
+import { parseFrequency } from "@n-apt/math/frequency";
 
 /**
  * End-to-end Integration Test Mock

@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDrawWebGPUFFTSignal } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 
-jest.mock("@n-apt/utils/webgpu", () => ({
+jest.mock("@n-apt/app/infrastructure/visualization/webgpu", () => ({
   configureWebGPUCanvas: jest.fn(() => ({
     configure: jest.fn(),
     getCurrentTexture: jest.fn(() => ({
@@ -117,7 +117,7 @@ describe("useDrawWebGPUFFTSignal", () => {
     ).toBe(true);
 
     const spikePipeline =
-      mockDevice.createComputePipeline.mock.results[1]?.value;
+      mockDevice.createComputePipeline.mock.results[2]?.value;
     expect(computePass.setPipeline).toHaveBeenCalledWith(spikePipeline);
     const displayWorkgroups = Math.ceil(
       (mockCanvas.parentElement.offsetWidth - 40) / 64,

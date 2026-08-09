@@ -14,7 +14,7 @@ describe("env constants", () => {
     process.env.NAPT_PBKDF2_SALT = "shared-salt";
     process.env.VITE_PBKDF2_SALT = "$NAPT_PBKDF2_SALT";
 
-    const { PBKDF2_SALT_VAL } = await import("../../src/ts/consts/env");
+    const { PBKDF2_SALT_VAL } = await import("@n-apt/consts/env");
 
     expect(PBKDF2_SALT_VAL).toBe("shared-salt");
   });
@@ -23,7 +23,7 @@ describe("env constants", () => {
     process.env.VITE_PBKDF2_SALT = "$NAPT_PBKDF2_SALT";
     delete process.env.NAPT_PBKDF2_SALT;
 
-    const { PBKDF2_SALT_VAL } = await import("../../src/ts/consts/env");
+    const { PBKDF2_SALT_VAL } = await import("@n-apt/consts/env");
 
     expect(PBKDF2_SALT_VAL).toBe("n-apt-aes-salt-v1");
   });
@@ -32,7 +32,7 @@ describe("env constants", () => {
     process.env.NAPT_PBKDF2_SALT = "shared-salt";
     delete process.env.VITE_PBKDF2_SALT;
 
-    const { PBKDF2_SALT_VAL } = await import("../../src/ts/consts/env");
+    const { PBKDF2_SALT_VAL } = await import("@n-apt/consts/env");
 
     expect(PBKDF2_SALT_VAL).toBe("shared-salt");
   });

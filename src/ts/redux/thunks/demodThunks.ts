@@ -1,6 +1,7 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState, AppDispatch } from "@n-apt/redux/store";
 import type { FrequencyRange, NaptMetadata } from "@n-apt/consts/types";
+import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
 import {
   setSpanRange,
   setCenterFreq,
@@ -223,7 +224,7 @@ const rangeContains = (outer: FrequencyRange, inner: FrequencyRange) =>
 
 export const shouldPreservePendingFmTune = (params: {
   sourceMode: DemodSourceMode;
-  algorithm: "fm" | "aptAudio" | "aptImage";
+  algorithm: DemodAlgorithm;
   pendingCenterHz: number | null | undefined;
   currentSelection: FrequencyRange | null | undefined;
   incomingRange: FrequencyRange | null | undefined;

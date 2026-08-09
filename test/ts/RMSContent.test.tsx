@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import "@testing-library/jest-dom";
-import { RMSContent } from "@n-apt/components/faq/RMSContent";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { RMSContent } from "@n-apt/learn/faq/RMSContent";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const theme = buildAppTheme({
   accentColor: "#00d4ff",
@@ -28,5 +28,7 @@ describe("RMSContent", () => {
     expect(
       screen.getByText(/N-APT works with complex I\/Q samples/i),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /RMS calculation flow/i })).toBeInTheDocument();
+    expect(screen.getByText("RMS = √(average of sample²)")).toBeInTheDocument();
   });
 });

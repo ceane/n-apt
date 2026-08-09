@@ -1,7 +1,7 @@
 import {
   createMultiplexedStreamTransport,
-} from "../../src/ts/streams/multiplexedStreamTransport";
-import type { StreamKey } from "../../src/ts/streams/sourceModeStreamManager";
+} from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
+import type { StreamKey } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 
 describe("multiplexed stream transport", () => {
   it("uses one socket for independent source/mode subscriptions", () => {

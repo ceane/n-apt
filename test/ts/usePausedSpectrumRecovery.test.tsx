@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { usePausedSpectrumRecovery } from "@n-apt/hooks/usePausedSpectrumRecovery";
+import { usePausedSpectrumRecovery } from "@n-apt/spectrum/hooks/usePausedSpectrumRecovery";
 
 describe("usePausedSpectrumRecovery", () => {
   it("rebuilds a missing waveform from the hydrated paused IQ snapshot", () => {

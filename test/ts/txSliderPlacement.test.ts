@@ -7,7 +7,7 @@ import {
   resolveTxSliderCenterHz,
   shouldJumpTxMonitor,
   shouldSyncMockMonitorCenterFromRange,
-} from "../../src/ts/utils/txSliderPlacement";
+} from "@n-apt/transmit/public/txSliderPlacement";
 
 describe("resolveTxPreviewGeometry", () => {
   it("keeps the Tx IQ bandwidth fixed while the standby VFO moves", () => {

@@ -22,6 +22,7 @@ import localStorageMiddleware, {
   loadPersistedSdrSettings,
   loadPersistedTheme,
   mergePersistedSdrSettings,
+  loadPersistedSettings,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 
 const preloadedState = {
@@ -30,6 +31,10 @@ const preloadedState = {
     loadPersistedSdrSettings(),
   ),
   theme: loadPersistedTheme() || undefined,
+  settings: {
+    ...settingsSlice(undefined, { type: "@@INIT" }),
+    ...loadPersistedSettings(),
+  },
 };
 
 export const store = configureStore({

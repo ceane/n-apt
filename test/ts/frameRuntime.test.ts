@@ -2,14 +2,37 @@ import {
   createFrameRuntime,
   createSourceFrameRuntime,
   getLiveFrameRefForSource,
-} from "../../src/ts/visualization/frameRuntime";
+  subscribeFrameRuntime,
+} from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
   liveDataBySourceRef,
   presentationController,
   sourceVisualizationRuntime,
-} from "../../src/ts/redux/middleware/websocketMiddleware";
+} from "@n-apt/redux/middleware/websocketMiddleware";
 
 describe("frame runtime", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test("shares one clock while preserving subscriber cadence", () => {
+    jest.useFakeTimers();
+    const fast = jest.fn();
+    const slow = jest.fn();
+    const unsubscribeFast = subscribeFrameRuntime(fast, 50);
+    const unsubscribeSlow = subscribeFrameRuntime(slow, 250);
+
+    jest.advanceTimersByTime(200);
+    expect(fast).toHaveBeenCalledTimes(4);
+    expect(slow).toHaveBeenCalledTimes(0);
+
+    jest.advanceTimersByTime(100);
+    expect(slow).toHaveBeenCalledTimes(1);
+
+    unsubscribeFast();
+    unsubscribeSlow();
+  });
+
   test("reads and clears an imperative frame slot without React state", () => {
     const ref = { current: { sequence: 1 } as { sequence: number } | null };
     const runtime = createFrameRuntime(ref);

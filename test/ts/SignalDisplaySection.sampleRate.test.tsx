@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import { SignalDisplaySection } from "@n-apt/spectrum/sidebar/SignalDisplaySection";
 import { TestWrapper } from "./testUtils";
 
 const baseProps = {
@@ -26,16 +26,41 @@ const baseProps = {
   },
   powerScale: "dB" as const,
   displayMode: "fft" as const,
+  removeDcSpike: false,
   onFftFrameRateChange: jest.fn(),
   onFftSizeChange: jest.fn(),
   onFftWindowChange: jest.fn(),
   onTemporalResolutionChange: jest.fn(),
   onPowerScaleChange: jest.fn(),
   onDisplayModeChange: jest.fn(),
+  onRemoveDcSpikeChange: jest.fn(),
   scheduleCoupledAdjustment: jest.fn(),
 };
 
 describe("SignalDisplaySection sample rate selector", () => {
+  it("exposes the Remove DC Spike display toggle", () => {
+    const onRemoveDcSpikeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRate={3_200_000}
+          onSampleRateChange={jest.fn()}
+          removeDcSpike={false}
+          onRemoveDcSpikeChange={onRemoveDcSpikeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Remove DC Spike",
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+    expect(onRemoveDcSpikeChange).toHaveBeenCalledWith(true);
+  });
+
   it("caps the logical frame-rate control from the live sample rate", () => {
     render(
       <TestWrapper>

@@ -29,6 +29,7 @@ use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
   active_source_id, broadcast_device_status, broadcast_signal_display_settings,
   build_channels_snapshot, build_source_info_snapshot, complex_baseband,
+  build_signals_defaults_snapshot,
   resolve_stream_key_source_id,
 };
 use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
@@ -1270,6 +1271,19 @@ pub async fn handle_ws_connection(
   let _ = reconcile_stale_device_snapshot(&shared);
 
   // Send initial source snapshot
+  let initial_defaults = build_signals_defaults_snapshot();
+  if let Ok(defaults_json) = serde_json::to_string(&initial_defaults) {
+    if ws_sender
+      .send(Message::Text(defaults_json.into()))
+      .await
+      .is_err()
+    {
+      shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+      shared.client_count.fetch_sub(1, Ordering::Relaxed);
+      return;
+    }
+  }
+
   let initial_status = build_source_info_snapshot(&shared);
 
   if let Ok(status_json) = serde_json::to_string(&initial_status) {
@@ -1330,6 +1344,7 @@ pub async fn handle_ws_connection(
             // to handle capture state updates properly.
             if plaintext_json.contains("\"type\":\"status\"")
               || plaintext_json.contains("\"type\":\"source_info\"")
+              || plaintext_json.contains("\"type\":\"signals_defaults\"")
               || plaintext_json.contains("\"type\":\"capture_status\"")
               // A source-switch failure must reach the initiating browser;
               // otherwise its local selection waits forever for an active

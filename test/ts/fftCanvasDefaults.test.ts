@@ -1,4 +1,4 @@
-import { resolveLimitMarkers } from "../../src/ts/components/FFTCanvas";
+import { resolveLimitMarkers } from "@n-apt/spectrum/FFTCanvas";
 
 describe("FFTCanvas defaults", () => {
   it("reuses the same empty limit-marker list across renders", () => {

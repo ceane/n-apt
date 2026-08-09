@@ -3,7 +3,7 @@ import { renderHook, act } from "@testing-library/react";
 import {
   MapLocationsProvider,
   useMapLocations,
-} from "@n-apt/hooks/useMapLocations";
+} from "@n-apt/maps/hooks/useMapLocations";
 
 // Mock Leaflet
 jest.mock("react-leaflet", () => ({
@@ -31,8 +31,8 @@ jest.mock("leaflet", () => ({
   latLng: jest.fn(),
 }));
 
-// Mock @n-apt/utils/env
-jest.mock("@n-apt/utils/env", () => ({
+// Mock @n-apt/app/infrastructure/services/env
+jest.mock("@n-apt/app/infrastructure/services/env", () => ({
   getGoogleMapsApiKey: () => "mock-api-key",
 }));
 

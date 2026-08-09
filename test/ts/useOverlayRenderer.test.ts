@@ -2,7 +2,7 @@ import { renderHook } from "@testing-library/react";
 import {
   invalidateOverlayThemeColorCache,
   useOverlayRenderer,
-} from "@n-apt/hooks/useOverlayRenderer";
+} from "@n-apt/spectrum/hooks/useOverlayRenderer";
 
 describe("useOverlayRenderer Hook", () => {
   const mockCtx = {

@@ -1,4 +1,4 @@
-import { getDemodFileSelectionActions } from "../../src/ts/components/sidebar/DemodulateSidebar";
+import { getDemodFileSelectionActions } from "@n-apt/demodulation/sidebar/DemodulateSidebar";
 
 describe("demod file selection", () => {
   it("enters file mode before starting playback processing", () => {

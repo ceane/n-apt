@@ -1,4 +1,4 @@
-import { resolveWholeChannelViewport } from "@n-apt/utils/wholeChannelPresentation";
+import { resolveWholeChannelViewport } from "@n-apt/spectrum/utils/wholeChannelPresentation";
 
 describe("resolveWholeChannelViewport", () => {
   it("preserves a channel that fits inside the source maximum sample rate", () => {

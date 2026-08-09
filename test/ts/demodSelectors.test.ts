@@ -1,7 +1,7 @@
 import {
   selectSelectedFiles,
   selectWebSocketSources,
-} from "../../src/ts/redux/selectors/performanceSelectors";
+} from "@n-apt/redux/selectors/performanceSelectors";
 
 describe("demod selectors", () => {
   it("returns a stable empty source list when sources are unavailable", () => {

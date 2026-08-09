@@ -125,7 +125,7 @@ export default defineConfig(({ mode }) => {
       drop: isProd ? ["console", "debugger"] : [],
     },
     base: isProd ? "/n-apt/" : "/md-preview/",
-    root: path.resolve(dirname, "src/md-preview"),
+    root: path.resolve(dirname, "src/app-article"),
     envDir: dirname,
     publicDir: path.resolve(dirname, "public"),
     build: {
@@ -139,14 +139,14 @@ export default defineConfig(({ mode }) => {
       alias: [
         ...(isProd ? [{
           find: "react/jsx-dev-runtime",
-          replacement: path.resolve(dirname, "src/md-preview/jsx-shim.js")
+          replacement: path.resolve(dirname, "src/app-article/jsx-shim.js")
         }] : []),
         {
           find: /^@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
-      find: /^@n-apt\/md-preview\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+      find: /^@n-apt\/app-article\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-article")}/$1`
     }, {
       find: /^@n-apt\/public\/(.*)$/,
       replacement: `${path.resolve(dirname, "public")}/$1`

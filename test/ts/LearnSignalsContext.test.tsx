@@ -5,7 +5,7 @@ import {
   LearnSignalsProvider,
   useLearnSignals,
   getLearnSignalsSectionPath,
-} from "@n-apt/contexts/LearnSignalsContext";
+} from "@n-apt/learn/context/LearnSignalsContext";
 
 const renderInRouter = (initialPath: string, children: ReactNode) =>
   renderHook(() => useLearnSignals(), {

@@ -3,7 +3,7 @@ import {
   beforeDemodEnforceQuality,
   getDemodQualityLockedFftSizes,
   hasConnectedDemodQualityNode,
-} from "../../src/ts/utils/demodQuality";
+} from "@n-apt/demodulation/utils/demodQuality";
 
 describe("demodQuality", () => {
   it("filters out FFT sizes below the demod quality floor", () => {

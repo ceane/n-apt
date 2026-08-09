@@ -1,4 +1,4 @@
-import { requestNextPausedFrame } from "../../src/ts/redux/thunks/websocketThunks";
+import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
 
 function createMockStore(isConnected: boolean) {
   const actions: any[] = [];

@@ -1,11 +1,11 @@
 import React from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { HelmetProvider } from "react-helmet-async";
-import ReduxProvider from "@n-apt/components/ReduxProvider";
-import ReduxThemeProvider from "@n-apt/components/ReduxThemeProvider";
-import { AuthProvider } from "@n-apt/hooks/useAuthentication";
-import { AuthenticationRoute as AuthRoute } from "@n-apt/routes/AuthenticationRoute";
-import { PostAuthLandingRedirect } from "@n-apt/components/PostAuthLandingRedirect";
+import ReduxProvider from "@n-apt/app/ReduxProvider";
+import ReduxThemeProvider from "@n-apt/app/ReduxThemeProvider";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
+import { AuthenticationRoute as AuthRoute } from "@n-apt/app/routes/pages/AuthenticationRoute";
+import { PostAuthLandingRedirect } from "@n-apt/app/PostAuthLandingRedirect";
 import "./fonts.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {

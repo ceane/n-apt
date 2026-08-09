@@ -3,9 +3,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
-import { SidebarRoutesNav } from "@n-apt/components/sidebar/SidebarRoutesNav";
-import { SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY } from "@n-apt/utils/sidebarRoutesExpanded";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { SidebarRoutesNav } from "@n-apt/spectrum/sidebar/SidebarRoutesNav";
+import { SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY } from "@n-apt/app/layout/sidebarRoutesExpanded";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const theme = buildAppTheme({
   accentColor: "#00ccff",

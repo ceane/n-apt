@@ -2,8 +2,8 @@ import {
   createSourcePresentationController,
   type SourcePresentationController,
   type SourceModeSlot,
-} from "../../src/ts/streams/sourcePresentationController";
-import type { IqRawFrame, IqRawFrameV2 } from "../../src/ts/consts/schemas/websocket";
+} from "@n-apt/app/infrastructure/streams/sourcePresentationController";
+import type { IqRawFrame, IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 
 // --- Test helpers ---
 

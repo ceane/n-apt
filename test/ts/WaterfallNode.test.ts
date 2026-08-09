@@ -1,4 +1,4 @@
-import { getWaterfallNodeFrequencyRange } from "@n-apt/components/react-flow/nodes/WaterfallNode";
+import { getWaterfallNodeFrequencyRange } from "@n-apt/demodulation/react-flow/nodes/WaterfallNode";
 
 describe("WaterfallNode Tx display range", () => {
   it("uses the configured whole-channel Tx window while an old frame is cached", () => {

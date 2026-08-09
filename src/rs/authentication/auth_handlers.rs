@@ -60,7 +60,12 @@ pub async fn auth_challenge_handler(
 
   // Store the nonce temporarily in Redis (short-lived, 60s)
   let challenge_id = Uuid::new_v4().to_string();
-  if let Err(e) = state.shared.store_challenge(&challenge_id, nonce) {
+  if let Err(e) = state
+    .shared
+    .redis_store
+    .store_challenge(&challenge_id, nonce)
+    .await
+  {
     error!("Failed to store challenge in Redis: {}", e);
     return (
       StatusCode::INTERNAL_SERVER_ERROR,
@@ -85,7 +90,25 @@ pub async fn auth_verify_handler(
   Json(body): Json<AuthVerifyRequest>,
 ) -> impl IntoResponse {
   // Look up the challenge nonce from Redis
-  let nonce = state.shared.take_challenge(&body.challenge_id);
+  let nonce = match state
+    .shared
+    .redis_store
+    .take_challenge(&body.challenge_id)
+    .await
+  {
+    Ok(nonce) => nonce,
+    Err(error) => {
+      error!("Failed to consume auth challenge from Redis: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "redis_unavailable",
+          "message": "Authentication storage is temporarily unavailable",
+        })),
+      )
+        .into_response();
+    }
+  };
 
   let Some(nonce_bytes) = nonce else {
     return (
@@ -131,7 +154,20 @@ pub async fn auth_verify_handler(
 
   // Authentication successful — create session with a unique key
   let session_key = crate::crypto::generate_nonce(); // 32 random bytes
-  let token = state.session_store.create_session(session_key).await;
+  let token = match state.session_store.create_session(session_key).await {
+    Ok(token) => token,
+    Err(error) => {
+      error!("Failed to persist password-auth session: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "redis_unavailable",
+          "message": "Session storage is temporarily unavailable",
+        })),
+      )
+        .into_response();
+    }
+  };
   info!("Password authentication successful, session created");
 
   (
@@ -387,7 +423,19 @@ pub async fn passkey_auth_finish_handler(
     Ok(_auth_result) => {
       // Authentication successful — create session with a unique key
       let session_key = crate::crypto::generate_nonce();
-      let token = state.session_store.create_session(session_key).await;
+      let token = match state.session_store.create_session(session_key).await {
+        Ok(token) => token,
+        Err(error) => {
+          error!("Failed to persist passkey-auth session: {error}");
+          return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+              "error": "redis_unavailable",
+              "message": "Session storage is temporarily unavailable",
+            })),
+          );
+        }
+      };
       info!("Passkey authentication successful, session created");
 
       (

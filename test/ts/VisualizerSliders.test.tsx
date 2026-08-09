@@ -1,6 +1,6 @@
 import React from "react";
 import { render, fireEvent, screen } from "@testing-library/react";
-import VisualizerSliders from "../../src/ts/components/VisualizerSliders";
+import VisualizerSliders from "@n-apt/spectrum/VisualizerSliders";
 import { TestWrapper } from "./testUtils";
 
 describe("VisualizerSliders", () => {
@@ -38,6 +38,26 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText(/1(\.0)?x/)).toBeInTheDocument();
     expect(screen.getByText("0dB")).toBeInTheDocument();
     expect(screen.getByText("-100dB")).toBeInTheDocument();
+  });
+
+  test("compact mode keeps the shared sliders without action buttons", () => {
+    const { container } = render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} compact />
+      </TestWrapper>,
+    );
+
+    const compactGrid = container.firstElementChild;
+    expect(compactGrid).not.toBeNull();
+    expect(getComputedStyle(compactGrid as Element).flexGrow).toBe("1");
+    expect(getComputedStyle(compactGrid as Element).minHeight).toBe("0");
+
+    expect(screen.getByText("Zoom")).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+    expect(screen.getByText("Min")).toBeInTheDocument();
+    expect(screen.queryByText("Reset")).toBeNull();
+    expect(screen.queryByText("FFT Averaging")).toBeNull();
+    expect(screen.queryByText("Waterfall Smoothing")).toBeNull();
   });
 
   test("adjusts dB sliders by 1 dB and supports inline editing", () => {

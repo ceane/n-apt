@@ -1,7 +1,7 @@
 import React from "react";
 import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { useSidebarNavigationScroll } from "../../src/ts/hooks/useSidebarNavigationScroll";
+import { useSidebarNavigationScroll } from "@n-apt/app/hooks/useSidebarNavigationScroll";
 
 // jsdom does not implement Element#scrollTo; the hook relies on it.
 Element.prototype.scrollTo = function (

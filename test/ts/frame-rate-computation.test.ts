@@ -1,7 +1,7 @@
 import {
   computeMaxFrameRate,
   getLogicalMaxFrameRate,
-} from "@n-apt/utils/signals";
+} from "@n-apt/math/signals";
 
 describe("computeMaxFrameRate", () => {
   it("computes floor(sampleRate / fftSize)", () => {

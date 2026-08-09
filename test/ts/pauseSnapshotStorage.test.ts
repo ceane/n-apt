@@ -1,7 +1,7 @@
 import {
   readPauseSnapshot,
   writePauseSnapshot,
-} from "@n-apt/hooks/pauseSnapshotStorage";
+} from "@n-apt/capture/hooks/pauseSnapshotStorage";
 
 describe("pause snapshot storage", () => {
   beforeEach(() => {

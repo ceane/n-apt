@@ -1,4 +1,7 @@
 import { test, expect } from "@playwright/test";
+import { resolvePlaywrightPassword } from "../support/authCredentials";
+
+const PLAYWRIGHT_PASSWORD = resolvePlaywrightPassword();
 
 test.describe("Vault E2E Lifecycle", () => {
   test("should unlock vault and show spectrum", async ({ page }) => {
@@ -20,16 +23,20 @@ test.describe("Vault E2E Lifecycle", () => {
 
     // 4. Enter password and authenticate
     const passwordInput = page.locator('input[placeholder="Password"]');
-    await passwordInput.fill("test-password-123");
+    await passwordInput.fill(PLAYWRIGHT_PASSWORD);
     await page.locator('button:has-text("Authenticate")').click();
 
-    // 5. Verify successful authentication
-    // Use getByText with exact: true to avoid strict mode violation if multiple elements exist
-    await expect(page.getByText("VAULT UNLOCKED", { exact: true })).toBeVisible(
-      { timeout: 15000 },
-    );
+    // 5. Verify successful authentication and the current post-auth landing
+    // screen before entering the full spectrum application.
+    await expect(
+      page.getByRole("heading", { name: "Let's get started." }),
+    ).toBeVisible({ timeout: 15000 });
 
-    // 5. Verify the spectrum canvas is rendered
+    await page
+      .getByRole("link", { name: /Use app Explore spectrum/ })
+      .click();
+
+    // 6. Verify the spectrum canvas is rendered
     // This confirms that decrypted data is flowing to the visualizer
     const canvas = page.locator("#fft-spectrum-canvas-webgpu");
     await expect(canvas).toBeVisible({ timeout: 10000 });
@@ -59,7 +66,7 @@ test.describe("Vault E2E Lifecycle", () => {
     // Should show error message
     await expect(page.locator("text=Invalid passkey")).toBeVisible();
     await expect(
-      page.getByText("VAULT UNLOCKED", { exact: true }),
+      page.getByRole("heading", { name: "Let's get started." }),
     ).not.toBeVisible();
   });
 });

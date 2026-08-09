@@ -2,7 +2,7 @@
  * Simple File Worker Manager
  */
 
-import { fileRegistry } from "../utils/fileRegistry";
+import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 
 export class FileWorkerManager {
   private worker: Worker | null = null;

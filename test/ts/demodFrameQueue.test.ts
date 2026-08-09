@@ -1,4 +1,4 @@
-import { createDemodFrameQueue } from "../../src/ts/visualization/demodFrameQueue";
+import { createDemodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 
 describe("demod frame queue", () => {
   it("retains ordered audio frames independently of the one-frame visualizer slot", () => {

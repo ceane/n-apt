@@ -2,13 +2,13 @@ import * as React from "react";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import "@testing-library/jest-dom";
-import { AntiAliasingDiagnostics } from "@n-apt/routes/AntiAliasingDiagnostics";
+import { AntiAliasingDiagnostics } from "@n-apt/app/routes/pages/AntiAliasingDiagnostics";
 import {
   SpectrumProvider,
   INITIAL_SPECTRUM_STATE,
-} from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { ThemeProvider } from "styled-components";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { TestWrapper } from "./testUtils";
 import { createTestStore } from "./testUtils";
@@ -22,7 +22,7 @@ jest.mock("lucide-react", () => ({
   Info: () => <div data-testid="info-icon" />,
 }));
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
     sessionToken: "mock-token",

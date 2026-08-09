@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, act } from "@testing-library/react";
-import { useAPTAudioDemod } from "../../src/ts/hooks/useAPTAudioDemod";
+import { useAPTAudioDemod } from "@n-apt/demodulation/hooks/useAPTAudioDemod";
 
 describe("useAPTAudioDemod", () => {
   it("exposes detection state after running the detector", () => {

@@ -1,4 +1,4 @@
-import { getAuthenticatedShellKind } from "@n-apt/AuthenticatedAppShell";
+import { getAuthenticatedShellKind } from "@n-apt/app/AuthenticatedAppShell";
 
 describe("authenticated route shell selection", () => {
   it("keeps /get-started on the lightweight authenticated shell", () => {

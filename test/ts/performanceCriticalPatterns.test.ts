@@ -3,12 +3,12 @@ import { resolve } from "node:path";
 
 describe("performance-critical FFT and waterfall modules", () => {
   const modules = [
-    "src/ts/hooks/useWasmSimdMath.ts",
-    "src/ts/hooks/useDraw2DFIFOWaterfall.ts",
-    "src/ts/hooks/useDrawWebGPUFIFOWaterfall.ts",
-    "src/ts/utils/rendering/fftZoom.ts",
-    "src/ts/utils/rendering/fifoWaterfall2d.ts",
-    "src/ts/utils/resampleNearest.ts",
+    "src/ts/features/spectrum/hooks/useWasmSimdMath.ts",
+    "src/ts/features/spectrum/hooks/useDraw2DFIFOWaterfall.ts",
+    "src/ts/features/spectrum/hooks/useDrawWebGPUFIFOWaterfall.ts",
+    "src/ts/features/spectrum/utils/rendering/fftZoom.ts",
+    "src/ts/features/spectrum/utils/rendering/fifoWaterfall2d.ts",
+    "src/ts/shared/math/resampleNearest.ts",
   ];
 
   it.each(modules)("keeps array combinators out of %s", (modulePath) => {

@@ -315,6 +315,71 @@ export const SourceSdrSettingsMessageSchema = z.object({
   sdr: SourceSdrSettingsSchema,
 });
 
+const SdrSampleRateSpecSchema = z.union([
+  z.number(),
+  z.string(),
+  z.array(z.string()),
+  z.object({ value: z.string(), min: z.string(), max: z.string() }),
+]);
+
+const SignalsSdrDefaultsSchema = z.object({
+  sample_rate: z.number(),
+  min_receive_sample_rate: z.number().nullable().optional(),
+  center_frequency: z.number(),
+  gain: z.object({
+    tuner_gain: z.number(),
+    rtl_agc: z.boolean(),
+    tuner_agc: z.boolean(),
+    hackrf_lna_gain: z.number().nullable().optional(),
+    hackrf_vga_gain: z.number().nullable().optional(),
+    hackrf_amp_enable: z.boolean().nullable().optional(),
+    tuner_bandwidth: z.number().nullable().optional(),
+  }),
+  ppm: z.number(),
+  fft: z.object({
+    default_size: z.number(),
+    default_frame_rate: z.number(),
+    max_size: z.number(),
+    max_frame_rate: z.number(),
+    size_to_frame_rate: z.record(z.string(), z.number()),
+  }),
+  display: z.object({
+    min_db: z.number(),
+    max_db: z.number(),
+    padding: z.number(),
+  }),
+  devices: z.record(z.string(), z.object({
+    duplex_mode: z.string().nullable().optional(),
+    max_sample_rate: z.number().nullable().optional(),
+    sample_rate: SdrSampleRateSpecSchema,
+    fft_display: z.object({
+      markers: z.array(z.object({
+        kind: z.string(),
+        freq_hz: z.number(),
+        label: z.string().nullable().optional(),
+      })),
+    }).nullable().optional(),
+    gain_limits: z.record(z.string(), z.number().nullable()).nullable().optional(),
+    fft_sizes: z.array(z.object({
+      base: z.string(),
+      fft_min: z.number().nullable().optional(),
+      fft_max: z.number().nullable().optional(),
+    })).nullable().optional(),
+    _tx_power_mapping: z.record(z.string(), z.unknown()).nullable().optional(),
+    _tx_iq_power_model: z.record(z.string(), z.unknown()).nullable().optional(),
+  })),
+  fft_sizes: z.array(z.object({
+    base: z.string(),
+    fft_min: z.number().nullable().optional(),
+    fft_max: z.number().nullable().optional(),
+  })).nullable().optional(),
+});
+
+export const SignalsDefaultsMessageSchema = z.object({
+  type: z.literal("signals_defaults"),
+  sdr: SignalsSdrDefaultsSchema,
+});
+
 export const SourceErrorMessageSchema = z.object({
   type: z.literal("error"),
   source_id: z.string(),
@@ -500,6 +565,7 @@ export const WebSocketMessageSchema = z.union([
   ChannelsMessageSchema,
   SourceStatusMessageSchema,
   SourceSdrSettingsMessageSchema,
+  SignalsDefaultsMessageSchema,
   SourceErrorMessageSchema,
 ]);
 
@@ -568,6 +634,12 @@ export const isValidSourceSdrSettingsMessage = (
   data: unknown,
 ): data is z.infer<typeof SourceSdrSettingsMessageSchema> => {
   return SourceSdrSettingsMessageSchema.safeParse(data).success;
+};
+
+export const isValidSignalsDefaultsMessage = (
+  data: unknown,
+): data is z.infer<typeof SignalsDefaultsMessageSchema> => {
+  return SignalsDefaultsMessageSchema.safeParse(data).success;
 };
 
 export const isValidSourceErrorMessage = (

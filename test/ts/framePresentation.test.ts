@@ -1,7 +1,7 @@
 import {
   resolveFramePresentation,
   selectFrameForPresentation,
-} from "../../src/ts/components/fft/framePresentation";
+} from "@n-apt/spectrum/fft/framePresentation";
 
 describe("frame presentation policy", () => {
   it("prefers an incoming frame over a paused snapshot", () => {

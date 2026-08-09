@@ -1,7 +1,7 @@
 import {
   resolveSourceFrequencyRangeSync,
   type FrequencyRange,
-} from "../../src/ts/utils/sourceFrequencySync";
+} from "@n-apt/spectrum/utils/sourceFrequencySync";
 
 const channelARange: FrequencyRange = { min: 18_000, max: 4_390_000 };
 const mockAptRange: FrequencyRange = { min: 134_914_000, max: 139_286_000 };

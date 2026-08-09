@@ -6,8 +6,8 @@ import { ThemeProvider } from "styled-components";
 import {
   ChannelsSelector,
   ChannelsGrid,
-} from "@n-apt/components/ui/ChannelsSelector";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+} from "@n-apt/ui/ChannelsSelector";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { Scan } from "lucide-react";
 

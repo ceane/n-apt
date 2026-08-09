@@ -15,7 +15,7 @@ import {
   resolveInventorySelectionIntent,
   shouldClearPendingSourceSwitch,
   resolveNextVisualizerPauseState,
-} from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
   it("does not invert a stale pause flag when the Rx handoff explicitly resumes", () => {
