@@ -1,3 +1,7 @@
+// Snapshot labels use the app's configured display timezone; keep Jest
+// deterministic across developer machines and CI runners.
+process.env.TZ = "America/Los_Angeles";
+
 const scopedFrontendRoots = {
   app: "src/ts/app",
   ui: "src/ts/shared/ui",

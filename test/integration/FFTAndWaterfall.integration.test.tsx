@@ -8,6 +8,7 @@ import { getMockNaptBuffer } from "../ts/mockNaptData";
 import { configureStore } from "@reduxjs/toolkit";
 import demodReducer from "@n-apt/redux/slices/demodSlice";
 import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
+import settingsReducer from "@n-apt/redux/slices/settingsSlice";
 import themeReducer from "@n-apt/redux/slices/themeSlice";
 import websocketReducer from "@n-apt/redux/slices/websocketSlice";
 import waterfallReducer, {
@@ -185,6 +186,7 @@ describe("FFTAndWaterfall Integration", () => {
       reducer: {
         demod: demodReducer,
         spectrum: spectrumReducer,
+        settings: settingsReducer,
         websocket: websocketReducer,
         theme: themeReducer,
         waterfall: waterfallReducer,
