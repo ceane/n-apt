@@ -307,6 +307,28 @@ const AttributionDetail = styled.div`
   color: ${(props) => props.theme.metadataLabel};
 `;
 
+const AttributionAuthorList = styled.ul`
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  color: ${(props) => props.theme.metadataLabel};
+  font-size: 9px;
+  list-style: none;
+`;
+
+const AttributionAuthor = styled.li`
+  display: grid;
+  grid-template-columns: minmax(132px, 0.35fr) 1fr;
+  gap: 8px;
+  line-height: 1.4;
+`;
+
+const AttributionAuthorName = styled.span`
+  color: ${(props) => props.theme.textSecondary};
+  font-weight: 600;
+`;
+
 const FFT_WINDOW_OPTIONS = [
   "Rectangular",
   "Nuttall",
