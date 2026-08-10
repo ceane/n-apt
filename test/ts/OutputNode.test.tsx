@@ -20,7 +20,7 @@ describe("OutputNode", () => {
     data: {
       label: "Output",
       vector: "audio",
-      naptFilePath: "/test/file.napt",
+      naptFilePath: "/api/capture/download?jobId=test-job-123",
       result: {
         jobId: "test-job-123",
         confidence: 0.95,

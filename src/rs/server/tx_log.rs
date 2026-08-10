@@ -213,7 +213,7 @@ impl TxLogger {
   }
 
   pub fn with_path<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-    let path = path.as_ref().to_path_buf();
+    let path = validate_log_path(path.as_ref())?;
     if let Some(parent) = path.parent() {
       create_dir_all(parent)?;
     }
@@ -295,6 +295,76 @@ impl TxLogger {
   }
 }
 
+fn validate_log_path(path: &Path) -> io::Result<PathBuf> {
+  if path.file_name().is_none() {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidInput,
+      "transaction log path must name a file",
+    ));
+  }
+  if path.components().any(|component| {
+    matches!(component, std::path::Component::ParentDir)
+  }) {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidInput,
+      "transaction log path cannot contain parent traversal",
+    ));
+  }
+
+  let absolute = if path.is_absolute() {
+    path.to_path_buf()
+  } else {
+    std::env::current_dir()?.join(path)
+  };
+  let allowed_roots = [std::env::temp_dir(), PathBuf::from("/tmp/n-apt")];
+  let is_under_allowed_root = |candidate: &Path| {
+    allowed_roots.iter().any(|root| candidate == root || candidate.starts_with(root))
+  };
+  if !is_under_allowed_root(&absolute) {
+    return Err(io::Error::new(
+      io::ErrorKind::PermissionDenied,
+      "transaction log path must remain under a temporary log directory",
+    ));
+  }
+
+  if let Some(parent) = absolute.parent() {
+    create_dir_all(parent)?;
+    let canonical_parent = std::fs::canonicalize(parent)?;
+    let canonical_roots = allowed_roots
+      .iter()
+      .filter_map(|root| std::fs::canonicalize(root).ok())
+      .collect::<Vec<_>>();
+    if !canonical_roots
+      .iter()
+      .any(|root| canonical_parent == *root || canonical_parent.starts_with(root))
+    {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "transaction log parent resolves outside a temporary log directory",
+      ));
+    }
+  }
+
+  if absolute.exists() {
+    let canonical_path = std::fs::canonicalize(&absolute)?;
+    let canonical_roots = allowed_roots
+      .iter()
+      .filter_map(|root| std::fs::canonicalize(root).ok())
+      .collect::<Vec<_>>();
+    if !canonical_roots
+      .iter()
+      .any(|root| canonical_path.starts_with(root))
+    {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "transaction log file resolves outside a temporary log directory",
+      ));
+    }
+  }
+
+  Ok(absolute)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -328,6 +398,19 @@ mod tests {
     assert!(contents.contains("transmit=true"));
     assert!(contents.contains("center_frequency_hz=2400000000"));
     assert!(contents.contains("power_dbm=-3"));
+  }
+
+  #[test]
+  fn rejects_parent_traversal() {
+    let path = std::env::temp_dir()
+      .join("napt-tx-log-test")
+      .join("..")
+      .join("outside.txt");
+    let error = match TxLogger::with_path(path) {
+      Ok(_) => panic!("traversal must be rejected"),
+      Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
   }
 }
 // Hot-reload probe 2: second harmless source change after the quiet window.

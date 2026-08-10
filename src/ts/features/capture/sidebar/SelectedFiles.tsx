@@ -10,6 +10,7 @@ import {
 import { SidebarSectionTitle } from "@n-apt/ui/Collapsible";
 import { formatDuration, formatFileSize } from "@n-apt/math/formatters";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
+import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 
 const Section = styled.div<{ $marginTop?: string }>`
   display: grid;
@@ -231,7 +232,7 @@ export const SelectedFiles: React.FC<SelectedFilesProps> = ({
             <FileInfoActions>
               {file.downloadUrl && (
                 <DownloadActionLink
-                  href={`${file.downloadUrl}${sessionToken ? `&token=${encodeURIComponent(sessionToken)}` : ""}`}
+                  href={buildSafeDownloadUrl(file.downloadUrl, sessionToken)}
                   download={file.name}
                 >
                   <Download size={12} /> Download

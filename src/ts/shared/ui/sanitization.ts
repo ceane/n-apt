@@ -27,9 +27,9 @@ export function sanitizeSVG(svg: string): string {
       "keySplines",
       "calcMode",
       "preserveAspectRatio",
-      "href",
       "opacity",
     ],
+    ALLOWED_URI_REGEXP: /^(?:#|data:image\/(?:png|jpeg|gif|webp);base64,)/i,
     RETURN_TRUSTED_TYPE: false,
   });
 }

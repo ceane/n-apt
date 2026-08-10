@@ -756,15 +756,11 @@ mod tests {
 
   #[test]
   fn async_sample_timeout_with_confirmed_usb_absence_falls_back_early() {
-    let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
-
     assert!(should_fallback_to_mock_on_early_read_error(1, false));
   }
 
   #[test]
   fn non_timeout_read_error_without_usb_still_forces_early_mock_fallback() {
-    let error = anyhow::anyhow!("USB read failed");
-
     assert!(should_fallback_to_mock_on_early_read_error(1, false));
   }
 

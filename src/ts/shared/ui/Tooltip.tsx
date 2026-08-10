@@ -366,7 +366,14 @@ export const Tooltip = ({
           }}
         >
           <PopoverTitle>{title}</PopoverTitle>
-          <PopoverText dangerouslySetInnerHTML={{ __html: content }} />
+          <PopoverText>
+            {content.split(/<br\s*\/?>/gi).map((part, index) => (
+              <React.Fragment key={`${index}-${part}`}>
+                {index > 0 && <br />}
+                <span>{part}</span>
+              </React.Fragment>
+            ))}
+          </PopoverText>
         </PopoverContent>,
         document.body,
       )}

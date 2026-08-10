@@ -122,6 +122,7 @@ import {
 import { usePrompt } from "@n-apt/ui/PromptProvider";
 import { Collapsible } from "@n-apt/ui/Collapsible";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
+import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 import { getSettingsDefaults } from "@n-apt/settings/public/settingsDefaults";
 import {
   buildCenteredFrequencyRange,
@@ -403,7 +404,11 @@ const playbackAfterCapture = async (
     dispatch(setSelectedFiles([]));
     dispatch(clearWaterfall());
 
-    const url = `${liveCaptureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken)}`;
+    const url = buildSafeDownloadUrl(
+      liveCaptureStatus.downloadUrl,
+      sessionToken,
+    );
+    if (!url) throw new Error("Invalid capture download URL");
 
     let response;
     try {
@@ -1177,7 +1182,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxSampleRateHz: isHackrfOne
       ? Math.max(sampleRateControlMaximumHz ?? 0, 20_000_000)
       : sampleRateControlMaximumHz,
-    activeSignalAreaBounds,
+    activeSignalAreaBounds: allowNegativeFrequencies
+      ? null
+      : activeSignalAreaBounds,
     frequencyRange,
     sampleRateHz: sampleRateHzLocal,
     fftSize,
@@ -1780,7 +1787,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           buildCenteredFrequencyRange(
             centerHz,
             spanHz,
-            allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+            0,
           ),
         ),
       );
@@ -2317,28 +2324,45 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const fallbackSpan = frequencyRange.max - frequencyRange.min;
     const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
     const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
-    const hardwareSpan =
+    const configuredSampleRate =
       typeof sampleRateHzLocal === "number" &&
-      Number.isFinite(sampleRateHzLocal)
+      Number.isFinite(sampleRateHzLocal) &&
+      sampleRateHzLocal > 0
+        ? sampleRateHzLocal
+        : null;
+    const hardwareSpan = allowNegativeFrequencies
+      ? (configuredSampleRate ?? Math.max(0, fallbackSpan))
+      : configuredSampleRate
         ? Math.min(
-            sampleRateHzLocal,
+            configuredSampleRate,
             Math.max(0, hardwareMax - hardwareMin || fallbackSpan),
           )
         : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
-    if (safeZoom <= 1 || hardwareSpan <= 0) {
+    if (hardwareSpan <= 0) {
       const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
       const halfHardware = hardwareSpan / 2;
       return {
-        min: Math.max(hardwareMin, hardwareCenter - halfHardware),
-        max: Math.min(hardwareMax, hardwareCenter + halfHardware),
+        min: allowNegativeFrequencies
+          ? hardwareCenter - halfHardware
+          : Math.max(hardwareMin, hardwareCenter - halfHardware),
+        max: allowNegativeFrequencies
+          ? hardwareCenter + halfHardware
+          : Math.min(hardwareMax, hardwareCenter + halfHardware),
       };
     }
 
     const hardwareCenter = (frequencyRange.min + frequencyRange.max) / 2;
     const visualSpan = Math.min(hardwareSpan, hardwareSpan / safeZoom);
     const halfVisualSpan = visualSpan / 2;
+    if (allowNegativeFrequencies) {
+      const center = hardwareCenter + vizPanOffset;
+      return {
+        min: center - halfVisualSpan,
+        max: center + halfVisualSpan,
+      };
+    }
     const boundedCenter = Math.max(
       hardwareMin + halfVisualSpan,
       Math.min(hardwareMax - halfVisualSpan, hardwareCenter + vizPanOffset),
@@ -2350,6 +2374,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     };
   }, [
     frequencyRange,
+    allowNegativeFrequencies,
     liveSdrSettingsToUse,
     liveFramesToUse,
     activeSignalArea,

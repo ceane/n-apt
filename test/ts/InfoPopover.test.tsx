@@ -56,4 +56,18 @@ describe("Tooltip Component", () => {
     const icons = screen.getAllByText("i");
     expect(icons).toHaveLength(2);
   });
+
+  it("renders tooltip content as text instead of executing markup", () => {
+    render(
+      <Tooltip
+        content={'Safe text<br><img data-testid="xss" src="x" onerror="alert(1)">'}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("i"));
+
+    expect(screen.getByText("Safe text")).toBeInTheDocument();
+    expect(screen.queryByTestId("xss")).not.toBeInTheDocument();
+    expect(screen.getByText(/<img data-testid="xss"/)).toBeInTheDocument();
+  });
 });

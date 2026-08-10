@@ -36,6 +36,7 @@ import {
   ChannelsSelector,
 } from "@n-apt/ui";
 import { RadioTabs } from "@n-apt/ui/RadioTabs";
+import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 
 const Section = styled.div`
   display: grid;
@@ -1010,7 +1011,10 @@ export const IQCaptureControlsSection: React.FC<
             <InfoRow>
               <div style={{ minWidth: 0 }}>
                 <DownloadLink
-                  href={`${captureStatus.downloadUrl}&token=${encodeURIComponent(sessionToken || "")}`}
+                  href={buildSafeDownloadUrl(
+                    captureStatus.downloadUrl,
+                    sessionToken,
+                  )}
                   download={captureStatus.filename || "capture"}
                   rel="noopener noreferrer"
                   title={captureStatus.filename || "Download"}

@@ -1,6 +1,8 @@
 import React from "react";
 import styled from "styled-components";
 import { useDemodAnalysis } from "@n-apt/demodulation/public/context/DemodAnalysisContext";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 
 const Section = styled.div`
   display: grid;
@@ -64,6 +66,7 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({
   className,
 }) => {
   const { analysisSession } = useDemodAnalysis();
+  const { sessionToken } = useAuthentication();
 
   // Refs for scrolling and flashing
   const referenceCapturesRef = React.useRef<HTMLDivElement>(null);
@@ -106,7 +109,10 @@ export const DemodDownloads: React.FC<DemodDownloadsProps> = ({
       <SectionTitle>Reference Captures</SectionTitle>
       <ResultCard>
         <DownloadCaptureLink
-          href={analysisSession.result.naptFilePath}
+          href={buildSafeDownloadUrl(
+            analysisSession.result.naptFilePath,
+            sessionToken,
+          )}
           download
           as="a"
         >

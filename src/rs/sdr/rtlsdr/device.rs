@@ -574,6 +574,9 @@ impl RtlSdrDevice {
   /// Returns a Vec<u8> of interleaved I/Q samples (2 bytes per sample).
   /// `len` should be a multiple of 512 for best performance.
   pub fn read_sync(&self, len: usize) -> Result<Vec<u8>> {
+    if len > c_int::MAX as usize {
+      return Err(anyhow!("Synchronous read length is too large: {}", len));
+    }
     let mut buf = vec![0u8; len];
     let mut n_read: c_int = 0;
     let ret = unsafe {
@@ -599,6 +602,9 @@ impl RtlSdrDevice {
   /// Returns the number of bytes actually read.
   /// `buf` should be a multiple of 512 bytes for best performance.
   pub fn read_sync_into(&self, buf: &mut [u8]) -> Result<usize> {
+    if buf.len() > c_int::MAX as usize {
+      return Err(anyhow!("Synchronous read length is too large: {}", buf.len()));
+    }
     let mut n_read: c_int = 0;
     let ret = unsafe {
       ffi::rtlsdr_read_sync(
@@ -612,33 +618,6 @@ impl RtlSdrDevice {
       return Err(anyhow!("Synchronous read failed (error code: {})", ret));
     }
     Ok(n_read as usize)
-  }
-
-  /// Read IQ samples asynchronously
-  ///
-  /// # Safety
-  /// The `ctx` pointer must be valid for the duration of the asynchronous read.
-  pub unsafe fn read_async(
-    &self,
-    cb: ffi::RtlSdrReadAsyncCb,
-    ctx: *mut std::os::raw::c_void,
-    buf_num: u32,
-    buf_len: u32,
-  ) -> Result<()> {
-    let ret =
-      unsafe { ffi::rtlsdr_read_async(self.dev, cb, ctx, buf_num, buf_len) };
-    if ret != 0 {
-      return Err(anyhow!("Asynchronous read failed (error code: {})", ret));
-    }
-    Ok(())
-  }
-
-  /// Get the raw device pointer for sharing with the async reader thread.
-  ///
-  /// SAFETY: The pointer is only valid while the device is open.
-  /// Caller must ensure cancel_async() + join before dropping the device.
-  pub fn raw_ptr(&self) -> *mut ffi::RtlSdrDev {
-    self.dev
   }
 
   /// Cancel an ongoing async read. Must be called from a different thread

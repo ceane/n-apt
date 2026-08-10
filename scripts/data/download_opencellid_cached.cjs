@@ -14,6 +14,7 @@ const { parse } = require('csv-parse/sync');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { resolveSafeMccCsvPath } = require('../shared/opencellidPath.cjs');
 
 // Load environment variables
 require('dotenv').config({ path: '.env.local' });
@@ -184,7 +185,7 @@ async function initRedis() {
 
 // Get cache file path for MCC
 function getCacheFilePath(mcc) {
-  return path.join(CACHE_DIR, `mcc_${mcc}.csv`);
+  return resolveSafeMccCsvPath(CACHE_DIR, mcc, 'mcc_');
 }
 
 // Check if cached data is valid (not expired)
@@ -293,7 +294,7 @@ const LOCAL_CSV_DIR = process.env.LOCAL_OPENCELLID_CSV_DIR || path.join(__dirnam
 
 // Fallback to local CSV files
 async function loadFromLocalCSV(mcc) {
-  const csvPath = path.join(LOCAL_CSV_DIR, `${mcc}.csv`);
+  const csvPath = resolveSafeMccCsvPath(LOCAL_CSV_DIR, mcc);
   
   try {
     if (fs.existsSync(csvPath)) {

@@ -1,5 +1,6 @@
 import React from "react";
 import styled, { css } from "styled-components";
+import { safeHtmlToReactNodes } from "@n-apt/ui/safeMarkup";
 
 export type ResponsiveKatexMode = "all" | "desktop-only" | "mobile-only";
 
@@ -130,8 +131,9 @@ export const ResponsiveKatex: React.FC<{
           whiteSpace: "nowrap",
           width: "max-content",
         }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      >
+        {safeHtmlToReactNodes(html)}
+      </div>
     </Wrapper>
   );
 };

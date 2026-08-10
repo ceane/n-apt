@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
+import { resolveContainedPath } from './pathSafety';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -110,11 +111,30 @@ function bundle(dir: string): FileBundle {
 }
 
 function unbundle(bundle: FileBundle, targetDir: string) {
+  if (!bundle || !Array.isArray(bundle.files)) {
+    throw new Error('Invalid encrypted bundle');
+  }
   if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+  const realTargetDir = fs.realpathSync(targetDir);
   for (const file of bundle.files) {
-    const normalizedPath = file.path.split('/').join(path.sep);
-    const fullPath = path.join(targetDir, normalizedPath);
+    const fullPath = resolveContainedPath(targetDir, file.path);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    const realParent = fs.realpathSync(path.dirname(fullPath));
+    if (
+      realParent !== realTargetDir &&
+      !realParent.startsWith(`${realTargetDir}${path.sep}`)
+    ) {
+      throw new Error('Bundle path resolves through a symlink outside target directory');
+    }
+    if (fs.existsSync(fullPath)) {
+      const realFile = fs.realpathSync(fullPath);
+      if (
+        realFile !== realTargetDir &&
+        !realFile.startsWith(`${realTargetDir}${path.sep}`)
+      ) {
+        throw new Error('Bundle file resolves through a symlink outside target directory');
+      }
+    }
     // Write file content. For text-like files, run a sanitizer to remove
     // zero-width / combining characters that can corrupt KaTeX and other
     // sensitive text pipelines. Binary files are written verbatim.

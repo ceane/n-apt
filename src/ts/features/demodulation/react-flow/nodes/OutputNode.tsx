@@ -4,6 +4,10 @@ import { Brain } from "lucide-react";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { useAppSelector } from "@n-apt/redux";
 import { formatFrequency } from "@n-apt/math/frequency";
+import {
+  buildSafeDownloadUrl,
+  safeDownloadFilename,
+} from "@n-apt/ui/downloadUrl";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -157,21 +161,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
       : result?.centerFrequencyHz;
   const naptFilePath = data.naptFilePath || result?.naptFilePath;
   const downloadHref = React.useMemo(() => {
-    if (!naptFilePath) return undefined;
-    let urlStr = naptFilePath;
-    try {
-      urlStr = new URL(naptFilePath, window.location.origin).toString();
-    } catch {
-      // Ignored
-    }
-    if (sessionToken) {
-      if (urlStr.includes("?")) {
-        urlStr += `&token=${encodeURIComponent(sessionToken)}`;
-      } else {
-        urlStr += `?token=${encodeURIComponent(sessionToken)}`;
-      }
-    }
-    return urlStr;
+    return buildSafeDownloadUrl(naptFilePath, sessionToken);
   }, [naptFilePath, sessionToken]);
 
   const isProcessing = state && state !== "idle" && state !== "result";
@@ -292,7 +282,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
       {downloadHref && (
         <DownloadButton
           href={downloadHref}
-          download={result.fileName || "capture.napt"}
+          download={safeDownloadFilename(result.fileName)}
           className="nodrag nopan"
           onClick={(e) => {
             e.stopPropagation();

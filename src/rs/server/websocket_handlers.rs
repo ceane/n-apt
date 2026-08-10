@@ -35,6 +35,15 @@ use super::websocket_server::{
 use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+const WS_MAX_MESSAGE_BYTES: usize = 64 * 1024;
+const WS_MAX_FRAME_BYTES: usize = 64 * 1024;
+const WS_MAX_WRITE_BUFFER_BYTES: usize = 256 * 1024;
+
+fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
+  ws.max_message_size(WS_MAX_MESSAGE_BYTES)
+    .max_frame_size(WS_MAX_FRAME_BYTES)
+    .max_write_buffer_size(WS_MAX_WRITE_BUFFER_BYTES)
+}
 
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
   let canonical =
@@ -285,7 +294,7 @@ pub async fn ws_upgrade_handler(
   let cmd_tx = state.cmd_tx.clone();
   let session_token = params.token.clone();
 
-  ws.on_upgrade(move |socket| {
+  harden_websocket(ws).on_upgrade(move |socket| {
     handle_ws_connection(
       socket,
       shared,
@@ -347,7 +356,7 @@ pub async fn source_iq_ws_upgrade_handler(
   let spectrum_tx = state.spectrum_tx.clone();
   let iq_protocol = IqStreamProtocol::from_requested(params.iq_protocol);
 
-  ws.on_upgrade(move |socket| {
+  harden_websocket(ws).on_upgrade(move |socket| {
     handle_source_iq_connection(
       socket,
       shared,
@@ -529,7 +538,7 @@ pub async fn stream_ws_upgrade_handler(
   let manager = state.stream_manager.clone();
   let shared = state.shared.clone();
   let enc_key = shared.encryption_key;
-  ws.on_upgrade(move |socket| {
+  harden_websocket(ws).on_upgrade(move |socket| {
     handle_stream_connection(socket, shared, manager, enc_key)
   })
 }
@@ -541,7 +550,7 @@ async fn handle_stream_connection(
   enc_key: [u8; 32],
 ) {
   let (mut sender, mut receiver) = socket.split();
-  let (event_tx, mut event_rx) = mpsc::unbounded_channel::<StreamEvent>();
+  let (event_tx, mut event_rx) = mpsc::channel::<StreamEvent>(32);
   let mut subscriptions: HashMap<String, (StreamKey, JoinHandle<()>)> =
     HashMap::new();
   shared.client_count.fetch_add(1, Ordering::Relaxed);
@@ -628,16 +637,16 @@ async fn handle_stream_connection(
               loop {
                 match subscription.recv().await {
                   Ok(event) => {
-                    if event_tx_for_task.send(event).is_err() { break; }
+                    if event_tx_for_task.send(event).await.is_err() { break; }
                   }
                   Err(broadcast::error::RecvError::Lagged(count)) => {
-                    let _ = event_tx_for_task.send(StreamEvent::Error {
+                    if event_tx_for_task.send(StreamEvent::Error {
                       key: event_key.clone(),
                       stream_epoch: 0,
                       options_revision: 0,
                       code: "lagged".to_string(),
                       message: format!("subscriber lagged by {count} frames"),
-                    });
+                    }).await.is_err() { break; }
                   }
                   Err(broadcast::error::RecvError::Closed) => break,
                 }
