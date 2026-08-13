@@ -20,6 +20,7 @@ import {
   setPreviewAlignment,
 } from "../slices/spectrumSlice";
 import { sendFrequencyRange } from "./websocketThunks";
+import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
 // Send get_hardware_info to server
 export const fetchHardwareInfo = createAsyncThunk(
@@ -43,12 +44,19 @@ export const tuneDemod = createAsyncThunk(
   async (range: { min_hz: number; max_hz: number }, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // `range` may be a mirrored display range. Only the positive hardware
+      // window is valid for the Rust RF tuning protocol; keep the original
+      // range for local display state below.
+      const hardwareRange = normalizePositiveHardwareRange({
+        min: range.min_hz,
+        max: range.max_hz,
+      });
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "demod_tune",
-          min_freq: range.min_hz,
-          max_freq: range.max_hz,
+          min_freq: Math.round(hardwareRange.min),
+          max_freq: Math.round(hardwareRange.max),
         },
       });
 

@@ -163,7 +163,7 @@ pub fn broadcast_active_source(
   broadcast_tx: &broadcast::Sender<String>,
 ) {
   let active_id = active_source_id(shared);
-  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let paused = shared.is_source_paused(&active_id);
   let payload = serde_json::json!({
     "type": "active_source",
     "source_id": active_id,

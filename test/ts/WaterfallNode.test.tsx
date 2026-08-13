@@ -233,7 +233,7 @@ describe("WaterfallNode", () => {
     ).toEqual({ min: 0, max: 4_372_000 });
   });
 
-  it("lets the shared VFO preserve a negative baseband window when enabled", () => {
+  it("keeps the live acquisition window positive when mirrored display is enabled", () => {
     expect(
       getWaterfallNodeFrequencyRange({
         frame: {
@@ -242,7 +242,7 @@ describe("WaterfallNode", () => {
         },
         allowNegativeFrequencies: true,
       }),
-    ).toEqual({ min: -1_814_000, max: 2_558_000 });
+    ).toEqual({ min: 0, max: 4_372_000 });
   });
 
   it("keeps the analysis window aligned to the live sample-rate frame", () => {
@@ -289,6 +289,31 @@ describe("WaterfallNode", () => {
         deltaY: 20,
       }),
     ).toBe(40);
+  });
+
+  it("can cross back through zero after entering the reflected display range", () => {
+    expect(
+      getWaterfallVfoDragPan({
+        hardwareRange: { min: 0, max: 100 },
+        zoom: 2,
+        startPanHz: -25,
+        dragDistancePx: 50,
+        viewportWidthPx: 100,
+        allowNegativeFrequencies: true,
+      }),
+    ).toBe(0);
+  });
+
+  it("allows negative display panning without making the source range negative", () => {
+    expect(
+      getWaterfallScrollPan({
+        hardwareRange: { min: 0, max: 100 },
+        zoom: 2,
+        currentPanHz: 0,
+        deltaY: 20,
+        allowNegativeFrequencies: true,
+      }),
+    ).toBe(-25);
   });
 
   it("preserves the reversed drag direction for zoomed panning", () => {

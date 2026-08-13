@@ -49,8 +49,8 @@ import { getFilePlaceholderState } from "@n-apt/app/infrastructure/io/filePlaceh
 import { isFilePlaybackPaused } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { getSourcePresentationSessionKey } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
-import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 import { Vfo } from "@n-apt/layout/vfo/Vfo";
+import { mapDisplayFrequencyToSource } from "@n-apt/math/basebandMirror";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
@@ -124,11 +124,11 @@ export const getWaterfallNodeFrequencyRange = ({
     return clampCenteredFrequencyRange(
       frameCenterFrequencyHz!,
       frameSampleRateHz!,
-      allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+      0,
     );
   }
   const fallback = fallbackRange ?? { min: 0, max: 1 };
-  if (allowNegativeFrequencies || fallback.min >= 0) return fallback;
+  if (fallback.min >= 0) return fallback;
   return clampCenteredFrequencyRange(
     getFrequencyRangeCenterHz(fallback),
     fallback.max - fallback.min,
@@ -153,7 +153,7 @@ export const getWaterfallNodeDisplayRange = ({
     sourceRange.max - sourceRange.min > 1;
 
   if (analysisOptions && sourceRangeIsUsable) {
-    if (allowNegativeFrequencies || sourceRange.min >= 0) return sourceRange;
+    if (sourceRange.min >= 0) return sourceRange;
     return clampCenteredFrequencyRange(
       getFrequencyRangeCenterHz(sourceRange),
       sourceRange.max - sourceRange.min,
@@ -170,7 +170,7 @@ export const getWaterfallNodeDisplayRange = ({
     return clampCenteredFrequencyRange(
       getFrequencyRangeCenterHz(requestedRange),
       span,
-      allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+      0,
     );
   }
 
@@ -522,12 +522,14 @@ export const getWaterfallZoomBoxView = ({
   currentPanHz,
   selectionStartX,
   selectionEndX,
+  allowNegativeFrequencies = false,
 }: {
   hardwareRange: FrequencyRange;
   currentZoom: number;
   currentPanHz: number;
   selectionStartX: number;
   selectionEndX: number;
+  allowNegativeFrequencies?: boolean;
 }): {
   zoom: number;
   panHz: number;
@@ -551,9 +553,14 @@ export const getWaterfallZoomBoxView = ({
   const targetCenter =
     currentVisibleMin + selectionCenterX * currentVisibleSpan;
   const visibleSpan = fullSpan / zoom;
-  const maxPanHz = Math.max(0, fullSpan / 2 - visibleSpan / 2);
+  const minPanHz = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
+  const maxPanHz = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
   const panHz = Math.max(
-    -maxPanHz,
+    minPanHz,
     Math.min(maxPanHz, targetCenter - hardwareCenter),
   );
   const visibleCenter = hardwareCenter + panHz;
@@ -586,18 +593,26 @@ export const getWaterfallScrollPan = ({
   zoom,
   currentPanHz,
   deltaY,
+  allowNegativeFrequencies = false,
 }: {
   hardwareRange: FrequencyRange;
   zoom: number;
   currentPanHz: number;
   deltaY: number;
+  allowNegativeFrequencies?: boolean;
 }): number => {
   const fullSpan = hardwareRange.max - hardwareRange.min;
   const safeZoom = Math.max(1, zoom);
   const visibleSpan = fullSpan / safeZoom;
-  const maxPanHz = Math.max(0, fullSpan / 2 - visibleSpan / 2);
+  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
+  const minPanHz = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
+  const maxPanHz = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
   const nextPan = currentPanHz - (deltaY * visibleSpan) / 40;
-  return Math.max(-maxPanHz, Math.min(maxPanHz, nextPan));
+  return Math.max(minPanHz, Math.min(maxPanHz, nextPan));
 };
 
 export const getWaterfallVfoDragPan = ({
@@ -606,19 +621,27 @@ export const getWaterfallVfoDragPan = ({
   startPanHz,
   dragDistancePx,
   viewportWidthPx,
+  allowNegativeFrequencies = false,
 }: {
   hardwareRange: FrequencyRange;
   zoom: number;
   startPanHz: number;
   dragDistancePx: number;
   viewportWidthPx: number;
+  allowNegativeFrequencies?: boolean;
 }): number => {
   const fullSpan = hardwareRange.max - hardwareRange.min;
   const visibleSpan = fullSpan / Math.max(1, zoom);
-  const maxPanHz = Math.max(0, fullSpan / 2 - visibleSpan / 2);
+  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
+  const minPanHz = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
+  const maxPanHz = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
   const nextPan =
     startPanHz + (dragDistancePx / Math.max(1, viewportWidthPx)) * visibleSpan;
-  return Math.max(-maxPanHz, Math.min(maxPanHz, nextPan));
+  return Math.max(minPanHz, Math.min(maxPanHz, nextPan));
 };
 
 export const getWaterfallPinchZoomView = ({
@@ -627,12 +650,14 @@ export const getWaterfallPinchZoomView = ({
   centerFrequencyHz,
   startDistancePx,
   currentDistancePx,
+  allowNegativeFrequencies = false,
 }: {
   hardwareRange: FrequencyRange;
   startZoom: number;
   centerFrequencyHz: number;
   startDistancePx: number;
   currentDistancePx: number;
+  allowNegativeFrequencies?: boolean;
 }): { zoom: number; panHz: number } => {
   const fullSpan = hardwareRange.max - hardwareRange.min;
   const safeStartZoom = Math.max(1, startZoom);
@@ -645,10 +670,15 @@ export const getWaterfallPinchZoomView = ({
     ),
   );
   const visibleSpan = fullSpan / zoom;
-  const maxPanHz = Math.max(0, fullSpan / 2 - visibleSpan / 2);
   const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
+  const minPanHz = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
+  const maxPanHz = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
   const panHz = Math.max(
-    -maxPanHz,
+    minPanHz,
     Math.min(maxPanHz, centerFrequencyHz - hardwareCenter),
   );
   return { zoom, panHz };
@@ -1145,47 +1175,55 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     (frequency: number, forceHardwareTune = false) => {
       if (isVfoLocked) return;
       if (!Number.isFinite(frequency)) return;
-      if (
-        data.analysisOptions &&
-        !forceHardwareTune &&
-        frequency >= frequencyRange.min &&
-        frequency <= frequencyRange.max
-      ) {
-        const nextView = getZoomedViewForCenterFrequency({
-          hardwareRange: frequencyRange,
-          currentZoom: waterfallZoom,
-          currentPan: waterfallPanHz,
-          requestedCenterHz: frequency,
-          maxZoom: VISUALIZER_MAX_ZOOM,
-        });
-        setWaterfallZoom(nextView.zoom);
-        setWaterfallPanHz(nextView.pan);
+      const sourceFrequency = mapDisplayFrequencyToSource(frequency);
+      if (data.analysisOptions && !forceHardwareTune) {
+        const sourceCenter =
+          (frequencyRange.min + frequencyRange.max) / 2;
+        const visibleSpan =
+          (frequencyRange.max - frequencyRange.min) /
+          Math.max(1, waterfallZoom);
+        const minPan = allowNegativeFrequencies
+          ? Number.NEGATIVE_INFINITY
+          : frequencyRange.min + visibleSpan / 2 - sourceCenter;
+        const maxPan = allowNegativeFrequencies
+          ? Number.POSITIVE_INFINITY
+          : frequencyRange.max - visibleSpan / 2 - sourceCenter;
+        setWaterfallPanHz(
+          Math.max(minPan, Math.min(maxPan, frequency - sourceCenter)),
+        );
+        setVfoFrequency(frequency);
         return;
       }
       const span = frequencyRange.max - frequencyRange.min;
       const range = clampCenteredFrequencyRange(
-        frequency,
+        sourceFrequency,
         span,
-        allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+        0,
       );
       const hardwareRangeUnchanged =
         range.min === frequencyRange.min && range.max === frequencyRange.max;
       if (data.analysisOptions && forceHardwareTune && hardwareRangeUnchanged) {
-        const nextView = getZoomedViewForCenterFrequency({
-          hardwareRange: frequencyRange,
-          currentZoom: waterfallZoom,
-          currentPan: waterfallPanHz,
-          requestedCenterHz: frequency,
-          maxZoom: VISUALIZER_MAX_ZOOM,
-        });
-        setWaterfallZoom(nextView.zoom);
-        setWaterfallPanHz(nextView.pan);
+        const sourceCenter =
+          (frequencyRange.min + frequencyRange.max) / 2;
+        const visibleSpan =
+          (frequencyRange.max - frequencyRange.min) /
+          Math.max(1, waterfallZoom);
+        const minPan = allowNegativeFrequencies
+          ? Number.NEGATIVE_INFINITY
+          : frequencyRange.min + visibleSpan / 2 - sourceCenter;
+        const maxPan = allowNegativeFrequencies
+          ? Number.POSITIVE_INFINITY
+          : frequencyRange.max - visibleSpan / 2 - sourceCenter;
+        setWaterfallPanHz(
+          Math.max(minPan, Math.min(maxPan, frequency - sourceCenter)),
+        );
+        setVfoFrequency(frequency);
         return;
       }
       dispatch(setFrequencyRange(range));
       dispatch(sendFrequencyRange(range));
       vfoUserTunedRef.current = true;
-      setVfoFrequency(getFrequencyRangeCenterHz(range));
+      setVfoFrequency(frequency);
     },
     [
       data.analysisOptions,
@@ -1203,24 +1241,36 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     }
     const span = frequencyRange.max - frequencyRange.min;
     return clampCenteredFrequencyRange(
-      vfoFrequency,
+      mapDisplayFrequencyToSource(vfoFrequency),
       span,
-      allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+      0,
     );
   }, [allowNegativeFrequencies, frequencyRange, vfoFrequency]);
   const zoomedFrequencyRange = useMemo(() => {
     if (!data.analysisOptions || waterfallZoom <= 1) return vfoFrequencyRange;
     const fullSpan = vfoFrequencyRange.max - vfoFrequencyRange.min;
     const halfSpan = fullSpan / waterfallZoom / 2;
-    const maxPanHz = Math.max(0, fullSpan / 2 - halfSpan);
+    const sourceCenter =
+      (vfoFrequencyRange.min + vfoFrequencyRange.max) / 2;
+    const minPanHz = allowNegativeFrequencies
+      ? Number.NEGATIVE_INFINITY
+      : vfoFrequencyRange.min + halfSpan - sourceCenter;
+    const maxPanHz = allowNegativeFrequencies
+      ? Number.POSITIVE_INFINITY
+      : vfoFrequencyRange.max - halfSpan - sourceCenter;
     const clampedPanHz = Math.max(
-      -maxPanHz,
+      minPanHz,
       Math.min(maxPanHz, waterfallPanHz),
     );
-    const center =
-      (vfoFrequencyRange.min + vfoFrequencyRange.max) / 2 + clampedPanHz;
+    const center = sourceCenter + clampedPanHz;
     return { min: center - halfSpan, max: center + halfSpan };
-  }, [data.analysisOptions, vfoFrequencyRange, waterfallPanHz, waterfallZoom]);
+  }, [
+    allowNegativeFrequencies,
+    data.analysisOptions,
+    vfoFrequencyRange,
+    waterfallPanHz,
+    waterfallZoom,
+  ]);
   const handlePinchPointerDownCapture = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (
@@ -1276,13 +1326,14 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         centerFrequencyHz: pinchStart.centerFrequencyHz,
         startDistancePx: pinchStart.distancePx,
         currentDistancePx: Math.hypot(second.x - first.x, second.y - first.y),
+        allowNegativeFrequencies,
       });
       setWaterfallZoom(nextView.zoom);
       setWaterfallPanHz(nextView.panHz);
       event.preventDefault();
       event.stopPropagation();
     },
-    [vfoFrequencyRange],
+    [allowNegativeFrequencies, vfoFrequencyRange],
   );
   const handlePinchPointerEndCapture = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1428,6 +1479,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
             currentPanHz: waterfallPanHz,
             selectionStartX: zoomBox.start.x,
             selectionEndX: zoomBox.end.x,
+            allowNegativeFrequencies,
           });
           setWaterfallZoom(nextView.zoom);
           setWaterfallPanHz(nextView.panHz);
@@ -1447,6 +1499,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       }
     },
     [
+      allowNegativeFrequencies,
       isZoomBoxEnabled,
       vfoFrequencyRange,
       waterfallPanHz,
@@ -1474,15 +1527,20 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     normalizationEnabledRef.current = isNormalizationEnabled;
   }, [brushLine, isNormalizationEnabled]);
   const transformWaveform = useCallback(
-    (nextWaveform: Float32Array) =>
-      brushLineRef.current && normalizationEnabledRef.current
-        ? normalizeSpectrumToBrushLine(
-            nextWaveform,
-            brushLineRef.current,
-            fftMinDb,
-            fftMaxDb,
-          )
-        : nextWaveform,
+    (nextWaveform: Float32Array) => {
+      // Spectrum FFT owns the |f| fold on the GPU. Never CPU-extend here —
+      // the live waveform subscribe path was allocating a full mirrored row
+      // every frame with the option on.
+      if (!brushLineRef.current || !normalizationEnabledRef.current) {
+        return nextWaveform;
+      }
+      return normalizeSpectrumToBrushLine(
+        nextWaveform,
+        brushLineRef.current,
+        fftMinDb,
+        fftMaxDb,
+      );
+    },
     [fftMaxDb, fftMinDb],
   );
   const transformedDisplayWaveform = useMemo(
@@ -1503,6 +1561,14 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         ),
     };
   }, [liveWaveformFeed, transformWaveform]);
+  const displayFrequencyRange = useMemo(
+    () => frequencyRange,
+    [frequencyRange],
+  );
+  const displayZoomedFrequencyRange = useMemo(
+    () => zoomedFrequencyRange,
+    [zoomedFrequencyRange],
+  );
 
   return (
     <NodeWrapper
@@ -1524,9 +1590,9 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
             visualState="compact"
             drawingType="dom"
             orientation="top"
-            frequencyRange={frequencyRange}
+            frequencyRange={displayFrequencyRange}
             centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
-          accessory={
+            accessory={
               binSubset.mode === "interleaved" ? (
                 <span
                   aria-label={formatBinSubsetLabel(binSubset.parity)}
@@ -1563,6 +1629,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                     (zoomedFrequencyRange.min + zoomedFrequencyRange.max) / 2,
                   startDistancePx: 100,
                   currentDistancePx: 100 * scale,
+                  allowNegativeFrequencies,
                 });
                 setWaterfallZoom(nextView.zoom);
                 setWaterfallPanHz(nextView.panHz);
@@ -1579,6 +1646,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                     zoom: waterfallZoom,
                     currentPanHz: panHz,
                     deltaY: event.deltaY,
+                    allowNegativeFrequencies,
                   }),
                 );
                 return;
@@ -1593,12 +1661,12 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 orientation="top"
                 cursorMotion
                 cursorOffsetPx={vfoDragOffsetPx}
-                frequencyRange={zoomedFrequencyRange}
+                frequencyRange={displayZoomedFrequencyRange}
                 centerFrequencyHz={getWaterfallVfoDisplayFrequency({
                   hardwareCenterHz: vfoFrequency,
                   visibleRange: zoomedFrequencyRange,
                 })}
-          accessory={
+                accessory={
                   binSubset.mode === "interleaved" ? (
                     <span
                       aria-label={formatBinSubsetLabel(binSubset.parity)}
@@ -1646,6 +1714,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                           startPanHz: vfoDragStartPanRef.current,
                           dragDistancePx: vfoDragDistancePxRef.current,
                           viewportWidthPx: vfoDragViewportWidthRef.current,
+                          allowNegativeFrequencies,
                         }),
                       );
                       return;
@@ -1743,6 +1812,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                       currentPanHz: waterfallPanHz,
                       selectionStartX: zoomBox.start.x,
                       selectionEndX: zoomBox.end.x,
+                      allowNegativeFrequencies,
                     });
                     const label = formatMiniVfoFrequency(
                       (preview.visibleRange.min + preview.visibleRange.max) / 2,
@@ -1875,6 +1945,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 onCenterFrequencyChange={tuneVfo}
                 onClose={() => setShowVfoEditor(false)}
                 placement="top"
+                allowNegativeFrequencies={allowNegativeFrequencies}
               />
             )}
           </AnalysisViewport>

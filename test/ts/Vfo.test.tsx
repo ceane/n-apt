@@ -46,4 +46,43 @@ describe("unified VFO", () => {
     expect(screen.getByText("-500 Hz")).toBeInTheDocument();
     expect(screen.getByText("500 Hz")).toBeInTheDocument();
   });
+
+  it("keeps compact edge and center labels anchored while moving only the cursor line", () => {
+    render(
+      <Vfo
+        visualState="compact"
+        drawingType="dom"
+        orientation="top"
+        frequencyRange={{ min: 0, max: 4_000_000 }}
+        centerFrequencyHz={2_000_000}
+        cursorMotion
+        cursorOffsetPx={24}
+      />,
+    );
+
+    expect(screen.getByTestId("unified-vfo-edge-left")).toHaveTextContent(
+      "0 Hz",
+    );
+    expect(screen.getByTestId("unified-vfo-edge-right")).toHaveTextContent(
+      "4 MHz",
+    );
+    expect(screen.getByTestId("unified-vfo-center-label")).toHaveTextContent(
+      "○ 2 MHz",
+    );
+    expect(screen.getByTestId("unified-vfo-cursor-line")).toHaveAttribute(
+      "data-offset-px",
+      "24",
+    );
+    expect(screen.getByTestId("unified-vfo-center-label")).not.toHaveAttribute(
+      "data-offset-px",
+    );
+    expect(screen.getByTestId("unified-vfo-center-row")).toHaveAttribute(
+      "data-vertical-alignment",
+      "center",
+    );
+    expect(screen.getByTestId("unified-vfo-cursor-line")).toHaveAttribute(
+      "data-vertical-alignment",
+      "center",
+    );
+  });
 });

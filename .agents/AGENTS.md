@@ -11,17 +11,18 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 
 - The user normally has the dev server running. Do not start or restart it for
   ordinary changes; Vite and Rust hot reload are enabled.
+- Keep changes scoped, avoid scratch files, and keep the workspace clean.
+- Keep changes as device/source agnostic as possible
+- Do not add unrequested design changes or features.
 - Do not run `npm run build`; run `npm run build:markdown` only for markdown
   article changes.
 - Do not use browser automation for testing. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.
+- Do not preserve backwards compatibility.
 - Prefer inspecting code and focused tests over repeating broad verification.
 - Use the Act MCP tool for repository searches.
-- Do not add unrequested design changes or features.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
-- Do not preserve backwards compatibility.
-- Keep changes scoped, avoid scratch files, and keep the workspace clean.
 
 ## Mock APT SDR Rules
 
@@ -43,6 +44,7 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
   copying and exposure, and never share, upload, or commit them without the
   user's explicit authorization.
+
 ## Temporary and Test Files
 
 - Do not create unnecessary temporary or test files.
@@ -124,16 +126,20 @@ build merely to validate a local edit.
 ## Learned User Preferences
 
 - Prefer frontend DSP for demodulation so audio/processing changes can be inspected and listened to in real time on the demod route.
-- Treat `liveSourceLifecycle` as the source of truth for live placeholder and stream lifecycle; FFT/waterfall canvases should only render those states.
+- Treat `liveSourceLifecycle` and `sourcePresentationController` as the source of truth for live placeholder and stream lifecycle; FFT/waterfall canvases should only render those states. Paused Rx keeps the last live Rx frame; Tx standby accepts `request_next_frame` previews; transmitting must unfreeze and follow live Tx frames.
 - When the backend is down or killed, show Server Down / unavailable — not an indefinite Loading FFT state or optimistic Loading flashes from polling.
 - Do not auto-start Tx when opening a Tx device into standby; standby is announce-only until the user explicitly starts transmit.
+- Keep VFO and FrequencyRangeSlider scroll/pan responsive; avoid debounce, timer coalescing, or paint gates that stall live spectrum during hardware retune.
+- Keep mirror I/Q baseband behavior explicit in `test/ts/basebandMirror.test.ts`; the mirror path should stay GPU-resample focused with performance close to mirror-off.
 - Keep build/hot-reload orchestration under `scripts/build`; leave in-app hot-reload notifications in the app code.
 
 ## Learned Workspace Facts
 
 - Never lower the hardware sample rate below 3.2 MHz (N-APT Nyquist needs that width); narrower modes such as FM use a bandwidth slice/window inside that sample rate.
 - Span bandwidth is a selected slice within the sample-rate window, not the same thing as sample rate.
-- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center).
+- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
+- Mirror I/Q below 0 Hz is presentation-only: reflect acquired positive baseband across DC via `basebandMirror.ts` and the WebGPU resample path; it must not retune hardware on every pan tick.
+- During VFO/slider retune, paint live IQ on each frame's acquisition axis (`center_frequency_hz ± sample_rate/2`) when the requested viewport and frame center diverge; mapping bins onto the scrolled Redux viewport causes channel-island flatlining.
 - Agent guidance and related docs live under `.agents/` (including `.agents/AGENTS.md`).
 - HackRF One needs LNA/VGA/AMP gain plus baseband bandwidth-filter control, with persistence/control parity similar to other radio gain settings.
 - Avoid eagerly loading heavy `/transformers` / transformers.js paths on app startup; they can hang localhost load and should stay excluded or lazy-loaded.

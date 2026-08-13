@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
 use crate::server::types::PowerScale;
+use crate::sdr::audio_iq_tap::AudioIqBlock;
 
 /// A contiguous IQ block tagged with the source epoch that produced it.
 ///
@@ -34,6 +35,20 @@ pub struct ProcessedFrame {
   pub sample_rate: u32,
   pub raw_iq: Vec<u8>,
   pub target_fps: u32,
+}
+
+/// Resolve the IQ payload for the visualizer without forcing every live frame
+/// through the optional contiguous-audio retention path. The audio tap is only
+/// useful when an audio consumer is actively attached; the display already has
+/// one complete frame in `last_frame_raw_iq`.
+pub(crate) fn resolve_display_iq(
+  audio_block: Option<AudioIqBlock>,
+  fallback: &[u8],
+) -> Vec<u8> {
+  audio_block
+    .map(|block| block.data)
+    .filter(|data| !data.is_empty())
+    .unwrap_or_else(|| fallback.to_vec())
 }
 
 #[derive(Clone)]
@@ -77,7 +92,9 @@ impl AcquisitionWorker {
         if pending_frequency > 0
           && pending_frequency != processor.get_center_frequency()
         {
-          if let Err(error) = processor.set_center_frequency(pending_frequency) {
+          if let Err(error) =
+            processor.set_center_frequency_live(pending_frequency)
+          {
             log::warn!(
               "Failed to apply pending frequency in acquisition worker: {}",
               error
@@ -118,17 +135,16 @@ impl AcquisitionWorker {
 
       let current_fft_size = processor.fft_processor.config().fft_size;
       let timestamp = chrono::Utc::now().timestamp_millis();
-      let center_frequency = if let Some(pending) = processor.frame.pending_freq.take() {
-        if let Err(error) = processor.set_center_frequency(pending) {
-          log::warn!(
-            "Failed to apply pending frequency in acquisition worker: {}",
-            error
-          );
+      if let Some(pending) = processor.frame.pending_freq.take() {
+        if pending != processor.get_center_frequency() {
+          if let Err(error) = processor.set_center_frequency_live(pending) {
+            log::warn!(
+              "Failed to apply pending frequency in acquisition worker: {}",
+              error
+            );
+          }
         }
-        pending
-      } else {
-        processor.get_center_frequency()
-      };
+      }
       let active_source_id =
         crate::server::websocket_server::active_source_id(&shared_state);
       let tx_is_active = crate::safety::TX_TRANSMITTING
@@ -162,6 +178,7 @@ impl AcquisitionWorker {
         }
       };
 
+      let mut center_frequency = processor.get_center_frequency();
       let (waveform, raw_iq) = if streaming_mock_tx_monitor {
         let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
         let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
@@ -213,13 +230,13 @@ impl AcquisitionWorker {
         let force_noise = shared_state
           .force_noise
           .load(std::sync::atomic::Ordering::Relaxed);
-        processor.set_audio_iq_tap_enabled(true);
         let waveform = processor.read_and_process_frame_with_noise(force_noise)?;
-        let contiguous_iq = processor
-          .take_audio_iq()
-          .map(|block| block.data)
-          .filter(|data| !data.is_empty())
-          .unwrap_or_else(|| processor.frame.last_frame_raw_iq.clone());
+        center_frequency = processor.displayed_center_frequency();
+        // Keep the live display on the single frame buffer. Enabling the
+        // hardware audio tap here copied every USB chunk into a second
+        // bounded queue even when no audio consumer was running, which made
+        // physical devices slower than Mock sources with identical FFT work.
+        let contiguous_iq = resolve_display_iq(None, &processor.frame.last_frame_raw_iq);
         (waveform, contiguous_iq)
       };
 
@@ -286,8 +303,20 @@ impl FramePublicationGate {
 
 #[cfg(test)]
 mod tests {
-  use super::{AcquisitionFrame, FramePublicationGate, ProcessedFrame};
+  use super::{
+    resolve_display_iq,
+    AcquisitionFrame,
+    FramePublicationGate,
+    ProcessedFrame,
+  };
   use crate::server::types::PowerScale;
+
+  #[test]
+  fn display_iq_uses_the_frame_buffer_when_no_audio_consumer_is_present() {
+    let fallback = vec![128, 129, 130, 131];
+
+    assert_eq!(resolve_display_iq(None, &fallback), fallback);
+  }
 
   #[test]
   fn frames_reject_a_previous_source_epoch() {

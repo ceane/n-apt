@@ -316,6 +316,9 @@ const spectrumSlice = createSlice({
     ) => {
       state.activeSignalArea = action.payload.area;
       state.frequencyRange = action.payload.range;
+      // Channel selection is an explicit positive tune. Leaving a stale
+      // mirrored pan here trapped the viewport below 0 Hz after every click.
+      state.vizPanOffset = 0;
       if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
         state.lastKnownRanges = {};
       }
@@ -344,6 +347,7 @@ const spectrumSlice = createSlice({
 
       state.activeSignalArea = primaryLabel;
       state.frequencyRange = { min: primaryMin, max: primaryMax };
+      state.vizPanOffset = 0;
       if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
         state.lastKnownRanges = {};
       }

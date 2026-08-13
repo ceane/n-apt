@@ -240,10 +240,10 @@ export const shouldResetVisualPresentationForSelection = (
   (previousSelectedSourceId ?? null) !== (nextSelectedSourceId ?? null);
 
 /**
- * Resolve the minimal presentation reset for a source lifecycle transition.
- * Source selection retains the currently painted canvas until the target's
- * first frame replaces it — never flash black on Mock APT → Mock Tx or
- * Start Tx. Same-source reconnects still clear immediately.
+ * Resolve the presentation reset for a source lifecycle transition.
+ * Source selection is a hard ownership boundary: the target must not inherit
+ * a paused frame or painted GPU texture from the previous source while its
+ * first frame is still in flight. Same-source reconnects use the same reset.
  */
 export const resolveWebGpuStreamTransition = (
   previous: WebGpuStreamIdentity | null,
@@ -252,13 +252,14 @@ export const resolveWebGpuStreamTransition = (
   if (!previous) {
     return { clearLiveFrame: false, advanceResetEpoch: false };
   }
+  const selectionBoundary =
+    (previous.selectedSourceId ?? previous.sourceId ?? null) !==
+    (next.selectedSourceId ?? next.sourceId ?? null);
   const reconnectBoundary = shouldFlushWebGpuStreamCache(previous, next);
 
   return {
-    // Selection / active-source handoffs keep the last painted graph until a
-    // replacement frame arrives. Only hard reconnects clear immediately.
-    clearLiveFrame: reconnectBoundary,
-    advanceResetEpoch: reconnectBoundary,
+    clearLiveFrame: selectionBoundary || reconnectBoundary,
+    advanceResetEpoch: selectionBoundary || reconnectBoundary,
   };
 };
 

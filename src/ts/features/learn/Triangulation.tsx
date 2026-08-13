@@ -83,7 +83,7 @@ function TrilaterationCanvas() {
       const mx = (s.x + receiver.x) / 2 + 8;
       const my = (s.y + receiver.y) / 2;
       ctx.fillStyle = STATION_COLORS[i];
-      ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText(`d${i + 1} = ${Math.round(dists[i])}`, mx, my);
     });
 
@@ -107,7 +107,7 @@ function TrilaterationCanvas() {
       ctx.fillStyle = STATION_COLORS[i];
       ctx.fill();
       ctx.fillStyle = isDark ? "#000" : "#fff";
-      ctx.font = "bold 9px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "bold 9px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(`T${i + 1}`, s.x, s.y);
@@ -127,7 +127,7 @@ function TrilaterationCanvas() {
     ctx.fill();
 
     ctx.fillStyle = fgDim;
-    ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+    ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
     ctx.fillText("← drag receiver", receiver.x + 14, receiver.y + 4);
     ctx.restore();
   }, [receiver, stations]);
@@ -228,7 +228,7 @@ function TDOACanvas() {
         ctx.fillStyle = color as string;
         ctx.fill();
         ctx.fillStyle = fg;
-        ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+        ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
         ctx.fillText(label as string, p.x + 12, p.y + 4);
       });
 
@@ -239,12 +239,12 @@ function TDOACanvas() {
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = fg;
-      ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText("? Tx", tx.x + 10, tx.y - 4);
 
       // TDOA legend
       ctx.fillStyle = isDark ? "rgba(255,200,100,0.8)" : "rgba(120,80,0,0.9)";
-      ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText(`TDOA hyperbola  (d₁−d₂ = ${Math.round(tdoa)}px)`, 12, 18);
 
       rafRef.current = requestAnimationFrame(draw);
@@ -345,7 +345,7 @@ function CellTowerCanvas() {
         ctx.fillStyle = tw.color;
         ctx.fill();
         ctx.fillStyle = fg;
-        ctx.font = "10px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+        ctx.font = "10px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
         ctx.fillText(`Cell ${i + 1}`, tw.x + 10, tw.y - 4);
         ctx.fillStyle = isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.35)";
         const d = Math.round(dist(ue, tw));
@@ -358,7 +358,7 @@ function CellTowerCanvas() {
       ctx.fillStyle = fg;
       ctx.fill();
       ctx.fillStyle = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)";
-      ctx.font = "10px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "10px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText("UE", ue.x + 9, ue.y + 4);
 
       rafRef.current = requestAnimationFrame(draw);

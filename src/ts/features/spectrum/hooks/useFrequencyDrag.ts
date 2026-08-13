@@ -1135,6 +1135,12 @@ export function useSpectrumInteraction({
         }),
       );
 
+    // The setting must not put unzoomed positive pans on the visual-pan +
+    // retune path. That retunes every tick and is why mirror-on scrolling
+    // felt slower than mirror-off. Visual pan only when zoomed or f<0.
+    const shouldUseVisualPan = (pan: number, zoom: number) =>
+      zoom > 1 || displayNeedsMirror(pan, zoom);
+
     const updateContainerRect = () => {
       const container = getContainer();
       if (container) {
@@ -1620,14 +1626,11 @@ export function useSpectrumInteraction({
       const freqChange = (deltaX / width) * visualRange;
 
       const desiredPan = dragStartPanRef.current - freqChange;
-      const needsMirror = displayNeedsMirror(desiredPan, zoom);
 
-      if ((zoom > 1 || needsMirror || allowNegativeFrequencies) && onVizPanChange) {
-        // Visual panning when zoomed, when crossing below 0 Hz, or when the
-        // mirror setting allows approaching DC at zoom 1. Positive-only pans
-        // still use the normal overflow retune/clamp below.
-        // Dragging right (deltaX > 0) means looking at lower frequencies
-        // (shifting visual window left) so we SUBTRACT freqChange from pan.
+      if (shouldUseVisualPan(desiredPan, zoom) && onVizPanChange) {
+        // Visual panning when zoomed or when the viewport actually includes
+        // f<0. Unzoomed positive pans stay on the hardware retune path so
+        // the mirror setting cannot make ordinary scrolling slower.
         if (maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })) {
           return;
         }
@@ -2598,16 +2601,16 @@ export function useSpectrumInteraction({
         // Scroll sensitivity: roughly 1 pixel per unit of delta
         const deltaPx = delta;
         const freqChange = (deltaPx / width) * visualRange;
+        const currentPan = vizPanOffsetRef?.current || 0;
+        const proposedPan = currentPan + freqChange;
 
         if (
-          (zoom > 1 || allowNegativeFrequencies) &&
+          shouldUseVisualPan(proposedPan, zoom) &&
           onVizPanChange &&
           vizPanOffsetRef
         ) {
-          const currentPan = vizPanOffsetRef.current;
-
           // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
-          let newPan = currentPan + freqChange;
+          let newPan = proposedPan;
 
           // Retune when the viewport outruns the acquisition (including a
           // DC-crossing window the resident frame cannot fill). Start each

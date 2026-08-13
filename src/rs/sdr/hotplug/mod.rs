@@ -1,6 +1,8 @@
 #[cfg(all(test, has_hackrf))]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
-use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
+use crate::sdr::{
+  processor::SdrProcessor, rtlsdr::device::RtlSdrDevice, SdrDeviceFactory,
+};
 use crate::server::shared_state::{
   HackRfInventoryDevice, SharedState, DEVICE_PROBE_INTERVAL,
   DISCONNECT_FAILURE_THRESHOLD, MAX_RECOVERY_ATTEMPTS,
@@ -181,6 +183,55 @@ pub fn scan_supported_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
   Ok(filter_supported_usb_device_snapshots(
     scan_usb_device_snapshots()?,
   ))
+}
+
+fn should_clear_rtl_sdr_inventory(
+  devices: &[UsbDeviceSnapshot],
+  native_rtl_count: u32,
+) -> bool {
+  native_rtl_count == 0
+    && !devices.iter().any(|device| device.device_type == "rtl-sdr")
+}
+
+/// Refresh RTL identity from librtlsdr when the active device is another
+/// source. The native count is the authoritative presence signal for RTL-SDR
+/// on macOS; a libusb inventory can be empty when the process cannot enumerate
+/// the bus even though librtlsdr can open the receiver. Never perform this
+/// native enumeration from the HTTP/WebSocket snapshot path, and never probe
+/// it while an RTL reader owns the active interface.
+fn refresh_cached_rtl_sdr_inventory(
+  shared_state: &SharedState,
+  usb_devices: &[UsbDeviceSnapshot],
+) {
+  let active_kind = shared_state.device_profile.lock().unwrap().kind.clone();
+  if active_kind.to_ascii_lowercase().contains("rtl") {
+    return;
+  }
+
+  let native_rtl_count = RtlSdrDevice::get_device_count();
+  if native_rtl_count > 0 {
+    let inventory = (0..native_rtl_count)
+      .map(|index| {
+        let (serial_number, manufacturer, product) =
+          RtlSdrDevice::get_device_usb_strings(index);
+        let device_name = if product.trim().is_empty() {
+          RtlSdrDevice::get_device_name(index)
+        } else {
+          product.clone()
+        };
+        crate::server::shared_state::RtlSdrInventoryDevice {
+          index,
+          serial_number,
+          manufacturer,
+          product,
+          device_name,
+        }
+      })
+      .collect();
+    shared_state.set_rtl_sdr_inventory(inventory);
+  } else if should_clear_rtl_sdr_inventory(usb_devices, native_rtl_count) {
+    shared_state.set_rtl_sdr_inventory(Vec::new());
+  }
 }
 
 #[cfg(has_hackrf)]
@@ -398,15 +449,18 @@ pub async fn drain_hotplug_events(
     }
   };
   refresh_cached_hackrf_inventory(shared_state, &usb_devices);
+  refresh_cached_rtl_sdr_inventory(shared_state, &usb_devices);
   let current_count = usb_devices.len() as u32;
   shared_state
     .supported_usb_device_count
     .store(current_count, Ordering::Relaxed);
   shared_state.usb_inventory_known.store(true, Ordering::Release);
+  let current_state = shared_state.device_state.lock().unwrap().clone();
   let should_reconcile = should_reconcile_hotplug_state(
     current_count,
     state.last_seen_device_count,
     processor.is_mock(),
+    &current_state,
   );
   if should_reconcile {
     let previous_count = state.last_seen_device_count;
@@ -436,6 +490,31 @@ pub async fn drain_hotplug_events(
         );
       } else {
         state.last_hardware_swap = Some(Instant::now());
+      }
+    } else if current_count > 0
+      && !processor.is_mock()
+      && current_state == "stale"
+    {
+      // A quick unplug/replug can leave the inventory count at one the whole
+      // time. Reconcile the stale reader explicitly instead of waiting for a
+      // count transition that will never arrive.
+      state.missing_since = None;
+      state.last_failure_at = None;
+      shared_state.set_device_state("loading", Some("restart"));
+      broadcast_device_status(shared_state, broadcast_tx);
+      match attach_real_device(processor, shared_state, broadcast_tx).await {
+        Ok(()) => {
+          shared_state.health_failure_streak.store(0, Ordering::Relaxed);
+          shared_state.recovery_attempts.store(0, Ordering::Relaxed);
+          state.last_hardware_swap = Some(Instant::now());
+          info!("Reopened stale SDR after supported USB presence was observed");
+        }
+        Err(error) => {
+          error!("Failed to reopen stale SDR after USB replug: {}", error);
+          shared_state.set_device_state("stale", None);
+          shared_state.set_device_backend_error(Some(error.to_string()));
+          broadcast_device_status(shared_state, broadcast_tx);
+        }
       }
     } else if current_count > 0 {
       state.missing_since = None;
@@ -500,10 +579,12 @@ fn should_reconcile_hotplug_state(
   current_count: u32,
   last_seen_device_count: u32,
   processor_is_mock: bool,
+  device_state: &str,
 ) -> bool {
   current_count != last_seen_device_count
     || (processor_is_mock && current_count > 0)
     || (!processor_is_mock && current_count == 0)
+    || (!processor_is_mock && current_count > 0 && device_state == "stale")
 }
 
 fn should_broadcast_source_inventory_change(
@@ -539,6 +620,12 @@ async fn attach_real_device(
           }
           Err(e) => {
             last_err = Some(e);
+            // `swap_device` leaves the failed replacement in the processor
+            // when its async reader cannot start.  Keep that failed handle
+            // alive while retrying and the next librtlsdr open sees the same
+            // claimed USB interface (`usb_claim_interface error -3`).
+            // Release the failed device back to Mock APT before the next open.
+            release_failed_device_before_retry(processor).await;
             warn!(
               "Supported device initialize attempt {} of 5 failed during attach; retrying",
               attempt
@@ -585,6 +672,20 @@ async fn attach_real_device(
     processor.get_manufacturer(),
     processor.get_product(),
   );
+  // A newly attached/reopened device is not authoritative Receiving until
+  // the acquisition loop records its first successful frame.
+  shared_state.set_device_state("loading", Some("connect"));
+  if processor
+    .device_type()
+    .to_ascii_lowercase()
+    .contains("rtl")
+  {
+    shared_state.cache_active_rtl_sdr(
+      processor.get_serial_number(),
+      processor.get_manufacturer(),
+      processor.get_product(),
+    );
+  }
   // A reconnect is an automatic resume. Clear any stale pause bit left by
   // the pre-disconnect source so the first fresh Rx frame is not gated behind
   // a second user Pause/Resume click.
@@ -592,6 +693,28 @@ async fn attach_real_device(
   shared_state.set_active_source_pause_state(&active_id, false);
   broadcast_device_status(shared_state, broadcast_tx);
   Ok(())
+}
+
+async fn release_failed_device_before_retry(processor: &mut SdrProcessor) {
+  for attempt in 1..=5 {
+    match processor.swap_device(SdrDeviceFactory::create_mock_device()) {
+      Ok(()) => {
+        info!(
+          "Released failed SDR handle before reconnect retry (attempt {})",
+          attempt
+        );
+        return;
+      }
+      Err(error) => {
+        warn!(
+          "Failed to release SDR handle before reconnect retry (attempt {}): {}",
+          attempt, error
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+      }
+    }
+  }
+  warn!("Giving up on bounded failed SDR-handle release before reconnect retry");
 }
 
 async fn disconnect_to_mock(
@@ -655,10 +778,13 @@ pub async fn handle_real_hardware_health(
   }
 
   let current_state = shared_state.device_state.lock().unwrap().clone();
-  if current_state == "loading"
-    || current_state == "initializing"
-    || current_state == "disconnected"
-  {
+  if matches!(current_state.as_str(), "initializing" | "disconnected" | "stale") {
+    // `loading` is deliberately health-checked. A real reader can fail before
+    // its first frame (for example, librtlsdr can exit with USB error -3), and
+    // skipping health checks here strands the source in Loading forever. A
+    // stale source is different: its reader has already crossed the liveness
+    // boundary, so the USB inventory/reopen path owns recovery and must not
+    // compete by extending the error streak.
     return;
   }
 
@@ -946,10 +1072,16 @@ mod tests {
   #[test]
   fn mock_startup_with_supported_device_should_attach_even_without_count_change(
   ) {
-    assert!(should_reconcile_hotplug_state(1, 1, true));
-    assert!(!should_reconcile_hotplug_state(1, 1, false));
-    assert!(should_reconcile_hotplug_state(1, 0, false));
-    assert!(should_reconcile_hotplug_state(0, 0, false));
+    assert!(should_reconcile_hotplug_state(1, 1, true, "disconnected"));
+    assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
+    assert!(should_reconcile_hotplug_state(1, 0, false, "connected"));
+    assert!(should_reconcile_hotplug_state(0, 0, false, "connected"));
+  }
+
+  #[test]
+  fn stale_real_source_reconciles_even_when_usb_count_is_unchanged() {
+    assert!(should_reconcile_hotplug_state(1, 1, false, "stale"));
+    assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
   }
 
   #[test]
@@ -991,6 +1123,12 @@ mod tests {
     assert_eq!(supported.len(), 2);
     assert!(supported.iter().any(|d| d.device_type == "rtl-sdr"));
     assert!(supported.iter().any(|d| d.device_type == "hackrf_one"));
+  }
+
+  #[test]
+  fn native_rtl_presence_preserves_cache_when_libusb_snapshot_is_empty() {
+    assert!(!should_clear_rtl_sdr_inventory(&[], 1));
+    assert!(should_clear_rtl_sdr_inventory(&[], 0));
   }
 
   #[cfg(has_hackrf)]

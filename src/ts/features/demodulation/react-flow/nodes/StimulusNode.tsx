@@ -1,8 +1,29 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import styled from "styled-components";
 import { z } from "zod";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
+import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
+import { resampleNearestInto } from "@n-apt/math/resampleNearest";
+import { FIFOWaterfall } from "@n-apt/spectrum/public/FIFOWaterfall";
+import {
+  AUDIO_TONE_FREQUENCY_HZ,
+  AUDIO_TONE_WAVEFORM_SAMPLE_COUNT,
+  AUDIO_WATERFALL_FPS,
+  AUDIO_WATERFALL_FREQUENCY_RANGE,
+  AUDIO_WATERFALL_HEIGHT,
+  createAudioWaveformFeed,
+  createFmWaterfallFrame,
+  createSineWaveformSamples,
+  getAudioToneGain,
+  type AudioWaveformMode,
+} from "./audioWaveformPreview";
 
 const durationSchema = z.number().min(5).max(60);
 
@@ -38,32 +59,26 @@ const baselineOptions: Array<{ value: AnalysisType; label: string }> = [
 // Audio preview components
 const AudioContainer = styled.div`
   text-align: center;
+  width: 100%;
 `;
 
-const WaveformContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 40px;
+const TraditionalWaveformContainer = styled.div`
+  width: 100%;
+  padding: 0 8px;
 `;
 
-const WaveBar = styled.div<{ $active: boolean }>`
-  width: 3px;
-  height: ${(props) => (props.$active ? "100%" : "20%")};
-  background: ${(props) => props.theme.colors.primary};
-  border-radius: 1px;
-  animation: ${(props) =>
-    props.$active ? "bounce 0.5s infinite ease-in-out" : "none"};
+const TraditionalWaveform = styled.svg`
+  display: block;
+  width: 100%;
+  height: 80px;
+  overflow: visible;
+`;
 
-  @keyframes bounce {
-    0%,
-    100% {
-      transform: scaleY(0.5);
-    }
-    50% {
-      transform: scaleY(1.5);
-    }
-  }
+const TraditionalWaveformBar = styled.line`
+  stroke: ${({ theme }) => theme.colors.primary};
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 `;
 
 const ToneLabel = styled.div`
@@ -72,6 +87,102 @@ const ToneLabel = styled.div`
   margin-top: ${({ theme }) => theme.spacing.md};
   font-family: ${({ theme }) => theme.typography.mono};
 `;
+
+const AudioWaterfallContainer = styled.div`
+  width: 100%;
+  height: ${AUDIO_WATERFALL_HEIGHT}px;
+  min-height: ${AUDIO_WATERFALL_HEIGHT}px;
+  overflow: hidden;
+  border-radius: 4px;
+`;
+
+interface TonePlayback {
+  audioContext: AudioContext;
+  oscillator: OscillatorNode;
+  startedAt: number;
+  durationS: number;
+}
+
+interface TraditionalAudioWaveformProps {
+  isCapturing: boolean;
+  tonePlayback: TonePlayback | null;
+}
+
+const TraditionalAudioWaveform = React.memo<TraditionalAudioWaveformProps>(
+  ({ isCapturing, tonePlayback }) => {
+    const barRefs = useRef<Array<SVGLineElement | null>>([]);
+    const centerY = 40;
+    const maxBarHeight = 31.5;
+
+    useEffect(() => {
+      const draw = (audioTimeSeconds: number) => {
+        const samples = createSineWaveformSamples({ audioTimeSeconds });
+        const gain = tonePlayback
+          ? getAudioToneGain(audioTimeSeconds, tonePlayback.durationS)
+          : 0;
+
+        samples.forEach((sample, index) => {
+          const bar = barRefs.current[index];
+          if (!bar) return;
+          const halfHeight = Math.abs(sample) * maxBarHeight * gain;
+          bar.setAttribute("y1", `${centerY - halfHeight}`);
+          bar.setAttribute("y2", `${centerY + halfHeight}`);
+        });
+      };
+
+      if (!isCapturing || tonePlayback === null) {
+        draw(0);
+        return;
+      }
+
+      let frameId: number | null = null;
+      const animate = () => {
+        draw(
+          Math.max(
+            0,
+            tonePlayback.audioContext.currentTime - tonePlayback.startedAt,
+          ),
+        );
+        frameId = window.requestAnimationFrame(animate);
+      };
+
+      animate();
+      return () => {
+        if (frameId !== null) window.cancelAnimationFrame(frameId);
+      };
+    }, [isCapturing, tonePlayback]);
+
+    return (
+      <TraditionalWaveform
+        aria-label="Traditional audio waveform"
+        data-capturing={isCapturing}
+        role="img"
+        viewBox="0 0 100 80"
+        preserveAspectRatio="none"
+      >
+        {Array.from(
+          { length: AUDIO_TONE_WAVEFORM_SAMPLE_COUNT },
+          (_, index) => {
+            const x = 2 + (index / (AUDIO_TONE_WAVEFORM_SAMPLE_COUNT - 1)) * 96;
+            return (
+              <TraditionalWaveformBar
+                key={index}
+                ref={(bar) => {
+                  barRefs.current[index] = bar;
+                }}
+                data-testid="traditional-audio-waveform-bar"
+                x1={x}
+                x2={x}
+                y1={centerY}
+                y2={centerY}
+              />
+            );
+          },
+        )}
+      </TraditionalWaveform>
+    );
+  },
+);
 
 // Internal preview components
 const InternalContainer = styled.div`
@@ -250,7 +361,7 @@ const StimulusContent = styled.div`
 `;
 
 const StimulusPreview = styled.div`
-  min-height: 170px;
+  min-height: 210px;
   border: 1px solid ${({ theme }) => theme.colors.borderHover};
   border-radius: 10px;
   background: linear-gradient(
@@ -342,12 +453,16 @@ const BaselineVectorContainer = styled.div`
   align-items: stretch;
 `;
 
-const BaselineVectorLabel = styled.div`
+const SelectLabel = styled.label`
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   opacity: 0.6;
   margin-bottom: 6px;
+`;
+
+const AudioWaveformControl = styled.div`
+  width: 100%;
 `;
 
 const TitleText = styled.div`
@@ -424,11 +539,63 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [progress, setProgress] = useState(0);
   const [durationS, setDurationS] = useState(5);
   const [durationError, setDurationError] = useState<string | null>(null);
+  const [audioWaveformMode, setAudioWaveformMode] =
+    useState<AudioWaveformMode>("traditional");
+  const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
+  const fmFrameIndexRef = useRef(0);
+  const fmWaveformFeed = useMemo(
+    () => createAudioWaveformFeed(createFmWaterfallFrame(0)),
+    [],
+  );
+  const resampleOutputRef = useRef<Float32Array | undefined>(undefined);
 
   const isBusy =
     analysisSession.state !== "idle" && analysisSession.state !== "result";
   const isStarting = analysisSession.state === "starting";
   const isCapturing = analysisSession.state === "capturing";
+
+  useEffect(() => {
+    if (audioWaveformMode !== "fm-waterfall") return;
+    fmFrameIndexRef.current = 0;
+    fmWaveformFeed.publish(createFmWaterfallFrame(0));
+  }, [audioWaveformMode, fmWaveformFeed]);
+
+  useEffect(() => {
+    if (audioWaveformMode !== "fm-waterfall" || !isCapturing) return;
+
+    const startedAt = Date.now();
+    let emittedFrames = 0;
+    const interval = window.setInterval(() => {
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
+      const dueFrames = Math.floor((elapsedMs * AUDIO_WATERFALL_FPS) / 1000);
+
+      while (emittedFrames < dueFrames) {
+        emittedFrames += 1;
+        fmFrameIndexRef.current += 1;
+        fmWaveformFeed.publish(createFmWaterfallFrame(fmFrameIndexRef.current));
+      }
+    }, 1000 / AUDIO_WATERFALL_FPS);
+
+    return () => window.clearInterval(interval);
+  }, [audioWaveformMode, fmWaveformFeed, isCapturing]);
+
+  const performWaterfallResampling = useCallback(
+    (
+      input: ArrayLike<number>,
+      targetLength: number,
+      destination?: Float32Array,
+    ) => {
+      const output = resampleNearestInto(
+        input,
+        targetLength,
+        FFT_MIN_DB,
+        destination ?? resampleOutputRef.current,
+      );
+      resampleOutputRef.current = output;
+      return output;
+    },
+    [],
+  );
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10);
@@ -490,23 +657,41 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     )();
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
+    const startedAt = audioCtx.currentTime;
 
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+    oscillator.frequency.setValueAtTime(AUDIO_TONE_FREQUENCY_HZ, startedAt);
 
     // Smooth fade in/out to avoid clicking
-    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
-    gainNode.gain.exponentialRampToValueAtTime(
-      0.01,
-      audioCtx.currentTime + durationS,
-    ); // Play for duration
+    gainNode.gain.setValueAtTime(0, startedAt);
+    gainNode.gain.linearRampToValueAtTime(0.5, startedAt + 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, startedAt + durationS); // Play for duration
 
     oscillator.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + durationS);
+    oscillator.start(startedAt);
+    oscillator.stop(startedAt + durationS);
+    setTonePlayback({
+      audioContext: audioCtx,
+      oscillator,
+      startedAt,
+      durationS,
+    });
+
+    return () => {
+      try {
+        oscillator.stop();
+      } catch {
+        // The scheduled stop may already have completed.
+      }
+      if (audioCtx.state !== "closed" && typeof audioCtx.close === "function") {
+        void audioCtx.close();
+      }
+      setTonePlayback((current) =>
+        current?.oscillator === oscillator ? null : current,
+      );
+    };
   }, [durationS]);
 
   const handleTrigger = () => {
@@ -529,8 +714,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       isCapturing &&
       (previewMode === "audio" || previewMode === "internal")
     ) {
-      playTone();
+      return playTone();
     }
+    setTonePlayback(null);
+    return undefined;
   }, [isCapturing, previewMode, playTone]);
 
   return (
@@ -539,18 +726,38 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
       <StimulusContent>
         <StimulusPreview>
-          {previewMode === "audio" && (
+          {previewMode === "audio" && audioWaveformMode === "traditional" && (
             <AudioContainer>
-              <WaveformContainer>
-                {Array.from({ length: 20 }).map((_, i) => (
-                  <WaveBar
-                    key={i}
-                    $active={isCapturing}
-                    style={{ animationDelay: `${i * 0.05}s` }}
-                  />
-                ))}
-              </WaveformContainer>
+              <TraditionalWaveformContainer>
+                <TraditionalAudioWaveform
+                  isCapturing={isCapturing}
+                  tonePlayback={tonePlayback}
+                />
+              </TraditionalWaveformContainer>
+              <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
               <ToneLabel>440Hz SINE TONE</ToneLabel>
+            </AudioContainer>
+          )}
+
+          {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
+            <AudioContainer>
+              <AudioWaterfallContainer>
+                <FIFOWaterfall
+                  width={480}
+                  height={AUDIO_WATERFALL_HEIGHT}
+                  waveform={fmWaveformFeed.getCurrent()}
+                  waveformFeed={fmWaveformFeed}
+                  frequencyRange={AUDIO_WATERFALL_FREQUENCY_RANGE}
+                  fftMin={FFT_MIN_DB}
+                  fftMax={FFT_MAX_DB}
+                  retuneSmear={0}
+                  isPaused={!isCapturing}
+                  isVisible={true}
+                  performScalarResampling={performWaterfallResampling}
+                  placeholderSourceLabel="FM audio preview"
+                  placeholderPaneLabel="FM audio waterfall"
+                />
+              </AudioWaterfallContainer>
             </AudioContainer>
           )}
 
@@ -629,8 +836,12 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
         <BaselineVectorContainer>
           <div>
-            <BaselineVectorLabel>Baseline Vector</BaselineVectorLabel>
+            <SelectLabel htmlFor="stimulus-baseline-vector">
+              Baseline Vector
+            </SelectLabel>
             <StimulusSelect
+              id="stimulus-baseline-vector"
+              aria-label="Baseline Vector"
               value={previewMode}
               onChange={(e) => setPreviewMode(e.target.value as AnalysisType)}
               disabled={isBusy}
@@ -643,11 +854,11 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             </StimulusSelect>
           </div>
           <div>
-            <BaselineVectorLabel
+            <SelectLabel
               style={{ color: durationError ? "#ff4d4d" : undefined }}
             >
               Dur (s)
-            </BaselineVectorLabel>
+            </SelectLabel>
             <StimulusInput
               type="number"
               value={durationS || ""}
@@ -668,6 +879,26 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             TRIGGER
           </StimulusButton>
         </BaselineVectorContainer>
+
+        {previewMode === "audio" && (
+          <AudioWaveformControl>
+            <SelectLabel htmlFor="stimulus-audio-waveform">
+              Audio Waveform
+            </SelectLabel>
+            <StimulusSelect
+              id="stimulus-audio-waveform"
+              aria-label="Audio Waveform"
+              value={audioWaveformMode}
+              onChange={(e) =>
+                setAudioWaveformMode(e.target.value as AudioWaveformMode)
+              }
+              disabled={isBusy}
+            >
+              <option value="traditional">Traditional Audio Waveform</option>
+              <option value="fm-waterfall">FM Sliding-Window Waterfall</option>
+            </StimulusSelect>
+          </AudioWaveformControl>
+        )}
 
         <StimulusLabel>
           <input

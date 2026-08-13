@@ -9,6 +9,7 @@ import {
   shouldPresentSpectrumFrameForRange,
   shouldAdoptLiveFrameRange,
   shouldKeepPaintingThroughRetune,
+  resolveRetunePresentationOffsetHz,
   shouldHoldLiveSpectrumPaint,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
@@ -514,9 +515,10 @@ describe("resolveLiveSpectrumPaintContract", () => {
       min: -2_186_000,
       max: 2_186_000,
     });
+    expect(contract.presentationOffsetHz).toBe(0);
   });
 
-  it("holds an uncovered negative mirror view until the replacement frame arrives", () => {
+  it("slides an uncovered negative viewport in |f| source space instead of flooring", () => {
     const contract = resolveLiveSpectrumPaintContract({
       requestedViewRange: { min: -7_416_000, max: -3_044_000 },
       sourceFrequencyRange: { min: 0, max: 4_372_000 },
@@ -528,14 +530,17 @@ describe("resolveLiveSpectrumPaintContract", () => {
     });
 
     expect(contract.displayRange.min).toBeLessThan(0);
+    expect(contract.presentationOffsetHz).toBeCloseTo(3_044_000, 0);
     expect(
       shouldHoldLiveSpectrumPaint({
         coversDisplay: false,
+        presentationOffsetHz: contract.presentationOffsetHz,
+        displayMinHz: contract.displayRange.min,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("holds an uncovered positive mirror retune until the replacement frame arrives", () => {
+  it("slides an uncovered positive mirror retune instead of waiting for the radio", () => {
     const contract = resolveLiveSpectrumPaintContract({
       requestedViewRange: { min: 4_294_000, max: 8_666_000 },
       sourceFrequencyRange: { min: 0, max: 4_372_000 },
@@ -547,14 +552,16 @@ describe("resolveLiveSpectrumPaintContract", () => {
     });
 
     expect(contract.displayRange.min).toBeGreaterThan(0);
+    expect(contract.presentationOffsetHz).toBeCloseTo(4_294_000, 0);
     expect(
       shouldHoldLiveSpectrumPaint({
         coversDisplay: false,
+        presentationOffsetHz: contract.presentationOffsetHz,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("holds an uncovered mirror-off retune until the replacement frame arrives", () => {
+  it("slides an uncovered mirror-off retune instead of waiting for the radio", () => {
     const contract = resolveLiveSpectrumPaintContract({
       requestedViewRange: { min: 4_294_000, max: 8_666_000 },
       sourceFrequencyRange: { min: 0, max: 4_372_000 },
@@ -569,6 +576,7 @@ describe("resolveLiveSpectrumPaintContract", () => {
       min: 4_294_000,
       max: 8_666_000,
     });
+    expect(contract.presentationOffsetHz).toBeCloseTo(4_294_000, 0);
   });
 });
 
@@ -577,22 +585,35 @@ describe("shouldHoldLiveSpectrumPaint", () => {
     expect(
       shouldHoldLiveSpectrumPaint({
         coversDisplay: false,
+        presentationOffsetHz: 0,
       }),
     ).toBe(true);
   });
 
-  it("holds an uncovered same-span retune until the replacement frame arrives", () => {
+  it("does not hold a negative viewport so |f| can pan with the gesture", () => {
     expect(
       shouldHoldLiveSpectrumPaint({
         coversDisplay: false,
+        presentationOffsetHz: 0,
+        displayMinHz: -7_416_000,
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("paints when a same-span retune can slide the last FFT", () => {
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: false,
+        presentationOffsetHz: 4_294_000,
+      }),
+    ).toBe(false);
   });
 
   it("does not hold a covered mirrored view", () => {
     expect(
       shouldHoldLiveSpectrumPaint({
         coversDisplay: true,
+        presentationOffsetHz: 0,
       }),
     ).toBe(false);
   });
@@ -726,5 +747,27 @@ describe("shouldKeepPaintingThroughRetune", () => {
         requestedRange: { min: 110, max: 120 },
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveRetunePresentationOffsetHz", () => {
+  it("slides a panned viewport onto a lagging acquisition", () => {
+    expect(
+      resolveRetunePresentationOffsetHz({
+        frameCenterHz: 2_186_000,
+        frameSampleRateHz: 4_372_000,
+        requestedRange: { min: 4_294_000, max: 8_666_000 },
+      }),
+    ).toBeCloseTo(4_294_000, 0);
+  });
+
+  it("slides a negative panned viewport in |f| source space", () => {
+    expect(
+      resolveRetunePresentationOffsetHz({
+        frameCenterHz: 2_186_000,
+        frameSampleRateHz: 4_372_000,
+        requestedRange: { min: -7_416_000, max: -3_044_000 },
+      }),
+    ).toBeCloseTo(3_044_000, 0);
   });
 });

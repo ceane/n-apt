@@ -74,7 +74,7 @@ const normalizeToken = (value: unknown): string =>
 
 /** A source can continue feeding the stream while the control socket catches up. */
 export const isSourceStreamAvailable = (status: unknown): boolean =>
-  ["connected", "receiving", "streaming", "transmitting", "standby", "paused"].includes(
+  ["connected", "loading", "receiving", "streaming", "transmitting", "standby", "paused"].includes(
     normalizeToken(status),
   );
 

@@ -4,7 +4,6 @@
 //! and recovery explicit: selection opens the RX gate, warm sources bypass
 //! setup latency, and swapped devices remain owned by the warm pool.
 
-use anyhow::Result;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,8 +16,7 @@ use super::super::types::SpectrumData;
 use super::{
   active_source_id, broadcast_device_status, broadcast_source_status_for_id,
   broadcast_source_switch_error, build_device_profile,
-  build_source_info_snapshot, open_device_for_source_id,
-  sync_shared_sample_rate, MOCK_TX_DISPLAY_NAME,
+  open_device_for_source_id, sync_shared_sample_rate, MOCK_TX_DISPLAY_NAME,
 };
 use crate::sdr::hotplug::HotplugState;
 use crate::sdr::processor::SdrProcessor;
@@ -92,6 +90,11 @@ pub(crate) async fn activate_source(
       "SetActiveSource requested for current source {}, skipping",
       source_id
     );
+    // Auto-detection may have selected this source before the frontend's
+    // selection command arrives. Reconcile the legacy global fast-path with
+    // the source-scoped pause state so a stale pause bit cannot leave a
+    // healthy reader blocked until the user clicks Play/Pause.
+    shared_state.sync_active_source_pause_state(&source_id);
     shared_state.clear_pending_source_switch(&source_id);
     broadcast_device_status(shared_state, broadcast_tx);
     return;
@@ -154,17 +157,15 @@ pub(crate) async fn activate_source(
             source_id,
             error
           );
-          shared_state.update_device_status(
-            !processor.is_mock(),
-            processor.get_device_info(),
-            build_device_profile(processor.device_type()),
+          // `swap_device_keep_warm_with_sample_rate` is transactional: the
+          // failed replacement has already been cleaned up and the original
+          // processor remains active. Restore that source instead of turning
+          // a failed peer selection into an error for the healthy stream.
+          restore_previous_source_after_failed_switch(
+            processor,
+            shared_state,
+            &current_source_id,
           );
-          shared_state.update_device_usb_strings(
-            processor.get_serial_number(),
-            processor.get_manufacturer(),
-            processor.get_product(),
-          );
-          shared_state.set_device_backend_error(processor.get_error());
           shared_state.clear_pending_source_switch(&source_id);
           broadcast_source_switch_error(broadcast_tx, &source_id, &error);
           broadcast_device_status(shared_state, broadcast_tx);
@@ -224,6 +225,17 @@ pub(crate) async fn activate_source(
               processor.get_manufacturer(),
               processor.get_product(),
             );
+            if processor
+              .device_type()
+              .to_ascii_lowercase()
+              .contains("rtl")
+            {
+              shared_state.cache_active_rtl_sdr(
+                processor.get_serial_number(),
+                processor.get_manufacturer(),
+                processor.get_product(),
+              );
+            }
           }
           shared_state.set_device_backend_error(processor.get_error());
           hotplug_state.last_failure_at = None;
@@ -285,20 +297,13 @@ pub(crate) async fn activate_source(
         source_id,
         error
       );
-      shared_state.update_device_status(
-        !processor.is_mock(),
-        processor.get_device_info(),
-        build_device_profile(processor.device_type()),
+      // Opening the requested peer failed before the processor was swapped;
+      // the current source must resume immediately and keep its frame stream.
+      restore_previous_source_after_failed_switch(
+        processor,
+        shared_state,
+        &current_source_id,
       );
-      shared_state.update_device_usb_strings(
-        processor.get_serial_number(),
-        processor.get_manufacturer(),
-        processor.get_product(),
-      );
-      shared_state.set_device_backend_error(Some(format!(
-        "Failed to switch to source {}: {}",
-        source_id, error
-      )));
       shared_state.clear_pending_source_switch(&source_id);
       warn!(
         "Source switch open failed: requested={}, active remains={}, device_type={}, error={}",
@@ -311,6 +316,26 @@ pub(crate) async fn activate_source(
       broadcast_device_status(shared_state, broadcast_tx);
     }
   }
+}
+
+fn restore_previous_source_after_failed_switch(
+  processor: &SdrProcessor,
+  shared_state: &SharedState,
+  previous_source_id: &str,
+) {
+  shared_state.update_device_status(
+    !processor.is_mock(),
+    processor.get_device_info(),
+    build_device_profile(processor.device_type()),
+  );
+  shared_state.update_device_usb_strings(
+    processor.get_serial_number(),
+    processor.get_manufacturer(),
+    processor.get_product(),
+  );
+  shared_state.set_device_state("connected", Some("source-switch"));
+  shared_state.set_device_backend_error(processor.get_error());
+  shared_state.sync_active_source_pause_state(previous_source_id);
 }
 
 /// Removes one retained source in stable order for fallback/recovery.
@@ -357,6 +382,7 @@ pub(crate) fn should_restore_warm_source(
 ///
 /// Mock peers are included so an APT/Tx handoff does not pay generator setup
 /// and reader startup costs after the UI has already entered handoff state.
+#[cfg(test)]
 pub(super) fn warmable_source_ids(
   snapshot: &serde_json::Value,
   active_source_id: &str,
@@ -384,55 +410,4 @@ pub(super) fn warmable_source_ids(
   source_ids.sort();
   source_ids.dedup();
   source_ids
-}
-
-/// Initializes all inactive sources once and transfers ownership to the pool.
-pub(crate) fn prewarm_inactive_sources(
-  processor: &SdrProcessor,
-  shared_state: &SharedState,
-  warm_devices: &mut HashMap<String, Box<dyn SdrDevice>>,
-) {
-  let active_id = active_source_id(shared_state);
-  let snapshot = build_source_info_snapshot(shared_state);
-  for source_id in warmable_source_ids(&snapshot, &active_id) {
-    if warm_devices.contains_key(&source_id) {
-      continue;
-    }
-
-    match open_device_for_source_id(shared_state, &source_id) {
-      Ok(mut device) => match initialize_warm_source(device.as_mut()) {
-        Ok(()) => {
-          info!("Pre-warmed inactive SDR source {}", source_id);
-          warm_devices.insert(source_id, device);
-        }
-        Err(error) => {
-          warn!("Failed to pre-warm SDR source {}: {}", source_id, error);
-        }
-      },
-      Err(error) => {
-        warn!(
-          "Failed to open inactive SDR source {} for warm pool: {}",
-          source_id, error
-        );
-      }
-    }
-  }
-
-  debug!(
-    "Warm pool contains {} inactive source(s) while {} is active",
-    warm_devices.len(),
-    processor.device_type()
-  );
-}
-
-fn initialize_warm_source(device: &mut dyn SdrDevice) -> Result<()> {
-  device.initialize()?;
-  if !device.is_rx_active() {
-    return Err(anyhow::anyhow!(
-      "{} initialized without an active RX reader",
-      device.device_type()
-    ));
-  }
-  device.flush_read_queue();
-  Ok(())
 }

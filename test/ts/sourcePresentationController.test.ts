@@ -9,7 +9,12 @@ import type { IqRawFrame, IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 
 const makeRxFrame = (
   sourceId: string,
-  opts: { epoch?: number; sequence?: number; iqData?: Uint8Array } = {},
+  opts: {
+    epoch?: number;
+    sequence?: number;
+    iqData?: Uint8Array;
+    status?: "receiving" | "paused" | "standby";
+  } = {},
 ): IqRawFrameV2 => ({
   type: "spectrum",
   data_type: "iq_raw",
@@ -20,7 +25,7 @@ const makeRxFrame = (
   iq_data: opts.iqData ?? new Uint8Array([1, 2, 3, 4]),
   center_frequency_hz: 100_000_000,
   sample_rate: 2_400_000,
-  frame_status: "receiving",
+  frame_status: opts.status ?? "receiving",
 });
 
 const makeTxFrame = (
@@ -238,20 +243,44 @@ describe("SourcePresentationController", () => {
       expect(slot?.frozenFrame).toBeNull();
     });
 
-    it("accepts a paused/standby preview frame and updates frozen frame", () => {
+    it("rejects live frames while paused so the frozen frame stays frozen", () => {
       const ctrl = createController();
       ctrl.selectSource("hackrf-1");
       ctrl.commitActiveSource("hackrf-1");
 
-      ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 1 }));
+      const pausedFrame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(pausedFrame);
       ctrl.setPaused("hackrf-1", "rx", true);
 
-      const previewFrame = makeRxFrame("hackrf-1", { sequence: 2 });
-      expect(ctrl.acceptFrame(previewFrame)).toBe(true);
+      const liveFrame = makeRxFrame("hackrf-1", { sequence: 2 });
+      expect(ctrl.acceptFrame(liveFrame)).toBe(false);
 
       const slot = ctrl.getSlot("hackrf-1", "rx");
-      expect(slot?.frozenFrame?.frame).toBe(previewFrame);
-      expect(slot?.metrics.frozen).toBeGreaterThan(0);
+      expect(slot?.frozenFrame?.frame).toBe(pausedFrame);
+      expect(ctrl.getPresentationRef("rx").current).toBe(pausedFrame);
+    });
+
+    it("keeps the last Rx frame while paused instead of applying a preview", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      const lastRxFrame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(lastRxFrame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      expect(
+        ctrl.acceptFrame(
+          makeRxFrame("hackrf-1", { sequence: 2, status: "paused" }),
+        ),
+      ).toBe(false);
+      expect(
+        ctrl.acceptFrame(makeTxFrame("hackrf-1", { sequence: 1, status: "standby" })),
+      ).toBe(true);
+
+      const rxSlot = ctrl.getSlot("hackrf-1", "rx");
+      expect(rxSlot?.frozenFrame?.frame).toBe(lastRxFrame);
+      expect(ctrl.getPresentationRef("rx").current).toBe(lastRxFrame);
     });
 
     it("presentation ref returns frozen frame when paused", () => {
@@ -363,6 +392,60 @@ describe("SourcePresentationController", () => {
       expect(txSlot?.phase).toBe("standby");
       expect(txSlot?.frozenFrame?.frame).toBe(frame);
       expect(ctrl.getPresentationRef("tx").current).toBe(frame);
+    });
+
+    it("replaces the frozen Tx frame with a request_next_frame standby preview", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-tx", "tx");
+      ctrl.commitActiveSource("mock-tx");
+
+      ctrl.acceptFrame(makeTxFrame("mock-tx", { sequence: 1, status: "standby" }));
+      const nextPreview = makeTxFrame("mock-tx", {
+        sequence: 2,
+        status: "standby",
+      });
+      expect(ctrl.acceptFrame(nextPreview)).toBe(true);
+
+      const txSlot = ctrl.getSlot("mock-tx", "tx");
+      expect(txSlot?.phase).toBe("standby");
+      expect(txSlot?.frozenFrame?.frame).toBe(nextPreview);
+      expect(ctrl.getPresentationRef("tx").current).toBe(nextPreview);
+    });
+
+    it("unfreezes standby when source status becomes transmitting", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-tx", "tx");
+      ctrl.commitActiveSource("mock-tx");
+      ctrl.acceptFrame(makeTxFrame("mock-tx", { sequence: 1, status: "standby" }));
+
+      ctrl.setSourceStatus("mock-tx", "transmitting");
+
+      const txSlot = ctrl.getSlot("mock-tx", "tx");
+      expect(txSlot?.phase).toBe("transmitting");
+      expect(txSlot?.frozenFrame).toBeNull();
+    });
+
+    it("unfreezes standby and follows live frames once transmitting starts", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-tx", "tx");
+      ctrl.commitActiveSource("mock-tx");
+
+      const standbyFrame = makeTxFrame("mock-tx", {
+        sequence: 1,
+        status: "standby",
+      });
+      ctrl.acceptFrame(standbyFrame);
+
+      const liveTxFrame = makeTxFrame("mock-tx", {
+        sequence: 2,
+        status: "transmitting",
+      });
+      expect(ctrl.acceptFrame(liveTxFrame)).toBe(true);
+
+      const txSlot = ctrl.getSlot("mock-tx", "tx");
+      expect(txSlot?.phase).toBe("transmitting");
+      expect(txSlot?.frozenFrame).toBeNull();
+      expect(ctrl.getPresentationRef("tx").current).toBe(liveTxFrame);
     });
 
     it("serves the frozen Mock Tx frame when switching back before a new preview arrives", () => {

@@ -295,6 +295,29 @@ pub(crate) fn read_failure_state(current_state: &str) -> Option<&'static str> {
   }
 }
 
+/// Decide whether a read error is already covered by a terminal transition.
+///
+/// A stale source has already crossed the liveness boundary. Further reader
+/// errors belong to the stale/reconnect path and must not keep incrementing
+/// the read-error streak while the USB supervisor waits for a fresh handle.
+/// This prevents a plug-out/plug-in cycle from inheriting an exhausted streak.
+pub(crate) fn should_ignore_read_error(
+  current_state: &str,
+  _error: &anyhow::Error,
+) -> bool {
+  current_state == "loading"
+    || current_state == "disconnected"
+    || current_state == "stale"
+}
+
+pub(crate) fn should_mark_read_error_stale(
+  error: &anyhow::Error,
+  streak: u32,
+) -> bool {
+  !is_async_sample_timeout_error(error)
+    || streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
+}
+
 #[cfg(test)]
 fn should_restart_real_device_reader_on_read_error(
   error: &anyhow::Error,
@@ -308,7 +331,6 @@ fn should_restart_real_device_reader_on_read_error(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReaderRecoveryAction {
   RestartReader,
-  WaitForReaderShutdown,
   ReopenDevice,
   FallbackToMock,
 }
@@ -320,7 +342,10 @@ pub(crate) fn resolve_reader_recovery_action(
   supported_device_present: bool,
 ) -> ReaderRecoveryAction {
   if is_async_timeout && !reader_is_active {
-    ReaderRecoveryAction::WaitForReaderShutdown
+    // `initialize()` is safe to retry here: the RTL device refuses to start
+    // another reader while cancellation is still unwinding, and succeeds on
+    // the first recovery tick after the old reader has actually stopped.
+    ReaderRecoveryAction::RestartReader
   } else if is_async_timeout
     && streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
   {
@@ -755,6 +780,29 @@ mod tests {
   }
 
   #[test]
+  fn transient_async_timeout_does_not_mark_device_stale_or_stop_recovery() {
+    let error = anyhow::anyhow!("Timeout waiting for async SDR samples");
+
+    assert!(should_ignore_read_error("stale", &error));
+    assert!(!should_mark_read_error_stale(
+      &error,
+      super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD - 1,
+    ));
+    assert!(should_mark_read_error_stale(
+      &error,
+      super::super::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+    ));
+  }
+
+  #[test]
+  fn non_timeout_errors_keep_the_existing_stale_guard() {
+    let error = anyhow::anyhow!("Async reader thread disconnected");
+
+    assert!(should_ignore_read_error("stale", &error));
+    assert!(should_mark_read_error_stale(&error, 1));
+  }
+
+  #[test]
   fn async_sample_timeout_with_confirmed_usb_absence_falls_back_early() {
     assert!(should_fallback_to_mock_on_early_read_error(1, false));
   }
@@ -806,7 +854,7 @@ mod tests {
     );
     assert_eq!(
       resolve_reader_recovery_action(true, false, threshold, true),
-      ReaderRecoveryAction::WaitForReaderShutdown
+      ReaderRecoveryAction::RestartReader
     );
   }
 
@@ -898,11 +946,28 @@ impl WebSocketServer {
       processor.get_device_info(),
       build_device_profile(processor.device_type()),
     );
+    // Publish the rate the device actually accepted before clients build
+    // their first managed-stream subscription. RTL-SDR, for example, clamps
+    // a persisted 4.372 MHz request to its 3.2 MHz hardware limit; leaving
+    // the requested value in shared state makes the browser immediately send
+    // the invalid rate back through the acquisition worker.
+    sync_shared_sample_rate(&shared, &processor);
     shared.update_device_usb_strings(
       processor.get_serial_number(),
       processor.get_manufacturer(),
       processor.get_product(),
     );
+    if processor
+      .device_type()
+      .to_ascii_lowercase()
+      .contains("rtl")
+    {
+      shared.cache_active_rtl_sdr(
+        processor.get_serial_number(),
+        processor.get_manufacturer(),
+        processor.get_product(),
+      );
+    }
     shared.set_device_backend_error(processor.get_error());
     *shared.device_loading.lock().unwrap() = false;
     *shared.device_loading_reason.lock().unwrap() = None;
@@ -974,13 +1039,13 @@ impl WebSocketServer {
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
       HashMap::new();
 
-    // Hardware attach and inactive-source prewarming are owned by the device
-    // health worker, before the streaming loop begins.
+    // Hardware attach is owned by the device health worker before the
+    // streaming loop begins. Inactive peers are opened lazily on selection so
+    // one failed USB device cannot block the active source's first frame.
     device_health_worker
       .attach_startup(
         &hotplug_monitor,
         &mut hotplug_state,
-        &mut warm_devices,
         &shared_state,
         &_broadcast_tx,
       )
@@ -1242,6 +1307,11 @@ impl WebSocketServer {
           // health bookkeeping must instead follow source identity so Mock
           // Tx does not get treated as a hardware reader (or vice versa).
           if !frame_source_id.starts_with("mock-") {
+            let had_successful_read = shared_state
+              .last_successful_read
+              .lock()
+              .unwrap()
+              .is_some();
             shared_state.record_successful_read();
             let current_state =
               shared_state.device_state.lock().unwrap().clone();
@@ -1260,6 +1330,13 @@ impl WebSocketServer {
                 processor.get_error()
               };
               shared_state.set_device_backend_error(device_backend_error);
+              broadcast_device_status(&shared_state, &_broadcast_tx);
+            } else if !had_successful_read {
+              // `update_device_status` marks hardware as connected before
+              // acquisition proves that samples are flowing. Publish the
+              // first successful frame transition so clients can leave their
+              // explicit Loading state without waiting for another status
+              // event or a play/pause round trip.
               broadcast_device_status(&shared_state, &_broadcast_tx);
             }
           }

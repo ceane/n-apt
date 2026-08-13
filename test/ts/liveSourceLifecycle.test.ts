@@ -12,7 +12,10 @@ import {
   isCommittedStandbyPresentation,
   shouldPresentMockTxStandby,
 } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
-import { resolveFrameReadiness } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import {
+  resolveFrameReadiness,
+  resolveLiveDevicePlaceholderState,
+} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 
 const handoffPlaceholder = {
   kind: "loading" as const,
@@ -22,6 +25,41 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("does not synthesize an I/O error over authoritative receiving", () => {
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "receiving",
+        sourceLabel: "RTL-SDR",
+      }),
+    ).toBeNull();
+  });
+
+  test("preserves an explicit backend error over the awaiting-frame loader", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "rtl-sdr",
+      activeSourceId: "rtl-sdr",
+      transportSourceId: "rtl-sdr",
+      transportPhase: "ready",
+      hasValidFrame: false,
+      deviceStatus: "receiving",
+    });
+
+    expect(
+      attachLiveSourceLifecyclePlaceholder(lifecycle, {
+        devicePlaceholder: {
+          kind: "error",
+          title: "I/O Device Error",
+          sourceLabel: "RTL-SDR",
+          reason: "No frames received",
+          message: "No I/Q frames are arriving.",
+        },
+      }).placeholder,
+    ).toMatchObject({
+      kind: "error",
+      title: "I/O Device Error",
+    });
+  });
+
   test("clears paused standby when the painted frame belongs to the old source", () => {
     expect(
       shouldClearPausedStandbyPresentation({

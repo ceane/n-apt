@@ -94,15 +94,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let t0 = f32(x) / f32(params.out_len);
   let t1 = f32(x + 1u) / f32(params.out_len);
-  let d0 = params.display_min + t0 * display_span - params.presentation_offset_hz;
-  let d1 = params.display_min + t1 * display_span - params.presentation_offset_hz;
+  let display0 = params.display_min + t0 * display_span;
+  let display1 = params.display_min + t1 * display_span;
 
-  var src_lo: f32;
-  var src_hi: f32;
-  let s0 = source_frequency(d0, source_span);
-  let s1 = source_frequency(d1, source_span);
-  src_lo = min(s0, s1);
-  src_hi = max(s0, s1);
+  var s0: f32;
+  var s1: f32;
+  if (params.mirror_enabled == 1u) {
+    // Reflect first, then slide in source space. Offsetting display Hz
+    // before |f| left a leading-edge hole on negative pans.
+    s0 = source_frequency(display0, source_span) - params.presentation_offset_hz;
+    s1 = source_frequency(display1, source_span) - params.presentation_offset_hz;
+  } else {
+    s0 = source_frequency(display0 - params.presentation_offset_hz, source_span);
+    s1 = source_frequency(display1 - params.presentation_offset_hz, source_span);
+  }
+  let src_lo = min(s0, s1);
+  let src_hi = max(s0, s1);
 
   // Frequencies beyond the acquired positive half are uncovered — paint the
   // floor rather than clamping to the edge bin, which smears the +fs/2 peak

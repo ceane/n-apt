@@ -58,6 +58,21 @@ describe("SourceVisualizationRuntime", () => {
     expect(runtime.publish(frame("tx", 1, 1))).toBe(true);
   });
 
+  it("clears held source refs in place during a presentation boundary", () => {
+    const runtime = new SourceVisualizationRuntime<Frame>();
+    runtime.publish(frame("rx", 4, 9));
+    runtime.publish(frame("tx", 7, 3));
+    const rxRef = runtime.getSourceRef("rx");
+    const txRef = runtime.getSourceRef("tx");
+
+    runtime.clear();
+
+    expect(rxRef.current).toBeNull();
+    expect(txRef.current).toBeNull();
+    expect(runtime.getSourceRef("rx")).not.toBe(rxRef);
+    expect(runtime.getSourceRef("tx")).not.toBe(txRef);
+  });
+
   it("reports the mandatory worker WebGPU capability boundary", () => {
     expect(
       getLiveVisualizationCapability({

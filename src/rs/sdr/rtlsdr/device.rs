@@ -23,7 +23,7 @@ pub struct RtlSdrDevice {
   dev: *mut ffi::RtlSdrDev,
   device_index: u32,
   rx_queue: Option<Receiver<Vec<u8>>>,
-  async_thread: Option<JoinHandle<()>>,
+  async_thread: Option<JoinHandle<c_int>>,
   /// Set while a cancelled async reader is still unwinding in librtlsdr.
   ///
   /// We must not close or reuse the device handle until that reader has
@@ -45,6 +45,39 @@ pub struct RtlSdrDevice {
 struct AsyncContext {
   tx: Sender<Vec<u8>>,
   rx: Receiver<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CenterFrequencyRetunePlan {
+  Noop,
+  ApplyWhileIdle,
+  ApplyWhileStreaming,
+}
+
+fn center_frequency_retune_plan(
+  current_frequency: u32,
+  requested_frequency: u32,
+  reader_is_active: bool,
+) -> CenterFrequencyRetunePlan {
+  hardware_control_plan(
+    current_frequency,
+    requested_frequency,
+    reader_is_active,
+  )
+}
+
+fn hardware_control_plan(
+  current_value: u32,
+  requested_value: u32,
+  reader_is_active: bool,
+) -> CenterFrequencyRetunePlan {
+  if current_value == requested_value {
+    CenterFrequencyRetunePlan::Noop
+  } else if reader_is_active {
+    CenterFrequencyRetunePlan::ApplyWhileStreaming
+  } else {
+    CenterFrequencyRetunePlan::ApplyWhileIdle
+  }
 }
 
 /// Asynchronous callback for RTL-SDR block events
@@ -115,6 +148,10 @@ impl RtlSdrDevice {
   }
 
   fn start_async_reader(&mut self) -> Result<()> {
+    self.start_async_reader_with_probe(true)
+  }
+
+  fn start_async_reader_with_probe(&mut self, probe_startup: bool) -> Result<()> {
     if let Some(done) = &self.reader_stop_pending {
       if !done.load(Ordering::Acquire) {
         return Err(anyhow!("RTL-SDR async reader is still stopping"));
@@ -136,7 +173,7 @@ impl RtlSdrDevice {
     let context = Box::new(AsyncContext { tx, rx });
     let ctx_ptr_val = Box::into_raw(context) as usize;
 
-    let handle = thread::spawn(move || {
+    let handle = thread::spawn(move || -> c_int {
       let dev_ptr = dev_ptr_val as *mut ffi::RtlSdrDev;
       let ctx_ptr = ctx_ptr_val as *mut std::os::raw::c_void;
 
@@ -166,10 +203,47 @@ impl RtlSdrDevice {
         device_index, ret
       );
       let _ = unsafe { Box::from_raw(ctx_ptr as *mut AsyncContext) };
+      ret
     });
 
     self.async_thread = Some(handle);
     self.last_error = None;
+
+    if !probe_startup {
+      return Ok(());
+    }
+
+    // librtlsdr reports a claimed interface from inside rtlsdr_read_async,
+    // after the thread has been spawned. Surface that failure during
+    // initialization when it is immediate, so the caller can release the
+    // handle and reconnect instead of advertising a permanently Loading
+    // source. A normal reader remains alive and pays only this short startup
+    // probe once per initialization.
+    for _ in 0..5 {
+      thread::sleep(std::time::Duration::from_millis(10));
+      let finished = self
+        .async_thread
+        .as_ref()
+        .map(|handle| handle.is_finished())
+        .unwrap_or(false);
+      if !finished {
+        continue;
+      }
+
+      let ret = self
+        .async_thread
+        .take()
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or(-1);
+      self.rx_queue = None;
+      let error = format!(
+        "RTL-SDR async reader failed during startup (librtlsdr code {})",
+        ret
+      );
+      self.last_error = Some(error.clone());
+      return Err(anyhow!(error));
+    }
+
     Ok(())
   }
 
@@ -189,6 +263,36 @@ impl RtlSdrDevice {
     }
   }
 
+  /// Read descriptor strings without opening the device handle. This is used
+  /// by the background inventory refresh; WebSocket snapshots must use the
+  /// cached result instead of calling native enumeration themselves.
+  pub fn get_device_usb_strings(index: u32) -> (String, String, String) {
+    unsafe {
+      let mut manufact_buf = [0i8; 256];
+      let mut product_buf = [0i8; 256];
+      let mut serial_buf = [0i8; 256];
+      let ret = ffi::rtlsdr_get_device_usb_strings(
+        index,
+        manufact_buf.as_mut_ptr(),
+        product_buf.as_mut_ptr(),
+        serial_buf.as_mut_ptr(),
+      );
+      if ret != 0 {
+        return (String::new(), String::new(), String::new());
+      }
+      let manufacturer = CStr::from_ptr(manufact_buf.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+      let product = CStr::from_ptr(product_buf.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+      let serial = CStr::from_ptr(serial_buf.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+      (serial, manufacturer, product)
+    }
+  }
+
   /// Open an RTL-SDR device by index
   ///
   /// Returns None if the device cannot be opened (not plugged in, busy, etc.)
@@ -196,6 +300,9 @@ impl RtlSdrDevice {
     let mut dev: *mut ffi::RtlSdrDev = ptr::null_mut();
     let ret = unsafe { ffi::rtlsdr_open(&mut dev, index) };
     if ret != 0 || dev.is_null() {
+      if !dev.is_null() {
+        let _ = unsafe { ffi::rtlsdr_close(dev) };
+      }
       return Err(anyhow!(
         "Failed to open RTL-SDR device #{} (error code: {})",
         index,
@@ -210,33 +317,8 @@ impl RtlSdrDevice {
     );
 
     // Retrieve USB descriptor strings (serial, manufacturer, product)
-    let (usb_serial, usb_manufacturer, usb_product) = {
-      let mut manufact_buf = [0i8; 256];
-      let mut product_buf = [0i8; 256];
-      let mut serial_buf = [0i8; 256];
-      let ret = unsafe {
-        ffi::rtlsdr_get_device_usb_strings(
-          index,
-          manufact_buf.as_mut_ptr(),
-          product_buf.as_mut_ptr(),
-          serial_buf.as_mut_ptr(),
-        )
-      };
-      if ret == 0 {
-        let m = unsafe { CStr::from_ptr(manufact_buf.as_ptr()) }
-          .to_string_lossy()
-          .into_owned();
-        let p = unsafe { CStr::from_ptr(product_buf.as_ptr()) }
-          .to_string_lossy()
-          .into_owned();
-        let s = unsafe { CStr::from_ptr(serial_buf.as_ptr()) }
-          .to_string_lossy()
-          .into_owned();
-        (s, m, p)
-      } else {
-        (String::new(), String::new(), String::new())
-      }
-    };
+    let (usb_serial, usb_manufacturer, usb_product) =
+      Self::get_device_usb_strings(index);
 
     info!(
       "RTL-SDR USB strings — serial: {:?}, manufacturer: {:?}, product: {:?}",
@@ -869,7 +951,18 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    self.set_center_freq(freq)
+    match center_frequency_retune_plan(
+      self.get_center_freq(),
+      freq,
+      self.is_rx_active(),
+    ) {
+      CenterFrequencyRetunePlan::Noop => Ok(()),
+      CenterFrequencyRetunePlan::ApplyWhileIdle => self.set_center_freq(freq),
+      // librtlsdr's control thread is designed to retune while the async
+      // reader is active. Stopping/restarting the reader here inserted a
+      // visible gap for every VFO gesture and made hardware appear to freeze.
+      CenterFrequencyRetunePlan::ApplyWhileStreaming => self.set_center_freq(freq),
+    }
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {
@@ -1021,8 +1114,40 @@ mod tests {
   use std::time::Duration;
 
   #[test]
+  fn center_frequency_retune_plan_skips_duplicate_requests() {
+    assert_eq!(
+      center_frequency_retune_plan(1_000_000, 1_000_000, true),
+      CenterFrequencyRetunePlan::Noop
+    );
+  }
+
+  #[test]
+  fn center_frequency_retune_plan_applies_live_without_reader_restart() {
+    assert_eq!(
+      center_frequency_retune_plan(1_000_000, 1_001_000, true),
+      CenterFrequencyRetunePlan::ApplyWhileStreaming
+    );
+    assert_eq!(
+      center_frequency_retune_plan(1_000_000, 1_001_000, false),
+      CenterFrequencyRetunePlan::ApplyWhileIdle
+    );
+  }
+
+  #[test]
+  fn live_center_frequency_control_stays_on_the_active_reader() {
+    assert_eq!(
+      hardware_control_plan(2_400_000, 3_200_000, true),
+      CenterFrequencyRetunePlan::ApplyWhileStreaming
+    );
+    assert_eq!(
+      hardware_control_plan(2_400_000, 3_200_000, false),
+      CenterFrequencyRetunePlan::ApplyWhileIdle
+    );
+  }
+
+  #[test]
   fn ready_requires_a_running_async_thread() {
-    let handle = thread::spawn(|| {});
+    let handle = thread::spawn(|| 0);
     while !handle.is_finished() {
       thread::sleep(Duration::from_millis(1));
     }
@@ -1049,6 +1174,7 @@ mod tests {
   fn test_stop_async_reader_does_not_block_on_unfinished_thread() {
     let handle = thread::spawn(|| {
       thread::sleep(Duration::from_millis(20));
+      0
     });
 
     let mut device = ManuallyDrop::new(RtlSdrDevice {

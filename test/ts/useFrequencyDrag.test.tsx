@@ -285,6 +285,22 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnVizPanChange).toHaveBeenCalled();
   });
 
+  it("keeps unzoomed positive mirror pan on the hardware retune path", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+      }),
+    );
+
+    triggerPointerDown(500, 550);
+    triggerPointerMove(600, 550);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+  });
+
   it("retunes again when continued negative drag leaves the resident window", () => {
     frequencyRangeRef.current = { min: 0, max: 10 };
     defaultOptions.vizPanOffsetRef.current = 0;
@@ -402,7 +418,7 @@ describe("useFrequencyDrag Hook", () => {
     flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
-    expect(mockOnVizPanChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
   });
 
   it("keeps a negative display frequency anchored during pinch zoom", () => {

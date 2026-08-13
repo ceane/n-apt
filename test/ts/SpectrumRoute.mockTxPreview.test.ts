@@ -4,6 +4,7 @@ import {
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 import {
   resolveMockTxMonitorSampleRateForView,
+  resolveTxStandbyPreviewTransport,
   shouldClearMockTxPreviewRequestDedupe,
 } from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
 
@@ -70,6 +71,17 @@ describe("shouldClearMockTxPreviewRequestDedupe", () => {
         previousFence: "mock-tx|mock-tx|awaiting-frame|ready",
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveTxStandbyPreviewTransport", () => {
+  it("uses a one-shot request for a half-duplex hardware standby", () => {
+    expect(
+      resolveTxStandbyPreviewTransport({
+        isSelectedTxPreviewStandby: true,
+        isMockTxMonitorActive: false,
+      }),
+    ).toBe("one_shot");
   });
 });
 

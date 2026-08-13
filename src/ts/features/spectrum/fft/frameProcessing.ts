@@ -4,7 +4,9 @@ import {
   ensureTemporalFrameSlot,
 } from "@n-apt/math/temporalResolution";
 import {
+  displayRangeNeedsBasebandMirror,
   extendSpectrumBelowZero,
+  getPositiveSourceRangeForDisplayRange,
   resolvePanZoomForDisplayRange,
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
@@ -140,6 +142,53 @@ export const shouldKeepPaintingThroughRetune = ({
   return Math.abs(requestedSpanHz - frameSampleRateHz) <= 1;
 };
 
+/**
+ * While a same-span retune is in flight, shift display coordinates back onto
+ * the resident acquisition so the cached FFT slides with the gesture instead
+ * of flooring the leading edge to the noise floor.
+ */
+export const resolveRetunePresentationOffsetHz = ({
+  frameCenterHz,
+  frameSampleRateHz,
+  requestedRange,
+  isTxPreviewFrame = false,
+}: {
+  frameCenterHz?: number | null;
+  frameSampleRateHz?: number | null;
+  requestedRange: { min: number; max: number };
+  isTxPreviewFrame?: boolean;
+}): number => {
+  if (
+    shouldAdoptLiveFrameRange({
+      frameCenterHz,
+      frameSampleRateHz,
+      requestedRange,
+      isTxPreviewFrame,
+    })
+  ) {
+    return 0;
+  }
+  if (
+    !shouldKeepPaintingThroughRetune({
+      frameCenterHz,
+      frameSampleRateHz,
+      requestedRange,
+      isTxPreviewFrame,
+    }) ||
+    typeof frameCenterHz !== "number" ||
+    !Number.isFinite(frameCenterHz)
+  ) {
+    return 0;
+  }
+  const requestedCenter = (requestedRange.min + requestedRange.max) / 2;
+  if (requestedRange.min < 0) {
+    const required = getPositiveSourceRangeForDisplayRange(requestedRange);
+    const frameMinHz = frameCenterHz - frameSampleRateHz / 2;
+    return required.min - frameMinHz;
+  }
+  return requestedCenter - frameCenterHz;
+};
+
 export function invertSpectrumVertically(
   waveform: Float32Array,
   dbMin: number,
@@ -205,6 +254,7 @@ export interface LiveSpectrumPaintContract {
   displayRange: { min: number; max: number };
   zoom: number;
   panOffsetHz: number;
+  presentationOffsetHz: number;
 }
 
 /**
@@ -244,21 +294,46 @@ export const resolveLiveSpectrumPaintContract = ({
     hardwareRange: sourceFrequencyRange,
     displayRange,
   });
+  // Covered |f| must not slide — that locked Channel A. Uncovered negative
+  // pans shift in source space after the mirror so the leading edge stays
+  // filled instead of flooring to -120 dB.
+  const presentationOffsetHz =
+    mirrorEnabled &&
+    displayRangeNeedsBasebandMirror(displayRange) &&
+    sourceCoversMirroredDisplay(sourceFrequencyRange, displayRange)
+      ? 0
+      : resolveRetunePresentationOffsetHz({
+          frameCenterHz,
+          frameSampleRateHz,
+          requestedRange: displayRange,
+          isTxPreviewFrame,
+        });
   return {
     paintViewportRange: sourceFrequencyRange,
     sourceFrequencyRange,
     displayRange,
     zoom: rebased.zoom,
     panOffsetHz: rebased.panOffsetHz,
+    presentationOffsetHz,
   };
 };
 
 export const shouldHoldLiveSpectrumPaint = ({
   coversDisplay,
+  presentationOffsetHz = 0,
+  displayMinHz,
 }: {
   coversDisplay: boolean;
-}): boolean =>
-  !coversDisplay;
+  presentationOffsetHz?: number;
+  displayMinHz?: number;
+}): boolean => {
+  // Negative viewports must keep painting: holding here is what made the
+  // FFT freeze until the pointer stopped, then jump when the retune landed.
+  if (typeof displayMinHz === "number" && displayMinHz < 0) {
+    return false;
+  }
+  return !coversDisplay && !(Math.abs(presentationOffsetHz) > 0.5);
+};
 
 export const shouldClearSpectrumWaveformForRangeChange = ({
   isPaused: _isPaused,

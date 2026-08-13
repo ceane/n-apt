@@ -49,7 +49,13 @@ describe("resample.wgsl", () => {
   it("slides stale acquisitions during an in-flight same-span retune", () => {
     expect(RESAMPLE_WGSL).toContain("presentation_offset_hz");
     expect(RESAMPLE_WGSL).toContain(
-      "display_span - params.presentation_offset_hz",
+      "display0 - params.presentation_offset_hz",
+    );
+  });
+
+  it("shifts mirrored lookups in source space so negative pans do not floor", () => {
+    expect(RESAMPLE_WGSL).toContain(
+      "source_frequency(display0, source_span) - params.presentation_offset_hz",
     );
   });
 });

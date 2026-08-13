@@ -1411,9 +1411,14 @@ The NSA hacked my brain and the experience went from manufactured states of mind
 
 ---
 
-*No classified information was used for this article, only exposure to misclassified system(s).* 
+*No classified information was used for this article, only the author's lived experience and prolonged exposure with a potentially misclassified system(s).*
 
-*This is not meant to be a guide to build a cyber weapon or surveillance system. This guide is for educational and public awareness purposes only. The author bears no responsibility for the information discolsed within this article. Any mathematical modeling, pseudo-code, or reconstructed mechanisms are inferred and intended for illustrative purposes only.*
+*This is not meant to be a guide to build a cyber weapon or surveillance system. This guide is published solely for educational purposes, public awareness, and discussion of matters the author believes are of legitimate public concern.*
+
+*It is not the author's intent to disclose information for the purpose of compromising national security, defeating lawful security measures, enabling surveillance or cyber operations, or facilitating harm to the United States or any person. Nothing herein is intended to jeopardize national security or provide operational assistance to a foreign government, hostile actor, or other third party.*
+
+*The signal captures, images, observed features, and experiences documented in this article are real and truthfully presented. They are not simulations, fabrications, or hypothetical examples unless expressly identified as such. The author cannot presently reconstruct the underlying method or technical mechanisms in full. Any mathematical modeling, pseudocode, reconstructed mechanisms, or technical explanations are therefore inferred from the documented observations and are provided for illustrative and analytical purposes only.*
+
 
 ---
 

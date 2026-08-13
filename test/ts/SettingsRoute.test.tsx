@@ -26,15 +26,11 @@ describe("SettingsRoute", () => {
     expect(
       screen.getByRole("heading", { name: "Settings" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Theme" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Theme" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "SDR Settings" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Login" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "I/Q Capture Settings" }),
     ).toBeInTheDocument();
@@ -52,15 +48,11 @@ describe("SettingsRoute", () => {
       name: "Settings sections",
     });
     expect(navGroup).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Theme" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "SDR Settings" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Login" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "I/Q Capture Settings" }),
     ).toBeInTheDocument();
@@ -181,9 +173,203 @@ describe("SettingsRoute", () => {
       },
     });
 
-    expect(screen.getByRole("combobox", { name: /Sample Rate/i })).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: /FFT Size/i })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /FFT Window/i })).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: /Gain/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /Sample Rate/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: /FFT Size/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /FFT Window/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: /Gain/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("uses the active device's sample rate options with the frequency formatter", () => {
+    renderRoute({
+      spectrum: {
+        sampleRateHz: 2_400_000,
+        fftSize: 2048,
+        fftWindow: "Rectangular",
+        fftFrameRate: 10,
+        gain: 30,
+        ppm: 0,
+        tunerAGC: false,
+        rtlAGC: false,
+      },
+      websocket: {
+        activeSourceId: "hackrf-0",
+        sources: [
+          {
+            id: "hackrf-0",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "rx",
+            status: "receiving",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: false,
+            sdr: {
+              max_sample_rate: 20_000_000,
+              sample_rate_options: [8_000_000, 10_000_000, 20_000_000],
+              fft_display: { markers: [] },
+              settings: { sample_rate: 2_400_000 },
+            },
+          },
+        ],
+      },
+    });
+
+    const select = screen.getByRole("combobox", {
+      name: /Sample Rate/i,
+    }) as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toEqual(["8000000", "10000000", "20000000"]);
+
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toEqual(["8MHz", "10MHz", "20MHz"]);
+
+    // Current rate is not in the device list; the select snaps to the first.
+    expect(select.value).toBe("8000000");
+  });
+
+  it("falls back to the signals.yaml default rate when no device options are reported", () => {
+    renderRoute({
+      spectrum: { sampleRateHz: 3_200_000 },
+      websocket: {
+        activeSourceId: null,
+        sources: [],
+        signalsDefaults: {
+          sample_rate: 3_200_000,
+          center_frequency: 1_600_000,
+          gain: { tuner_gain: 46.9, rtl_agc: false, tuner_agc: false },
+          ppm: 1,
+          fft: {
+            default_size: 2048,
+            default_frame_rate: 10,
+            max_size: 262144,
+            max_frame_rate: 60,
+            size_to_frame_rate: {},
+          },
+          display: { min_db: -120, max_db: 0, padding: 20 },
+          devices: {},
+        },
+      },
+    });
+
+    const select = screen.getByRole("combobox", {
+      name: /Sample Rate/i,
+    }) as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toEqual(["3200000"]);
+
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toEqual(["3.2MHz"]);
+  });
+
+  it("resolves the device sample rate spec from signals.yaml as a fallback", () => {
+    renderRoute({
+      spectrum: { sampleRateHz: 3_200_000 },
+      websocket: {
+        activeSourceId: "hackrf-0",
+        sources: [
+          {
+            id: "hackrf-0",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "rx",
+            status: "receiving",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: false,
+            sdr: {
+              max_sample_rate: 20_000_000,
+              sample_rate_options: [],
+              fft_display: { markers: [] },
+              settings: { sample_rate: 3_200_000 },
+            },
+          },
+        ],
+        signalsDefaults: {
+          sample_rate: 3_200_000,
+          center_frequency: 1_600_000,
+          gain: { tuner_gain: 46.9, rtl_agc: false, tuner_agc: false },
+          ppm: 1,
+          fft: {
+            default_size: 2048,
+            default_frame_rate: 10,
+            max_size: 262144,
+            max_frame_rate: 60,
+            size_to_frame_rate: {},
+          },
+          display: { min_db: -120, max_db: 0, padding: 20 },
+          devices: {
+            hackrf_one: {
+              duplex_mode: "Half-duplex",
+              max_sample_rate: 20_000_000,
+              sample_rate: {
+                value: "__NAPT_SAMPLE_RATE_CHANNEL__",
+                min: "__NAPT_SAMPLE_RATE_FLOOR__",
+                max: "__NAPT_SAMPLE_RATE_MAX__",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // The active HackRF has no per-source options, so the spec from
+    // signals.yaml (floor..max curated range) provides the fallback list.
+    const select = screen.getByRole("combobox", {
+      name: /Sample Rate/i,
+    }) as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    expect(optionValues).toEqual([
+      "3200000",
+      "4000000",
+      "5000000",
+      "6400000",
+      "8000000",
+      "10000000",
+      "12800000",
+      "16000000",
+      "20000000",
+    ]);
+  });
+
+  it("syncs the chosen sample rate to the backend settings", async () => {
+    const user = userEvent.setup();
+    renderRoute({
+      spectrum: { sampleRateHz: 8_000_000 },
+      websocket: {
+        activeSourceId: "hackrf-0",
+        sources: [
+          {
+            id: "hackrf-0",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "rx",
+            status: "receiving",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: false,
+            sdr: {
+              max_sample_rate: 20_000_000,
+              sample_rate_options: [8_000_000, 10_000_000, 20_000_000],
+              fft_display: { markers: [] },
+              settings: { sample_rate: 8_000_000 },
+            },
+          },
+        ],
+      },
+    });
+
+    const select = screen.getByRole("combobox", {
+      name: /Sample Rate/i,
+    }) as HTMLSelectElement;
+    await user.selectOptions(select, "10000000");
+    expect(select.value).toBe("10000000");
   });
 });

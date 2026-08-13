@@ -466,6 +466,8 @@ export {
   selectHighFrequencyData,
   selectIsWebSocketReady,
   selectDeviceCapabilities,
+  selectSourceDerivedState,
+  selectActiveSourceDerivedState,
 } from "./selectors/performanceSelectors";
 
 // Export middleware (for advanced usage)

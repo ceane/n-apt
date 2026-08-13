@@ -34,6 +34,21 @@ pub struct HackRfInventoryDevice {
   pub index: usize,
 }
 
+/// RTL-SDR identity discovered by the SDR-owned hotplug/device path.
+///
+/// HTTP and WebSocket handlers must use this cache instead of calling
+/// librtlsdr descriptor functions while the async reader owns the USB
+/// interface. Those native calls can block on macOS/libusb and starve the
+/// stream transport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RtlSdrInventoryDevice {
+  pub index: u32,
+  pub serial_number: String,
+  pub manufacturer: String,
+  pub product: String,
+  pub device_name: String,
+}
+
 /// Shared state visible to the async runtime (lock-free where possible)
 pub struct SharedState {
   /// Backend readiness independent of hardware readiness.
@@ -148,6 +163,9 @@ pub struct SharedState {
   /// HackRF inventory populated by the hardware monitor. Source/status
   /// snapshots must read this cache rather than enumerate the native library.
   pub hackrf_inventory: Mutex<Vec<HackRfInventoryDevice>>,
+  /// RTL-SDR inventory populated by the SDR-owned device path. Source/status
+  /// snapshots must not query librtlsdr directly from the HTTP runtime.
+  pub rtl_sdr_inventory: Mutex<Vec<RtlSdrInventoryDevice>>,
 }
 
 impl SharedState {
@@ -223,6 +241,7 @@ impl SharedState {
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
       hackrf_inventory: Mutex::new(Vec::new()),
+      rtl_sdr_inventory: Mutex::new(Vec::new()),
       mock_tx_transmitting: AtomicBool::new(false),
       tx_safety_enabled: AtomicBool::new(false),
       tx_safety_limit: Mutex::new("room".to_string()),
@@ -291,6 +310,11 @@ impl SharedState {
   pub fn begin_stream_epoch(&self) -> u64 {
     let _identity_guard = self.stream_identity_lock.lock().unwrap();
     self.stream_sequence.store(0, Ordering::Release);
+    // A new source/recovery epoch must prove that it can produce a frame
+    // before the source is advertised as receiving. Otherwise the frontend
+    // sees `receiving` while the reader is still stalled and its watchdog
+    // correctly reports a misleading I/O error.
+    *self.last_successful_read.lock().unwrap() = None;
     self.stream_epoch.fetch_add(1, Ordering::AcqRel) + 1
   }
 
@@ -438,6 +462,34 @@ impl SharedState {
     *self.device_backend_error.lock().unwrap() = error;
   }
 
+  pub fn set_rtl_sdr_inventory(&self, inventory: Vec<RtlSdrInventoryDevice>) {
+    *self.rtl_sdr_inventory.lock().unwrap() = inventory;
+  }
+
+  pub fn cache_active_rtl_sdr(
+    &self,
+    serial_number: String,
+    manufacturer: String,
+    product: String,
+  ) {
+    let device_name = if product.trim().is_empty() {
+      "RTL-SDR".to_string()
+    } else {
+      product.clone()
+    };
+    self.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
+      index: 0,
+      serial_number,
+      manufacturer,
+      product,
+      device_name,
+    }]);
+  }
+
+  pub fn rtl_sdr_inventory_snapshot(&self) -> Vec<RtlSdrInventoryDevice> {
+    self.rtl_sdr_inventory.lock().unwrap().clone()
+  }
+
   /// Transition device_state and immediately update the loading fields.
   /// This is the single source of truth for state transitions so the
   /// frontend always sees a consistent snapshot.
@@ -504,6 +556,7 @@ mod tests {
     shared.set_device_state("loading", Some("restart"));
     assert_eq!(shared.current_stream_epoch(), initial_epoch + 1);
     assert_eq!(shared.stream_sequence.load(Ordering::Acquire), 0);
+    assert!(shared.last_successful_read.lock().unwrap().is_none());
 
     shared.set_device_state("loading", Some("restart"));
     assert_eq!(shared.current_stream_epoch(), initial_epoch + 1);
@@ -521,6 +574,33 @@ mod tests {
 
     let next_epoch = shared.begin_stream_epoch();
     assert_eq!(shared.next_stream_frame_identity(), (next_epoch, 1));
+  }
+
+  #[test]
+  #[serial]
+  fn new_stream_epoch_requires_a_fresh_successful_read() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.record_successful_read();
+    assert!(shared.last_successful_read.lock().unwrap().is_some());
+
+    shared.begin_stream_epoch();
+
+    assert!(shared.last_successful_read.lock().unwrap().is_none());
+  }
+
+  #[test]
+  #[serial]
+  fn syncing_same_source_clears_a_stale_global_pause_gate() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.is_paused.store(true, Ordering::SeqCst);
+
+    // The source-scoped state says RTL is resumable even though the legacy
+    // global fast path was left paused by an earlier handoff.
+    shared.sync_active_source_pause_state("rtl-sdr-00000001");
+
+    assert!(!shared.is_paused.load(Ordering::SeqCst));
   }
 
   #[test]

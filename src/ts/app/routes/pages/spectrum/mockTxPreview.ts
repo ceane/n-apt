@@ -132,3 +132,13 @@ export const shouldClearMockTxPreviewRequestDedupe = ({
   const fence = `${selectedSourceId}|${activeSourceId ?? ""}|${lifecyclePhase ?? ""}|${transportPhase ?? ""}`;
   return fence !== previousFence;
 };
+
+/** Standby previews are generated once on demand; they are never an RX frame. */
+export const resolveTxStandbyPreviewTransport = ({
+  isSelectedTxPreviewStandby,
+  isMockTxMonitorActive,
+}: {
+  isSelectedTxPreviewStandby: boolean;
+  isMockTxMonitorActive: boolean;
+}): "one_shot" | "none" =>
+  isSelectedTxPreviewStandby || isMockTxMonitorActive ? "one_shot" : "none";

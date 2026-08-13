@@ -196,6 +196,15 @@ describe("sdrSampleRateGuards", () => {
     ).toEqual({ min: 0, max: 1_000_000 });
   });
 
+  it("normalizes a mirrored negative request back to a positive hardware window", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: -2_000_000, max: 2_000_000 },
+        hardwareSampleRateHz: 4_000_000,
+      }),
+    ).toEqual({ min: 0, max: 4_000_000 });
+  });
+
   it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {
     expect(
       clampRtlSdrFrequencyRangeToHardwareWindow({

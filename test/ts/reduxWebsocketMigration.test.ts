@@ -7,14 +7,13 @@ import websocketSlice, {
 import {
   liveDataRef,
   liveDataBySourceRef,
+  sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 import {
   shouldAcceptPausedFrameRequest,
   resetPausedFrameRequestGate,
-  isFrameStale,
   getFrequencyRequestCenterHz,
-  shouldResendRetuneRequest,
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
   normalizeFrequencyRangeMessageData,
@@ -37,6 +36,7 @@ import {
   sendCenterFrequency,
   sendCaptureCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
+import { tuneDemod } from "@n-apt/redux/thunks/demodThunks";
 import spectrumSlice, {
   setTxGeometry,
 } from "@n-apt/redux/slices/spectrumSlice";
@@ -1746,6 +1746,47 @@ describe("Redux WebSocket Migration", () => {
       );
     });
 
+    it("clears the shared presentation frame before a source switch can render", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+      const pausedPreviousSourceFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "hackrf-one",
+        frame_status: "paused",
+        iq_data: new Uint8Array([127, 129, 128, 126]),
+        sample_rate: 2_400_000,
+        center_frequency_hz: 137_100_000,
+      } as IqRawFrame;
+      liveDataRef.current = pausedPreviousSourceFrame;
+      sourceVisualizationRuntime.publish(pausedPreviousSourceFrame);
+      liveDataBySourceRef.current["hackrf-one"] =
+        sourceVisualizationRuntime.getSourceRef("hackrf-one");
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: "rtl-sdr-v4" },
+        },
+      });
+
+      expect(liveDataRef.current).toBeNull();
+      expect(liveDataBySourceRef.current).toEqual({});
+      expect(
+        sourceVisualizationRuntime.getSourceRef("hackrf-one").current,
+      ).toBeNull();
+      expect(middlewareStore.getState().websocket.spectrumFrames).toEqual([]);
+    });
+
     it("preconnects a requested logical stream and restores active transport on failure", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
@@ -2745,6 +2786,50 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
+    it("never sends a negative hardware lower bound near zero Hz", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: { sampleRateHz: 1_228_629 },
+          spectrum: {},
+        }) as any;
+
+      await (sendCenterFrequency(0) as any)(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            min_hz: 0,
+            max_hz: 1_228_629,
+            center_frequency: 614_315,
+          },
+        },
+      });
+    });
+
+    it("converts mirrored negative display ranges before sending demod tune", async () => {
+      const dispatch = jest.fn();
+      const getState = () => ({ websocket: { isConnected: true } }) as any;
+
+      await (tuneDemod({ min_hz: -614_314, max_hz: 614_315 }) as any)(
+        dispatch,
+        getState,
+        undefined,
+      );
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "demod_tune",
+          min_freq: 0,
+          max_freq: 1_228_629,
+        },
+      });
+    });
+
     it("sendCaptureCommand clears previous capture status", async () => {
       // Set initial capture status
       store.dispatch(
@@ -2945,11 +3030,6 @@ describe("Redux WebSocket Migration", () => {
       jest.useRealTimers();
     });
 
-    it("does not silently reject live frames by center-frequency mismatch", () => {
-      expect(isFrameStale(1_618_000)).toBe(false);
-      expect(isFrameStale(26_738_000)).toBe(false);
-    });
-
     it("keeps the live stream buffered while retuning frequency range", () => {
       const middlewareStore = configureStore({
         reducer: {
@@ -2997,38 +3077,6 @@ describe("Redux WebSocket Migration", () => {
         }),
       ).toBe(101);
       expect(getFrequencyRequestCenterHz("settings", {})).toBeNull();
-    });
-
-    it("resends a retune only after repeated wrong-center live frames", () => {
-      const base = {
-        expectedCenterHz: 101_000_000,
-        frameCenterHz: 100_000_000,
-        requestedAt: 1_000,
-        lastResendAt: 1_000,
-      };
-
-      expect(
-        shouldResendRetuneRequest({
-          ...base,
-          mismatchFrames: 3,
-          now: 2_000,
-        }),
-      ).toBe(false);
-      expect(
-        shouldResendRetuneRequest({
-          ...base,
-          mismatchFrames: 8,
-          now: 2_000,
-        }),
-      ).toBe(true);
-      expect(
-        shouldResendRetuneRequest({
-          ...base,
-          frameCenterHz: 101_000_005,
-          mismatchFrames: 8,
-          now: 2_000,
-        }),
-      ).toBe(false);
     });
 
     it("liveDataRef is separate from Redux state", () => {

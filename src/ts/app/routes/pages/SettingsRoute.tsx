@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import { MainLayout } from "@n-apt/app/MainLayout";
 import {
@@ -9,8 +9,9 @@ import { ThemeSection } from "@n-apt/settings/sidebar/ThemeSection";
 import { Row, Toggle } from "@n-apt/ui";
 import { RowLabel, RowControl, RowContainer } from "@n-apt/ui/Row";
 import { useSettingsSectionScrollSpy } from "@n-apt/settings/hooks/useSettingsSectionScrollSpy";
-import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import {
+  useAppDispatch,
+  useAppSelector,
   setFftFrameRate,
   setFftSize,
   setFftWindow,
@@ -24,6 +25,8 @@ import {
   setRtlAGC,
   setMaxVizZoom,
   setMirrorIqBasebandBelowZero,
+  sendSettings,
+  selectActiveSourceDerivedState,
 } from "@n-apt/redux";
 import {
   FRONTEND_VISUALIZER_DEFAULTS,
@@ -44,9 +47,11 @@ import {
   setSnapshotDefaults,
   type CaptureAcquisitionMode,
 } from "@n-apt/settings/public/settingsDefaults";
+import { getTemporalResolutionLabel } from "@n-apt/math/temporalResolution";
 import {
-  getTemporalResolutionLabel,
-} from "@n-apt/math/temporalResolution";
+  resolveSampleRateSpec,
+  type SampleRateSpec,
+} from "@n-apt/math/signals";
 import {
   LinkCardGrid,
   LinkCardItemView,
@@ -395,7 +400,79 @@ const SdrSettingsSection: React.FC = () => {
     (s) => s.settings.mirrorIqBasebandBelowZero,
   );
   const signalsDefaults = useAppSelector((s) => s.websocket.signalsDefaults);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const [tempFftSize, setTempFftSize] = useState(String(state.fftSize));
+
+  const deviceSampleRateOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (activeSourceDerived.sampleRateOptions ?? []).filter(
+            (rate) => Number.isFinite(rate) && rate > 0,
+          ),
+        ),
+      ).sort((a, b) => a - b),
+    [activeSourceDerived.sampleRateOptions],
+  );
+
+  // Derive the default sample rate list from signals.yaml (the same source the
+  // live view uses) when the backend has not advertised per-device options yet.
+  const signalsDerivedSampleRateOptions = useMemo(() => {
+    const globalDefault = signalsDefaults?.sample_rate;
+    const deviceKind = activeSourceDerived.deviceProfile?.kind;
+    const deviceConfig = deviceKind
+      ? signalsDefaults?.devices?.[deviceKind]
+      : undefined;
+    const spec = deviceConfig?.sample_rate as SampleRateSpec | undefined;
+
+    if (spec !== undefined) {
+      const floorSampleRate =
+        typeof signalsDefaults?.min_receive_sample_rate === "number"
+          ? signalsDefaults.min_receive_sample_rate
+          : globalDefault;
+      const maxSampleRate =
+        typeof deviceConfig?.max_sample_rate === "number"
+          ? deviceConfig.max_sample_rate
+          : globalDefault;
+      const resolved = resolveSampleRateSpec(
+        spec,
+        null,
+        floorSampleRate ?? 3_200_000,
+        maxSampleRate ?? 3_200_000,
+      );
+      if (resolved.options.length > 0) {
+        return Array.from(new Set(resolved.options))
+          .filter((rate) => Number.isFinite(rate) && rate > 0)
+          .sort((a, b) => a - b);
+      }
+    }
+
+    if (typeof globalDefault === "number" && Number.isFinite(globalDefault)) {
+      return [globalDefault];
+    }
+    return [];
+  }, [
+    activeSourceDerived.deviceProfile?.kind,
+    signalsDefaults?.sample_rate,
+    signalsDefaults?.min_receive_sample_rate,
+    signalsDefaults?.devices,
+  ]);
+
+  const sampleRateOptions =
+    deviceSampleRateOptions.length > 0
+      ? deviceSampleRateOptions
+      : signalsDerivedSampleRateOptions.length > 0
+        ? signalsDerivedSampleRateOptions
+        : Array.from(
+            new Set(
+              [state.sampleRateHz, 3_200_000].filter(
+                (rate) => Number.isFinite(rate) && rate > 0,
+              ),
+            ),
+          ).sort((a, b) => a - b);
+  const sampleRateValue = sampleRateOptions.includes(state.sampleRateHz)
+    ? state.sampleRateHz
+    : (sampleRateOptions[0] ?? state.sampleRateHz);
 
   const commitFftSize = (raw: string) => {
     const value = Number(raw);
@@ -415,20 +492,33 @@ const SdrSettingsSection: React.FC = () => {
         <SettingsRow label={<SettingLabel>Sample Rate</SettingLabel>}>
           <SettingSelect
             aria-label="Sample Rate"
-            value={state.sampleRateHz}
+            value={sampleRateValue}
             onChange={(e) => {
               const value = Number(e.target.value);
               dispatch(setSampleRate(value));
               dispatch(setSdrSettingsBundle({ sampleRateHz: value }));
+              dispatch(
+                sendSettings({
+                  fftSize: state.fftSize,
+                  fftWindow: state.fftWindow,
+                  frameRate: state.fftFrameRate,
+                  sampleRate: value,
+                  gain: state.gain,
+                  ppm: state.ppm,
+                  tunerAGC: state.tunerAGC,
+                  rtlAGC: state.rtlAGC,
+                }),
+              );
             }}
           >
-            {[...new Set([state.sampleRateHz, 3_200_000, 1_600_000, 800_000])].map(
-              (rate) => (
-                <option key={`sample-rate-${rate}`} value={rate}>
-                  {(rate / 1_000_000).toFixed(1)} MHz
-                </option>
-              ),
-            )}
+            {sampleRateOptions.map((rate) => (
+              <option key={`sample-rate-${rate}`} value={rate}>
+                {formatFrequency(rate, {
+                  precisionMHz: 3,
+                  trimTrailingZeros: true,
+                })}
+              </option>
+            ))}
           </SettingSelect>
         </SettingsRow>
 
@@ -518,9 +608,7 @@ const SdrSettingsSection: React.FC = () => {
             value={state.displayTemporalResolution}
             onChange={(e) =>
               dispatch(
-                setTemporalResolution(
-                  e.target.value as TemporalResolution,
-                ),
+                setTemporalResolution(e.target.value as TemporalResolution),
               )
             }
           >
@@ -547,14 +635,14 @@ const SdrSettingsSection: React.FC = () => {
           </SettingSelect>
         </SettingsRow>
 
-        <SettingsRow label={<SettingLabel>Mirror I/Q baseband below 0Hz</SettingLabel>}>
+        <SettingsRow
+          label={<SettingLabel>Mirror spectrum below 0Hz</SettingLabel>}
+        >
           <Toggle
-            aria-label="Mirror I/Q baseband below 0Hz"
+            aria-label="Mirror spectrum below 0Hz"
             $active={mirrorIqBasebandBelowZero}
             onClick={() =>
-              dispatch(
-                setMirrorIqBasebandBelowZero(!mirrorIqBasebandBelowZero),
-              )
+              dispatch(setMirrorIqBasebandBelowZero(!mirrorIqBasebandBelowZero))
             }
           />
         </SettingsRow>
@@ -645,9 +733,7 @@ const LoginSettingsSection: React.FC = () => {
         Login
       </SectionTitle>
       <SettingsRow
-        label={
-          <SettingLabel>Bypass after logging in</SettingLabel>
-        }
+        label={<SettingLabel>Bypass after logging in</SettingLabel>}
         tooltip="Skip the start page and land directly in the app after signing in."
       >
         <Toggle
@@ -722,8 +808,7 @@ const IqCaptureSettingsSection: React.FC = () => {
             value={capture.acquisitionMode}
             onChange={(e) =>
               update({
-                acquisitionMode: e.target
-                  .value as CaptureAcquisitionMode,
+                acquisitionMode: e.target.value as CaptureAcquisitionMode,
               })
             }
           >
@@ -735,7 +820,9 @@ const IqCaptureSettingsSection: React.FC = () => {
           </SettingSelect>
         </SettingsRow>
 
-        <SettingsRow label={<SettingLabel>Encrypted (AES-256-GCM)</SettingLabel>}>
+        <SettingsRow
+          label={<SettingLabel>Encrypted (AES-256-GCM)</SettingLabel>}
+        >
           <Toggle
             $active={capture.captureEncrypted}
             onClick={() =>
@@ -744,7 +831,9 @@ const IqCaptureSettingsSection: React.FC = () => {
           />
         </SettingsRow>
 
-        <SettingsRow label={<SettingLabel>Playback after capture</SettingLabel>}>
+        <SettingsRow
+          label={<SettingLabel>Playback after capture</SettingLabel>}
+        >
           <Toggle
             $active={capture.capturePlayback}
             onClick={() =>
@@ -767,8 +856,8 @@ const IqCaptureSettingsSection: React.FC = () => {
 };
 
 const SnapshotSettingsSection: React.FC = () => {
-  const [snapshot, setSnapshot] = useState(() =>
-    getSettingsDefaults().snapshot,
+  const [snapshot, setSnapshot] = useState(
+    () => getSettingsDefaults().snapshot,
   );
 
   const update = (partial: Partial<typeof snapshot>) => {
@@ -784,7 +873,9 @@ const SnapshotSettingsSection: React.FC = () => {
         Snapshot &amp; Fast Snapshot
       </SectionTitle>
       <SectionGrid>
-        <SettingsRow label={<SettingLabel>Whole channel (default)</SettingLabel>}>
+        <SettingsRow
+          label={<SettingLabel>Whole channel (default)</SettingLabel>}
+        >
           <Toggle
             $active={snapshot.snapshotWhole}
             onClick={() => update({ snapshotWhole: !snapshot.snapshotWhole })}
@@ -836,7 +927,8 @@ const SnapshotSettingsSection: React.FC = () => {
             value={snapshot.snapshotAspectRatio}
             onChange={(e) =>
               update({
-                snapshotAspectRatio: e.target.value as typeof snapshot.snapshotAspectRatio,
+                snapshotAspectRatio: e.target
+                  .value as typeof snapshot.snapshotAspectRatio,
               })
             }
           >
@@ -853,7 +945,8 @@ const SnapshotSettingsSection: React.FC = () => {
             value={snapshot.snapshotFormat}
             onChange={(e) =>
               update({
-                snapshotFormat: e.target.value as typeof snapshot.snapshotFormat,
+                snapshotFormat: e.target
+                  .value as typeof snapshot.snapshotFormat,
               })
             }
           >
@@ -869,7 +962,9 @@ const SnapshotSettingsSection: React.FC = () => {
           </SettingSelect>
         </SettingsRow>
 
-        <SettingsRow label={<SettingLabel>Fast Snapshot: include stats</SettingLabel>}>
+        <SettingsRow
+          label={<SettingLabel>Fast Snapshot: include stats</SettingLabel>}
+        >
           <Toggle
             aria-label="Fast Snapshot: include stats"
             $active={snapshot.fastSnapshotShowStats}

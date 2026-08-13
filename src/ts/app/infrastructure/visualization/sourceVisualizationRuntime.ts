@@ -136,8 +136,20 @@ export class SourceVisualizationRuntime<
 
   clear(sourceId?: string): void {
     if (sourceId) {
+      const state = this.sources.get(sourceId);
+      if (!state) return;
+      state.ref.current = null;
+      state.epoch = null;
+      state.sequence = null;
+      state.metrics = { ...EMPTY_METRICS };
       this.sources.delete(sourceId);
       return;
+    }
+    // Invalidate existing refs before deleting their map entries. Consumers
+    // can hold these objects across a source switch, so deleting the map alone
+    // would leave a detached object containing the previous frame.
+    for (const state of this.sources.values()) {
+      state.ref.current = null;
     }
     this.sources.clear();
   }

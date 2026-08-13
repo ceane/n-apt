@@ -93,6 +93,16 @@ pub trait SdrDevice: Send {
   /// Set center frequency in Hz
   fn set_center_frequency(&mut self, freq: u32) -> Result<()>;
 
+  /// Set center frequency while the device is serving live RX frames.
+  ///
+  /// Devices with a continuous retune-safe reader can use the normal setter;
+  /// devices whose native API requires RX standby may override this hook to
+  /// stop and restart their reader without making the acquisition worker
+  /// guess at hardware-specific sequencing.
+  fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
+    self.set_center_frequency(freq)
+  }
+
   /// Set tuner gain in dB
   fn set_gain(&mut self, gain: f64) -> Result<()>;
 

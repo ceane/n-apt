@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent, screen, waitFor } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
 import FrequencyRangeSlider from "@n-apt/spectrum/sidebar/FrequencyRangeSlider";
 import { TestWrapper } from "./testUtils";
 
@@ -30,17 +30,94 @@ describe("FrequencyRangeSlider", () => {
     expect(screen.getByText(/120.*-.*150/)).toBeInTheDocument();
   });
 
-  test("calls onActivate when clicked", () => {
+  test("calls onActivate when an inactive slider is clicked", () => {
     const onActivate = jest.fn();
     render(
       <TestWrapper>
-        <FrequencyRangeSlider {...defaultProps} onActivate={onActivate} />
+        <FrequencyRangeSlider
+          {...defaultProps}
+          isActive={false}
+          onActivate={onActivate}
+        />
       </TestWrapper>,
     );
 
-    const container = screen.getByText("A").closest("div")?.nextElementSibling; // SliderContainer follows label
+    const container = screen.getByText("A").closest("div")?.nextElementSibling;
     if (container) fireEvent.click(container);
     expect(onActivate).toHaveBeenCalled();
+  });
+
+  test("does not call onActivate when the slider is already active", () => {
+    const onActivate = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          isActive={true}
+          onActivate={onActivate}
+        />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+    fireEvent.mouseUp(window);
+    fireEvent.click(thumb as HTMLElement);
+
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  test("does not republish on a click that never dragged", () => {
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+    fireEvent.mouseUp(window);
+
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
+
+  test("does not republish the whole channel when clicking after the window shrinks to the sample rate", () => {
+    const onRangeChange = jest.fn();
+    const { rerender } = render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={4_390_000}
+          sampleRateHz={4_372_000}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    rerender(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          minFreq={18_000}
+          maxFreq={4_390_000}
+          visibleMin={18_000}
+          visibleMax={3_218_000}
+          sampleRateHz={3_200_000}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+    onRangeChange.mockClear();
+
+    const thumb = screen.getByText(/18kHz.*-.*3\.218MHz/).parentElement;
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+    fireEvent.mouseUp(window);
+
+    expect(onRangeChange).not.toHaveBeenCalled();
   });
 
   test("handles drag interaction", () => {
@@ -71,6 +148,84 @@ describe("FrequencyRangeSlider", () => {
       expect(lastCall.min).toBeGreaterThan(120);
       expect(lastCall.max).toBeGreaterThan(150);
     }
+  });
+
+  test("does not throw when an external zoom shrinks the visible window", () => {
+    const { rerender } = render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(() => {
+      rerender(
+        <TestWrapper>
+          <FrequencyRangeSlider
+            {...defaultProps}
+            visibleMin={134.8}
+            visibleMax={135.2}
+          />
+        </TestWrapper>,
+      );
+    }).not.toThrow();
+    expect(screen.getByText(/135Hz.*-.*135Hz/)).toBeInTheDocument();
+  });
+
+  test("keeps drag publishes off the pointer-move path", () => {
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 150 });
+    fireEvent.mouseMove(window, { clientX: 200 });
+    fireEvent.mouseMove(window, { clientX: 250 });
+
+    expect(onRangeChange).not.toHaveBeenCalled();
+
+    fireEvent.mouseUp(window);
+
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
+    const lastCall =
+      onRangeChange.mock.calls[onRangeChange.mock.calls.length - 1][0];
+    expect(lastCall.min).toBeGreaterThan(120);
+  });
+
+  test("wheel pans the visible window immediately without a debounce timer", () => {
+    jest.useFakeTimers();
+    const raf = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb) => {
+        return setTimeout(() => cb(0), 0) as unknown as number;
+      });
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+
+    const track = document.querySelector(".range-track") as HTMLElement;
+    expect(track).toBeInTheDocument();
+    Object.defineProperty(track, "clientWidth", {
+      configurable: true,
+      value: 400,
+    });
+
+    fireEvent.wheel(track, { deltaY: 20, deltaX: 0 });
+    fireEvent.wheel(track, { deltaY: 20, deltaX: 0 });
+
+    expect(screen.queryByText(/120.*-.*150/)).not.toBeInTheDocument();
+    expect(screen.getByText(/148.*-.*178/)).toBeInTheDocument();
+    expect(onRangeChange).toHaveBeenCalledTimes(2);
+    expect(onRangeChange.mock.calls[1][0].min).toBeGreaterThan(120);
+
+    raf.mockRestore();
+    jest.useRealTimers();
   });
 
   test("publishes the final drag range once when transmit state is also updating", () => {
@@ -168,7 +323,7 @@ describe("FrequencyRangeSlider", () => {
       fireEvent.mouseUp(window);
     }
 
-    expect(onActivate).toHaveBeenCalled();
+    expect(onActivate).not.toHaveBeenCalled();
     expect(onRangeChange).not.toHaveBeenCalled();
   });
 

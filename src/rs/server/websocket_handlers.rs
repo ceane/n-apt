@@ -413,6 +413,44 @@ fn stream_source_capabilities(
   })
 }
 
+fn clamp_sample_rate_to_source(requested: u32, max_sample_rate: Option<u32>) -> u32 {
+  requested.min(max_sample_rate.unwrap_or(u32::MAX).max(1))
+}
+
+fn active_source_max_sample_rate(shared: &SharedState) -> Option<u32> {
+  let source_id = active_source_id(shared);
+  let snapshot = build_source_info_snapshot(shared);
+  snapshot["sources"]
+    .as_array()?
+    .iter()
+    .find(|source| source["id"].as_str() == Some(source_id.as_str()))?
+    .get("sdr")?
+    .get("max_sample_rate")?
+    .as_u64()
+    .and_then(|rate| u32::try_from(rate).ok())
+}
+
+#[cfg(test)]
+mod sample_rate_tests {
+  use super::clamp_sample_rate_to_source;
+
+  #[test]
+  fn clamps_requested_rate_to_active_source_limit() {
+    assert_eq!(
+      clamp_sample_rate_to_source(4_372_000, Some(3_200_000)),
+      3_200_000
+    );
+  }
+
+  #[test]
+  fn preserves_requested_rate_when_source_has_capacity() {
+    assert_eq!(
+      clamp_sample_rate_to_source(4_372_000, Some(20_000_000)),
+      4_372_000
+    );
+  }
+}
+
 fn stream_event_json(
   event: &StreamEvent,
   enc_key: &[u8; 32],
@@ -1309,7 +1347,7 @@ pub async fn handle_ws_connection(
 
   // Send initial active source payload
   let active_id = active_source_id(&shared);
-  let paused = shared.is_paused.load(Ordering::SeqCst);
+  let paused = shared.is_source_paused(&active_id);
   let active_source_payload = serde_json::json!({
     "type": "active_source",
     "source_id": active_id,
@@ -1540,7 +1578,17 @@ pub fn handle_message(
       let sample_rate = message.sample_rate.and_then(|rate| {
         let rounded_rate = rate.round() as u32;
         if (1_000_000..=20_000_000).contains(&rounded_rate) {
-          Some(rounded_rate)
+          let effective_rate = clamp_sample_rate_to_source(
+            rounded_rate,
+            active_source_max_sample_rate(shared),
+          );
+          if effective_rate != rounded_rate {
+            warn!(
+              "Clamping sample rate {} Hz to active source limit {} Hz",
+              rounded_rate, effective_rate
+            );
+          }
+          Some(effective_rate)
         } else {
           warn!("Ignoring invalid sample_rate from client: {}", rate);
           None
@@ -2028,6 +2076,22 @@ pub fn handle_message(
           source_id = "mock-apt".to_string();
         }
         info!("Client requested source switch: {}", source_id);
+        let active_source = active_source_id(shared);
+        let pending_source = shared.pending_source_switch();
+        if pending_source.as_deref() == Some(source_id.as_str()) {
+          debug!(
+            "Dropping duplicate source switch while handoff is pending: {}",
+            source_id
+          );
+          return;
+        }
+        if active_source == source_id && pending_source.is_none() {
+          debug!(
+            "Dropping source switch request for already-active source: {}",
+            source_id
+          );
+          return;
+        }
         let requested_sample_rate = message.sample_rate.and_then(|rate| {
           let rounded_rate = rate.round() as u32;
           if rate.is_finite()
@@ -2509,6 +2573,29 @@ mod tests {
     assert!(
       broadcast_rx.try_recv().is_err(),
       "queue acknowledgement must not mark a warm source loading"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn drops_duplicate_select_source_while_switch_is_pending() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+    shared.request_source_switch("rtl-sdr-1");
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"select_source",
+        "source_id":"rtl-sdr-1"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(
+      cmd_rx.try_recv().is_err(),
+      "a pending source switch must not be queued again"
     );
   }
 

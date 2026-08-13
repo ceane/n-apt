@@ -224,7 +224,7 @@ function SpatialApertureCanvas() {
           const mx = (t.x + u.x) / 2;
           const my = (t.y + u.y) / 2;
           ctx.fillStyle = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)";
-          ctx.font = "9px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+          ctx.font = "9px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
           ctx.textAlign = "center";
           ctx.fillText(weight.toFixed(2), mx, my);
         });
@@ -256,7 +256,7 @@ function SpatialApertureCanvas() {
 
         // Tower label
         ctx.fillStyle = isDark ? `rgba(255,255,255,${isActive ? 0.8 : 0.35})` : `rgba(0,0,0,${isActive ? 0.75 : 0.3})`;
-          ctx.font = `${isActive ? "bold " : ""}10px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+          ctx.font = `${isActive ? "bold " : ""}10px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
         ctx.fillText(`T${i+1}`, t.x + 10, t.y + 4);
       });
 
@@ -277,7 +277,7 @@ function SpatialApertureCanvas() {
       ctx.stroke();
 
       ctx.fillStyle = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)";
-      ctx.font = "9px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "9px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText("UE", u.x + 10, u.y + 4);
 
       rafRef.current = requestAnimationFrame(draw);
@@ -344,7 +344,7 @@ function AntennaApertureCanvas({ apertureD }: { apertureD: number }) {
       ctx.fillStyle = isDark ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.8)";
       ctx.fillRect(cx - 4, cy - D / 2, 8, D);
       ctx.fillStyle = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)";
-      ctx.font = "10px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "10px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText(`D = ${Math.round(D)}`, cx - 16, cy + D / 2 + 16);
 
       const maxR = w - cx - 10;
@@ -383,7 +383,7 @@ function AntennaApertureCanvas({ apertureD }: { apertureD: number }) {
       ctx.restore();
 
       ctx.fillStyle = isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.55)";
-      ctx.font = "11px 'Silence Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText(`HPBW ≈ ${(halfBW*2*180/Math.PI).toFixed(1)}°`, cx+20, cy - D/2 - 12);
 
       rafRef.current = requestAnimationFrame(draw);

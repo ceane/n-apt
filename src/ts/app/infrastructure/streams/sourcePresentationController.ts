@@ -158,7 +158,7 @@ const STREAMING_PHASES = new Set<SourcePresentationPhase>([
   "transmitting",
 ]);
 
-/** Phases where the last frame is frozen and new frames are rejected. */
+/** Phases where the canvas is frozen: paused keeps last Rx, standby keeps last Tx preview. */
 const FROZEN_PHASES = new Set<SourcePresentationPhase>([
   "paused",
   "standby",
@@ -276,6 +276,7 @@ export const createSourcePresentationController = (
     if (slot.phase === phase) return;
 
     const wasStreaming = STREAMING_PHASES.has(slot.phase);
+    const wasFrozen = FROZEN_PHASES.has(slot.phase);
     const willFreeze = FROZEN_PHASES.has(phase);
 
     // Freeze the current frame when entering a frozen phase
@@ -298,6 +299,11 @@ export const createSourcePresentationController = (
           }
         }
       }
+    }
+
+    // Live Tx/Rx must not keep serving the standby/paused preview.
+    if (wasFrozen && STREAMING_PHASES.has(phase)) {
+      slot.frozenFrame = null;
     }
 
     // Clear live frame when entering non-streaming phases that aren't frozen
@@ -384,19 +390,38 @@ export const createSourcePresentationController = (
     const mode = modeOverride ?? resolveModeFromFrame(frame);
     const slot = ensureSlot({ sourceId, mode });
 
-    const isStandbyPreviewFrame =
+    const isTxStandbyPreviewFrame =
       frame.frame_status === "standby" ||
       frame.is_tx_preview === true ||
       frame.is_mock_tx_preview === true;
 
-    // Reject frames during non-accepting phases. Standby Tx previews may still
-    // land while the slot is "switching" so cold Mock Tx handoff does not drop
-    // the first request_next_frame response.
+    const isLiveTxFrame = frame.frame_status === "transmitting";
+
+    // Paused = last Rx frame; do not replace it. Standby = Tx
+    // request_next_frame preview; those may land during switching too so
+    // cold Mock Tx handoff does not drop the first preview. A transmitting
+    // frame must leave standby so Start Tx is not stuck on the dotted preview.
     if (slot.phase === "disconnected" || slot.phase === "failed") {
       slot.metrics.rejected += 1;
       return false;
     }
-    if (slot.phase === "switching" && !isStandbyPreviewFrame) {
+    if (slot.phase === "paused") {
+      slot.metrics.rejected += 1;
+      return false;
+    }
+    if (
+      slot.phase === "switching" &&
+      !isTxStandbyPreviewFrame &&
+      !isLiveTxFrame
+    ) {
+      slot.metrics.rejected += 1;
+      return false;
+    }
+    if (
+      slot.phase === "standby" &&
+      !isTxStandbyPreviewFrame &&
+      !isLiveTxFrame
+    ) {
       slot.metrics.rejected += 1;
       return false;
     }
@@ -436,7 +461,12 @@ export const createSourcePresentationController = (
     slot.liveFrameRef.current = frame;
     slot.metrics.accepted += 1;
 
-    // If the slot is in a frozen phase, update the frozen frame instead
+    if (slot.phase === "standby" && isLiveTxFrame) {
+      slot.frozenFrame = null;
+      transitionPhase(slot, "transmitting");
+      return true;
+    }
+
     if (FROZEN_PHASES.has(slot.phase)) {
       slot.frozenFrame = freezeFrame(frame, slot);
       slot.metrics.frozen += 1;
@@ -465,7 +495,7 @@ export const createSourcePresentationController = (
         slot.phase === "recovering" ||
         slot.phase === "stale")
     ) {
-      if (isStandbyPreviewFrame) {
+      if (isTxStandbyPreviewFrame) {
         slot.frozenFrame = freezeFrame(frame, slot);
         slot.metrics.frozen += 1;
         slot.phase = "standby";

@@ -1,4 +1,5 @@
 import {
+  isSourceStreamAvailable,
   isSourcePresentationConnected,
   resolveSourceModeManagement,
   resolveSourceModeTransition,
@@ -9,6 +10,10 @@ import {
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 
 describe("sourceModeManagement", () => {
+  it("keeps the managed stream subscribed while hardware is waiting for its first frame", () => {
+    expect(isSourceStreamAvailable("loading")).toBe(true);
+  });
+
   it("blocks starting TX without a Tx-suite node binding but permits stopping", () => {
     expect(
       canToggleTransmitMode({

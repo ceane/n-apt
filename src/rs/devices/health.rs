@@ -17,8 +17,8 @@ use crate::sdr::processor::SdrProcessor;
 use crate::sdr::SdrDevice;
 use crate::server::shared_state::SharedState;
 use crate::server::websocket_server::source_lifecycle::{
-  prepare_selected_source_for_rx, prewarm_inactive_sources,
-  should_restore_warm_source, take_warm_source_for_active,
+  prepare_selected_source_for_rx, should_restore_warm_source,
+  take_warm_source_for_active,
 };
 use crate::server::websocket_server::{
   active_source_id, broadcast_channels, broadcast_device_status,
@@ -26,8 +26,9 @@ use crate::server::websocket_server::{
   fallback_to_mock_after_recovery_failure, is_async_sample_timeout_error,
   open_device_for_source_id, read_failure_state,
   resolve_reader_recovery_action, should_fallback_to_mock_on_early_read_error,
-  should_fallback_to_mock_on_threshold_read_error, sync_shared_sample_rate,
-  ReaderRecoveryAction, SourceLifecyclePhase,
+  should_fallback_to_mock_on_threshold_read_error, should_ignore_read_error,
+  should_mark_read_error_stale, sync_shared_sample_rate, ReaderRecoveryAction,
+  SourceLifecyclePhase,
 };
 
 /// Runs periodic device recovery without making the websocket loop own the
@@ -100,13 +101,15 @@ impl DeviceHealthWorker {
     broadcast_device_status(shared_state, broadcast_tx);
   }
 
-  /// Attach already-present hardware during startup and prewarm inactive
-  /// sources before the first streaming frame is requested.
+  /// Attach already-present hardware during startup.
+  ///
+  /// Inactive sources are opened lazily on selection. Prewarming every USB
+  /// peer here made one claimed/broken device block the first frame from a
+  /// healthy active device.
   pub async fn attach_startup(
     &self,
     hotplug_monitor: &HotplugMonitor,
     hotplug_state: &mut HotplugState,
-    warm_devices: &mut HashMap<String, Box<dyn SdrDevice>>,
     shared_state: &SharedState,
     broadcast_tx: &broadcast::Sender<String>,
   ) {
@@ -129,7 +132,6 @@ impl DeviceHealthWorker {
       }
     }
 
-    prewarm_inactive_sources(&processor, shared_state, warm_devices);
     broadcast_device_status(shared_state, broadcast_tx);
   }
 
@@ -158,10 +160,7 @@ impl DeviceHealthWorker {
       tokio::time::sleep(Duration::from_millis(100)).await;
     } else {
       let current_state = shared_state.device_state.lock().unwrap().clone();
-      if current_state == "loading"
-        || current_state == "stale"
-        || current_state == "disconnected"
-      {
+      if should_ignore_read_error(&current_state, &e) {
         debug!(
           "Ignoring read error/timeout while device is in {} state: {}",
           current_state, e
@@ -170,18 +169,20 @@ impl DeviceHealthWorker {
         return;
       }
 
-      // A reader failure is not proof of USB removal. Mark the stream
-      // stale so the frontend stops treating old frames as current,
-      // while the hotplug monitor independently checks for a real
-      // disconnect and keeps the reconnect path available.
-      if let Some(read_state) = read_failure_state(&current_state) {
-        if current_state != read_state {
-          shared_state.set_device_state(read_state, None);
-          broadcast_device_status(&shared_state, &_broadcast_tx);
+      let streak = shared_state.record_health_failure();
+      // A reader failure is not proof of USB removal. Non-timeout errors and
+      // debounced timeout failures mark the stream stale, while transient
+      // async sample timeouts keep the current presentation alive and let the
+      // recovery counter reach the reader-restart path.
+      if should_mark_read_error_stale(&e, streak) {
+        if let Some(read_state) = read_failure_state(&current_state) {
+          if current_state != read_state {
+            shared_state.set_device_state(read_state, None);
+            broadcast_device_status(&shared_state, &_broadcast_tx);
+          }
         }
       }
 
-      let streak = shared_state.record_health_failure();
       let recovery_count =
         shared_state.recovery_attempts.load(Ordering::Relaxed);
 
@@ -193,6 +194,12 @@ impl DeviceHealthWorker {
         crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
         e,
       );
+
+      // Publish the liveness snapshot on every read failure. The source
+      // payload computes `receiving` from a recent successful frame, so this
+      // lets clients leave Receiving as soon as that proof expires instead of
+      // waiting for the debounced recovery transition.
+      broadcast_device_status(&shared_state, &_broadcast_tx);
 
       if let Some(last_failed) = hotplug_state.last_failure_at {
         if last_failed.elapsed() < hotplug_state.retry_cooldown {
@@ -275,14 +282,6 @@ impl DeviceHealthWorker {
           supported_device_present,
         );
         if matches!(
-          reader_recovery_action,
-          ReaderRecoveryAction::WaitForReaderShutdown
-        ) {
-          warn!("RTL-SDR reader is still stopping; waiting before any reopen");
-          shared_state.set_device_state("stale", None);
-          shared_state.set_device_backend_error(Some(e.to_string()));
-          broadcast_device_status(&shared_state, &_broadcast_tx);
-        } else if matches!(
           reader_recovery_action,
           ReaderRecoveryAction::RestartReader
         ) {

@@ -16,6 +16,7 @@ import { SignalDisplaySection } from "@n-apt/spectrum/public/SignalDisplaySectio
 import { SourceSettingsSection } from "@n-apt/spectrum/public/SourceSettingsSection";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
+import { DEMOD_REQUIRED_TEMPORAL_RESOLUTION } from "@n-apt/demodulation/utils/demodQuality";
 import {
   resolveSourceDisplaySampleRate,
   resolveSourceDisplaySignalArea,
@@ -107,6 +108,11 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   });
   const { sdrSettings, backend, deviceProfile, sampleRateOptions } =
     wsConnection;
+
+  React.useEffect(() => {
+    dispatch(setTemporalResolution(DEMOD_REQUIRED_TEMPORAL_RESOLUTION));
+  }, [dispatch]);
+
   const sourceSdrSettings = roleSource?.sdr.settings ?? sdrSettings;
   const sourceBackend = roleSource?.kind ?? backend;
   const sourceSampleRate = resolveSourceDisplaySampleRate({
@@ -147,7 +153,8 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const settings = useSdrSettings({
     maxSampleRate: sourceMaxSampleRate,
     currentSampleRateHz: sourceSampleRateValue,
-    minReceiveSampleRate: sourceSdrSettings?.min_receive_sample_rate ?? undefined,
+    minReceiveSampleRate:
+      sourceSdrSettings?.min_receive_sample_rate ?? undefined,
     sampleRateOptions: sourceSampleRateOptions,
     sdrSettings: sourceSdrSettings,
     deviceType: roleSource?.kind ?? deviceProfile?.kind,
@@ -192,7 +199,9 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         variant="default"
         sourceMode="live"
         maxSampleRate={sourceMaxSampleRate}
-        minReceiveSampleRate={sourceSdrSettings?.min_receive_sample_rate ?? undefined}
+        minReceiveSampleRate={
+          sourceSdrSettings?.min_receive_sample_rate ?? undefined
+        }
         sampleRate={sourceSampleRateValue}
         sampleRateOptions={settings.sampleRateOptions}
         wholeChannelSampleRate={wholeChannelSampleRate}

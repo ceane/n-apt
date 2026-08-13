@@ -222,13 +222,20 @@ export const resolveRenderableFrequencyRange = ({
   hardwareSampleRateHz?: number | null;
   preferRequestedRange?: boolean;
 }): { min: number; max: number } => {
-  const requestedSpan = requestedRange.max - requestedRange.min;
+  const positiveRequestedRange =
+    requestedRange.min < 0
+      ? {
+          min: 0,
+          max: requestedRange.max - requestedRange.min,
+        }
+      : requestedRange;
+  const requestedSpan = positiveRequestedRange.max - positiveRequestedRange.min;
   if (
     Number.isFinite(requestedSpan) &&
     requestedSpan > 0 &&
     preferRequestedRange
   ) {
-    return requestedRange;
+    return positiveRequestedRange;
   }
 
   const sampleRate =
@@ -242,10 +249,13 @@ export const resolveRenderableFrequencyRange = ({
     requestedSpan > 0 &&
     requestedSpan <= sampleRate + SAMPLE_RATE_TOLERANCE_HZ
   ) {
-    return requestedRange;
+    return positiveRequestedRange;
   }
 
-  return { min: requestedRange.min, max: requestedRange.min + sampleRate };
+  return {
+    min: positiveRequestedRange.min,
+    max: positiveRequestedRange.min + sampleRate,
+  };
 };
 
 export const clampFrequencyRangeToHardwareWindow = ({

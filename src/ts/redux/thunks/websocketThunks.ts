@@ -11,6 +11,7 @@ import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
+import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 import {
   isHackrfDevice,
   isRtlSdrDevice,
@@ -28,7 +29,12 @@ const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
 ): { min_hz: number; max_hz: number; center_frequency: number } => {
-  const normalizedRange = normalizeFrequencyRangeToHz(range);
+  // Negative frequencies are a presentation-only mirrored baseband axis.
+  // Convert them to the positive acquisition window before crossing the
+  // WebSocket boundary; the Rust protocol represents absolute RF Hz.
+  const normalizedRange = normalizePositiveHardwareRange(
+    normalizeFrequencyRangeToHz(range),
+  );
   const center_frequency = getFrequencyRangeCenterHz(normalizedRange);
   return {
     min_hz: normalizedRange.min,
@@ -261,17 +267,21 @@ export const sendCenterFrequency = createAsyncThunk(
   async (centerHz: number, { dispatch, getState }) => {
     const state = getState() as RootState;
     const sampleRateHz = getSampleRateHz(state);
-    const data = sampleRateHz
+    const requestedRange = sampleRateHz
       ? {
-          min_hz: Math.round(centerHz - sampleRateHz / 2),
-          max_hz: Math.round(centerHz + sampleRateHz / 2),
-          center_frequency: Math.round(centerHz),
+          min: centerHz - sampleRateHz / 2,
+          max: centerHz + sampleRateHz / 2,
         }
-      : {
-          min_hz: Math.round(centerHz),
-          max_hz: Math.round(centerHz),
-          center_frequency: Math.round(centerHz),
-        };
+      : { min: centerHz, max: centerHz };
+    const hardwareRange = normalizePositiveHardwareRange(requestedRange);
+    const data = {
+      min_hz: Math.round(hardwareRange.min),
+      max_hz: Math.round(hardwareRange.max),
+      center_frequency: getFrequencyRangeCenterHz({
+        min: Math.round(hardwareRange.min),
+        max: Math.round(hardwareRange.max),
+      }),
+    };
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",

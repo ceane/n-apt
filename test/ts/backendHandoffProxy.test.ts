@@ -94,6 +94,52 @@ describe("backend handoff target store", () => {
     second.backend.close();
   });
 
+  it("forwards client messages sent before the upstream websocket opens", async () => {
+    const { createBackendHandoffProxy, writeBackendTarget } = require("../../scripts/build/backend-handoff-proxy");
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "n-apt-handoff-"));
+    directories.push(directory);
+    const targetFile = path.join(directory, "backend-target.json");
+    const backend = http.createServer();
+    const upstream = new WebSocketServer({ noServer: true });
+    upstream.on("connection", (socket: WsWebSocket) => {
+      socket.on("message", (message: RawData) => socket.send(message));
+    });
+    backend.on("upgrade", (request, socket, head) => {
+      setTimeout(() => upstream.handleUpgrade(request, socket, head, (client) => {
+        upstream.emit("connection", client, request);
+      }), 100);
+    });
+    const backendPort = await listen(backend);
+    writeBackendTarget(targetFile, { host: "127.0.0.1", port: backendPort });
+    const proxy = createBackendHandoffProxy({ listenPort: 0, targetFile });
+    const proxyPort = await listen(proxy);
+
+    const client = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws/streams`);
+    await new Promise<void>((resolve, reject) => {
+      client.once("open", () => resolve());
+      client.once("error", reject);
+    });
+    client.send("stream_subscribe");
+
+    const message = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("upstream did not receive buffered websocket message")), 2000);
+      client.once("message", (data: RawData) => {
+        clearTimeout(timer);
+        resolve(String(data));
+      });
+      client.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    expect(message).toBe("stream_subscribe");
+
+    client.close();
+    proxy.close();
+    upstream.close();
+    backend.close();
+  });
+
   it("closes proxied websockets when the backend target changes", async () => {
     const { createBackendHandoffProxy, writeBackendTarget } = require("../../scripts/build/backend-handoff-proxy");
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "n-apt-handoff-"));

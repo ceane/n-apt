@@ -111,10 +111,24 @@ export function createBackendHandoffProxy(options: {
       const upstream = new wsTypes.WebSocket(targetUrl(selectedTarget, "ws", request.url || "/"), {
         headers: { ...request.headers, host: `${selectedTarget.host}:${selectedTarget.port}` },
       });
+      const pendingClientMessages: Array<{ data: Buffer; isBinary: boolean }> = [];
       proxiedSockets.add(client);
       proxiedSockets.add(upstream);
 
+      // The client-side upgrade completes before the upstream connection is
+      // necessarily open. Browser stream transports send their first
+      // subscription immediately from onopen, so dropping CONNECTING-state
+      // messages leaves a perfectly healthy backend with no logical stream.
+      upstream.on("open", () => {
+        for (const message of pendingClientMessages.splice(0)) {
+          if (upstream.readyState === wsTypes.WebSocket.OPEN) {
+            upstream.send(message.data, { binary: message.isBinary });
+          }
+        }
+      });
+
       const closeBoth = () => {
+        pendingClientMessages.length = 0;
         proxiedSockets.delete(client);
         proxiedSockets.delete(upstream);
         if (client.readyState === wsTypes.WebSocket.OPEN || client.readyState === wsTypes.WebSocket.CONNECTING) client.close();
@@ -122,6 +136,7 @@ export function createBackendHandoffProxy(options: {
       };
       client.on("message", (data: Buffer, isBinary: boolean) => {
         if (upstream.readyState === wsTypes.WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+        else if (upstream.readyState === wsTypes.WebSocket.CONNECTING) pendingClientMessages.push({ data, isBinary });
       });
       upstream.on("message", (data: Buffer, isBinary: boolean) => {
         if (client.readyState === wsTypes.WebSocket.OPEN) client.send(data, { binary: isBinary });

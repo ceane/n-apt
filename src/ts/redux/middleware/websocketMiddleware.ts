@@ -430,17 +430,6 @@ const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
-const RETUNE_CENTER_TOLERANCE_HZ = 10;
-const RETUNE_WATCHDOG_GRACE_MS = 500;
-const RETUNE_WATCHDOG_MIN_MISMATCH_FRAMES = 8;
-const RETUNE_WATCHDOG_RESEND_MS = 1000;
-let lastFrequencyRangeRequest: {
-  data: any;
-  centerHz: number;
-  requestedAt: number;
-  lastResendAt: number;
-  mismatchFrames: number;
-} | null = null;
 let lastFrequencyRangeSendKey: string | null = null;
 let lastFrequencyRangeSendAt = 0;
 
@@ -524,7 +513,6 @@ export const resetPausedFrameRequestGate = (): void => {
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
   lastSettingsRequest = null;
-  lastFrequencyRangeRequest = null;
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
   pendingDataUpdate = null;
@@ -860,6 +848,30 @@ const getPauseDuplexMode = (payload: unknown): string | null => {
   return null;
 };
 
+const getPauseActiveMode = (payload: unknown): string | null => {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "activeMode" in payload &&
+    typeof (payload as { activeMode?: unknown }).activeMode === "string" &&
+    (payload as { activeMode: string }).activeMode.trim().length > 0
+  ) {
+    return (payload as { activeMode: string }).activeMode;
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "active_mode" in payload &&
+    typeof (payload as { active_mode?: unknown }).active_mode === "string" &&
+    (payload as { active_mode: string }).active_mode.trim().length > 0
+  ) {
+    return (payload as { active_mode: string }).active_mode;
+  }
+
+  return null;
+};
+
 const getPauseSourceId = (payload: unknown): string | null => {
   if (
     payload &&
@@ -884,8 +896,6 @@ const getPauseSourceId = (payload: unknown): string | null => {
   return null;
 };
 
-export const isFrameStale = (_centerFrequencyHz: number): boolean => false;
-
 export const getFrequencyRequestCenterHz = (
   type: string,
   data: any,
@@ -906,68 +916,6 @@ export const getFrequencyRequestCenterHz = (
   }
 
   return null;
-};
-
-export const shouldResendRetuneRequest = ({
-  expectedCenterHz,
-  frameCenterHz,
-  requestedAt,
-  lastResendAt,
-  mismatchFrames,
-  now,
-}: {
-  expectedCenterHz: number;
-  frameCenterHz: number;
-  requestedAt: number;
-  lastResendAt: number;
-  mismatchFrames: number;
-  now: number;
-}): boolean => {
-  if (
-    Math.abs(frameCenterHz - expectedCenterHz) <= RETUNE_CENTER_TOLERANCE_HZ
-  ) {
-    return false;
-  }
-  if (now - requestedAt < RETUNE_WATCHDOG_GRACE_MS) {
-    return false;
-  }
-  if (mismatchFrames < RETUNE_WATCHDOG_MIN_MISMATCH_FRAMES) {
-    return false;
-  }
-  return now - lastResendAt >= RETUNE_WATCHDOG_RESEND_MS;
-};
-
-const trackFrequencyRangeRequest = (type: string, data: any) => {
-  const centerHz = getFrequencyRequestCenterHz(type, data);
-  if (centerHz === null) return;
-
-  const requestKey = JSON.stringify({
-    type,
-    centerHz,
-    min_hz: Number(data?.min_hz ?? data?.min_freq ?? null),
-    max_hz: Number(data?.max_hz ?? data?.max_freq ?? null),
-    bandwidth_center_frequency: Number(
-      data?.bandwidth_center_frequency ?? null,
-    ),
-  });
-
-  const now = Date.now();
-  if (
-    lastFrequencyRangeSendKey === requestKey &&
-    now - lastFrequencyRangeSendAt < DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS
-  ) {
-    return;
-  }
-  lastFrequencyRangeSendKey = requestKey;
-  lastFrequencyRangeSendAt = now;
-
-  lastFrequencyRangeRequest = {
-    data,
-    centerHz,
-    requestedAt: Date.now(),
-    lastResendAt: 0,
-    mismatchFrames: 0,
-  };
 };
 
 const getPersistedActiveSignalArea = (sourceId: string): string | null => {
@@ -1024,54 +972,16 @@ const shouldClearStaleSpectrumFrames = (
 
 const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
   liveDataRef.current = null;
+  // Source-scoped refs are an alternate renderer path. Drop the map itself
+  // so frameRuntime cannot resolve a stale mutable ref after a source switch.
+  liveDataBySourceRef.current = {};
+  sourceVisualizationRuntime.clear();
+  sourceSpectrumRuntime.clear();
   demodFrameQueue.clear();
   dispatch(setSpectrumFrames([]));
 };
 
-const checkRetuneWatchdog = (frameCenterHz: number) => {
-  const request = lastFrequencyRangeRequest;
-  if (!request || !Number.isFinite(frameCenterHz)) return;
-
-  if (
-    Math.abs(frameCenterHz - request.centerHz) <= RETUNE_CENTER_TOLERANCE_HZ
-  ) {
-    lastFrequencyRangeRequest = null;
-    return;
-  }
-
-  request.mismatchFrames += 1;
-  const now = Date.now();
-  if (
-    shouldResendRetuneRequest({
-      expectedCenterHz: request.centerHz,
-      frameCenterHz,
-      requestedAt: request.requestedAt,
-      lastResendAt: request.lastResendAt,
-      mismatchFrames: request.mismatchFrames,
-      now,
-    }) &&
-    wsInstance.ws &&
-    wsInstance.ws.readyState === WebSocket.OPEN
-  ) {
-    wsInstance.ws.send(
-      JSON.stringify({ type: "frequency_range", ...request.data }),
-    );
-    request.lastResendAt = now;
-  }
-};
-
 const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
-  const centerFrequencyHz = data?.center_frequency_hz;
-  if (typeof centerFrequencyHz === "number") {
-    checkRetuneWatchdog(centerFrequencyHz);
-  }
-  if (
-    typeof centerFrequencyHz === "number" &&
-    isFrameStale(centerFrequencyHz)
-  ) {
-    return;
-  }
-
   // Keep demodulation independent from the one-frame visualizer retention
   // policy below. Audio processing may poll less often than requestAnimationFrame,
   // so dropping frames here creates audible gaps even when the visualizer is smooth.
@@ -1544,7 +1454,6 @@ const cleanupSocket = () => {
 
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
-  lastFrequencyRangeRequest = null;
   pendingDataUpdate = null;
   pendingStatusUpdates = null;
   liveDataRef.current = null;
@@ -2513,8 +2422,6 @@ const createWebSocketMiddleware =
         if (shouldSuppressDuplicateFrequencyRangeSend(type, normalizedData)) {
           return next(action);
         }
-        trackFrequencyRangeRequest(type, normalizedData);
-
         // Track intended FFT size to prevent clobbering from status broadcasts
         const requestedFftSize =
           normalizedData?.fft_size ??
@@ -2566,6 +2473,12 @@ const createWebSocketMiddleware =
               }),
             );
           }
+          // Source selection is a hard presentation ownership boundary. The
+          // old source may be paused, but its frame must not remain in the
+          // shared legacy ref while React and the replacement transport catch
+          // up; otherwise it can flash once under the new source header.
+          clearLiveSpectrumFrames(dispatch);
+          pendingDataUpdate = null;
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
           if (requestedSourceId) {
@@ -2578,10 +2491,6 @@ const createWebSocketMiddleware =
               requestedSourceId,
               isTx ? "tx" : "rx",
             );
-            pendingDataUpdate = null;
-            // Keep the last live frame in the mutable ref across selection.
-            // Nulling here forced a black FFT before the target preview/stream
-            // frame arrived; the canvas rejects foreign source_ids instead.
             dispatch(updateDeviceState({ sourceFrameReadiness: null }));
             publishSourceTransport(
               dispatch,
@@ -2641,7 +2550,9 @@ const createWebSocketMiddleware =
 
         if (sourceId) {
           const duplexMode = getPauseDuplexMode(action.payload);
-          const mode = duplexMode === "tx" ? "tx" : "rx";
+          const activeMode = getPauseActiveMode(action.payload);
+          const mode =
+            duplexMode === "tx" || activeMode === "tx" ? "tx" : "rx";
           presentationController.setPaused(sourceId, mode, isPaused);
         }
 

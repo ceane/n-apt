@@ -65,6 +65,7 @@ import {
   newestIqWindow,
   prepareSpectrumRenderData,
   resolveLiveSpectrumPaintContract,
+  resolveRetunePresentationOffsetHz,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
   shouldAdoptLiveFrameRange,
@@ -3620,8 +3621,21 @@ const FFTCanvas = memo(
           // resident acquisition. The shader floors only bins that are truly
           // uncovered inside a row that is otherwise safe to paint.
           const { visualRange, coversDisplay } = preparedSpectrum;
+          const presentationOffsetHz =
+            allowNegativeFrequencies &&
+            displayRangeNeedsBasebandMirror(visualRange) &&
+            coversDisplay
+              ? 0
+              : resolveRetunePresentationOffsetHz({
+                  frameCenterHz: currentFrame?.center_frequency_hz,
+                  frameSampleRateHz: currentFrame?.sample_rate,
+                  requestedRange: visualRange,
+                  isTxPreviewFrame,
+                });
           const holdUncoveredPaint = shouldHoldLiveSpectrumPaint({
             coversDisplay,
+            presentationOffsetHz,
+            displayMinHz: visualRange.min,
           });
           // Keep the pan the gesture/tune requested. Writing clampedPan back
           // into the ref on the mirror-off path froze the spectrum: every
@@ -3689,6 +3703,9 @@ const FFTCanvas = memo(
               sourceFrequencyRange: resampleOnGpu
                 ? sourceFrequencyRange
                 : undefined,
+              presentationOffsetHz: resampleOnGpu
+                ? presentationOffsetHz
+                : 0,
               mirrorEnabled: gpuMirrorActive,
               reuseWaveformUpload: resampleOnGpu,
               fftMin: activeScaleDbMinRef.current,
