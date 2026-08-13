@@ -72,12 +72,14 @@ export const getStableVizPanForZoomChange = ({
   nextZoom,
   rangeMin,
   rangeMax,
+  allowNegativeFrequencies = false,
 }: {
   currentZoom: number;
   currentPan: number;
   nextZoom: number;
   rangeMin: number;
   rangeMax: number;
+  allowNegativeFrequencies?: boolean;
 }) => {
   const fullSpan = rangeMax - rangeMin;
   if (!Number.isFinite(fullSpan) || fullSpan <= 0) {
@@ -86,13 +88,18 @@ export const getStableVizPanForZoomChange = ({
 
   const safeNextZoom = Number.isFinite(nextZoom) && nextZoom > 0 ? nextZoom : 1;
 
-  if (safeNextZoom <= 1) {
-    return 0;
-  }
-
   const nextVisualSpan = fullSpan / safeNextZoom;
-  const nextMaxPan = Math.max(0, fullSpan / 2 - nextVisualSpan / 2);
-  return clamp(currentPan, -nextMaxPan, nextMaxPan);
+  const center = (rangeMin + rangeMax) / 2;
+  const lowerDisplayBound = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : rangeMin;
+  const minPan = Number.isFinite(lowerDisplayBound)
+    ? lowerDisplayBound + nextVisualSpan / 2 - center
+    : Number.NEGATIVE_INFINITY;
+  const maxPan = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : rangeMax - nextVisualSpan / 2 - center;
+  return clamp(currentPan, minPan, maxPan);
 };
 
 export const getRetunedVizPanForZoomChange = ({

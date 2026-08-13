@@ -1182,9 +1182,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxSampleRateHz: isHackrfOne
       ? Math.max(sampleRateControlMaximumHz ?? 0, 20_000_000)
       : sampleRateControlMaximumHz,
-    activeSignalAreaBounds: allowNegativeFrequencies
-      ? null
-      : activeSignalAreaBounds,
+    activeSignalAreaBounds,
     frequencyRange,
     sampleRateHz: sampleRateHzLocal,
     fftSize,
@@ -2330,14 +2328,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sampleRateHzLocal > 0
         ? sampleRateHzLocal
         : null;
-    const hardwareSpan = allowNegativeFrequencies
-      ? (configuredSampleRate ?? Math.max(0, fallbackSpan))
-      : configuredSampleRate
-        ? Math.min(
-            configuredSampleRate,
-            Math.max(0, hardwareMax - hardwareMin || fallbackSpan),
-          )
-        : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
+    const hardwareSpan = configuredSampleRate
+      ? Math.min(
+          configuredSampleRate,
+          Math.max(0, hardwareMax - hardwareMin || fallbackSpan),
+        )
+      : Math.max(0, hardwareMax - hardwareMin || fallbackSpan);
 
     const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
     if (hardwareSpan <= 0) {

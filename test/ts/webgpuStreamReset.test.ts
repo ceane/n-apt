@@ -297,7 +297,7 @@ describe("WebGPU stream reset", () => {
     ).toBe(false);
   });
 
-  test("retains the painted graph across Mock APT → Mock Tx selection", () => {
+  test("resets the live ref when Mock APT → Mock Tx selection changes", () => {
     const selection = resolveWebGpuStreamTransition(
       {
         sourceId: "mock-apt",
@@ -311,8 +311,8 @@ describe("WebGPU stream reset", () => {
       },
     );
     expect(selection).toEqual({
-      clearLiveFrame: false,
-      advanceResetEpoch: false,
+      clearLiveFrame: true,
+      advanceResetEpoch: true,
     });
 
     const commit = resolveWebGpuStreamTransition(
@@ -330,6 +330,26 @@ describe("WebGPU stream reset", () => {
     expect(commit).toEqual({
       clearLiveFrame: false,
       advanceResetEpoch: false,
+    });
+  });
+
+  test("invalidates the painted graph at every source selection boundary", () => {
+    expect(
+      resolveWebGpuStreamTransition(
+        {
+          sourceId: "mock-apt",
+          selectedSourceId: "mock-apt",
+          status: "paused",
+        },
+        {
+          sourceId: "mock-apt",
+          selectedSourceId: "rtl-sdr-00000001",
+          status: "loading",
+        },
+      ),
+    ).toEqual({
+      clearLiveFrame: true,
+      advanceResetEpoch: true,
     });
   });
 

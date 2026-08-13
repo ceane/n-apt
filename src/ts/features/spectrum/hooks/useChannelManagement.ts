@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import {
   useAppDispatch,
   setSignalAreaAndRange,
+  setVizPan,
   tuneToChannels,
 } from "@n-apt/redux";
 import { useOptionalSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -41,6 +42,11 @@ export const useChannelTuner = (
           range,
         }),
       );
+      // A channel tune establishes a new positive acquisition window. Any
+      // pan from the previously selected channel is display-relative state
+      // and would otherwise place the new source off-screen (often leaving a
+      // floor-only frame until the user manually pans back).
+      reduxDispatch(setVizPan(0));
 
       const targetSampleRate = sampleRateOverride ?? primary.targetSampleRate;
       if (

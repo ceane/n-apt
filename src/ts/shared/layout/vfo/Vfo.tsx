@@ -56,8 +56,8 @@ const DomVfo = styled.div<{ $orientation: VfoOrientation; $state: VfoVisualState
   height: 42px;
   min-height: 42px;
   flex: 0 0 42px;
-  min-height: 56px;
   box-sizing: border-box;
+  overflow: visible;
   color: ${({ theme }) => theme.colors?.textPrimary ?? "#e2e8f0"};
   font-family: ${({ theme }) => theme.typography?.mono ?? "monospace"};
   border-${({ $orientation }) => ($orientation === "top" ? "top" : "bottom")}: 1px solid ${({ theme }) => theme.colors?.border ?? "#334155"};
@@ -102,16 +102,11 @@ const TickLabel = styled.span<{
 `;
 
 const CenterLabel = styled.span<{
-  $cursorMotion: boolean;
-  $offset: number;
   $orientation: VfoOrientation;
 }>`
-  position: absolute;
-  left: 50%;
-  top: ${({ $orientation }) => ($orientation === "top" ? "auto" : "8px")};
-  bottom: ${({ $orientation }) => ($orientation === "top" ? "8px" : "auto")};
-  transform: ${({ $cursorMotion, $offset }) =>
-    `translateX(calc(-50% + ${$cursorMotion ? $offset : 0}px))`};
+  position: relative;
+  top: auto;
+  bottom: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -120,6 +115,32 @@ const CenterLabel = styled.span<{
   font-weight: 800;
   white-space: nowrap;
   z-index: 1;
+`;
+
+const CenterRow = styled.div`
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  pointer-events: none;
+  z-index: 1;
+`;
+
+const CursorLine = styled.span<{ $offset: number }>`
+  position: absolute;
+  left: calc(50% + ${({ $offset }) => $offset}px);
+  top: 50%;
+  height: 24px;
+  width: 1px;
+  transform: translate(-50%, -50%);
+  background: ${({ theme }) => theme.colors?.primary ?? "#00d4ff"};
+  pointer-events: none;
+  z-index: 3;
 `;
 
 const CenterStatus = styled.span`
@@ -147,7 +168,7 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
   options,
   frequencyRange,
   centerFrequencyHz,
-    accessory,
+  accessory,
   cursorOffsetPx = 0,
   visualState: _visualState,
   drawingType: _drawingType,
@@ -178,6 +199,41 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
     values.push(frequencyRange.max);
     return values;
   }, [frequencyRange.max, frequencyRange.min, options.tickPrecision, span]);
+  const visibleTicks = useMemo(() => {
+    if (ticks.length <= 2) return ticks.map((frequencyHz, index) => ({ frequencyHz, index }));
+
+    const edgeReservePx = 70;
+    const centerReservePx = 150;
+    const estimatedWidthPx = (frequencyHz: number) =>
+      Math.max(28, formatDomFrequency(frequencyHz).length * 7);
+    const toPx = (frequencyHz: number) =>
+      span > 0 ? ((frequencyHz - frequencyRange.min) / span) * 640 : 320;
+    const occupied = [
+      { start: 0, end: edgeReservePx },
+      { start: 640 - edgeReservePx, end: 640 },
+      {
+        start: 320 - centerReservePx / 2,
+        end: 320 + centerReservePx / 2,
+      },
+    ];
+    const visible = ticks.map((frequencyHz, index) => {
+      if (index === 0 || index === ticks.length - 1) {
+        return { frequencyHz, index };
+      }
+      const centerPx = toPx(frequencyHz);
+      const halfWidth = estimatedWidthPx(frequencyHz) / 2;
+      const candidate = { start: centerPx - halfWidth, end: centerPx + halfWidth };
+      const collides = occupied.some(
+        (rect) => candidate.start < rect.end && candidate.end > rect.start,
+      );
+      if (collides) return null;
+      occupied.push(candidate);
+      return { frequencyHz, index };
+    });
+    return visible.filter(
+      (tick): tick is { frequencyHz: number; index: number } => tick !== null,
+    );
+  }, [frequencyRange.min, span, ticks]);
 
   return (
     <DomVfo
@@ -192,7 +248,7 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
       $state={options.visualState}
     >
       <AxisLine $orientation={options.orientation} />
-      {ticks.map((frequencyHz, index) => {
+      {visibleTicks.map(({ frequencyHz, index }) => {
         const left = span > 0 ? ((frequencyHz - frequencyRange.min) / span) * 100 : 50;
         const edge = index === 0 ? "left" : index === ticks.length - 1 ? "right" : undefined;
         return (
@@ -202,24 +258,37 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
               $left={left}
               $edge={edge}
               $orientation={options.orientation}
+              data-testid={edge ? `unified-vfo-edge-${edge}` : undefined}
             >
               {formatDomFrequency(frequencyHz)}
             </TickLabel>
           </React.Fragment>
         );
       })}
-      <CenterLabel
-        $cursorMotion={options.cursorMotion}
-        $offset={cursorOffsetPx}
-        $orientation={options.orientation}
+      {options.cursorMotion ? (
+        <CursorLine
+          data-testid="unified-vfo-cursor-line"
+          data-offset-px={cursorOffsetPx}
+          data-vertical-alignment="center"
+          $offset={cursorOffsetPx}
+        />
+      ) : null}
+      <CenterRow
+        data-testid="unified-vfo-center-row"
+        data-vertical-alignment="center"
       >
-        <span>○ {formatDomFrequency(center)}</span>
-        {accessory ? (
-          <CenterStatus data-testid="unified-vfo-status">
-            {accessory}
-          </CenterStatus>
-        ) : null}
-      </CenterLabel>
+        <CenterLabel
+          $orientation={options.orientation}
+          data-testid="unified-vfo-center-label"
+        >
+          <span>○ {formatDomFrequency(center)}</span>
+          {accessory ? (
+            <CenterStatus data-testid="unified-vfo-status">
+              {accessory}
+            </CenterStatus>
+          ) : null}
+        </CenterLabel>
+      </CenterRow>
     </DomVfo>
   );
 };

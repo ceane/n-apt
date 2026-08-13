@@ -1,3 +1,5 @@
+import { extendSpectrumBelowZero } from "@n-apt/math/basebandMirror";
+
 export const DEFAULT_WATERFALL_FLOOR_DB = -200;
 
 export const peakResampleWaterfallRow = (
@@ -34,6 +36,29 @@ export const peakResampleWaterfallRow = (
 
   return target;
 };
+
+/** Maps the live acquisition onto the displayed frequency axis, including |f|. */
+export const resolveWaterfallDisplayRow = ({
+  sourceWaveform,
+  sourceRange,
+  displayRange,
+  target,
+  floorDb = DEFAULT_WATERFALL_FLOOR_DB,
+}: {
+  sourceWaveform: Float32Array;
+  sourceRange: { min: number; max: number };
+  displayRange: { min: number; max: number };
+  target: Float32Array;
+  floorDb?: number;
+}): Float32Array =>
+  extendSpectrumBelowZero({
+    spectrum: sourceWaveform,
+    sourceRange,
+    displayRange,
+    outputLength: target.length,
+    floorDb,
+    target,
+  });
 
 export const copyValidWaterfallRow = (
   source: Float32Array,

@@ -2,12 +2,16 @@ import React, { useEffect, useRef } from "react";
 import { styled } from "styled-components";
 import { FrequencyInput } from "./FrequencyInput";
 
+const MAX_CENTER_FREQUENCY_HZ = 30_000_000_000;
+
 interface EditableCenterFrequencyProps {
   centerFrequencyHz: number;
   onCenterFrequencyChange: (centerFrequencyHz: number) => void;
   onClose: () => void;
   className?: string;
   placement?: "top" | "bottom";
+  /** When mirror-below-0Hz is on, allow typing a negative display center. */
+  allowNegativeFrequencies?: boolean;
 }
 
 const logEditableCenterFrequencyEvent = (
@@ -124,8 +128,10 @@ export const EditableCenterFrequency: React.FC<
   onClose,
   className,
   placement = "bottom",
+  allowNegativeFrequencies = false,
 }) => {
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const minHz = allowNegativeFrequencies ? -MAX_CENTER_FREQUENCY_HZ : 0;
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -163,8 +169,8 @@ export const EditableCenterFrequency: React.FC<
           <CenterFrequencyField
             valueHz={centerFrequencyHz}
             onChangeHz={commitCenterFrequency}
-            minHz={0}
-            maxHz={30_000_000_000}
+            minHz={minHz}
+            maxHz={MAX_CENTER_FREQUENCY_HZ}
             placeholder="x.xxx.xxx"
             autoFocus
             commitOnBlur

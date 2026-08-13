@@ -1,6 +1,29 @@
-import { getWaterfallMotion } from "@n-apt/spectrum/utils/waterfallMotion";
+import {
+  getWaterfallMotion,
+  shouldAppendWaterfallRow,
+} from "@n-apt/spectrum/utils/waterfallMotion";
 
 describe("getWaterfallMotion", () => {
+  test("does not append a history row for a presentation-only pan", () => {
+    expect(
+      shouldAppendWaterfallRow({
+        hasNewData: false,
+        isStandby: false,
+        isTxPreviewFrame: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("appends a row when a new FFT frame arrives", () => {
+    expect(
+      shouldAppendWaterfallRow({
+        hasNewData: true,
+        isStandby: false,
+        isTxPreviewFrame: false,
+      }),
+    ).toBe(true);
+  });
+
   test("does not request a motion row without a previous range", () => {
     expect(
       getWaterfallMotion({

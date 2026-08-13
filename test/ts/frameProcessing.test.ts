@@ -1,11 +1,18 @@
 import {
   accumulateFullChannelWaveform,
   prepareSpectrumRenderData,
+  resolveLiveSpectrumCoordinateModel,
+  resolveLiveSpectrumPaintContract,
+  shouldClearSpectrumWaveformForRangeChange,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
   shouldPresentSpectrumFrameForRange,
+  shouldAdoptLiveFrameRange,
+  shouldKeepPaintingThroughRetune,
+  shouldHoldLiveSpectrumPaint,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
+import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
 
 function createState() {
   return {
@@ -112,6 +119,82 @@ describe("resolveSpectrumWaveform", () => {
 });
 
 describe("prepareSpectrumRenderData", () => {
+  it("keeps ordinary live pan and zoom resampling on WebGPU", () => {
+    const waveform = new Float32Array([1, 2, 3, 4]);
+    const getZoomedData = jest.fn(() => {
+      throw new Error("live WebGPU rendering must not CPU-slice the FFT");
+    });
+
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: { min: 100, max: 200 },
+      zoom: 2,
+      panOffset: 20,
+      invert: false,
+      dbMin: -120,
+      dbMax: 0,
+      resampleOnGpu: true,
+      getZoomedData,
+    });
+
+    expect(getZoomedData).not.toHaveBeenCalled();
+    expect(result.spectrumWaveform).toBe(waveform);
+    expect(result.visualRange).toEqual({ min: 145, max: 195 });
+    expect(result.clampedPan).toBe(20);
+  });
+
+  it("keeps mirror-enabled positive viewport resampling on the GPU", () => {
+    const waveform = new Float32Array([1, 2, 3, 4]);
+    const getZoomedData = jest.fn(() => {
+      throw new Error("mirror-enabled WebGPU must own viewport resampling");
+    });
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: { min: 0, max: 100 },
+      sourceFrequencyRange: { min: 0, max: 100 },
+      zoom: 2,
+      panOffset: 0,
+      invert: false,
+      dbMin: -120,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      getZoomedData,
+    });
+
+    expect(getZoomedData).not.toHaveBeenCalled();
+    expect(result.spectrumWaveform).toBe(waveform);
+    expect(result.slicedWaveform).toBe(waveform);
+    expect(result.visualRange).toEqual({ min: 25, max: 75 });
+  });
+
+  it("does not run the CPU zoom/slice when the GPU owns mirror resampling", () => {
+    const waveform = new Float32Array([1, 2, 3, 4]);
+    const getZoomedData = jest.fn(() => {
+      throw new Error("the GPU mirror path must not slice on the CPU");
+    });
+
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: { min: 0, max: 100 },
+      sourceFrequencyRange: { min: 0, max: 100 },
+      zoom: 2,
+      panOffset: -60,
+      invert: false,
+      dbMin: -120,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      getZoomedData,
+    });
+
+    expect(getZoomedData).not.toHaveBeenCalled();
+    expect(result.spectrumWaveform).toBe(waveform);
+    expect(result.slicedWaveform).toBe(waveform);
+    expect(result.visualRange).toEqual({ min: -35, max: 15 });
+    expect(result.clampedPan).toBe(-60);
+  });
+
   it("preserves the zoom processor result and applies inversion when requested", () => {
     const result = prepareSpectrumRenderData({
       waveform: new Float32Array([1, 2]),
@@ -131,6 +214,398 @@ describe("prepareSpectrumRenderData", () => {
     expect(Array.from(result.spectrumWaveform)).toEqual([-11, -12]);
     expect(result.visualRange).toEqual({ min: 2, max: 8 });
     expect(result.clampedPan).toBe(0.25);
+  });
+
+  it("extends only the crossed negative viewport from positive source bins", () => {
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4]),
+      frequencyRange: { min: 0, max: 4 },
+      zoom: 1,
+      panOffset: -2,
+      invert: false,
+      dbMin: -150,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      getZoomedData: (
+        _waveform,
+        _range,
+        _zoom,
+        _pan,
+        _allowNegative,
+      ) => ({
+        slicedWaveform: new Float32Array(5),
+        visualRange: { min: -2, max: 2 },
+        clampedPan: -2,
+      }),
+    });
+
+    expect(Array.from(result.spectrumWaveform)).toEqual([2, 1, 0, 1, 2]);
+  });
+
+  it("resamples the mirror from the waveform axis after pan/zoom re-base", () => {
+    // Callers re-base Redux pan onto CF ± fs/2 before prepare. Geometry and
+    // source must share that axis — a stale start-anchored request is what
+    // produced the channel island.
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4]),
+      frequencyRange: { min: 10, max: 14 },
+      sourceFrequencyRange: { min: 10, max: 14 },
+      zoom: 1,
+      panOffset: -24,
+      invert: false,
+      dbMin: -150,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      getZoomedData: createFFTZoomProcessor(-200).process,
+    });
+
+    expect(result.visualRange).toEqual({ min: -14, max: -10 });
+    expect(Array.from(result.spectrumWaveform)).toEqual([4, 3, 2, 1, 0]);
+  });
+
+  it("anchors mirror geometry to the positive acquisition window", () => {
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4]),
+      // Pan is measured against the view base (= positive acquisition). A pan
+      // of -24 around center 12 lands the viewport on the reflection [-14, -10].
+      frequencyRange: { min: 10, max: 14 },
+      sourceFrequencyRange: { min: 10, max: 14 },
+      zoom: 1,
+      panOffset: -24,
+      invert: false,
+      dbMin: -150,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      getZoomedData: createFFTZoomProcessor(-200).process,
+    });
+
+    expect(result.visualRange).toEqual({ min: -14, max: -10 });
+    expect(Array.from(result.spectrumWaveform)).toEqual([4, 3, 2, 1, 0]);
+  });
+
+  it("uses the same acquisition origin on the GPU mirror path", () => {
+    const waveform = new Float32Array([0, 1, 2, 3, 4]);
+    const getZoomedData = jest.fn(() => {
+      throw new Error("GPU mirror geometry must not slice on the CPU");
+    });
+
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: { min: 10, max: 14 },
+      sourceFrequencyRange: { min: 10, max: 14 },
+      zoom: 1,
+      panOffset: -24,
+      invert: false,
+      dbMin: -150,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      getZoomedData,
+    });
+
+    expect(getZoomedData).not.toHaveBeenCalled();
+    expect(result.visualRange).toEqual({ min: -14, max: -10 });
+    expect(result.slicedWaveform).toBe(waveform);
+  });
+
+  it("keeps free pan above 0 Hz so positive tunes are not re-clamped", () => {
+    const getZoomedData = jest.fn(
+      (
+        waveform: Float32Array,
+        frequencyRange: { min: number; max: number },
+        zoom: number,
+        panOffset: number,
+        allowNegative?: boolean,
+      ) =>
+        createFFTZoomProcessor(-200).process(
+          waveform,
+          frequencyRange,
+          zoom,
+          panOffset,
+          allowNegative,
+        ),
+    );
+
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4]),
+      frequencyRange: { min: 10, max: 14 },
+      sourceFrequencyRange: { min: 10, max: 14 },
+      zoom: 2,
+      panOffset: -1.5,
+      invert: false,
+      dbMin: -150,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      getZoomedData,
+    });
+
+    // Viewport stays positive: the shader fold stays off, but the original
+    // acquisition remains on the GPU and only the viewport uniforms change.
+    expect(result.visualRange).toEqual({ min: 9.5, max: 11.5 });
+    expect(result.clampedPan).toBe(-1.5);
+    expect(getZoomedData).not.toHaveBeenCalled();
+    expect(result.spectrumWaveform).toEqual(new Float32Array([0, 1, 2, 3, 4]));
+  });
+
+  it("keeps available bins when only part of the mirrored viewport is uncovered", () => {
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4]),
+      frequencyRange: { min: 0, max: 4 },
+      sourceFrequencyRange: { min: 0, max: 4 },
+      zoom: 1,
+      panOffset: 0,
+      invert: false,
+      dbMin: -200,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      getZoomedData: () => ({
+        slicedWaveform: new Float32Array(4),
+        visualRange: { min: -6, max: 3 },
+        clampedPan: -3.5,
+      }),
+    });
+
+    expect(result.visualRange).toEqual({ min: -6, max: 3 });
+    expect(Array.from(result.spectrumWaveform)).toEqual([-200, 3, 0, 3]);
+  });
+});
+
+describe("resolveLiveSpectrumCoordinateModel", () => {
+  it("does not move the viewport when mirroring is toggled on the same axis", () => {
+    const range = { min: 18_000, max: 4_390_000 };
+    const positive = resolveLiveSpectrumCoordinateModel({
+      viewportBaseRange: range,
+      sourceRange: range,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: false,
+    });
+    const mirrored = resolveLiveSpectrumCoordinateModel({
+      viewportBaseRange: range,
+      sourceRange: range,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+    });
+
+    expect(mirrored.displayRange).toEqual(positive.displayRange);
+    expect(mirrored.sourceRange).toEqual(positive.sourceRange);
+    expect(mirrored.displayRange).toEqual(range);
+  });
+
+  it("mirrors below DC when pan crosses zero", () => {
+    const acquisition = { min: 0, max: 8 };
+    const mirrored = resolveLiveSpectrumCoordinateModel({
+      viewportBaseRange: acquisition,
+      sourceRange: acquisition,
+      zoom: 1,
+      panOffsetHz: -4,
+      mirrorEnabled: true,
+    });
+
+    expect(mirrored.displayRange).toEqual({ min: -4, max: 4 });
+  });
+});
+
+describe("resolveLiveSpectrumPaintContract", () => {
+  const FLOOR = -120;
+
+  it("re-bases a start-anchored redux pan onto the live CF ± fs/2 axis", () => {
+    const requestedViewRange = { min: 0, max: 4_372_000 };
+    const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
+    const panOffsetHz = 4_294_000;
+
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz,
+      mirrorEnabled: true,
+      frameCenterHz: 6_480_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+    expect(contract.displayRange).toEqual({
+      min: 4_294_000,
+      max: 8_666_000,
+    });
+    expect(contract.panOffsetHz).toBeCloseTo(0, 0);
+  });
+
+  it("fills the row instead of a channel island when redux and frame axes differ", () => {
+    const requestedViewRange = { min: 0, max: 4_372_000 };
+    const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
+    const waveform = new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 4_294_000,
+      mirrorEnabled: true,
+      frameCenterHz: 6_480_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    const getZoomedData = jest.fn(createFFTZoomProcessor(FLOOR).process);
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: contract.paintViewportRange,
+      sourceFrequencyRange: contract.sourceFrequencyRange,
+      zoom: contract.zoom,
+      panOffset: contract.panOffsetHz,
+      invert: false,
+      dbMin: FLOOR,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      resampleOnGpu: true,
+      getZoomedData,
+    });
+
+    expect(result.visualRange).toEqual(contract.displayRange);
+    expect(result.coversDisplay).toBe(true);
+    expect(Array.from(result.spectrumWaveform)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(result.spectrumWaveform.every((value) => value !== FLOOR)).toBe(true);
+    expect(getZoomedData).not.toHaveBeenCalled();
+  });
+
+  it("mirrors below DC on the acquisition axis after re-base", () => {
+    const acquisition = { min: 0, max: 8 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: acquisition,
+      sourceFrequencyRange: acquisition,
+      zoom: 1,
+      panOffsetHz: -4,
+      mirrorEnabled: true,
+    });
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+      frequencyRange: contract.paintViewportRange,
+      sourceFrequencyRange: contract.sourceFrequencyRange,
+      zoom: contract.zoom,
+      panOffset: contract.panOffsetHz,
+      invert: false,
+      dbMin: FLOOR,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      getZoomedData: createFFTZoomProcessor(FLOOR).process,
+    });
+
+    expect(result.visualRange).toEqual({ min: -4, max: 4 });
+    expect(Array.from(result.spectrumWaveform)).toEqual([4, 3, 2, 1, 0, 1, 2, 3, 4]);
+    expect(result.spectrumWaveform.every((value) => value !== FLOOR)).toBe(true);
+  });
+
+  it("does not lock the FFT in place when mirroring below DC", () => {
+    const acquisition = { min: 0, max: 4_372_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: acquisition,
+      sourceFrequencyRange: acquisition,
+      zoom: 1,
+      panOffsetHz: -2_186_000,
+      mirrorEnabled: true,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange).toEqual({
+      min: -2_186_000,
+      max: 2_186_000,
+    });
+  });
+
+  it("holds an uncovered negative mirror view until the replacement frame arrives", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: -7_416_000, max: -3_044_000 },
+      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange.min).toBeLessThan(0);
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("holds an uncovered positive mirror retune until the replacement frame arrives", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 4_294_000, max: 8_666_000 },
+      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange.min).toBeGreaterThan(0);
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("holds an uncovered mirror-off retune until the replacement frame arrives", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 4_294_000, max: 8_666_000 },
+      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: false,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange).toEqual({
+      min: 4_294_000,
+      max: 8_666_000,
+    });
+  });
+});
+
+describe("shouldHoldLiveSpectrumPaint", () => {
+  it("holds the last complete FFT instead of painting -120 dB uncovered bins", () => {
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("holds an uncovered same-span retune until the replacement frame arrives", () => {
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not hold a covered mirrored view", () => {
+    expect(
+      shouldHoldLiveSpectrumPaint({
+        coversDisplay: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldClearSpectrumWaveformForRangeChange", () => {
+  it("retains the last live paint until the replacement frame arrives", () => {
+    expect(
+      shouldClearSpectrumWaveformForRangeChange({ isPaused: false }),
+    ).toBe(false);
+    expect(
+      shouldClearSpectrumWaveformForRangeChange({ isPaused: true }),
+    ).toBe(false);
   });
 });
 
@@ -185,6 +660,70 @@ describe("shouldPresentSpectrumFrameForRange", () => {
         requestedRange: { min: 1_000_000, max: 5_372_000 },
         requiresExactRange: true,
         isTxPreviewFrame: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldAdoptLiveFrameRange", () => {
+  it("rejects a frame from the previous hardware window", () => {
+    expect(
+      shouldAdoptLiveFrameRange({
+        frameCenterHz: 105,
+        frameSampleRateHz: 10,
+        requestedRange: { min: 110, max: 120 },
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts a frame whose center and span match the requested window", () => {
+    expect(
+      shouldAdoptLiveFrameRange({
+        frameCenterHz: 115,
+        frameSampleRateHz: 10,
+        requestedRange: { min: 110, max: 120 },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts a wider acquisition frame when it fully covers the requested viewport", () => {
+    expect(
+      shouldAdoptLiveFrameRange({
+        frameCenterHz: 1_618_000,
+        frameSampleRateHz: 4_372_000,
+        requestedRange: { min: 18_000, max: 3_218_000 },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldKeepPaintingThroughRetune", () => {
+  it("keeps painting a same-span VFO retune so the last FFT can slide", () => {
+    expect(
+      shouldKeepPaintingThroughRetune({
+        frameCenterHz: 105,
+        frameSampleRateHz: 10,
+        requestedRange: { min: 110, max: 120 },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not remap a frame onto a different acquisition span", () => {
+    expect(
+      shouldKeepPaintingThroughRetune({
+        frameCenterHz: 105,
+        frameSampleRateHz: 10,
+        requestedRange: { min: 100, max: 200 },
+      }),
+    ).toBe(false);
+  });
+
+  it("still paints when the live frame already matches the requested window", () => {
+    expect(
+      shouldKeepPaintingThroughRetune({
+        frameCenterHz: 115,
+        frameSampleRateHz: 10,
+        requestedRange: { min: 110, max: 120 },
       }),
     ).toBe(true);
   });

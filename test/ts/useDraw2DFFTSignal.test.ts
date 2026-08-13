@@ -22,6 +22,31 @@ describe("formatLiveCanvasStatusRow", () => {
     });
   });
 
+  it("draws non-Tx FFT stats as FFT Size, Timing, FFT Window", () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), clearRect: jest.fn(), fillRect: jest.fn(),
+      beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(),
+      fillText: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 8 })),
+    } as any;
+
+    drawLiveCanvasStatusRow(ctx, 1000, 600, {
+      statusRow: {
+        sampleRateLabel: "5.16MHz sample rate",
+        fftSizeLabel: "FFT Size: 131,072",
+        fftWindowLabel: "FFT Window: Hamming",
+        timingLabel: "Timing: Lossless",
+      },
+    });
+
+    expect(ctx.fillText.mock.calls.map((call: any[]) => call[0]).filter((label) =>
+      label.startsWith("FFT ") || label.startsWith("Timing: "),
+    )).toEqual([
+      "FFT Size: 131,072",
+      "Timing: Lossless",
+      "FFT Window: Hamming",
+    ]);
+  });
+
   it("draws Tx stats with bandwidth centered and sample rate at the right", () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), clearRect: jest.fn(), fillRect: jest.fn(),

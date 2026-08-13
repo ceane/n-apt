@@ -19,6 +19,7 @@ import {
   shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
   shouldPublishProcessedSpectrumFrame,
+  shouldRepaintCachedSpectrumForViewportChange,
   invertSpectrumVertically,
   formatTxIfftSizeLabel,
 } from "@n-apt/spectrum/FFTCanvas";
@@ -218,6 +219,55 @@ describe("FFTCanvas Component", () => {
         hasNewData: false,
         shouldReprocessCurrentFrame: false,
         processedCurrentFrame: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("repaints a cached one-shot Tx frame when zoom or pan changes", () => {
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: false,
+        rangeChanged: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: true,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: false,
       }),
     ).toBe(false);
   });

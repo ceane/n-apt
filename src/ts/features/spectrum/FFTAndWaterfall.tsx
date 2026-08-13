@@ -149,6 +149,9 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const autoZoomStability = useAppSelector(
       (reduxState) => reduxState.spectrum.autoZoomStability,
     );
+    const allowNegativeFrequencies = useAppSelector(
+      (reduxState) => reduxState.settings.mirrorIqBasebandBelowZero,
+    );
     const vizZoomFloorPan = useAppSelector(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
     );
@@ -485,23 +488,27 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           props.signalAreaBounds?.[props.activeSignalArea?.toLowerCase?.()] ??
           null;
         const zoomedBounds = clampedZoom > 1 ? null : activeBounds;
-        const retune = getRetunedVizPanForZoomChange({
-          currentPan: pan,
-          nextZoom: clampedZoom,
-          rangeMin: props.frequencyRange.min,
-          rangeMax: props.frequencyRange.max,
-          bounds: zoomedBounds,
-        });
-        const nextPan = retune.retuned
-          ? retune.pan
-          : getStableVizPanForZoomChange({
-              currentZoom: zoom,
+        const retune = allowNegativeFrequencies
+          ? null
+          : getRetunedVizPanForZoomChange({
               currentPan: pan,
               nextZoom: clampedZoom,
               rangeMin: props.frequencyRange.min,
               rangeMax: props.frequencyRange.max,
+              bounds: zoomedBounds,
             });
-        if (retune.retuned) {
+        const nextPan =
+          retune?.retuned
+            ? retune.pan
+            : getStableVizPanForZoomChange({
+                currentZoom: zoom,
+                currentPan: pan,
+                nextZoom: clampedZoom,
+                rangeMin: props.frequencyRange.min,
+                rangeMax: props.frequencyRange.max,
+                allowNegativeFrequencies,
+              });
+        if (retune?.retuned) {
           props.onFrequencyRangeChange?.(retune.frequencyRange);
         }
         if (props.onVizPanChange && nextPan !== pan) {
@@ -521,6 +528,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         props.onFrequencyRangeChange,
         props.onVizPanChange,
         props.onVizZoomChange,
+        allowNegativeFrequencies,
       ],
     );
 

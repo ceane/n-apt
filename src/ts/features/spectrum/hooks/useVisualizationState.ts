@@ -190,12 +190,13 @@ export const useVisualizationState = ({
       fullRange: FrequencyRange,
       zoom: number,
       panOffset: number,
+      allowNegativeFrequencies = false,
     ): {
       slicedWaveform: Float32Array;
       visualRange: FrequencyRange;
       clampedPan: number;
     } => {
-      if (zoom === 1) {
+      if (zoom === 1 && panOffset === 0) {
         return {
           slicedWaveform: fullWaveform,
           visualRange: fullRange,
@@ -210,16 +211,17 @@ export const useVisualizationState = ({
       const halfSpan = fullSpan / (2 * zoom);
 
       // Calculate max allowed pan so visual window doesn't exceed hardware window
-      const maxPan = fullSpan / 2 - halfSpan;
-      let clampedPan = panOffset;
-      if (maxPan >= 0) {
-        clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
-      } else {
-        const outPan = -maxPan;
-        clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
-      }
-
       const centerFreq = (fullRange.min + fullRange.max) / 2;
+      const lowerDisplayBound = allowNegativeFrequencies
+        ? Number.NEGATIVE_INFINITY
+        : fullRange.min;
+      const minPan = Number.isFinite(lowerDisplayBound)
+        ? lowerDisplayBound + halfSpan - centerFreq
+        : Number.NEGATIVE_INFINITY;
+      const maxPan = allowNegativeFrequencies
+        ? Number.POSITIVE_INFINITY
+        : fullRange.max - halfSpan - centerFreq;
+      const clampedPan = Math.max(minPan, Math.min(maxPan, panOffset));
       const visualCenter = centerFreq + clampedPan;
 
       // Convert visual center to bin index

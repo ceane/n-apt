@@ -12,6 +12,7 @@ export interface ZoomMathParams {
   fullRange: { min: number; max: number };
   zoom: number;
   panOffset: number;
+  allowNegativeFrequencies?: boolean;
 }
 
 export interface CoordinateTransformParams {
@@ -133,6 +134,23 @@ const normalizeWindowType = (windowType?: string) => {
       return "hanning";
   }
 };
+
+export const shouldUseWasmIqPath = ({
+  processorAvailable,
+  simdAvailable,
+  requestedFftSize,
+  windowType,
+}: {
+  processorAvailable: boolean;
+  simdAvailable: boolean;
+  requestedFftSize: number;
+  windowType?: string;
+}): boolean =>
+  processorAvailable &&
+  simdAvailable &&
+  Number.isFinite(requestedFftSize) &&
+  requestedFftSize > 0 &&
+  normalizeWindowType(windowType) === "hanning";
 
 type SpectrumScratch = {
   paddedReal: Float32Array;
@@ -497,10 +515,12 @@ export function useSpectrumMath(
       // Prefer the WASM FFT path when available; it now accepts the requested
       // FFT size and window type directly.
       if (
-        renderingProcessorRef.current &&
-        isSimdAvailable &&
-        requestedFftSize === fftSize &&
-        normalizedWindowType === "hanning"
+        shouldUseWasmIqPath({
+          processorAvailable: !!renderingProcessorRef.current,
+          simdAvailable: isSimdAvailable,
+          requestedFftSize,
+          windowType: normalizedWindowType,
+        })
       ) {
         try {
           const processor = renderingProcessorRef.current as {
@@ -648,9 +668,19 @@ export function useSpectrumMath(
   // Mathematical preprocessing functions
   const getZoomedData = useCallback(
     (params: ZoomMathParams) => {
-      const { fullWaveform, fullRange, zoom, panOffset } = params;
+      const {
+        fullWaveform,
+        fullRange,
+        zoom,
+        panOffset,
+        allowNegativeFrequencies = false,
+      } = params;
 
-      if (renderingProcessorRef.current && isSimdAvailable) {
+      if (
+        renderingProcessorRef.current &&
+        isSimdAvailable &&
+        !allowNegativeFrequencies
+      ) {
         const result = renderingProcessorRef.current.get_zoomed_data(
           fullWaveform,
           fullRange.min,
@@ -669,7 +699,7 @@ export function useSpectrumMath(
         };
       } else {
         // Scalar fallback implementation
-        if (zoom === 1) {
+        if (zoom === 1 && panOffset === 0) {
           return {
             slicedWaveform: fullWaveform,
             visualRange: fullRange,
@@ -682,17 +712,17 @@ export function useSpectrumMath(
         const fullSpan = fullRange.max - fullRange.min;
         const halfSpan = fullSpan / (2 * zoom);
 
-        // Calculate max allowed pan
-        const maxPan = fullSpan / 2 - halfSpan;
-        let clampedPan = panOffset;
-        if (maxPan >= 0) {
-          clampedPan = Math.max(-maxPan, Math.min(maxPan, panOffset));
-        } else {
-          const outPan = -maxPan;
-          clampedPan = Math.max(-outPan, Math.min(outPan, panOffset));
-        }
-
         const centerFreq = (fullRange.min + fullRange.max) / 2;
+        const lowerDisplayBound = allowNegativeFrequencies
+          ? Number.NEGATIVE_INFINITY
+          : fullRange.min;
+        const minPan = Number.isFinite(lowerDisplayBound)
+          ? lowerDisplayBound + halfSpan - centerFreq
+          : Number.NEGATIVE_INFINITY;
+        const maxPan = allowNegativeFrequencies
+          ? Number.POSITIVE_INFINITY
+          : fullRange.max - halfSpan - centerFreq;
+        const clampedPan = Math.max(minPan, Math.min(maxPan, panOffset));
         const visualCenter = centerFreq + clampedPan;
         const visualCenterBin = Math.round(
           ((visualCenter - fullRange.min) / fullSpan) * totalBins,

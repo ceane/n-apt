@@ -8,6 +8,7 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
+import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 
 // Styled Components
 const Container = styled.div`
@@ -319,13 +320,14 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
       isCurrentActive,
       frequencyRange,
       hardwareSpan,
-      allowWideSampleRateOverscan,
-      requestedHardwareSpan,
-      span,
+      hardwareBounds,
+      channelBounds.min,
+      channelBounds.max,
       clampToChannelAndHardware,
       clampToHardwareOnly,
       channelClampZoomThreshold,
       wideHardwareRangeActive,
+      wholeChannelDisplayMode,
     ],
   );
 

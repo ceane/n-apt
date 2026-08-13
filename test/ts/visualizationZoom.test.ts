@@ -84,6 +84,19 @@ describe("getStableVizPanForZoomChange", () => {
     ).toBe(0);
   });
 
+  it("preserves a reversible negative display pan when enabled", () => {
+    expect(
+      getStableVizPanForZoomChange({
+        currentZoom: 2,
+        currentPan: -25,
+        nextZoom: 1,
+        rangeMin: 0,
+        rangeMax: 100,
+        allowNegativeFrequencies: true,
+      }),
+    ).toBe(-25);
+  });
+
   it("retunes the hardware window when zooming out would otherwise clamp the visual center", () => {
     const result = getRetunedVizPanForZoomChange({
       currentPan: 44,

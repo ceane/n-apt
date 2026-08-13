@@ -25,4 +25,14 @@ describe("createFFTZoomProcessor", () => {
       -200, -200, -200, -200, 9, 8, 7, 6,
     ]);
   });
+
+  it("allows a negative visual pan only when negative presentation is enabled", () => {
+    const zoom = createFFTZoomProcessor(-200);
+    const source = new Float32Array([0, 1, 2, 3, 4]);
+
+    const result = zoom.process(source, { min: 0, max: 4 }, 1, -2, true);
+
+    expect(result.visualRange).toEqual({ min: -2, max: 2 });
+    expect(result.clampedPan).toBe(-2);
+  });
 });

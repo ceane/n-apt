@@ -14,38 +14,14 @@ import {
   getPointerOffsetWithinBandHz,
   computeBandPanWithEdgePanning,
 } from "@n-apt/spectrum/public/edgePanning";
+import {
+  displayRangeNeedsBasebandMirror,
+  resolveDisplayRangeForPanOffset,
+  resolveMirroredRetune,
+  sourceCoversMirroredDisplay,
+} from "@n-apt/math/basebandMirror";
 
 const LIVE_STATUS_ROW_HEIGHT = 56;
-
-export type AnimationFrameRequest = (callback: () => void) => number;
-
-/** Keep pointer-driven updates latest-value-only until the next paint. */
-export const createAnimationFrameCoalescer = <T,>(
-  publish: (value: T) => void,
-  requestFrame: AnimationFrameRequest,
-) => {
-  let pending: T | undefined;
-  let frame: number | null = null;
-
-  const flush = () => {
-    frame = null;
-    const value = pending;
-    pending = undefined;
-    if (value !== undefined) publish(value);
-  };
-
-  return {
-    schedule(value: T) {
-      pending = value;
-      if (frame === null) frame = requestFrame(flush);
-    },
-    flush,
-    cancel() {
-      pending = undefined;
-      frame = null;
-    },
-  };
-};
 
 export type CanvasTxSliderState = {
   visible: boolean;
@@ -256,25 +232,30 @@ export function useSpectrumInteraction({
   );
   const latestOnSelectionChangeRef =
     useRef<typeof onSelectionChange>(onSelectionChange);
-  const manualOverrideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Throttled Redux dispatch refs
   const lastDispatchTimeRef = useRef<number>(0);
   const pendingDispatchRef = useRef<FrequencyRange | null>(null);
   const dispatchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Keep the callback fresh without recreating the native event listeners.
+  // The backend owns latest-value coalescing; the browser must not add another
+  // debounce or timer in front of a live VFO gesture.
+  const onFrequencyRangeChangeRef = useRef(onFrequencyRangeChange);
+  onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
+  const onDragRepaintRef = useRef(onDragRepaint);
+  onDragRepaintRef.current = onDragRepaint;
+  const publishHardwareRange = (range: FrequencyRange) => {
+    frequencyRangeRef.current = range;
+    // Overlay paint reads the ref on the existing rAF loop. Dirty it here so
+    // VFO labels move with the gesture instead of waiting for a Redux render.
+    onDragRepaintRef.current?.();
+    onFrequencyRangeChangeRef.current?.(range);
+  };
+
   /** Cached bounding rect for the active spectrum canvas — captured on pointerDown,
    *  invalidated on resize. Avoids per-move getBoundingClientRect layout thrashing. */
   const canvasDragRectRef = useRef<DOMRect | null>(null);
-
-  const setManualOverride = useCallback(() => {
-    if (manualOverrideTimerRef.current)
-      clearTimeout(manualOverrideTimerRef.current);
-    // Block incoming WebSocket updates for 1.5s after interaction
-    manualOverrideTimerRef.current = setTimeout(() => {
-      manualOverrideTimerRef.current = null;
-    }, 0);
-  }, []);
 
   // Refs for multi-touch pinch-to-zoom
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(
@@ -930,20 +911,11 @@ export function useSpectrumInteraction({
       const channelBounds = getActiveSignalAreaBounds();
       const normalized = normalizeFrequencyRangeToHz(
         clampFrequencyRangeToBounds(
-          clampFrequencyRangeToBounds(range, channelBounds, {
-            minimumFrequencyHz: allowNegativeFrequencies
-              ? Number.NEGATIVE_INFINITY
-              : undefined,
-          }),
+          clampFrequencyRangeToBounds(range, channelBounds),
           hardwareSpectrumBounds,
-          {
-            minimumFrequencyHz: allowNegativeFrequencies
-              ? Number.NEGATIVE_INFINITY
-              : undefined,
-          },
         ),
       );
-      return !allowNegativeFrequencies && normalized.min < 0
+      return normalized.min < 0
         ? {
             min: 0,
             max: Math.max(0, normalized.max - normalized.min),
@@ -955,13 +927,9 @@ export function useSpectrumInteraction({
       range: FrequencyRange,
     ): FrequencyRange => {
       const normalized = normalizeFrequencyRangeToHz(
-        clampFrequencyRangeToBounds(range, hardwareSpectrumBounds, {
-          minimumFrequencyHz: allowNegativeFrequencies
-            ? Number.NEGATIVE_INFINITY
-            : undefined,
-        }),
+        clampFrequencyRangeToBounds(range, hardwareSpectrumBounds),
       );
-      return !allowNegativeFrequencies && normalized.min < 0
+      return normalized.min < 0
         ? {
             min: 0,
             max: Math.max(0, normalized.max - normalized.min),
@@ -980,15 +948,22 @@ export function useSpectrumInteraction({
       }
 
       const visualRange = fullRange / zoom;
-      const maxHardwarePan = Math.max(0, fullRange / 2 - visualRange / 2);
-      let minPan = -maxHardwarePan;
-      let maxPan = maxHardwarePan;
-
       const center = (sourceRange.min + sourceRange.max) / 2;
-      const absoluteMinPan = 0 + visualRange / 2 - center; // visualMin >= 0
-      minPan = Math.max(minPan, absoluteMinPan);
+      let minPan: number;
+      let maxPan: number;
 
-      const channelBounds = constrainToActiveChannel
+      if (allowNegativeFrequencies) {
+        // Mirror pan is unbounded on the display axis. Frequencies the radio has
+        // not acquired floor in the shader; pan itself must not stop at ±SR.
+        minPan = Number.NEGATIVE_INFINITY;
+        maxPan = Number.POSITIVE_INFINITY;
+      } else {
+        maxPan = Math.max(0, fullRange / 2 - visualRange / 2);
+        const lowerDisplayBound = Math.max(0, sourceRange.min);
+        minPan = lowerDisplayBound + visualRange / 2 - center;
+      }
+
+      const channelBounds = constrainToActiveChannel && !allowNegativeFrequencies
         ? getActiveSignalAreaBounds()
         : null;
       if (channelBounds) {
@@ -1002,8 +977,8 @@ export function useSpectrumInteraction({
           const channelCenterPan =
             (channelBounds.min + channelBounds.max) / 2 - center;
           const pinnedPan = Math.max(
-            -maxHardwarePan,
-            Math.min(maxHardwarePan, channelCenterPan),
+            minPan,
+            Math.min(maxPan, channelCenterPan),
           );
           minPan = Math.max(minPan, pinnedPan);
           maxPan = pinnedPan;
@@ -1024,6 +999,9 @@ export function useSpectrumInteraction({
       zoom: number,
       panBounds: FrequencyRange | null | undefined = null,
     ): number => {
+      if (allowNegativeFrequencies) {
+        return pan;
+      }
       const bounds = getVizPanBounds(
         panBounds ?? sourceRange,
         zoom,
@@ -1045,16 +1023,70 @@ export function useSpectrumInteraction({
         frequencyRangeRef.current.max - frequencyRangeRef.current.min;
       if (!Number.isFinite(fullRange) || fullRange <= 0) return false;
 
-      const visualRange = fullRange / zoom;
-      const maxPan = Math.max(0, fullRange / 2 - visualRange / 2);
-      const retuneThreshold = Math.max(1, maxPan * 0.75);
-      if (Math.abs(nextPan) <= retuneThreshold) return false;
+      if (allowNegativeFrequencies) {
+        const displayRange = resolveDisplayRangeForPanOffset({
+          hardwareRange: frequencyRangeRef.current,
+          zoom,
+          panOffsetHz: nextPan,
+        });
+        // Single |f| below 0 Hz. Retune whenever the viewport needs RF the
+        // acquisition does not cover — including wholly negative pans past
+        // ±SR. Covered viewports stay presentation-only (no Channel A tiles).
+        if (
+          sourceCoversMirroredDisplay(
+            frequencyRangeRef.current,
+            displayRange,
+          )
+        ) {
+          return false;
+        }
+        const tuningBounds =
+          hardwareSpectrumBounds ??
+          signalAreaBounds?.[activeSignalArea] ??
+          null;
+        const retune = resolveMirroredRetune({
+          displayRange,
+          sourceRange: frequencyRangeRef.current,
+          hardwareBounds: tuningBounds,
+        });
+        if (!retune.needsRetune) {
+          return false;
+        }
+        const appliedPan = retune.panOffsetHz;
+        publishHardwareRange(retune.range);
+        onVizPanChange(appliedPan);
+        if (vizPanOffsetRef) {
+          vizPanOffsetRef.current = appliedPan;
+        }
+        // Pointer-drag pan is measured from pointer-down. A mirror retune
+        // moves the hardware center and replaces pan with displayCenter −
+        // nextCenter (a large negative offset). Leave dragStartPan on the
+        // old axis and the next pointermove treats that offset as a jump
+        // back toward DC, then retunes again — the negative-direction stall.
+        dragStartPanRef.current =
+          appliedPan + (dragStartPanRef.current - nextPan);
+        dragStartRangeRef.current = { ...retune.range };
+        dragStartFreqRef.current = retune.range.min;
+        if (
+          autoZoomStabilityRef?.current &&
+          (vizZoomFloorRef?.current ?? 1) > 1
+        ) {
+          onVizZoomFloorPanChange?.(appliedPan);
+        }
+        return true;
+      }
 
-      const clampedTargetPan = Math.max(
-        -retuneThreshold,
-        Math.min(retuneThreshold, nextPan),
+      const panBounds = getVizPanBounds(
+        frequencyRangeRef.current,
+        zoom,
+        false,
       );
-      const overflowPan = nextPan - clampedTargetPan;
+      if (nextPan >= panBounds.min && nextPan <= panBounds.max) return false;
+
+      const overflowPan =
+        nextPan < panBounds.min
+          ? nextPan - panBounds.min
+          : nextPan - panBounds.max;
 
       const currentHardwareCenter =
         (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
@@ -1068,7 +1100,7 @@ export function useSpectrumInteraction({
 
       const newHardwareCenter =
         (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
-      onFrequencyRangeChange({
+      publishHardwareRange({
         min: clampedHardwareRange.min,
         max: clampedHardwareRange.max,
       });
@@ -1092,6 +1124,16 @@ export function useSpectrumInteraction({
       }
       return true;
     };
+
+    const displayNeedsMirror = (pan: number, zoom: number) =>
+      allowNegativeFrequencies &&
+      displayRangeNeedsBasebandMirror(
+        resolveDisplayRangeForPanOffset({
+          hardwareRange: frequencyRangeRef.current,
+          zoom,
+          panOffsetHz: pan,
+        }),
+      );
 
     const updateContainerRect = () => {
       const container = getContainer();
@@ -1298,6 +1340,7 @@ export function useSpectrumInteraction({
                 nextZoom: newZoom,
                 rangeMin: frequencyRangeRef.current.min,
                 rangeMax: frequencyRangeRef.current.max,
+                allowNegativeFrequencies,
               })
             : currentPan;
 
@@ -1380,7 +1423,6 @@ export function useSpectrumInteraction({
         if (onDragRepaint) {
           onDragRepaint();
         }
-        setManualOverride();
         throttleDispatch(clampedRange);
         return;
       }
@@ -1425,7 +1467,9 @@ export function useSpectrumInteraction({
 
         // Allow selecting anywhere > 0Hz, regardless of hardware bounds,
         // but clamp to active signal area bounds (channel start/end) if available.
-        const channelBounds = getActiveSignalAreaBounds();
+      const channelBounds = allowNegativeFrequencies
+        ? null
+        : getActiveSignalAreaBounds();
         const allowedBounds = channelBounds
           ? { min: Math.max(0, channelBounds.min), max: channelBounds.max }
           : { min: 0, max: 10_000_000_000 };
@@ -1522,15 +1566,17 @@ export function useSpectrumInteraction({
               // Hardware window retuned and pan updated
             } else if (onVizPanChange) {
               // Limit panning bounds, but allow visual pan if full plot selection is active
-              const clampedPan = fullPlotSelection
-                ? Math.max(-centerFreq, newPan)
-                : clampVizPan(
-                    newPan,
-                    bounds,
-                    zoom,
-                    hardwareSpectrumBounds ??
-                      signalAreaBounds?.[activeSignalArea],
-                  );
+              const clampedPan = allowNegativeFrequencies
+                ? newPan
+                : fullPlotSelection
+                  ? Math.max(-centerFreq, newPan)
+                  : clampVizPan(
+                      newPan,
+                      bounds,
+                      zoom,
+                      hardwareSpectrumBounds ??
+                        signalAreaBounds?.[activeSignalArea],
+                    );
               onVizPanChange(clampedPan);
               if (vizPanOffsetRef) {
                 vizPanOffsetRef.current = clampedPan;
@@ -1553,7 +1599,6 @@ export function useSpectrumInteraction({
           onDragRepaint();
         }
 
-        setManualOverride();
         throttleDispatch(next);
         return;
       }
@@ -1574,24 +1619,39 @@ export function useSpectrumInteraction({
       const visualRange = fullRange / zoom;
       const freqChange = (deltaX / width) * visualRange;
 
-      if (zoom > 1 && onVizPanChange) {
-        // Visual panning mode (zoomed)
-        // Dragging right (deltaX > 0) means looking at lower frequencies (shifting visual window left)
-        // so we SUBTRACT freqChange from the pan offset
-        const desiredPan = dragStartPanRef.current - freqChange;
+      const desiredPan = dragStartPanRef.current - freqChange;
+      const needsMirror = displayNeedsMirror(desiredPan, zoom);
 
+      if ((zoom > 1 || needsMirror || allowNegativeFrequencies) && onVizPanChange) {
+        // Visual panning when zoomed, when crossing below 0 Hz, or when the
+        // mirror setting allows approaching DC at zoom 1. Positive-only pans
+        // still use the normal overflow retune/clamp below.
+        // Dragging right (deltaX > 0) means looking at lower frequencies
+        // (shifting visual window left) so we SUBTRACT freqChange from pan.
         if (maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })) {
           return;
         }
 
-        // Standard behavior: Clamp to max allowable pan (stay within window)
-        const clampedPan = clampVizPan(
-          desiredPan,
-          frequencyRangeRef.current,
-          zoom,
-          hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
-        );
+        // With the mirror setting on, never trap pan in channel bounds — even
+        // while the viewport is still positive. Overflow retunes via the
+        // standard branch above; the mirror fold only arms below 0 Hz.
+        const clampedPan = allowNegativeFrequencies
+          ? clampVizPan(
+              desiredPan,
+              frequencyRangeRef.current,
+              zoom,
+              null,
+            )
+          : clampVizPan(
+              desiredPan,
+              frequencyRangeRef.current,
+              zoom,
+              hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+            );
         onVizPanChange(clampedPan);
+        if (vizPanOffsetRef) {
+          vizPanOffsetRef.current = clampedPan;
+        }
 
         // Auto zoom stability: track floor pan so Refocus can restore this position
         if (
@@ -1612,7 +1672,7 @@ export function useSpectrumInteraction({
           max: newMaxFreq,
         });
         frequencyRangeRef.current = newRange;
-        onFrequencyRangeChange(newRange);
+        publishHardwareRange(newRange);
       } else if (onVizPanChange) {
         const maxPan = fullRange / 2 - visualRange / 2;
         let newPan = dragStartPanRef.current - freqChange;
@@ -2484,8 +2544,10 @@ export function useSpectrumInteraction({
                 freqAtAnchor - (currentAnchorX / width) * newVisualRange;
               let newPan = newVisualMin + newVisualRange / 2 - centerFreq;
 
-              const maxPan = fullRange / 2 - newVisualRange / 2;
-              newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+              if (!allowNegativeFrequencies) {
+                const maxPan = fullRange / 2 - newVisualRange / 2;
+                newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+              }
               onVizPanChange(newPan);
             }
           } else {
@@ -2496,12 +2558,17 @@ export function useSpectrumInteraction({
       }
 
       // 2. Lateral movement on scroll (panning/retuning)
-      // Now triggered by scrolling over the margins instead of just the bottom VFO area.
+      // The complete VFO row is a pan surface. Keep the same hit target as
+      // pointer drag so scrolling over the frequency numbers cannot fall
+      // through to page scrolling or a different canvas interaction.
+      const isOverVfo =
+        !fullPlotSelection && y >= rect.height - getVfoInteractionHeight();
       const isOverMargin =
         x < 50 ||
         x > rect.width - 40 ||
         y < 20 ||
-        y > rect.height - 40 - getReservedBottomHeight();
+        y > rect.height - 40 - getReservedBottomHeight() ||
+        isOverVfo;
 
       if (isOverMargin) {
         // Move laterally on scroll
@@ -2517,7 +2584,11 @@ export function useSpectrumInteraction({
 
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
-        const width = canvas.getBoundingClientRect().width || 1;
+        const width =
+          canvasDragRectRef.current?.width ||
+          containerRectRef.current?.width ||
+          canvas.clientWidth ||
+          1;
 
         const zoom = vizZoomRef?.current || 1;
         const fullRange =
@@ -2528,23 +2599,39 @@ export function useSpectrumInteraction({
         const deltaPx = delta;
         const freqChange = (deltaPx / width) * visualRange;
 
-        if (zoom > 1 && onVizPanChange && vizPanOffsetRef) {
-          // Visual panning mode (zoomed)
+        if (
+          (zoom > 1 || allowNegativeFrequencies) &&
+          onVizPanChange &&
+          vizPanOffsetRef
+        ) {
           const currentPan = vizPanOffsetRef.current;
 
           // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
           let newPan = currentPan + freqChange;
+
+          // Retune when the viewport outruns the acquisition (including a
+          // DC-crossing window the resident frame cannot fill). Start each
+          // tick from the visible remaining pan so trackpad momentum cannot
+          // queue a hidden ballistic target.
           if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
             return;
           }
 
-          newPan = clampVizPan(
-            newPan,
-            frequencyRangeRef.current,
-            zoom,
-            hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
-          );
+          newPan = allowNegativeFrequencies
+            ? clampVizPan(
+                newPan,
+                frequencyRangeRef.current,
+                zoom,
+                null,
+              )
+            : clampVizPan(
+                newPan,
+                frequencyRangeRef.current,
+                zoom,
+                hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+              );
           onVizPanChange(newPan);
+          vizPanOffsetRef.current = newPan;
 
           // Auto zoom stability: track floor pan so Refocus can restore this position
           if (
@@ -2561,7 +2648,8 @@ export function useSpectrumInteraction({
           const newMax = newMin + fullRange;
           const nextRange = { min: newMin, max: newMax };
           const clampedRange = clampWheelRangeToHardwareBounds(nextRange);
-          onFrequencyRangeChange(clampedRange);
+          frequencyRangeRef.current = clampedRange;
+          publishHardwareRange(clampedRange);
         }
       }
     };
@@ -2645,7 +2733,6 @@ export function useSpectrumInteraction({
     frequencyRangeRef,
     vizZoomRef,
     vizPanOffsetRef,
-    setManualOverride,
     onVizPanChange,
 
     vizDbMinRef,

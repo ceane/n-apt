@@ -1,31 +1,9 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import {
-  createAnimationFrameCoalescer,
-  useFrequencyDrag,
-} from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
 import React from "react";
 
 describe("useFrequencyDrag Hook", () => {
-  test("coalesces rapid frequency updates to the latest value per animation frame", () => {
-    let runFrame: (() => void) | null = null;
-    const publish = jest.fn();
-    const coalescer = createAnimationFrameCoalescer(publish, (callback) => {
-      runFrame = callback;
-      return 1;
-    });
-
-    coalescer.schedule({ min: 100, max: 110 });
-    coalescer.schedule({ min: 200, max: 210 });
-    coalescer.schedule({ min: 300, max: 310 });
-
-    expect(publish).not.toHaveBeenCalled();
-    expect(runFrame).not.toBeNull();
-    (runFrame as unknown as () => void)();
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith({ min: 300, max: 310 });
-  });
-
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
@@ -36,6 +14,7 @@ describe("useFrequencyDrag Hook", () => {
   const mockOnTxCenterFrequencyChange = jest.fn();
   const mockOnTxSampleRateChange = jest.fn();
   const mockOnTxOptionsRequest = jest.fn();
+  const mockOnDragRepaint = jest.fn();
 
   const frequencyRangeRef = { current: { min: 100, max: 110 } };
   const spectrumGpuCanvasRef = {
@@ -86,6 +65,7 @@ describe("useFrequencyDrag Hook", () => {
     onFftDbLimitsChange: mockOnFftDbLimitsChange,
     onSelectionChange: mockOnSelectionChange,
     onPowerLineDbChange: mockOnPowerLineDbChange,
+    onDragRepaint: mockOnDragRepaint,
     vizZoomRef: { current: 1 },
     vizZoomFloorRef: { current: 1 },
     vizPanOffsetRef: { current: 0 },
@@ -97,11 +77,13 @@ describe("useFrequencyDrag Hook", () => {
   let listeners: Record<string, Function> = {};
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     mockOnPowerLineDbChange.mockClear();
     mockOnTxCenterFrequencyChange.mockClear();
     mockOnTxSampleRateChange.mockClear();
     mockOnTxOptionsRequest.mockClear();
+    mockOnDragRepaint.mockClear();
     listeners = {};
     listenerCallbacks.clear();
     frequencyRangeRef.current = { min: 100, max: 110 };
@@ -152,8 +134,16 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
+
+  const flushHardwareRetune = () => {
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+  };
 
   const triggerPointerDown = (
     clientX: number,
@@ -243,6 +233,7 @@ describe("useFrequencyDrag Hook", () => {
     // Drag right by 100px. Spectrum width 1000, range 10MHz. 100px = 1MHz.
     // Dragging right = frequency decreases.
     triggerPointerMove(600, 550);
+    flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
     const lastCall =
@@ -251,6 +242,202 @@ describe("useFrequencyDrag Hook", () => {
       ][0];
     expect(lastCall.min).toBeCloseTo(99, 1);
     expect(lastCall.max).toBeCloseTo(109, 1);
+  });
+
+  it("keeps negative presentation panning independent of channel bounds", () => {
+    if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 2;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 40, max: 60 } },
+      }),
+    );
+
+    // At zoom 2 the viewport is 5 Hz wide inside [100, 110]. A 100px drag on
+    // a 1000px canvas is 0.5 Hz of pan — still covered by the acquisition —
+    // and must ignore the unrelated channel bounds that would trap the drag.
+    triggerPointerDown(500, 550);
+    triggerPointerMove(600, 550);
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(-0.5);
+  });
+
+  it("does not retune a covered negative DC-crossing pan", () => {
+    // Acquisition [0, 10] with pan -4 ⇒ display [-4, 6], still covered by |f|.
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = -4;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 40, max: 60 } },
+      }),
+    );
+
+    triggerPointerDown(500, 550);
+    triggerPointerMove(600, 550);
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenCalled();
+  });
+
+  it("retunes again when continued negative drag leaves the resident window", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 1000 } },
+      }),
+    );
+
+    triggerPointerDown(500, 550);
+    // 1200px right = 12 Hz toward negative. Display [-12, -2] is past |f|.
+    triggerPointerMove(1700, 550);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const panAfterRetune =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0];
+    expect(panAfterRetune).toBeLessThan(-10);
+
+    mockOnFrequencyRangeChange.mockClear();
+    // Continue far enough to cross the resident edge (the 1 Hz coverage
+    // tolerance intentionally absorbs tiny pointer ticks). It must request
+    // the next positive acquisition rather than sliding or tiling the old
+    // frame.
+    triggerPointerMove(1810, 550);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(1);
+    const continuedRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    expect(continuedRange.min).toBeCloseTo(3.1, 8);
+    expect(continuedRange.max).toBeCloseTo(13.1, 8);
+    const panAfterContinue =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0];
+    expect(panAfterContinue).toBeLessThanOrEqual(panAfterRetune);
+  });
+
+  it("does not clamp mirror pan to the acquisition mirrored extent", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -2000,
+      ctrlKey: false,
+    } as any);
+
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    // Previously clamped near -10 Hz (mirrored extent of [0, 10]); unbounded
+    // mirror pan must keep scrolling past that edge.
+    expect(lastPan).toBeLessThan(-10);
+  });
+
+  it("retunes when mirror-on scroll crosses DC on an uncovered acquisition", () => {
+    frequencyRangeRef.current = { min: 4_294_000, max: 8_666_000 };
+    defaultOptions.vizPanOffsetRef.current = -4_000_000;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 20_000_000 } },
+        hardwareSpectrumBounds: { min: 0, max: 10_000_000 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+  });
+
+  it("retunes mirror-on positive pan when the viewport exceeds the acquisition", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 1000 } },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenCalled();
+  });
+
+  it("keeps a negative display frequency anchored during pinch zoom", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizZoomRef.current = 2;
+    defaultOptions.vizPanOffsetRef.current = -7.5;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+      }),
+    );
+
+    triggerWheel({
+      clientX: 250,
+      clientY: 300,
+      deltaY: -100,
+      ctrlKey: true,
+    } as any);
+
+    const nextZoom =
+      mockOnVizZoomChange.mock.calls[
+        mockOnVizZoomChange.mock.calls.length - 1
+      ]?.[0];
+    const nextPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    const anchorBefore = -5 + 0.25 * 5;
+    const nextSpan = 10 / nextZoom;
+    const anchorAfter = 5 + nextPan - nextSpan / 2 + 0.25 * nextSpan;
+
+    expect(anchorAfter).toBeCloseTo(anchorBefore, 6);
+    expect(nextPan).toBeLessThan(-2.5);
   });
 
   it("should handle box selection in the upper area", () => {
@@ -655,6 +842,7 @@ describe("useFrequencyDrag Hook", () => {
     // Drag left by 100px (clientX decreases) -> freq increases.
     // Result should be clamped because max is 110.
     triggerPointerMove(400, 550);
+    flushHardwareRetune();
 
     const lastCall =
       mockOnFrequencyRangeChange.mock.calls[
@@ -935,6 +1123,7 @@ describe("useFrequencyDrag Hook", () => {
 
     triggerPointerDown(500, 550);
     triggerPointerMove(400, 550);
+    flushHardwareRetune();
 
     const lastCall =
       mockOnFrequencyRangeChange.mock.calls[
@@ -961,11 +1150,105 @@ describe("useFrequencyDrag Hook", () => {
       deltaY: 200,
       ctrlKey: false,
     } as any);
+    flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
       min: 102,
       max: 112,
     });
+  });
+
+  it("publishes unzoomed hardware wheel ticks without a debounce queue", () => {
+    const localRangeRef = { current: { min: 100, max: 110 } };
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: localRangeRef,
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    expect(localRangeRef.current).toEqual({ min: 102, max: 112 });
+    expect(mockOnDragRepaint).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(2);
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 102,
+      max: 112,
+    });
+  });
+
+  it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    expect(mockOnDragRepaint).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("treats the whole VFO numbers row as a pan surface", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    // The VFO begins 116px above the container bottom. This point is in the
+    // frequency-number row but is above the old margin-only wheel threshold.
+    triggerWheel({
+      clientX: 500,
+      clientY: 490,
+      deltaY: 100,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 101,
+      max: 111,
+    });
+  });
+
+  it("keeps the local hardware range current when a delayed wheel retune commits", () => {
+    const localRangeRef = { current: { min: 100, max: 110 } };
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: localRangeRef,
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(localRangeRef.current).toEqual({ min: 102, max: 112 });
   });
 
   it("should retune the hardware window when zoomed wheel panning crosses the edge", () => {
@@ -985,6 +1268,7 @@ describe("useFrequencyDrag Hook", () => {
       deltaY: 200,
       ctrlKey: false,
     } as any);
+    flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
     expect(mockOnVizPanChange).toHaveBeenCalled();
@@ -999,6 +1283,39 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizPanChange.mock.calls.length - 1
       ][0],
     ).toBeGreaterThan(0);
+  });
+
+  it("does not accumulate hidden inertial pan across zoomed wheel ticks", () => {
+    const panRef = { current: 2.4 };
+    const localRangeRef = { current: { min: 100, max: 110 } };
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        frequencyRangeRef: localRangeRef,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: panRef,
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    const firstMin = localRangeRef.current.min;
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+
+    // Each tick must advance from the visible remaining pan (inertia 1),
+    // not a hidden ballistic target that grows while the display is paused.
+    expect(localRangeRef.current.min - firstMin).toBeCloseTo(1, 5);
   });
 
   it("allows zoomed wheel panning past active channel bounds while respecting hardware bounds", () => {
@@ -1020,6 +1337,7 @@ describe("useFrequencyDrag Hook", () => {
       deltaY: 1000,
       ctrlKey: false,
     } as any);
+    flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
     const lastRange =
@@ -1055,6 +1373,7 @@ describe("useFrequencyDrag Hook", () => {
       deltaY: -200,
       ctrlKey: false,
     } as any);
+    flushHardwareRetune();
 
     expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
     const lastCall =

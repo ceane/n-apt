@@ -210,15 +210,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const [windowStart, setWindowStart] = useState(
     (clampedVisibleMin - minFreq) / safeTotalRange,
   );
-
-  // Sync windowStart when visibleMin or visibleMax change (from zoom/pan)
-  useEffect(() => {
-    if (!isDraggingRef.current) {
-      setWindowStart((clampedVisibleMin - minFreq) / safeTotalRange);
-    }
-  }, [clampedVisibleMin, minFreq, safeTotalRange]);
+  const windowStartRef = useRef(windowStart);
+  windowStartRef.current = windowStart;
 
   const isDraggingRef = useRef(false);
+  const didDragRef = useRef(false);
+  const pendingPublishRafRef = useRef<number | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
   const windowLabelRef = useRef<HTMLSpanElement>(null);
@@ -229,13 +226,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const dragStartThumbWidthRef = useRef(0);
   const dragStartMaxWindowStartRef = useRef(0);
   const lastNotifiedRangeRef = useRef<FrequencyRange | null>(null);
-  const internalChangeIdRef = useRef(0);
-  const lastNotifiedChangeIdRef = useRef(0);
   const isLeftLockedRef = useRef(false);
   const isRightLockedRef = useRef(false);
   const [isLeftLocked, setIsLeftLocked] = useState(false);
   const [isRightLocked, setIsRightLocked] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [windowLabelWidth, setWindowLabelWidth] = useState(0);
 
   // Calculate scan position if scanning
@@ -297,15 +291,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     safeTotalRange,
     windowWidth,
   ]);
-
-  // Handle activation: no longer forces a notification on mount/activation
-  // to prevent overwriting the store with default/initial values.
-  useEffect(() => {
-    if (isActive) {
-      // We explicitly DO NOT increment internalChangeIdRef here anymore.
-      // The parent already knows our range via the global store's lastKnownRanges.
-    }
-  }, [isActive]);
 
   const isWholeChannelWindow = windowWidth >= 1;
   const shouldRenderFullWidth = forceFullWidth || isWholeChannelWindow;
@@ -378,42 +363,69 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     ? maxFreq
     : Math.min(maxFreq, rawCurrentMax);
 
-  const notifyParent = useCallback(() => {
-    if (isActive && onRangeChange) {
-      const nextRange = { min: currentMin, max: currentMax };
+  const rangeFromWindowStart = useCallback(
+    (start: number): FrequencyRange => {
+      const rawMin = minFreq + start * safeTotalRange;
+      const rawMax = minFreq + (start + windowWidth) * safeTotalRange;
+      if (windowWidth >= 1) {
+        return { min: minFreq, max: maxFreq };
+      }
+      return {
+        min: Math.max(minFreq, rawMin),
+        max: Math.min(maxFreq, rawMax),
+      };
+    },
+    [maxFreq, minFreq, safeTotalRange, windowWidth],
+  );
+
+  const publishRange = useCallback(
+    (start: number) => {
+      if (!isActive || !onRangeChange) return;
+      const nextRange = rangeFromWindowStart(start);
       const last = lastNotifiedRangeRef.current;
       if (!last || last.min !== nextRange.min || last.max !== nextRange.max) {
         lastNotifiedRangeRef.current = nextRange;
         onRangeChange(nextRange);
       }
-    }
-  }, [isActive, onRangeChange, currentMin, currentMax]);
+    },
+    [isActive, onRangeChange, rangeFromWindowStart],
+  );
 
-  // Notify parent during dragging for real-time updates
-  useEffect(() => {
-    if (internalChangeIdRef.current === lastNotifiedChangeIdRef.current) return;
-    if (isActive && isDragging) {
-      lastNotifiedChangeIdRef.current = internalChangeIdRef.current;
-      notifyParent();
-    }
-  }, [windowStart, isActive, isDragging, notifyParent]);
+  const applyWindowStart = useCallback(
+    (nextStart: number) => {
+      const clamped =
+        windowWidth <= 1
+          ? Math.max(0, Math.min(1 - windowWidth, nextStart))
+          : Math.max(-(windowWidth - 1), Math.min(0, nextStart));
+      windowStartRef.current = clamped;
+      setWindowStart(clamped);
+      return clamped;
+    },
+    [windowWidth],
+  );
 
-  // Notify parent when windowStart changes via keyboard (not dragging)
-  useEffect(() => {
-    if (internalChangeIdRef.current === lastNotifiedChangeIdRef.current) return;
-    if (isActive && !isDragging) {
-      lastNotifiedChangeIdRef.current = internalChangeIdRef.current;
-      notifyParent();
+  const commitWindowStart = useCallback(
+    (nextStart: number) => {
+      publishRange(applyWindowStart(nextStart));
+    },
+    [applyWindowStart, publishRange],
+  );
+
+  const flushPublish = useCallback(() => {
+    if (pendingPublishRafRef.current != null) {
+      cancelAnimationFrame(pendingPublishRafRef.current);
+      pendingPublishRafRef.current = null;
     }
-  }, [
-    windowStart,
-    isActive,
-    onRangeChange,
-    currentMin,
-    currentMax,
-    isDragging,
-    notifyParent,
-  ]);
+    publishRange(windowStartRef.current);
+  }, [publishRange]);
+
+  const schedulePublish = useCallback(() => {
+    if (pendingPublishRafRef.current != null) return;
+    pendingPublishRafRef.current = requestAnimationFrame(() => {
+      pendingPublishRafRef.current = null;
+      publishRange(windowStartRef.current);
+    });
+  }, [publishRange]);
 
   const formatFreq = useCallback(
     (freq: number) =>
@@ -430,17 +442,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const moveWindow = useCallback(
     (direction: "up" | "down") => {
       const stepPercent = STEP_SIZE / safeTotalRange;
-      internalChangeIdRef.current += 1;
-      setWindowStart((prev) => {
-        const newStart =
-          prev + (direction === "up" ? stepPercent : -stepPercent);
-        if (windowWidth <= 1) {
-          return Math.max(0, Math.min(1 - windowWidth, newStart));
-        }
-        return Math.max(-(windowWidth - 1), Math.min(0, newStart));
-      });
+      const delta = direction === "up" ? stepPercent : -stepPercent;
+      commitWindowStart(windowStartRef.current + delta);
     },
-    [safeTotalRange, windowWidth],
+    [commitWindowStart, safeTotalRange],
   );
 
   useEffect(() => {
@@ -476,19 +481,45 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [disabled, isActive, moveWindow, readOnly]);
 
   useEffect(() => {
-    const handleScroll = () => {
-      isLeftLockedRef.current = false;
-      isRightLockedRef.current = false;
-      setIsLeftLocked(false);
-      setIsRightLocked(false);
+    const host = containerRef.current;
+    if (!host) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!isActive || readOnly || disabled) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const delta =
+        Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const tw = Math.max(1, trackRef.current?.clientWidth || trackWidth);
+      const draggablePixels = Math.max(1, tw - renderedThumbWidth);
+      const maxWindowStart =
+        windowWidth <= 1 ? Math.max(0, 1 - windowWidth) : windowWidth - 1;
+      const windowStartDelta =
+        windowWidth <= 1
+          ? (delta / draggablePixels) * Math.max(maxWindowStart, 1e-9)
+          : delta / tw;
+      applyWindowStart(windowStartRef.current + windowStartDelta);
+      publishRange(windowStartRef.current);
     };
-    window.addEventListener("wheel", handleScroll);
-    window.addEventListener("scroll", handleScroll);
+
+    host.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
-      window.removeEventListener("wheel", handleScroll);
-      window.removeEventListener("scroll", handleScroll);
+      host.removeEventListener("wheel", handleWheel);
+      if (pendingPublishRafRef.current != null) {
+        cancelAnimationFrame(pendingPublishRafRef.current);
+        pendingPublishRafRef.current = null;
+      }
     };
-  }, []);
+  }, [
+    applyWindowStart,
+    publishRange,
+    disabled,
+    isActive,
+    readOnly,
+    renderedThumbWidth,
+    trackWidth,
+    windowWidth,
+  ]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -562,16 +593,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         }
       }
 
-      internalChangeIdRef.current += 1;
-      setWindowStart(newStart);
+      didDragRef.current = true;
+      applyWindowStart(newStart);
     };
 
     const handleMouseUp = () => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false;
-        setIsDragging(false);
-        internalChangeIdRef.current += 1;
-        notifyParent();
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      if (didDragRef.current) {
+        didDragRef.current = false;
+        flushPublish();
       }
     };
 
@@ -582,18 +613,18 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [windowWidth, notifyParent]);
+  }, [applyWindowStart, flushPublish, windowWidth]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
-    onActivate?.();
+    if (!isActive) onActivate?.();
+    didDragRef.current = false;
     isLeftLockedRef.current = false;
     isRightLockedRef.current = false;
     setIsLeftLocked(false);
     setIsRightLocked(false);
     isDraggingRef.current = true;
-    setIsDragging(true);
     dragStartXRef.current = e.clientX;
     dragStartWindowRef.current = windowStart;
     // Capture dimensions at drag start for stable calculations
@@ -621,7 +652,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       e.target === containerRef.current ||
       (e.target as HTMLElement).closest(".range-track")
     ) {
-      onActivate?.();
+      if (!isActive) onActivate?.();
     }
   };
 

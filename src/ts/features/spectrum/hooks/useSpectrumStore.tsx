@@ -139,6 +139,7 @@ import {
 import { resolveMockTxTransmitSettings } from "@n-apt/transmit/public/txSliderPlacement";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import { createSourceSwitchCoordinator } from "@n-apt/spectrum/hooks/sourceSwitchCoordinator";
+import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -185,12 +186,21 @@ export const resolveSelectedSourceIdForInventory = ({
   const selectedSourceIsInInventory = sources.some(
     (source) => source.id === selectedSourceId,
   );
-  if (
-    selectedSourceIsInInventory &&
-    ((pendingSourceSwitchId !== null &&
+  const hasExplicitSelectionIntent =
+    (pendingSourceSwitchId !== null &&
       pendingSourceSwitchId === selectedSourceId) ||
-      (selectionIntentSourceId !== null &&
-        selectionIntentSourceId === selectedSourceId))
+    (selectionIntentSourceId !== null &&
+      selectionIntentSourceId === selectedSourceId);
+  if (hasExplicitSelectionIntent && selectedSourceIsInInventory) {
+    return selectedSourceId;
+  }
+  // Cold-start source_info can omit Mock Tx for a tick while Mock APT is
+  // still active. Snapping to active here reverts the click before
+  // select_source is even dispatched.
+  if (
+    hasExplicitSelectionIntent &&
+    sources.some((source) => source.id === activeSourceId) &&
+    activeSourceId !== selectedSourceId
   ) {
     return selectedSourceId;
   }
@@ -279,14 +289,17 @@ export const shouldClearPendingSourceSwitch = ({
   pendingSourceSwitchId,
   selectedSourceId,
   activeSourceId,
+  selectionIntentSourceId = null,
 }: {
   pendingSourceSwitchId: string | null;
   selectedSourceId: string;
   activeSourceId: string;
+  selectionIntentSourceId?: string | null;
 }): boolean =>
   pendingSourceSwitchId !== null &&
   pendingSourceSwitchId !== activeSourceId &&
-  pendingSourceSwitchId !== selectedSourceId;
+  pendingSourceSwitchId !== selectedSourceId &&
+  pendingSourceSwitchId !== selectionIntentSourceId;
 
 /**
  * The sidebar selection is an intent; the active source is the server's
@@ -570,7 +583,24 @@ export const resolveEffectiveSourcePaused = ({
   localPaused?: boolean;
   manuallyPaused: boolean;
   autoPaused: boolean;
-}): boolean => localPaused ?? backendPaused ?? (manuallyPaused || autoPaused);
+}): boolean => {
+  // Refs update synchronously on click; backend snapshots and React local
+  // overrides can still say "live" for a frame. A stale `false` must not
+  // win over an in-flight user pause.
+  if (manuallyPaused || autoPaused) return true;
+  return localPaused ?? backendPaused ?? false;
+};
+
+/** Pause the playing stream unless the caller named a specific source. */
+export const resolvePauseTargetSourceId = ({
+  requestedSourceId,
+  selectedSourceId,
+  activeSourceId,
+}: {
+  requestedSourceId?: string;
+  selectedSourceId: string;
+  activeSourceId: string;
+}): string => requestedSourceId || activeSourceId || selectedSourceId;
 
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
@@ -1837,6 +1867,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             pendingSourceSwitchId,
             selectedSourceId,
             activeSourceId,
+            selectionIntentSourceId,
           })
         ) {
           reduxDispatch(setReduxPendingSourceSwitchId(null));
@@ -2130,7 +2161,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const sendPauseCommand = useCallback(
       (paused: boolean, sourceId?: string) => {
-        const pauseSourceId = sourceId || selectedSourceId || activeSourceId;
+        const pauseSourceId = resolvePauseTargetSourceId({
+          requestedSourceId: sourceId,
+          selectedSourceId,
+          activeSourceId,
+        });
         if (!pauseSourceId) {
           return;
         }
@@ -2455,7 +2490,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
 
-      if (autoPausedSourceIdsRef.current.has(selectedSourceId)) {
+      if (
+        autoPausedSourceIdsRef.current.has(selectedSourceId) &&
+        !manualPausedSourceIdsRef.current.has(selectedSourceId)
+      ) {
         autoPausedSourceIdsRef.current.delete(selectedSourceId);
         setLocalSourcePauseOverrides((current) => ({
           ...current,
@@ -3100,6 +3138,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const clampLiveFrequencyRange = useCallback(
       (range: FrequencyRange) => {
+        if (range.min < 0) {
+          return normalizeFrequencyRangeToHz(
+            normalizePositiveHardwareRange(range),
+          );
+        }
         const bounds = mergedState.vizZoom > 1 ? null : activeSignalAreaBounds;
         if (!bounds) return normalizeFrequencyRangeToHz(range);
 
@@ -3393,7 +3436,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           return;
         }
 
-        const pauseSourceId = sourceId || selectedSourceId || activeSourceId;
+        const pauseSourceId = resolvePauseTargetSourceId({
+          requestedSourceId: sourceId,
+          selectedSourceId,
+          activeSourceId,
+        });
         if (!pauseSourceId) return;
 
         const pauseTargetSource =
@@ -3448,7 +3495,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           return;
         }
 
-        const pauseSourceId = sourceId || selectedSourceId || activeSourceId;
+        const pauseSourceId = resolvePauseTargetSourceId({
+          requestedSourceId: sourceId,
+          selectedSourceId,
+          activeSourceId,
+        });
         if (!pauseSourceId) return;
         const pauseTargetSource =
           effectiveWebsocketSources.find(

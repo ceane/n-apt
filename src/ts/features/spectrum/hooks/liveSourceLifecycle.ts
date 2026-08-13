@@ -16,6 +16,8 @@ export type LiveSourceLifecyclePhase =
   | "disconnected"
   | "failed";
 
+/** A live source that never emits its first frame must not leave a blank view. */
+
 /** Stable transport state published by the WebSocket boundary. */
 export type SourceTransportLifecycle = {
   sourceId: string | null;
@@ -514,6 +516,16 @@ export const attachLiveSourceLifecyclePlaceholder = (
     standbyPlaceholder?: CanvasPlaceholderState | null;
   },
 ): LiveSourceLifecycle => {
+  // A source can remain optimistically "receiving" while its I/O reader has
+  // stopped. Preserve the watchdog's terminal error instead of replacing it
+  // with the generic awaiting-frame loader.
+  if (
+    devicePlaceholder?.kind === "error" ||
+    devicePlaceholder?.kind === "disconnected"
+  ) {
+    return { ...lifecycle, placeholder: devicePlaceholder };
+  }
+
   const placeholder = (() => {
     switch (lifecycle.phase) {
       case "failed":

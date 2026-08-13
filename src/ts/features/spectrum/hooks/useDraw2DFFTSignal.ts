@@ -144,9 +144,9 @@ export function drawLiveCanvasStatusRow(
     ctx.textAlign = "left";
     ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
     ctx.textAlign = "center";
-    ctx.fillText(status.fftWindowLabel, centerX, rowTop + 40);
+    ctx.fillText(status.timingLabel, centerX, rowTop + 40);
     ctx.textAlign = "right";
-    ctx.fillText(status.timingLabel, rightX - 4, rowTop + 40);
+    ctx.fillText(status.fftWindowLabel, rightX - 4, rowTop + 40);
   }
   ctx.restore();
 

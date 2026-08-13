@@ -44,7 +44,6 @@ import {
 } from "@n-apt/capture/hooks/useSnapshotListener";
 import { useDeviceConnectionState } from "@n-apt/app/hooks/useDeviceConnectionState";
 import { useCaptureWholeChannelSegments } from "@n-apt/capture/hooks/useCaptureWholeChannelSegments";
-import { createAnimationFrameCoalescer } from "@n-apt/spectrum/hooks/useFrequencyDrag";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
 
 import {
@@ -80,6 +79,41 @@ import {
   resolveCenteredFrequencyHz,
   resolveMockTxMonitorCenterHz,
 } from "@n-apt/math/frequency";
+import {
+  mapDisplayFrequencyToSource,
+  resolveMirroredDisplayCenter,
+  resolveMirroredTuning,
+} from "@n-apt/math/basebandMirror";
+
+export const resolveNavigationFrequencyBounds = ({
+  mirrorEnabled,
+  zoom,
+  channelBounds,
+  hardwareBounds,
+}: {
+  mirrorEnabled: boolean;
+  zoom: number;
+  channelBounds: FrequencyRange | null;
+  hardwareBounds: FrequencyRange | null;
+}): FrequencyRange | null => {
+  if (mirrorEnabled || zoom > 1) return hardwareBounds;
+  return channelBounds;
+};
+
+/**
+ * Publish a live tuning window as one synchronous contract. The local view and
+ * the backend request must be ordered together; putting either behind an
+ * animation-frame coalescer made a VFO gesture look like it was waiting for a
+ * debounce timer before the radio received the tune.
+ */
+export const publishFrequencyRangeImmediately = (
+  range: FrequencyRange,
+  setFrequencyRange: (range: FrequencyRange) => void,
+  sendFrequencyRange: (range: FrequencyRange) => void,
+): void => {
+  setFrequencyRange(range);
+  sendFrequencyRange(range);
+};
 import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 import {
@@ -113,6 +147,7 @@ import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   getMockTxPreviewRequestKey,
   resolveMockTxMonitorSampleRateForView,
+  resolveTxStandbyPreviewTransport,
   shouldClearMockTxPreviewRequestDedupe,
 } from "./spectrum/mockTxPreview";
 import {
@@ -300,20 +335,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
-  const frequencyRangePublisher = useMemo(
-    () =>
-      createAnimationFrameCoalescer<FrequencyRange>(
-        (range) => {
-          reduxDispatch(setFrequencyRange(range));
-          sendFrequencyRange(range);
-        },
-        (callback) => window.requestAnimationFrame(callback),
+  const publishFrequencyRange = useCallback(
+    (range: FrequencyRange) =>
+      publishFrequencyRangeImmediately(
+        range,
+        (nextRange) => reduxDispatch(setFrequencyRange(nextRange)),
+        sendFrequencyRange,
       ),
     [reduxDispatch, sendFrequencyRange],
-  );
-  useEffect(
-    () => () => frequencyRangePublisher.cancel(),
-    [frequencyRangePublisher],
   );
   const streamingSource = useMemo(
     () =>
@@ -400,7 +429,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
     if (transition.clearLiveFrame) {
       // The mutable frame ref bypasses Redux for performance, so clear it at
-      // the same source boundary as the GPU presentation cache.
+      // the same source boundary as the GPU presentation cache. A source
+      // switch is an ownership boundary; retaining the previous paused frame
+      // here creates a one-paint flash before the target frame arrives.
       dataRef.current = null;
       if (transition.advanceResetEpoch) {
         fftVisualizerMachine?.discardNextPersist?.(
@@ -1028,47 +1059,85 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const [txMonitorDetached, setTxMonitorDetached] = useState(false);
   const wasMockTxMonitorActiveRef = useRef(false);
 
+  const applyTxMonitorForRange = useCallback(
+    (range: FrequencyRange, source: "user-pan" | "mode-enter" | "typed") => {
+      if (
+        !isMockTxMonitorActive ||
+        !Number.isFinite(range.min) ||
+        !Number.isFinite(range.max)
+      ) {
+        return;
+      }
+      const nextCenter = (range.min + range.max) / 2;
+      if (source === "user-pan") {
+        setTxMonitorDetached(true);
+        setMockMonitorCenterHz(nextCenter);
+      } else if (shouldJumpTxMonitor({ source })) {
+        setTxMonitorDetached(false);
+        setMockMonitorCenterHz(nextCenter);
+      }
+    },
+    [isMockTxMonitorActive],
+  );
+
   const handleFrequencyRangeChange = useCallback(
     (
       range: FrequencyRange,
       source: "user-pan" | "mode-enter" | "typed" = "user-pan",
     ) => {
-      const zoomed = state.vizZoom > 1;
-      const primaryBounds = zoomed
-        ? hardwareSpectrumBounds
-        : activeSignalAreaBounds;
-      const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds
-          ? clampFrequencyRangeToBounds(range, primaryBounds, {
-              minimumFrequencyHz: allowNegativeFrequencies
-                ? Number.NEGATIVE_INFINITY
-                : undefined,
-            })
-          : range,
-      );
-      frequencyRangePublisher.schedule(clampedRange);
-      if (
-        isMockTxMonitorActive &&
-        Number.isFinite(clampedRange.min) &&
-        Number.isFinite(clampedRange.max)
-      ) {
-        const nextCenter = (clampedRange.min + clampedRange.max) / 2;
-        if (source === "user-pan") {
-          setTxMonitorDetached(true);
-          setMockMonitorCenterHz(nextCenter);
-        } else if (shouldJumpTxMonitor({ source })) {
-          setTxMonitorDetached(false);
-          setMockMonitorCenterHz(nextCenter);
+      // The mirror is presentational: an explicit tune still asks the radio for
+      // a positive window, and a below-zero request is restored with pan rather
+      // than by letting the shifted window become the view. Already-positive
+      // requests (including auto-retunes) must not touch pan — the caller owns
+      // re-anchoring, otherwise a retune briefly snaps the viewport to DC.
+      if (allowNegativeFrequencies && range.min < 0) {
+        // Cap every mirrored tune at the live sample-rate window. Whole-channel
+        // thumbs (positive or DC-crossing) must not widen Redux past what the
+        // radio actually acquires — that is the channel-island flatline.
+        const acquisitionSpanHz =
+          state.frequencyRange &&
+          Number.isFinite(state.frequencyRange.max) &&
+          Number.isFinite(state.frequencyRange.min) &&
+          state.frequencyRange.max > state.frequencyRange.min
+            ? state.frequencyRange.max - state.frequencyRange.min
+            : sampleRateHzEffective;
+        const { hardwareRange, panOffsetHz } = resolveMirroredTuning(
+          range,
+          null,
+          { maxAcquisitionSpanHz: acquisitionSpanHz },
+        );
+        const nextRange = normalizeFrequencyRangeToHz(hardwareRange);
+        // Only re-anchor pan for below-zero / clamped-crossing requests.
+        // Auto-retunes that are already positive own their own pan.
+        if (range.min < 0) {
+          setVizPanOffset(panOffsetHz);
         }
+        publishFrequencyRange(nextRange);
+        applyTxMonitorForRange(nextRange, source);
+        return;
       }
+
+      const primaryBounds = resolveNavigationFrequencyBounds({
+        mirrorEnabled: allowNegativeFrequencies,
+        zoom: state.vizZoom,
+        channelBounds: activeSignalAreaBounds,
+        hardwareBounds: hardwareSpectrumBounds,
+      });
+      const clampedRange = normalizeFrequencyRangeToHz(
+        primaryBounds ? clampFrequencyRangeToBounds(range, primaryBounds) : range,
+      );
+      publishFrequencyRange(clampedRange);
+      applyTxMonitorForRange(clampedRange, source);
     },
     [
-      dispatch,
-      frequencyRangePublisher,
-      isMockTxMonitorActive,
-      reduxDispatch,
+      allowNegativeFrequencies,
+      applyTxMonitorForRange,
       hardwareSpectrumBounds,
       activeSignalAreaBounds,
+      publishFrequencyRange,
+      sampleRateHzEffective,
+      setVizPanOffset,
+      state.frequencyRange,
       state.vizZoom,
     ],
   );
@@ -1088,7 +1157,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           buildCenteredFrequencyRange(
             centerHz,
             spanHz,
-            allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+            0,
           ),
           source,
         );
@@ -1107,18 +1176,41 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       if (!state.frequencyRange) return;
 
       if (
-        Number.isFinite(nextCenterFrequencyHz) &&
-        nextCenterFrequencyHz >= state.frequencyRange.min &&
-        nextCenterFrequencyHz <= state.frequencyRange.max &&
+        allowNegativeFrequencies &&
+        Number.isFinite(nextCenterFrequencyHz)
+      ) {
+        const sourceSpan =
+          state.frequencyRange.max - state.frequencyRange.min;
+        const visualSpan = sourceSpan / Math.max(1, state.vizZoom);
+        const mirrored = resolveMirroredDisplayCenter({
+          displayCenterHz: nextCenterFrequencyHz,
+          displaySpanHz: visualSpan,
+          sourceRange: state.frequencyRange,
+        });
+        if (mirrored.needsRetune) {
+          handleFrequencyRangeChange(mirrored.range, "user-pan");
+        }
+        setVizPanOffset(mirrored.panOffsetHz);
+        return;
+      }
+
+      const sourceCenterFrequencyHz = mapDisplayFrequencyToSource(
+        nextCenterFrequencyHz,
+      );
+
+      if (
+        Number.isFinite(sourceCenterFrequencyHz) &&
+        sourceCenterFrequencyHz >= state.frequencyRange.min &&
+        sourceCenterFrequencyHz <= state.frequencyRange.max &&
         (!hardwareSpectrumBounds ||
-          (nextCenterFrequencyHz >= hardwareSpectrumBounds.min &&
-            nextCenterFrequencyHz <= hardwareSpectrumBounds.max))
+          (sourceCenterFrequencyHz >= hardwareSpectrumBounds.min &&
+            sourceCenterFrequencyHz <= hardwareSpectrumBounds.max))
       ) {
         const nextView = getZoomedViewForCenterFrequency({
           hardwareRange: state.frequencyRange,
           currentZoom: state.vizZoom,
           currentPan: state.vizPanOffset,
-          requestedCenterHz: nextCenterFrequencyHz,
+          requestedCenterHz: sourceCenterFrequencyHz,
         });
         setVizZoom(nextView.zoom);
         setVizPanOffset(nextView.pan);
@@ -1134,7 +1226,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         buildCenteredFrequencyRange(
           nextCenterFrequencyHz,
           spanHz,
-          allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+          0,
         ),
         "user-pan",
       );
@@ -1509,7 +1601,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     return buildCenteredFrequencyRange(
       monitorCenterHz,
       mockTxMonitorSampleRateHz,
-      allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+      0,
     );
   }, [
     centerFrequencyHz,
@@ -1973,14 +2065,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         ? state.frequencyRange.max - state.frequencyRange.min
         : undefined;
 
-    // Mock Tx standby must use one-shot request_next_frame. refreshStream /
-    // managed Tx is transmitting-only, and diverting handoff into
-    // txSuite/requestPreview leaves a black FFT on the first Mock APT → Mock Tx
-    // switch (no frozen preview yet).
-    if (isSelectedTxPreviewStandby && !isMockTxMonitorActive) {
-      reduxDispatch({ type: "txSuite/requestPreview" });
-      lastMockTxPreviewRequestKeyRef.current = null;
-    } else {
+    // Every standby preview, including half-duplex hardware, must use the
+    // source-owned one-shot request. The Tx-suite action establishes the
+    // binding, but it does not produce a frame; leaving that action here
+    // leaves the paused Rx frame on the canvas until the user starts Tx.
+    if (
+      resolveTxStandbyPreviewTransport({
+        isSelectedTxPreviewStandby,
+        isMockTxMonitorActive,
+      }) === "one_shot"
+    ) {
       reduxDispatch(
         requestNextPausedFrame({
           sourceId: selectedSourceId || "mock-tx",
@@ -2273,9 +2367,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                   <>
                     {isCenterFrequencyEditing ? (
                       <EditableCenterFrequency
-                        centerFrequencyHz={fftCenterFrequencyHz}
+                        centerFrequencyHz={
+                          allowNegativeFrequencies && fftFrequencyRange
+                            ? (fftFrequencyRange.min + fftFrequencyRange.max) /
+                                2 +
+                              vizPanOffset
+                            : fftCenterFrequencyHz
+                        }
                         onCenterFrequencyChange={handleCenterFrequencyChange}
                         onClose={() => setIsCenterFrequencyEditing(false)}
+                        allowNegativeFrequencies={allowNegativeFrequencies}
                       />
                     ) : null}
                     {isTxOptionsEditing && txSliderDefaults ? (

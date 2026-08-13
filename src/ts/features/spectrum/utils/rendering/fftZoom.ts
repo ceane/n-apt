@@ -15,6 +15,7 @@ export interface FFTZoomProcessor {
     fullRange: FFTZoomRange,
     zoom: number,
     panOffset: number,
+    allowNegativeFrequencies?: boolean,
   ) => FFTZoomResult;
 }
 
@@ -32,6 +33,7 @@ export const createFFTZoomProcessor = (minimumDb: number): FFTZoomProcessor => {
     fullRange: FFTZoomRange,
     zoom: number,
     panOffset: number,
+    allowNegativeFrequencies = false,
   ): FFTZoomResult => {
     if (zoom === 1 && panOffset === 0) {
       result.slicedWaveform = fullWaveform;
@@ -46,8 +48,16 @@ export const createFFTZoomProcessor = (minimumDb: number): FFTZoomProcessor => {
     const rangeMin = fullRange.min;
     const rangeMax = fullRange.max;
     const fullSpan = rangeMax - rangeMin;
-    const visualCenter = (rangeMin + rangeMax) * 0.5 + panOffset;
     const halfSpan = fullSpan / (2 * zoom);
+    const center = (rangeMin + rangeMax) * 0.5;
+    // Mirror pan is unbounded; only mirror-off positive windows clamp here.
+    const clampedPan = allowNegativeFrequencies
+      ? panOffset
+      : Math.min(
+          rangeMax - halfSpan - center,
+          Math.max(rangeMin + halfSpan - center, panOffset),
+        );
+    const visualCenter = center + clampedPan;
     const visualCenterBin = Math.round(
       ((visualCenter - rangeMin) / fullSpan) * totalBins,
     );
@@ -55,7 +65,7 @@ export const createFFTZoomProcessor = (minimumDb: number): FFTZoomProcessor => {
 
     visualRange.min = visualCenter - halfSpan;
     visualRange.max = visualCenter + halfSpan;
-    result.clampedPan = panOffset;
+    result.clampedPan = clampedPan;
 
     if (startBin >= 0 && startBin + visibleBins <= totalBins && zoom >= 1) {
       result.slicedWaveform = fullWaveform.subarray(

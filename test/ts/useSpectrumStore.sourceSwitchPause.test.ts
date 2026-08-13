@@ -15,6 +15,7 @@ import {
   resolveInventorySelectionIntent,
   shouldClearPendingSourceSwitch,
   resolveNextVisualizerPauseState,
+  resolvePauseTargetSourceId,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
@@ -155,6 +156,33 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe("mock-tx");
   });
 
+  it("preserves an explicit Mock Tx selection when cold-start inventory has not advertised it yet", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+        ] as any,
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("does not snap a pending Mock Tx click back to the still-active Mock APT", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        pendingSourceSwitchId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBe("mock-tx");
+  });
+
   it("follows the server source when another client switches it", () => {
     expect(
       resolveSelectedSourceIdForInventory({
@@ -174,6 +202,17 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         pendingSourceSwitchId: "mock-tx",
         selectedSourceId: "mock-tx",
         activeSourceId: "mock-apt",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not drop a pending Mock Tx switch when inventory briefly follows the active Mock APT", () => {
+    expect(
+      shouldClearPendingSourceSwitch({
+        pendingSourceSwitchId: "mock-tx",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
       }),
     ).toBe(false);
   });
@@ -356,6 +395,33 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         autoPaused: true,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a manual pause even when the backend snapshot is still live", () => {
+    expect(
+      resolveEffectiveSourcePaused({
+        backendPaused: false,
+        localPaused: undefined,
+        manuallyPaused: true,
+        autoPaused: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("pauses the source that is actually streaming when selection is still in flight", () => {
+    expect(
+      resolvePauseTargetSourceId({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+      }),
+    ).toBe("mock-apt");
+    expect(
+      resolvePauseTargetSourceId({
+        requestedSourceId: "mock-tx",
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+      }),
+    ).toBe("mock-tx");
   });
 
   it("resumes a backend-paused rx source when it is selected without a manual pause", () => {

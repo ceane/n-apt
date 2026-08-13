@@ -5,6 +5,22 @@ const getCenterFrequency = (range: FrequencyRange) =>
 
 const getSpan = (range: FrequencyRange) => range.max - range.min;
 
+/**
+ * A waterfall row represents a newly acquired FFT frame. Changing the
+ * visible frequency range is a presentation-only redraw and must not append
+ * or synthesize history, including while the baseband mirror is being panned.
+ */
+export const shouldAppendWaterfallRow = ({
+  hasNewData,
+  isStandby,
+  isTxPreviewFrame,
+}: {
+  hasNewData: boolean;
+  isStandby: boolean;
+  isTxPreviewFrame: boolean;
+}): boolean =>
+  (!isStandby || isTxPreviewFrame) && hasNewData;
+
 export const getWaterfallMotion = ({
   previousVisualRange,
   currentVisualRange,

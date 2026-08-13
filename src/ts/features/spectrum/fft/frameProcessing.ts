@@ -3,6 +3,11 @@ import {
   clampTemporalActiveCount,
   ensureTemporalFrameSlot,
 } from "@n-apt/math/temporalResolution";
+import {
+  extendSpectrumBelowZero,
+  resolvePanZoomForDisplayRange,
+  sourceCoversMirroredDisplay,
+} from "@n-apt/math/basebandMirror";
 
 export const FULL_CHANNEL_BINS = 4096;
 
@@ -43,13 +48,97 @@ export function shouldPresentSpectrumFrameForRange({
   ) {
     return false;
   }
-  const requestedCenterHz = (requestedRange.min + requestedRange.max) / 2;
-  const requestedSampleRateHz = requestedRange.max - requestedRange.min;
+
+  const requestedMinHz = requestedRange.min;
+  const requestedMaxHz = requestedRange.max;
+  const requestedSampleRateHz = requestedMaxHz - requestedMinHz;
+  if (
+    !Number.isFinite(requestedMinHz) ||
+    !Number.isFinite(requestedMaxHz) ||
+    requestedSampleRateHz <= 0
+  ) {
+    return false;
+  }
+
+  // A source may legally deliver a wider acquisition window than the current
+  // viewport (for example HackRF's 4.372 MHz whole-channel frame while the UI
+  // is still presenting a 3.2 MHz channel window). The frame is safe to paint
+  // when its actual frequency coverage fully contains the requested viewport.
+  // A one-hertz tolerance preserves the exact-match behavior for retunes while
+  // avoiding false negatives from integer rounding at the window edges.
+  const frameMinHz = frameCenterHz - frameSampleRateHz / 2;
+  const frameMaxHz = frameCenterHz + frameSampleRateHz / 2;
+  const rangeToleranceHz = 1;
   return (
-    Math.abs(frameCenterHz - requestedCenterHz) <= 1 &&
-    Math.abs(frameSampleRateHz - requestedSampleRateHz) <= 1
+    requestedSampleRateHz <= frameSampleRateHz + rangeToleranceHz &&
+    requestedMinHz >= frameMinHz - rangeToleranceHz &&
+    requestedMaxHz <= frameMaxHz + rangeToleranceHz
   );
 }
+
+/**
+ * A live IQ frame owns the spectrum's frequency axis. Do not replace the
+ * requested window with an older frame while a hardware retune is in flight;
+ * keep the last complete paint until the new center/span arrives.
+ */
+export const shouldAdoptLiveFrameRange = ({
+  frameCenterHz,
+  frameSampleRateHz,
+  requestedRange,
+  isTxPreviewFrame = false,
+}: {
+  frameCenterHz?: number | null;
+  frameSampleRateHz?: number | null;
+  requestedRange: { min: number; max: number };
+  isTxPreviewFrame?: boolean;
+}): boolean =>
+  shouldPresentSpectrumFrameForRange({
+    frameCenterHz,
+    frameSampleRateHz,
+    requestedRange,
+    requiresExactRange: true,
+    isTxPreviewFrame,
+  });
+
+/**
+ * Keep the last FFT on screen while a same-span VFO retune is in flight.
+ * The GPU can slide that acquisition into the new viewport; a sample-rate
+ * or channel-span change still waits for a matching frame.
+ */
+export const shouldKeepPaintingThroughRetune = ({
+  frameCenterHz,
+  frameSampleRateHz,
+  requestedRange,
+  isTxPreviewFrame = false,
+}: {
+  frameCenterHz?: number | null;
+  frameSampleRateHz?: number | null;
+  requestedRange: { min: number; max: number };
+  isTxPreviewFrame?: boolean;
+}): boolean => {
+  if (
+    shouldAdoptLiveFrameRange({
+      frameCenterHz,
+      frameSampleRateHz,
+      requestedRange,
+      isTxPreviewFrame,
+    })
+  ) {
+    return true;
+  }
+  if (
+    typeof frameSampleRateHz !== "number" ||
+    !Number.isFinite(frameSampleRateHz) ||
+    frameSampleRateHz <= 0
+  ) {
+    return false;
+  }
+  const requestedSpanHz = requestedRange.max - requestedRange.min;
+  if (!Number.isFinite(requestedSpanHz) || requestedSpanHz <= 0) {
+    return false;
+  }
+  return Math.abs(requestedSpanHz - frameSampleRateHz) <= 1;
+};
 
 export function invertSpectrumVertically(
   waveform: Float32Array,
@@ -73,57 +162,275 @@ export interface SpectrumRenderPreparation {
   visualRange: { min: number; max: number };
   clampedPan: number;
   spectrumWaveform: Float32Array;
+  /**
+   * False when the mirror is on and the current acquisition cannot fill the
+   * viewport. Callers must hold the previous paint in that case; resampling
+   * anyway paints the uncovered region as the noise floor and produces the
+   * flatline-then-fill flash.
+   */
+  coversDisplay: boolean;
 }
+
+export const resolveLiveSpectrumCoordinateModel = ({
+  viewportBaseRange,
+  sourceRange,
+  zoom,
+  panOffsetHz,
+  mirrorEnabled,
+}: {
+  viewportBaseRange: { min: number; max: number };
+  sourceRange: { min: number; max: number };
+  zoom: number;
+  panOffsetHz: number;
+  mirrorEnabled: boolean;
+}) => {
+  const view = resolveGpuView({
+    frequencyRange: viewportBaseRange,
+    zoom,
+    panOffset: panOffsetHz,
+    allowNegativeFrequencies: mirrorEnabled,
+  });
+  return {
+    sourceRange,
+    displayRange: view.visualRange,
+    clampedPan: view.clampedPan,
+  };
+};
+
+export interface LiveSpectrumPaintContract {
+  /** Pan/zoom axis — always the frame's CF ± fs/2. */
+  paintViewportRange: { min: number; max: number };
+  sourceFrequencyRange: { min: number; max: number };
+  /** Absolute Hz the gesture is looking at. */
+  displayRange: { min: number; max: number };
+  zoom: number;
+  panOffsetHz: number;
+}
+
+/**
+ * FFTCanvas wiring: Redux pan is measured against a start-anchored request
+ * while IQ bins are labeled by the live frame. Re-base pan/zoom onto the
+ * acquisition axis before prepareSpectrumRenderData or the GPU |f| fold paints
+ * a channel-sized island with floor on both sides.
+ */
+export const resolveLiveSpectrumPaintContract = ({
+  requestedViewRange,
+  sourceFrequencyRange,
+  zoom,
+  panOffsetHz,
+  mirrorEnabled,
+  frameCenterHz,
+  frameSampleRateHz,
+  isTxPreviewFrame = false,
+}: {
+  requestedViewRange: { min: number; max: number };
+  sourceFrequencyRange: { min: number; max: number };
+  zoom: number;
+  panOffsetHz: number;
+  mirrorEnabled: boolean;
+  frameCenterHz?: number | null;
+  frameSampleRateHz?: number | null;
+  isTxPreviewFrame?: boolean;
+}): LiveSpectrumPaintContract => {
+  const gestureView = resolveLiveSpectrumCoordinateModel({
+    viewportBaseRange: requestedViewRange,
+    sourceRange: sourceFrequencyRange,
+    zoom,
+    panOffsetHz,
+    mirrorEnabled,
+  });
+  const displayRange = gestureView.displayRange;
+  const rebased = resolvePanZoomForDisplayRange({
+    hardwareRange: sourceFrequencyRange,
+    displayRange,
+  });
+  return {
+    paintViewportRange: sourceFrequencyRange,
+    sourceFrequencyRange,
+    displayRange,
+    zoom: rebased.zoom,
+    panOffsetHz: rebased.panOffsetHz,
+  };
+};
+
+export const shouldHoldLiveSpectrumPaint = ({
+  coversDisplay,
+}: {
+  coversDisplay: boolean;
+}): boolean =>
+  !coversDisplay;
+
+export const shouldClearSpectrumWaveformForRangeChange = ({
+  isPaused: _isPaused,
+}: {
+  isPaused: boolean;
+}) => false;
+
+/**
+ * Resolves only the geometry needed by the GPU mirror path.
+ *
+ * The GPU resampler consumes the complete source waveform, so asking the CPU
+ * zoom processor for a sliced/padded copy here is redundant. Keep this math
+ * equivalent to the zoom processor's mirrored range calculation without
+ * touching the waveform data.
+ */
+const resolveGpuView = ({
+  frequencyRange,
+  zoom,
+  panOffset,
+  allowNegativeFrequencies,
+}: {
+  frequencyRange: { min: number; max: number };
+  zoom: number;
+  panOffset: number;
+  allowNegativeFrequencies: boolean;
+}): {
+  visualRange: { min: number; max: number };
+  clampedPan: number;
+} => {
+  const fullSpan = frequencyRange.max - frequencyRange.min;
+  if (!Number.isFinite(fullSpan) || fullSpan <= 0) {
+    return {
+      visualRange: frequencyRange,
+      clampedPan: 0,
+    };
+  }
+
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const halfSpan = fullSpan / (2 * safeZoom);
+  const center = (frequencyRange.min + frequencyRange.max) / 2;
+  const clampedPan = allowNegativeFrequencies
+    ? panOffset
+    : Math.max(
+        frequencyRange.min + halfSpan - center,
+        Math.min(frequencyRange.max - halfSpan - center, panOffset),
+      );
+  const visualCenter = center + clampedPan;
+
+  return {
+    visualRange: {
+      min: visualCenter - halfSpan,
+      max: visualCenter + halfSpan,
+    },
+    clampedPan,
+  };
+};
 
 /** Applies view-window selection and vertical inversion before renderer submission. */
 export function prepareSpectrumRenderData({
   waveform,
   frequencyRange,
+  sourceFrequencyRange,
   zoom,
   panOffset,
   invert,
   dbMin,
   dbMax,
   inversionBuffer,
+  mirrorBuffer,
+  allowNegativeFrequencies = false,
+  mirrorOnGpu = false,
+  resampleOnGpu = false,
   getZoomedData,
 }: {
   waveform: Float32Array;
   frequencyRange: { min: number; max: number };
+  sourceFrequencyRange?: { min: number; max: number };
   zoom: number;
   panOffset: number;
   invert: boolean;
   dbMin: number;
   dbMax: number;
   inversionBuffer?: Float32Array | null;
+  mirrorBuffer?: Float32Array | null;
+  allowNegativeFrequencies?: boolean;
+  /** When true, skip CPU work; resample.wgsl owns negative display bands. */
+  mirrorOnGpu?: boolean;
+  /** When true, resample.wgsl owns ordinary live pan/zoom slicing too. */
+  resampleOnGpu?: boolean;
   getZoomedData: (
     waveform: Float32Array,
     frequencyRange: { min: number; max: number },
     zoom: number,
     panOffset: number,
+    allowNegativeFrequencies?: boolean,
   ) => {
     slicedWaveform: Float32Array;
     visualRange: { min: number; max: number };
     clampedPan: number;
   };
 }): SpectrumRenderPreparation {
-  const { slicedWaveform, visualRange, clampedPan } = getZoomedData(
-    waveform,
-    frequencyRange,
-    zoom,
-    panOffset,
+  const sourceRange = sourceFrequencyRange ?? frequencyRange;
+  // Setting on ⇒ free pan math always (no positive-window clamp). Fold/extend
+  // only arms once the viewport crosses below 0 Hz. Gating pan freedom on
+  // "is below 0" was what froze the spectrum while EditableCenterFrequency
+  // still updated Redux: every paint rewrote vizPan back into the acquisition.
+  const freePan = allowNegativeFrequencies;
+  const gpuView = resampleOnGpu || freePan
+    ? resolveGpuView({
+        frequencyRange,
+        zoom,
+        panOffset,
+        allowNegativeFrequencies: freePan,
+      })
+    : null;
+  // With the setting enabled, WebGPU owns viewport resampling for every pan
+  // position. The shader only folds |f| for negative display coordinates, but
+  // retaining the original acquisition here avoids CPU slicing and allocation
+  // on the positive side too.
+  const useGpuViewport =
+    gpuView !== null && !invert && (resampleOnGpu || mirrorOnGpu);
+
+  const { slicedWaveform, visualRange, clampedPan } = useGpuViewport
+    ? {
+        // Full source for the shader; it folds |f| and floors uncovered bins.
+        slicedWaveform: waveform,
+        visualRange: gpuView!.visualRange,
+        clampedPan: gpuView!.clampedPan,
+      }
+    : getZoomedData(
+        waveform,
+        frequencyRange,
+        zoom,
+        panOffset,
+        freePan,
+      );
+  const coversDisplay = sourceCoversMirroredDisplay(
+    sourceRange,
+    visualRange,
   );
+
+  let displayWaveform = slicedWaveform;
+  if (useGpuViewport) {
+    displayWaveform = waveform;
+  } else if (freePan) {
+    // Frequency-space resample for the whole row (positive and negative) so
+    // zoom seams stay consistent in snapshot/CPU rendering. The live WebGPU
+    // path returns above and never performs this O(FFT size) pass.
+    displayWaveform = extendSpectrumBelowZero({
+      spectrum: waveform,
+      sourceRange,
+      displayRange: visualRange,
+      outputLength: slicedWaveform.length,
+      floorDb: dbMin,
+      target: mirrorBuffer ?? undefined,
+    });
+  }
+
   return {
-    slicedWaveform,
+    slicedWaveform: displayWaveform,
     visualRange,
     clampedPan,
-    spectrumWaveform: invert
-      ? invertSpectrumVertically(
-          slicedWaveform,
-          dbMin,
-          dbMax,
-          inversionBuffer ?? undefined,
-        )
-      : slicedWaveform,
+    coversDisplay,
+    spectrumWaveform:
+      invert && !useGpuViewport
+        ? invertSpectrumVertically(
+            displayWaveform,
+            dbMin,
+            dbMax,
+            inversionBuffer ?? undefined,
+          )
+        : displayWaveform,
   };
 }
 

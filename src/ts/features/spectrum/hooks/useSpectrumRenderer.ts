@@ -145,8 +145,18 @@ export interface SpectrumRendererOptions {
 
   /** Render input data to visualize (live I/Q bytes or precomputed spectrum floats) */
   waveform: Uint8Array | Float32Array;
+  /** True when the source array contents changed since the last draw. */
+  waveformDirty?: boolean;
   /** The current frequency range (min/max MHz) to display on the X-axis */
   frequencyRange: { min: number; max: number };
+  /** Acquisition window covered by `waveform`. Used when mirrorEnabled. */
+  sourceFrequencyRange?: { min: number; max: number };
+  /** Map negative display bands in resample.wgsl from the resident acquisition. */
+  mirrorEnabled?: boolean;
+  /** Reuse an unchanged acquisition while GPU viewport uniforms change. */
+  reuseWaveformUpload?: boolean;
+  /** Shift display coordinates onto a stale acquisition during retune. */
+  presentationOffsetHz?: number;
   /** Minimum dB value for the Y-axis */
   fftMin: number;
   /** Maximum dB value for the Y-axis */
@@ -249,7 +259,12 @@ export function useSpectrumRenderer() {
         device,
         format,
         waveform,
+        waveformDirty = true,
         frequencyRange,
+        sourceFrequencyRange,
+        mirrorEnabled = false,
+        reuseWaveformUpload = false,
+        presentationOffsetHz = 0,
         fftMin,
         fftMax,
         powerScale = "dB",
@@ -433,7 +448,12 @@ export function useSpectrumRenderer() {
           device,
           format,
           waveform,
+          waveformDirty,
           frequencyRange,
+          sourceFrequencyRange,
+          mirrorEnabled,
+          reuseWaveformUpload,
+          presentationOffsetHz,
           fftMin,
           fftMax,
           gridOverlayRenderer: gridOverlayRenderer ?? undefined,

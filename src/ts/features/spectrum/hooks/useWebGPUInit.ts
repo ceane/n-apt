@@ -287,7 +287,7 @@ export function useWebGPULifecycle({
         resampleComputePipelineRef.current = computePipeline;
 
         const paramsBuffer = device.createBuffer({
-          size: 16,
+          size: 48,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         resampleParamsBufferRef.current = paramsBuffer;

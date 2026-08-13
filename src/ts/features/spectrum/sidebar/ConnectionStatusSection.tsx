@@ -536,16 +536,20 @@ export const ConnectionStatusSection: React.FC<
             ) : staleStateLabel ? (
               <WarningButton
                 $paused={false}
-                $isDisabled
-                onClick={() => {}}
-                disabled={true}
+                $isDisabled={deviceState !== "stale" || !onRestartDevice}
+                onClick={onRestartDevice ?? (() => {})}
+                disabled={deviceState !== "stale" || !onRestartDevice}
                 title={
                   deviceState === "stale"
-                    ? "Device is stale and waiting for a fresh frame..."
+                    ? onRestartDevice
+                      ? "Restart the stale device and reconnect its stream."
+                      : "Device is stale and waiting for a fresh frame..."
                     : "Device disconnected."
                 }
               >
-                {staleStateLabel}
+                {deviceState === "stale" && onRestartDevice
+                  ? "Restart"
+                  : staleStateLabel}
               </WarningButton>
             ) : (
               !hidePauseButton && (

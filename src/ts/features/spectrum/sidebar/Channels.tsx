@@ -586,6 +586,8 @@ export const Channels: React.FC<ChannelsProps> = ({
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
                   onActivate={() => {
+                    if (isFrameActive) return;
+
                     const isTargetWholeChannel = resolveWholeChannelFrame({
                       supportsWholeChannel: supportsWholeChannelDisplay,
                       wholeChannelMode: isWholeChannelMode,
@@ -625,7 +627,7 @@ export const Channels: React.FC<ChannelsProps> = ({
                       [{ label, min: minFreq, max: maxFreq }],
                       undefined,
                       clampedRange,
-                      isTargetWholeChannel ? channelSpan : undefined,
+                      isWholeChannelMode ? channelSpan : undefined,
                     );
                   }}
                 />

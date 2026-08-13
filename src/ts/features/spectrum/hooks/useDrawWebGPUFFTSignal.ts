@@ -195,6 +195,10 @@ type FFTWebGPUState = {
   resampleBindGroup: GPUBindGroup | null;
   resampleInputLength: number;
   resampleOutputLength: number;
+  /** Skip re-uploading the acquisition on mirror pans — only display uniforms change. */
+  lastUploadedWaveform: Float32Array | Uint8Array | null;
+  lastUploadedByteOffset: number;
+  lastUploadedByteLength: number;
   // Optional compute pass that removes the centered DC bin before resampling.
   dcSpikeComputePipeline: GPUComputePipeline;
   dcSpikeBindGroupLayout: GPUBindGroupLayout;
@@ -259,7 +263,12 @@ type FFTWebGPUState = {
   scratchSpikeParamsAB: ArrayBuffer;
   scratchSpikeParamsU32: Uint32Array;
   scratchSpikeParamsF32: Float32Array;
-  scratchResampleParams: Uint32Array;
+  scratchResampleParamsAB: ArrayBuffer;
+  scratchResampleParamsView: DataView;
+  scratchDcSpikeParams: Uint32Array;
+  scratchNaptClassifyParamsAB: ArrayBuffer;
+  scratchNaptClassifyParamsView: DataView;
+  scratchNaptTemporalParams: Uint32Array;
   scratchZeroCount: Uint32Array;
   lastFrameCanvas?: HTMLCanvasElement;
   cacheCanvas?: HTMLCanvasElement;
@@ -271,7 +280,17 @@ export interface WebGPUFFTSignalOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   waveform: Float32Array | Uint8Array;
+  /** True when the source array contents changed since the last draw. */
+  waveformDirty?: boolean;
   frequencyRange: { min: number; max: number };
+  /** Acquisition window the waveform covers. Required when mirrorEnabled. */
+  sourceFrequencyRange?: { min: number; max: number };
+  /** Map negative display bands in resample.wgsl instead of a CPU preprocess. */
+  mirrorEnabled?: boolean;
+  /** Reuse the uploaded acquisition while only viewport uniforms change. */
+  reuseWaveformUpload?: boolean;
+  /** Shift display coordinates onto a stale acquisition during retune. */
+  presentationOffsetHz?: number;
   fftMin?: number;
   fftMax?: number;
   gridOverlayRenderer?: OverlayTextureRenderer;
@@ -483,9 +502,9 @@ export function useDrawWebGPUFFTSignal() {
         compute: { module: resampleModule, entryPoint: "main" },
       });
 
-      // Resample params: [src_len, out_len, reserved, reserved] for compute shader
+      // Resample params: 12 x 4 bytes (mirror fold + frequency ranges)
       const resampleParamsBuffer = device.createBuffer({
-        size: 4 * Uint32Array.BYTES_PER_ELEMENT,
+        size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
@@ -821,7 +840,14 @@ export function useDrawWebGPUFFTSignal() {
       const scratchSpikeParamsAB = new ArrayBuffer(16);
       const scratchSpikeParamsU32 = new Uint32Array(scratchSpikeParamsAB);
       const scratchSpikeParamsF32 = new Float32Array(scratchSpikeParamsAB);
-      const scratchResampleParams = new Uint32Array(4);
+      const scratchResampleParamsAB = new ArrayBuffer(48);
+      const scratchResampleParamsView = new DataView(scratchResampleParamsAB);
+      const scratchDcSpikeParams = new Uint32Array(4);
+      const scratchNaptClassifyParamsAB = new ArrayBuffer(16);
+      const scratchNaptClassifyParamsView = new DataView(
+        scratchNaptClassifyParamsAB,
+      );
+      const scratchNaptTemporalParams = new Uint32Array(4);
       const scratchZeroCount = new Uint32Array([0]);
 
       return {
@@ -844,6 +870,9 @@ export function useDrawWebGPUFFTSignal() {
         resampleBindGroup: null,
         resampleInputLength: 0,
         resampleOutputLength: 0,
+        lastUploadedWaveform: null,
+        lastUploadedByteOffset: -1,
+        lastUploadedByteLength: -1,
         dcSpikeComputePipeline,
         dcSpikeBindGroupLayout,
         dcSpikeOutputBuffer: null,
@@ -905,7 +934,12 @@ export function useDrawWebGPUFFTSignal() {
         scratchSpikeParamsAB,
         scratchSpikeParamsU32,
         scratchSpikeParamsF32,
-        scratchResampleParams,
+        scratchResampleParamsAB,
+        scratchResampleParamsView,
+        scratchDcSpikeParams,
+        scratchNaptClassifyParamsAB,
+        scratchNaptClassifyParamsView,
+        scratchNaptTemporalParams,
         scratchZeroCount,
       };
     },
@@ -919,7 +953,12 @@ export function useDrawWebGPUFFTSignal() {
         device,
         format,
         waveform,
+        waveformDirty = true,
         frequencyRange,
+        sourceFrequencyRange,
+        mirrorEnabled = false,
+        reuseWaveformUpload = false,
+        presentationOffsetHz = 0,
         fftMin = -80,
         fftMax = 20,
         gridOverlayRenderer,
@@ -1242,28 +1281,71 @@ export function useDrawWebGPUFFTSignal() {
         state.scratchSpikeParamsU32[3] = 0; // primary pass
 
         // --- All Uploads FIRST ---
-        state.device.queue.writeBuffer(
-          state.resampleInputBuffer,
-          0,
-          waveformData.buffer,
-          waveformData.byteOffset,
-          waveformData.byteLength,
-        );
+        // Mirror mode keeps the acquisition fixed and only remaps the viewport
+        // in the shader. Re-uploading a 65k FFT on every pan was the remaining
+        // CPU/bus cost that made mirrored scrolling feel worse than the option-off path.
+        const needsWaveformUpload =
+          !reuseWaveformUpload ||
+          waveformDirty ||
+          state.lastUploadedWaveform !== waveformData ||
+          state.lastUploadedByteOffset !== waveformData.byteOffset ||
+          state.lastUploadedByteLength !== waveformData.byteLength;
+        if (needsWaveformUpload) {
+          state.device.queue.writeBuffer(
+            state.resampleInputBuffer,
+            0,
+            waveformData.buffer,
+            waveformData.byteOffset,
+            waveformData.byteLength,
+          );
+          state.lastUploadedWaveform = waveformData;
+          state.lastUploadedByteOffset = waveformData.byteOffset;
+          state.lastUploadedByteLength = waveformData.byteLength;
+        }
         if (removeDcSpike) {
+          state.scratchDcSpikeParams[0] = srcLen;
+          state.scratchDcSpikeParams[1] = 0;
+          state.scratchDcSpikeParams[2] = 0;
+          state.scratchDcSpikeParams[3] = 0;
           state.device.queue.writeBuffer(
             state.dcSpikeParamsBuffer,
             0,
-            new Uint32Array([srcLen, 0, 0, 0]),
+            state.scratchDcSpikeParams,
           );
         }
-        state.scratchResampleParams[0] = srcLen;
-        state.scratchResampleParams[1] = displayWidth;
-        state.scratchResampleParams[2] = 0;
-        state.scratchResampleParams[3] = 0;
+        state.scratchResampleParamsView.setUint32(0, srcLen, true);
+        state.scratchResampleParamsView.setUint32(4, displayWidth, true);
+        state.scratchResampleParamsView.setUint32(
+          8,
+          mirrorEnabled ? 1 : 0,
+          true,
+        );
+        state.scratchResampleParamsView.setUint32(12, 0, true);
+        const sourceRange = sourceFrequencyRange ?? frequencyRange;
+        state.scratchResampleParamsView.setFloat32(16, sourceRange.min, true);
+        state.scratchResampleParamsView.setFloat32(20, sourceRange.max, true);
+        state.scratchResampleParamsView.setFloat32(
+          24,
+          frequencyRange.min,
+          true,
+        );
+        state.scratchResampleParamsView.setFloat32(
+          28,
+          frequencyRange.max,
+          true,
+        );
+        state.scratchResampleParamsView.setFloat32(32, fftMin, true);
+        state.scratchResampleParamsView.setFloat32(
+          36,
+          presentationOffsetHz,
+          true,
+        );
+        state.scratchResampleParamsView.setFloat32(40, 0, true);
+        state.scratchResampleParamsView.setFloat32(44, 0, true);
         state.device.queue.writeBuffer(
           state.resampleParamsBuffer,
           0,
-          state.scratchResampleParams,
+          state.scratchResampleParamsAB,
         );
         if (state.spikeParamsBuffer) {
           state.device.queue.writeBuffer(
@@ -1278,18 +1360,22 @@ export function useDrawWebGPUFFTSignal() {
             state.scratchSpikeParamsAB,
           );
         }
+        state.scratchNaptClassifyParamsView.setUint32(0, displayWidth, true);
+        state.scratchNaptClassifyParamsView.setUint32(4, srcLen, true);
+        state.scratchNaptClassifyParamsView.setFloat32(
+          8,
+          frequencyRange.min,
+          true,
+        );
+        state.scratchNaptClassifyParamsView.setFloat32(
+          12,
+          frequencyRange.max,
+          true,
+        );
         state.device.queue.writeBuffer(
           state.naptClassifyParamsBuffer,
           0,
-          (() => {
-            const params = new ArrayBuffer(16);
-            const view = new DataView(params);
-            view.setUint32(0, displayWidth, true);
-            view.setUint32(4, srcLen, true);
-            view.setFloat32(8, frequencyRange.min, true);
-            view.setFloat32(12, frequencyRange.max, true);
-            return params;
-          })(),
+          state.scratchNaptClassifyParamsAB,
         );
         if (state.spikeCountBuffer) {
           state.device.queue.writeBuffer(
@@ -1299,15 +1385,16 @@ export function useDrawWebGPUFFTSignal() {
           );
         }
         if (showSpikeOverlay) {
+          state.scratchNaptTemporalParams[0] = NAPT_TEMPORAL_HISTORY_LENGTH;
+          state.scratchNaptTemporalParams[1] =
+            state.naptTemporalHistoryIndex;
+          state.scratchNaptTemporalParams[2] =
+            state.naptTemporalHistoryCount;
+          state.scratchNaptTemporalParams[3] = 0;
           state.device.queue.writeBuffer(
             state.naptTemporalParamsBuffer,
             0,
-            new Uint32Array([
-              NAPT_TEMPORAL_HISTORY_LENGTH,
-              state.naptTemporalHistoryIndex,
-              state.naptTemporalHistoryCount,
-              0,
-            ]),
+            state.scratchNaptTemporalParams,
           );
         }
 
