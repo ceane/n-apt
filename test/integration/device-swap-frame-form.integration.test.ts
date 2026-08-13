@@ -135,8 +135,8 @@ describe("device swap payload-form integration", () => {
       },
     );
     expect(selectionReset).toEqual({
-      clearLiveFrame: false,
-      advanceResetEpoch: false,
+      clearLiveFrame: true,
+      advanceResetEpoch: true,
     });
     expect(
       shouldResetVisualPresentationForSelection("mock-apt", "mock-tx"),

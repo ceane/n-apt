@@ -640,9 +640,9 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(handoffProps.dataRef).toBe(dataRef);
-    // Keep the last painted Mock APT frame until the Mock Tx preview arrives.
-    // Nulling here produced a black FFT under the standby chrome.
-    expect(dataRef.current).toBe(liveFrame);
+    // Source selection is an ownership boundary; the previous source frame is
+    // cleared until the target source provides its first frame.
+    expect(dataRef.current).toBeNull();
     expect(handoffProps.expectedSourceId).toBe("mock-tx");
     expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
@@ -692,8 +692,8 @@ describe("SpectrumRoute file mode", () => {
     await waitFor(() => {
       expect(requestNextPausedFrameMock).toHaveBeenCalled();
     });
-    // Transport may still hold the previous frame until the preview lands.
-    expect(dataRef.current).toBe(liveFrame);
+    // The source boundary clears the previous frame until the preview lands.
+    expect(dataRef.current).toBeNull();
     const visualizerProps =
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1

@@ -38,7 +38,7 @@ describe("formatLiveCanvasStatusRow", () => {
       },
     });
 
-    expect(ctx.fillText.mock.calls.map((call: any[]) => call[0]).filter((label) =>
+    expect(ctx.fillText.mock.calls.map((call: any[]) => call[0]).filter((label: string) =>
       label.startsWith("FFT ") || label.startsWith("Timing: "),
     )).toEqual([
       "FFT Size: 131,072",

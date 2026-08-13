@@ -176,7 +176,9 @@ export const resolveRetunePresentationOffsetHz = ({
       isTxPreviewFrame,
     }) ||
     typeof frameCenterHz !== "number" ||
-    !Number.isFinite(frameCenterHz)
+    !Number.isFinite(frameCenterHz) ||
+    typeof frameSampleRateHz !== "number" ||
+    !Number.isFinite(frameSampleRateHz)
   ) {
     return 0;
   }

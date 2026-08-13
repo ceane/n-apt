@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs-extra';
 import archiver from 'archiver';
-import extractZip from 'extract-zip';
+import AdmZip from 'adm-zip';
 import fileUpload from 'express-fileupload';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
@@ -124,7 +124,8 @@ app.post('/api/archives/extract', async (req, res) => {
       return res.status(404).json({ error: 'Archive not found' });
     }
 
-    await extractZip(zipPath, { dir: extractPath });
+    const archive = new AdmZip(zipPath);
+    archive.extractAllTo(extractPath, true);
     return res.json({ success: true, extractedPath: extractPath });
   } catch (error) {
     return res.status(500).json({ error: error.message });

@@ -150,7 +150,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       (reduxState) => reduxState.spectrum.autoZoomStability,
     );
     const allowNegativeFrequencies = useAppSelector(
-      (reduxState) => reduxState.settings.mirrorIqBasebandBelowZero,
+      (reduxState) => reduxState.settings?.mirrorIqBasebandBelowZero ?? false,
     );
     const vizZoomFloorPan = useAppSelector(
       (reduxState) => reduxState.spectrum.vizZoomFloorPan,
