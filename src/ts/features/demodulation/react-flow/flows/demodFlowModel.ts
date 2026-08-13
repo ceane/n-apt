@@ -222,7 +222,12 @@ const buildReferenceCaptureFlowGraph = (sourceMode: SourceMode): DemodFlowGraph 
             id: "waterfall",
             type: "custom",
             position: { x: 850, y: 1150 },
-            data: { label: "Waterfall", waterfallOptions: true },
+            data: {
+              label: "Waterfall",
+              waterfallOptions: true,
+              showMiniVfo: true,
+              miniVfoPosition: "top",
+            },
           } satisfies Node,
         ]),
     {

@@ -2,6 +2,7 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -60,25 +61,29 @@ const DomVfo = styled.div<{ $orientation: VfoOrientation; $state: VfoVisualState
   overflow: visible;
   color: ${({ theme }) => theme.colors?.textPrimary ?? "#e2e8f0"};
   font-family: ${({ theme }) => theme.typography?.mono ?? "monospace"};
-  border-${({ $orientation }) => ($orientation === "top" ? "top" : "bottom")}: 1px solid ${({ theme }) => theme.colors?.border ?? "#334155"};
 `;
 
 const AxisLine = styled.div<{ $orientation: VfoOrientation }>`
   position: absolute;
-  left: 4%;
-  right: 4%;
+  left: 0;
+  right: 0;
   ${({ $orientation }) => ($orientation === "top" ? "top: 0;" : "bottom: 0;")}
   height: 1px;
   background: ${({ theme }) => theme.colors?.border ?? "#334155"};
 `;
 
-const Tick = styled.span<{ $left: number; $orientation: VfoOrientation }>`
+const Tick = styled.span<{
+  $left: number;
+  $orientation: VfoOrientation;
+  $edge?: "left" | "right";
+}>`
   position: absolute;
   left: ${({ $left }) => `${$left}%`};
   ${({ $orientation }) => ($orientation === "top" ? "top: 0;" : "bottom: 0;")}
   width: 1px;
   height: 7px;
-  background: ${({ theme }) => theme.colors?.textMuted ?? "#64748b"};
+  background: ${({ theme }) => theme.colors?.border ?? "#334155"};
+  transform: ${({ $edge }) => ($edge === "right" ? "translateX(-1px)" : "none")};
 `;
 
 const TickLabel = styled.span<{
@@ -115,14 +120,21 @@ const CenterLabel = styled.span<{
   font-weight: 800;
   white-space: nowrap;
   z-index: 1;
+
+  &::before {
+    content: "○";
+    position: absolute;
+    right: 100%;
+    margin-right: 6px;
+  }
 `;
 
-const CenterRow = styled.div`
+const CenterRow = styled.div<{ $orientation: VfoOrientation }>`
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: ${({ $orientation }) => ($orientation === "top" ? "10px" : "auto")};
+  bottom: ${({ $orientation }) => ($orientation === "top" ? "auto" : "10px")};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,16 +143,20 @@ const CenterRow = styled.div`
   z-index: 1;
 `;
 
-const CursorLine = styled.span<{ $offset: number }>`
+const CursorLine = styled.span<{
+  $offset: number;
+  $orientation: VfoOrientation;
+}>`
   position: absolute;
   left: calc(50% + ${({ $offset }) => $offset}px);
-  top: 50%;
+  top: ${({ $orientation }) => ($orientation === "top" ? "32px" : "auto")};
+  bottom: ${({ $orientation }) => ($orientation === "top" ? "auto" : "32px")};
   height: 24px;
   width: 1px;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   background: ${({ theme }) => theme.colors?.primary ?? "#00d4ff"};
   pointer-events: none;
-  z-index: 3;
+  z-index: 0;
 `;
 
 const CenterStatus = styled.span`
@@ -177,6 +193,21 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
   tickPrecision: _tickPrecision,
   ...handlers
 }) => {
+  const vfoRef = useRef<HTMLDivElement | null>(null);
+  const [widthPx, setWidthPx] = useState(640);
+  useLayoutEffect(() => {
+    const element = vfoRef.current;
+    if (!element) return;
+    const update = () => {
+      const next = element.getBoundingClientRect().width || element.clientWidth;
+      if (next > 0) setWidthPx(next);
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const span = frequencyRange.max - frequencyRange.min;
   const center =
     typeof centerFrequencyHz === "number" && Number.isFinite(centerFrequencyHz)
@@ -207,13 +238,13 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
     const estimatedWidthPx = (frequencyHz: number) =>
       Math.max(28, formatDomFrequency(frequencyHz).length * 7);
     const toPx = (frequencyHz: number) =>
-      span > 0 ? ((frequencyHz - frequencyRange.min) / span) * 640 : 320;
+      span > 0 ? ((frequencyHz - frequencyRange.min) / span) * widthPx : widthPx / 2;
     const occupied = [
       { start: 0, end: edgeReservePx },
-      { start: 640 - edgeReservePx, end: 640 },
+      { start: widthPx - edgeReservePx, end: widthPx },
       {
-        start: 320 - centerReservePx / 2,
-        end: 320 + centerReservePx / 2,
+        start: widthPx / 2 - centerReservePx / 2,
+        end: widthPx / 2 + centerReservePx / 2,
       },
     ];
     const visible = ticks.map((frequencyHz, index) => {
@@ -233,11 +264,12 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
     return visible.filter(
       (tick): tick is { frequencyHz: number; index: number } => tick !== null,
     );
-  }, [frequencyRange.min, span, ticks]);
+  }, [frequencyRange.min, span, ticks, widthPx]);
 
   return (
     <DomVfo
       {...handlers}
+      ref={vfoRef}
       data-testid={handlers["data-testid"] ?? "unified-vfo"}
       data-orientation={options.orientation}
       data-tick-level={options.orientation}
@@ -253,7 +285,11 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
         const edge = index === 0 ? "left" : index === ticks.length - 1 ? "right" : undefined;
         return (
           <React.Fragment key={`${frequencyHz}-${index}`}>
-            <Tick $left={left} $orientation={options.orientation} />
+            <Tick
+              $left={left}
+              $orientation={options.orientation}
+              $edge={edge}
+            />
             <TickLabel
               $left={left}
               $edge={edge}
@@ -271,17 +307,19 @@ const DomVfoRenderer: React.FC<VfoProps & { options: VfoOptions }> = ({
           data-offset-px={cursorOffsetPx}
           data-vertical-alignment="center"
           $offset={cursorOffsetPx}
+          $orientation={options.orientation}
         />
       ) : null}
       <CenterRow
         data-testid="unified-vfo-center-row"
         data-vertical-alignment="center"
+        $orientation={options.orientation}
       >
         <CenterLabel
           $orientation={options.orientation}
           data-testid="unified-vfo-center-label"
         >
-          <span>○ {formatDomFrequency(center)}</span>
+          <span>{formatDomFrequency(center)}</span>
           {accessory ? (
             <CenterStatus data-testid="unified-vfo-status">
               {accessory}

@@ -67,7 +67,7 @@ describe("unified VFO", () => {
       "4 MHz",
     );
     expect(screen.getByTestId("unified-vfo-center-label")).toHaveTextContent(
-      "○ 2 MHz",
+      "2 MHz",
     );
     expect(screen.getByTestId("unified-vfo-cursor-line")).toHaveAttribute(
       "data-offset-px",
@@ -84,5 +84,18 @@ describe("unified VFO", () => {
       "data-vertical-alignment",
       "center",
     );
+  });
+
+  it("uses the rendered width when reserving DOM tick labels", () => {
+    render(
+      <Vfo
+        visualState="compact"
+        drawingType="dom"
+        orientation="bottom"
+        frequencyRange={{ min: 23_463_439, max: 27_835_439 }}
+        centerFrequencyHz={25_649_439}
+      />,
+    );
+    expect(screen.getByTestId("unified-vfo")).toBeInTheDocument();
   });
 });

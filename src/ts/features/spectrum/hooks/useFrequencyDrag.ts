@@ -2194,10 +2194,14 @@ export function useSpectrumInteraction({
             (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2;
           let newPan = targetVisualCenter - trueCenter;
 
-          // Clamp pan
-          const clampedVisualRange = fullRange / newZoom;
-          const maxPan = fullRange / 2 - clampedVisualRange / 2;
-          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+          // The normal display is bounded by the acquired positive window.
+          // With mirror enabled, this is a display-only negative axis: keeping
+          // the old clamp here snaps a negative box zoom back across DC.
+          if (!allowNegativeFrequencies) {
+            const clampedVisualRange = fullRange / newZoom;
+            const maxPan = fullRange / 2 - clampedVisualRange / 2;
+            newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
+          }
 
           // Calculate dB bounds from plot-area-relative Y coordinates
           const currentDbMax = vizDbMaxRef?.current ?? 0;

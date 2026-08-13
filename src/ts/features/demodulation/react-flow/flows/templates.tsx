@@ -59,7 +59,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
         id: "rx-waterfall",
         type: "custom",
         position: { x: 650, y: 1900 },
-        data: { label: "Rx Waterfall", txSuite: true, waterfallOptions: true, sourceRole: "rx", sourceBindingGroup: "tx-suite" },
+        data: { label: "Rx Waterfall", txSuite: true, waterfallOptions: true, showMiniVfo: true, miniVfoPosition: "top", sourceRole: "rx", sourceBindingGroup: "tx-suite" },
       },
       {
         id: "tx-fft",
@@ -71,7 +71,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
         id: "tx-waterfall",
         type: "custom",
         position: { x: 40, y: 1900 },
-        data: { label: "Tx Waterfall", txSuite: true, waterfallOptions: true, sourceRole: "tx", sourceBindingGroup: "tx-suite" },
+        data: { label: "Tx Waterfall", txSuite: true, waterfallOptions: true, showMiniVfo: true, miniVfoPosition: "top", sourceRole: "tx", sourceBindingGroup: "tx-suite" },
       },
     ],
     edges: [
@@ -385,6 +385,8 @@ const flowTemplatesDefinition: FlowTemplate[] = [
           label: "Waterfall",
           description: "Waterfall visualization",
           waterfallOptions: true,
+          showMiniVfo: true,
+          miniVfoPosition: "top",
         },
       },
     ],

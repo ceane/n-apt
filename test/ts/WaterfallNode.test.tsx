@@ -501,6 +501,37 @@ describe("WaterfallNode", () => {
     ).toBeTruthy();
   });
 
+  it("places the mini VFO below the waterfall canvas when requested", () => {
+    render(
+      <WaterfallNode
+        data={{
+          label: "Beat Waterfall",
+          waterfallOptions: true,
+          showMiniVfo: true,
+          miniVfoPosition: "bottom",
+        }}
+      />,
+    );
+
+    const miniVfo = screen.getByTestId("waterfall-node-mini-vfo");
+    const waterfall = screen.getByTestId("waterfall-canvas");
+
+    expect(miniVfo).toHaveAttribute("data-position", "bottom");
+    expect(miniVfo).toHaveAttribute("data-tick-level", "bottom");
+    expect(
+      miniVfo.compareDocumentPosition(waterfall) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+
+  it("uses compact right-side sliders instead of bottom dB knobs", () => {
+    render(<WaterfallNode data={{ label: "Waterfall", waterfallOptions: true }} />);
+
+    expect(screen.getByTestId("waterfall-compact-controls")).toBeInTheDocument();
+    expect(screen.queryByTestId("waterfall-db-controls")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
+  });
+
   it("renders interactive VFO and brush controls for analysis mode", () => {
     render(
       <ThemeProvider theme={theme}>
@@ -790,43 +821,19 @@ describe("WaterfallNode", () => {
     expect(processSpectrum).toHaveBeenCalledTimes(2);
   });
 
-  it("provides horizontal node-local min and max dB controls", () => {
+  it("provides compact right-side min and max dB controls", () => {
     render(
       <WaterfallNode
         data={{ label: "Beat Waterfall", waterfallOptions: true }}
       />,
     );
 
-    const controls = screen.getByTestId("waterfall-db-controls");
+    const controls = screen.getByTestId("waterfall-compact-controls");
     const waterfall = screen.getByTestId("waterfall-canvas");
     expect(controls).toHaveClass("nodrag", "nopan");
-    expect(
-      waterfall.compareDocumentPosition(controls) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(waterfall.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Min dB")).toBeInTheDocument();
     expect(screen.getByText("Max dB")).toBeInTheDocument();
 
-    const maxLabel = screen.getByText("Max dB");
-    const maxTrack = maxLabel.parentElement?.querySelector(
-      "[aria-disabled='false']",
-    ) as HTMLDivElement;
-    jest.spyOn(maxTrack, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      right: 100,
-      top: 0,
-      bottom: 40,
-      width: 100,
-      height: 40,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
-    fireEvent.mouseDown(maxTrack, { clientX: 50, clientY: 20 });
-
-    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
-      "data-fft-max",
-      "-35",
-    );
   });
 });

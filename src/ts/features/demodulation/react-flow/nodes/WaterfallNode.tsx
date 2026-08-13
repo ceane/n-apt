@@ -72,7 +72,7 @@ interface WaterfallNodeProps {
     waterfallOptions: boolean;
     label: string;
     showMiniVfo?: boolean;
-    miniVfoPosition?: "top";
+    miniVfoPosition?: "top" | "bottom";
     sourceRole?: "rx" | "tx";
     sourceBindingGroup?: string;
     analysisOptions?: boolean;
@@ -204,18 +204,18 @@ const NodeTitle = styled.div<{ $analysis?: boolean }>`
   align-items: center;
   gap: 6px;
   padding: 10px 12px 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: max-content;
+  pointer-events: auto;
   ${({ $analysis }) =>
     $analysis
       ? `
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 2;
-    width: max-content;
     padding: 4px 8px 0;
-    pointer-events: auto;
   `
-      : ""}
+      : `padding: 10px 12px 0;`}
 
   &::before {
     content: "";
@@ -250,8 +250,8 @@ const DbControls = styled.div`
 
 const AnalysisLayout = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 16px;
   min-height: 0;
   flex: 1;
   height: 100%;
@@ -264,17 +264,40 @@ const AnalysisLayout = styled.div`
   }
 `;
 
-const AnalysisTools = styled.aside`
-  display: flex;
-  flex-direction: column;
+const AnalysisTools = styled.aside<{ $analysis?: boolean }>`
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-rows: ${({ $analysis }) =>
+    $analysis ? "minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto"};
   align-items: center;
-  gap: 10px;
-  padding: 4px 0;
+  gap: 0;
+  padding: 0;
   height: 100%;
   align-self: stretch;
   min-height: 0;
   overflow: visible;
-  justify-content: flex-start;
+  justify-content: stretch;
+
+  > div:first-child {
+    width: 100%;
+    display: grid;
+    flex: none !important;
+    height: auto !important;
+    align-self: stretch;
+    min-height: 0 !important;
+    padding-bottom: 8px;
+    overflow: visible;
+  }
+
+  > button {
+    flex: 0 0 32px;
+    margin-top: 14px;
+  }
+
+  > [data-testid="waterfall-analysis-icon-grid"] {
+    margin-top: 14px;
+  }
 `;
 
 const AnalysisThemeSelect = styled.select`
@@ -388,7 +411,7 @@ const AnalysisBinSubsetSelect = styled.select`
   font: 10px ${({ theme }) => theme.typography?.mono || "monospace"};
 `;
 
-const AnalysisViewport = styled.div`
+const AnalysisViewport = styled.div<{ $analysis?: boolean }>`
   display: flex;
   flex-direction: column;
   position: relative;
@@ -396,6 +419,7 @@ const AnalysisViewport = styled.div`
   min-height: 0;
   overflow: hidden;
   touch-action: none;
+  padding-top: ${({ $analysis }) => ($analysis ? "32px" : "24px")};
 `;
 
 type BrushLine = {
@@ -473,9 +497,14 @@ export const normalizeSpectrumToBrushLine = (
 
 const BrushOverlay = styled.svg<{ $active: boolean }>`
   position: absolute;
-  inset: 56px 0 0;
+    /* The analysis title consumes 32px and the VFO is a fixed 56px row. Anchor
+   * the brush to the remaining
+   * waterfall viewport with both top and bottom edges instead of combining a
+   * top inset with a calculated height; the latter can be distorted by the
+   * React Flow node's flex/grid sizing and makes the zoombox look squashed. */
+  inset: 88px 0 0;
   width: 100%;
-  height: calc(100% - 56px);
+  height: auto;
   z-index: 3;
   cursor: crosshair;
   touch-action: none;
@@ -1585,30 +1614,9 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         {data.label}
       </NodeTitle>
       <CanvasContainer $analysis={data.analysisOptions}>
-        {data.showMiniVfo && data.miniVfoPosition === "top" && (
-          <Vfo
-            visualState="compact"
-            drawingType="dom"
-            orientation="top"
-            frequencyRange={displayFrequencyRange}
-            centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
-            accessory={
-              binSubset.mode === "interleaved" ? (
-                <span
-                  aria-label={formatBinSubsetLabel(binSubset.parity)}
-                  data-testid="waterfall-node-vfo-bin-subset"
-                >
-                  {formatBinSubsetLabel(binSubset.parity)}
-                </span>
-              ) : null
-            }
-            style={{ height: 56, flex: "0 0 56px" }}
-            data-testid="waterfall-node-mini-vfo"
-            data-position="top"
-          />
-        )}
         <AnalysisLayout>
           <AnalysisViewport
+            $analysis={data.analysisOptions}
             className="nodrag nopan nowheel"
             data-testid="waterfall-analysis-viewport"
             onPointerDownCapture={handlePinchPointerDownCapture}
@@ -1654,6 +1662,20 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               tuneVfo(vfoFrequency - event.deltaY * 1000);
             }}
           >
+            {!data.analysisOptions &&
+              data.miniVfoPosition !== "bottom" &&
+              (data.showMiniVfo ?? true) && (
+                <Vfo
+                  visualState="compact"
+                  drawingType="dom"
+                  orientation="top"
+                  frequencyRange={displayFrequencyRange}
+                  centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
+                  style={{ height: 56, flex: "0 0 56px" }}
+                  data-testid="waterfall-node-mini-vfo"
+                  data-position="top"
+                />
+              )}
             {data.analysisOptions && (
               <Vfo
                 visualState="compact"
@@ -1905,40 +1927,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 )}
               </BrushOverlay>
             )}
-            {!data.analysisOptions && (
-              <DbControls
-                className="nodrag nopan"
-                data-testid="waterfall-db-controls"
-                onMouseDown={stopNodeDrag}
-                onPointerDown={stopNodeDrag}
-              >
-                <Slider
-                  label="Min dB"
-                  value={waterfallDbMin}
-                  min={-150}
-                  max={-10}
-                  step={1}
-                  editable
-                  minThumbRatio={0}
-                  onChange={handleDbMinChange}
-                  formatValue={formatWaterfallDb}
-                  orientation="horizontal"
-                />
-                <Slider
-                  label="Max dB"
-                  value={waterfallDbMax}
-                  min={-100}
-                  max={30}
-                  step={1}
-                  editable
-                  minThumbRatio={0}
-                  onChange={handleDbMaxChange}
-                  formatValue={formatWaterfallDb}
-                  invertFill
-                  orientation="horizontal"
-                />
-              </DbControls>
-            )}
             {data.analysisOptions && showVfoEditor && !isVfoLocked && (
               <EditableCenterFrequency
                 centerFrequencyHz={vfoFrequency}
@@ -1949,23 +1937,24 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               />
             )}
           </AnalysisViewport>
+          <AnalysisTools
+            $analysis={data.analysisOptions}
+            className="nodrag nopan"
+            data-testid={data.analysisOptions ? "waterfall-analysis-tools" : "waterfall-compact-controls"}
+            onMouseDown={stopNodeDrag}
+            onPointerDown={stopNodeDrag}
+          >
+            <VisualizerSliders
+              compact
+              zoom={waterfallZoom}
+              dbMin={waterfallDbMin}
+              dbMax={waterfallDbMax}
+              powerScale={powerScale}
+              onZoomChange={handleWaterfallZoomChange}
+              onDbMinChange={handleDbMinChange}
+              onDbMaxChange={handleDbMaxChange}
+            />
           {data.analysisOptions && (
-            <AnalysisTools
-              className="nodrag nopan"
-              data-testid="waterfall-analysis-tools"
-              onMouseDown={stopNodeDrag}
-              onPointerDown={stopNodeDrag}
-            >
-              <VisualizerSliders
-                compact
-                zoom={waterfallZoom}
-                dbMin={waterfallDbMin}
-                dbMax={waterfallDbMax}
-                powerScale={powerScale}
-                onZoomChange={handleWaterfallZoomChange}
-                onDbMinChange={handleDbMinChange}
-                onDbMaxChange={handleDbMaxChange}
-              />
               <AnalysisIconGrid data-testid="waterfall-analysis-icon-grid">
                 <AnalysisToolButton
                   type="button"
@@ -2095,15 +2084,34 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                   </Popover>
                 </AnalysisBinSubsetControl>
               </AnalysisIconGrid>
-              <AnalysisResetButton
-                type="button"
-                onClick={resetAnalysisControls}
-              >
-                Reset
-              </AnalysisResetButton>
+            )}
+              {data.analysisOptions && (
+                <AnalysisResetButton
+                  type="button"
+                  onClick={resetAnalysisControls}
+                >
+                  Reset
+                </AnalysisResetButton>
+              )}
+              {!data.analysisOptions && (
+                <AnalysisResetButton type="button" onClick={resetAnalysisControls}>
+                  Reset
+                </AnalysisResetButton>
+              )}
             </AnalysisTools>
-          )}
         </AnalysisLayout>
+        {data.showMiniVfo && data.miniVfoPosition === "bottom" && (
+          <Vfo
+            visualState="compact"
+            drawingType="dom"
+            orientation="bottom"
+            frequencyRange={displayFrequencyRange}
+            centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
+            style={{ height: 56, flex: "0 0 56px" }}
+            data-testid="waterfall-node-mini-vfo"
+            data-position="bottom"
+          />
+        )}
         {data.analysisOptions && (
           <AnalysisThemeRow
             className="nodrag nopan"

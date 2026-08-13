@@ -492,6 +492,34 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnVizZoomFloorChange).toHaveBeenCalledWith(
       expect.closeTo(9.1, 5),
     );
+    const clampedPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    expect(clampedPan).toBeGreaterThanOrEqual(-4.5);
+  });
+
+  it("keeps a box zoom on the negative display axis when mirroring is enabled", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizZoomRef.current = 2;
+    defaultOptions.vizPanOffsetRef.current = -7.5;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        clampedVizRangeRef: { current: { min: -10, max: -5 } },
+      }),
+    );
+
+    triggerPointerDown(100, 100);
+    triggerPointerUp(200, 200);
+
+    const nextPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    expect(nextPan).toBeLessThan(-10);
   });
 
   it("creates the zoombox before pointermove so the overlay has a stable node", () => {

@@ -36,13 +36,46 @@ const CompactSlidersGrid = styled(SlidersGrid)<{ $compact?: boolean }>`
     $compact
       ? `
     grid-template-rows: repeat(3, minmax(0, 1fr));
-    gap: 4px;
-    height: auto;
-    flex: 1 1 auto;
+    row-gap: 22px;
+    column-gap: 4px;
+    height: 100%;
+    flex: 1 1 0;
     min-height: 0;
     align-content: stretch;
-  `
+      `
       : ""}
+
+  .compact-visualizer-slider {
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .compact-visualizer-slider > [data-testid^="slider-"] {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .compact-visualizer-slider > [data-testid^="slider-"] > span {
+    top: 8px !important;
+    bottom: auto !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    position: absolute;
+    z-index: 40;
+    padding: 0;
+    background: transparent;
+  }
+
+  .compact-visualizer-slider > span {
+    max-width: 100%;
+    overflow: visible;
+    white-space: nowrap;
+    line-height: 12px;
+    position: relative;
+    z-index: 2;
+    background: ${({ theme }) => theme.surface};
+    padding: 0 2px;
+  }
 `;
 
 // Action buttons wrapper
@@ -375,7 +408,8 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
           onChange={onZoomChange}
           formatValue={formatZoom}
           orientation="vertical"
-          labelPlacement="bottom"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
         />
         <Slider
           label="Max"
@@ -389,7 +423,8 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
           formatValue={formatDb}
           invertFill
           orientation="vertical"
-          labelPlacement="bottom"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
         />
         <Slider
           label="Min"
@@ -402,7 +437,8 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
           onChange={onDbMinChange}
           formatValue={formatDb}
           orientation="vertical"
-          labelPlacement="bottom"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
         />
       </CompactSlidersGrid>
     );
