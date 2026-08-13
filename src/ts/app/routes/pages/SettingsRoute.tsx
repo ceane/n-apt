@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import { MainLayout } from "@n-apt/app/MainLayout";
 import {
@@ -49,6 +49,8 @@ import {
 } from "@n-apt/settings/public/settingsDefaults";
 import { getTemporalResolutionLabel } from "@n-apt/math/temporalResolution";
 import {
+  computeMaxFrameRate,
+  clampFrameRateToLogicalMax,
   resolveSampleRateSpec,
   type SampleRateSpec,
 } from "@n-apt/math/signals";
@@ -134,13 +136,15 @@ const SettingsSectionBlock = styled.section`
 `;
 
 const SettingsRow = styled(Row)`
+  padding-inline: 10px;
+
   ${(props) =>
     props.theme.mode === "light" &&
     `
     background: transparent;
     border: none;
-    padding: 8px 0;
-  `}
+    padding-block: 8px;
+    `}
 
   ${RowLabel} {
     padding-left: 0;
@@ -149,6 +153,11 @@ const SettingsRow = styled(Row)`
   ${RowControl} {
     padding-right: 0;
   }
+`;
+
+const MirrorSpectrumRow = styled(SettingsRow)`
+  margin-block: 16px;
+  padding-block: 20px;
 `;
 
 const SettingsThemeSection = styled(ThemeSection)`
@@ -188,6 +197,20 @@ const SectionTitle = styled.h2`
     color: ${(props) => props.theme.textSecondary};
     opacity: 0.6;
   }
+`;
+
+const SettingsSubsectionTitle = styled(SectionTitle)`
+  margin-top: 36px;
+`;
+
+const DevicePill = styled.span`
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: ${(props) => props.theme.surfaceHover};
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 500;
 `;
 
 const SettingLabel = styled.span`
@@ -256,10 +279,31 @@ const NumberInput = styled.input`
   }
 `;
 
+const FrameRateControl = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+const FrameRateLimit = styled.span`
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  color: ${(props) => props.theme.textMuted};
+  white-space: nowrap;
+`;
+
 const SectionGrid = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
+
+  & > ${SettingsRow}:nth-child(odd) {
+    background: ${(props) =>
+      props.theme.mode === "light"
+        ? "rgba(0, 0, 0, 0.04)"
+        : props.theme.surfaceHover};
+
+  }
 `;
 
 const SettingsFooterRoot = styled.footer`
@@ -401,7 +445,10 @@ const SdrSettingsSection: React.FC = () => {
   );
   const signalsDefaults = useAppSelector((s) => s.websocket.signalsDefaults);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
-  const [tempFftSize, setTempFftSize] = useState(String(state.fftSize));
+  const [frameRateInput, setFrameRateInput] = useState(
+    String(state.fftFrameRate),
+  );
+  const [isEditingFrameRate, setIsEditingFrameRate] = useState(false);
 
   const deviceSampleRateOptions = useMemo(
     () =>
@@ -473,13 +520,82 @@ const SdrSettingsSection: React.FC = () => {
   const sampleRateValue = sampleRateOptions.includes(state.sampleRateHz)
     ? state.sampleRateHz
     : (sampleRateOptions[0] ?? state.sampleRateHz);
-
-  const commitFftSize = (raw: string) => {
-    const value = Number(raw);
-    if (Number.isFinite(value) && value > 0) {
-      dispatch(setFftSize(value));
-      dispatch(setSdrSettingsBundle({ fftSize: value }));
+  const configuredFftSizeOptions = activeSourceDerived.fftSizeOptions ?? [];
+  const fftSizeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (configuredFftSizeOptions.length > 0
+            ? configuredFftSizeOptions
+            : [state.fftSize]
+          ).filter((size) => Number.isFinite(size) && size > 0),
+        ),
+      ).sort((a, b) => a - b),
+    [configuredFftSizeOptions, state.fftSize],
+  );
+  const activeDeviceName =
+    activeSourceDerived.deviceName &&
+    !activeSourceDerived.backend?.toLowerCase().includes("mock")
+      ? activeSourceDerived.deviceName
+      : "Default";
+  const logicalMaxFrameRate = computeMaxFrameRate(
+    sampleRateValue,
+    state.fftSize,
+    signalsDefaults?.fft?.max_frame_rate,
+  );
+  useEffect(() => {
+    if (!isEditingFrameRate) {
+      setFrameRateInput(String(state.fftFrameRate));
     }
+  }, [isEditingFrameRate, state.fftFrameRate]);
+  const commitFrameRate = (rawValue: string) => {
+    setFrameRateInput(rawValue);
+    if (rawValue === "") return;
+    const frameRate = Math.max(
+      1,
+      Math.min(logicalMaxFrameRate, Math.floor(Number(rawValue) || 1)),
+    );
+    dispatch(setFftFrameRate(frameRate));
+    dispatch(setSdrSettingsBundle({ fftFrameRate: frameRate }));
+    dispatch(
+      sendSettings({
+        fftSize: state.fftSize,
+        fftWindow: state.fftWindow,
+        frameRate,
+        sampleRate: state.sampleRateHz,
+        gain: state.gain,
+        ppm: state.ppm,
+        tunerAGC: state.tunerAGC,
+        rtlAGC: state.rtlAGC,
+      }),
+    );
+  };
+  const commitFftSize = (fftSize: number) => {
+    const logicalMaxFrameRate = computeMaxFrameRate(
+      sampleRateValue,
+      fftSize,
+      signalsDefaults?.fft?.max_frame_rate,
+    );
+    const frameRate = clampFrameRateToLogicalMax(
+      state.fftFrameRate,
+      logicalMaxFrameRate,
+    );
+    dispatch(setFftSize(fftSize));
+    dispatch(setFftFrameRate(frameRate));
+    dispatch(setSdrSettingsBundle({ fftSize, fftFrameRate: frameRate }));
+    setFrameRateInput(String(frameRate));
+    dispatch(
+      sendSettings({
+        fftSize,
+        fftWindow: state.fftWindow,
+        frameRate,
+        sampleRate: state.sampleRateHz,
+        gain: state.gain,
+        ppm: state.ppm,
+        tunerAGC: state.tunerAGC,
+        rtlAGC: state.rtlAGC,
+      }),
+    );
   };
 
   return (
@@ -487,6 +603,7 @@ const SdrSettingsSection: React.FC = () => {
       <SectionTitle>
         <SlidersHorizontal size={16} aria-hidden="true" />
         SDR Settings
+        <DevicePill aria-hidden="true">{activeDeviceName}</DevicePill>
       </SectionTitle>
       <SectionGrid>
         <SettingsRow label={<SettingLabel>Sample Rate</SettingLabel>}>
@@ -523,17 +640,19 @@ const SdrSettingsSection: React.FC = () => {
         </SettingsRow>
 
         <SettingsRow label={<SettingLabel>FFT Size</SettingLabel>}>
-          <NumberInput
+          <SettingSelect
             aria-label="FFT Size"
-            type="number"
-            min={16}
-            step={16}
-            value={tempFftSize}
+            value={state.fftSize}
             onChange={(e) => {
-              setTempFftSize(e.target.value);
-              commitFftSize(e.target.value);
+              commitFftSize(Number(e.target.value));
             }}
-          />
+          >
+            {fftSizeOptions.map((size) => (
+              <option key={size} value={size}>
+                {size.toLocaleString("en-US")}
+              </option>
+            ))}
+          </SettingSelect>
         </SettingsRow>
 
         <SettingsRow label={<SettingLabel>FFT Window</SettingLabel>}>
@@ -551,17 +670,19 @@ const SdrSettingsSection: React.FC = () => {
         </SettingsRow>
 
         <SettingsRow label={<SettingLabel>Frame Rate (logical)</SettingLabel>}>
-          <NumberInput
-            type="number"
-            min={1}
-            value={state.fftFrameRate}
-            onChange={(e) => {
-              const value = Number(e.target.value);
-              if (Number.isFinite(value) && value >= 1) {
-                dispatch(setFftFrameRate(value));
-              }
-            }}
-          />
+          <FrameRateControl>
+            <NumberInput
+              aria-label="Frame Rate (logical)"
+              type="number"
+              min={1}
+              max={logicalMaxFrameRate}
+              value={frameRateInput}
+              onFocus={() => setIsEditingFrameRate(true)}
+              onBlur={() => setIsEditingFrameRate(false)}
+              onChange={(event) => commitFrameRate(event.target.value)}
+            />
+            <FrameRateLimit>Max {logicalMaxFrameRate} fps</FrameRateLimit>
+          </FrameRateControl>
         </SettingsRow>
 
         <SettingsRow label={<SettingLabel>Gain (dB)</SettingLabel>}>
@@ -635,7 +756,7 @@ const SdrSettingsSection: React.FC = () => {
           </SettingSelect>
         </SettingsRow>
 
-        <SettingsRow
+        <MirrorSpectrumRow
           label={<SettingLabel>Mirror spectrum below 0Hz</SettingLabel>}
         >
           <Toggle
@@ -645,10 +766,12 @@ const SdrSettingsSection: React.FC = () => {
               dispatch(setMirrorIqBasebandBelowZero(!mirrorIqBasebandBelowZero))
             }
           />
-        </SettingsRow>
+        </MirrorSpectrumRow>
       </SectionGrid>
 
-      <SectionTitle>Signals.yaml defaults (read-only)</SectionTitle>
+      <SettingsSubsectionTitle>
+        Signals.yaml defaults (read-only)
+      </SettingsSubsectionTitle>
       <SectionGrid>
         <SettingsRow label={<SettingLabel>Sample Rate</SettingLabel>}>
           <ReadOnlyValue>
@@ -686,7 +809,7 @@ const SdrSettingsSection: React.FC = () => {
         </SettingsRow>
       </SectionGrid>
 
-      <SectionTitle>Frontend defaults</SectionTitle>
+      <SettingsSubsectionTitle>Frontend defaults</SettingsSubsectionTitle>
       <SectionGrid>
         <SettingsRow label={<SettingLabel>Starting dB range</SettingLabel>}>
           <ReadOnlyValue>

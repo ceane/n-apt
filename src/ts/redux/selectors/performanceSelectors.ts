@@ -263,6 +263,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       backend: null,
       maxSampleRateHz: null,
       sampleRateOptions: [] as number[],
+      fftSizeOptions: [] as number[],
       sampleRateHz: null,
       sdrSettings: null,
     };
@@ -281,6 +282,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
     backend: source.kind,
     maxSampleRateHz: source.sdr.max_sample_rate,
     sampleRateOptions: source.sdr.sample_rate_options,
+    fftSizeOptions: source.capabilities?.fft?.sizes ?? [],
     sampleRateHz: source.sdr.settings.sample_rate ?? null,
     sdrSettings: source.sdr.settings,
   };

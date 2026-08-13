@@ -175,6 +175,13 @@ export const computeMaxFrameRate = (
   return Math.max(1, Math.min(theoretical, limit));
 };
 
+/** Preserve a valid user-selected rate; only reduce a rate beyond the new limit. */
+export const clampFrameRateToLogicalMax = (
+  frameRate: number,
+  logicalMaxFrameRate: number,
+): number =>
+  Math.max(1, Math.min(Math.floor(frameRate || 1), logicalMaxFrameRate));
+
 export const getLogicalMaxFrameRate = (
   sampleRate: number,
   fftSize: number,

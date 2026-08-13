@@ -113,7 +113,7 @@ describe("SettingsRoute", () => {
     renderRoute();
 
     const toggle = screen.getByRole("switch", {
-      name: "Mirror I/Q baseband below 0Hz",
+      name: "Mirror spectrum below 0Hz",
     });
     expect(toggle).toHaveAttribute("aria-checked", "false");
 
@@ -157,13 +157,15 @@ describe("SettingsRoute", () => {
     ]);
   });
 
-  it("renders SDR settings controls backed by the spectrum slice", () => {
+  it("uses the active device's FFT sizes and keeps frame rate editable below its logical maximum", async () => {
+    const user = userEvent.setup();
     renderRoute({
       spectrum: {
         fftSize: 2048,
+        fftSizeOptions: [1024, 2048, 4096],
         fftWindow: "Rectangular",
-        fftFrameRate: 10,
-        sampleRateHz: 3_200_000,
+        fftFrameRate: 1,
+        sampleRateHz: 8_192,
         gain: 30,
         ppm: 0,
         tunerAGC: false,
@@ -171,14 +173,55 @@ describe("SettingsRoute", () => {
         temporalResolution: "lossless",
         powerScale: "dB",
       },
+      websocket: {
+        activeSourceId: "hackrf-0",
+        sources: [
+          {
+            id: "hackrf-0",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "rx",
+            status: "receiving",
+            loading_attempt: 0,
+            loading_attempt_max: 3,
+            supports_approx_dbm: false,
+            capabilities: {
+              fft: { sizes: [2048, 4096, 8192] },
+            },
+            sdr: {
+              max_sample_rate: 20_000_000,
+              sample_rate_options: [8192],
+              fft_display: { markers: [] },
+              settings: { sample_rate: 8192 },
+            },
+          },
+        ],
+      },
     });
 
     expect(
       screen.getByRole("combobox", { name: /Sample Rate/i }),
     ).toBeInTheDocument();
+    const fftSize = screen.getByRole("combobox", { name: /FFT Size/i });
+    expect(fftSize).toHaveValue("2048");
     expect(
-      screen.getByRole("spinbutton", { name: /FFT Size/i }),
-    ).toBeInTheDocument();
+      Array.from((fftSize as HTMLSelectElement).options).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["2048", "4096", "8192"]);
+    expect(screen.getByText("HackRF One")).toBeInTheDocument();
+    const frameRate = screen.getByRole("spinbutton", {
+      name: /Frame Rate \(logical\)/i,
+    });
+    expect(frameRate).toHaveValue(1);
+    expect(frameRate).toHaveAttribute("max", "4");
+    await user.selectOptions(fftSize, "4096");
+    expect(frameRate).toHaveValue(1);
+    await user.clear(frameRate);
+    await user.type(frameRate, "2");
+    expect(frameRate).toHaveValue(2);
+    await user.selectOptions(fftSize, "8192");
+    expect(frameRate).toHaveValue(1);
     expect(
       screen.getByRole("combobox", { name: /FFT Window/i }),
     ).toBeInTheDocument();

@@ -17,7 +17,10 @@ import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { getTemporalResolutionLabel } from "@n-apt/math/temporalResolution";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
-import { computeMaxFrameRate } from "@n-apt/math/signals";
+import {
+  clampFrameRateToLogicalMax,
+  computeMaxFrameRate,
+} from "@n-apt/math/signals";
 import {
   isMockBackend,
   showsApproxDbmToggle,
@@ -378,12 +381,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                   type="number"
                   value={fftFrameRate}
                   onChange={(e) => {
-                    const val = Math.max(
-                      1,
-                      Math.min(
-                        logicalMaxFrameRate,
-                        Math.floor(Number(e.target.value) || 1),
-                      ),
+                    const val = clampFrameRateToLogicalMax(
+                      Number(e.target.value),
+                      logicalMaxFrameRate,
                     );
                     onFftFrameRateChange(val);
                     scheduleCoupledAdjustment("frameRate", fftSize, val);
@@ -394,12 +394,9 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
                     e.stopPropagation();
                     const step = 1; // Always use 1-frame rate steps for precision
                     const delta = e.key === "ArrowUp" ? step : -step;
-                    const next = Math.max(
-                      1,
-                      Math.min(
-                        logicalMaxFrameRate,
-                        Math.floor((fftFrameRate || 0) + delta),
-                      ),
+                    const next = clampFrameRateToLogicalMax(
+                      (fftFrameRate || 0) + delta,
+                      logicalMaxFrameRate,
                     );
                     onFftFrameRateChange(next);
                     scheduleCoupledAdjustment("frameRate", fftSize, next);

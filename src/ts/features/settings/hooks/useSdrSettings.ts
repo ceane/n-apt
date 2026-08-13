@@ -9,6 +9,7 @@ import {
 } from "@n-apt/redux";
 import {
   MAX_SCREEN_REFRESH_RATE,
+  clampFrameRateToLogicalMax,
   computeMaxFrameRate,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
@@ -438,10 +439,14 @@ export const useSdrSettings = ({
           currentSampleRateHz ?? stateRef.current.sampleRateHz ?? maxSampleRate;
 
         if (trigger === "fftSize") {
-          const desiredFrameRate = getLogicalMaxFrameRate(
+          const cappedFrameRate = getLogicalMaxFrameRate(
             currentSampleRate,
             nextFftSize,
             sdrSettings,
+          );
+          const desiredFrameRate = clampFrameRateToLogicalMax(
+            nextFrameRate,
+            cappedFrameRate,
           );
           if (desiredFrameRate !== nextFrameRate) {
             setFftFrameRate(desiredFrameRate);
