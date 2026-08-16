@@ -2667,7 +2667,7 @@ const createWebSocketMiddleware =
             presentationController.selectSource(
               requestedSourceId,
               isTx ? "tx" : "rx",
-              requestedSource?.paused !== true,
+              true,
             );
             dispatch(updateDeviceState({ sourceFrameReadiness: null }));
             publishSourceTransport(

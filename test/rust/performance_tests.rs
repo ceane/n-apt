@@ -223,8 +223,8 @@ fn test_fft_size_switch_to_max_first_frame_latency() {
 #[serial]
 fn test_loop_interval_consistency_across_sizes() {
   let test_cases = [
-    (2048, 1_000_000, 60),   // capped
-    (2048, 3_200_000, 60),   // capped
+    (2048, 1_000_000, 488),  // floor(sample_rate / fft_size)
+    (2048, 3_200_000, 1562), // floor(sample_rate / fft_size)
     (65536, 3_200_000, 48),  // 20.8ms
     (131072, 3_200_000, 24), // 41.6ms
     (262144, 3_200_000, 12), // 83.3ms
