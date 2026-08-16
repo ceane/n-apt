@@ -971,6 +971,11 @@ impl SdrProcessor {
       .unwrap_or_else(|| spectrum.clone());
 
     if self.capture_active {
+      let metrics = crate::performance::pipeline_metrics();
+      let _capture_span = crate::performance::ProfilingSpan::start(
+        metrics,
+        crate::performance::Stage::CaptureQueue,
+      );
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
         let signature = (
@@ -1009,6 +1014,12 @@ impl SdrProcessor {
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(spectrum);
+        metrics.increment(crate::performance::CounterKind::Copies, 2);
+        metrics.increment(
+          crate::performance::CounterKind::CopiedBytes,
+          (display_samples.data.len()
+            + std::mem::size_of_val(spectrum)) as u64,
+        );
       }
       self.capture_actual_frames += 1;
     }

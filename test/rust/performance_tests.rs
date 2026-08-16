@@ -241,7 +241,13 @@ fn test_loop_interval_consistency_across_sizes() {
       fft_size, sample_rate
     );
 
-    let target_duration = Duration::from_millis(1000 / (target_fps as u64));
+    let target_duration = n_apt_backend::performance::CeilingModel::new(
+      sample_rate as u64,
+      fft_size as u64,
+      2,
+      60,
+    )
+    .theoretical_frame_interval();
 
     let mut intervals = Vec::new();
     let mut last_time = Instant::now();

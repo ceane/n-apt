@@ -131,8 +131,8 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
         transfer.buffer_length as usize,
       )
     };
-    for (index, byte) in output.iter_mut().enumerate() {
-      *byte = ctx.iq[index % ctx.iq.len()];
+    if crate::tx::repeat_iq_payload_into(&ctx.iq, output).is_err() {
+      return -1;
     }
     transfer.valid_length = output.len() as c_int;
     0

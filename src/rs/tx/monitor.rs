@@ -302,19 +302,43 @@ impl TxWorker {
         if sample_rate_hz.is_some() {
           processor.set_sample_rate(sample_rate)?;
         }
-        let iq = complex_baseband::synthesize_mock_tx_monitor_iq(
-          tx_ifft_size.unwrap_or(262_144).clamp(256, 262_144),
-          center_hz,
-          sample_rate,
-          center_hz,
-          bandwidth_hz.unwrap_or(sample_rate as f64),
-          tx_signal.as_deref().unwrap_or("wifi"),
-          tx_ifft_size.unwrap_or(262_144),
-          power_dbm.unwrap_or(-18.0),
-          &complex_baseband::resolve_mock_tx_iq_power_model(),
-          &mut *self.shared_state.mock_tx_phase_accumulator.lock().unwrap(),
+        let metrics = crate::performance::pipeline_metrics();
+        metrics.increment(crate::performance::CounterKind::FramesRequested, 1);
+        let iq = {
+          let _span = crate::performance::ProfilingSpan::start(
+            metrics,
+            crate::performance::Stage::TxSynthesis,
+          );
+          complex_baseband::synthesize_mock_tx_monitor_iq(
+            tx_ifft_size.unwrap_or(262_144).clamp(256, 262_144),
+            center_hz,
+            sample_rate,
+            center_hz,
+            bandwidth_hz.unwrap_or(sample_rate as f64),
+            tx_signal.as_deref().unwrap_or("wifi"),
+            tx_ifft_size.unwrap_or(262_144),
+            power_dbm.unwrap_or(-18.0),
+            &complex_baseband::resolve_mock_tx_iq_power_model(),
+            &mut *self.shared_state.mock_tx_phase_accumulator.lock().unwrap(),
+          )
+        };
+        metrics.increment(crate::performance::CounterKind::FramesProduced, 1);
+        metrics.increment(
+          crate::performance::CounterKind::Samples,
+          (iq.len() / 2) as u64,
         );
-        processor.transmit_iq(Some(&iq))?;
+        metrics.increment(
+          crate::performance::CounterKind::Bytes,
+          iq.len() as u64,
+        );
+        {
+          let _span = crate::performance::ProfilingSpan::start(
+            metrics,
+            crate::performance::Stage::TxDeviceWrite,
+          );
+          processor.transmit_iq(Some(&iq))?;
+        }
+        metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
         self.stream_manager.set_tx_payload(
           StreamKey::new(active_source_id.clone(), StreamMode::Tx),
           center_hz.min(u32::MAX as f64) as u64,

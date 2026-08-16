@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect } from "react";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 export interface AnimationOptions {
   isPaused: boolean;
@@ -55,6 +56,7 @@ export function useFFTAnimation({
         lastFrameTimeRef.current += frameRateLimiterRef.current;
       }
       onRenderFrameRef.current(runId, force);
+      browserPipelineMetrics.presentationFrame(now, frameRateLimiterRef.current);
     }
 
     // Keep the animation loop running even when paused to prevent blank canvases

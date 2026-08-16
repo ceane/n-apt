@@ -49,6 +49,9 @@ jobs:
               - 'signals.yaml'
             rust-performance:
               - 'test/rust/performance_tests.rs'
+              - 'test/rust/performance_program_tests.rs'
+              - 'test/benchmarks/**'
+              - 'src/rs/performance/**'
               - 'src/rs/fft/**'
               - 'src/rs/simd/**'
               - 'src/rs/sdr/processor/**'
@@ -210,6 +213,7 @@ jobs:
             frequency_validation_tests
             iq_capture_integration_tests
             mock_apt_tests
+            performance_program_tests
             server_tests
           )
 
@@ -331,7 +335,12 @@ jobs:
           cache-on-failure: true
 
       - name: Run Rust Performance Tests
-        run: cargo --config .cargo/performance.toml test --test performance_tests --release -- --nocapture
+        run: |
+          cargo --config .cargo/performance.toml test --test performance_tests --release -- --nocapture
+          cargo test --test performance_program_tests
+
+      - name: Compile report-only uncapped benchmarks
+        run: cargo bench --bench pipeline_benchmarks --no-run
 
   # WASM tests
   wasm-tests:

@@ -39,6 +39,8 @@ pub mod tx;
 pub mod infrastructure;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod protocol;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod performance;
 
 // Re-export the main server function for binary use
 #[cfg(not(target_arch = "wasm32"))]

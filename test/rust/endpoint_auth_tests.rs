@@ -138,6 +138,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
   // List of endpoints to check
   let endpoints = vec![
     ("/api/debug/stitch-diagnostic", "POST"),
+    ("/api/debug/pipeline-performance", "GET"),
     ("/api/towers/bounds", "GET"),
     ("/api/capture/download", "GET"),
     ("/api/webmcp/execute", "POST"),

@@ -911,21 +911,41 @@ async fn send_encrypted_iq_frame(
   protocol: IqStreamProtocol,
   frame_status: IqFrameStatus,
 ) -> Result<(), ()> {
-  let binary_payload = encode_encrypted_iq_frame(
-    protocol,
-    enc_key,
-    spectrum_data,
-    &spectrum_data.source_id,
-    spectrum_data.stream_epoch,
-    spectrum_data.sequence,
-    frame_status,
-  )?;
+  let metrics = crate::performance::pipeline_metrics();
+  let binary_payload = {
+    let _span = crate::performance::ProfilingSpan::start(
+      metrics,
+      crate::performance::Stage::EncryptSerialize,
+    );
+    encode_encrypted_iq_frame(
+      protocol,
+      enc_key,
+      spectrum_data,
+      &spectrum_data.source_id,
+      spectrum_data.stream_epoch,
+      spectrum_data.sequence,
+      frame_status,
+    )?
+  };
+  metrics.increment(crate::performance::CounterKind::Copies, 1);
+  metrics.increment(
+    crate::performance::CounterKind::CopiedBytes,
+    binary_payload.len() as u64,
+  );
 
   // Binary frames keep the hot data path compact and avoid JSON encoding costs.
-  ws_sender
+  let _span = crate::performance::ProfilingSpan::start(
+    metrics,
+    crate::performance::Stage::WebSocketSend,
+  );
+  let result = ws_sender
     .send(Message::Binary(binary_payload.into()))
     .await
-    .map_err(|_| ())
+    .map_err(|_| ());
+  if result.is_ok() {
+    metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
+  }
+  result
 }
 
 fn should_send_source_iq_frame(
@@ -1219,6 +1239,10 @@ pub(crate) async fn handle_source_iq_connection(
             }
           }
           Err(broadcast::error::RecvError::Lagged(n)) => {
+            crate::performance::pipeline_metrics().increment(
+              crate::performance::CounterKind::FramesDropped,
+              n,
+            );
             debug!("Source I/Q client lagged by {} spectrum frames, skipping", n);
             continue;
           }

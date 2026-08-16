@@ -3,6 +3,7 @@ import {
   decodeIqFrameEnvelope,
   type DecodedIqFrameEnvelope,
 } from "./iqStreamProtocol";
+import { browserPipelineMetrics } from "../performance/pipelineMetrics";
 
 /** Source lifecycle used to reject decrypted work after an async handoff. */
 export type IqFramePumpLifecycle = {
@@ -171,6 +172,10 @@ export const createIqFramePump = ({
                 source_id: metadata.source_id,
               };
         publish(publishedFrame);
+        browserPipelineMetrics.frameAccepted(
+          metadata.sequence ?? counters.accepted + 1,
+          iqData.byteLength,
+        );
         const readyLifecycleKey = `${metadata.source_id}:${metadata.stream_epoch ?? "v1"}`;
         if (readyLifecycleKey !== lastReadyLifecycleKey) {
           lastReadyLifecycleKey = readyLifecycleKey;
@@ -201,6 +206,7 @@ export const createIqFramePump = ({
       while (pending.length >= queuedLimit) {
         pending.shift();
         counters.dropped += 1;
+        browserPipelineMetrics.frameDropped();
       }
       pending.push(envelope);
       void drain();
@@ -208,6 +214,7 @@ export const createIqFramePump = ({
     reset() {
       generation += 1;
       counters.dropped += pending.length;
+      browserPipelineMetrics.frameDropped(pending.length);
       pending.length = 0;
       lastSequence = null;
       lastReadyLifecycleKey = null;

@@ -27,6 +27,11 @@ pub struct HardwareSimulationRequest {
   pub present: bool,
 }
 
+/// Read-only snapshot for benchmark automation and live diagnostics.
+pub async fn pipeline_performance_handler() -> impl IntoResponse {
+  Json(crate::performance::pipeline_metrics().snapshot())
+}
+
 /// Test-only hardware transition hook. It is available only when the backend
 /// was explicitly started with N_APT_TEST_HARDWARE_SIMULATION=rtl-sdr.
 pub async fn hardware_simulation_handler(

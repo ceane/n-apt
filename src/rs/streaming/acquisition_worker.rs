@@ -80,6 +80,12 @@ impl AcquisitionWorker {
     let shared_state = self.shared_state.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<ProcessedFrame> {
+      let metrics = crate::performance::pipeline_metrics();
+      metrics.increment(crate::performance::CounterKind::FramesRequested, 1);
+      let _span = crate::performance::ProfilingSpan::start(
+        metrics,
+        crate::performance::Stage::Acquisition,
+      );
       let mut processor = processor.blocking_lock();
 
       if shared_state
@@ -240,6 +246,15 @@ impl AcquisitionWorker {
         (waveform, contiguous_iq)
       };
 
+      metrics.increment(crate::performance::CounterKind::FramesProduced, 1);
+      metrics.increment(
+        crate::performance::CounterKind::Samples,
+        (raw_iq.len() / 2) as u64,
+      );
+      metrics.increment(
+        crate::performance::CounterKind::Bytes,
+        raw_iq.len() as u64,
+      );
       Ok(ProcessedFrame {
         source_id: captured_source_id,
         waveform,

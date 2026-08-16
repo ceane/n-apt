@@ -303,6 +303,10 @@ impl websocket_server::WebSocketServer {
         post(http_endpoints::stitch_diagnostic_handler),
       )
       .route(
+        "/api/debug/pipeline-performance",
+        get(http_endpoints::pipeline_performance_handler),
+      )
+      .route(
         "/api/capture/download",
         get(http_endpoints::capture_download_handler),
       )
