@@ -35,7 +35,6 @@ fn frequency_requests_coalesce_to_the_latest_value_without_a_processor_lock() {
 fn mock_retune_to_next_fft_frame_stays_inside_the_fft_frame_budget() {
   let mut processor =
     SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
-  let sample_rate = processor.get_sample_rate();
 
   for fft_size in [2048usize, 8192usize] {
     processor
@@ -48,8 +47,10 @@ fn mock_retune_to_next_fft_frame_stays_inside_the_fft_frame_budget() {
       .read_and_process_frame()
       .expect("Failed to warm mock frame");
 
-    let frame_rate =
-      SdrProcessor::calculate_valid_frame_rate(fft_size, sample_rate);
+    // The isolated calculation is the theoretical sample-rate/FFT-size
+    // floor. The retune loop is paced by the processor's effective display
+    // rate, which also applies the configured signals.yaml ceiling.
+    let frame_rate = processor.display_frame_rate;
     let frame_budget = Duration::from_secs_f64(1.0 / frame_rate as f64);
     let target_center = 1_500_000 + fft_size as u32;
     let started_at = Instant::now();
