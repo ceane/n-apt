@@ -103,6 +103,18 @@ describe("resolveMockTxPreviewViewCenterHz", () => {
 });
 
 describe("resolveTxSliderCenterHz", () => {
+  it("keeps the planned Tx center when the VFO viewport scrolls", () => {
+    expect(
+      resolveTxSliderCenterHz({
+        centerHz: 2_204_000,
+        fallbackCenterHz: 5_336_000,
+        visibleMinHz: 4_336_000,
+        visibleMaxHz: 6_336_000,
+        sampleRateHz: 1_000_000,
+      }),
+    ).toBe(2_204_000);
+  });
+
   it("keeps the saved Tx center when it is outside the VFO viewport", () => {
     expect(
       resolveTxSliderCenterHz({

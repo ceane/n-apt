@@ -115,6 +115,7 @@ pub enum SdrCommand {
   SetDirectSampling(u8),
   RequestNextFrame,
   RestartDevice,
+  SetSimulatedHardwarePresence(bool),
   SetActiveSource {
     source_id: String,
     sample_rate: Option<u32>,
@@ -188,6 +189,7 @@ pub struct SdrProcessorSettings {
   pub fft_size: Option<usize>,
   pub fft_window: Option<String>,
   pub frame_rate: Option<u32>,
+  pub max_frame_rate: Option<u32>,
   pub sample_rate: Option<u32>,
   pub gain: Option<f64>,
   pub hackrf_lna_gain: Option<f64>,
@@ -359,6 +361,9 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFrameRate")]
+  #[validate(range(min = 1))]
+  pub max_frame_rate: Option<u32>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "sampleRate",
@@ -1086,14 +1091,25 @@ pub struct SdrGainConfig {
   pub tuner_bandwidth: Option<u32>,
 }
 
-pub const MAX_LOGICAL_FRAME_RATE: u32 = 60;
+pub const MAX_LOGICAL_FRAME_RATE: u32 = u32::MAX;
+
+fn default_fft_size() -> usize { 2048 }
+fn default_max_fft_size() -> usize { 262_144 }
+fn default_fft_frame_rate() -> u32 { 60 }
+fn default_max_logical_frame_rate() -> u32 { MAX_LOGICAL_FRAME_RATE }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SdrFftConfig {
+  #[serde(default = "default_fft_size")]
   pub default_size: usize,
+  #[serde(default = "default_fft_frame_rate")]
   pub default_frame_rate: u32,
+  #[serde(default = "default_max_fft_size")]
   pub max_size: usize,
+  #[serde(default = "default_max_logical_frame_rate")]
   pub max_frame_rate: u32,
+  #[serde(default)]
   pub size_to_frame_rate: std::collections::HashMap<usize, u32>,
 }
 

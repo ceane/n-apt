@@ -214,7 +214,12 @@ mod tx_suite_tests {
       .store(false, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "mock_tx", false, false,
+        true,
+        false,
+        "connected",
+        "mock_tx",
+        false,
+        false,
       ),
       "standby"
     );
@@ -226,19 +231,34 @@ mod tx_suite_tests {
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "hackrf_one", true, true,
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
       ),
       "receiving"
     );
     assert_eq!(
       super::source_status_for_entry(
-        true, true, "connected", "hackrf_one", true, true,
+        true,
+        true,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
       ),
       "paused"
     );
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "stale", "hackrf_one", true, false,
+        true,
+        false,
+        "stale",
+        "hackrf_one",
+        true,
+        false,
       ),
       "stale"
     );
@@ -250,13 +270,23 @@ mod tx_suite_tests {
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "hackrf_one", false, false,
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        false,
+        false,
       ),
       "loading"
     );
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "hackrf_one", true, true,
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
       ),
       "receiving"
     );
@@ -274,7 +304,12 @@ mod tx_suite_tests {
     );
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "mock_apt", true, true,
+        true,
+        false,
+        "connected",
+        "mock_apt",
+        true,
+        true,
       ),
       "receiving"
     );
@@ -286,7 +321,12 @@ mod tx_suite_tests {
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, false, "connected", "hackrf_one", true, false,
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        false,
       ),
       "stale"
     );
@@ -298,7 +338,12 @@ mod tx_suite_tests {
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, true, "error", "hackrf_one", true, true,
+        true,
+        true,
+        "error",
+        "hackrf_one",
+        true,
+        true,
       ),
       "error"
     );
@@ -306,7 +351,12 @@ mod tx_suite_tests {
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     assert_eq!(
       super::source_status_for_entry(
-        true, true, "connected", "hackrf_one", true, true,
+        true,
+        true,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
       ),
       "transmitting"
     );
@@ -640,6 +690,10 @@ pub fn sort_sources_for_display(sources: &mut [serde_json::Value]) {
   });
 }
 
+/// Keep the source list focused on the connected hardware while it owns the
+/// active device. Mock sources are restored by the disconnect fallback path;
+/// Mock Tx remains visible only when it is explicitly in standby/transmitting
+/// state so hardware source switching cannot leave stale mock entries behind.
 pub fn remove_idle_mock_sources_for_hardware(
   sources: &mut Vec<serde_json::Value>,
   hardware_is_active: bool,
@@ -912,6 +966,8 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   sources.extend(enumerate_rtl_sdr_sources(shared, &active_source_id));
   #[cfg(has_hackrf)]
   sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
+  // Intentional: when real hardware is active, hide idle mock sources. The
+  // health/disconnect path restores Mock APT as the clean fallback source.
   let hardware_is_active = !shared
     .device_profile
     .lock()
@@ -1045,9 +1101,7 @@ mod stable_source_order_tests {
     shared
       .supported_usb_device_count
       .store(1, Ordering::Relaxed);
-    shared
-      .usb_inventory_known
-      .store(true, Ordering::Release);
+    shared.usb_inventory_known.store(true, Ordering::Release);
     shared.set_rtl_sdr_inventory(vec![
       crate::server::shared_state::RtlSdrInventoryDevice {
         index: 0,

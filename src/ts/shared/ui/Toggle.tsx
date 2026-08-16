@@ -1,7 +1,11 @@
 import React from "react";
 import styled from "styled-components";
 
-const ToggleContainer = styled.div<{ $disabled?: boolean }>`
+const ToggleContainer = styled.button<{ $disabled?: boolean }>`
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -10,8 +14,21 @@ const ToggleContainer = styled.div<{ $disabled?: boolean }>`
   user-select: none;
 `;
 
-const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
-  width: ${(props) => (props.$hasInnerLabel ? "44px" : "32px")};
+const Switch = styled.div<{
+  $active: boolean;
+  $hasInnerLabel?: boolean;
+  $variant?: "default" | "three-state";
+  $state?: 0 | 1 | 2;
+}>`
+  border: 0;
+  padding: 0;
+  font: inherit;
+  width: ${(props) =>
+    props.$variant === "three-state"
+      ? "96px"
+      : props.$hasInnerLabel
+        ? "44px"
+        : "32px"};
   height: ${(props) => (props.$hasInnerLabel ? "18px" : "18px")};
   background-color: ${(props) =>
     props.$active ? props.theme.primary : props.theme.borderHover};
@@ -26,14 +43,16 @@ const Switch = styled.div<{ $active: boolean; $hasInnerLabel?: boolean }>`
     content: "";
     position: absolute;
     top: ${(props) => (props.$hasInnerLabel ? "2px" : "3px")};
-    left: ${(props) =>
-      props.$active
+    left: ${(props) => {
+      if (props.$variant === "three-state") return `${10 + (props.$state ?? 0) * 32}px`;
+      return props.$active
         ? props.$hasInnerLabel
           ? "26px"
           : "17px"
         : props.$hasInnerLabel
           ? "2px"
-          : "3px"};
+          : "3px";
+    }};
     width: ${(props) => (props.$hasInnerLabel ? "13px" : "12px")};
     height: ${(props) => (props.$hasInnerLabel ? "13px" : "12px")};
     background-color: white;
@@ -66,13 +85,49 @@ const InnerLabel = styled.span<{ $active: boolean }>`
   text-transform: uppercase;
 `;
 
+const ThreeStateLabel = styled(InnerLabel)<{ $state: 0 | 1 | 2 }>`
+  left: 0;
+  right: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 9px;
+  line-height: 10px;
+  z-index: 0;
+`;
+
+const ThreeStateDividers = styled.span`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 33.333%;
+    width: 1px;
+    background: rgba(0, 0, 0, 0.24);
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 66.667%;
+    width: 1px;
+    background: rgba(0, 0, 0, 0.24);
+  }
+`;
+
 const ToggleText = styled.div`
   margin-right: 8px;
 `;
 
 export interface ToggleProps {
   $active: boolean;
-  onClick?: () => void;
+  onClick?: (state?: number) => void;
   disabled?: boolean;
   children?: React.ReactNode;
   title?: string;
@@ -81,6 +136,8 @@ export interface ToggleProps {
   inactiveLabel?: string;
   showInnerLabel?: boolean;
   labelPosition?: "left" | "right";
+  variant?: "default" | "three-state";
+  state?: 0 | 1 | 2;
 }
 
 export const Toggle: React.FC<ToggleProps> = ({
@@ -94,22 +151,13 @@ export const Toggle: React.FC<ToggleProps> = ({
   inactiveLabel,
   showInnerLabel,
   labelPosition = "right",
+  variant = "default",
+  state = $active ? 1 : 0,
 }) => {
-  const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    e.preventDefault();
+  const handleClick = (e: React.SyntheticEvent) => {
     e.stopPropagation();
     if (!disabled && onClick) {
       onClick();
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!disabled && onClick) {
-        onClick();
-      }
     }
   };
 
@@ -124,11 +172,54 @@ export const Toggle: React.FC<ToggleProps> = ({
     );
   };
 
+  if (variant === "three-state") {
+    return (
+      <ToggleContainer
+        as="div"
+        type="button"
+        $disabled={disabled}
+        title={title}
+        aria-label={ariaLabel}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
+      >
+        {labelPosition === "left" && <ToggleText>{renderLabel()}</ToggleText>}
+        <Switch
+          as="button"
+          type="button"
+          $active={state > 0}
+          $variant="three-state"
+          $state={state}
+          role="slider"
+          aria-valuemin={0}
+          aria-valuemax={2}
+          aria-valuenow={state}
+          tabIndex={disabled ? -1 : 0}
+          aria-label={ariaLabel ?? "Fast Snapshot mode"}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!disabled) onClick?.(((state + 1) % 3) as 0 | 1 | 2);
+          }}
+          onKeyDown={(event) => {
+            if (disabled) return;
+            if (event.key === "ArrowLeft") onClick?.(Math.max(0, state - 1));
+            if (event.key === "ArrowRight") onClick?.(Math.min(2, state + 1));
+          }}
+        >
+          <ThreeStateDividers />
+          <ThreeStateLabel $active={state > 0} $state={state}>
+            {state === 2 ? "On + Geo" : state === 1 ? "On" : "Off"}
+          </ThreeStateLabel>
+        </Switch>
+      </ToggleContainer>
+    );
+  }
+
   return (
     <ToggleContainer
+      type="button"
       $disabled={disabled}
       onClick={handleClick}
-      onKeyDown={handleKeyDown}
       title={title}
       aria-label={ariaLabel}
       role="switch"
@@ -137,7 +228,12 @@ export const Toggle: React.FC<ToggleProps> = ({
       tabIndex={disabled ? -1 : 0}
     >
       {labelPosition === "left" && <ToggleText>{renderLabel()}</ToggleText>}
-      <Switch $active={$active} $hasInnerLabel={showInnerLabel}>
+      <Switch
+        $active={$active}
+        $hasInnerLabel={showInnerLabel}
+        $variant={variant}
+        $state={state}
+      >
         {showInnerLabel && (
           <InnerLabel $active={$active}>{$active ? "ON" : "OFF"}</InnerLabel>
         )}

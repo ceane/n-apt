@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import React from "react";
 import { Provider } from "react-redux";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import ReduxFrequencyRangeSlider from "@n-apt/spectrum/sidebar/ReduxFrequencyRangeSlider";
 import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -9,7 +9,7 @@ import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { createTestStore } from "./testUtils";
 import { setHardwareInfo } from "@n-apt/redux/slices/demodSlice";
-import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
+import { setFrequencyRange, setVizPan } from "@n-apt/redux/slices/spectrumSlice";
 import { websocketActions } from "@n-apt/redux";
 
 const theme = buildAppTheme({
@@ -336,5 +336,73 @@ describe("ReduxFrequencyRangeSlider", () => {
       expect(screen.getByText(/18kHz.*-.*3\.218MHz/)).toBeInTheDocument();
     });
     expect(screen.queryByText(/604kHz.*-.*3\.804MHz/)).not.toBeInTheDocument();
+  });
+
+  it("clears a negative visual pan when the slider explicitly selects a channel frequency", async () => {
+    const store = createTestStore();
+    store.dispatch(setVizPan(-1_600_000));
+    store.dispatch(
+      setHardwareInfo({
+        range: { min: 0, max: 30_000_000 },
+        sampleRate: 3_200_000,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 0, max: 3_200_000 },
+                  lastKnownRanges: {},
+                  vizZoom: 1,
+                  vizPanOffset: -1_600_000,
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [],
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: {
+                  sendFrequencyRange: jest.fn(),
+                },
+              } as any
+            }
+          >
+            <ReduxFrequencyRangeSlider
+              label="A"
+              minFreq={0}
+              maxFreq={20_000_000}
+              sampleRateHz={3_200_000}
+              isActive
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const track = document.querySelector(".range-track") as HTMLElement;
+    Object.defineProperty(track, "clientWidth", {
+      configurable: true,
+      value: 400,
+    });
+    jest.spyOn(track, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 400,
+      width: 400,
+      top: 0,
+      bottom: 40,
+      height: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.mouseDown(track, { clientX: 300 });
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.vizPanOffset).toBe(0);
+    });
   });
 });

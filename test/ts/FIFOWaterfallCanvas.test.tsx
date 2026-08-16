@@ -121,4 +121,34 @@ describe("FIFOWaterfallCanvas", () => {
       ]?.[0],
     ).toBeNull();
   });
+
+  it("does not rebind canvas nodes forever when the placeholder object changes", () => {
+    const setWaterfallGpuCanvasNode = jest.fn();
+    const setWaterfallOverlayCanvasNode = jest.fn();
+    const { rerender } = render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
+          setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+          placeholderState={{ kind: "error", reason: "Device disconnected" }}
+        />
+      </ThemeProvider>,
+    );
+
+    const initialGpuCalls = setWaterfallGpuCanvasNode.mock.calls.length;
+    rerender(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
+          setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+          placeholderState={{ kind: "error", reason: "Device disconnected" }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(setWaterfallGpuCanvasNode.mock.calls.length).toBe(initialGpuCalls);
+    expect(setWaterfallOverlayCanvasNode.mock.calls.length).toBe(initialGpuCalls);
+  });
 });

@@ -186,12 +186,27 @@ export const resolveSelectedSourceIdForInventory = ({
   const selectedSourceIsInInventory = sources.some(
     (source) => source.id === selectedSourceId,
   );
+  const selectedSource = sources.find(
+    (source) => source.id === selectedSourceId,
+  );
+  const selectedSourceIsUnavailable = ["disconnected", "error"].includes(
+    selectedSource?.status ?? "",
+  );
+  const explicitIntentSourceId =
+    pendingSourceSwitchId ?? selectionIntentSourceId;
+  if (explicitIntentSourceId && !selectedSourceId) {
+    return explicitIntentSourceId;
+  }
   const hasExplicitSelectionIntent =
     (pendingSourceSwitchId !== null &&
       pendingSourceSwitchId === selectedSourceId) ||
     (selectionIntentSourceId !== null &&
       selectionIntentSourceId === selectedSourceId);
-  if (hasExplicitSelectionIntent && selectedSourceIsInInventory) {
+  if (
+    hasExplicitSelectionIntent &&
+    selectedSourceIsInInventory &&
+    !selectedSourceIsUnavailable
+  ) {
     return selectedSourceId;
   }
   // Cold-start source_info can omit Mock Tx for a tick while Mock APT is
@@ -200,7 +215,8 @@ export const resolveSelectedSourceIdForInventory = ({
   if (
     hasExplicitSelectionIntent &&
     sources.some((source) => source.id === activeSourceId) &&
-    activeSourceId !== selectedSourceId
+    activeSourceId !== selectedSourceId &&
+    !selectedSourceIsUnavailable
   ) {
     return selectedSourceId;
   }
@@ -272,6 +288,19 @@ export const resolveInventorySelectionIntent = ({
   selectionIntentSourceId?: string | null;
   sources: SourceInfo[];
 }): string | null => {
+  // A persisted selection survives reload independently from the backend's
+  // active-source state. Rehydrate it as an intent before the placeholder
+  // path can settle on the fallback source.
+  if (
+    selectedSourceId &&
+    selectedSourceId !== activeSourceId &&
+    sources.some((source) => source.id === selectedSourceId) &&
+    !["disconnected", "error"].includes(
+      sources.find((source) => source.id === selectedSourceId)?.status ?? "",
+    )
+  ) {
+    return selectedSourceId;
+  }
   const nextSourceId = resolveSelectedSourceIdForInventory({
     selectedSourceId,
     activeSourceId,
@@ -279,10 +308,59 @@ export const resolveInventorySelectionIntent = ({
     selectionIntentSourceId,
     sources,
   });
+  const selectedSource = sources.find(
+    (source) => source.id === selectedSourceId,
+  );
+  const selectionIntentSource = selectionIntentSourceId
+    ? sources.find((source) => source.id === selectionIntentSourceId)
+    : null;
+  if (
+    selectionIntentSourceId &&
+    !selectionIntentSource &&
+    sources.some((source) => source.id === activeSourceId)
+  ) {
+    return null;
+  }
+  if (
+    selectedSource &&
+    ["disconnected", "error"].includes(selectedSource.status ?? "") &&
+    sources.some((source) => source.id === activeSourceId)
+  ) {
+    return null;
+  }
   if (nextSourceId && nextSourceId !== activeSourceId) {
     return nextSourceId;
   }
   return selectionIntentSourceId;
+};
+
+export const resolveInitialSourceSelection = ({
+  activeSourceId,
+  storedSourceId,
+  sources,
+}: {
+  activeSourceId: string;
+  storedSourceId: string | null;
+  sources: SourceInfo[];
+}): { selectedSourceId: string | null; selectionIntentSourceId: string | null } => {
+  const hardwareSources = sources.filter((source) => !isMockSourceInfo(source));
+  const soleHardwareSourceId =
+    hardwareSources.length === 1 ? hardwareSources[0]?.id : null;
+  const storedSourceIsInInventory =
+    !!storedSourceId && sources.some((source) => source.id === storedSourceId);
+  const selectedSourceId =
+    soleHardwareSourceId ||
+    (storedSourceIsInInventory ? storedSourceId : null) ||
+    activeSourceId ||
+    sources[0]?.id ||
+    null;
+  return {
+    selectedSourceId,
+    selectionIntentSourceId:
+      selectedSourceId && selectedSourceId !== activeSourceId
+        ? selectedSourceId
+        : null,
+  };
 };
 
 export const shouldClearPendingSourceSwitch = ({
@@ -543,6 +621,7 @@ export const shouldSendSelectSource = ({
   selectedSourceId,
   activeSourceId,
   selectionIntentSourceId,
+  selectedSourceStatus,
   availableSourceIds,
 }: {
   isConnected: boolean;
@@ -550,6 +629,7 @@ export const shouldSendSelectSource = ({
   selectedSourceId: string;
   activeSourceId: string;
   selectionIntentSourceId: string | null;
+  selectedSourceStatus?: string | null;
   availableSourceIds: string[];
 }): boolean => {
   if (
@@ -559,6 +639,10 @@ export const shouldSendSelectSource = ({
     selectedSourceId === activeSourceId ||
     !availableSourceIds.includes(selectedSourceId)
   ) {
+    return false;
+  }
+
+  if (["disconnected", "stale", "error"].includes(selectedSourceStatus ?? "")) {
     return false;
   }
 
@@ -601,6 +685,38 @@ export const resolvePauseTargetSourceId = ({
   selectedSourceId: string;
   activeSourceId: string;
 }): string => requestedSourceId || activeSourceId || selectedSourceId;
+
+export const shouldReplayManualPauseOnSourceActivation = ({
+  activeSourceId,
+  selectedSourceId,
+  manuallyPaused,
+  backendPaused,
+  pauseReplaySentForSourceId,
+}: {
+  activeSourceId: string;
+  selectedSourceId: string;
+  manuallyPaused: boolean;
+  backendPaused?: boolean;
+  pauseReplaySentForSourceId: string | null;
+}): boolean =>
+  !!activeSourceId &&
+  activeSourceId === selectedSourceId &&
+  manuallyPaused &&
+  backendPaused !== true &&
+  pauseReplaySentForSourceId !== activeSourceId;
+
+export const shouldCarryManualPauseToSelectedSource = ({
+  requestedPaused,
+  selectedSourceId,
+  pauseTargetSourceId,
+}: {
+  requestedPaused: boolean;
+  selectedSourceId: string;
+  pauseTargetSourceId: string;
+}): boolean =>
+  requestedPaused &&
+  !!selectedSourceId &&
+  selectedSourceId !== pauseTargetSourceId;
 
 const estimateRefreshRateFromSamples = (samples: number[]): number | null => {
   if (samples.length === 0) return null;
@@ -1590,15 +1706,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       if (selectedSourceId) return;
       const stored = loadSelectedSourceId();
-      const hardwareSources = websocketSources.filter(
-        (source) => !isMockSourceInfo(source),
-      );
-      const soleHardwareSourceId =
-        hardwareSources.length === 1 ? hardwareSources[0]?.id : null;
-      const initialSourceId =
-        soleHardwareSourceId || stored || activeSourceId || websocketSources[0]?.id;
-      if (initialSourceId) {
-        reduxDispatch(setReduxSelectedSourceId(initialSourceId));
+      const initialSelection = resolveInitialSourceSelection({
+        activeSourceId,
+        storedSourceId: stored,
+        sources: websocketSources,
+      });
+      if (initialSelection.selectedSourceId) {
+        reduxDispatch(setReduxSelectedSourceId(initialSelection.selectedSourceId));
+        if (initialSelection.selectionIntentSourceId) {
+          reduxDispatch(
+            setReduxSelectionIntentSourceId(initialSelection.selectionIntentSourceId),
+          );
+        }
       }
     }, [activeSourceId, reduxDispatch, selectedSourceId, websocketSources]);
 
@@ -1647,6 +1766,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const previousSelectedSourceIdForViewRef = useRef<string | null>(
       selectedSourceId || null,
     );
+    const previousInventorySourceIdsRef = useRef<Set<string>>(new Set());
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
 
     // Capture the leaving source before SpectrumRoute effects jump Mock Tx
@@ -1690,6 +1810,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       });
     }
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
+    const pauseReplaySentForSourceIdRef = useRef<string | null>(null);
     const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const previousSelectedSourceIdRef = useRef<string | null>(null);
     const previousIsVisualizerRouteRef = useRef(
@@ -1769,6 +1890,27 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
 
     useEffect(() => {
+      const previousInventorySourceIds = previousInventorySourceIdsRef.current;
+      const newlyAvailableHardware = websocketSources.find(
+        (source) =>
+          !previousInventorySourceIds.has(source.id) &&
+          !isMockSourceInfo(source) &&
+          ["initializing", "loading", "connected", "receiving", "streaming"].includes(
+            source.status ?? "",
+          ),
+      );
+      previousInventorySourceIdsRef.current = new Set(
+        websocketSources.map((source) => source.id),
+      );
+      if (
+        newlyAvailableHardware &&
+        newlyAvailableHardware.id !== activeSourceId &&
+        newlyAvailableHardware.id !== selectedSourceId
+      ) {
+        reduxDispatch(setReduxSelectionIntentSourceId(newlyAvailableHardware.id));
+        reduxDispatch(setReduxSelectedSourceId(newlyAvailableHardware.id));
+        return;
+      }
       const nextSourceId = resolveSelectedSourceIdForInventory({
         selectedSourceId,
         activeSourceId,
@@ -1783,6 +1925,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         selectionIntentSourceId,
         sources: websocketSources,
       });
+      if (
+        selectionIntentSourceId &&
+        nextSelectionIntent === null &&
+        nextSourceId === activeSourceId
+      ) {
+        reduxDispatch(setReduxSelectionIntentSourceId(null));
+      }
       if (
         nextSelectionIntent === nextSourceId &&
         selectionIntentSourceId !== nextSelectionIntent
@@ -1859,6 +2008,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           selectedSourceId,
           activeSourceId,
           selectionIntentSourceId,
+          selectedSourceStatus,
           availableSourceIds,
         })
       ) {
@@ -2514,6 +2664,31 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     useEffect(() => {
+      const shouldReplay = shouldReplayManualPauseOnSourceActivation({
+        activeSourceId,
+        selectedSourceId,
+        manuallyPaused: manualPausedSourceIdsRef.current.has(selectedSourceId),
+        backendPaused: selectedSource?.paused,
+        pauseReplaySentForSourceId: pauseReplaySentForSourceIdRef.current,
+      });
+      if (!shouldReplay) {
+        if (activeSourceId !== selectedSourceId) {
+          pauseReplaySentForSourceIdRef.current = null;
+        }
+        return;
+      }
+
+      pauseReplaySentForSourceIdRef.current = activeSourceId;
+      wsConnection.sendPauseCommand(true, activeSourceId);
+    }, [
+      activeSourceId,
+      isConnected,
+      selectedSource,
+      selectedSourceId,
+      wsConnection,
+    ]);
+
+    useEffect(() => {
       if (state.sourceMode !== "live") {
         lastLiveSourceIdRef.current = null;
         return;
@@ -2728,6 +2903,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastPausedPreviewSignatureRef.current = nextSignature;
         reduxDispatch(
           requestNextPausedFrameThunk({
+            frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
               bandwidthHz: reduxSpectrumState.txSampleRateHz,
@@ -2751,6 +2927,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       pausedPreviewTimeoutRef.current = window.setTimeout(() => {
         reduxDispatch(
           requestNextPausedFrameThunk({
+            frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
               bandwidthHz: reduxSpectrumState.txSampleRateHz,
@@ -3467,6 +3644,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           ...current,
           [pauseTargetSourceId]: nextPaused,
         }));
+
+        if (
+          shouldCarryManualPauseToSelectedSource({
+            requestedPaused: nextPaused,
+            selectedSourceId,
+            pauseTargetSourceId,
+          })
+        ) {
+          manualPausedSourceIdsRef.current.add(selectedSourceId);
+          autoPausedSourceIdsRef.current.delete(selectedSourceId);
+          setLocalSourcePauseOverrides((current) => ({
+            ...current,
+            [selectedSourceId]: true,
+          }));
+          setManualVisualizerPaused(true);
+          reduxDispatch(setVisualizerPausedAction(true));
+        }
 
         if (pauseTargetSourceId === selectedSourceId) {
           setManualVisualizerPaused(nextPaused);

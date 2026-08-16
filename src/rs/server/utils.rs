@@ -562,6 +562,10 @@ pub fn resolve_fft_config(
     current *= 2;
   }
 
+  let configured_max_frame_rate = sdr_settings
+    .map(|settings| settings.fft.max_frame_rate)
+    .unwrap_or(super::types::MAX_LOGICAL_FRAME_RATE)
+    .max(1);
   let mut size_to_frame_rate = std::collections::HashMap::new();
   for &sz in &sizes {
     let rate = if sz > 0 {
@@ -569,7 +573,7 @@ pub fn resolve_fft_config(
     } else {
       super::types::MAX_LOGICAL_FRAME_RATE
     };
-    let rate = rate.min(super::types::MAX_LOGICAL_FRAME_RATE).max(1);
+    let rate = rate.min(configured_max_frame_rate).max(1);
     size_to_frame_rate.insert(sz, rate);
   }
 
@@ -584,9 +588,14 @@ pub fn resolve_fft_config(
     });
 
   let default_frame_rate =
-    *size_to_frame_rate.get(&default_size).unwrap_or(&60);
+    *size_to_frame_rate
+      .get(&default_size)
+      .unwrap_or(&configured_max_frame_rate);
 
-  let max_frame_rate = *size_to_frame_rate.values().max().unwrap_or(&60);
+  let max_frame_rate = *size_to_frame_rate
+    .values()
+    .max()
+    .unwrap_or(&configured_max_frame_rate);
 
   super::types::SdrFftConfig {
     default_size,
@@ -2625,8 +2634,8 @@ mod save_tests {
     assert_eq!(mock_low.default_size, 32768);
     assert_eq!(mock_low.max_size, 262_144);
     assert_eq!(mock_low.default_frame_rate, 30);
-    assert_eq!(mock_low.max_frame_rate, 60);
-    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&60));
+    assert_eq!(mock_low.max_frame_rate, 488);
+    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&488));
     assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
 
     let mock_fallback =
@@ -2637,8 +2646,8 @@ mod save_tests {
       resolve_fft_config("mock_apt", 3_200_000, Some(32768), None);
     assert_eq!(mock_high.default_size, 32768);
     assert_eq!(mock_high.max_size, 262_144);
-    assert_eq!(mock_high.default_frame_rate, 60);
-    assert_eq!(mock_high.max_frame_rate, 60);
+    assert_eq!(mock_high.default_frame_rate, 97);
+    assert_eq!(mock_high.max_frame_rate, 1562);
     assert_eq!(mock_high.size_to_frame_rate.get(&65536), Some(&48));
     assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
     assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));

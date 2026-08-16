@@ -448,6 +448,9 @@ const SdrSettingsSection: React.FC = () => {
   const [frameRateInput, setFrameRateInput] = useState(
     String(state.fftFrameRate),
   );
+  const [frontendMaxFrameRate, setFrontendMaxFrameRate] = useState<number>(
+    FRONTEND_VISUALIZER_DEFAULTS.maxFrameRate,
+  );
   const [isEditingFrameRate, setIsEditingFrameRate] = useState(false);
 
   const deviceSampleRateOptions = useMemo(
@@ -541,7 +544,7 @@ const SdrSettingsSection: React.FC = () => {
   const logicalMaxFrameRate = computeMaxFrameRate(
     sampleRateValue,
     state.fftSize,
-    signalsDefaults?.fft?.max_frame_rate,
+    frontendMaxFrameRate,
   );
   useEffect(() => {
     if (!isEditingFrameRate) {
@@ -574,7 +577,7 @@ const SdrSettingsSection: React.FC = () => {
     const logicalMaxFrameRate = computeMaxFrameRate(
       sampleRateValue,
       fftSize,
-      signalsDefaults?.fft?.max_frame_rate,
+      frontendMaxFrameRate,
     );
     const frameRate = clampFrameRateToLogicalMax(
       state.fftFrameRate,
@@ -807,6 +810,13 @@ const SdrSettingsSection: React.FC = () => {
               : "Waiting for backend"}
           </ReadOnlyValue>
         </SettingsRow>
+        <SettingsRow label={<SettingLabel>Maximum frame rate</SettingLabel>}>
+          <ReadOnlyValue>
+            {signalsDefaults
+              ? `${signalsDefaults.fft?.max_frame_rate ?? "—"} fps`
+              : "Waiting for backend"}
+          </ReadOnlyValue>
+        </SettingsRow>
       </SectionGrid>
 
       <SettingsSubsectionTitle>Frontend defaults</SettingsSubsectionTitle>
@@ -833,6 +843,25 @@ const SdrSettingsSection: React.FC = () => {
             onChange={(event) => {
               const value = Number(event.target.value);
               if (Number.isFinite(value)) dispatch(setMaxVizZoom(value));
+            }}
+          />
+        </SettingsRow>
+        <SettingsRow label={<SettingLabel>Maximum frame rate</SettingLabel>}>
+          <NumberInput
+            aria-label="Frontend maximum frame rate"
+            type="number"
+            min={1}
+            value={frontendMaxFrameRate}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value >= 1) {
+                setFrontendMaxFrameRate(Math.floor(value));
+                dispatch(
+                  sendSettings({
+                    maxFrameRate: Math.floor(value),
+                  }),
+                );
+              }
             }}
           />
         </SettingsRow>

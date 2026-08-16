@@ -14,6 +14,7 @@ const makeRxFrame = (
     sequence?: number;
     iqData?: Uint8Array;
     status?: "receiving" | "paused" | "standby";
+    center_frequency_hz?: number;
   } = {},
 ): IqRawFrameV2 => ({
   type: "spectrum",
@@ -23,7 +24,7 @@ const makeRxFrame = (
   stream_epoch: opts.epoch ?? 1,
   sequence: opts.sequence ?? 1,
   iq_data: opts.iqData ?? new Uint8Array([1, 2, 3, 4]),
-  center_frequency_hz: 100_000_000,
+  center_frequency_hz: opts.center_frequency_hz ?? 100_000_000,
   sample_rate: 2_400_000,
   frame_status: opts.status ?? "receiving",
 });
@@ -96,6 +97,25 @@ describe("SourcePresentationController", () => {
       expect(slot?.phase).toBe("streaming");
       expect(slot?.metrics.accepted).toBe(1);
       expect(slot?.liveFrameRef.current).toBe(frame);
+    });
+
+    it("resumes a previously paused RX slot when switching back to that source", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+      ctrl.acceptFrame(makeRxFrame("mock-apt", { sequence: 1 }));
+
+      ctrl.selectSource("rtl-sdr-v4", "rx", true);
+      ctrl.commitActiveSource("rtl-sdr-v4");
+      ctrl.acceptFrame(makeRxFrame("rtl-sdr-v4", { sequence: 1 }));
+
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+
+      expect(ctrl.acceptFrame(makeRxFrame("mock-apt", { sequence: 2 }))).toBe(
+        true,
+      );
+      expect(ctrl.getSlot("mock-apt", "rx")?.phase).toBe("streaming");
     });
 
     it("rejects frames from a stale epoch", () => {
@@ -260,6 +280,47 @@ describe("SourcePresentationController", () => {
       expect(ctrl.getPresentationRef("rx").current).toBe(pausedFrame);
     });
 
+    it("accepts a paused request_next_frame one-shot and replaces the frozen Rx frame", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      const originalFrame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(originalFrame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      // A paused source retuned via request_next_frame; the response carries
+      // no Tx-preview tag but must still refresh the frozen presentation.
+      const oneShot = makeRxFrame("hackrf-1", {
+        sequence: 2,
+        center_frequency_hz: 101_000_000,
+      });
+      expect(ctrl.acceptFrame(oneShot, undefined, true)).toBe(true);
+
+      const slot = ctrl.getSlot("hackrf-1", "rx");
+      expect(slot?.phase).toBe("paused");
+      expect(slot?.frozenFrame?.frame).toBe(oneShot);
+      expect(ctrl.getPresentationRef("rx").current).toBe(oneShot);
+    });
+
+    it("keeps rejecting paused frames once the one-shot request is consumed", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      const originalFrame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(originalFrame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      // A single one-shot response is accepted and freezes the new frame.
+      ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 2 }), undefined, true);
+
+      // The next live frame without the one-shot flag is rejected again.
+      const liveFrame = makeRxFrame("hackrf-1", { sequence: 3 });
+      expect(ctrl.acceptFrame(liveFrame)).toBe(false);
+      expect(ctrl.getPresentationRef("rx").current).not.toBe(liveFrame);
+    });
+
     it("keeps the last Rx frame while paused instead of applying a preview", () => {
       const ctrl = createController();
       ctrl.selectSource("hackrf-1");
@@ -275,7 +336,9 @@ describe("SourcePresentationController", () => {
         ),
       ).toBe(false);
       expect(
-        ctrl.acceptFrame(makeTxFrame("hackrf-1", { sequence: 1, status: "standby" })),
+        ctrl.acceptFrame(
+          makeTxFrame("hackrf-1", { sequence: 1, status: "standby" }),
+        ),
       ).toBe(true);
 
       const rxSlot = ctrl.getSlot("hackrf-1", "rx");
@@ -294,6 +357,63 @@ describe("SourcePresentationController", () => {
 
       const ref = ctrl.getPresentationRef("rx");
       expect(ref.current).toBe(frame);
+    });
+
+    it("does not unfreeze a paused slot when a stale streaming status arrives", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      const frame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(frame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      // Cold-start race: the backend re-broadcasts receiving/streaming before
+      // the pause command settles. This must NOT revert the paused phase.
+      ctrl.setSourceStatus("hackrf-1", "receiving");
+      ctrl.setSourceStatus("hackrf-1", "streaming");
+      ctrl.setSourceStatus("hackrf-1", "connected");
+
+      const slot = ctrl.getSlot("hackrf-1", "rx");
+      expect(slot?.phase).toBe("paused");
+      expect(slot?.frozenFrame?.frame).toBe(frame);
+      expect(ctrl.getPresentationRef("rx").current).toBe(frame);
+
+      // Live frames remain rejected so the frozen frame is preserved.
+      expect(
+        ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 2 })),
+      ).toBe(false);
+    });
+
+    it("keeps a paused slot frozen until an explicit resume", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      const frame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(frame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      ctrl.setSourceStatus("hackrf-1", "receiving");
+      expect(ctrl.getSlot("hackrf-1", "rx")?.phase).toBe("paused");
+
+      // Explicit resume clears the frozen frame and returns to streaming.
+      ctrl.setPaused("hackrf-1", "rx", false);
+      const slot = ctrl.getSlot("hackrf-1", "rx");
+      expect(slot?.phase).toBe("streaming");
+      expect(slot?.frozenFrame).toBeNull();
+    });
+
+    it("still honors a backend paused status after a manual pause", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+
+      ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 1 }));
+      ctrl.setPaused("hackrf-1", "rx", true);
+      ctrl.setSourceStatus("hackrf-1", "paused");
+
+      expect(ctrl.getSlot("hackrf-1", "rx")?.phase).toBe("paused");
     });
   });
 
@@ -399,7 +519,9 @@ describe("SourcePresentationController", () => {
       ctrl.selectSource("mock-tx", "tx");
       ctrl.commitActiveSource("mock-tx");
 
-      ctrl.acceptFrame(makeTxFrame("mock-tx", { sequence: 1, status: "standby" }));
+      ctrl.acceptFrame(
+        makeTxFrame("mock-tx", { sequence: 1, status: "standby" }),
+      );
       const nextPreview = makeTxFrame("mock-tx", {
         sequence: 2,
         status: "standby",
@@ -416,7 +538,9 @@ describe("SourcePresentationController", () => {
       const ctrl = createController();
       ctrl.selectSource("mock-tx", "tx");
       ctrl.commitActiveSource("mock-tx");
-      ctrl.acceptFrame(makeTxFrame("mock-tx", { sequence: 1, status: "standby" }));
+      ctrl.acceptFrame(
+        makeTxFrame("mock-tx", { sequence: 1, status: "standby" }),
+      );
 
       ctrl.setSourceStatus("mock-tx", "transmitting");
 
@@ -472,7 +596,9 @@ describe("SourcePresentationController", () => {
       ctrl.commitActiveSource("hackrf-1");
 
       // Create the tx slot first by accepting a tx frame
-      ctrl.acceptFrame(makeTxFrame("hackrf-1", { sequence: 1, status: "standby" }));
+      ctrl.acceptFrame(
+        makeTxFrame("hackrf-1", { sequence: 1, status: "standby" }),
+      );
       ctrl.setSourceStatus("hackrf-1", "transmitting");
 
       const txSlot = ctrl.getSlot("hackrf-1", "tx");

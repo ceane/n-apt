@@ -158,7 +158,7 @@ export function resolveSampleRateSpec(
   return { rate: safeFloor, options: [safeFloor] };
 }
 
-export const MAX_SCREEN_REFRESH_RATE = 60;
+export const MAX_SCREEN_REFRESH_RATE = Number.POSITIVE_INFINITY;
 
 export const computeMaxFrameRate = (
   maxSampleRate: number,
@@ -166,12 +166,10 @@ export const computeMaxFrameRate = (
   maxFrameRateLimit?: number,
 ): number => {
   if (!fftSize) return 0;
-  // Fallback calculation: floor(sample_rate / fft_size) clamped to range [1, MAX_SCREEN_REFRESH_RATE]
+  // Fallback calculation: floor(sample_rate / fft_size), optionally limited
+  // by the mutable configured ceiling.
   const theoretical = Math.floor(maxSampleRate / fftSize);
-  const limit = Math.min(
-    maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE,
-    MAX_SCREEN_REFRESH_RATE,
-  );
+  const limit = maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE;
   return Math.max(1, Math.min(theoretical, limit));
 };
 

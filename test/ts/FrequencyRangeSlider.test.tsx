@@ -47,6 +47,39 @@ describe("FrequencyRangeSlider", () => {
     expect(onActivate).toHaveBeenCalled();
   });
 
+  test("moves the window to the clicked track frequency immediately", () => {
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+
+    const track = document.querySelector(".range-track") as HTMLElement;
+    Object.defineProperty(track, "clientWidth", {
+      configurable: true,
+      value: 400,
+    });
+    jest.spyOn(track, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 400,
+      width: 400,
+      top: 0,
+      bottom: 40,
+      height: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.mouseDown(track, { clientX: 300 });
+
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
+    const selected = onRangeChange.mock.calls[0][0];
+    expect(selected.min).toBeCloseTo(160, 5);
+    expect(selected.max).toBeCloseTo(190, 5);
+  });
+
   test("does not call onActivate when the slider is already active", () => {
     const onActivate = jest.fn();
     render(
@@ -171,7 +204,7 @@ describe("FrequencyRangeSlider", () => {
     expect(screen.getByText(/135Hz.*-.*135Hz/)).toBeInTheDocument();
   });
 
-  test("keeps drag publishes off the pointer-move path", () => {
+  test("publishes the range immediately on every accepted drag move", () => {
     const onRangeChange = jest.fn();
     render(
       <TestWrapper>
@@ -182,17 +215,14 @@ describe("FrequencyRangeSlider", () => {
     const thumb = screen.getByText(/120.*-.*150/).parentElement;
     fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
     fireEvent.mouseMove(window, { clientX: 150 });
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
+    const firstRange = onRangeChange.mock.calls[0][0];
+    expect(firstRange.min).toBeGreaterThan(120);
+
     fireEvent.mouseMove(window, { clientX: 200 });
     fireEvent.mouseMove(window, { clientX: 250 });
 
-    expect(onRangeChange).not.toHaveBeenCalled();
-
-    fireEvent.mouseUp(window);
-
-    expect(onRangeChange).toHaveBeenCalledTimes(1);
-    const lastCall =
-      onRangeChange.mock.calls[onRangeChange.mock.calls.length - 1][0];
-    expect(lastCall.min).toBeGreaterThan(120);
+    expect(onRangeChange.mock.calls.length).toBeGreaterThan(1);
   });
 
   test("wheel pans the visible window immediately without a debounce timer", () => {

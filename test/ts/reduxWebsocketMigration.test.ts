@@ -26,6 +26,9 @@ import {
   isBoundTxPreviewStandby,
   preserveTransmittingSourceStatuses,
   normalizeManagedStreamFrame,
+  shouldRetireRemovedSourceRequest,
+  resolveSourceSelectionAfterFailedSwitch,
+  resolveSourceSelectionAfterBackendFallback,
   shouldSyncManagedStreamOptions,
   resolveManagedTxSourceId,
   __testQueueLiveDataForMiddleware,
@@ -51,6 +54,59 @@ import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddl
 import { shouldPauseSourceOnSwitch } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { waitFor } from "@testing-library/react";
 import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
+
+describe("hardware source transition cleanup", () => {
+  it("follows Mock APT when the backend falls back from the selected hardware", () => {
+    expect(
+      resolveSourceSelectionAfterBackendFallback({
+        previousActiveSourceId: "rtl-sdr-00000001",
+        nextActiveSourceId: "mock-apt",
+        selectedSourceId: "rtl-sdr-00000001",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+      }),
+    ).toEqual({ fallbackSourceId: "mock-apt" });
+    expect(
+      resolveSourceSelectionAfterBackendFallback({
+        previousActiveSourceId: "mock-apt",
+        nextActiveSourceId: "mock-apt",
+        selectedSourceId: "rtl-sdr-00000001",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+      }),
+    ).toBeNull();
+  });
+
+  it("retires a pending hardware request when hot-unplug removes it", () => {
+    expect(
+      shouldRetireRemovedSourceRequest({
+        requestedSourceId: "rtl-sdr-00000001",
+        sources: [{ id: "mock-apt" } as any],
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetireRemovedSourceRequest({
+        requestedSourceId: "rtl-sdr-00000001",
+        sources: [{ id: "rtl-sdr-00000001" } as any],
+      }),
+    ).toBe(false);
+  });
+
+  it("falls back to the confirmed active source after a failed hardware switch", () => {
+    expect(
+      resolveSourceSelectionAfterFailedSwitch({
+        failedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectedSourceId: "rtl-sdr-00000001",
+      }),
+    ).toEqual({ fallbackSourceId: "mock-apt" });
+    expect(
+      resolveSourceSelectionAfterFailedSwitch({
+        failedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectedSourceId: "mock-apt",
+      }),
+    ).toBeNull();
+  });
+});
 import { bytesToBase64 } from "@n-apt/crypto/webcrypto";
 
 describe("managed stream option synchronization", () => {
@@ -1909,7 +1965,7 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
-    it("runs Mock APT to RTL hotplug through loading, socket replacement, and streaming", async () => {
+    it("connects hardware through loading to streaming, then falls back cleanly on disconnect", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
         (url: string) => {
@@ -2042,6 +2098,117 @@ describe("Redux WebSocket Migration", () => {
       expect(sockets[1].url).toBe(
         "ws://localhost/ws/streams?token=session-token",
       );
+
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: "mock-apt",
+          active_source_mode: "live",
+          sources: [mock],
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const fallbackState = middlewareStore.getState().websocket;
+      expect(fallbackState.activeSourceId).toBe("mock-apt");
+      expect(fallbackState.sourceStatuses["mock-apt"]).toBe("streaming");
+      expect(fallbackState.sourceStatuses["rtl-sdr-v4"]).toBeUndefined();
+      expect(fallbackState.error).toBeNull();
+    });
+
+    it("clears a failed unplugged-device switch and restores the confirmed fallback", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+          sourceSelection: sourceSelectionSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      const control = sockets[0];
+      const mock = {
+        id: "mock-apt",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "mock",
+        status: "receiving",
+      } as any;
+      const rtl = {
+        id: "rtl-sdr-00000001",
+        name: "RTL-SDR v4",
+        kind: "rtl_sdr",
+        capability: "rx",
+        status: "connected",
+      } as any;
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          activeSourceId: "mock-apt",
+          sources: [mock, rtl],
+          sourceStatuses: {
+            "mock-apt": "receiving",
+            [rtl.id]: "connected",
+          },
+        }),
+      );
+
+      middlewareStore.dispatch(setSelectedSourceId(rtl.id));
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: rtl.id },
+        },
+      });
+
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "error",
+          source_id: rtl.id,
+          code: "source_switch_failed",
+          message: `No matching source found for source_id=${rtl.id}`,
+        }),
+      });
+
+      const state = middlewareStore.getState();
+      expect(state.websocket.activeSourceId).toBe("mock-apt");
+      expect(state.websocket.error).toBe("");
+      expect(state.sourceSelection.selectedSourceId).toBe("mock-apt");
+      expect(state.sourceSelection.pendingSourceSwitchId).toBeNull();
     });
 
     it("keeps transmitting source_info status in Redux after reconnect", async () => {
@@ -2986,6 +3153,59 @@ describe("Redux WebSocket Migration", () => {
       );
       expect(liveDataRef.current).toBeNull();
       expect(middlewareStore.getState().websocket.dataFrameCounter).toBe(0);
+      jest.useRealTimers();
+    });
+
+    it("does not advance the active source's per-source ref while paused", () => {
+      jest.useFakeTimers();
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: true,
+          activeSourceId: "mock-apt",
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+            },
+          ],
+        } as any),
+      );
+
+      const liveFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-apt",
+        iq_data: new Uint8Array([128, 128, 129, 127]),
+        sample_rate: 2_400_000,
+        center_frequency_hz: 100_000_000,
+      } as IqRawFrame;
+      __testQueueLiveDataForMiddleware(
+        liveFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+
+      jest.advanceTimersByTime(16);
+
+      // The active Rx source is paused: no new frame may enter its per-source
+      // ref (which the canvas pause-polling loop reads and re-renders), and the
+      // shared live ref must stay frozen too.
+      expect(liveDataBySourceRef.current["mock-apt"]?.current ?? null).toBeNull();
+      expect(liveDataRef.current).toBeNull();
       jest.useRealTimers();
     });
 

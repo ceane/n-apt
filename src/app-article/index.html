@@ -11,9 +11,21 @@
       gtag('config', 'G-R2QV8V8GZG');
     </script>
     <style>
+      html,
+      body {
+        width: 100%;
+        min-width: 100%;
+        margin: 0;
+      }
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
       .repo-banner {
         display: block;
-        width: 100%;
+        width: 100vw;
+        max-width: 100vw;
         background: rgba(255, 255, 255, 0.2);
         padding: 0.5rem 0;
         text-align: center;

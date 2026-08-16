@@ -527,6 +527,7 @@ export const WebSocketMessageSchema = z.union([
     fftSize: z.number().optional(),
     fftWindow: z.string().optional(),
     frameRate: z.number().optional(),
+    maxFrameRate: z.number().positive().optional(),
     gain: z.number().optional(),
     hackrfLnaGain: z.number().min(0).max(49.6).optional(),
     hackrfVgaGain: z.number().min(0).max(62).optional(),

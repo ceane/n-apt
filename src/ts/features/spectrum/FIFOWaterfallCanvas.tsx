@@ -181,21 +181,15 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     (node: HTMLCanvasElement | null) => {
       waterfallGpuCanvasRef.current = node;
       setWaterfallGpuCanvasNode(node);
-      if (placeholderState && placeholderState.kind !== "top-bar") {
-        clearCanvas(node);
-      }
     },
-    [clearCanvas, placeholderState, setWaterfallGpuCanvasNode],
+    [setWaterfallGpuCanvasNode],
   );
   const handleWaterfallOverlayCanvasNode = useCallback(
     (node: HTMLCanvasElement | null) => {
       waterfallOverlayCanvasRef.current = node;
       setWaterfallOverlayCanvasNode(node);
-      if (placeholderState && placeholderState.kind !== "top-bar") {
-        clearCanvas(node);
-      }
     },
-    [clearCanvas, placeholderState, setWaterfallOverlayCanvasNode],
+    [setWaterfallOverlayCanvasNode],
   );
 
   useEffect(() => {

@@ -70,6 +70,7 @@ import {
 } from "@n-apt/spectrum/public/waterfallColor";
 import { useTheme } from "styled-components";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
+import { formatSnapshotLocationLine } from "@n-apt/capture/snapshotLocation";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ export type SnapshotOptions = {
   showStats: boolean;
   showGeolocation: boolean;
   geolocation?: { lat: string; lon: string } | null;
+  locationLabel?: string | null;
   showGrid: boolean;
   format: "png" | "svg" | SnapshotVideoFormat | SnapshotAnimatedFormat;
   getSnapshotData: () => SnapshotData | null;
@@ -484,6 +486,7 @@ export function buildSnapshotStatsLines({
   hardwareSampleRateHz,
   showGeolocation,
   geolocation,
+  locationLabel,
   whole,
 }: {
   range: Range;
@@ -501,6 +504,7 @@ export function buildSnapshotStatsLines({
   hardwareSampleRateHz?: number;
   showGeolocation?: boolean;
   geolocation?: { lat: string; lon: string } | null;
+  locationLabel?: string | null;
   whole?: boolean;
 }): string[] {
   const renderedSpanHz = range.max - range.min;
@@ -554,7 +558,7 @@ export function buildSnapshotStatsLines({
   ];
 
   if (showGeolocation && geolocation) {
-    lines.push(`Location: ${geolocation.lat}, ${geolocation.lon}`);
+    lines.push(formatSnapshotLocationLine(geolocation, locationLabel));
   }
 
   return lines;
@@ -2025,10 +2029,20 @@ export function renderStatsRowCanvas(
   const fontBoost = aspectRatio && aspectRatio !== "default" ? 5 : 0;
   const baseFontSize = 17 + fontBoost;
   const lh = 24 + fontBoost;
-  const splitIndex = Math.ceil(statsLines.length / 2);
-  const leftLines = statsLines.slice(0, splitIndex);
-  const rightLines = statsLines.slice(splitIndex);
-  const rowCount = Math.max(leftLines.length, rightLines.length);
+  const lastLine = statsLines[statsLines.length - 1] ?? "";
+  const hasFullWidthLocation =
+    /^(?:Location:\s*)?[-+]?\d+(?:\.\d+)?,\s*[-+]?\d+(?:\.\d+)?(?:\s+–\s+.*)?$/.test(
+      lastLine,
+    );
+  const columnLines = hasFullWidthLocation
+    ? statsLines.slice(0, -1)
+    : statsLines;
+  const locationLine = hasFullWidthLocation ? lastLine : null;
+  const splitIndex = Math.ceil(columnLines.length / 2);
+  const leftLines = columnLines.slice(0, splitIndex);
+  const rightLines = columnLines.slice(splitIndex);
+  const columnRowCount = Math.max(leftLines.length, rightLines.length);
+  const rowCount = columnRowCount + (locationLine ? 1 : 0);
   const dividerH = 1;
   const boxH = rowCount * lh + padY * 2 + dividerH;
 
@@ -2069,10 +2083,15 @@ export function renderStatsRowCanvas(
   const leftColumnX = plotLeft;
   const rightColumnX = plotLeft + Math.round((availableWidth - centerGap) / 2);
 
-  for (let i = 0; i < rowCount; i++) {
+  for (let i = 0; i < columnRowCount; i++) {
     const y = padY + (i + 0.8) * lh;
     if (leftLines[i]) drawLine(leftLines[i], leftColumnX, y);
     if (rightLines[i]) drawLine(rightLines[i], rightColumnX, y);
+  }
+
+  if (locationLine) {
+    const y = padY + (columnRowCount + 0.8) * lh;
+    drawLine(locationLine, leftColumnX, y);
   }
 
   return canvas;
@@ -2168,6 +2187,9 @@ export function buildFastSpectrumCanvas(
   } | null,
   options?: {
     showStats?: boolean;
+    showGeolocation?: boolean;
+    geolocation?: { lat: string; lon: string } | null;
+    locationLabel?: string | null;
     activeSignalArea?: string;
     signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
@@ -2221,7 +2243,9 @@ export function buildFastSpectrumCanvas(
         gain: options?.gain,
         ppm: options?.ppm,
         gainLabel: options?.sdrSettingsLabel,
-        showGeolocation: false,
+        showGeolocation: options?.showGeolocation ?? false,
+        geolocation: options?.geolocation,
+        locationLabel: options?.locationLabel,
       })
     : [];
 
@@ -2507,6 +2531,9 @@ export function buildFastWaterfallCanvas(
   axisTheme?: FrequencyAxisTheme,
   options?: {
     showStats?: boolean;
+    showGeolocation?: boolean;
+    geolocation?: { lat: string; lon: string } | null;
+    locationLabel?: string | null;
     activeSignalArea?: string;
     signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
@@ -2559,7 +2586,9 @@ export function buildFastWaterfallCanvas(
           gain: options?.gain,
           ppm: options?.ppm,
           gainLabel: options?.sdrSettingsLabel,
-          showGeolocation: false,
+          showGeolocation: options?.showGeolocation ?? false,
+          geolocation: options?.geolocation,
+          locationLabel: options?.locationLabel,
         })
       : [];
   const sourceCanvas = renderFastWaterfallBase(
@@ -2882,6 +2911,9 @@ export type FastRecordingTarget = "spectrum" | "waterfall";
 
 type FastRecordingOptions = {
   showStats?: boolean;
+  showGeolocation?: boolean;
+  geolocation?: { lat: string; lon: string } | null;
+  locationLabel?: string | null;
   activeSignalArea?: string;
   signalAreaBounds?: Record<string, { min: number; max: number }> | null;
   activeSignalAreaBounds?: { min: number; max: number } | null;
@@ -3033,6 +3065,9 @@ export function useSnapshot(
       canvases?: FastCanvases | null,
       options?: {
         showStats?: boolean;
+        showGeolocation?: boolean;
+        geolocation?: { lat: string; lon: string } | null;
+        locationLabel?: string | null;
         activeSignalArea?: string;
         signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
@@ -3269,32 +3304,28 @@ export function useSnapshot(
               ppm: options.ppm,
               gainLabel: options.sdrSettingsLabel,
               modeLabel: options.modeLabel,
-              showGeolocation: false,
+              showGeolocation: options.showGeolocation ?? false,
+              geolocation: options.geolocation,
+              locationLabel: options.locationLabel,
             })
           : [];
 
-        if (options.showStats && options.showGeolocation) {
-          if (options.geolocation) {
-            statsLines.push(
-              `Location: ${options.geolocation.lat}, ${options.geolocation.lon}`,
+        if (options.showStats && options.showGeolocation && !options.geolocation) {
+          try {
+            const pos = await new Promise<GeolocationPosition>(
+              (resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                  enableHighAccuracy: false,
+                  timeout: 5000,
+                  maximumAge: 60000,
+                });
+              },
             );
-          } else {
-            try {
-              const pos = await new Promise<GeolocationPosition>(
-                (resolve, reject) => {
-                  navigator.geolocation.getCurrentPosition(resolve, reject, {
-                    enableHighAccuracy: false,
-                    timeout: 5000,
-                    maximumAge: 60000,
-                  });
-                },
-              );
-              const lat = pos.coords.latitude.toFixed(6);
-              const lon = pos.coords.longitude.toFixed(6);
-              statsLines.push(`Location: ${lat}, ${lon}`);
-            } catch (err) {
-              console.warn("[Snapshot] Geolocation failed:", err);
-            }
+            const lat = pos.coords.latitude.toFixed(6);
+            const lon = pos.coords.longitude.toFixed(6);
+            statsLines.push(`Location: ${lat}, ${lon}`);
+          } catch (err) {
+            console.warn("[Snapshot] Geolocation failed:", err);
           }
         }
 
@@ -3369,6 +3400,7 @@ export function useSnapshot(
                 gainLabel: options.sdrSettingsLabel,
                 modeLabel: options.modeLabel,
                 showGeolocation: false,
+                locationLabel: options.locationLabel,
               })
             : [];
 
@@ -3378,7 +3410,7 @@ export function useSnapshot(
             options.geolocation
           ) {
             currentStatsLines.push(
-              `Location: ${options.geolocation.lat}, ${options.geolocation.lon}`,
+              formatSnapshotLocationLine(options.geolocation, options.locationLabel),
             );
           }
 
@@ -4415,6 +4447,9 @@ export function useSnapshot(
         initialCanvases,
         {
           showStats: pinnedOptions.showStats,
+          showGeolocation: pinnedOptions.showGeolocation,
+          geolocation: pinnedOptions.geolocation,
+          locationLabel: pinnedOptions.locationLabel,
           activeSignalArea: pinnedOptions.activeSignalArea,
           signalAreaBounds: pinnedOptions.signalAreaBounds,
           activeSignalAreaBounds: pinnedOptions.activeSignalAreaBounds,
@@ -4556,6 +4591,9 @@ export function useSnapshot(
               currentCanvases,
               {
                 showStats: pinnedOptions.showStats,
+                showGeolocation: pinnedOptions.showGeolocation,
+                geolocation: pinnedOptions.geolocation,
+                locationLabel: pinnedOptions.locationLabel,
                 activeSignalArea: pinnedOptions.activeSignalArea,
                 signalAreaBounds: pinnedOptions.signalAreaBounds,
                 activeSignalAreaBounds: pinnedOptions.activeSignalAreaBounds,
@@ -4674,6 +4712,9 @@ export function useSnapshot(
       getCanvases: GetFastCanvases,
       options?: {
         showStats?: boolean;
+        showGeolocation?: boolean;
+        geolocation?: { lat: string; lon: string } | null;
+        locationLabel?: string | null;
         activeSignalArea?: string;
         signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
@@ -4729,8 +4770,10 @@ export function useSnapshot(
       await handleSnapshot({
         whole: false,
         showWaterfall: false,
-        showStats: false,
-        showGeolocation: false,
+        showStats: options?.showStats ?? false,
+        showGeolocation: options?.showGeolocation ?? false,
+        geolocation: options?.geolocation,
+        locationLabel: options?.locationLabel,
         showGrid: false,
         format: "png",
         useThemeColors: false,

@@ -14,6 +14,11 @@ import {
   setSpectrumFrames,
 } from "../slices/websocketSlice";
 import {
+  setSelectedSourceId,
+  setSelectionIntentSourceId,
+  setPendingSourceSwitchId,
+} from "../slices/sourceSelectionSlice";
+import {
   setActiveSignalArea,
   setFrequencyRange,
   setTxSafetyResult,
@@ -649,6 +654,17 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const frames = Array.isArray(pendingDataUpdate)
       ? pendingDataUpdate
       : [pendingDataUpdate];
+    // A paused Rx source publishes exactly one frame per request_next_frame.
+    // It has no Tx-preview tag, so gate acceptance on the armed request. The
+    // flag is snapped before the loop so the one-shot response reaches both
+    // the presentation controller and the legacy liveDataRef path.
+    const isPausedOneShotFrame = isPaused && pausedFrameRequestInFlight;
+    // Per-source refs retain their own latest frames for secondary previews,
+    // but only the source currently being presented may enter the shared
+    // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
+    // before the backend commits activeSourceId.
+    const presentationSourceId =
+      requestedSourceId ?? selectedTxPresentationSourceId ?? activeSourceId;
     for (const frame of frames) {
       const sourceId = frame?.source_id;
       if (typeof sourceId === "string" && sourceId.length > 0) {
@@ -664,20 +680,31 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         ) {
           cachedRxFrameBySourceId.set(sourceId, frame);
         }
-        if (sourceVisualizationRuntime.publish(frame)) {
+        // Per-source refs must not ingest new frames for the active Rx source
+        // while paused. The canvas pause-polling loop re-renders whenever the
+        // ref it reads advances, so an unpaused publish is what lets 1-2
+        // frames slip through right after a pause click. One-shot paused
+        // frames (request_next_frame), Tx previews, and non-active secondary
+        // sources remain allowed: those are the deliberate pause-time
+        // previews the presentation controller gates below.
+        const isPausedForSourcePublish =
+          isPaused &&
+          !isPausedOneShotFrame &&
+          !isTxPresentationFrame(frame) &&
+          (sourceId === activeSourceId ||
+            sourceId === presentationSourceId ||
+            requestedSourceId === sourceId);
+        if (!isPausedForSourcePublish && sourceVisualizationRuntime.publish(frame)) {
           liveDataBySourceRef.current[sourceId] =
             sourceVisualizationRuntime.getSourceRef(sourceId);
         }
-        // Feed the unified presentation controller — per-source, per-mode
-        presentationController.acceptFrame(frame);
+        // Feed the unified presentation controller — per-source, per-mode.
+        // A paused one-shot response must replace the frozen frame so the
+        // canvas repaints at the requested center instead of holding the old
+        // paused spectrum.
+        presentationController.acceptFrame(frame, undefined, isPausedOneShotFrame);
       }
     }
-    // Per-source refs retain their own latest frames for secondary previews,
-    // but only the source currently being presented may enter the shared
-    // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
-    // before the backend commits activeSourceId.
-    const presentationSourceId =
-      requestedSourceId ?? selectedTxPresentationSourceId ?? activeSourceId;
     const presentationFrames = filterLiveFramesForSource(
       frames,
       presentationSourceId,
@@ -722,7 +749,13 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         f?.is_tx_preview === true ||
         f?.is_mock_tx_preview === true,
     );
-    const shouldAcceptPausedFrame = hasTxPreviewFrame || false;
+    // A paused Rx source publishes exactly one frame per request_next_frame.
+    // It has no Tx-preview tag, so gate acceptance on the armed request. Consume
+    // the gate after the first frame so idle background frames cannot bleed in.
+    const shouldAcceptPausedFrame = hasTxPreviewFrame || isPausedOneShotFrame;
+    if (isPausedOneShotFrame) {
+      pausedFrameRequestInFlight = false;
+    }
 
     if (
       presentationFrames.length > 0 &&
@@ -1548,6 +1581,56 @@ const publishSourceTransport = (
   }
 };
 
+export const shouldRetireRemovedSourceRequest = ({
+  requestedSourceId,
+  sources,
+}: {
+  requestedSourceId: string | null;
+  sources: SourceInfo[];
+}): boolean =>
+  requestedSourceId !== null &&
+  !sources.some((source) => source.id === requestedSourceId);
+
+export const resolveSourceSelectionAfterFailedSwitch = ({
+  failedSourceId,
+  activeSourceId,
+  selectedSourceId,
+}: {
+  failedSourceId: string;
+  activeSourceId: string | null;
+  selectedSourceId: string | null;
+}): { fallbackSourceId: string } | null =>
+  activeSourceId &&
+  activeSourceId !== failedSourceId &&
+  selectedSourceId === failedSourceId
+    ? { fallbackSourceId: activeSourceId }
+    : null;
+
+/**
+ * A hardware reader can disappear while the control socket is still alive.
+ * When the backend publishes the resulting Mock APT fallback, treat that
+ * active-source change as authoritative instead of replaying the old hardware
+ * selection from React's previous render.
+ */
+export const resolveSourceSelectionAfterBackendFallback = ({
+  previousActiveSourceId,
+  nextActiveSourceId,
+  selectedSourceId,
+  selectionIntentSourceId,
+}: {
+  previousActiveSourceId: string | null;
+  nextActiveSourceId: string;
+  selectedSourceId: string | null;
+  selectionIntentSourceId: string | null;
+}): { fallbackSourceId: string } | null =>
+  previousActiveSourceId &&
+  previousActiveSourceId !== "mock-apt" &&
+  nextActiveSourceId === "mock-apt" &&
+  (selectedSourceId === previousActiveSourceId ||
+    selectionIntentSourceId === previousActiveSourceId)
+    ? { fallbackSourceId: nextActiveSourceId }
+    : null;
+
 /** Announce the Tx mode boundary without enabling RF transmission. */
 const announceTxStandbyForSource = (
   sourceId: string | null | undefined,
@@ -1638,6 +1721,13 @@ const processMessage = (
     try {
       const previousActiveSourceId = getState().websocket.activeSourceId;
       const previousSources = getState().websocket.sources ?? [];
+      const sourceSelection = getState().sourceSelection ?? {};
+      const backendFallback = resolveSourceSelectionAfterBackendFallback({
+        previousActiveSourceId: previousActiveSourceId ?? null,
+        nextActiveSourceId: parsedData.active_source,
+        selectedSourceId: sourceSelection.selectedSourceId ?? null,
+        selectionIntentSourceId: sourceSelection.selectionIntentSourceId ?? null,
+      });
       if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
         // The backend commonly confirms a source handoff with source_info
@@ -1646,13 +1736,43 @@ const processMessage = (
         // while its slot is still in the switching phase.
         presentationController.commitActiveSource(parsedData.active_source);
       }
-      const sources =
+      let sources =
         parsedData.active_source !== previousActiveSourceId
           ? preserveTransmittingSourceStatuses(
               previousSources,
               parsedData.sources,
             )
           : parsedData.sources;
+      if (backendFallback) {
+        // A fallback snapshot can race the inventory refresh and briefly carry
+        // the just-removed hardware entry. Do not expose it as selectable or
+        // React will immediately retry the failed hardware request.
+        sources = sources.filter(
+          (source: SourceInfo) => source.id !== previousActiveSourceId,
+        );
+        requestedSourceId = null;
+        dispatch(setSelectedSourceId(backendFallback.fallbackSourceId));
+        dispatch(setSelectionIntentSourceId(null));
+        dispatch(setPendingSourceSwitchId(null));
+        dispatch(setOperationalError(""));
+      }
+      const requestedSourceWasRemoved = shouldRetireRemovedSourceRequest({
+        requestedSourceId,
+        sources,
+      });
+      if (requestedSourceWasRemoved) {
+        // Hot-unplug can arrive after the failed select response. Retire the
+        // speculative target before the next reconciliation pass, otherwise
+        // the UI keeps retrying a source that no longer exists.
+        requestedSourceId = null;
+        dispatch(
+          updateDeviceState({
+            sourceTransport: { sourceId: null, phase: "idle", error: null },
+            sourceFrameReadiness: null,
+          }),
+        );
+        dispatch(setOperationalError(""));
+      }
       const activeSource =
         sources.find(
           (source: SourceInfo) => source.id === parsedData.active_source,
@@ -1695,7 +1815,32 @@ const processMessage = (
           : {}),
         ...derived,
       };
+      if (activeSource?.status) {
+        // source_info is the authoritative handoff confirmation. A source
+        // may still have a locally frozen presentation slot from the last
+        // source switch; reconcile that slot with the backend's receiving /
+        // paused status before the next frame arrives.
+        presentationController.setSourceStatus(
+          activeSource.id,
+          activeSource.status,
+        );
+      }
       applyStatusUpdates(dispatch, getState, updates);
+      const inventoryChanged =
+        previousSources.length !== sources.length ||
+        previousSources.some(
+          (previous: SourceInfo) =>
+            !sources.some((current) => current.id === previous.id),
+        );
+      if (
+        parsedData.active_source !== previousActiveSourceId ||
+        inventoryChanged
+      ) {
+        // Reconcile only at actual source/inventory boundaries. Running this
+        // for every status heartbeat can reopen/fence the active stream and
+        // make pause/resume controls appear frozen.
+        syncManagedStreamSubscriptions(dispatch, getState);
+      }
     } catch (e) {
       console.error("Failed to parse source_info message:", e);
     }
@@ -1967,10 +2112,21 @@ const processMessage = (
       return;
     }
 
-    if (
+    const isPendingSourceSwitchFailure =
       parsedData.code === "source_switch_failed" &&
-      parsedData.source_id === requestedSourceId
-    ) {
+      parsedData.source_id === requestedSourceId;
+    const activeSourceId = getState().websocket.activeSourceId;
+    const sourceIsInInventory = (getState().websocket.sources ?? []).some(
+      (source: SourceInfo) => source.id === parsedData.source_id,
+    );
+    const isRetiredFallbackFailure =
+      parsedData.code === "source_switch_failed" &&
+      activeSourceId === "mock-apt" &&
+      !sourceIsInInventory;
+    if (isRetiredFallbackFailure && !isPendingSourceSwitchFailure) {
+      return;
+    }
+    if (isPendingSourceSwitchFailure) {
       // The backend kept the previous source active. Drop the speculative
       // target transport and immediately restore that active source instead
       // of leaving the presentation state waiting on a socket that can never
@@ -1983,10 +2139,30 @@ const processMessage = (
         parsedData.message,
         true,
       );
+      const selectionFallback = resolveSourceSelectionAfterFailedSwitch({
+        failedSourceId: parsedData.source_id,
+        activeSourceId: getState().websocket.activeSourceId ?? null,
+        selectedSourceId:
+          getState().sourceSelection?.selectedSourceId ??
+          parsedData.source_id,
+      });
+      if (selectionFallback) {
+        // A failed unplugged-device request must not remain as a durable UI
+        // intent. Otherwise the source reconciliation effect retries the
+        // missing device after every fallback status heartbeat.
+        dispatch(setSelectedSourceId(selectionFallback.fallbackSourceId));
+        dispatch(setSelectionIntentSourceId(null));
+        dispatch(setPendingSourceSwitchId(null));
+        dispatch(setOperationalError(""));
+      } else {
+        dispatch(setOperationalError(parsedData.message));
+      }
       requestedSourceId = null;
       syncManagedStreamSubscriptions(dispatch, getState);
     }
-    dispatch(setOperationalError(parsedData.message));
+    if (!isPendingSourceSwitchFailure) {
+      dispatch(setOperationalError(parsedData.message));
+    }
     return;
   }
 
@@ -2482,14 +2658,16 @@ const createWebSocketMiddleware =
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
           if (requestedSourceId) {
+            const requestedSource = (getState().websocket.sources ?? []).find(
+              (source: SourceInfo) => source.id === requestedSourceId,
+            );
             const isTx =
               requestedSourceId === "mock-tx" ||
-              (getState().websocket.sources ?? []).find(
-                (source: SourceInfo) => source.id === requestedSourceId,
-              )?.capability === "tx";
+              requestedSource?.capability === "tx";
             presentationController.selectSource(
               requestedSourceId,
               isTx ? "tx" : "rx",
+              requestedSource?.paused !== true,
             );
             dispatch(updateDeviceState({ sourceFrameReadiness: null }));
             publishSourceTransport(
@@ -2508,6 +2686,12 @@ const createWebSocketMiddleware =
         }
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
+          // A paused source publishes exactly one frame per request_next_frame.
+          // The backend arms the one-shot; this side must arm the matching
+          // acceptance gate so the (non-Tx-preview) response is not dropped.
+          if (type === "request_next_frame") {
+            pausedFrameRequestInFlight = true;
+          }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           const selectedSource = (getState().websocket.sources ?? []).find(
             (source: SourceInfo) => source.id === normalizedData?.source_id,
@@ -2551,8 +2735,7 @@ const createWebSocketMiddleware =
         if (sourceId) {
           const duplexMode = getPauseDuplexMode(action.payload);
           const activeMode = getPauseActiveMode(action.payload);
-          const mode =
-            duplexMode === "tx" || activeMode === "tx" ? "tx" : "rx";
+          const mode = duplexMode === "tx" || activeMode === "tx" ? "tx" : "rx";
           presentationController.setPaused(sourceId, mode, isPaused);
         }
 

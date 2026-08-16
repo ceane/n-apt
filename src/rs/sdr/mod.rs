@@ -209,6 +209,12 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
+    if crate::sdr::hotplug::simulated_hardware_present() {
+      log::info!("Using simulated RTL-SDR hardware profile");
+      return Ok(Box::new(
+        crate::sdr::mock_apt::MockAptDevice::new_simulated_rtl_sdr(),
+      ));
+    }
     // Prefer opening the device that is physically connected according to USB snapshots.
     let snapshots =
       match crate::sdr::hotplug::scan_supported_usb_device_snapshots() {

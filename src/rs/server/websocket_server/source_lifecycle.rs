@@ -107,9 +107,6 @@ pub(crate) async fn activate_source(
       && shared_state
         .mock_tx_transmitting
         .load(std::sync::atomic::Ordering::Relaxed));
-  if !previous_source_is_transmitting {
-    shared_state.set_source_pause_state(&current_source_id, true);
-  }
 
   let was_warm = warm_devices.contains_key(&source_id);
   let is_mock = source_id.starts_with("mock");
@@ -136,6 +133,9 @@ pub(crate) async fn activate_source(
 
   match next_device {
     Ok(new_device) => {
+      if !previous_source_is_transmitting {
+        shared_state.set_source_pause_state(&current_source_id, true);
+      }
       let mut swap_result = processor
         .swap_device_keep_warm_with_sample_rate(new_device, sample_rate);
       if swap_result.is_err() && was_warm {
@@ -225,11 +225,7 @@ pub(crate) async fn activate_source(
               processor.get_manufacturer(),
               processor.get_product(),
             );
-            if processor
-              .device_type()
-              .to_ascii_lowercase()
-              .contains("rtl")
-            {
+            if processor.device_type().to_ascii_lowercase().contains("rtl") {
               shared_state.cache_active_rtl_sdr(
                 processor.get_serial_number(),
                 processor.get_manufacturer(),
@@ -292,6 +288,20 @@ pub(crate) async fn activate_source(
       }
     }
     Err(error) => {
+      if should_suppress_missing_source_switch_error(
+        &current_source_id,
+        &source_id,
+        &error,
+      ) {
+        // A hot-unplug can leave one already-queued select_source command
+        // behind after the backend has fallen back to Mock APT. It is a
+        // retired request, not a new device failure; keep the fallback live
+        // and do not publish a source-switch error back to the UI.
+        shared_state.clear_pending_source_switch(&source_id);
+        shared_state.sync_active_source_pause_state(&current_source_id);
+        broadcast_device_status(shared_state, broadcast_tx);
+        return;
+      }
       log::error!(
         "Failed to open source {} for switching: {}",
         source_id,
@@ -376,6 +386,39 @@ pub(crate) fn should_restore_warm_source(
   active_source_id: &str,
 ) -> bool {
   processor_is_mock && !matches!(active_source_id, "mock-apt" | "mock-tx")
+}
+
+fn should_suppress_missing_source_switch_error(
+  current_source_id: &str,
+  requested_source_id: &str,
+  error: &anyhow::Error,
+) -> bool {
+  current_source_id == "mock-apt"
+    && !requested_source_id.starts_with("mock")
+    && error
+      .to_string()
+      .starts_with("No matching source found for source_id=")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn missing_hardware_request_is_suppressed_after_mock_fallback() {
+    let error = anyhow::anyhow!(
+      "No matching source found for source_id=rtl-sdr-00000001"
+    );
+
+    assert!(should_suppress_missing_source_switch_error(
+      "mock-apt",
+      "rtl-sdr-00000001",
+      &error,
+    ));
+    assert!(!should_suppress_missing_source_switch_error(
+      "mock-apt", "mock-tx", &error,
+    ));
+  }
 }
 
 /// Returns every inactive source that can be initialized ahead of selection.

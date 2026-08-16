@@ -183,6 +183,7 @@ const LIVE_STATUS_ROW_HEIGHT = 56;
 export const TX_SLIDER_ROW_HEIGHT = LIVE_STATUS_ROW_HEIGHT;
 const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
 const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
+const DC_LABEL_Y_OFFSET = 28;
 
 /**
  * Hook for rendering WebGPU overlay textures (grid and markers)
@@ -208,6 +209,7 @@ export function useOverlayRenderer() {
       _isIqRecordingActive?: boolean,
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
       overlayOpacity: number = 1,
+      showDcMarker = false,
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
@@ -424,6 +426,35 @@ export function useOverlayRenderer() {
           ctx.fillText(label, xPos, fftAreaMax.y + 25);
           // Don't mark as occupied to allow center label to "win" or other ticks to stay spaced
         }
+      }
+
+      // In mirror mode, make the baseband seam explicit without modifying the
+      // waveform. This lives in the cached grid overlay, so panning only moves
+      // the marker when the viewport itself is repainted.
+      if (showDcMarker && minFreq <= 0 && maxFreq >= 0) {
+        const dcX = freqToX2(0);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, overlayOpacity));
+        ctx.strokeStyle = canvasTheme.textColor;
+        ctx.lineWidth = Math.max(1 / dpr, 1);
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(Math.round(dcX), FFT_AREA_MIN.y);
+        ctx.lineTo(Math.round(dcX), fftAreaMax.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = canvasTheme.textColor;
+        ctx.font = "10px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        const dcLabel = "Direct Current (DC/0Hz)";
+        ctx.fillText(
+          dcLabel,
+          clampLabelX(dcX, dcLabel),
+          FFT_AREA_MIN.y + DC_LABEL_Y_OFFSET,
+        );
+        ctx.restore();
       }
 
       ctx.strokeStyle = canvasTheme.textColor;

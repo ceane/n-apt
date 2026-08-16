@@ -1575,6 +1575,14 @@ pub fn handle_message(
           None
         }
       });
+      let max_frame_rate = message.max_frame_rate.and_then(|rate| {
+        if rate > 0 {
+          Some(rate)
+        } else {
+          warn!("Ignoring invalid max_frame_rate from client: {}", rate);
+          None
+        }
+      });
       let sample_rate = message.sample_rate.and_then(|rate| {
         let rounded_rate = rate.round() as u32;
         if (1_000_000..=20_000_000).contains(&rounded_rate) {
@@ -1634,6 +1642,7 @@ pub fn handle_message(
       if fft_size.is_none()
         && message.fft_window.is_none()
         && frame_rate.is_none()
+        && max_frame_rate.is_none()
         && gain.is_none()
         && hackrf_lna_gain.is_none()
         && hackrf_vga_gain.is_none()
@@ -1652,6 +1661,7 @@ pub fn handle_message(
         fft_size,
         fft_window: message.fft_window,
         frame_rate,
+        max_frame_rate,
         sample_rate,
         gain,
         hackrf_lna_gain,
@@ -1694,6 +1704,9 @@ pub fn handle_message(
       }
       if let Some(fr) = frame_rate {
         sdr_settings.fft.default_frame_rate = fr;
+      }
+      if let Some(max) = max_frame_rate {
+        sdr_settings.fft.max_frame_rate = max;
       }
       if let Some(sr) = sample_rate {
         sdr_settings.sample_rate = sr;

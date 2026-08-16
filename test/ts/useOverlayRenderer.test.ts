@@ -160,6 +160,35 @@ describe("useOverlayRenderer Hook", () => {
     expect(labels).not.toContain("91MHz"); // Collides with center
   });
 
+  it("draws a labeled dotted DC marker when mirror mode is enabled", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawGridOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 0, max: 1_000_000 },
+      -120,
+      0,
+      "dB",
+      undefined,
+      undefined,
+      false,
+      56,
+      1,
+      true,
+    );
+
+    const labels = mockCtx.fillText.mock.calls.map((call: any[]) => call[0]);
+    expect(labels).toContain("Direct Current (DC/0Hz)");
+    expect(mockCtx.setLineDash).toHaveBeenCalledWith([4, 4]);
+    const dcLabelCall = mockCtx.fillText.mock.calls.find(
+      (call: any[]) => call[0] === "Direct Current (DC/0Hz)",
+    );
+    expect(dcLabelCall[1]).toBeGreaterThan(50);
+    expect(dcLabelCall[2]).toBe(48);
+  });
+
   it("draws the Tx slider without labels", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 

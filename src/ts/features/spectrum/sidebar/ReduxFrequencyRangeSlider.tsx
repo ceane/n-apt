@@ -8,6 +8,7 @@ import {
   clampFrequencyRangeToBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
+import { resolveMirroredTuning } from "@n-apt/math/basebandMirror";
 import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 
 // Styled Components
@@ -76,6 +77,9 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const lastKnownRanges = contextLastKnownRanges ?? reduxLastKnownRanges;
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
+  const allowNegativeFrequencies = useAppSelector(
+    (state) => state.settings.mirrorIqBasebandBelowZero,
+  );
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
@@ -264,6 +268,17 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         wideHardwareRangeActive &&
         safeZoom < channelClampZoomThreshold;
 
+      if (allowNegativeFrequencies && range.min < 0) {
+        const mirrored = resolveMirroredTuning(range, hardwareBounds, {
+          maxAcquisitionSpanHz: hardwareSpan,
+        });
+        const nextRange = normalizeFrequencyRangeToHz(mirrored.hardwareRange);
+        dispatch(spectrumActions.setFrequencyRange(nextRange));
+        spectrumTransport.sendFrequencyRange(nextRange);
+        dispatch(spectrumActions.setVizPan(mirrored.panOffsetHz));
+        return;
+      }
+
       if (isCurrentActive && safeZoom > 1 && frequencyRange) {
         const visualCenter = (range.min + range.max) / 2;
         const halfHardware = hardwareSpan / 2;
@@ -305,6 +320,13 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         return;
       }
 
+      // An explicit slider selection is a new tuning anchor. Clear any
+      // display-relative pan left over from a mirrored negative view so the
+      // selected positive channel frequency is shown where it was chosen.
+      if (safeZoom <= 1) {
+        dispatch(spectrumActions.setVizPan(0));
+      }
+
       const clampedRange = allowFreeWideRange
         ? normalizeFrequencyRangeToHz({
             min: Math.max(0, range.min),
@@ -317,6 +339,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
     [
       spectrumTransport,
       vizZoom,
+      allowNegativeFrequencies,
       isCurrentActive,
       frequencyRange,
       hardwareSpan,

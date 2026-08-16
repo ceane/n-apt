@@ -10,8 +10,8 @@ use log::{debug, error, info, warn};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::sdr::hotplug::{
-  handle_real_hardware_health, maybe_attach_hotplugged_device, HotplugMonitor,
-  HotplugState,
+  active_device_present, handle_real_hardware_health,
+  maybe_attach_hotplugged_device, HotplugMonitor, HotplugState,
 };
 use crate::sdr::processor::SdrProcessor;
 use crate::sdr::SdrDevice;
@@ -170,11 +170,18 @@ impl DeviceHealthWorker {
       }
 
       let streak = shared_state.record_health_failure();
+      // The cached inventory is refreshed by the health loop, but the reader
+      // can block long enough for a physical unplug to happen before that
+      // next poll. Probe the active device now so a confirmed removal takes
+      // the terminal disconnect path instead of publishing Stale and
+      // accumulating timeout streaks.
+      let supported_device_present =
+        active_device_present(processor.device_type(), shared_state);
       // A reader failure is not proof of USB removal. Non-timeout errors and
       // debounced timeout failures mark the stream stale, while transient
       // async sample timeouts keep the current presentation alive and let the
       // recovery counter reach the reader-restart path.
-      if should_mark_read_error_stale(&e, streak) {
+      if should_mark_read_error_stale(&e, streak) && supported_device_present {
         if let Some(read_state) = read_failure_state(&current_state) {
           if current_state != read_state {
             shared_state.set_device_state(read_state, None);
@@ -186,14 +193,20 @@ impl DeviceHealthWorker {
       let recovery_count =
         shared_state.recovery_attempts.load(Ordering::Relaxed);
 
-      error!(
-        "SDR read error (streak {}/{}, recovery {}/{}): {}",
-        streak,
-        crate::server::shared_state::DISCONNECT_FAILURE_THRESHOLD,
-        recovery_count,
-        crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-        e,
-      );
+      if supported_device_present || !is_async_sample_timeout_error(&e) {
+        error!(
+          "SDR read error (streak {}/{}, recovery {}/{}): {}",
+          streak,
+          crate::server::shared_state::DISCONNECT_FAILURE_THRESHOLD,
+          recovery_count,
+          crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+          e,
+        );
+      } else {
+        warn!(
+          "RTL-SDR reader stopped after USB removal; falling back to Mock APT"
+        );
+      }
 
       // Publish the liveness snapshot on every read failure. The source
       // payload computes `receiving` from a recent successful frame, so this
@@ -212,12 +225,6 @@ impl DeviceHealthWorker {
       }
 
       if streak < crate::server::shared_state::DISCONNECT_FAILURE_THRESHOLD {
-        let supported_device_present =
-          shared_state.usb_inventory_known.load(Ordering::Acquire)
-            && shared_state
-              .supported_usb_device_count
-              .load(Ordering::Relaxed)
-              > 0;
         if should_fallback_to_mock_on_early_read_error(
           streak,
           supported_device_present,
@@ -265,12 +272,6 @@ impl DeviceHealthWorker {
         tokio::time::sleep(Duration::from_millis(100)).await;
       } else {
         // Threshold reached: restart stalled readers before falling back.
-        let supported_device_present =
-          shared_state.usb_inventory_known.load(Ordering::Acquire)
-            && shared_state
-              .supported_usb_device_count
-              .load(Ordering::Relaxed)
-              > 0;
         warn!(
             "Read-error threshold reached (streak={}). Supported USB device present={}.",
             streak, supported_device_present,
@@ -281,10 +282,8 @@ impl DeviceHealthWorker {
           streak,
           supported_device_present,
         );
-        if matches!(
-          reader_recovery_action,
-          ReaderRecoveryAction::RestartReader
-        ) {
+        if matches!(reader_recovery_action, ReaderRecoveryAction::RestartReader)
+        {
           // A sample timeout means the current reader stalled; it does
           // not mean the USB device should be reopened. Keep the
           // existing handle, restart its reader, and reserve the device

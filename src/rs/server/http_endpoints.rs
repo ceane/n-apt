@@ -23,6 +23,42 @@ use super::websocket_server::{
 use crate::s::fft::anti_aliasing;
 
 #[derive(Debug, Deserialize)]
+pub struct HardwareSimulationRequest {
+  pub present: bool,
+}
+
+/// Test-only hardware transition hook. It is available only when the backend
+/// was explicitly started with N_APT_TEST_HARDWARE_SIMULATION=rtl-sdr.
+pub async fn hardware_simulation_handler(
+  State(state): State<Arc<super::AppState>>,
+  Json(request): Json<HardwareSimulationRequest>,
+) -> impl IntoResponse {
+  if !crate::sdr::hotplug::hardware_simulation_enabled() {
+    return StatusCode::NOT_FOUND.into_response();
+  }
+
+  if state
+    .cmd_tx
+    .send(super::types::SdrCommand::SetSimulatedHardwarePresence(
+      request.present,
+    ))
+    .is_err()
+  {
+    return (
+      StatusCode::SERVICE_UNAVAILABLE,
+      "SDR worker is unavailable",
+    )
+      .into_response();
+  }
+
+  Json(serde_json::json!({
+    "present": request.present,
+    "source": "rtl-sdr-00000001",
+  }))
+  .into_response()
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CliSnapshotFramesQuery {
   frames: Option<usize>,
   fft_size: Option<usize>,

@@ -14,7 +14,12 @@ export const useGeolocation = (): UseGeolocationReturn => {
   const [location, setLocation] = useState<GeolocationData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSupported] = useState(() => "geolocation" in navigator);
+  const [isSupported] = useState(
+    () =>
+      typeof navigator !== "undefined" &&
+      "geolocation" in navigator &&
+      typeof navigator.geolocation?.getCurrentPosition === "function",
+  );
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
@@ -28,13 +33,19 @@ export const useGeolocation = (): UseGeolocationReturn => {
     try {
       // Check if permission API is available
       if ("permissions" in navigator) {
-        const permission = await navigator.permissions.query({
-          name: "geolocation",
-        });
-        if (permission.state === "denied") {
-          setError("Geolocation permission denied");
-          setIsLoading(false);
-          return false;
+        try {
+          const permission = await navigator.permissions.query({
+            name: "geolocation",
+          });
+          if (permission.state === "denied") {
+            setError("Geolocation permission denied");
+            setIsLoading(false);
+            return false;
+          }
+        } catch {
+          // Safari and embedded browsers may expose Permissions without
+          // supporting a geolocation query. The actual request below is the
+          // authoritative permission check.
         }
       }
 
@@ -85,9 +96,9 @@ export const useGeolocation = (): UseGeolocationReturn => {
       const position = await new Promise<GeolocationPosition>(
         (resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0, // Force fresh location
+            enableHighAccuracy: false,
+            timeout: 8000,
+            maximumAge: 60000,
           });
         },
       );

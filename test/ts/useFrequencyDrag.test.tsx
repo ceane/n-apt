@@ -1227,6 +1227,200 @@ describe("useFrequencyDrag Hook", () => {
     });
   });
 
+  it("retunes the hardware window for a paused zoomed VFO wheel scroll", () => {
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 0 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 101,
+      max: 111,
+    });
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+  });
+
+  it("publishes a mirror-on retune for a paused covered pan so the one-shot fetches new data", () => {
+    // The mirror is on and the viewport is fully inside the acquisition. A
+    // live pan would be presentation-only; while paused it must still move the
+    // acquisition so request_next_frame repaints at the scrolled position.
+    // Pan -4 at zoom 2 puts the display at [-1.5, 3.5], below DC — the visual
+    // pan (mirror) path that never published a retune.
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizZoomRef.current = 2;
+    defaultOptions.vizPanOffsetRef.current = -4;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 1000 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    // The acquisition window must shift (a retune was published) so the
+    // one-shot requests data at the new centre instead of the old one.
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    // The window kept the visual span but moved from the old [0, 10] to a
+    // DC-anchored [0, 5] — a real retune the one-shot can fetch.
+    expect(lastRange.max - lastRange.min).toBeCloseTo(5, 5);
+    expect(lastRange.max).toBeCloseTo(5, 5);
+  });
+
+  it("publishes a mirror-off retune for a paused covered zoomed pan", () => {
+    // Mirror off, zoomed in, paused. The visual-pan branch must still publish
+    // a frequency range change so the one-shot fetch follows the pan.
+    frequencyRangeRef.current = { min: 100, max: 110 };
+    defaultOptions.vizZoomRef.current = 2;
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    expect(lastRange.max - lastRange.min).toBeCloseTo(10, 5);
+    expect(lastRange.min).toBeGreaterThan(100);
+  });
+
+  it("re-anchors mirror-on pan so the paused viewport stays put across the retune", () => {
+    // Acquisition [0, 10], pan -4 at zoom 2 ⇒ display [-1.5, 3.5]. A pause +
+    // scroll must move the acquisition and re-anchor pan so the visible window
+    // does not jump while the one-shot frame is in flight.
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizZoomRef.current = 2;
+    defaultOptions.vizPanOffsetRef.current = -4;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 1000 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+      }),
+    );
+
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
+
+    // The pan must be re-anchored after the acquisition moves so the display
+    // centre stays on the requested position (not a stale offset).
+    expect(mockOnVizPanChange).toHaveBeenCalled();
+    const lastRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ][0];
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0];
+    // Scroll delta 100 on 1000px canvas, visual span 5 ⇒ +0.5 Hz of pan.
+    const requestedCenter = 5 + -4 + 0.5;
+    const hardwareCenter = (lastRange.min + lastRange.max) / 2;
+    // displayCenter = hardwareCenter + pan must equal requestedCenter.
+    expect(hardwareCenter + lastPan).toBeCloseTo(requestedCenter, 5);
+  });
+
+  it("keeps scrolling below a DC-anchored acquisition while paused with the mirror on", () => {
+    // Regression: with the mirror on and the stream paused, once the retune
+    // DC-anchored the acquisition at [0, 3.2M] (min 0), a further negative pan
+    // resolved to the *same* window. publishPausedPanRetune treated that as a
+    // published retune, so the visual pan never advanced — the viewport froze
+    // at the acquisition's lower edge (~3.5048MHz). A no-op retune must fall
+    // through to the visual-pan path so the mirror presentation keeps moving.
+    frequencyRangeRef.current = { min: 0, max: 3_200_000 };
+    defaultOptions.vizZoomRef.current = 1;
+    defaultOptions.vizPanOffsetRef.current = -3_000_000;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 20_000_000 } },
+        hardwareSpectrumBounds: { min: 0, max: 20_000_000 },
+      }),
+    );
+
+    // Pan -3M at zoom 1 puts the display at [-1.6M, 1.6M] — a DC-crossing
+    // window already covered by the |f| reflection of [0, 3.2M].
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: -400 });
+
+    // The acquisition must not be re-published as an identical no-op, and the
+    // display must keep panning into the negative axis.
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastPan).toBeLessThan(-3_000_000);
+    const publishedRanges = mockOnFrequencyRangeChange.mock.calls.map(
+      (c: any) => c[0],
+    );
+    const lastPublished = publishedRanges[publishedRanges.length - 1];
+    if (lastPublished) {
+      // Any published window must be a real move, never the identical fixed
+      // point the stall produced.
+      expect(
+        Math.abs(lastPublished.min - 0) > 1 ||
+          Math.abs(lastPublished.max - 3_200_000) > 1,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps dragging below a DC-anchored acquisition while paused with the mirror on", () => {
+    // Same stall via the VFO pointer-drag path: the acquisition is already
+    // DC-anchored at [0, 3.2M], the user keeps dragging toward negative
+    // frequencies, and the no-op retune must not swallow the drag.
+    frequencyRangeRef.current = { min: 0, max: 3_200_000 };
+    defaultOptions.vizZoomRef.current = 1;
+    defaultOptions.vizPanOffsetRef.current = -2_000_000;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        isPaused: true,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 20_000_000 } },
+        hardwareSpectrumBounds: { min: 0, max: 20_000_000 },
+      }),
+    );
+
+    // Drag right from center by 500px on a 1000px canvas ⇒ 1.6M Hz toward
+    // negative frequencies.
+    triggerPointerDown(500, 550);
+    triggerPointerMove(1000, 550);
+
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastPan).toBeLessThan(-3_000_000);
+  });
+
   it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {
     renderHook(() =>
       useFrequencyDrag({

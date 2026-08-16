@@ -9,3 +9,8 @@ export { IQCaptureControlsSection } from "@n-apt/capture/sidebar/IQCaptureContro
 export { default as FileMetadata } from "@n-apt/capture/sidebar/FileMetadata";
 export { default as FileSelectionSidebar } from "@n-apt/capture/sidebar/FileSelectionSidebar";
 export { SnapshotControlsSection } from "@n-apt/capture/sidebar/SnapshotControlsSection";
+export {
+  formatSnapshotLocation,
+  formatSnapshotLocationLine,
+  reverseGeocodeSnapshotLocation,
+} from "@n-apt/capture/snapshotLocation";

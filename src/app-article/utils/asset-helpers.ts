@@ -1,6 +1,6 @@
 /**
  * Asset URL helper utility.
- * Handles switching between /md-preview/ in dev and / in production (docs/).
+ * Handles switching between /article/ in dev and / in production (docs/).
  */
 
 let memoizedBase: string | null = null;
@@ -46,9 +46,9 @@ export const assetUrl = (path: string): string => {
 
   const baseUrl = getBaseUrl();
   
-  // Clean the path: remove any existing /md-preview/ or the current baseUrl prefix
+  // Clean the path: remove any existing /article/ or the current baseUrl prefix
   // to avoid double-prefixing when switching between dev/prod or re-processing paths.
-  let cleaned = path.replace(/^\/md-preview\//, "/");
+  let cleaned = path.replace(/^\/(?:md-preview|article)\//, "/");
   if (baseUrl !== "/" && cleaned.startsWith(baseUrl)) {
     // If baseUrl is /n-apt/ and path is /n-apt/img.png, we want /img.png first
     cleaned = cleaned.slice(baseUrl.length - 1);

@@ -9,6 +9,11 @@ import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 import { importAesKey, base64ToBytes, computeHmac } from "@n-apt/crypto/webcrypto";
 import { setFrequencyRange } from "@n-apt/redux";
 import {
+  setSelectedSourceId,
+  setSelectionIntentSourceId,
+} from "@n-apt/redux/slices/sourceSelectionSlice";
+import { resolveInitialSourceSelection } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import {
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
@@ -36,6 +41,7 @@ export type LiveReduxStreamHarnessOptions = {
   startBackend?: boolean;
   backendBinary?: string;
   pollIntervalMs?: number;
+  hardwareSimulation?: "rtl-sdr";
 };
 
 export type LiveFrameSnapshot = {
@@ -79,6 +85,7 @@ export type LiveReduxStreamSnapshot = {
     | "sourceStatuses"
     | "error"
   >;
+  selectedSourceId: string | null;
   managed: DebugSnapshot;
   liveFrame: LiveFrameSnapshot;
   rxPresentation: LiveFrameSnapshot;
@@ -91,6 +98,7 @@ export type LiveReduxStreamHarness = {
   setPaused(paused: boolean, sourceId?: string): Promise<void>;
   requestNextStandbyFrame(): Promise<void>;
   setTransmit(enabled: boolean, sourceId?: string): Promise<void>;
+  simulateHardwarePresence(present: boolean): Promise<void>;
   setFftSize(fftSize: number, timeoutMs?: number): Promise<void>;
   retuneCenterFrequency(centerHz: number): Promise<number>;
   waitFor<T>(read: () => T, predicate: (value: T) => boolean, timeoutMs?: number): Promise<T>;
@@ -315,6 +323,7 @@ export const createLiveReduxStreamHarness = async (
     options.backendBinary ?? resolve(process.cwd(), "target/debug/n-apt-backend");
   let backendProcess: ChildProcess | null = null;
   let redisProcess: ChildProcess | null = null;
+  let sessionToken: string | null = null;
 
   const spawnBackend = async (backendUrl: string) => {
     const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
@@ -340,6 +349,9 @@ export const createLiveReduxStreamHarness = async (
         WEBSOCKETS_URL: backendUrl,
         REDIS_URL: effectiveRedisUrl,
         UNSAFE_LOCAL_USER_PASSWORD: password,
+        ...(options.hardwareSimulation
+          ? { N_APT_TEST_HARDWARE_SIMULATION: options.hardwareSimulation }
+          : {}),
       },
       stdio: "ignore",
     });
@@ -393,15 +405,38 @@ export const createLiveReduxStreamHarness = async (
   const dispatch = store.dispatch as AppDispatch;
   let connected = false;
 
+  const autoSelectCurrentSource = async () => {
+    const state = store.getState();
+    const initialSelection = resolveInitialSourceSelection({
+      activeSourceId: state.websocket.activeSourceId ?? "",
+      storedSourceId: null,
+      sources: state.websocket.sources,
+    });
+    if (!initialSelection.selectedSourceId) return;
+    dispatch(setSelectedSourceId(initialSelection.selectedSourceId));
+    dispatch(
+      setSelectionIntentSourceId(initialSelection.selectionIntentSourceId),
+    );
+    if (initialSelection.selectedSourceId !== state.websocket.activeSourceId) {
+      await dispatch(sendSelectSource(initialSelection.selectedSourceId));
+    }
+  };
+
   const harness: LiveReduxStreamHarness = {
     async connect() {
       const { token, aesKey } = await authenticate(backendUrl, password);
+      sessionToken = token;
       const wsUrl = `${backendUrl.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`;
       await dispatch(connectWebSocket({ url: wsUrl, aesKey }));
       await harness.waitFor(
         () => store.getState().websocket,
-        (state) => state.isConnected && state.sources.length > 0,
+        (state) =>
+          state.isConnected &&
+          state.sources.length > 0 &&
+          (!options.hardwareSimulation ||
+            state.sources.some((source) => source.id === "rtl-sdr-00000001")),
       );
+      await autoSelectCurrentSource();
       connected = true;
     },
 
@@ -482,6 +517,29 @@ export const createLiveReduxStreamHarness = async (
             : state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving",
       );
+    },
+
+    async simulateHardwarePresence(present) {
+      if (!options.hardwareSimulation) {
+        throw new Error("hardware simulation is not enabled for this harness");
+      }
+      const response = await requestJson(
+        `${backendUrl}/api/debug/hardware-simulation?token=${encodeURIComponent(sessionToken ?? "")}`,
+        "POST",
+        { present },
+      );
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(
+          `hardware simulation request failed: ${response.status}`,
+        );
+      }
+      await harness.waitFor(
+        () => store.getState().websocket,
+        (state) =>
+          state.activeSourceId === (present ? "rtl-sdr-00000001" : "mock-apt"),
+        30_000,
+      );
+      await autoSelectCurrentSource();
     },
 
     async setFftSize(fftSize, timeoutMs = 15_000) {
@@ -668,6 +726,7 @@ export const createLiveReduxStreamHarness = async (
           sourceStatuses: state.sourceStatuses,
           error: state.error,
         },
+        selectedSourceId: store.getState().sourceSelection.selectedSourceId || null,
         managed,
         liveFrame: liveFrameSnapshot,
         rxPresentation: slotFrameSnapshot(

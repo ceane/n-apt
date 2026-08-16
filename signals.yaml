@@ -82,6 +82,9 @@ signals:
       - base: base_fft_sizes
         fft_min: !pow2 11
         fft_max: !pow2 18
+    fft:
+      # Maximum logical spectrum update rate exposed to the frontend.
+      max_frame_rate: 60
 
     # Center frequency for SDR
     center_frequency: !frequency 1.6MHz  # center of the sample rate

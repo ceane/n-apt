@@ -13,12 +13,46 @@ import {
   resolveStreamingSourceForDisplay,
   resolveSelectedSourceIdForInventory,
   resolveInventorySelectionIntent,
+  resolveInitialSourceSelection,
   shouldClearPendingSourceSwitch,
   resolveNextVisualizerPauseState,
   resolvePauseTargetSourceId,
+  shouldReplayManualPauseOnSourceActivation,
+  shouldCarryManualPauseToSelectedSource,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
-describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
+describe("source selection and switch lifecycle", () => {
+  it("creates an explicit intent when the first source is auto-selected on load", () => {
+    expect(
+      resolveInitialSourceSelection({
+        activeSourceId: "",
+        storedSourceId: null,
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+        ] as any,
+      }),
+    ).toEqual({
+      selectedSourceId: "mock-apt",
+      selectionIntentSourceId: "mock-apt",
+    });
+  });
+
+  it("does not hydrate a persisted source that is absent from the current inventory", () => {
+    expect(
+      resolveInitialSourceSelection({
+        activeSourceId: "mock-apt",
+        storedSourceId: "rtl-sdr-00000001",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx" },
+        ] as any,
+      }),
+    ).toEqual({
+      selectedSourceId: "mock-apt",
+      selectionIntentSourceId: null,
+    });
+  });
+
   it("does not invert a stale pause flag when the Rx handoff explicitly resumes", () => {
     expect(
       resolveNextVisualizerPauseState({
@@ -102,6 +136,108 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe("hackrf-one");
   });
 
+  it("turns a persisted source into a reload switch intent before rendering its placeholder", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "rtl-sdr",
+        activeSourceId: "mock-apt",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          {
+            id: "rtl-sdr",
+            kind: "rtl_sdr",
+            capability: "rx",
+            status: "loading",
+          },
+        ] as any,
+      }),
+    ).toBe("rtl-sdr");
+  });
+
+  it("drops a disconnected hardware intent when Mock APT is the active fallback", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+        sources: [
+          {
+            id: "rtl-sdr-00000001",
+            kind: "rtl_sdr",
+            capability: "rx",
+            status: "disconnected",
+          },
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "receiving",
+          },
+        ] as any,
+      }),
+    ).toBeNull();
+  });
+
+  it("drops a removed hardware intent when Mock APT is the active fallback", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+        sources: [
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "receiving",
+          },
+        ] as any,
+      }),
+    ).toBeNull();
+  });
+
+  it("resolves a disconnected selected source to the active fallback", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+        sources: [
+          {
+            id: "rtl-sdr-00000001",
+            kind: "rtl_sdr",
+            capability: "rx",
+            status: "disconnected",
+          },
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "receiving",
+          },
+        ] as any,
+      }),
+    ).toBe("mock-apt");
+  });
+
+  it("selects newly discovered hardware during a loading transition", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          {
+            id: "rtl-sdr",
+            kind: "rtl_sdr",
+            capability: "rx",
+            status: "loading",
+          },
+        ] as any,
+      }),
+    ).toBe("rtl-sdr");
+  });
+
   it("preserves a pending Mock Tx selection while source inventory is transiently empty", () => {
     expect(
       resolveSelectedSourceIdForInventory({
@@ -151,6 +287,19 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         sources: [
           { id: "mock-apt", kind: "mock_apt", capability: "mock" },
           { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("preserves a cold-start Mock Tx intent before selectedSourceId commits", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
         ] as any,
       }),
     ).toBe("mock-tx");
@@ -424,6 +573,28 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
     ).toBe("mock-tx");
   });
 
+  it("replays a cold-start manual pause when the selected source becomes active", () => {
+    expect(
+      shouldReplayManualPauseOnSourceActivation({
+        activeSourceId: "mock-apt",
+        selectedSourceId: "mock-apt",
+        manuallyPaused: true,
+        backendPaused: false,
+        pauseReplaySentForSourceId: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("carries a pause click to the selected source while activation is in flight", () => {
+    expect(
+      shouldCarryManualPauseToSelectedSource({
+        requestedPaused: true,
+        selectedSourceId: "rtl-sdr",
+        pauseTargetSourceId: "mock-apt",
+      }),
+    ).toBe(true);
+  });
+
   it("resumes a backend-paused rx source when it is selected without a manual pause", () => {
     expect(
       shouldResumePausedRxSourceOnSelection(
@@ -525,6 +696,20 @@ describe("shouldAutoResumeVisualizerOnSourceSwitch", () => {
         activeSourceId: "hackrf_one-connected",
         selectionIntentSourceId: "rtl-sdr-removed",
         availableSourceIds: ["hackrf_one-connected", "mock-apt"],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not dispatch a source switch for a disconnected selected device", () => {
+    expect(
+      shouldSendSelectSource({
+        isConnected: true,
+        sourceMode: "live",
+        selectedSourceId: "rtl-sdr-00000001",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "rtl-sdr-00000001",
+        selectedSourceStatus: "disconnected",
+        availableSourceIds: ["rtl-sdr-00000001", "mock-apt"],
       }),
     ).toBe(false);
   });

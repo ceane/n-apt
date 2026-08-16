@@ -136,10 +136,7 @@ const buildCanvasKey = (
   resetEpoch: number,
 ): string => `${sourceId ?? "no-source"}:${mode}:${resetEpoch}`;
 
-const freezeFrame = (
-  frame: IqRawFrame,
-  slot: SourceModeSlot,
-): FrozenFrame => ({
+const freezeFrame = (frame: IqRawFrame, slot: SourceModeSlot): FrozenFrame => ({
   frame,
   frozenAt: Date.now(),
   streamEpoch: slot.streamEpoch,
@@ -159,10 +156,7 @@ const STREAMING_PHASES = new Set<SourcePresentationPhase>([
 ]);
 
 /** Phases where the canvas is frozen: paused keeps last Rx, standby keeps last Tx preview. */
-const FROZEN_PHASES = new Set<SourcePresentationPhase>([
-  "paused",
-  "standby",
-]);
+const FROZEN_PHASES = new Set<SourcePresentationPhase>(["paused", "standby"]);
 
 // ---------------------------------------------------------------------------
 // Controller
@@ -178,12 +172,22 @@ export interface SourcePresentationController {
   /**
    * Called by the middleware when a frame arrives. Returns true if accepted
    * for presentation (streaming or frozen as a paused/standby preview).
+   * `oneShot` marks a paused request_next_frame response: the paused Rx slot
+   * accepts it and replaces the frozen frame instead of rejecting it.
    */
-  acceptFrame(frame: IqRawFrame, modeOverride?: StreamMode): boolean;
+  acceptFrame(
+    frame: IqRawFrame,
+    modeOverride?: StreamMode,
+    oneShot?: boolean,
+  ): boolean;
 
   // --- Source lifecycle ---
   /** User selected a source in the sidebar. */
-  selectSource(sourceId: string, mode?: StreamMode): void;
+  selectSource(
+    sourceId: string,
+    mode?: StreamMode,
+    resumePaused?: boolean,
+  ): void;
   /** Backend committed the active source. */
   commitActiveSource(sourceId: string): void;
   /** The transport for a source entered a new phase. */
@@ -254,7 +258,11 @@ export const createSourcePresentationController = (
     const effectiveSourceId = active.sourceId;
     if (!effectiveSourceId) return null;
     const effectiveMode = mode ?? active.mode;
-    return slots.get(slotKeyString({ sourceId: effectiveSourceId, mode: effectiveMode })) ?? null;
+    return (
+      slots.get(
+        slotKeyString({ sourceId: effectiveSourceId, mode: effectiveMode }),
+      ) ?? null
+    );
   };
 
   const notify = (): void => {
@@ -383,6 +391,7 @@ export const createSourcePresentationController = (
   const acceptFrame: SourcePresentationController["acceptFrame"] = (
     frame,
     modeOverride,
+    oneShot = false,
   ) => {
     const sourceId = extractFrameSourceId(frame);
     if (!sourceId) return false;
@@ -401,11 +410,13 @@ export const createSourcePresentationController = (
     // request_next_frame preview; those may land during switching too so
     // cold Mock Tx handoff does not drop the first preview. A transmitting
     // frame must leave standby so Start Tx is not stuck on the dotted preview.
+    // A paused one-shot (request_next_frame while paused) is the deliberate
+    // exception: it replaces the frozen frame with data from the new center.
     if (slot.phase === "disconnected" || slot.phase === "failed") {
       slot.metrics.rejected += 1;
       return false;
     }
-    if (slot.phase === "paused") {
+    if (slot.phase === "paused" && !oneShot) {
       slot.metrics.rejected += 1;
       return false;
     }
@@ -511,6 +522,7 @@ export const createSourcePresentationController = (
   const selectSource: SourcePresentationController["selectSource"] = (
     sourceId,
     mode,
+    resumePaused = false,
   ) => {
     const effectiveMode = mode ?? active.mode;
 
@@ -546,32 +558,32 @@ export const createSourcePresentationController = (
       targetSlot.frozenFrame = restoreFrozenFrame(targetSlot);
     }
 
-    if (targetSlot.phase === "idle") {
+    if (targetSlot.phase === "paused" && resumePaused) {
+      targetSlot.frozenFrame = null;
+      transitionPhase(targetSlot, "switching");
+    } else if (targetSlot.phase === "idle") {
       transitionPhase(targetSlot, "switching");
     }
 
     notify();
   };
 
-  const commitActiveSource: SourcePresentationController["commitActiveSource"] = (
-    sourceId,
-  ) => {
-    if (active.pendingSourceId === sourceId) {
-      active = { ...active, sourceId, pendingSourceId: null };
-    } else if (active.sourceId !== sourceId) {
-      active = { ...active, sourceId, pendingSourceId: null };
-    }
+  const commitActiveSource: SourcePresentationController["commitActiveSource"] =
+    (sourceId) => {
+      if (active.pendingSourceId === sourceId) {
+        active = { ...active, sourceId, pendingSourceId: null };
+      } else if (active.sourceId !== sourceId) {
+        active = { ...active, sourceId, pendingSourceId: null };
+      }
 
-    // Transition the committed source's slot out of switching
-    const slot = slots.get(
-      slotKeyString({ sourceId, mode: active.mode }),
-    );
-    if (slot?.phase === "switching") {
-      transitionPhase(slot, "warming");
-    }
+      // Transition the committed source's slot out of switching
+      const slot = slots.get(slotKeyString({ sourceId, mode: active.mode }));
+      if (slot?.phase === "switching") {
+        transitionPhase(slot, "warming");
+      }
 
-    notify();
-  };
+      notify();
+    };
 
   const setTransportPhase: SourcePresentationController["setTransportPhase"] = (
     sourceId,
@@ -612,6 +624,15 @@ export const createSourcePresentationController = (
     for (const slot of slots.values()) {
       if (slot.key.sourceId !== sourceId) continue;
       const newPhase = resolvePhaseFromStatus(status, slot.phase);
+      // A status-derived streaming phase must not unfreeze a slot the user
+      // explicitly paused. On cold start the backend can race an in-flight
+      // pause command (source activation clears the pause, then re-broadcasts
+      // receiving/streaming), which would otherwise revert the frozen frame
+      // while the UI still reports paused. Only an explicit setPaused(false)
+      // or a selectSource/resume transition may leave the paused phase.
+      if (slot.phase === "paused" && newPhase === "streaming") {
+        continue;
+      }
       transitionPhase(slot, newPhase);
     }
   };
@@ -631,25 +652,24 @@ export const createSourcePresentationController = (
     }
   };
 
-  const getPresentationRef: SourcePresentationController["getPresentationRef"] = (
-    mode,
-  ) => {
-    const slot = getActiveSlot(mode);
-    if (!slot) return { current: null };
+  const getPresentationRef: SourcePresentationController["getPresentationRef"] =
+    (mode) => {
+      const slot = getActiveSlot(mode);
+      if (!slot) return { current: null };
 
-    // Prefer a frozen preview whenever live is empty. Switching/warming must
-    // still show the last Mock Tx standby graph instead of a black canvas.
-    if (slot.frozenFrame && !slot.liveFrameRef.current) {
-      return { current: slot.frozenFrame.frame };
-    }
+      // Prefer a frozen preview whenever live is empty. Switching/warming must
+      // still show the last Mock Tx standby graph instead of a black canvas.
+      if (slot.frozenFrame && !slot.liveFrameRef.current) {
+        return { current: slot.frozenFrame.frame };
+      }
 
-    // In frozen phases, return the frozen frame even if a stale live ref lingers.
-    if (FROZEN_PHASES.has(slot.phase) && slot.frozenFrame) {
-      return { current: slot.frozenFrame.frame };
-    }
+      // In frozen phases, return the frozen frame even if a stale live ref lingers.
+      if (FROZEN_PHASES.has(slot.phase) && slot.frozenFrame) {
+        return { current: slot.frozenFrame.frame };
+      }
 
-    return slot.liveFrameRef;
-  };
+      return slot.liveFrameRef;
+    };
 
   const getFrozenFrame: SourcePresentationController["getFrozenFrame"] = (
     sourceId,
@@ -659,10 +679,7 @@ export const createSourcePresentationController = (
     return slots.get(k)?.frozenFrame ?? null;
   };
 
-  const getSlot: SourcePresentationController["getSlot"] = (
-    sourceId,
-    mode,
-  ) => {
+  const getSlot: SourcePresentationController["getSlot"] = (sourceId, mode) => {
     const k = slotKeyString({ sourceId, mode });
     return slots.get(k) ?? null;
   };
@@ -670,17 +687,13 @@ export const createSourcePresentationController = (
   const getActivePresentation: SourcePresentationController["getActivePresentation"] =
     () => ({ ...active });
 
-  const getCanvasKey: SourcePresentationController["getCanvasKey"] = (
-    mode,
-  ) => {
+  const getCanvasKey: SourcePresentationController["getCanvasKey"] = (mode) => {
     const slot = getActiveSlot(mode);
     if (!slot) return buildCanvasKey(null, mode ?? active.mode, 0);
     return buildCanvasKey(slot.key.sourceId, slot.key.mode, slot.resetEpoch);
   };
 
-  const getSnapshot: SourcePresentationController["getSnapshot"] = (
-    mode,
-  ) => {
+  const getSnapshot: SourcePresentationController["getSnapshot"] = (mode) => {
     const slot = getActiveSlot(mode);
     return {
       active: { ...active },
@@ -692,9 +705,7 @@ export const createSourcePresentationController = (
   const getAllSlots: SourcePresentationController["getAllSlots"] = () =>
     slots as ReadonlyMap<string, Readonly<SourceModeSlot>>;
 
-  const subscribe: SourcePresentationController["subscribe"] = (
-    listener,
-  ) => {
+  const subscribe: SourcePresentationController["subscribe"] = (listener) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };

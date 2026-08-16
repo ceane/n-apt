@@ -214,8 +214,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   windowStartRef.current = windowStart;
 
   const isDraggingRef = useRef(false);
-  const didDragRef = useRef(false);
-  const pendingPublishRafRef = useRef<number | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
   const windowLabelRef = useRef<HTMLSpanElement>(null);
@@ -411,22 +409,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     [applyWindowStart, publishRange],
   );
 
-  const flushPublish = useCallback(() => {
-    if (pendingPublishRafRef.current != null) {
-      cancelAnimationFrame(pendingPublishRafRef.current);
-      pendingPublishRafRef.current = null;
-    }
-    publishRange(windowStartRef.current);
-  }, [publishRange]);
-
-  const schedulePublish = useCallback(() => {
-    if (pendingPublishRafRef.current != null) return;
-    pendingPublishRafRef.current = requestAnimationFrame(() => {
-      pendingPublishRafRef.current = null;
-      publishRange(windowStartRef.current);
-    });
-  }, [publishRange]);
-
   const formatFreq = useCallback(
     (freq: number) =>
       formatFrequency(freq, {
@@ -505,10 +487,6 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     host.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
       host.removeEventListener("wheel", handleWheel);
-      if (pendingPublishRafRef.current != null) {
-        cancelAnimationFrame(pendingPublishRafRef.current);
-        pendingPublishRafRef.current = null;
-      }
     };
   }, [
     applyWindowStart,
@@ -593,17 +571,16 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         }
       }
 
-      didDragRef.current = true;
-      applyWindowStart(newStart);
+      const appliedStart = applyWindowStart(newStart);
+      // Keep the parent/VFO synchronized with the pointer. The slider is an
+      // active tuning control, so waiting for mouseup makes it feel throttled
+      // even though the thumb itself is already moving locally.
+      publishRange(appliedStart);
     };
 
     const handleMouseUp = () => {
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
-      if (didDragRef.current) {
-        didDragRef.current = false;
-        flushPublish();
-      }
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -613,20 +590,22 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [applyWindowStart, flushPublish, windowWidth]);
+  }, [applyWindowStart, publishRange, windowWidth]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = (
+    e: React.MouseEvent,
+    initialWindowStart = windowStart,
+  ) => {
     if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
     if (!isActive) onActivate?.();
-    didDragRef.current = false;
     isLeftLockedRef.current = false;
     isRightLockedRef.current = false;
     setIsLeftLocked(false);
     setIsRightLocked(false);
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
-    dragStartWindowRef.current = windowStart;
+    dragStartWindowRef.current = initialWindowStart;
     // Capture dimensions at drag start for stable calculations
     dragStartTrackWidthRef.current = trackWidth;
     dragStartThumbWidthRef.current = renderedThumbWidth;
@@ -643,7 +622,18 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       return;
     }
 
-    handleMouseDown(e);
+    const track = trackRef.current;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    const trackWidthPx = Math.max(1, rect.width || track.clientWidth || trackWidth);
+    const pointerRatio = Math.max(
+      0,
+      Math.min(1, (e.clientX - rect.left) / trackWidthPx),
+    );
+    const centeredStart = pointerRatio - (windowWidth <= 1 ? windowWidth / 2 : 0);
+    const appliedStart = applyWindowStart(centeredStart);
+    handleMouseDown(e, appliedStart);
+    publishRange(appliedStart);
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {

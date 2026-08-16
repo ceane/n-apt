@@ -205,10 +205,16 @@ const SnapshotStatusDot = styled.span<{ $active: boolean }>`
 `;
 
 const ErrorText = styled.div`
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
   color: ${(props) => props.theme.danger};
   font-size: 10px;
-  margin-top: -4px;
-  grid-column: 2;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 interface SnapshotControlsSectionProps {
@@ -365,6 +371,11 @@ export const SnapshotControlsSection: React.FC<
           }}
         >
           <Row label={<IconLabel icon={MapPin} text="Geolocation" />}>
+            {snapshotGeolocationError && (
+              <ErrorText title={snapshotGeolocationError}>
+                {snapshotGeolocationError}
+              </ErrorText>
+            )}
             <ToggleSwitch>
               <ToggleSwitchInput
                 type="checkbox"
@@ -381,13 +392,8 @@ export const SnapshotControlsSection: React.FC<
                 }
               />
               <ToggleSwitchSlider />
-            </ToggleSwitch>
+              </ToggleSwitch>
           </Row>
-          {snapshotGeolocationError && (
-            <Row label="">
-              <ErrorText>{snapshotGeolocationError}</ErrorText>
-            </Row>
-          )}
         </div>
 
         <Row label={<IconLabel icon={Ratio} text="Aspect Ratio" />}>

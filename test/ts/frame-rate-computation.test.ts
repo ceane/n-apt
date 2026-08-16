@@ -9,9 +9,9 @@ describe("computeMaxFrameRate", () => {
     expect(computeMaxFrameRate(3_200_000, 262_144)).toBe(12);
   });
 
-  it("clamps to max_frame_rate limit", () => {
-    // 3.2 MHz / 2048 = 1562, capped at 60
-    expect(computeMaxFrameRate(3_200_000, 2048)).toBe(60);
+  it("uses the theoretical rate when no configured limit is provided", () => {
+    // 3.2 MHz / 2048 = 1562; the frontend ceiling is configurable.
+    expect(computeMaxFrameRate(3_200_000, 2048)).toBe(1562);
   });
 
   it("respects explicit max frame rate limit below 60", () => {

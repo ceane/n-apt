@@ -5,12 +5,10 @@ import { theme } from "@n-apt/app-article/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
 import katex from "katex";
-import * as lucideIcons from "lucide-react"; // We'll keep this for now but it's large; usually one would use dynamic imports here too if many icons are needed.
-import "highlight.js/styles/github-dark.css";
+import { Bug, RadioTower } from "lucide-react"; // Explicit imports: only the icons used by the article's shortcodes ship in the bundle.
 import "katex/dist/katex.min.css";
 const AmplitudeModulationCanvas = lazy(() => import("@n-apt/app-article/components/canvas").then(m => ({ default: m.AmplitudeModulationCanvas })));
 const FrequencyModulationCanvas = lazy(() => import("@n-apt/app-article/components/canvas").then(m => ({ default: m.FrequencyModulationCanvas })));
@@ -32,14 +30,15 @@ import remarkLatexCodeBlocks from "@n-apt/app-article/utils/remarkLatexCodeBlock
 import remarkReactDaysSinceBlocks from "@n-apt/app-article/utils/remarkReactDaysSinceBlocks";
 import GiscusComments from "@n-apt/app-article/components/GiscusComments";
 import { DaysSince } from "@n-apt/app-article/components/DaysSince";
-import { assetUrl, assetPageUrl } from "@n-apt/app-article/utils/asset-helpers";
+import { assetUrl } from "@n-apt/app-article/utils/asset-helpers";
 import { registerMarkdownHotReload } from "@n-apt/app-article/utils/hmr";
 import { CanvasHarness } from "@n-apt/app-article/components/canvas/CanvasHarness";
 import { ResponsiveKatex, desktopOnlyStyles, mobileOnlyStyles, DesktopOnly, MobileOnly } from "@n-apt/math/ResponsiveKatex";
+import { DEFAULT_MARKDOWN_SOURCE, loadMarkdown } from "@n-apt/app-article/utils/markdown-source";
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
-const DEFAULT_SOURCE = "/pages/how-do-they-do-it.md";
+const DEFAULT_SOURCE = DEFAULT_MARKDOWN_SOURCE;
 void LEGACY_CANVAS_IMPORT_PATH;
 
 const BLEND_IMAGE_MAP: Record<string, string> = {
@@ -48,6 +47,13 @@ const BLEND_IMAGE_MAP: Record<string, string> = {
   "n-apt-channels-wavelength-comparison": "invert-lighten",
 };
 const HERO_IMAGE_PATTERNS = ["hero-light", "hero-dark"];
+
+// Icons available to `:slug:` shortcodes. Explicit imports keep the bundle
+// small — only these icons ship, everything else falls back to <IconFallback>.
+const ICON_MAP: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  "radio-tower": RadioTower,
+  bug: Bug,
+};
 const CanvasPlaceholder = styled.div`
   width: 100%;
   height: 400px;
@@ -94,12 +100,33 @@ const decodeExpressions = (serialized = "") => {
   }
 };
 
-const renderDisplayExpression = (expression: string) => katex.renderToString(expression, {
-  throwOnError: false,
-  displayMode: true,
-  strict: "warn",
-  output: "html",
-});
+// Bounded cache: KaTeX rendering is expensive and the same display
+// expression appears across hot reloads, so reuse rendered HTML.
+const KATEX_RENDER_CACHE = new Map<string, string>();
+const KATEX_RENDER_CACHE_MAX = 256;
+
+const renderDisplayExpression = (expression: string) => {
+  const cached = KATEX_RENDER_CACHE.get(expression);
+  if (cached) {
+    return cached;
+  }
+
+  const html = katex.renderToString(expression, {
+    throwOnError: false,
+    displayMode: true,
+    strict: "warn",
+    output: "html",
+  });
+
+  if (KATEX_RENDER_CACHE.size >= KATEX_RENDER_CACHE_MAX) {
+    const oldestKey = KATEX_RENDER_CACHE.keys().next().value;
+    if (oldestKey !== undefined) {
+      KATEX_RENDER_CACHE.delete(oldestKey);
+    }
+  }
+  KATEX_RENDER_CACHE.set(expression, html);
+  return html;
+};
 
 type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
   "data-expressions"?: string;
@@ -128,26 +155,10 @@ const App: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchMarkdown = useCallback(async (path: string, bustCache = false) => {
-    const normalizedPath = path.trim() || DEFAULT_SOURCE;
-    const url = assetPageUrl(normalizedPath);
-    const requestUrl = bustCache ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : url;
     try {
-      const response = await fetch(requestUrl, {
-        headers: { "Cache-Control": "no-cache" },
-        cache: "no-store",
-      });
-      if (response.ok) {
-        const contentType = response.headers.get("content-type") ?? "";
-        if (contentType.includes("text/html")) {
-          throw new Error("Received HTML fallback instead of markdown");
-        }
-
-        const text = await response.text();
-        setMarkdown(text);
-        setLoadError(null);
-        return;
-      }
-      throw new Error(`Failed to fetch markdown: ${response.status} ${response.statusText}`);
+      const text = await loadMarkdown(path, bustCache);
+      setMarkdown(text);
+      setLoadError(null);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load markdown");
     }
@@ -272,21 +283,7 @@ const App: React.FC = () => {
       <Page>
         <ScrollToContents href="#table-of-contents">Scroll to Contents</ScrollToContents>
         <ArticleContent>
-          <ReactMarkdown
-            remarkPlugins={[
-              remarkGfm,
-              remarkIconShortcodes,
-              remarkLatexCodeBlocks as any,
-              remarkReactDaysSinceBlocks as any,
-              remarkBodyAttenuationBlocks as any,
-              remarkTimeOfFlightBlocks,
-              remarkSignalCanvasBlocks as any,
-            ]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
-            components={markdownComponents}
-          >
-            {loadError ? `# Could not load markdown\n\n${loadError}` : (markdown || "_Fetching markdown…_")}
-          </ReactMarkdown>
+          <MemoizedMarkdown markdown={markdown} loadError={loadError} components={markdownComponents} />
           {!__DEV__ && activeSource && (
             <GiscusComments pageId={activeSource} />
           )}
@@ -297,6 +294,42 @@ const App: React.FC = () => {
     </ThemeProvider>
   );
 };
+
+type MemoizedMarkdownProps = {
+  markdown: string;
+  loadError: string | null;
+  components: Components;
+};
+
+/**
+ * The unified markdown→React pipeline is the expensive part of this app.
+ * Memoizing on the source string (and error state) means a hot reload that
+ * only touches unrelated code — or any App re-render — does not re-run the
+ * remark/rehype plugins or re-create the whole article tree.
+ */
+const MemoizedMarkdown = React.memo(function MemoizedMarkdown({
+  markdown,
+  loadError,
+  components,
+}: MemoizedMarkdownProps) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[
+        remarkGfm,
+        remarkIconShortcodes,
+        remarkLatexCodeBlocks as any,
+        remarkReactDaysSinceBlocks as any,
+        remarkBodyAttenuationBlocks as any,
+        remarkTimeOfFlightBlocks,
+        remarkSignalCanvasBlocks as any,
+      ]}
+      rehypePlugins={[rehypeRaw, rehypeKatex]}
+      components={components}
+    >
+      {loadError ? `# Could not load markdown\n\n${loadError}` : (markdown || "_Fetching markdown…_")}
+    </ReactMarkdown>
+  );
+});
 
 const GlobalStyle = createGlobalStyle`
   :root { 
@@ -357,9 +390,10 @@ const ScrollToContents = styled.a`
 `;
 
 const ArticleContent = styled.article`
+  --article-gutter: clamp(32px, 5vw, 72px);
   max-width: 800px;
   margin: 0 auto;
-  padding: clamp(32px, 5vw, 72px);
+  padding: var(--article-gutter);
   color: #acbaff;
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
@@ -591,12 +625,32 @@ const ArticleContent = styled.article`
   }
 
   .table-tiny {
+    .table-scroll-wrapper {
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    .table-scroll-wrapper table {
+      min-width: 720px;
+    }
+
     @media (max-width: 768px) {
       th, td {
         padding: 0.3rem 0.4rem !important;
         font-size: 0.65rem !important;
         letter-spacing: -0.01em;
       }
+    }
+  }
+
+  .estimated-data-table {
+    width: min(100%, calc(100vw - (2 * var(--article-gutter))));
+    max-width: calc(100vw - (2 * var(--article-gutter)));
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    table {
+      min-width: 720px;
     }
   }
 
@@ -799,31 +853,13 @@ type IconElementProps = React.HTMLAttributes<HTMLElement> & {
 
 type MarkdownImageProps = React.ImgHTMLAttributes<HTMLImageElement>;
 
-const slugToComponentName = (slug = "") => {
-  const parts = slug
-    .toLowerCase()
-    .split(/[^a-z0-9]+/i)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1));
-
-  const name = parts.join("");
-  // Lucide usually doesnt suffix with 'Icon' in the exports, but some tools do.
-  // The standard names are like 'ShieldCheck', 'Bug', 'Album'.
-  return name;
-};
-
 const IconInline: React.FC<IconElementProps> = ({ "data-icon": slug }) => {
   if (!slug) {
     return null;
   }
 
-  const componentName = slugToComponentName(slug);
-  const candidate = (lucideIcons as Record<string, any>)[componentName];
-
-  // Also try with 'Icon' suffix just in case, though standard lucide-react doesn't need it
-  const IconComponent = (typeof candidate === "function" || (candidate && typeof candidate.render === "function"))
-    ? candidate
-    : (lucideIcons as Record<string, any>)[`${componentName}Icon`];
+  const normalizedSlug = slug.toLowerCase();
+  const IconComponent = ICON_MAP[normalizedSlug];
 
   if (!IconComponent) {
     return <IconFallback>{`:${slug}:`}</IconFallback>;

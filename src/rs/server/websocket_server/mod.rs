@@ -341,7 +341,13 @@ pub(crate) fn resolve_reader_recovery_action(
   streak: u32,
   supported_device_present: bool,
 ) -> ReaderRecoveryAction {
-  if is_async_timeout && !reader_is_active {
+  if !supported_device_present {
+    // Physical absence is terminal for the current reader. Do not restart a
+    // detached async handle just because the timeout reached the threshold;
+    // that path creates Stale and increments the error streak during a normal
+    // unplug.
+    ReaderRecoveryAction::FallbackToMock
+  } else if is_async_timeout && !reader_is_active {
     // `initialize()` is safe to retry here: the RTL device refuses to start
     // another reader while cancellation is still unwinding, and succeeds on
     // the first recovery tick after the old reader has actually stopped.
@@ -350,10 +356,8 @@ pub(crate) fn resolve_reader_recovery_action(
     && streak >= super::shared_state::DISCONNECT_FAILURE_THRESHOLD
   {
     ReaderRecoveryAction::RestartReader
-  } else if supported_device_present {
-    ReaderRecoveryAction::ReopenDevice
   } else {
-    ReaderRecoveryAction::FallbackToMock
+    ReaderRecoveryAction::ReopenDevice
   }
 }
 
@@ -856,6 +860,10 @@ mod tests {
       resolve_reader_recovery_action(true, false, threshold, true),
       ReaderRecoveryAction::RestartReader
     );
+    assert_eq!(
+      resolve_reader_recovery_action(true, true, threshold, false),
+      ReaderRecoveryAction::FallbackToMock
+    );
   }
 
   #[test]
@@ -957,11 +965,7 @@ impl WebSocketServer {
       processor.get_manufacturer(),
       processor.get_product(),
     );
-    if processor
-      .device_type()
-      .to_ascii_lowercase()
-      .contains("rtl")
-    {
+    if processor.device_type().to_ascii_lowercase().contains("rtl") {
       shared.cache_active_rtl_sdr(
         processor.get_serial_number(),
         processor.get_manufacturer(),
@@ -1116,6 +1120,26 @@ impl WebSocketServer {
               .device_supervisor
               .restart(&shared_state, &_broadcast_tx, &mut hotplug_state)
               .await;
+          }
+          crate::server::types::SdrCommand::SetSimulatedHardwarePresence(
+            present,
+          ) => {
+            let mut processor = sdr_processor.lock().await;
+            if let Err(error) = crate::sdr::hotplug::simulate_hardware_presence(
+              present,
+              &mut hotplug_state,
+              &mut processor,
+              &shared_state,
+              &_broadcast_tx,
+            )
+            .await
+            {
+              log::error!(
+                "Simulated hardware transition failed (present={}): {}",
+                present,
+                error
+              );
+            }
           }
           crate::server::types::SdrCommand::StartCapture {
             job_id,
@@ -1307,11 +1331,8 @@ impl WebSocketServer {
           // health bookkeeping must instead follow source identity so Mock
           // Tx does not get treated as a hardware reader (or vice versa).
           if !frame_source_id.starts_with("mock-") {
-            let had_successful_read = shared_state
-              .last_successful_read
-              .lock()
-              .unwrap()
-              .is_some();
+            let had_successful_read =
+              shared_state.last_successful_read.lock().unwrap().is_some();
             shared_state.record_successful_read();
             let current_state =
               shared_state.device_state.lock().unwrap().clone();

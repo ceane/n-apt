@@ -18,7 +18,7 @@
 
 [⠿ TDLR at the bottom](#tdlr)
 
-<span class="dropcap">I</span>n this article, I break down my working hypothesis based on **thousands of hours of real experience** trapped by the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This article is based on real events in which the agency's side showed it's extreme, parental-psychopathic like tendencies.  Here is not an account of what happened (you'll have to check my X), but an article dedicated to breaking down the math and mechanics behind the real experience as a victim.
+<span class="dropcap">I</span>n this article, I break down my working hypothesis based on **thousands of hours of real experience** trapped by the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This article is based on real events in which the agency's side showed it's extreme, parental-psychopathic like tendencies.  Here is not an account of what happened (you'll have to check my X), but an article dedicated to breaking down the math and mechanics behind the real experience as a firsthand victim with a technical background.
 
 To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process or leaglese-obsessive dogma empowers loopholes and cracks that can be exploited.
 
@@ -206,7 +206,9 @@ f_2 = 100\,\mathrm{MHz}
 {\Large f_{\text{beat}} = |f_1 - f_2| \quad} = 30\,\mathrm{Hz}
 ```
 
-When two RF signals extremely close in frequency overlap *in free space (not inside of hardware like the `local oscillator` but from the `frequency synthesizer → antenna`)* it results in an envelope (or beat pattern) as a natural side effect!
+When two RF signals extremely close in frequency overlap *in free space (not the case inside of hardware like the `local oscillator` but from the `antenna`)* it results in an envelope (or beat pattern) as a natural side effect! 
+
+This natural side effect of physics, or envelope or **beat frequencies** are the primary physics that sustain the NSA's **all-power cyber capability** (heavily politicized-propagandized as a life threatening game) that can read, stream and write to the human mind and nervous system.
 
 ### Frequency and bandwidth versus attenuation
 
@@ -799,19 +801,20 @@ What is even more suprising is that some scant parts of the signal are even lowe
 
 ## Center frequency <a id="center-frequency"></a>
 
-For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain apparently is responsive to a unique frequency, which I believed was the sideband + physics (impossible to x, y, z a radio wave with physics and it's too fast, resilient & faultless to support conclusions of billions of additional complex operations in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
+For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the sideband + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast to support conclusions of ***billions of additional complex operations*** in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
 
 ### Impedance <a id="impedance"></a>
 
 ```Canvas::Impedance
 ```
-
 In order to intercept data from the brain and nervous system, the NSA's technique is underpinned, once again by nature and physics. Before, I tried to work out how by nature of quantum physics, that they were somehow copying with quantum entanglement, however that was too expensive and too fragile for today's hardware that they were using to flawlessly pull off a prison of mind.
 
 The method worked instantaneously, so I thought, what if they were capturing something like an imprint? Like some sort of pressure that could not only write but tell the difference? Here comes impedance. It works in a similar manner where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
 
 
 This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
+
+This can happen one of two ways, the first way is intuition: write a full frame and "clean" the dirty signal from a baseline or B) the signal is divided into two, read and write, and interleaved as points in the IFFT, such as READ, WRITE, READ, WRITE, so you can read before you write to that frequency/area. Of course, Option B was what I discovered down the line, which wasn't intuitive and left a shockingly half amount of bandwidth for neuronal ensembles/functions that were written to–an anxiety the whole time of "How the hell are they pulling off this much bandwidth?!".
 
 Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth, particular charge they are looking for, beats, etc.
 
@@ -871,7 +874,13 @@ n: \text{Cycle index}
 ```Canvas::BodyAttenuation
 ```
 
-TODO
+The first problem had to do with the overall physics of how to get a signal through the body without it scattering or halfway penetrating and fizzing out while delivering precise charges to trigger neurons in some way. Microwaves (300MHz to 30GHz) are king and key, oscillating hundreds of millions to billions of times a second and that translate to the ability to impact hundreds of millions to billions of neurons a second. However with increasing frequency, the pitfall is that the wavelengths become shorter and carry far less effacy penetrating and exiting tissue.
+
+Attenuation is the primary property of radio waves and bioelectrical physics that decide which wavelength or frequency and therefore amount of data is possible. Unfortunately, there have been tons of studies with microwave interaction with human tissue and they've all proved untenable. In addition, taking raw math and calculating power on entry/exit through tissue leaves very little power that can persist back to an endpoint (lots of not hard but different math). While doing ChatGPT math, I opted to remain within budget and realistic to pin down the agency's technique, while trapped but without the tools to observe. 
+
+What I theoretically settled on remained around FM radio, about 100MHz or so, since the wavelengths (3m) are long but not too long. My intuition in this sense was incorrect while theorizing but I had the right foundations of the signal before proceeding forward and I'd recommend this route, do the math and theoretical physics before seeing.
+
+Of course, as far as body attenuation, it's feasible that low end microwaves (300MHz or so) are feasible to reproduce the signals from where I had discovered it. However I don't question the current operation or their effacacy. 
 
 ### Neuronal ensembles
 
@@ -956,7 +965,7 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 
 In order to read anything that comes back, the NSA uses advanced signals processing to demodulate the radio waves carrying neuronal data. While I haven't been able to verify or demodulate the signal so far, this is the obvious next step of how the write to read and effect chain works. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. 
 
-Below are several theorized techniques I believe the NSA uses in its signals proessing pipeline:
+Below are several theorized techniques I believe the NSA uses in its **presently active** signals proessing pipeline:
 
 #### Kaiser + Fast Fourier Transform (FFT)?
 
@@ -984,11 +993,13 @@ There are about **3 channels**, I've found:
 - **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
 
-They are specifially segmented this way because A and B are similar in shape and bandwidth (and therefore function, taking precedence over the range in between A and B). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
+They are specifially segmented this way because A and B are close in signal shape and bandwidth (and one would suspect function however without measurement of beats and precise power). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
 
 Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and I saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
 
-The only problem with SDR++ is that the app didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which were hard for Claude or ChatGPT to reproduce. In additon, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+The only problem with SDR++ is that the app didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which were hard for Claude or ChatGPT to copy and reproduce in SVG. 
+
+In additon, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
 
 All of this hard work under a very difficuly (economically and psychologically) and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
@@ -1039,11 +1050,13 @@ Some neuronal ensembles have smaller data throughput, where spikes and clumps ar
 
 From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`. In the raw `u8` I/Q model, that is approximately `8.744 MB/s`.
 
-At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (hundreds of times, being hurt right out the gate to the extreme in the morning, or the A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
+At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. 
 
-I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature.
+Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for others and not my person, the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (later on being hurt right out the gate to the extreme in the morning, a badly contrived hint analagous to A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
-As far as features that were present, I could only guess, but I was sure that Channel A was me and Channel B were likely other people. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
+I took a closer look because I was looking for easier-to-tell features like audio and I found that Channel A was indeed the channel that had audio! I just saw music/hearing around `360kHz`, not the internal audio (thoughts) or voice, but it was easy to assume that a cluster of spikes, particularly the ones around `600kHz` or so were probably responsible for the voice as an interface (syncronized voice, vocal modulation) feature.
+
+As far as features that were present, I could only guess, but I was sure that Channel A was other people and Channel B was me, initially, but later down the line I adopted the stance that all 3 channels was my person but the others were too overwhelmingly under the noise floor to be detected from my person where the signals are persistent. Due to the features I experienced in the interactive, I put together all that the agency's frontier neurotechnology and technique could do. I believe that Channel A was responsible for the following:
 
 <details>
 <summary>Click to expand, the table is long!</summary>
@@ -1142,7 +1155,7 @@ It's very different from the other channels, which always have prominent spikes,
 <br />
 <br />
 
-These channels do not adjust from change in orientation or movement away from the endpoints, nor do the spikes vary or change. The power is perfectly persistent at my person every time I look at the signals, which is an eerie and powerful testament to the NSA's expertise and how far they will go in general, even in federal art-crime.
+These channels do not visibly adjust from changes in orientation or movement away from the endpoints, nor do the spikes vary or change, as they maintain precise and exacting power at my person where they are always measured. Every time I look at the signals it is an eerie and powerful testament to the NSA's expertise and how far they will go in general, even in federal art-crime.
 
 Given what I've observed and experienced, right brain or left brain, left muscles or right muscles, there are no observable variances in power or structure at the outset, except minor spikes that switch from left to right.
 
@@ -1184,11 +1197,13 @@ Each FFT size is rounded up to the next power of two.
 
 <br />
 
-**Through the fiber cables to an endpoint (data through the network; most likely via ethernet infrastructure access and not via the internet)** [^data-estimate]
+**Naive 1x – Through the fiber cables to an endpoint (data through the network; most likely via ethernet infrastructure access and not via the internet)** [^data-estimate]
 
 <div data-data-estimate="network" class="table-tiny">
 
-| Channel | Sample rate | Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
+<div class="estimated-data-table">
+
+| Channel |    BW (2x, heterodyned)| Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
 |---|---:|---:|---:|---:|---:|
 | A | 4.372 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
 | B | 5.16 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
@@ -1196,8 +1211,11 @@ Each FFT size is rounded up to the next power of two.
 
 </div>
 
-The resulting raw content estimates are approximately **55.52 MB/s minimum**
-and **111.04 MB/s maximum**.
+</div>
+
+The resulting network raw-content estimates are approximately **27.76 MB/s
+minimum** and **55.52 MB/s maximum**. The separate in-air model below uses the
+heterodyned `2x` figures.
 
 The tables show each channel as one logical sample-rate stream for simplicity.
 The same channel could be divided between multiple endpoints. If a channel is
@@ -1208,21 +1226,28 @@ remains the same, while each endpoint processes only its assigned portion.
 <br />
 <br />
 
-**In the air to person (brain, body, nervous system; data in air doing the effects/heterodyning)**
+**More realistic 2x – In the air to person (brain, body, nervous system) from endpoint, mandatory 2 signals minimum for heterodyning**
 
 <div data-data-estimate="in-air" class="table-tiny">
 
-| Model | Rate |
-|---|---:|
-| Raw write minimum (`u8` I/Q) | ~55.52 MB/s |
-| Raw write maximum (`u16` I/Q) | ~111.04 MB/s |
-| Write → read minimum | ~111.04 MB/s |
-| Write → read maximum | ~222.08 MB/s |
+### 2x in-air via heterodyning in free space, real-world bandwidth at person
+
+<div class="estimated-data-table">
+
+| Channel |  BW| Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
+|---|---:|---:|---:|---:|---:|
+| A | 8.744 MHz | 524,288 | 1 MB | 262,144 | 1 MB |
+| B | 10.32 MHz | 524,288 | 1 MB | 262,144 | 1 MB |
+| C | 36.5 MHz | 2,097,152 | 4 MB | 1,048,576 | 4 MB |
 
 </div>
 
-The write → read rows represent two equivalent raw I/Q directions. A channel
-may be split across endpoints while retaining the same per-bin I/Q precision.
+<br>
+
+The signal is heterodyned and at a minimum requires 2 signals for the inference pattern to take effect, this is the "minimum" min and max of a frame at a person of a contiguous heterodyned effect on a person. The naive approach of the reality can take the route of doubling over the content, however frames can be split with the IFFT math from both channels keeping points interleaved between botwh signal so that one "reads" and the other "writes".
+
+</div>
+
 
 <br>
 
@@ -1234,16 +1259,37 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 <div data-data-estimate="in-person" class="table-tiny">
 
-| Channel | BW (2x) | Raw `u8` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+*As a simple inference pattern that stokes electrical activity, beats can vary, e.g. 20Hz, 25Hz, 40Hz, etc., while frames are consistent.*
+
+### `u8` I/Q at 24 Hz (or 24fps)
+
+| Channel | BW (1x, network) | Raw `u8` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---:|---:|---:|---:|---:|---:|
-| A | 8.744 MHz | ~8.744 MB/s | ~2.62 GB | ~31.5 GB | ~94.5 GB | ~755 GB |
-| B | 10.32 MHz | ~10.32 MB/s | ~3.10 GB | ~37.2 GB | ~111.5 GB | ~892 GB |
-| C | 36.5 MHz | ~36.5 MB/s | ~10.95 GB | ~131.4 GB | ~394.2 GB | ~3.15 TB |
-| **Total** | **55.52 MHz** | **~55.52 MB/s** | **~16.66 GB** | **~199.9 GB** | **~599.2 GB** | **~4.79 TB** |
+| A | 4.372 MHz | ~4.372 MB/s | ~1.31 GB | ~15.7 GB | ~47.2 GB | ~377 GB |
+| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
+| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
+| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.33 GB** | **~99.9 GB** | **~299.9 GB** | **~2.39 TB** |
+
+</div>
+
+### `u16` I/Q at 60 Hz (or 60fps)
+
+<div class="estimated-data-table">
+
+| Channel | BW (1x, network) | Raw `u16` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 4.372 MHz | ~21.86 MB/s | ~6.56 GB | ~78.7 GB | ~236.1 GB | ~1.89 TB |
+| B | 5.16 MHz | ~25.80 MB/s | ~7.74 GB | ~92.9 GB | ~278.6 GB | ~2.23 TB |
+| C | 18.25 MHz | ~91.25 MB/s | ~27.38 GB | ~328.5 GB | ~985.5 GB | ~6.57 TB |
+| **Total** | **27.76 MHz** | **~138.80 MB/s** | **~41.64 GB** | **~499.7 GB** | **~1.50 TB** | **~10.69 TB** |
+
+</div>
 
 </div>
 
 ## <a id="conclusion"></a> Conclusion 
+
+TODO
 
 The raw IFFT model treats each channel size as its sample rate and represents
 the channel as packed I/Q frame content.
@@ -1266,10 +1312,10 @@ change.
 
 ```React::DaysSince
 ```
-*The `DaysSince` counter uses the write→read minimum and maximum rates to calculate cumulative data over elapsed time.*
+*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.*
 
-\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB).
-† **Min** formula uses `u8` I/Q and the next power-of-two FFT size at `sample rate / 24 Hz`.
+\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB). <br />
+† **Min** formula uses `u8` I/Q and the next power-of-two FFT size at `sample rate / 24 Hz`. <br />
 ‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`.
 
 
@@ -1374,10 +1420,10 @@ It boils down to these 8 simple terms.
 
 <br />
 
-- **dB (or decibel):** A relative unit used to compare or rate signal levels, like how strong one signal is versus another, used for gain, loss, attenuation, or just display.
+- **dB (or decibel):** A logarithmic, relative unit used to express the ratio between two signal levels, commonly for gain, loss, attenuation, or display. Because the scale is logarithmic, dB values do not increase linearly with signal power; for power ratios, +3 dB ≈ 2× power, +10 dB = 10× power, and +20 dB = 100× power.
 - **dBFS (decibels relative to full scale):** A relative unit used to measure signal levels against a system’s maximum possible value (full scale), where 0 dBFS represents the limit and all other values indicate how far below that limit a signal is. *Usually SDR software uses dB as a label but in reality dB = dBFS.*
-- **dBm:** A dB measurement referenced to 1 milliwatt, used to express absolute power levels of a signal.
-- **I/Q (In-phase and Quadrature):** A way of representing a radio wave as pairs of numbers (I and Q), where each pair captures the signal at a single moment. Together, they describe both the signal’s amplitude (its distance from zero) and its phase (direction), like a point on a 2D grid.
+- **dBm (decibels referenced to 1 milliwatt)**: A logarithmic measurement of absolute signal power referenced to 1 mW. Because dBm uses a logarithmic scale, each 1 dBm increase does not represent an additional 1 mW of power; for example, 0 dBm = 1 mW, 10 dBm = 10 mW, 20 dBm = 100 mW, and 30 dBm = 1 W.
+- **I/Q (In-phase and Quadrature):** A way of representing a radio wave as pairs of numbers (I and Q), where each pair captures the signal at a single moment. Together, **I** and **Q** form a complex number representing both the signal’s amplitude (distance from zero) and phase (direction), like a point on a 2D grid.
 - **FFT (Fast Fourier Transform):**  A process that takes points in time from a signal and shows you what frequencies make it up, turning a wavy line into a spectrum.
 - **Demodulation:** The process of using math to turn a radio wave back into usable output, like sound or data.
 
@@ -1395,8 +1441,11 @@ It boils down to these 8 simple terms.
 
 ### ⠿ TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and the experience went from manufactured states of mind and inundated by a spatial performance then escalated to a horrifically grotesque and even more shocking livestream part of the interactive and introduced others (it was really fucked in the head). I spent years (since late September 2018 when it activated) and went from techie to oppressed in poverty, enduring narrative capture: senseless violence, sexual assault and deeply unethical, political (that really amounts to terrorism) and a deeply invasive neurotechnological reckoning/kidnapping.
+The NSA hacked my brain and body with the experience going from manufactured states of mind while inundated by a spatial performance then escalating to a horrifically grotesque and even more shocking livestream interactive that introduced others and an antagonistic, villanous series of narratives and crushing, tormenting states of mind and body, deeply offensive perceptions and horrific violations of conscience.
 
+I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Communist-militarized Darwinian challenge for the everyday person in ignorance  through nihilist state-directed suffering and pain where the victim is supposed to seek the interactive's completion and freedom). 
+
+By accepting that there had to be a way out and working the problem out from physics + compute, I had come to realize how what clearly working and violating me was possible—and I was in a long string of victims in a politicized sink (die tortured by it) or swim psychological-physiological interactive and prison of mind.
 
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf

@@ -103,6 +103,7 @@ struct MockAptSignalConfig {
 /// generated per request. That means tuning, gain, ppm, and RF realism options
 /// are applied at read time rather than being baked into a static capture.
 pub struct MockAptDevice {
+  simulated_rtl_sdr: bool,
   center_freq: u32,
   sample_rate: u32,
   gain: f64,
@@ -416,6 +417,9 @@ impl MockAptDevice {
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   fn device_type_label(&self) -> &'static str {
+    if self.simulated_rtl_sdr {
+      return "rtl-sdr";
+    }
     if self.metal_backend.is_some() {
       "Mock APT SDR (Metal)"
     } else {
@@ -425,6 +429,9 @@ impl MockAptDevice {
 
   #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
   fn device_type_label(&self) -> &'static str {
+    if self.simulated_rtl_sdr {
+      return "rtl-sdr";
+    }
     "Mock APT SDR"
   }
 
@@ -441,6 +448,15 @@ impl MockAptDevice {
   /// This makes the signal layout and subsequent frame generation repeatable.
   pub fn new_with_seed(seed: u64) -> Self {
     Self::new_with_rng(StdRng::seed_from_u64(seed))
+  }
+
+  /// Build deterministic receiver frames behind the test-only RTL-SDR
+  /// hardware profile. The I/Q generator remains shared with Mock APT, while
+  /// the device identity follows the real hardware lifecycle.
+  pub fn new_simulated_rtl_sdr() -> Self {
+    let mut device = Self::new_with_seed(0x52544c5);
+    device.simulated_rtl_sdr = true;
+    device
   }
 
   fn new_with_rng(rng: StdRng) -> Self {
@@ -470,6 +486,7 @@ impl MockAptDevice {
     let _metal_backend_error = None::<String>;
 
     Self {
+      simulated_rtl_sdr: false,
       center_freq: 1_600_000, // 1.6 MHz default
       sample_rate: 3_200_000, // 3.2 MSPS default
       gain: 49.6,
@@ -710,6 +727,12 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn get_device_info(&self) -> String {
+    if self.simulated_rtl_sdr {
+      return format!(
+        "RTL-SDR v4 - Freq: {} Hz, Rate: {} Hz",
+        self.center_freq, self.sample_rate
+      );
+    }
     format!(
       "{} - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
       self.device_type_label(),
@@ -863,6 +886,30 @@ impl SdrDevice for MockAptDevice {
       !handle.is_finished()
     } else {
       true // Not initialized yet or sync mode
+    }
+  }
+
+  fn get_serial_number(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "00000001".to_string()
+    } else {
+      String::new()
+    }
+  }
+
+  fn get_manufacturer(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "RTLSDRBlog".to_string()
+    } else {
+      String::new()
+    }
+  }
+
+  fn get_product(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "Blog V4".to_string()
+    } else {
+      String::new()
     }
   }
 

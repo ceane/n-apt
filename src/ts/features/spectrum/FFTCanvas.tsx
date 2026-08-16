@@ -2794,6 +2794,7 @@ const FFTCanvas = memo(
       signalAreaBounds,
       hardwareSpectrumBounds,
       allowNegativeFrequencies,
+      isPaused,
       onFrequencyRangeChange,
       selectionRange,
       onSelectionChange,

@@ -169,7 +169,9 @@ fn validate_manual_rx_frame(
     .as_u64()
     .ok_or_else(|| "stream frame must contain a stream epoch".to_string())?;
   match (*last_epoch, *last_sequence) {
-    (Some(previous_epoch), Some(previous_sequence)) if epoch == previous_epoch => {
+    (Some(previous_epoch), Some(previous_sequence))
+      if epoch == previous_epoch =>
+    {
       if sequence <= previous_sequence {
         return Err("stream frame sequence moved backwards".to_string());
       }
@@ -239,10 +241,7 @@ async fn next_source_info(
   .map_err(|_| "timed out waiting for source_info".to_string())?
 }
 
-fn assert_loading_then_receiving(
-  source_label: &str,
-  statuses: &[String],
-) {
+fn assert_loading_then_receiving(source_label: &str, statuses: &[String]) {
   let loading_position = statuses
     .iter()
     .position(|status| status == "loading")
@@ -750,8 +749,7 @@ async fn source_frontend_startup_and_frame_flow() {
     .await
     .expect("subscribe to RTL-SDR RX stream");
 
-  let force_cold_start =
-    std::env::var("RUN_SOURCE_FORCE_COLD_START").is_ok();
+  let force_cold_start = std::env::var("RUN_SOURCE_FORCE_COLD_START").is_ok();
   if force_cold_start {
     // Force the source handoff through Mock APT first so this invocation
     // proves the loading -> receiving transition instead of inheriting a
@@ -929,126 +927,132 @@ async fn source_frontend_startup_and_frame_flow() {
     );
   }
 
-  // Multi-source isolation: a failed peer selection must not take the
-  // currently streaming source out with it. The peer is deliberately made
-  // unavailable by changing its advertised id, which exercises the same
-  // open-device failure path without asking the operator to unplug hardware
-  // during this assertion.
-  let peer_source_count = initial_snapshot["sources"]
-    .as_array()
-    .map(|sources| {
-      sources
-        .iter()
-        .filter(|source| source["id"].as_str() != Some(rtl_source_id.as_str()))
-        .count()
-    })
-    .unwrap_or(0);
-  assert!(
-    peer_source_count > 0,
-    "multi-source isolation requires at least one peer source"
-  );
-  let peer_source_id = initial_snapshot["sources"]
-    .as_array()
-    .and_then(|sources| {
-      sources.iter().find_map(|source| {
-        let id = source["id"].as_str()?;
-        (id != rtl_source_id).then_some(id.to_string())
+  // Multi-source isolation is kept separate from the physical hotplug cycle.
+  // The latter must be able to run against a single real RTL-SDR without an
+  // artificial failed-peer request masking the unplug/reconnect trace.
+  if std::env::var("RUN_SOURCE_PEER_ISOLATION").is_ok() {
+    let peer_source_count = initial_snapshot["sources"]
+      .as_array()
+      .map(|sources| {
+        sources
+          .iter()
+          .filter(|source| {
+            source["id"].as_str() != Some(rtl_source_id.as_str())
+          })
+          .count()
       })
-    })
-    .expect("peer source must have an id");
-  let failed_peer_id = format!("{peer_source_id}-unavailable");
-  control
-    .send(Message::Text(
-      serde_json::json!({
-        "type": "select_source",
-        "source_id": &failed_peer_id,
+      .unwrap_or(0);
+    assert!(
+      peer_source_count > 0,
+      "multi-source isolation requires at least one peer source"
+    );
+    let peer_source_id = initial_snapshot["sources"]
+      .as_array()
+      .and_then(|sources| {
+        sources.iter().find_map(|source| {
+          let id = source["id"].as_str()?;
+          (id != rtl_source_id).then_some(id.to_string())
+        })
       })
-      .to_string()
-      .into(),
-    ))
-    .await
-    .expect("request failed peer source selection");
+      .expect("peer source must have an id");
+    let failed_peer_id = format!("{peer_source_id}-unavailable");
+    control
+      .send(Message::Text(
+        serde_json::json!({
+          "type": "select_source",
+          "source_id": &failed_peer_id,
+        })
+        .to_string()
+        .into(),
+      ))
+      .await
+      .expect("request failed peer source selection");
 
-  let isolation_deadline = Instant::now() + Duration::from_secs(8);
-  let isolation_start_frames = frame_count;
-  let mut saw_failed_peer = false;
-  let mut active_status_after_failure = status_trace
-    .last()
-    .filter(|status| status.as_str() == "receiving")
-    .cloned();
-  while Instant::now() < isolation_deadline
-    && (!saw_failed_peer || frame_count < isolation_start_frames + 3)
-  {
-    let remaining = isolation_deadline.saturating_duration_since(Instant::now());
-    let next_message = tokio::time::timeout(remaining, async {
-      tokio::select! {
-        message = control.next() => (true, message),
-        message = stream.next() => (false, message),
-      }
-    })
-    .await
-    .expect("failed peer selection must not stall the active stream");
-    let (is_control, message) = next_message;
-    let Some(message) = message else {
-      panic!("WebSocket closed while asserting failed-peer isolation");
-    };
-    let message = message.expect("failed-peer isolation message must be valid");
-    let Message::Text(text) = message else {
-      continue;
-    };
-    let value = serde_json::from_str::<Value>(&text)
-      .expect("failed-peer isolation message must be valid JSON");
-
-    if is_control {
-      if value["type"] == "error"
-        && value["code"] == "source_switch_failed"
-        && value["source_id"] == failed_peer_id
-      {
-        saw_failed_peer = true;
-      }
-      if value["type"] == "source_info"
-        && value["active_source"].as_str() == Some(rtl_source_id.as_str())
-      {
-        active_status_after_failure = source_from_snapshot(
-          &value,
-          &rtl_source_id,
-        )
-        .and_then(|source| source["status"].as_str())
-        .map(str::to_string);
-      }
-      continue;
-    }
-
-    if validate_manual_rx_frame(
-      &value,
-      &rtl_source_id,
-      &encryption_key,
-      &mut last_epoch,
-      &mut last_sequence,
-    )
-    .expect("active source frame must survive failed peer selection")
+    let isolation_deadline = Instant::now() + Duration::from_secs(8);
+    let isolation_start_frames = frame_count;
+    let mut saw_failed_peer = false;
+    let mut active_status_after_failure = status_trace
+      .last()
+      .filter(|status| status.as_str() == "receiving")
+      .cloned();
+    while Instant::now() < isolation_deadline
+      && (!saw_failed_peer || frame_count < isolation_start_frames + 3)
     {
-      let now = Instant::now();
-      if let Some(previous) = last_frame_at {
-        max_frame_gap = max_frame_gap.max(now.duration_since(previous));
+      let remaining =
+        isolation_deadline.saturating_duration_since(Instant::now());
+      let next_message = tokio::time::timeout(remaining, async {
+        tokio::select! {
+          message = control.next() => (true, message),
+          message = stream.next() => (false, message),
+        }
+      })
+      .await
+      .expect("failed peer selection must not stall the active stream");
+      let (is_control, message) = next_message;
+      let Some(message) = message else {
+        panic!("WebSocket closed while asserting failed-peer isolation");
+      };
+      let message =
+        message.expect("failed-peer isolation message must be valid");
+      let Message::Text(text) = message else {
+        continue;
+      };
+      let value = serde_json::from_str::<Value>(&text)
+        .expect("failed-peer isolation message must be valid JSON");
+
+      if is_control {
+        if value["type"] == "error"
+          && value["code"] == "source_switch_failed"
+          && value["source_id"] == failed_peer_id
+        {
+          saw_failed_peer = true;
+        }
+        if value["type"] == "source_info"
+          && value["active_source"].as_str() == Some(rtl_source_id.as_str())
+        {
+          active_status_after_failure =
+            source_from_snapshot(&value, &rtl_source_id)
+              .and_then(|source| source["status"].as_str())
+              .map(str::to_string);
+        }
+        continue;
       }
-      last_frame_at = Some(now);
-      frame_count += 1;
+
+      if validate_manual_rx_frame(
+        &value,
+        &rtl_source_id,
+        &encryption_key,
+        &mut last_epoch,
+        &mut last_sequence,
+      )
+      .expect("active source frame must survive failed peer selection")
+      {
+        let now = Instant::now();
+        if let Some(previous) = last_frame_at {
+          max_frame_gap = max_frame_gap.max(now.duration_since(previous));
+        }
+        last_frame_at = Some(now);
+        frame_count += 1;
+      }
     }
+    assert!(
+      saw_failed_peer,
+      "failed peer selection did not produce source_switch_failed"
+    );
+    assert!(
+      frame_count >= isolation_start_frames + 3,
+      "active source stopped delivering frames when its peer failed"
+    );
+    assert_eq!(
+      active_status_after_failure.as_deref(),
+      Some("receiving"),
+      "active source did not remain Receiving after peer failure"
+    );
+  } else {
+    eprintln!(
+      "Skipping failed-peer isolation; set RUN_SOURCE_PEER_ISOLATION=1 to run it."
+    );
   }
-  assert!(
-    saw_failed_peer,
-    "failed peer selection did not produce source_switch_failed"
-  );
-  assert!(
-    frame_count >= isolation_start_frames + 3,
-    "active source stopped delivering frames when its peer failed"
-  );
-  assert_eq!(
-    active_status_after_failure.as_deref(),
-    Some("receiving"),
-    "active source did not remain Receiving after peer failure"
-  );
 
   // Exercise the same teardown path used when the browser changes source or
   // reconnects after a page/backend restart. The acknowledgement proves the
@@ -1173,12 +1177,45 @@ async fn source_frontend_startup_and_frame_flow() {
     while Instant::now() < hotplug_deadline && !saw_reconnected_receiving {
       let remaining =
         hotplug_deadline.saturating_duration_since(Instant::now());
-      let message = tokio::time::timeout(remaining, control.next())
-        .await
-        .map_err(|_| "timed out waiting for the manual source hotplug cycle")
-        .expect("manual source hotplug cycle must produce state updates")
-        .expect("control WebSocket closed during manual source hotplug cycle")
-        .expect("hotplug lifecycle message must be valid");
+      let message = match tokio::time::timeout(remaining, control.next()).await
+      {
+        Ok(Some(Ok(message))) => message,
+        Ok(Some(Err(error))) => {
+          panic!(
+            "control WebSocket failed during manual source hotplug cycle: {error}; trace={}",
+            status_trace.join(" -> ")
+          );
+        }
+        Ok(None) => {
+          panic!(
+            "control WebSocket closed during manual source hotplug cycle; trace={}",
+            status_trace.join(" -> ")
+          );
+        }
+        Err(_) => {
+          let usb_snapshot = scan_supported_usb_device_snapshots()
+            .map(|devices| {
+              devices
+                .into_iter()
+                .map(|device| {
+                  format!(
+                    "{} vid=0x{:04x} pid=0x{:04x} bus={} address={}",
+                    device.device_type,
+                    device.vendor_id,
+                    device.product_id,
+                    device.bus_number,
+                    device.address
+                  )
+                })
+                .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|error| vec![format!("scan failed: {error}")]);
+          panic!(
+            "manual source hotplug cycle timed out; trace={}; usb={usb_snapshot:?}",
+            status_trace.join(" -> ")
+          );
+        }
+      };
       let Message::Text(text) = message else {
         continue;
       };
@@ -1267,10 +1304,7 @@ async fn source_frontend_startup_and_frame_flow() {
     .await
     .expect("close resumed RTL-SDR stream WebSocket cleanly");
 
-  eprintln!(
-    "source frontend state trace: {}",
-    status_trace.join(" -> ")
-  );
+  eprintln!("source frontend state trace: {}", status_trace.join(" -> "));
   assert!(saw_receiving, "RTL-SDR never reached receiving state");
   assert!(
     stream_ready,
@@ -1306,10 +1340,162 @@ async fn source_frontend_startup_and_frame_flow() {
   );
 }
 
+/// Observes only the authenticated source-info lifecycle so a physical
+/// RTL-SDR unplug can be tested without stream setup, peer switching, or
+/// another manual step delaying the hotplug window.
+#[tokio::test]
+#[ignore = "requires a running backend and an attached RTL-SDR"]
+#[serial]
+async fn source_hotplug_observer_reports_disconnect_fallback_and_reconnect() {
+  if std::env::var("RUN_SOURCE_HOTPLUG_OBSERVER").is_err() {
+    eprintln!(
+      "Skipping focused hotplug observer. Set RUN_SOURCE_HOTPLUG_OBSERVER=1 to run it."
+    );
+    return;
+  }
+  let Some(passkey) = std::env::var_os("N_APT_MANUAL_PASSKEY")
+    .or_else(|| std::env::var_os("UNSAFE_LOCAL_USER_PASSWORD"))
+  else {
+    eprintln!(
+      "Skipping focused hotplug observer. Set N_APT_MANUAL_PASSKEY in the process environment."
+    );
+    return;
+  };
+  let passkey = passkey
+    .into_string()
+    .map_err(|_| "manual passkey is not valid UTF-8")
+    .expect("manual passkey must be valid UTF-8");
+  let http_url = manual_http_url();
+  let (token, _) = manual_authenticate(&http_url, &passkey)
+    .await
+    .expect("manual backend authentication");
+  let control_url = manual_websocket_url(&http_url, "/ws", &token);
+  let (mut control, _) = connect_async(control_url)
+    .await
+    .expect("connect authenticated control WebSocket");
+
+  let initial_snapshot =
+    next_source_info(&mut control, Duration::from_secs(10))
+      .await
+      .expect("receive initial source_info");
+  let rtl_source_id = initial_snapshot["active_source"]
+    .as_str()
+    .filter(|source_id| source_id.starts_with("rtl-sdr"))
+    .map(str::to_string)
+    .expect("focused hotplug observer requires RTL-SDR to be active");
+  let initial_source = source_from_snapshot(&initial_snapshot, &rtl_source_id)
+    .expect("initial RTL-SDR source must be advertised");
+  assert_eq!(
+    initial_source["status"], "receiving",
+    "RTL-SDR must be receiving before the unplug window"
+  );
+
+  eprintln!(
+    "focused hotplug observer armed: active={} status=receiving; unplug RTL-SDR now and leave it disconnected until Mock APT appears.",
+    rtl_source_id
+  );
+  let deadline = Instant::now() + Duration::from_secs(90);
+  let mut trace = vec![format!("active={} status=receiving", rtl_source_id)];
+  let mut saw_disconnect = false;
+  let mut saw_mock_fallback = false;
+  let mut saw_mock_fallback_paused = false;
+  let mut saw_reconnected_rtl = false;
+  let mut saw_stale = false;
+  let mut source_switch_errors = Vec::new();
+  let mut last_trace = trace[0].clone();
+
+  while Instant::now() < deadline && !saw_reconnected_rtl {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let message = tokio::time::timeout(remaining, control.next())
+      .await
+      .expect("focused hotplug observer timed out")
+      .expect("control WebSocket closed during focused hotplug observer")
+      .expect("focused hotplug message must be valid");
+    let Message::Text(text) = message else {
+      continue;
+    };
+    let snapshot = serde_json::from_str::<Value>(&text)
+      .expect("focused hotplug source_info must be valid JSON");
+    if snapshot["type"] == "error" {
+      source_switch_errors.push(format!(
+        "code={} source_id={} message={}",
+        snapshot["code"].as_str().unwrap_or("missing"),
+        snapshot["source_id"].as_str().unwrap_or("missing"),
+        snapshot["message"].as_str().unwrap_or("missing")
+      ));
+      eprintln!(
+        "hotplug error event: {}",
+        source_switch_errors.last().unwrap()
+      );
+      continue;
+    }
+    if snapshot["type"] != "source_info" {
+      continue;
+    }
+
+    let active = snapshot["active_source"].as_str().unwrap_or("missing");
+    let active_status = source_from_snapshot(&snapshot, active)
+      .and_then(|source| source["status"].as_str())
+      .unwrap_or("missing");
+    let rtl_status = source_from_snapshot(&snapshot, &rtl_source_id)
+      .and_then(|source| source["status"].as_str())
+      .unwrap_or("absent");
+    let event = format!(
+      "active={} active_status={} rtl_status={} sources={}",
+      active,
+      active_status,
+      rtl_status,
+      snapshot["sources"]
+        .as_array()
+        .map(|sources| sources.len())
+        .unwrap_or(0)
+    );
+    if event != last_trace {
+      eprintln!("hotplug source event: {event}");
+      trace.push(event.clone());
+      last_trace = event;
+    }
+
+    saw_stale |= active_status == "stale" || rtl_status == "stale";
+    saw_disconnect |= rtl_status != "receiving" || rtl_status == "absent";
+    saw_mock_fallback |= saw_disconnect && active == "mock-apt";
+    saw_mock_fallback_paused |=
+      saw_mock_fallback && active == "mock-apt" && active_status == "paused";
+    saw_reconnected_rtl |= saw_mock_fallback
+      && active == rtl_source_id
+      && active_status == "receiving";
+  }
+
+  assert!(
+    saw_disconnect,
+    "hotplug observer never saw RTL-SDR leave receiving: trace={trace:?}"
+  );
+  assert!(
+    saw_mock_fallback,
+    "hotplug observer never saw Mock APT fallback: trace={trace:?}"
+  );
+  assert!(
+    saw_reconnected_rtl,
+    "hotplug observer never saw RTL-SDR return to receiving: trace={trace:?}"
+  );
+  assert!(
+    !saw_stale,
+    "physical unplug entered stale before disconnect fallback: trace={trace:?}"
+  );
+  assert!(
+    !saw_mock_fallback_paused,
+    "Mock APT paused during physical unplug fallback: trace={trace:?}"
+  );
+  assert!(
+    source_switch_errors.is_empty(),
+    "hotplug observer saw source errors: {source_switch_errors:?}"
+  );
+}
+
 #[tokio::test]
 #[serial]
-async fn source_lifecycle_updates_app_source_state_through_loading_and_receiving()
-{
+async fn source_lifecycle_updates_app_source_state_through_loading_and_receiving(
+) {
   if std::env::var("RUN_OPEN_DEVICE_APP_STATE").is_err() {
     eprintln!(
       "Skipping open-device app-state test. Set RUN_OPEN_DEVICE_APP_STATE=1 to run it."

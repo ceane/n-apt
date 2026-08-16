@@ -228,6 +228,8 @@ export interface FastSnapshotControlProps {
   videoFormat: SnapshotVideoFormat | null;
   showStats: boolean;
   onShowStatsChange: (show: boolean) => void;
+  fastSnapshotMode?: 0 | 1 | 2;
+  onFastSnapshotModeChange?: (mode?: 0 | 1 | 2) => void;
 }
 
 /**
@@ -256,6 +258,8 @@ export const FastSnapshotControl: React.FC<FastSnapshotControlProps> = ({
   videoFormat,
   showStats,
   onShowStatsChange,
+  fastSnapshotMode,
+  onFastSnapshotModeChange,
 }) =>
   isRecording ? (
     <FastSnapshotPill>
@@ -294,13 +298,23 @@ export const FastSnapshotControl: React.FC<FastSnapshotControlProps> = ({
       <FastSnapshotDivider />
       <FastSnapshotToggleWrapper>
         <Toggle
-          $active={showStats}
-          onClick={() => onShowStatsChange(!showStats)}
+          $active={fastSnapshotMode === undefined ? showStats : fastSnapshotMode > 0}
+          state={fastSnapshotMode}
+          variant={fastSnapshotMode === undefined ? "default" : "three-state"}
+          onClick={(selectedMode) =>
+            fastSnapshotMode !== undefined && onFastSnapshotModeChange
+              ? onFastSnapshotModeChange(
+                  selectedMode === undefined
+                    ? undefined
+                    : (selectedMode as 0 | 1 | 2),
+                )
+              : onShowStatsChange(!showStats)
+          }
           title="Toggle including stats in snapshot/video"
           disabled={disabled}
           inactiveLabel="Stats"
           activeLabel="Stats"
-          showInnerLabel={true}
+          showInnerLabel={fastSnapshotMode === undefined}
           labelPosition="left"
         />
       </FastSnapshotToggleWrapper>

@@ -33,6 +33,7 @@ export type SDRSettings = {
   fftSize?: number;
   fftWindow?: string;
   frameRate?: number;
+  maxFrameRate?: number;
   sampleRate?: number;
   gain?: number;
   hackrfLnaGain?: number;

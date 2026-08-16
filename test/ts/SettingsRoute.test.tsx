@@ -61,6 +61,29 @@ describe("SettingsRoute", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows YAML and editable frontend maximum frame-rate defaults", () => {
+    renderRoute({
+      websocket: {
+        activeSourceId: null,
+        sources: [],
+        signalsDefaults: {
+          sample_rate: 3_200_000,
+          center_frequency: 1_600_000,
+          gain: { tuner_gain: 46.9, rtl_agc: false, tuner_agc: false },
+          ppm: 1,
+          fft: { default_size: 2048, max_frame_rate: 120 },
+          display: { min_db: -120, max_db: 0, padding: 20 },
+          devices: {},
+        },
+      },
+    });
+
+    expect(screen.getByText("120 fps")).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: "Frontend maximum frame rate" }),
+    ).toHaveValue(120);
+  });
+
   it("shows the login bypass toggle and persists the preference", async () => {
     const user = userEvent.setup();
     renderRoute();
@@ -228,6 +251,23 @@ describe("SettingsRoute", () => {
     expect(
       screen.getByRole("spinbutton", { name: /Gain/i }),
     ).toBeInTheDocument();
+  });
+
+  it("uses the frontend default ceiling when signals defaults are unavailable", () => {
+    renderRoute({
+      spectrum: {
+        sampleRateHz: 20_000_000,
+        fftSize: 2048,
+        fftFrameRate: 120,
+      },
+      websocket: { activeSourceId: null, sources: [], signalsDefaults: null },
+    });
+
+    const frameRate = screen.getByRole("spinbutton", {
+      name: /Frame Rate \(logical\)/i,
+    });
+    expect(frameRate).toHaveAttribute("max", "120");
+    expect(screen.getByText("Max 120 fps")).toBeInTheDocument();
   });
 
   it("uses the active device's sample rate options with the frequency formatter", () => {

@@ -249,6 +249,7 @@ export function useSpectrumRenderer() {
   } = useOverlayRenderer();
 
   const lastMarkersOverlaySignatureRef = useRef<string | null>(null);
+  const lastGridOverlaySignatureRef = useRef<string | null>(null);
 
   const drawSpectrum = useCallback(
     (options: SpectrumRendererOptions) => {
@@ -326,24 +327,47 @@ export function useSpectrumRenderer() {
         const height = canvas.clientHeight || 1;
 
         // Update static grid/hardware-sample-rate labels only when inputs change.
-        if (gridOverlayRenderer && overlayDirty?.grid) {
-          const ctx = gridOverlayRenderer.beginDraw(width, height, dpr);
-          drawGridOnContext(
-            ctx,
+        if (gridOverlayRenderer) {
+          const gridOverlaySignature = [
             width,
             height,
-            frequencyRange,
+            dpr,
+            frequencyRange.min,
+            frequencyRange.max,
             fftMin,
             fftMax,
             powerScale,
-            hardwareSampleRateHz,
-            fullCaptureRange,
-            isIqRecordingActive,
+            hardwareSampleRateHz ?? "",
+            fullCaptureRange?.min ?? "",
+            fullCaptureRange?.max ?? "",
+            isIqRecordingActive ? "recording" : "idle",
             reservedBottomPx,
             overlayOpacity,
-          );
-          gridOverlayRenderer.endDraw();
-          if (overlayDirty) overlayDirty.grid = false;
+            mirrorEnabled ? "mirror" : "direct",
+          ].join("|");
+          const gridOverlayInputsChanged =
+            gridOverlaySignature !== lastGridOverlaySignatureRef.current;
+          if (overlayDirty?.grid || gridOverlayInputsChanged) {
+            const ctx = gridOverlayRenderer.beginDraw(width, height, dpr);
+            drawGridOnContext(
+              ctx,
+              width,
+              height,
+              frequencyRange,
+              fftMin,
+              fftMax,
+              powerScale,
+              hardwareSampleRateHz,
+              fullCaptureRange,
+              isIqRecordingActive,
+              reservedBottomPx,
+              overlayOpacity,
+              mirrorEnabled,
+            );
+            gridOverlayRenderer.endDraw();
+            if (overlayDirty) overlayDirty.grid = false;
+            lastGridOverlaySignatureRef.current = gridOverlaySignature;
+          }
         }
 
         // Update center markers and hotspot labels
@@ -493,6 +517,7 @@ export function useSpectrumRenderer() {
     cleanupGPU();
     cleanup3D();
     lastMarkersOverlaySignatureRef.current = null;
+    lastGridOverlaySignatureRef.current = null;
   }, [cleanupGPU, cleanup3D]);
 
   return {

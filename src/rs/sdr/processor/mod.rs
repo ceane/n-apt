@@ -285,6 +285,7 @@ pub struct SdrProcessor {
   pub display_max_db: i32,
   /// Validated frame rate for display
   pub display_frame_rate: u32,
+  pub max_frame_rate: u32,
   /// Whether training capture is active
   pub training_active: bool,
   /// Current training label
@@ -445,6 +446,7 @@ impl SdrProcessor {
       display_min_db: min_db,
       display_max_db: max_db,
       display_frame_rate: default_frame_rate,
+      max_frame_rate: sdr_settings.fft.max_frame_rate,
       training_active: false,
       training_label: None,
       training_signal_area: None,
@@ -1070,6 +1072,10 @@ impl SdrProcessor {
     let fft_size = settings.fft_size;
     let fft_window = settings.fft_window;
     let frame_rate = settings.frame_rate;
+    if let Some(max_rate) = settings.max_frame_rate {
+      self.max_frame_rate = max_rate.max(1);
+      self.display_frame_rate = self.display_frame_rate.min(self.max_frame_rate);
+    }
     let sample_rate = settings.sample_rate;
     let gain = settings.gain;
     let hackrf_lna_gain = settings.hackrf_lna_gain;
@@ -1166,8 +1172,8 @@ impl SdrProcessor {
 
     // Frame rate
     if let Some(requested_rate) = frame_rate {
-      let max_rate =
-        Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate);
+      let max_rate = Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate)
+        .min(self.max_frame_rate);
       let requested_rate = if is_hackrf && requested_rate == 1 && max_rate > 1 {
         max_rate
       } else {
@@ -1304,9 +1310,7 @@ impl SdrProcessor {
     if fft_size == 0 {
       return crate::server::types::MAX_LOGICAL_FRAME_RATE;
     }
-    (((sample_rate as f64) / (fft_size as f64)).floor() as u32)
-      .min(crate::server::types::MAX_LOGICAL_FRAME_RATE)
-      .max(1)
+    (((sample_rate as f64) / (fft_size as f64)).floor() as u32).max(1)
   }
 
   fn post_retune_discard_frame_count(&self) -> usize {

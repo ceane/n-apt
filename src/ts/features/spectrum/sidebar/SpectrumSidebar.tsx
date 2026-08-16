@@ -83,6 +83,7 @@ import {
 } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
+import { reverseGeocodeSnapshotLocation } from "@n-apt/capture";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { useSpectrumTransport } from "@n-apt/spectrum/hooks/useSpectrumTransport";
 import { LIVE_CONTROL_DEFAULTS } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -1447,6 +1448,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   >(null);
   const [snapshotGeolocationPosition, setSnapshotGeolocationPosition] =
     useState<{ lat: string; lon: string } | null>(null);
+  const [snapshotLocationLabel, setSnapshotLocationLabel] = useState<string | null>(null);
   const supportedSnapshotVideoFormat = useMemo(
     () => getSupportedSnapshotVideoFormat(),
     [],
@@ -2548,6 +2550,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           showStats: snapshotShowStats,
           showGeolocation: snapshotShowGeolocation && snapshotShowStats,
           geolocation: snapshotGeolocationPosition,
+          locationLabel: snapshotLocationLabel,
           activeSignalAreaBounds,
           gain,
           ppm,
@@ -2587,6 +2590,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           lat: pos.coords.latitude.toFixed(6),
           lon: pos.coords.longitude.toFixed(6),
         });
+        void reverseGeocodeSnapshotLocation(
+          pos.coords.latitude.toFixed(6),
+          pos.coords.longitude.toFixed(6),
+        )
+          .then(setSnapshotLocationLabel)
+          .catch(() => setSnapshotLocationLabel(null));
         setSnapshotGeolocationError(null);
       },
       (err) => {
@@ -2605,6 +2614,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         setSnapshotGeolocationError(msg);
         setSnapshotShowGeolocation(false);
         setSnapshotGeolocationPosition(null);
+        setSnapshotLocationLabel(null);
       },
       { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
     );

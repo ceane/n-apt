@@ -159,6 +159,8 @@ export const sendFrequencyRange = createAsyncThunk(
 
 export interface RequestNextLiveFrameOptions {
   sourceId?: string | null;
+  /** The viewport to apply before asking a paused source for its one frame. */
+  frequencyRange?: FrequencyRange | null;
   txSettings?: {
     centerFrequencyHz?: number | null;
     viewCenterHz?: number | null;
@@ -249,6 +251,12 @@ export const requestNextPausedFrame = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      if (options?.frequencyRange) {
+        // A paused source only publishes the frame explicitly requested below.
+        // Send the viewport first so that frame is rendered for the new VFO
+        // position rather than the range from the previous paused frame.
+        await dispatch(sendFrequencyRange(options.frequencyRange) as any);
+      }
       // Standby previews are one-shot. Do not open a continuous managed Tx
       // stream; that would look like automatic transmission.
       dispatch({
@@ -343,6 +351,9 @@ export const sendSettings = createAsyncThunk(
 
     if (isValidPositiveInt(settings.frameRate)) {
       sanitized.frameRate = Math.floor(settings.frameRate!);
+    }
+    if (isValidPositiveInt(settings.maxFrameRate)) {
+      sanitized.maxFrameRate = Math.floor(settings.maxFrameRate!);
     }
 
     if (isValidPositiveInt(settings.sampleRate)) {
