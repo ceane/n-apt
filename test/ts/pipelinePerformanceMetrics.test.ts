@@ -1,11 +1,8 @@
-import {
-  createPipelinePerformanceMetrics,
-  PRESENTATION_CEILING_WARNING,
-} from "../../src/ts/app/infrastructure/performance/pipelineMetrics";
+import * as PipelinePerformance from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 describe("browser pipeline performance metrics", () => {
   it("counts latest-frame drops and sequence gaps separately", () => {
-    const metrics = createPipelinePerformanceMetrics(false);
+    const metrics = PipelinePerformance.createPipelinePerformanceMetrics(false);
     metrics.frameAccepted(10, 8_192);
     metrics.frameAccepted(13, 8_192);
     metrics.frameDropped(2);
@@ -20,14 +17,14 @@ describe("browser pipeline performance metrics", () => {
   });
 
   it("reports presentation cadence as a screen ceiling", () => {
-    const metrics = createPipelinePerformanceMetrics(true);
+    const metrics = PipelinePerformance.createPipelinePerformanceMetrics(true);
     metrics.presentationFrame(16);
     metrics.presentationFrame(35);
 
     expect(metrics.snapshot().presentation).toMatchObject({
       frames: 2,
       refreshMisses: 1,
-      warning: PRESENTATION_CEILING_WARNING,
+      warning: PipelinePerformance.PRESENTATION_CEILING_WARNING,
     });
   });
 });
